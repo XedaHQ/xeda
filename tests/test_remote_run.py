@@ -449,7 +449,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
             design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "P3" in str(raised.value)
+    assert "upgrade the remote xeda" in str(raised.value)
     assert f"remote protocol {protocol or 0}" in str(raised.value)
     assert "remote protocol 1 or newer" in str(raised.value)
     assert not shipped
@@ -459,7 +459,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
 #: The archive accepted by a protocol-1 remote.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
-P2A_RTL_KEYS = {
+ARCHIVE_RTL_KEYS = {
     "attributes",
     "clocks",
     "defines",
@@ -469,7 +469,7 @@ P2A_RTL_KEYS = {
     "sources",
     "top",
 }
-P2A_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
+ARCHIVE_TB_KEYS = {"cocotb", "defines", "generics", "parameters", "sources", "top", "uut"}
 
 EXAMPLE_DESIGNS = sorted(
     p
@@ -481,8 +481,8 @@ EXAMPLE_DESIGNS = sorted(
 
 
 @pytest.mark.parametrize("design_file", EXAMPLE_DESIGNS, ids=lambda p: p.name)
-def test_the_design_archive_is_readable_by_a_p2a_remote(design_file, tmp_path, monkeypatch):
-    """The design archive uses the keys accepted by a P2a remote."""
+def test_the_design_archive_is_readable_at_the_protocol_floor(design_file, tmp_path, monkeypatch):
+    """The design archive uses the keys accepted by a remote at the protocol floor."""
     design = Design.from_file(design_file)
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     remote_dir = tmp_path / "remote"
@@ -493,8 +493,8 @@ def test_the_design_archive_is_readable_by_a_p2a_remote(design_file, tmp_path, m
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         shipped = json.loads(archive.read(design_name))
 
-    assert set(shipped["rtl"]) <= P2A_RTL_KEYS
-    assert set(shipped["tb"]) <= P2A_TB_KEYS
+    assert set(shipped["rtl"]) <= ARCHIVE_RTL_KEYS
+    assert set(shipped["tb"]) <= ARCHIVE_TB_KEYS
 
 
 TARGETS = TESTS_DIR / "resources" / "targets"
@@ -533,9 +533,9 @@ def test_a_remote_run_takes_a_target(tmp_path, remote_host):
         )
 
 
-#: A P2a design dependency (`GitReference`) and the keys it accepts as `null`.
-#: Unlike the old floor, P2a accepts an unset local_cache directly.
-P2A_GIT_REFERENCE_KEYS = {
+#: A design dependency at the protocol floor (`GitReference`) and the keys it accepts as `null`.
+#: It accepts an unset local_cache directly.
+ARCHIVE_GIT_REFERENCE_KEYS = {
     "uri",
     "rtl",
     "tb",
@@ -546,13 +546,15 @@ P2A_GIT_REFERENCE_KEYS = {
     "branch",
     "clone_dir",
 }
-P2A_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir", "local_cache"}
+ARCHIVE_NULLABLE_GIT_REFERENCE_KEYS = {"commit", "branch", "clone_dir", "local_cache"}
 
 
 @pytest.mark.parametrize("local_cache", [None, "deps"])
-def test_a_git_dependency_is_archived_as_a_p2a_remote_reads_it(local_cache, tmp_path, monkeypatch):
+def test_a_git_dependency_is_archived_as_the_protocol_floor_reads_it(
+    local_cache, tmp_path, monkeypatch
+):
     """A loaded design holds its dependencies' sources itself and ships no dependency; one
-    assigned afterwards is shipped for the remote to fetch, in the form P2a reads."""
+    assigned afterwards is shipped for the remote to fetch, in the form the floor reads."""
     monkeypatch.setattr(remote_module, "Connection", _LocalConnection)
     design = Design.from_file(_sqrt_design(tmp_path / "design"))
     reference = {"uri": "https://example.com/org/repo.git?branch=dev#design.yaml"}
@@ -567,8 +569,8 @@ def test_a_git_dependency_is_archived_as_a_p2a_remote_reads_it(local_cache, tmp_
     with zipfile.ZipFile(remote_dir / zip_name) as archive:
         (shipped,) = json.loads(archive.read(design_name))["dependencies"]
 
-    assert set(shipped) <= P2A_GIT_REFERENCE_KEYS
-    assert {k for k, v in shipped.items() if v is None} <= P2A_NULLABLE_GIT_REFERENCE_KEYS
+    assert set(shipped) <= ARCHIVE_GIT_REFERENCE_KEYS
+    assert {k for k, v in shipped.items() if v is None} <= ARCHIVE_NULLABLE_GIT_REFERENCE_KEYS
     assert shipped.get("local_cache") == reference.get("local_cache")
     assert shipped["repo_url"] == "https://example.com/org/repo.git"
 
@@ -626,8 +628,8 @@ def test_plain_testbench_parameters_do_not_need_a_newer_remote(tmp_path, monkeyp
         shipped = json.loads(archive.read(design_name))
 
     assert shipped["tb"]["parameters"] == {"G_N": 8}
-    assert set(shipped["rtl"]) <= P2A_RTL_KEYS
-    assert set(shipped["tb"]) <= P2A_TB_KEYS
+    assert set(shipped["rtl"]) <= ARCHIVE_RTL_KEYS
+    assert set(shipped["tb"]) <= ARCHIVE_TB_KEYS
 
 
 def test_a_remote_run_comes_back_whole_and_hashed_as_it_was_sent(tmp_path, remote_host):
@@ -825,7 +827,7 @@ def test_a_remote_listing_unwritten_artifacts_is_handled(
 
 def _remote_runner_without_wrote_output(channel, **kwargs):
     """Inject a missing write-reporting API as well as unfiltered artifacts into the worker.
-    This exercises a defensive fallback, not acceptance of a pre-P2a remote."""
+    This exercises a defensive fallback, not acceptance of a remote below the protocol floor."""
     from xeda.flow import Flow
     from xeda.flow_runner import default_runner
     from xeda.flow_runner.remote import remote_runner
@@ -981,7 +983,7 @@ def test_a_failed_remote_run_keeps_only_the_artifacts_the_remote_vouched_for(vou
 
 def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remote_host):
     """With a real simulator: the testbench opens the file its `ROM` generic names, and writes
-    to the one `TRACE` names -- a path the remote made a place for, not a file that travelled."""
+    to the one `TRACE` names -- a path the remote made a place for, not a file that traveled."""
     require_ghdl()
     design_root = tmp_path / "design"
     design_root.mkdir()
@@ -1256,8 +1258,8 @@ def test_the_remote_sends_back_results_whatever_their_keys(tmp_path, monkeypatch
     assert json.loads(written) is None  # the run succeeded
 
 
-def test_the_remote_runs_every_flow_clean_with_p2a_settings(tmp_path, monkeypatch):
-    """The P2a floor guarantees a clean run in a directory named by its settings."""
+def test_the_remote_runs_every_flow_clean_with_the_floor_s_settings(tmp_path, monkeypatch):
+    """The protocol floor guarantees a clean run in a directory named by its settings."""
     _, _, given, _ = _run_remote_runner(
         tmp_path, monkeypatch, dict(success=True), ["rebuild_all", "hashed_run_dirs", "clean"]
     )
@@ -1316,7 +1318,7 @@ def test_a_remote_run_delivers_outputs_to_but_never_onto_a_read_input(tmp_path, 
 def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(
     tmp_path, remote_host, monkeypatch
 ):
-    """gpt-6-sol's PR 2 review, finding 1, remote: outputs delivered into a directory that a later
+    """Remote: outputs delivered into a directory that a later
     run's `lib_paths` names are inputs of that run -- every file under it is -- so that run's
     `--outputs-to` there is refused before connecting, --overwrite-outputs or not, and xeda's
     earlier copies stay as they were."""
@@ -1342,7 +1344,7 @@ def test_a_remote_run_never_delivers_into_a_directory_a_setting_reads(
 def test_a_remote_run_guards_the_directories_its_flow_reads_as_the_command_line_leaves_them(
     tmp_path, remote_host, monkeypatch
 ):
-    """gpt-6-sol's re-check: the requested flow's own `[flows.<flow>]` section is registered as
+    """The requested flow's own `[flows.<flow>]` section is registered as
     the launch uses it, the command line's settings over it -- `lib_paths` given on the command
     line replaces the section's, so the section's directory is no input and `--outputs-to` may
     deliver there -- while a destination inside the directory the run does read is refused."""
@@ -1660,7 +1662,8 @@ def test_a_remote_run_takes_dash_s_flows_node_key_as_a_local_run_does(tmp_path, 
 
 
 def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
-    """A P2a remote reloads every new type, including Data on unknown and HDL suffixes."""
+    """A remote at the protocol floor reloads every new type, including Data on unknown and HDL
+    suffixes."""
     root = tmp_path / "d"
     root.mkdir()
     members = list(SourceType)
@@ -1809,7 +1812,7 @@ def test_remote_input_bindings_are_refused_before_connecting(
 
 
 def test_a_saved_binding_the_remote_request_does_not_reach_is_no_refusal(tmp_path, monkeypatch):
-    """M2: as `dse` does, `--remote` refuses a binding its request reaches, not a design that
+    """As `dse` does, `--remote` refuses a binding its request reaches, not a design that
     merely saves one for another flow."""
     from .io_flows import _Maker, _Taker
 
@@ -1829,7 +1832,7 @@ def test_a_saved_binding_the_remote_request_does_not_reach_is_no_refusal(tmp_pat
 
 
 def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, monkeypatch):
-    """I3: two configurations of a producer are two mirrors of the consumer, each named by
+    """Two configurations of a producer are two mirrors of the consumer, each named by
     the requested node's identity in the plan, which is what the remote's `flow_hash` is."""
     from .io_flows import _Taker
 
@@ -1862,7 +1865,7 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
     tmp_path, remote_host, monkeypatch, flow_name
 ):
     """Declared hand-over survives archive relocation and the remote identity check."""
-    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+    from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
     root = tmp_path / "design"
     root.mkdir()
@@ -1884,7 +1887,7 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
         assert not any(key.startswith("sim.") for key in results)
 
 
-# ------------------------------------------- O-RI1 (b): a bundled platform on another install
+# ------------------------------------------- a bundled platform on another install
 
 
 def _remote_runner_installed_elsewhere(channel, **kwargs):
@@ -1922,7 +1925,7 @@ def _remote_runner_installed_elsewhere(channel, **kwargs):
 def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     tmp_path, remote_host, monkeypatch, remote, flow_name
 ):
-    """O-RI1 (b), PCD23: yosys and declared openroad with a bundled platform are accepted by a remote whose
+    """`yosys` and declared openroad with a bundled platform are accepted by a remote whose
     xeda is installed under another prefix, as every remote on another machine is: the remote's
     `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
     even from the same installation: the platform's per-corner liberty files reached the remote

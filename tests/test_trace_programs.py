@@ -1,5 +1,5 @@
 """A trace names every program a run started: where PATH finds it, and the file there
-(`digest.record_file`, under the R38 trust rule); a container image by its ID."""
+(`digest.record_file`, under the trust rule); a container image by its ID."""
 
 import os
 import subprocess
@@ -86,7 +86,7 @@ class _RunsTool(Flow):
 def test_a_program_edited_with_its_size_and_mtime_put_back_makes_the_run_stale(
     tmp_path, monkeypatch
 ):
-    """R50 e: a program is recorded as a file, under the R38 rule, not by size and mtime."""
+    """A program is recorded as a file, under the trust rule, not by size and mtime."""
     program = tmp_path / "bin" / "probe-tool"
     program.parent.mkdir()
     program.write_text("#!/bin/sh\necho one\n")

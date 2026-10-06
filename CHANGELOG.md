@@ -97,9 +97,9 @@ All notable changes to this project will be documented in this file.
   never settled, so it could never vouch by metadata. A check that does have to read a destination
   now reads the clock of that destination's own file system first
   (`digest.filesystem_time_ns`) and anchors the record it then took to that time, so a later check
-  recognizes an unchanged file by its size, mtime, inode change time and inode -- the same R38
-  trust rule every other file Xeda tracks follows -- and reads nothing. In steady state an
-  unchanged re-delivery reads the output in the run directory once, to note its digest, and the
+  recognizes an unchanged file by its size, mtime, inode change time and inode -- the same trust
+  rule every other file Xeda tracks follows -- and reads nothing. In steady state an unchanged
+  re-delivery reads the output in the run directory once, to note its digest, and the
   destination not at all; it used to read the destination twice besides. The destination is read
   once, by the first check after it has settled (more than two seconds, `digest.RACY_NS`, after its
   last change), and that read anchors its record; a launch still inside that window anchors
@@ -447,7 +447,7 @@ All notable changes to this project will be documented in this file.
 - A container mounts the design root and the RTL/testbench source directories read-only; the run
   directory a flow's own tools write in, and a `Docker.mounts` entry you configure yourself, are
   writable. (A dependency's outputs are not yet mounted at all for a dockerized flow that needs
-  them; that is plan 2a's `docker_mounts`.)
+  them; that is the planned `docker_mounts`.)
 - **A design's name must be a name** (`[A-Za-z][A-Za-z0-9_-]*`): it becomes a path component under
   the run root, so `..` or a `/` in it could otherwise point outside.
 - A run directory that is itself a symbolic link is used when it resolves inside the run root
@@ -491,7 +491,7 @@ All notable changes to this project will be documented in this file.
 - The per-flow `clean` setting and verilator's `clean_before_run` (use the `--clean` CLI option).
   GHDL's `clean` is renamed `clean_before_analyze` (whether `ghdl remove` runs before analysis),
   unrelated to the run-directory `--clean`.
-- **`--cwd`** (a flow's run directory was never anything but a directory xeda chose, D21):
+- **`--cwd`** (a flow's run directory was never anything but a directory xeda chose):
   `` `--cwd` was removed: use --outputs-to . to receive the outputs here; the run itself goes
   under the run root (./xeda_run)``. With it go the launcher setting and the `launch_flow`/
   `run_flow` parameter `run_path` (`` `run_path` was removed: use run_root to choose where runs

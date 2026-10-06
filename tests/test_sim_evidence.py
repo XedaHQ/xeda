@@ -1,9 +1,9 @@
-"""A simulation passes only on evidence that it ended as intended (the M1 class).
+"""A simulation passes only on evidence that it ended as intended.
 
 Oracle: every registered simulator flow reports evidence, and a run without evidence fails.
 Every supported bsc backend participates, including fake Icarus runtime coverage; real Icarus
 builtin-task capability verification remains a separate mandatory Linux CI gate.
-PCD6 removes power from this sweep: it reports power and relies on its declared activity
+Power is not in this sweep: it reports power and relies on its declared activity
 producer to pass the simulation evidence rule before hand-over.
 """
 
@@ -64,7 +64,7 @@ class _Stub:
     ("evidence", "stop_time", "passes"),
     [
         (SimEvidence(ended_by="finish", time=34), None, True),
-        (SimEvidence(ended_by="finish", time=0), None, True),  # Q16: an explicit $finish, any time
+        (SimEvidence(ended_by="finish", time=0), None, True),  # an explicit $finish, any time
         (SimEvidence(ended_by="drained", time=0), None, False),
         (SimEvidence(ended_by="drained", time=20), "15ns", False),  # a stop that was not reached
         (SimEvidence(ended_by="stop_time", time=15000, time_unit="1ps"), "15ns", True),
@@ -72,7 +72,7 @@ class _Stub:
             SimEvidence(ended_by="stop_time", time=12000, time_unit="1ps"),
             "15ns",
             False,
-        ),  # R6: not the stop asked for
+        ),  # not the stop asked for
         (
             SimEvidence(ended_by="stop_time", time=15, time_unit="1ns"),
             None,
@@ -107,7 +107,7 @@ def test_fail_severity_decides_from_the_recorded_events(severity, kinds, passes)
 
 
 def test_a_requested_max_cycles_stop_counts():
-    """R12: P1b's Bluesim adapter reports `max_cycles`; accepted only when it was asked for."""
+    """The Bluesim adapter reports `max_cycles`; accepted only when it was asked for."""
     stub = _Stub()
     stub.settings.max_cycles = 100
     assert (

@@ -582,7 +582,7 @@ def test_list_flows_json_shows_an_action_and_an_undeclared_flow_by_their_boundar
     bsc = flows["bsc"]
     assert bsc["declared"] is False
     assert bsc["can_follow"] == bsc["can_precede"] == [] and bsc["action_reason"] is None
-    # only declared flows take part: nothing here needs a design value (P4) or an artifact
+    # only declared flows take part: nothing here needs a design value or an artifact
     for flow in flows.values():
         for edge in flow["can_follow"] + flow["can_precede"]:
             assert flows[edge["flow"]]["declared"]

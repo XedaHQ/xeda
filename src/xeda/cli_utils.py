@@ -67,10 +67,9 @@ __all__ = [
 OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
 DOCUMENT_FORMATS = ("json", "yaml")
 
-#: Help-screen palette. `click_help_colors` knew exactly two slots -- header and option color --
-#: which xeda set to yellow and green to match the rich tables. click-extra themes every element
-#: of the screen, so those two slots are carried over and the rest of the built-in theme
-#: (metavars, choices, envvars, defaults, ...) is inherited unchanged.
+#: Help-screen palette: yellow headings and green options, to match the rich tables. click-extra
+#: themes every element of the screen, so the rest of the built-in theme (metavars, choices,
+#: envvars, defaults, ...) is inherited unchanged.
 XEDA_HELP_THEME: HelpTheme = get_default_theme().with_(
     heading=HelpStyle(fg="yellow", bold=True),
     option=HelpStyle(fg="green", bold=True),

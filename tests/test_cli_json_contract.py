@@ -226,7 +226,7 @@ cli(["run", "vivado_synth", %r, "--remote", "host", "--json"], standalone_mode=T
 
 @pytest.mark.parametrize("remote_success,expected_exit", [(True, 0), (False, 1)])
 def test_remote_status_comes_from_the_remote_results(remote_success, expected_exit, tmp_path):
-    """A failed remote flow used to be reported as a successful run."""
+    """A failed remote flow is reported as a failed run, with the remote's own status."""
     proc = subprocess.run(
         [sys.executable, "-c", REMOTE_SCRIPT % (remote_success, str(SQRT))],
         cwd=str(tmp_path),

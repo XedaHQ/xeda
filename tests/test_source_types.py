@@ -1,4 +1,4 @@
-"""Every design source has a type (ST1-ST6): inferred from its suffix by one table, or given.
+"""Every design source has a type: inferred from its suffix by one table, or given.
 
 A suffix xeda cannot type -- unknown, ambiguous, or in another letter case -- is a load error
 asking for `type`, never an untyped source that a template crashes on (`src.type.name` on None)

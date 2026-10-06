@@ -485,7 +485,7 @@ EVIL_FRAGMENTS = ("xeda_injected", "xeda_undefined", "{b}", ";c")
 def _evil_design(root: Path) -> Design:
     """A design whose tops, clock port, testbench instance, parameter and define values all
     carry `EVIL`. Its name is a plain one: a name is restricted by `Design` validation (see
-    `test_a_design_name_never_runs_as_tcl`), so it cannot carry any."""
+    `test_a_design_name_with_tcl_metacharacters_is_rejected`), so it cannot carry any."""
     root.mkdir(parents=True)
     (root / "top.vhd").write_text("-- a source\n")
     (root / "tb.vhd").write_text("-- a testbench\n")
@@ -581,7 +581,7 @@ def test_every_design_text_reaches_the_tool_as_a_literal_word(flow, tmp_path, mo
     ],
 )
 def test_a_design_name_with_tcl_metacharacters_is_rejected(name, tmp_path):
-    """The reviewer's reproduction: a design name holding a Tcl command substitution that deletes
+    """A design name holding a Tcl command substitution that deletes
     a file of the user's outside the run directory. A name is restricted to
     `[A-Za-z][A-Za-z0-9_-]*` when the design is loaded, so it is rejected before anything runs
     -- and no tool script ever holds one."""

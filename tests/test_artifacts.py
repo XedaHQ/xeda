@@ -334,7 +334,7 @@ def test_an_untouched_artifact_at_the_run_starts_own_tick_is_not_written(tmp_pat
 def test_a_successful_vivado_synth_overwrites_an_earlier_bitstream_with_an_early_mtime(
     tmp_path, monkeypatch
 ):
-    """(c) sol/luna's scenario: the run directory already holds a bitstream with an old
+    """The run directory already holds a bitstream with an old
     timestamp -- as if its file system's clock were behind, or an earlier run left it there.
     Once Vivado's `write_bitstream` step genuinely overwrites it, the check at the end of `run()`
     compares identity and metadata, never a clock, so a successful build never raises
@@ -392,7 +392,7 @@ def test_a_directly_constructed_flow_does_not_reintroduce_the_stale_artifact_bug
 
 
 def test_a_directly_constructed_flow_with_a_relative_run_path_is_still_sound(tmp_path, monkeypatch):
-    """The same invariant, but with a *relative* `run_path` (luna's finding): `Flow.__init__`
+    """The same invariant, but with a *relative* `run_path`: `Flow.__init__`
     must snapshot and `wrote_output` must look paths up under the *same* normalized (absolute)
     form of the run directory, or an untouched earlier artifact is missed at snapshot time --
     recorded under a relative key -- and then reported as written, because looking it up later
@@ -601,7 +601,7 @@ def _lagging(st: os.stat_result) -> os.stat_result:
 def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_clock_is_behind(
     tmp_path, monkeypatch
 ):
-    """sol/luna's scenario itself: the file system holding the bitstream runs an hour behind
+    """The file system holding the bitstream runs an hour behind
     the launcher's clock -- every time read there (mtime and ctime alike, which no `os.utime`
     can set) is an hour earlier. A run that compared those times with a start time read from
     another clock judged the bitstream Vivado had just written to be from before the run, and

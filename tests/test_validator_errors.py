@@ -25,7 +25,7 @@ BAD_VALUES = [123, 4.5, True, object()]
 
 @pytest.mark.parametrize("bad", BAD_VALUES, ids=lambda v: type(v).__name__)
 def test_scalar_sources_is_a_validation_error(bad):
-    """`rtl.sources = 123` used to escape as `TypeError: 'int' object is not iterable`."""
+    """`rtl.sources = 123` is a validation error, not `TypeError: 'int' object is not iterable`."""
     with pytest.raises(DesignValidationError):
         Design(name="d", rtl={"sources": bad, "top": "t"})
 
@@ -44,7 +44,7 @@ def test_scalar_sources_message_names_the_field_and_the_type():
     ids=repr,
 )
 def test_non_numeric_clock_is_a_validation_error(bad):
-    """`PhysicalClock(freq=[])` used to escape as a raw `TypeError` from `float()`."""
+    """`PhysicalClock(freq=[])` is a validation error, not a raw `TypeError` from `float()`."""
     with pytest.raises((ValueError, FlowSettingsError)):
         PhysicalClock(freq=bad)
 

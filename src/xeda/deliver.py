@@ -1,11 +1,11 @@
-"""Outputs delivered where the user named them (D21).
+"""Outputs delivered where the user named them.
 
 A flow's tools write only in its run directory. An output the user names by a location -- a
 deliverable setting (`xeda.dataclass.deliverable`) whose value is absolute once `$PWD` and
 `$DESIGN_ROOT` are expanded, or `--outputs-to DIR` for the requested flow's artifacts -- is
 **delivered**: copied there, under the name the user chose, once the launch has finished, for a
 flow that succeeded or was found up to date. The setting itself then names the file in the run directory by its fixed conventional
-name (`split_deliveries`: plan 2's `outputs/<design>.<ext>`, or the setting's default name), and
+name (`split_deliveries`: `outputs/<design>.<ext>`, or the setting's default name), and
 the run's identity sees only that name (`flow.identity_settings`): where an output goes, and what
 it is called there, never changes what the tools do or what the run is.
 
@@ -17,7 +17,7 @@ destination's directory, renamed into place). An existing file is replaced only 
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
-the flow runs (`Deliveries.check`). A record is checked by the R38 rule like any other
+the flow runs (`Deliveries.check`). A record is checked by the trust rule like any other
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
 for it, and the check that reads it anchors the record it takes to the clock of the destination's
 own file system, read just before (`_destination_clock`), so the next check of an unchanged
@@ -151,7 +151,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
         path = Path(leaf)
         if path.is_absolute():
             conventional = output_name(written, design)
-            assert conventional is not None, key  # every deliverable has one (Task 3's oracle)
+            assert conventional is not None, key  # every deliverable has one
             name = conventional
         else:
             name = PurePath(path)
@@ -269,7 +269,7 @@ def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
 
 
 class ReadInputs:
-    """Every file the flows of a launch read (gpt-6-sol's final (c)): the design's files, the design
+    """Every file the flows of a launch read: the design's files, the design
     and project file the launch was given, the file each read setting of any of its flows names
     -- a dependency's settings nested in its depender's included -- and every entry under a
     directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
@@ -522,7 +522,7 @@ class Deliveries:
         that second record is conclusive by its metadata alone (None: nothing anchors it).
 
         The file's content is read only when the recorded metadata cannot vouch for it
-        (`FileRecord.trusted`, the R38 rule), and the clock of its own file system is read just
+        (`FileRecord.trusted`), and the clock of its own file system is read just
         **before** it is (`record_file`'s `before_reading`, as `trace.check_trace` reads a run
         directory's). A record of content read after that time `T`, whose metadata says the file
         last changed more than `RACY_NS` before `T`, is conclusive from `T` on: a change after it
@@ -573,9 +573,9 @@ class Deliveries:
     def _why_not_ours(self, destination: Path) -> Optional[str]:
         """Why replacing what is at `destination` needs a yes; None if nothing is there, it is a
         directory (a directory output's: its files are checked one by one), or it is xeda's own
-        earlier delivery from this run directory, unchanged: its `FileRecord` under the R38 rule
+        earlier delivery from this run directory, unchanged: its `FileRecord`
         (`_destination_record`), the same inode and the same content. The inode and the content
-        decide, not the timestamps (gpt-6-sol's final (b), not taken): a file of that inode
+        decide, not the timestamps: a file of that inode
         holding exactly the bytes xeda delivered is xeda's copy whatever touched it -- rewritten
         with the same bytes, or `touch`ed -- and replacing it cannot lose anything of the user's;
         the timestamps only decide whether the content must be read. Another inode (a file put in
@@ -838,7 +838,7 @@ class Deliveries:
         """Record the file just delivered as xeda's: a `digest.FileRecord` (size, mtime, inode
         change time, inode, digest) with `recorded_ns`, the file's own change time, before which
         it is never settled -- so a record with nothing else to it never vouches by metadata
-        alone (R38) and a later check reads the content, a file of another inode being another
+        alone and a later check reads the content, a file of another inode being another
         file: failing closed.
 
         `anchored_at` is what a check of this very content established (`_destination_record`):

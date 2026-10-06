@@ -281,7 +281,7 @@ class Dse(FlowLauncher):
 
         optimizer.max_failed_iters = self.settings.max_failed_iters
 
-        # consecutive "unsuccessfull" iterations where in all runs success == False
+        # consecutive "unsuccessful" iterations where in all runs success == False
         consecutive_failed_iters = 0
         num_iterations = 0
         future = None
@@ -359,7 +359,7 @@ class Dse(FlowLauncher):
         # successful run".
         flow_class.check_required_settings(base_settings)
         flow_class.check_design_supported(design)
-        # D21: many variants would deliver to one path, so an exploration delivers nothing
+        # many variants would deliver to one path, so an exploration delivers nothing
         located = deliverable_locations(base_settings)
         if located or self.settings.outputs_to is not None:
             reason = "an exploration runs many variants, so nothing is delivered"
@@ -465,7 +465,7 @@ class Dse(FlowLauncher):
 
                     if consecutive_failed_iters > self.settings.max_failed_iters:
                         log.info(
-                            "Stopping after %d unsuccessfull iterations.",
+                            "Stopping after %d unsuccessful iterations.",
                             consecutive_failed_iters,
                         )
                         break
@@ -474,7 +474,7 @@ class Dse(FlowLauncher):
                         and consecutive_failed_iters > self.settings.max_failed_iters_with_best
                     ):
                         log.info(
-                            "Stopping after %d unsuccessfull iterations (max_failed_iters_with_best=%d)",
+                            "Stopping after %d unsuccessful iterations (max_failed_iters_with_best=%d)",
                             consecutive_failed_iters,
                             self.settings.max_failed_iters_with_best,
                         )

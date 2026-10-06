@@ -463,7 +463,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
                 "declared_by": declared_by,
-                # "working" or "deliverable": a path the flow writes (D21); None: it is read
+                # "working" or "deliverable": a path the flow writes; None: it is read
                 "writes": written_role(cls.Settings, name),
                 "json_schema": json_safe(prop),
             }

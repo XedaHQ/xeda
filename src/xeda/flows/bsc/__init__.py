@@ -237,7 +237,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     #: With the Verilog backend, `_path_flags` puts the testbench's Verilog directories on
     #: `-vsearch`, so `bsc`, a compilation, reads `tb` as `bsc_sim` does; the Bluesim backend reads
-    #: no Verilog, and `tb` stays declared there as a safe over-approximation (PCD3)
+    #: no Verilog, and `tb` stays declared there as a safe over-approximation
     design_parts = frozenset({"rtl", "tb"})
 
     class Settings(Flow.Settings):
@@ -1547,7 +1547,7 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _run_vcs(self, simulation: Tool, sim_args: list[str]) -> None:
-        """Run the linked bsc VCS executable under Task 7's owned UCLI adapter."""
+        """Run the linked bsc VCS executable under xeda's own UCLI adapter."""
         from ..vcs_evidence import RUNTIME_LOG, prepare_vcs_runtime
 
         ss = self.settings

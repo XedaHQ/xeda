@@ -2,7 +2,7 @@
 (`Flow.reads_sources`), and only those: a source of another type is passed over -- a `.lpf` in a
 design built by Vivado -- or, when it is a language the flow cannot read, refused by name at
 launch. No source becomes a tool command by its type's name (Quartus's `XDC_FILE`,
-`MEMORYFILE_FILE`: ST4), and no source crashes a template (ST3): the sweep runs every such flow's
+`MEMORYFILE_FILE`), and no source crashes a template: the sweep runs every such flow's
 scripts under the fake tools with one source of every type."""
 
 import re

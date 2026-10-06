@@ -1,4 +1,4 @@
-"""The names of the run-location and rebuild options (D22), and the messages for the removed ones.
+"""The names of the run-location and rebuild options, and the messages for the removed ones.
 
 An option takes a value only when the value is data; a behavior switch is a flag. The run root is
 the directory holding every run, a run directory one flow's.
@@ -140,7 +140,6 @@ def test_an_exploration_has_one_default_run_root(start):
 #: `xeda run` options configuring the launcher under another name than a setting of theirs
 LAUNCHER_NAME_EXCEPTIONS = {
     "--scrub": {"scrub_old_runs"},
-    # removed by plan 1b's Task 5
     "--cwd": {"run_path", "dump_settings_json"},
 }
 #: options with which `xeda run` launches nothing locally

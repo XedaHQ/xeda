@@ -9,7 +9,7 @@ launch runs again. Files known only after the run (what a depfile names for the 
 a flow reads on its own, the programs it started) are recorded afterwards; one written while the
 run was going on is recorded as unknown (`digest.unknown_record`), which never matches.
 
-**Whose a file is.** Every run directory is xeda's (D21): a file inside the run's own directory
+**Whose a file is.** Every run directory is xeda's: a file inside the run's own directory
 is the run's; anywhere else, a file the run's settings, depfiles or design name stays an input,
 recorded as unknown if it changed during the run, so the next launch runs again.
 
@@ -525,7 +525,7 @@ def candidate_inputs(
     excepted."""
     bookkeeping = bookkeeping_files(flow.run_path)
     files = {
-        # the parts of the design this flow reads, not the whole design (PCD2)
+        # the parts of the design this flow reads, not the whole design
         *design_files(design, type(flow).design_parts),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
@@ -685,7 +685,7 @@ def changed_since(path: Path, before: FileRecord) -> bool:
 def run_reports(flow: Flow) -> List[str]:
     """The reports `flow`'s run read (`Flow.reports_read`) that lie inside its run directory,
     relative to it, in POSIX form, sorted: what the launcher removes before the next run
-    executes (R50 j). One named through a link out of the directory is none of them."""
+    executes. One named through a link out of the directory is none of them."""
     run_directory = flow.run_directory
     found = set()
     for path in flow.reports_read:

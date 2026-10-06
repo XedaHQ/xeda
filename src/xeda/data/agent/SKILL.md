@@ -46,7 +46,7 @@ xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
 `xeda design-schema` is the authoritative JSON Schema. The shape:
 
 ```yaml
-name: sqrt # required; names the run directory
+name: sqrt # optional (defaults to the file's stem); names the run directory
 description: ...
 language:
   vhdl:

@@ -286,7 +286,7 @@ def test_a_file_that_appeared_in_a_managed_run_directory_is_a_change(recorded):
     (run_dir / "sub").mkdir()
     (run_dir / "sub" / "later.txt").write_text("mine\n")
     reason = _check(run_dir, expected).reason
-    # the directory is an entry of its own (R50 h), listed before what it holds
+    # the directory is an entry of its own, listed before what it holds
     assert reason == f"new file in the run directory: {(run_dir / 'sub').resolve()}"
 
 
@@ -306,7 +306,7 @@ def _record_program(run_dir: Path, name: str, program: ProgramRecord) -> None:
 
 
 def test_a_program_is_checked_as_a_file_under_the_trust_rule(recorded, tmp_path):
-    """R50 e: a program is its location and its file's record -- an edit given back its size
+    """A program is its location and its file's record -- an edit given back its size
     and mtime is a change (its inode change time moved, so its content is read); a `touch` is
     not."""
     run_dir, _, _, expected = recorded
@@ -370,7 +370,7 @@ def test_a_trace_of_another_format_is_recorded_by_another_xeda(recorded):
     (run_dir / "trace.json").write_text(json.dumps({**trace, "format": TRACE_FORMAT + 1}))
     assert _check(run_dir, expected).reason == "recorded by another xeda"
     old = {k: v for k, v in trace.items() if k not in ("xeda_code", "inputs_recorded_ns")}
-    (run_dir / "trace.json").write_text(json.dumps({**old, "format": 1}))  # plan 1's first
+    (run_dir / "trace.json").write_text(json.dumps({**old, "format": 1}))  # the first trace format
     assert _check(run_dir, expected).reason == "recorded by another xeda"
 
 

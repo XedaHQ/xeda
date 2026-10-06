@@ -44,7 +44,7 @@ NAME_AS_SYNTAX = re.compile(r"\.type(?:\.name)?\s*\|\s*(?:upper|lower|capitalize
 
 def test_no_template_turns_a_source_type_s_name_into_tool_syntax() -> None:
     """Quartus wrote `{{src.type.name|upper}}_FILE`: `XDC_FILE` and `MEMORYFILE_FILE` are no
-    assignments Quartus has (ST4). A template names each type's command explicitly."""
+    assignments Quartus has. A template names each type's command explicitly."""
     found = [
         f"{path.relative_to(SRC)}:{n}"
         for path in sorted(SRC.rglob("*"))

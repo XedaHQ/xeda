@@ -1,5 +1,5 @@
 """The one checked deletion (`RunDirectory`): inside a run directory xeda chose, anything; in the
-directory of a flow built without a launcher, nothing (D21). Everything runs in scratch copies
+directory of a flow built without a launcher, nothing. Everything runs in scratch copies
 under `tmp_path`."""
 
 import json
@@ -163,7 +163,7 @@ def test_every_launched_run_directory_is_xedas(tmp_path, monkeypatch):
     assert flow.run_directory.run_root == (tmp_path / "xeda_run").resolve()
 
 
-# --- D21: every run directory lies inside its run root -----------------------------------------
+# --- Every run directory lies inside its run root -----------------------------------------
 
 
 @pytest.mark.parametrize("name", ["..", ".", "a b", "a/b", "1abc", "", "café"])
@@ -175,7 +175,7 @@ def test_a_design_name_that_names_no_directory_is_refused(tmp_path, name):
 
 
 def test_a_design_named_dot_dot_deletes_nothing_beside_the_run_root(tmp_path, monkeypatch):
-    """Probe P3: the run directory was `<start>/<flow>`, and `--clean` emptied it."""
+    """The run directory was `<start>/<flow>`, and `--clean` emptied it."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "verilator").mkdir()
     (tmp_path / "verilator" / "keep.txt").write_text("mine\n")
@@ -202,7 +202,7 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
 
 
 def test_a_design_file_in_the_flow_s_own_run_directory_is_refused(tmp_path):
-    """Rule R5: xeda empties and rewrites a run directory; a source kept there would be lost."""
+    """Xeda empties and rewrites a run directory; a source kept there would be lost."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     own = runner.run_root / "d" / _Probe.name
     own.mkdir(parents=True)
@@ -214,7 +214,7 @@ def test_a_design_file_in_the_flow_s_own_run_directory_is_refused(tmp_path):
 
 
 def test_a_file_a_setting_reads_in_the_flow_s_own_run_directory_is_refused(tmp_path):
-    """Rule R5 for settings too: refused before anything runs, the file kept."""
+    """The same for settings: refused before anything runs, the file kept."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     own = runner.run_root / "d" / _Reads.name
     own.mkdir(parents=True)
@@ -225,11 +225,11 @@ def test_a_file_a_setting_reads_in_the_flow_s_own_run_directory_is_refused(tmp_p
     assert (own / "c.xdc").read_text() == "period 5\n"
 
 
-# --- D21: one kind of run directory -------------------------------------------------------------
+# --- One kind of run directory -------------------------------------------------------------
 
 
 def test_writable_replaces_a_link_as_itself_and_never_writes_through_it(tmp_path):
-    """R50 k, reduced: a link at the name xeda writes (left by a tool, or by hand) is removed as
+    """A link at the name xeda writes (left by a tool, or by hand) is removed as
     itself, so the write makes a regular file and the link's target is untouched."""
     (tmp_path / "mine.txt").write_text("mine\n")
     run_dir = tmp_path / "xeda_run" / "d" / "flow"
@@ -249,7 +249,7 @@ def test_a_generated_file_goes_through_writable(tmp_path):
     a link at their name."""
     (tmp_path / "mine.txt").write_text("mine\n")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    # made and marked now, while empty: an unmarked directory holding files is refused (Task 2)
+    # made and marked now, while empty: an unmarked directory holding files is refused
     run_root = runner.run_root
     run_dir = run_root / "d" / _Probe.name
     run_dir.mkdir(parents=True)
@@ -301,7 +301,7 @@ STILL_NAMED = {("cli.py", "--cwd")}
 
 
 def test_nothing_of_the_user_s_directory_machinery_is_left():
-    """D21 removes every "user's directory" code path; a name of one found again is a leftover
+    """No "user's directory" code path remains; a name of one found again is a leftover
     -- in code, a template, or a description `xeda list-settings` shows."""
     import xeda
 

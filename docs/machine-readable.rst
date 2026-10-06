@@ -52,18 +52,19 @@ Discovering what to run
       "class": "VivadoPostsynthSim",
       "module": "xeda.flows.vivado.vivado_postsynthsim",
       "qualified_name": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim",
-      "description": "Synthesizes & implements the design, then runs ...",
+      "description": "Simulate the testbench on the routed netlist `vivado_synth` writes. ...",
       "category": "simulation",
       "supports_cocotb": false,
       "dependencies": ["vivado_synth"],
-      "declared": false, "action_reason": null, "inputs": [], "outputs": [],
-      "can_follow": [], "can_precede": [],
+      "declared": true, "action_reason": null,
+      "inputs": ["..."], "outputs": ["..."],
+      "can_follow": [], "can_precede": ["..."],
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
 ``name`` is the canonical name; ``aliases`` are the other accepted names. ``dependencies`` are
-detected statically, so treat them as a reliable hint rather than a guarantee - a flow may add
-dependencies conditionally at run time.
+detected statically, so treat them as a reliable hint rather than a guarantee - a flow written
+outside Xeda may still add dependencies conditionally at run time.
 
 ``declared`` distinguishes flows with explicit file I/O. Their ``inputs`` and ``outputs`` list
 names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;

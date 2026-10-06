@@ -635,7 +635,7 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     assert design.source_artifact_name(design.rtl.sources[0], ".v") == names[0]
 
 
-# ------------------------------------------- O-RI1: a bundled platform names no installation
+# ------------------------------------------- a bundled platform names no installation
 
 # The imported package: under tox it is the installed one, not the checkout's `src/xeda`.
 XEDA_PACKAGE = Path(xeda.__file__).parent
@@ -673,7 +673,7 @@ def _platform_settings(tmp_path: Path, platform: str, flow_name="yosys"):
 def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
     tmp_path, monkeypatch, flow_name
 ):
-    """O-RI1 (a), PCD23: `-s platform=nangate45` is one request under any installation. A
+    """`-s platform=nangate45` is one request under any installation. A
     validated platform holds absolute paths (`with_absolute_paths`), so its identity named the
     installation, and two machines never agreed on it."""
     here = _platform_settings(tmp_path, "nangate45", flow_name)

@@ -32,7 +32,7 @@ tox -e docs                          # Sphinx docs, warnings are errors (-W -n);
 
 **The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
 `-n auto`), with outcomes identical to a serial run (checked on the full suite with the real
-tools: 3767 tests, serial 15.6 min, `-n auto` on 10 cores 3.2 min). Each test works under
+tools; about 8000 tests, which `-n auto` runs in about 9 minutes on 10 cores). Each test works under
 `tmp_path`, so workers share nothing but read-only files (the examples, `tests/resources`, the
 fake tools) and the opt-in layers' checkout `xeda_run/`. The exception that needed a fix is the
 external-repository cache (`XEDA_TESTS_EXTERNAL_CACHE`): every worker asks for the same pinned
@@ -214,8 +214,8 @@ Four orthogonal abstractions, deliberately decoupled:
   name, no flow's -- a removed flow's included -- and no two of a design's differing only in case), and `_validate_plan` refuses
   a plan for another target even when every hash is equal. The target is still no part of any
   hash: equal targets build separately and stay fresh separately; a pre-target run
-  (`<design>/<flow>`) is neither reused nor touched by a target's launch. Not yet: shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
-  (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
+  (`<design>/<flow>`) is neither reused nor touched by a target's launch. Shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level are not
+  accepted (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
   declares it, which needs the resolver to take a per-origin shared leaf, not a loader-time merge).
 - **`Flow`** (`flow/flow.py`) - *how* to build. Abstract; concrete flows live in `flows/<tool>/`.
 - **`Tool`** (`tool.py`) - an executable, runnable natively, in Docker (`Docker` model), or remotely.
@@ -237,7 +237,7 @@ through, make's order: bring every prerequisite up to date, then judge this flow
 stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
 context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
-*copy* of the input, `init()` (registers legacy dependencies only) -- runs even for a flow that turns out
+*copy* of the input, `init()` (registers dependencies only for an undeclared flow; no built-in flow has any) -- runs even for a flow that turns out
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
 **dependencies** (`_run_producers` for declared flows, following the plan; `_run_dependencies`
 for others; each in a sibling run directory held for reading until the launch ends) ->
@@ -279,15 +279,15 @@ removed before the run, so an earlier success never stands for a run that died
 - A flow's settings come from layers merged key by key (`flow_runner/settings_layers.py`),
   **origin first**: defaults < project < design < **target** < command line < API, each origin
   composed on its own (`compose_flow_settings`). **The selected target overrides the design, key by
-  key** (owner ruling): it is the design's own author saying "for this target, these values", so
+  key**: it is the design's own author saying "for this target, these values", so
   its `flows.nextpnr.board` replaces the design's with no error, while a key it does not write
   stays the design's, and the project's own keys survive both. The loader folds the target into the
   design's mapping, so it is part of the design origin, below `-s` and the API
   (`tests/test_targets.py`, the layer-order tests). **This is not the agreement rule**: agreement
   is between two *nodes* of one graph (`yosys_fpga` against `nextpnr`) naming different values for
   a shared leaf, an error even when a target supplied one side; two *origins* contributing to one
-  node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**
-  (D-10): `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
+  node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**:
+  `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
   `flows.yosys_fpga.<key>`" (`Flow.Settings.removed_settings`; a `<key>` in a replacement names
   each key the removed value gave). **A producer's settings never depend
   on which consumer asked**: there are no consumer-given producer defaults, so `yosys_fpga`
@@ -386,7 +386,7 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
   `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus/Xilinx fasm);
   `fpga_pack` declares input `config` and output `bitstream`; `openfpgaloader` declares input
-  `bitstream` and no output. No flow of this graph nests a producer's settings (D-10).
+  `bitstream` and no output. No flow of this graph nests a producer's settings.
 - **Binding > design source > default producer.** An explicit binding -- a chain adjacency
   (`chains.parse_request`, `a+b`), or `flows.<consumer>.inputs.<input>: producer[.output]` in
   a design or project file, on the command line or through the API -- supplies the input first
@@ -399,7 +399,7 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   before settings composition (`bindings.split_bindings`), never a `Flow.Settings` field or
   part of the design hash. A chain is command-line data: it overrides a file's binding of the
   same input (the plan reports it as `overridden`) and is an error, even when equal, against a
-  command-line or API binding of that input (PC1). A chain adjacency and a binding judge an
+  command-line or API binding of that input. A chain adjacency and a binding judge an
   edge by one predicate, `chains.fitting_outputs` (the types an output can make are a nonempty
   subset of those the input takes, and a many output feeds only a many input). `--remote` and
   `dse` refuse chains and bindings their request reaches; a binding saved for another flow is
@@ -420,17 +420,16 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   `ChainChoice.shell_complete`: the prefix returned as typed, nothing offered after an action,
   a repeat or an undeclared flow). `Flow.action_reason` (class metadata) is why a flow can only
   end a chain; the dry run prints it without calling `always_runs()`. A binding naming an input of
-  a flow that declares none says so (`bindings.node_bindings`), which is also the tripwire
-  for P4: `tests/test_fpga_chains.py`'s refusals of `bsc`/Vivado chains and of `inputs.design`
-  must be inverted the day those flows declare I/O (checklist in the phase handoff).
+  a flow that declares none says so (`bindings.node_bindings`), which is also the tripwire:
+  `tests/test_fpga_chains.py`'s refusals of `bsc`/Vivado chains and of `inputs.design`
+  must be inverted the day those flows declare I/O.
 - **Chain documentation is executable** (`tests/test_chain_documentation.py`). The YAML
   fixtures in `docs/flows.rst`, `docs/design-file.rst` and the packaged agent docs begin with a
   `# <name>.yaml` comment; the test writes each as that file, loads it with `Design.from_file`,
   checks it against `introspect.design_schema()` and its flow sections (`inputs` split out first,
   as the launcher does) against the flows, and runs the documented commands against the real
   FPGA flows (planning needs no tool; execution uses `tests/fake_tools`). New configuration
-  snippets are YAML with a `.yaml` name; leave a document that still shows TOML to the branch
-  converting the examples. A test that enumerates `registered_flows` must scope to the product's
+  snippets are YAML with a `.yaml` name. A test that enumerates `registered_flows` must scope to the product's
   flows (fixture flows leak globally through `Flow.__init_subclass__`).
 - **One node per producer, keyed by node identity** (`bindings.NodeKey`, never the flow name
   alone): the resolver reaches each node once, unions every consumer's demand on its outputs
@@ -438,7 +437,7 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   the same way, so a producer feeding several inputs or branches runs once. An input's
   `ResolvedInput.references` are its ordered `(node, output)` producers; `binding_origin`,
   `binding_location` and `overridden` only explain.
-- **One identity rule (D-9).** `bindings.node_identity(settings_hash, origins)`: a node's hash
+- **One identity rule.** `bindings.node_identity(settings_hash, origins)`: a node's hash
   (`PlanNode.flowrun_hash`, `flow.flow_hash`, `results.json`'s `flow_hash`, the trace's
   `flowrun_hash`, the hashed directory suffix) is its settings-only hash
   (`flow.flowrun_hash(...)`, kept as `settings_hash`) plus its ordered input origins
@@ -454,13 +453,13 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
   `clocks`, `prjxray_db`, `platform`, `corner` and `dont_use_cells` apply where both endpoints
   declare them. Each contribution carries the value it propagates and a key it is compared by
-  (PCD17, `resolver._normalized_leaves`): the same for every leaf but `platform` -- indivisible,
+  (`resolver._normalized_leaves`): the same for every leaf but `platform` -- indivisible,
   propagated exactly as given, compared by a location-free projection of its validated model
   (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
-  leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep
-  `resolve_dependency` until conversion.
+  leaves; API contributions remain a separate highest-precedence origin. An undeclared edge (no built-in
+  flow has one) uses `resolve_dependency`.
 - **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
   `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
   containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
@@ -481,7 +480,7 @@ optional output when a consumer requires it. **An output a consumer switches on 
 producer's settings, hence its identity**: a request that demands it and one that does not
 re-run the producer in turn. So a cheap output is always written, with no switch: `nextpnr`
 always writes its `config` (`textcfg`/`asc`/`fasm` name the file and cannot be empty; only an
-ECP5 `out_of_context` run has none), and `run nextpnr`, `run fpga_pack`, `run nextpnr` runs
+ECP5 `out_of_context` run has none), and running `nextpnr`, then `fpga_pack`, then `nextpnr` again runs
 nextpnr once. Keep `enabled_by` for genuinely expensive outputs. nextpnr selects typed pin constraints by family and
 merges typed SDC sources before its `sdc` setting's file. Board fallback is prepared before
 freshness; duplicate clock constraints across files and settings fail with their origins.
@@ -577,7 +576,7 @@ dependency's, where the launching flow supplies what they lack. `FpgaSynthFlow` 
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow
-to have its own docstring (not an inherited base-class one, which `xeda list-flows` used to show)
+to have its own docstring (not an inherited base-class one, which `xeda list-flows` would show)
 and to declare `results_description`.
 
 ### Results
@@ -640,7 +639,7 @@ A run is identified by `design_hash` (`Design.parts_hash(Flow.design_parts)`: th
 every flow and the `tb_hash` of one that reads the testbench -- each source's content hash,
 type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
 RTL/testbench metadata) and the run's hash: `flow.flowrun_hash` (flow name + input settings)
-combined with the ordered origins of its declared inputs (`bindings.node_identity`, D-9; the
+combined with the ordered origins of its declared inputs (`bindings.node_identity`; the
 settings-only hash is kept as `settings_hash`). Both are semantic --
 they depend on what the inputs mean, not where anything is: moving a whole design never changes
 `design_hash`. Every source counts by its path relative to the design root, outside it too
@@ -657,7 +656,7 @@ left out is a stale reuse, one wrongly left in a run for nothing, so a flow that
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
 scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
-installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`, PCD23: a bundled
+installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`: a bundled
 platform's files are the same on every installation) -- each root and each path recognized as
 written and as resolved (`location_free`), so a place reached through a symbolic link counts the
 same either way; a shipped file's identity on a remote is keyed by its resolved path
@@ -678,7 +677,7 @@ flow.stale_reason)`); a fresh one logs that it is up to date and its recorded re
 if it had just run.
 
 An option takes a value only when the value is data (a directory, a host); a behavior switch is a
-flag (D22). `run`, `dse` and `scrub` read only the environment variables they declare
+flag. `run`, `dse` and `scrub` read only the environment variables they declare
 (`DeclaredEnvvarsCommand`: `XEDA_RUN_ROOT`, `XEDA_DEBUG`, `XEDA_REMOTE`, `XEDA_LOG_LEVEL`,
 `XEDA_DETAILED_LOGS`), never an automatic `XEDA_<OPTION>`: a leftover `XEDA_CLEAN=1` would empty
 every run directory on every run. `tests/test_option_names.py` is the oracle: each launcher option
@@ -688,7 +687,7 @@ of `run` is named as the setting it sets, none is a choice, and no two names dif
 `trace.py`/`trace_inputs.py` implement this. `trace.json`, written into the run directory last and
 atomically after a successful run (`write_trace`) and removed before the next run executes
 (`remove_trace`), is what makes a directory's freshness self-certifying: its mere presence means
-"the last run here completed and succeeded" (S4 in `design-notes/13-foundations.md`). It records
+"the last run here completed and succeeded". It records
 `flowrun_hash`, `design_hash`, `xeda_version`, a digest of every file of the installed xeda package
 (`xeda_code_digest`, once per process: an editable install keeps its version across edits) and of a
 plugin flow's own modules (`flow_code_digest`), the programs it started as `FileRecord`s of the
@@ -735,7 +734,7 @@ itself, a relative one as each existing path it is found at under the design roo
 directory (not inside the run directory) -- `flowrun_hash` is location-free, so this is what binds
 a setting naming a directory, and a launch from another start directory or of another design tree
 with the same text reports "`<key>` now names `<B>` (was `<A>`)". **What a run owns is decided by
-location alone**: every run directory lies under the run root now (D21), and is the run's
+location alone**: every run directory lies under the run root now, and is the run's
 exclusively -- every entry in it an output, and one that appears there after the run makes it
 stale ("new file in the run directory"); anywhere else, a file a setting, a depfile or the design
 names stays an input, recorded as unknown (`MODIFIED_DURING_RUN`) if it was absent before the run
@@ -751,8 +750,7 @@ clock) decides; on another file system nothing does, and it is recorded unknown
 last run, on another file system ...") -- yosys's own library files on another volume do that
 once after a flow's first run (`tests/tool_utils.launch_until_fresh`). It
 also carries a `run_id` for the run itself and, keyed by each dependency's run directory relative to
-the run root, the `run_id` of the dependency run it consumed (`dependency_runs`) -- provenance (S3),
-since there is no per-edge output digest yet (plan 2). `trace.check_trace` re-derives all of this
+the run root, the `run_id` of the dependency run it consumed (`dependency_runs`). `trace.check_trace` re-derives all of this
 (`trace_inputs.expectation`)
 and returns the first mismatch as the stale reason. A file counts as unchanged by its metadata when
 `FileRecord.trusted` says so -- size, mtime, inode change time and inode all equal, and the later of
@@ -767,7 +765,7 @@ alone compares `tool_utils.run_outputs_state` (every entry but the reserved name
 of the whole directory, and forces the refresh with `tool_utils.check_after_the_racy_window`
 rather than hoping the machine is slow enough. A dependency
 that ran again always makes its depender stale too, even if nothing it declared as an input actually
-changed -- there is no cross-edge cutoff until declared inputs/outputs (plan 2). What is not tracked
+changed -- there is no cross-edge cutoff on an unchanged output. What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
 run directory points to, when that is a directory (the link is recorded by its target, never
 followed); programs started indirectly (a compiler under `make`, Python packages such as
@@ -800,8 +798,8 @@ record was taken from the file's own file system (`digest.filesystem_time_ns` wr
 directory it reads), and neither the design's tree nor anything else a generator reads is
 xeda's to write in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
 an edit given back its old mtime is caught. **Where the run root comes from at load time**: the
-launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`, which replaced
-`cloning_dependencies_into`; `provider(False)` gives only a root that is already marked), and
+launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`;
+`provider(False)` gives only a root that is already marked), and
 `FlowLauncher.load_run_root` is that provider. What cannot be judged runs: `always_runs`, a
 generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
@@ -817,7 +815,7 @@ keeps, and it keeps it there. What the *generator* writes in the design's tree i
 -- that is what it is for -- so the oracle admits exactly the sources the design declares it
 generates and nothing else
 (`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`:
-O3 records no violation of xeda's own, O1 sees only those sources; `tests/test_generator_staleness.py`).
+the audit hook records no violation of xeda's own, the canary sweep sees only those sources; `tests/test_generator_staleness.py`).
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: two configurations of one flow resolving to the same
@@ -827,10 +825,9 @@ keeps no trace and reports that reason: `openfpgaloader` ("it
 programs a device"), a flow asked for a fresh random seed ("it draws a new random seed"), nextpnr
 with pin constraints from a URL. Seeds are settings with fixed defaults (verilator and cocotb
 `random_seed = 1`; `randomize_seed` defaults to false), so a default configuration is reusable. The
-base `Flow.always_runs` returns `None`; every override calls `super().always_runs()`. There is no
-longer a "setting names the directory it runs in" case: every launched run directory is xeda's own
-(D21), so a flow's working locations can never overlap the directory it reads its inputs from --
-that case existed only for the now-removed `--cwd`.
+base `Flow.always_runs` returns `None`; every override calls `super().always_runs()`. Every launched run
+directory is xeda's own, so a flow's working locations can never overlap the directory it reads
+its inputs from.
 
 `--clean` empties a flow's run directory before it runs and runs every flow ("make clean, then
 make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clean up after the
@@ -880,12 +877,12 @@ launcher settings `cached_dependencies`,
 never shipped: click suggests the flags. Flow settings named `clean`/`clean_before_run` are removed the same way
 (GHDL's former `clean` is now `clean_before_analyze`, an unrelated per-analysis setting).
 
-**Every path a flow writes has a role** (D21), a `json_schema_extra` marker on the setting's field:
+**Every path a flow writes has a role**, a `json_schema_extra` marker on the setting's field:
 `WORKING` (`xeda.dataclass.WORKING`) for a working location, always a bare name inside the run
 directory whatever it is given (`sim_dir`, `bobj_dir`, `impl_folder`, a log path, ...), or
 `deliverable(conventional=...)` for a setting the user may give a location, which is then
 **delivered** -- copied to that location once the whole launch has finished, while the run itself
-always writes the fixed `conventional` name in the run directory (plan 2's convention is
+always writes the fixed `conventional` name in the run directory (by convention
 `outputs/<design>.<ext>`; `flow.output_name`). `dataclass.written_role(model, field)` reads the
 marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) exposes it through
 `xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
@@ -912,7 +909,7 @@ has even run. An existing file at a destination is replaced without asking only 
 own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
 file holding exactly the delivered bytes is xeda's copy whatever touched it since, while another
 inode, or different bytes, fails closed and asks. **Whether the content must be read is decided by
-the R38 trust rule, like every other record's** (`deliver._destination_record`): a check that
+the trust rule, like every other record's** (`deliver._destination_record`): a check that
 reads a destination first reads the clock of that destination's own file system
 (`deliver._destination_clock`, a marker made and removed in the directory delivery writes its
 temporary in, `digest.filesystem_time_ns` -- never the process clock) and anchors the record it
@@ -933,9 +930,9 @@ name them" for the user-facing rules (never onto an input nor into a read direct
 directory, never into a run root, `--overwrite-outputs`, the delivery record beside the run
 directory).
 
-`tests/test_isolation.py` is the isolation oracle (O1-O4), in four parts:
+`tests/test_isolation.py` is the isolation oracle, in four parts:
 
-- **O1, the canary sweep, and O3, the audit hook**, exercised together by
+- **The canary sweep and the audit hook**, exercised together by
   `test_nothing_outside_the_run_root_changes_but_what_was_named`: every registered flow
   (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in four scenarios
   (`twice`, `clean`, `purge`, `delivered` -- 100 cases) inside a `World` seeded with a canary file
@@ -944,7 +941,7 @@ directory).
   out to a sibling `outside/` directory. `_state` snapshots every entry of the design directory's
   *parent* (type, mode, content or link text, a file's modification time) before and after a
   launch; nothing outside the run root may differ but exactly the destinations the launch named
-  (a located deliverable, the `outputs_to` directory) and the files delivery wrote there (O1) --
+  (a located deliverable, the `outputs_to` directory) and the files delivery wrote there --
   a tool's file beside a delivered one, or a touch-only change, fails it
   (`test_the_sweep_sees_an_extra_file_beside_a_delivered_one`,
   `test_the_sweep_sees_a_touch_only_change`). At the same time, a `sys.addaudithook`
@@ -954,23 +951,23 @@ directory).
   `os.replace` -- `os.symlink`, `shutil.copyfile`, `shutil.rmtree`, `os.truncate`): a write inside
   the run root is ignored, one under the named delivery destination is allowed only when it comes
   from `xeda/deliver.py` (`_from_deliver`, walking the call stack), anything else is a violation
-  (O3) -- so a stray write is caught even if the canary sweep's own before/after diff happens to
-  miss it. `test_the_oracle_sees_every_change_outside_the_run_root` is O3's teeth test: it
+  -- so a stray write is caught even if the canary sweep's own before/after diff happens to
+  miss it. `test_the_oracle_sees_every_change_outside_the_run_root` is the audit hook's teeth test: it
   exercises every one of those calls directly and checks the hook counts them all (CPython audits
   a missing `dir_fd` as `-1`, not `None`, which is why `_placed` treats both as "no descriptor").
   Its limits, stated in the module docstring: tools outside `FAKED` are stubbed, so their real
   writes are not observed; the audit hook sees only the test's own process; paths outside the
   snapshotted parent are not compared -- the opt-in real-tool layers are where to extend it.
-- **O2, the read-only tree**: `test_a_launch_needs_nothing_writable_but_its_run_root` makes every
+- **The read-only tree**: `test_a_launch_needs_nothing_writable_but_its_run_root` makes every
   flow's whole tree read-only except the run root (`_freeze`/`_thaw`) and checks the launch ends
   the same way it does on a writable tree; `test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree`
-  repeats it with real `bsc`/Bluesim on PR #88's `gcd` example. `test_the_command_line_changes_nothing_outside_the_run_root`
+  repeats it with real `bsc`/Bluesim on the Bluespec `gcd` example. `test_the_command_line_changes_nothing_outside_the_run_root`
   covers the CLI itself (`--clean`, `--post-cleanup`, plain), asserting exit 0 so the oracle cannot
   pass merely because the run failed early, and
-  `test_ise_synth_from_the_design_directory_deletes_none_of_its_files` is the original P10
-  regression (ISE used to delete the design's own files from its start directory), with and
+  `test_ise_synth_from_the_design_directory_deletes_none_of_its_files` is a
+  regression test (ISE used to delete the design's own files from its start directory), with and
   without `xtclsh` on `PATH`.
-- **O4, the static scan** (moved verbatim from the deleted `test_run_dir_ownership.py`): an AST
+- **The static scan**: an AST
   walk of every `.py` file under `xeda/` for a call that deletes, moves over or replaces a file by
   name (`unlink`, `remove`, `rmdir`, `rmtree`, `rename`, `move`, `replace`, `truncate`, ...) outside
   `xeda.run_dir`/a `.run_directory` receiver
@@ -982,7 +979,7 @@ directory).
   `REVIEWED_SCRIPT_DELETIONS`, each entry recording why it is safe and, where it deletes or
   replaces by name, the guard text that must still be present in that flow's module). A new site,
   or a second copy of a reviewed one, fails the oracle until it is reviewed and added. Its third
-  scan (`test_every_raw_write_by_name_is_reviewed`, from PR #89, with its mutation test) finds
+  scan (`test_every_raw_write_by_name_is_reviewed`, with its mutation test) finds
   every raw write by name -- `open` for writing, `write_text`, a copy, a rename, a link -- that
   does not go through `replacing_file`/`replacing_copy`, against `REVIEWED_WRITES`.
   `test_links_a_tool_left_are_never_followed_out_of_the_run_directory` is the tool-made-links
@@ -1008,16 +1005,16 @@ and `test_nvc.py` simulate the examples in place.
   `remote_runner`) must use only the API guaranteed by the checked protocol floor; the streaming
   setup stays stdlib-only. A test pins the worker's xeda imports.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
-  keys. **Requirement: a remote runs a P3-capable build (this branch or newer)**: release line
+  keys. **Requirement: a remote runs a build with remote protocol support**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
   `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 1, the first released
   protocol -- no earlier release carried a marker: canonical resolved settings, relocated read
   inputs with their original path identities, declared output records and checked hand-over,
   current-run evidence for remote simulations, the FPGA build graph with `fpga_pack` and a
-  programming-only `openfpgaloader`, the D-9 identity rule -- a node's `flow_hash` is its settings
+  programming-only `openfpgaloader`, the identity rule -- a node's `flow_hash` is its settings
   plus its ordered resolved input origins, the hash `RemoteRunner` names the mirror by and compares
   with the remote's -- the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC
-  configuration, a bundled platform counted relative to xeda's installation (PCD23); a remote
+  configuration, a bundled platform counted relative to xeda's installation; a remote
   with no marker or a lower one is refused up front, not failed on a hash mismatch it cannot
   explain; `tests/test_remote_streaming.py` and `tests/test_remote_run.py` pin the refusal).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
@@ -1027,12 +1024,13 @@ and `test_nvc.py` simulate the examples in place.
   and protocol marker; a missing or broken import is an incompatible install. The streaming setup
   remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
   must be upgraded or removed even if another installed distribution is current.
-  **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published P2a-or-newer release tuple and
-  retain its protocol marker. The exposed `REMOTE_PROTOCOL_VERSION` and the required
-  `REMOTE_PROTOCOL_MIN_VERSION` are raised together once per release cycle, when anything
+  **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published release tuple that carries the
+  current protocol and retain its protocol marker. The exposed `REMOTE_PROTOCOL_VERSION` and the
+  required `REMOTE_PROTOCOL_MIN_VERSION` are raised together once per release cycle, when anything
   remote-visible changed since the last release; pull requests between releases do not bump them
-  (development builds are not supported remotes). When they are raised, update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
-  and nullable-key pins and verify archive/source round trips plus the popen remote runs. The
+  (development builds are not supported remotes). When they are raised, update the pinned key sets
+  of the shipped `rtl`, `tb` and git-reference tables and the nullable-key pins in
+  `test_remote_run.py`, and verify archive/source round trips plus the popen remote runs. The
   archive and shipped worker may rely on the API guaranteed by that protocol floor; no 0.4.3
   archive projection or compatibility policy is maintained.
   A failed remote run's artifacts are fetched only if the remote vouches its run wrote them:
@@ -1060,8 +1058,7 @@ dependency must also share `custom_boards_file`.
 ## Conventions and gotchas
 
 - **Help screens are click-extra's, and the theme rides on `context_settings`.** `XedaHelpGroup`
-  subclasses `click_extra.Group`; the xeda palette (yellow headings, green options, carried over
-  from the old `click_help_colors` setup) lives in `XEDA_HELP_THEME` / `HELP_FORMATTER_SETTINGS`
+  subclasses `click_extra.Group`; the xeda palette (yellow headings, green options) lives in `XEDA_HELP_THEME` / `HELP_FORMATTER_SETTINGS`
   in `cli_utils.py` and is injected through `CONTEXT_SETTINGS`, because cloup resolves the
   formatter from the *context* and child contexts inherit it -- a `formatter_settings=` passed to
   a command styles only that one screen. `XedaHelpGroup.main` additionally calls
@@ -1228,7 +1225,7 @@ dependency must also share `custom_boards_file`.
 - **A flow's clean-up deletions, and every file a flow or the launcher writes where a flow runs, go
   through `RunDirectory` (`xeda/run_dir.py`)**, the flow's read-only `self.run_directory`, a frozen
   dataclass the launcher decides once and hands to the flow's constructor: `RunDirectory.claimed`
-  (a directory xeda chose that lies under its run root -- every launched flow's, now, D21) or
+  (a directory xeda chose that lies under its run root -- every launched flow's, now) or
   `RunDirectory.unlaunched` (a flow built directly, not through a launcher: xeda deletes nothing
   there, logged instead). `inside`/`holds` locate a path inside the directory without following a
   symbolic link out of it (a link is itself, its last component never resolved); `writable(path)`
@@ -1254,8 +1251,7 @@ dependency must also share `custom_boards_file`.
   `tool.py` ~140, written with a plain `open(..., "w")` right before the container starts) bypasses
   it the same way -- there is nothing of a flow's or a user's under any of these names for that
   boundary to protect. `tests/test_isolation.py` is the current oracle (see "Caching and
-  run directories" above; it replaced `test_run_dir_ownership.py`'s `--cwd` sweep, which is gone
-  with `--cwd` itself).
+  run directories" above).
 - **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
   table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`) or mis-cased suffixes need an
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
@@ -1428,8 +1424,8 @@ dependency must also share `custom_boards_file`.
   exercise the native result against installed Yosys without claiming every reader/path setup is
   identical by default.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
-  `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
-  (`fpga_pack` refuses a family it has no packer for there). Undeclared flows validate in
+  `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
+  no packer for). Undeclared flows validate in
   `init()` after `resolve_dependency`.
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
@@ -1452,7 +1448,7 @@ dependency must also share `custom_boards_file`.
   `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
   package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
   yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for
-  `corner=SS` and end alike (an owner exception, 2026-10-06: ABC crashes there on `main` too).
+  `corner=SS` and end alike (ABC crashes there on `main` too, so that is the accepted outcome).
 - **No test programs a device, structurally.** `tests/conftest.py`'s autouse `programmer_guard`
   puts a sentinel `openFPGALoader` first on every test's `PATH` (the fake toolchain goes in front
   of it; child processes and the popen remote worker inherit it) and fails a test that started
@@ -1464,8 +1460,9 @@ dependency must also share `custom_boards_file`.
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
-- Formatting is inconsistent by design: `black` (line-length 100) is enforced on `src/` only; `ruff`
-  (line-length 120, `target-version = "py311"`) checks the whole repo.
+- Formatting: `black` (line-length 100) is enforced on `src/` and `tests/` (`tox -e black`); the
+  Pyflakes rules of `ruff` (`ruff check --select F src tests`, line-length 120, `target-version =
+  "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
 
 YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
 input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and

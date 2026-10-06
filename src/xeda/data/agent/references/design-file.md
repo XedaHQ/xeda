@@ -276,7 +276,7 @@ targets:
   design build separately and each stays up to date. A run made before targets (`<design>/<flow>`)
   is left alone by a target's launch. `xeda scrub FLOW DESIGN --target NAME` removes only that
   target's runs; without `--target` it removes every target's and the older ones too.
-- Not there yet: `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
+- Limit: `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
   `flows.<flow>` (at its top level the three shared leaves are refused, naming that).
 
 ## Environment variables in paths

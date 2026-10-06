@@ -1,6 +1,6 @@
 # VCS fixture provenance and verification boundary
 
-No VCS binary or license was available for Task 7. All stand-in output in
+No VCS binary or license was available when this was written. All stand-in output in
 `tests/fake_tools/vcs_runtime.py` is synthetic, including the VHDL cases. It is
 not a recording of a licensed run. The fake executes the generated Tcl under
 `tclsh`, models native run/quit/end-of-simulation behavior, and leaves separate
@@ -43,4 +43,3 @@ the documented interface requires a time greater than the current time.
 Real-release verification must check script/GUI startup, endofsim behavior,
 stdout markers, finish and severity grammars, VHDL assertions, breakpoint
 behavior on queue drain, actual-time precision, and nonzero exit propagation.
-The bsc VCS/vcsi launch wiring belongs to Task 4c, after the simulator families.

@@ -173,8 +173,8 @@ CHAIN_EDGE = (ProducerRef(NodeKey("__chain_simple_producer"), "netlist"),)
 
 @pytest.mark.parametrize("origin", ["CLI", "API"])
 @pytest.mark.parametrize("reference", ["__chain_simple_producer.netlist", "chain_source.json_a"])
-def test_pc1_command_line_and_api_collisions_precede_precedence(origin, reference):
-    """PC1 as narrowed: a chain collides with a command-line or API binding of the same
+def test_command_line_and_api_collisions_precede_precedence(origin, reference):
+    """A chain collides with a command-line or API binding of the same
     input, equal or not, before layer precedence or value validation."""
     request = parse_request("__chain_simple_producer+__chain_simple_consumer")
     layers = [

@@ -98,7 +98,7 @@ def _launch(
     ("body", "settings", "ended_by", "success"),
     [
         ("initial begin #34 $finish; end", {"timing": True}, "finish", True),
-        ("initial begin $finish; end", {}, "finish", True),  # untimed, $finish at 0 (Q16)
+        ("initial begin $finish; end", {}, "finish", True),  # untimed, $finish at 0
         ("reg clk; initial clk = 0;", {}, "drained", False),  # nothing ever ends it
         ("initial begin #10; #10; end", {"timing": True}, "drained", False),
         (
@@ -136,7 +136,7 @@ def test_verilator_passes_only_on_evidence(tmp_path, body, settings, ended_by, s
 
 
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
-    """Two top-level candidates: the design's `tb.top` is the one simulated (M5)."""
+    """Two top-level candidates: the design's `tb.top` is the one simulated."""
     require_verilator()
     flow = _launch(
         tmp_path,
@@ -272,7 +272,7 @@ def test_verilator_defaults_do_not_randomize(tmp_path):
 
 
 def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
-    """M7: `--trace`, the seed and xeda's own arguments are the run's, not the user's."""
+    """`--trace`, the seed and xeda's own arguments are the run's, not the user's."""
     require_verilator()
     flow = _launch(
         tmp_path,
@@ -283,7 +283,7 @@ def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
 
 
 def test_rtl_parameters_reach_a_cocotb_top(tmp_path):
-    """M4: with cocotb the simulated top is the RTL top, so `rtl.parameters` apply to it."""
+    """With cocotb the simulated top is the RTL top, so `rtl.parameters` apply to it."""
     require_verilator()
     require_cocotb()
     (tmp_path / "dut.sv").write_text(

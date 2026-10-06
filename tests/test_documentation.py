@@ -36,7 +36,7 @@ FLOW_IDS = [cls.name for cls in FLOW_CLASSES]
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_flow_has_its_own_description(flow_class):
-    """`xeda list-flows` used to show inherited base-class docstrings as flow descriptions."""
+    """A flow's description is its own docstring, never an inherited base-class one."""
     own_doc = flow_class.__dict__.get("__doc__")
     assert own_doc and own_doc.strip(), (
         f"{flow_class.__name__} has no docstring of its own, so `xeda list-flows` has nothing "
@@ -326,7 +326,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
 
 # A bracketed section header is TOML. The documents below show YAML first, where a flow's
 # settings are the `flows.<flow>` mapping, so a `[flows.x]`, `[rtl]` or `[tb]` in their prose is
-# TOML left behind by the conversion. A snippet that is explicitly TOML (a `toml` fence or
+# TOML left behind from an older document. A snippet that is explicitly TOML (a `toml` fence or
 # code-block) is correct -- TOML design files are still accepted.
 TOML_SECTION_HEADER = re.compile(r"\[(?:flows(?:\.[\w<>.\-]+)?|rtl|tb|design|designs)\]")
 YAML_FIRST_DOCUMENTS = [
@@ -487,7 +487,7 @@ def test_no_maintained_document_recommends_a_removed_flow_or_setting():
 
 
 def test_the_documents_state_what_the_lut_count_is_and_is_not():
-    """PB7: `lut` is per toolchain, with its stage and method, and not certified comparable
+    """`lut` is per toolchain, with its stage and method, and not certified comparable
     with Vivado's."""
     root = Path(__file__).parent.parent
     for document in (

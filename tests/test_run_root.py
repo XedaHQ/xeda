@@ -1,4 +1,4 @@
-"""xeda's space: a run root xeda created and marked (D21, rule R1). A directory that holds files
+"""xeda's space: a run root xeda created and marked. A directory that holds files
 and no marker is not xeda's, and is refused before anything runs."""
 
 import json

@@ -1,10 +1,10 @@
-"""`xeda scrub` beside per-target run directories (PT-3, PTD3-4).
+"""`xeda scrub` beside per-target run directories.
 
 A run directory lies in `<run root>/<design>[/<target>]/<flow>[_<hash>]`, so a scrub of one flow
 of one design has three honest readings: everything (`xeda scrub FLOW DESIGN`: the pre-target
 `<design>/<flow>` runs and every target's), or one target's alone (`--target NAME`), and it never
 reads a design file: it finds what is on disk, one level below the design for targets, and
-never goes into a run directory. The oracles (the plan's O-SCRUB, and O-LEGACY's scrub half):
+never goes into a run directory. The oracles:
 
 - exact candidate sets, collected before one confirmation, removed under each directory's lock;
 - a target's scrub leaves the pre-target runs and every other target alone, and an unqualified

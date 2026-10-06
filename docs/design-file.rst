@@ -207,7 +207,7 @@ only ever given that way. Explicit type names are case-tolerant; suffixes are no
 is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
 design can still read it. An invalid explicit ``type`` is an error naming the closest types.
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
-``{ file = "net.v", type = "VerilogNetlist" }``.
+``{file: net.v, type: VerilogNetlist}``.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
 skips synthesis for ``nextpnr``, a ``Fasm``, ``EcpConfig`` or ``IceAsc`` configuration is packed
@@ -502,7 +502,7 @@ One design file can describe the design for several boards. Each entry of ``targ
 ``xeda run`` and ``xeda dse`` take ``--target``; designs in a project file take targets the same
 way.
 
-Not there yet:
+Limits:
 
 - ``board``, ``fpga`` and ``custom_boards_file`` cannot be written once at a target's top level
   (they are refused, naming where to write them): they are settings of each flow, under the

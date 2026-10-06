@@ -361,7 +361,7 @@ def test_remote_design_archive_carries_file_valued_parameters(tmp_path):
     remote = Design.from_file(remote_root / "d.xeda.json")
 
     rom = Path(remote.rtl.parameters["ROM"])
-    assert rom.is_absolute() and rom.read_text() == "00 11\n", "the file travelled with the design"
+    assert rom.is_absolute() and rom.read_text() == "00 11\n", "the file traveled with the design"
     assert rom.is_relative_to(remote_root), "and landed inside the remote's own tree"
 
     dump = Path(remote.rtl.parameters["DUMP"])

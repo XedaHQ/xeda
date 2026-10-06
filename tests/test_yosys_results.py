@@ -244,8 +244,8 @@ XILINX_NON_LUT_PRIMITIVES = {
 
 #: Primitives the sweep's enumeration must find: one of every family the classification covers,
 #: so a pattern that silently stops matching a whole family fails here rather than narrowing the
-#: sweep. The distributed ROMs are among them because they are what the old prefix allowlist had
-#: to be told about by hand, after a reviewer found the gap.
+#: sweep. The distributed ROMs are among them because a prefix allowlist has to be told about
+#: them by hand.
 _LIBRARY_SENTINELS = frozenset(
     {"LUT6_2", "CFGLUT5", "RAM16X1S", "RAM512X1S", "ROM256X1", "RAMB36E1", "DSP48E1"}
 )

@@ -603,7 +603,7 @@ class Nextpnr(FpgaSynthFlow):
 
     def always_runs(self) -> Optional[str]:
         """A fresh random seed, or pin constraints fetched from a URL -- which no trace can
-        verify until the board database pins them by hash (plan 3's cached fetch)."""
+        verify until the board database pins them by hash."""
         assert isinstance(self.settings, self.Settings)
         if self.settings.randomize_seed:
             return "it draws a new random seed"

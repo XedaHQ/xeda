@@ -10,7 +10,7 @@ costs a hash rather than a re-run.
 
 A generator writes the design's own sources, at the paths the design declares: that is its job,
 and the design's tree is not xeda's. What *xeda* keeps about it -- the record -- goes in the run
-root, like every other thing of xeda's (D21); `test_isolation.py` holds the oracle for that.
+root, like every other thing of xeda's; `test_isolation.py` holds the oracle for that.
 """
 
 import os
@@ -656,8 +656,8 @@ def test_run_only_if_sources_modified_was_removed(tmp_path):
 def test_run_only_if_sources_modified_true_is_to_be_deleted_never_turned_into_always_runs(
     tmp_path,
 ):
-    """The old switch was on by default: a design that wrote `true` has the behavior content
-    judging now gives every generator, and `always_runs` would be the opposite of it."""
+    """The removed switch was on by default: a design that wrote `true` has the behavior content
+    judging gives every generator, and `always_runs` would be the opposite of it."""
     world = World(tmp_path, run_only_if_sources_modified=True)
     with pytest.raises(DesignValidationError) as error:
         world.load()

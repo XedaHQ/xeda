@@ -446,7 +446,7 @@ def _read_in_the_suite(module: str, name: str) -> str | None:
 TARGETS = _collect()
 IDS = [f"{t.module}.{t.name}" for t in TARGETS]
 
-#: The launcher's own patch targets: what the stage split (PC-7) must not strand.
+#: The launcher's own patch targets: what a split of the launcher into stages must not strand.
 LAUNCHER_TARGETS = {
     "expectation",
     "snapshot_inputs",
@@ -568,7 +568,7 @@ def test_a_patched_module_name_is_looked_up_through_that_module(target: PatchTar
 
 @pytest.mark.parametrize("name", sorted(LAUNCHER_TARGETS), ids=sorted(LAUNCHER_TARGETS))
 def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
-    """The names the stage split (PC-7) moves are patched to intercept the *launcher*.
+    """The names the launcher's stages move are patched to intercept the *launcher*.
 
     So for these the lookup must be in `src/xeda`: once only test code reads the name there,
     the patch no longer reaches a single line of the launcher, and the tests that rely on it

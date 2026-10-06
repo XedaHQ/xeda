@@ -153,7 +153,7 @@ in ``rtl.sources`` supplies that input instead and skips synthesis:
 
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
 requires exactly one matching source. Settings for a producer displaced by sources are unused
-and logged. The first declared outputs are ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
+and logged. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
 and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus/Xilinx ``fasm``).
 ``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
 into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
@@ -231,10 +231,10 @@ checks each neighboring pair and never searches for a missing stage.
   searches all flows, so a refusal with no such route carries no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
-  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` and,
-  for the outputs they write, ``vivado_synth`` and ``vivado_alt_synth``, and ``vivado_postsynth_sim``
-  and ``vivado_power`` today. A flow without
-  declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
+  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
+  ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_postsynth_sim`` and
+  ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
+  ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
   ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
@@ -379,7 +379,7 @@ Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim``
 available yet, and the command below is refused today (``Flow `bsc` has
 no declared I/O and can only be run alone``). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
-showcase designs and targets that use them:
+example designs and targets that use them:
 
 .. code-block:: bash
 
@@ -413,8 +413,8 @@ ABC altogether. ``flatten`` left unset keeps each pass's own choice (Xilinx keep
 the Lattice, iCE40 and Gowin passes flatten it); ``true`` or ``false`` overrides it. A setting the
 selected pass has no option for is an error rather than being ignored. The ``nowidelut``
 restriction is off: it can reduce area or timing on one design and worsen the other on another.
-iCE40 UltraPlus DSP and SPRAM inference are available as ``yosys.ice40_dsp`` and
-``yosys.ice40_spram``.
+iCE40 UltraPlus DSP and SPRAM inference are available as ``yosys_fpga``'s ``ice40_dsp``
+and ``ice40_spram`` settings.
 
 A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device
 and package: ``iCE40UP5K-SG48I`` or ``iCE40HX8K-CT256`` (temperature grade and tape-and-reel
@@ -438,16 +438,16 @@ reproducible; try several fixed seeds when optimizing a particular design. The c
 ``tmg_ripup``, ``parallel_refine`` and iCE40 ``opt_timing`` stay opt-in. A faster or smaller
 Yosys netlist alone does not establish an improvement in routed Fmax.
 
-For example, include ``{ file = "pins.pcf", type = "Pcf" }`` in ``rtl.sources``, then::
+For example, include ``{file: pins.pcf, type: Pcf}`` in ``rtl.sources``, then::
 
     xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
       -s clock.period=20 -s seed=2
     xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
-Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
-``fpga_pack --json`` or ``openfpgaloader --json`` to inspect all named settings.
-``synth_flags``, ``extra_args`` and ``fpga_pack``'s ``packer_args`` expose target/version-specific switches that do not have dedicated settings;
-the selected installed tool must support those switches. Placement and programming are
+Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
+``openfpgaloader`` to inspect all named settings. ``synth_flags``, ``extra_args`` and
+``fpga_pack``'s ``packer_args`` expose target/version-specific switches that do not have dedicated
+settings; the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
 Running only the Yosys synthesis pass
@@ -643,12 +643,11 @@ port with ``reset_prefix`` if a downstream flow expects one.
 
 ``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
 through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one
-bsc supports. Bluesim, Verilator and Icarus require an observed ``$finish`` or a confirmed
+bsc supports. Every accepted backend (listed below) requires an observed ``$finish`` or a confirmed
 requested limit, with no runtime event reaching ``fail_severity`` (default ``error``).
 ``$finish(n)``'s argument is a verbosity level, not an exit status. A requested Bluesim
 ``max_cycles`` passes only with the measured cycle count and final simulated time; an early
-explicit finish remains valid. A silent exit 0 and a drained event queue fail. Other bsc
-backends still await evidence conversion.
+explicit finish remains valid. A silent exit 0 and a drained event queue fail.
 
 .. code-block:: bash
 
@@ -763,7 +762,7 @@ The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rt
 cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. ``rtl.parameters``
 apply only when the RTL top is the simulated top; ``tb.parameters`` always do.
 
-Changed behavior:
+Defaults and limits:
 
 * ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it;
   ``x_initial`` and ``x_assign`` default to ``"0"`` (they were ``"unique"``).

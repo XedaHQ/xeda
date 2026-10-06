@@ -190,9 +190,8 @@ def test_cocotb_results_without_a_test_fail(tmp_path, monkeypatch, xml):
 # ------------------------------------------------------------------ results.xml, both generations
 
 #: cocotb moved its per-test metadata out of `<testcase>` attributes and into a standard JUnit
-#: `<properties>` block in 2.0. Both layouts must be read: the parser previously understood
-#: neither -- the attribute branch was unreachable (`if sim_time_ns is None` tested the local it
-#: had just initialised to None, not the parsed attribute), so every test reported 0 ns.
+#: `<properties>` block in 2.0. Both layouts must be read, each test reporting its own simulated
+#: time rather than 0 ns.
 COCOTB1_XML = RESOURCES_DIR / "cocotb" / "results.xml"
 COCOTB2_XML = RESOURCES_DIR / "cocotb" / "results_cocotb2.xml"
 

@@ -86,7 +86,7 @@ def test_a_union_keeps_the_type_it_was_given():
 
 
 def test_fractional_platform_values_are_not_truncated():
-    """Physical quantities from PDK data are `float`; an `int` type used to truncate them."""
+    """Physical quantities from PDK data are `float`: an `int` type would truncate them."""
     from xeda.platforms.asics import AsicsPlatform
 
     platform = AsicsPlatform.from_resource("nangate45")

@@ -1,14 +1,14 @@
-"""`yosys` owns its ASIC configuration (PC Task 5: PCD9 step 1, R-PC-b, PCD16).
+"""`yosys` owns its ASIC configuration.
 
 `openroad` used to build its `yosys` dependency's whole configuration -- the liberty set and
 its merge, the mapping cells, the abc script and constraints, the netlist format -- from its
-own `platform`. A producer's settings must not depend on which consumer asked (D-10), so `yosys`
+own `platform`. A producer's settings must not depend on which consumer asked, so `yosys`
 derives all of it from a `platform` of its own: `xeda run yosys -s platform=nangate45` alone maps
 to Nangate45 cells and needs nothing from a consumer. `optimize`, `abc_driver_cell` and
 `abc_load_in_ff` are settings of the flow that acts on them, `yosys`, and `openroad` no longer
 has them (`test_removed_settings.py` checks the tombstones from every origin).
 
-The two liberty bugs PCD16 names are pinned here: a platform's liberty set is always merged into
+Two liberty bugs are pinned here: a platform's liberty set is always merged into
 one library, named `<platform>_merged` as `openroad` names its own, and the platform's own
 `dont_use_cells` are marked `dont_use` in it beside the setting's.
 """
@@ -110,7 +110,7 @@ def test_stop_after_rtl_with_a_netlist_is_refused_before_anything_runs(tmp_path)
 
 
 def test_abc_driver_cell_is_a_cell_name():
-    """A cell name is text (R-PC-b): `BUF_X1` validates, and a number is not a cell name."""
+    """A cell name is text: `BUF_X1` validates, and a number is not a cell name."""
     assert Yosys.Settings(abc_driver_cell="BUF_X1").abc_driver_cell == "BUF_X1"
     with pytest.raises(ValidationError):
         Yosys.Settings(abc_driver_cell=1)
@@ -171,7 +171,7 @@ def _stage_platform(root: Path, dont_use_cells: list[str]) -> Path:
 def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
     tmp_path, monkeypatch, own, platform_s
 ):
-    """PCD16's two bugs: yosys merged a platform's liberty files only when `dont_use_cells` was
+    """Two bugs: yosys merged a platform's liberty files only when `dont_use_cells` was
     set, so a platform with an empty list (`sky130hs`) reached abc as several files, of which the
     script hands abc the first; and it ignored the platform's own dont-use list, which its
     description promised."""
@@ -192,7 +192,7 @@ def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
 
 
 def test_a_platform_alone_configures_everything_openroad_imposed(tmp_path, monkeypatch):
-    """Everything `openroad` used to hand its dependency follows from `platform` alone: the
+    """Everything `openroad` imposed on its dependency follows from `platform` alone: the
     merged library and the platform's dff library, the mapping files, tie and buffer cells,
     flattening, the abc script `optimize` selects with post-synthesis optimization, the abc
     constraints from the platform's driver cell and load, and a netlist without attributes."""
@@ -412,14 +412,14 @@ def _abc_failure(run_dir: Path) -> list[str]:
 
 
 def test_asap7_ss_hands_abc_the_same_inputs_standalone_and_under_openroad(tmp_path):
-    """PCD16's `platform=asap7 -s corner=SS` variant, with the real yosys and the real asap7
+    """The `platform=asap7 -s corner=SS` variant, with the real yosys and the real asap7
     libraries: `yosys` alone and `openroad`'s dependency hand abc identical inputs -- the merged
     library, the flip-flop library, the abc constraints and script -- and end alike.
 
-    Owner exception (2026-10-06): with this design the SS corner crashes yosys's ABC
+    Exception: with this design the SS corner crashes yosys's ABC
     (`Abc_NtkCheck ... A CI/CO pair share the name`, an assertion in `abcFanio.c`) on
     `origin/main` as well, so no netlist can be compared. Identical ABC inputs and an identical
-    failure are accepted as passing the R1 gate for this variant; the crash is recorded
+    failure are accepted as passing the comparison for this variant; the crash is recorded
     separately. If a yosys release fixes it, both sides must produce the same netlist instead."""
     require_yosys()
     if not ASAP7_PLATFORM or not Path(ASAP7_PLATFORM).is_file():

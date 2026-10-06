@@ -1,5 +1,5 @@
 """A successful run records each declared output it wrote -- inside its run directory, written by
-this very run -- with its content digest, in `results.json` (13-foundations S1/S2). A consumer is
+this very run -- with its content digest, in `results.json`. A consumer is
 handed an output only as that record names it, and only while the file still holds what the
 record says: for a producer that just ran and one reused from its `results.json` alike."""
 

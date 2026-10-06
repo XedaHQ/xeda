@@ -593,7 +593,7 @@ proc open_saif {path} {
     close $f
     return 1
 }
-# Synthetic xsim states using native Vivado 2024.2 forms measured in Task 8.
+# Synthetic xsim states using native Vivado 2024.2 forms measured on a real install.
 # A fixed-duration run advances even an empty queue; run all drains at its last event.
 set __xsim_time 0
 set __xsim_emitted 0

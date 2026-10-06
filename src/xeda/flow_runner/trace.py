@@ -7,7 +7,7 @@ completed and succeeded"; its content says with which settings, programs, inputs
 Its inputs are recorded as the run found them when it started (`trace_inputs.snapshot_inputs`),
 not as it left them: a file edited while the run was going on then no longer matches. Its outputs
 are every entry of the run directory (`run_directory_files`: files, links, directories), which
-is xeda's (D21); an entry that appears there later -- an empty directory too -- is a change. The
+is xeda's; an entry that appears there later -- an empty directory too -- is a change. The
 times a file's times are compared with are read from the run directory's file-system clock
 (`digest.filesystem_time_ns`), not the process clock.
 """
@@ -59,7 +59,7 @@ TRACE_FILE = "trace.json"
 #: 8: inputs include every file under a directory a setting names, each recorded as itself.
 #: 9: in a directory xeda does not manage, every file of what the run claimed is an output.
 #: 10: written paths are neither inputs nor bound by a location.
-#: 11: every run directory is xeda's (D21): its outputs are every file in it, and only the
+#: 11: every run directory is xeda's: its outputs are every file in it, and only the
 #: trace's own names are reserved.
 #: 12: programs are file records; listings hold directory entries and follow directory links;
 #: the reports a run read are recorded.
@@ -73,7 +73,7 @@ RESERVED_FILES = (TRACE_FILE, TRACE_FILE + ".tmp")
 
 class ProgramRecord(XedaBaseModel):
     """An executable a run started: where `PATH` found it, resolved, and the file there
-    (`record_file`, taken after the run: checked under the R38 trust rule, so an edit given back
+    (`record_file`, taken after the run: checked under the trust rule, so an edit given back
     its size and mtime is noticed, and a `touch` costs a hash, not a re-run); a container image
     by its ID, with no file. A program written while the run went on has an unknown file
     record, which never matches."""
@@ -193,7 +193,7 @@ class Trace(XedaBaseModel):
     #: artifacts outside it (`trace_inputs.output_files`)
     outputs: Dict[str, FileRecord] = {}
     #: the reports the run read inside its run directory (`Flow.report_file`), relative to it,
-    #: in POSIX form: removed before the next run executes (R50 j)
+    #: in POSIX form: removed before the next run executes
     reports: List[str] = []
     declared_inputs: list[DeclaredInputRecord] = []
 
@@ -403,7 +403,7 @@ def check_trace(
     if trace.flow != expected.flow:
         return Freshness(False, f"recorded for another flow: {trace.flow}")
     if trace.flowrun_hash != expected.flowrun_hash:
-        # The identity is settings plus input origins (D-9): say which of them moved.
+        # The identity is settings plus input origins: say which of them moved.
         rewired = changed_binding(trace.declared_inputs, expected.declared_inputs)
         if rewired is not None and trace.settings_hash == expected.settings_hash:
             return Freshness(False, rewired)

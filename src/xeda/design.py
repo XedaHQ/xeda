@@ -687,7 +687,7 @@ SOURCE_SUFFIXES: dict[str, tuple[SourceType, str | None]] = {
     "vlt": (SourceType.Vlt, None),
 }
 
-#: Suffixes that name several kinds of file (D14): a source with one needs its `type`. Each
+#: Suffixes that name several kinds of file: a source with one needs its `type`. Each
 #: lists the members it is most often, for the message.
 AMBIGUOUS_SUFFIXES: dict[str, tuple[SourceType, ...]] = {
     "json": (SourceType.JsonNetlist,),

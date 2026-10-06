@@ -389,7 +389,7 @@ def _recorded_output(flow_dir: Path, name: str) -> Path:
 def test_postsynth_sim_simulates_what_its_synthesis_registered(
     tmp_path, monkeypatch, timing_sim
 ) -> None:
-    """The declared inputs (PC Task 3) hand the simulation the very files the synthesis recorded
+    """The declared inputs hand the simulation the very files the synthesis recorded
     as its outputs: the functional netlist, or the timing netlist with its max-corner SDF."""
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
     use_fake_tools(monkeypatch)
@@ -440,10 +440,10 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     assert ["read_saif", "-verbose", str(activity)] in calls
 
 
-# --- the declared outputs (PC Task 2, R-PC-a) ---------------------------------------------------
+# --- the declared outputs ---------------------------------------------------
 
-#: Which declared output each switch turns on, on each flow (`41-plan-pc.md` 3.1a, read per
-#: flow: `vivado_alt_synth` writes one SDF corner and declares no `sdf_min`).
+#: Which declared output each switch turns on, on each flow (read per flow: `vivado_alt_synth`
+#: writes one SDF corner and declares no `sdf_min`).
 SWITCHED_OUTPUTS = {
     VivadoSynth: {
         "write_netlist": {"netlist"},
@@ -495,7 +495,7 @@ def test_each_flow_declares_the_outputs_the_plan_assigns_it(flow_class) -> None:
         for output in outputs
     }
     assert declared == expected
-    # one SDF corner for the alternative flow: `sdf_min` is `vivado_synth`'s alone (PCD18)
+    # one SDF corner for the alternative flow: `sdf_min` is `vivado_synth`'s alone
     assert ("sdf_min" in declared) == (flow_class is VivadoSynth)
 
 
@@ -504,7 +504,7 @@ def test_each_flow_declares_the_outputs_the_plan_assigns_it(flow_class) -> None:
 def test_each_switch_enables_exactly_the_outputs_the_plan_assigns_it(
     flow_class, switch, tmp_path, monkeypatch
 ) -> None:
-    """R-PC-a's table: `enabled_by` setting -> outputs, on both flows. The record is the run's
+    """The table: `enabled_by` setting -> outputs, on both flows. The record is the run's
     own: path inside the run directory, digest of the file as written."""
     flow = _run(flow_class, tmp_path, monkeypatch, **{switch: SWITCH_ON[switch]})
     recorded = _recorded_outputs(flow)

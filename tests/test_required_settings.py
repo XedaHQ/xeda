@@ -84,7 +84,7 @@ def test_a_device_supplied_through_a_producer_section_counts(design, tmp_path, m
 
 
 def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
-    """A declared producer's settings are written under its own section only (D-10): a flow's
+    """A declared producer's settings are written under its own section only: a flow's
     section is its own, and its producers' sections are theirs. The device given only for
     `yosys_fpga` reaches `nextpnr` along their declared edge, in the resolver."""
     from xeda.flow_runner.settings_layers import flow_settings_from_sections
@@ -100,8 +100,8 @@ def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
 
 
 def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_path, monkeypatch):
-    """The route that used to fail: `fpga` only in `[flows.yosys_fpga]`. `nextpnr` got past
-    no check -- yosys ran, then `nextpnr` died on `assert ss.fpga is not None`."""
+    """`fpga` given only in `[flows.yosys_fpga]` reaches `nextpnr`, which has no device of its
+    own: it must not die on a missing one after yosys has run."""
     from xeda.flows import Nextpnr
 
     monkeypatch.setenv("PATH", "")

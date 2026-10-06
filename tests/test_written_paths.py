@@ -1,4 +1,4 @@
-"""Every path a flow writes is declared, by a role (D21): a working location is a name inside
+"""Every path a flow writes is declared, by a role: a working location is a name inside
 the run directory; a deliverable is a name there or a location, which is delivered."""
 
 import typing
@@ -19,7 +19,7 @@ from .settings_samples import flow_classes, minimal_settings
 
 W, D = WORKING_ROLE, DELIVERABLE_ROLE
 
-#: (owner class, field) -> role: the table of plan 1b, Task 3. Every other path field is read.
+#: (owner class, field) -> role: the table of every written field. Every other path field is read.
 ROLES = {
     ("Flow.Settings", "reports_dir"): W,
     ("Flow.Settings", "outputs_dir"): W,
@@ -271,7 +271,7 @@ NESTED_DELIVERABLES = [("ghdl_sim", "cocotb.results_xml"), ("yosys_sim", "cxxrtl
 @pytest.mark.parametrize("flow, dotted", NESTED_DELIVERABLES)
 @pytest.mark.parametrize("given", ["mapping", "instance"])
 def test_pwd_in_a_plain_nested_model_is_a_location(tmp_path, flow, dotted, given):
-    """Opus I3: `-s cocotb.results_xml=$PWD/r.xml` names a location, as a flow's own setting
+    """`-s cocotb.results_xml=$PWD/r.xml` names a location, as a flow's own setting
     would: expanded, split into a delivery -- and the caller's model instance is not edited."""
     cls = _settings_of(flow)
     head, field = dotted.split(".")

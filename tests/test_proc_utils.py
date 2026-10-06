@@ -447,7 +447,7 @@ def test_the_time_limit_stops_the_process_tree(tmp_path):
     assert not marker.exists()
 
 
-# ---- fix round 1: the watchdog's lifecycle ---------------------------------------------------
+# ---- the watchdog's lifecycle ---------------------------------------------------
 import subprocess  # noqa: E402
 import threading  # noqa: E402
 
@@ -595,7 +595,7 @@ def test_non_group_cleanup_needs_no_sigkill(monkeypatch, stop):
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_interruption_signals_the_group_before_reaping_the_leader(monkeypatch):
-    """R29's recycled-group hazard applies to interruption cleanup as well as a timeout."""
+    """The recycled-group hazard applies to interruption cleanup as well as a timeout."""
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )
@@ -727,7 +727,7 @@ def test_a_docker_run_names_its_container_and_stops_it_when_stopped(monkeypatch,
     assert run_kwargs["timeout"] == 3
 
 
-# ---- fix round 2: the stop hook --------------------------------------------------------------
+# ---- the stop hook --------------------------------------------------------------
 _SLEEPER = ["-c", "import time; time.sleep(60)"]
 
 

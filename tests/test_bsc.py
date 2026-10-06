@@ -47,7 +47,7 @@ from .tool_utils import (
 # ---------------------------------------------------------------------------------------------
 
 #: A synthesized submodule in a package of its own: its Verilog is generated while compiling the
-#: package that imports it, which is what the old flow missed.
+#: package that imports it.
 ADDER_PKG = """package Accum;
 interface Accum_IFC;
   method Action add(Bit#(8) d);
@@ -221,8 +221,8 @@ def test_default_bsc_flags(tmp_path):
 
 
 def test_debug_does_not_change_the_generated_hardware(tmp_path):
-    """`debug` used to switch on `-keep-fires` and off `-remove-unused-modules` (and pass the
-    removed `-cross-info`): the Verilog a debug run generated was another design."""
+    """`debug` adds no flag that changes the generated hardware (`-keep-fires`,
+    `-remove-unused-modules`, `-cross-info`): a debug run generates the same design."""
     design = _accum_design(tmp_path / "d")
     plain = _flow(Bsc, design, tmp_path / "a")._compile_flags("verilog")
     debug = _flow(Bsc, design, tmp_path / "b", debug=True)._compile_flags("verilog")

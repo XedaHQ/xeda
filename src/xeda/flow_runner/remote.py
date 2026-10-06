@@ -162,12 +162,12 @@ def remote_read_inputs(
     run_path: Path,
     run_root: Path,
 ) -> ReadInputs:
-    """The inputs a remote run's deliveries protect (gpt-6-sol's final (c)): every file of its
+    """The inputs a remote run's deliveries protect every file of its
     graph this side can name -- the design's files, the design and project file given, and what
     the read settings name of the requested flow `flow_class`, as the launch uses them
     (`input_settings`: its section with the command line's settings over it, the dependencies'
     settings nested in it included; never its section as written, since what the command line
-    replaced there no flow of the run reads -- gpt-6-sol's re-check), and of every other flow's
+    replaced there no flow of the run reads), and of every other flow's
     section sent with the design (`flows.<name>`, the project's merged in) as written, since
     which dependencies the remote launches, and with what, is not known here. A file, or a
     directory with every entry under it, as a local launch registers them
@@ -210,10 +210,10 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: released one (no earlier release carried a marker), is: canonical resolved settings, relocated
 #: read inputs with their path identities, declared output records with checked hand-over,
 #: current-run evidence for simulations, the FPGA build graph (`fpga_pack`, a programming-only
-#: `openfpgaloader`), the D-9 identity rule (a node's `flow_hash` is its settings plus its ordered
+#: `openfpgaloader`), the identity rule (a node's `flow_hash` is its settings plus its ordered
 #: resolved input origins, which this side names the mirror by and compares with the remote's),
 #: the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC configuration, a
-#: bundled platform counted relative to xeda's installation (PCD23). Raised together with
+#: bundled platform counted relative to xeda's installation. Raised together with
 #: `xeda.REMOTE_PROTOCOL_VERSION` once per release cycle; development builds are not supported
 #: remotes.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
@@ -271,7 +271,7 @@ def check_remote_xeda(
     if found is None:
         raise RemoteIncompatible(
             f"{python} on the remote imports no xeda that can be used: upgrade the remote xeda "
-            f"to a P3-capable build (xeda {required}, including dev builds, or newer; remote "
+            f"to a build with remote protocol support (xeda {required}, including dev builds, or newer; remote "
             f"protocol {REMOTE_PROTOCOL_MIN_VERSION} or newer) for that "
             "interpreter (it is started by a non-login shell, so it may not be the one on your "
             "login PATH)"
@@ -284,7 +284,7 @@ def check_remote_xeda(
         raise RemoteIncompatible(
             f"{python} on the remote imports xeda {found} from {location} (remote protocol "
             f"{protocol}), which cannot run this xeda's request: upgrade the remote xeda to a "
-            f"P3-capable build (xeda {required}, including dev builds, or newer; remote protocol "
+            f"build with remote protocol support (xeda {required}, including dev builds, or newer; remote protocol "
             f"{REMOTE_PROTOCOL_MIN_VERSION} or newer). Remove that install if it shadows a newer "
             "install (it is started by a non-login shell, so it may not be the one on your login "
             "PATH)"
@@ -514,7 +514,7 @@ def send_design(
         with zipfile.ZipFile(zip_file, mode="r") as archive:
             archive.printdir()
 
-        log.info("Transfering design to %s in %s", conn.host, remote_path)
+        log.info("Transferring design to %s in %s", conn.host, remote_path)
         conn.put(zip_file, remote=remote_path)
         return zip_file.name, design_file.name
 
@@ -591,7 +591,7 @@ def remote_runner(
 
     # a run root of its own: the directory the archive was unpacked into holds its files
     run_root = str(Path.cwd() / "xeda_run")
-    # The P2a floor guarantees these settings: every run starts clean, in a directory named
+    # The protocol floor guarantees these settings: every run starts clean, in a directory named
     # by its settings (`clean` implies `rebuild_all`).
     launcher = DefaultRunner(
         run_root,
@@ -602,7 +602,7 @@ def remote_runner(
         clean=True,
     )
     # NOTE: this function's *source* is shipped to the remote host and executed
-    # there against a xeda satisfying the P2a protocol floor. Live output streaming is set up
+    # there against a xeda satisfying the protocol floor. Live output streaming is set up
     # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure
     # stdlib, no xeda involvement) -- see `RemoteRunner.run_remote`.
     try:
@@ -614,7 +614,7 @@ def remote_runner(
                 flow_settings=flow_settings,
             )
     except Exception:
-        # P1 records setup/dependency failures before re-raising. Return that document too;
+        # The launcher records setup/dependency failures before re-raising. Return that document too;
         # failures before a requested flow was constructed still surface as remote errors.
         f = launcher.launched[-1] if launcher.launched else None
         if f is None or f.name != flow or f.results.get("success") is not False:

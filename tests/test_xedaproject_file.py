@@ -65,7 +65,7 @@ flows:
 
 
 def test_a_toml_project_file_is_still_accepted(tmp_path):
-    """TOML stays supported (Y1): the same project, written as `xedaproject.toml`, is discovered
+    """TOML stays supported: the same project, written as `xedaproject.toml`, is discovered
     and loads to the same flows and design as the YAML one."""
     (tmp_path / TOML_PROJECT_FILE).write_text(TOML_DESIGN + "[flows.ghdl_sim]\nwarn_error = true\n")
     path = find_default_xedaproject(tmp_path)

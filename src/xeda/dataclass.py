@@ -1,4 +1,4 @@
-"""Interchangable dataclass abstraction"""
+"""Interchangeable dataclass abstraction"""
 
 from __future__ import annotations
 
@@ -260,7 +260,7 @@ def input_names(model: Type[BaseModel]) -> Dict[str, str]:
     return names
 
 
-#: The role of a setting whose paths a flow writes (D21), as a `json_schema_extra` marker: a
+#: The role of a setting whose paths a flow writes, as a `json_schema_extra` marker: a
 #: *working* location (its build or report directory, its log) is a name inside the run
 #: directory; a *deliverable* is a name there, or a location it is delivered to after the run
 #: (`xeda.deliver`). A path field without a role is read.
@@ -272,7 +272,7 @@ WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
 def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
     """The marker of a setting whose path is an output the user may want delivered, with its
     `conventional` name: what the run writes it as when the setting is given a location
-    (`{design}` stands for the design's name; plan 2's `outputs/<design>.<ext>`); None: the
+    (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
     setting's own default name."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:

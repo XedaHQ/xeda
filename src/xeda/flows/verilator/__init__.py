@@ -409,7 +409,7 @@ class Verilator(SimFlow):
             else:
                 args.append("--no-timing")
 
-        # supres unhelpful warnings
+        # suppress unhelpful warnings
         args += [
             "-Wno-DECLFILENAME",
         ]

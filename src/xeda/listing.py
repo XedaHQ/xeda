@@ -1,4 +1,4 @@
-"""The one walker of "every file under a directory" (R50 m): traces, directory listings, artifact
+"""The one walker of "every file under a directory": traces, directory listings, artifact
 files, delivery and the package digest all list with `directory_files`.
 
 Standard library only, so that every module that lists a directory can import it.

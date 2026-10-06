@@ -12,8 +12,8 @@ the fatal SV unit executed `$fatal`.
 This is an excerpt, not a complete vendor transcript. It establishes native
 finish/fatal reason and status spelling for that image. It contains no time,
 precision, std.env.stop, or Questa measurements. The new runtime/checkpoint
-fixtures and fake edition banners are synthetic. The Task 6 implementation
-machine had Docker stopped; these older measurements do not constitute fresh
+fixtures and fake edition banners are synthetic. The machine this was
+implemented on had Docker stopped; these older measurements do not constitute fresh
 proprietary capability validation.
 
 Native command contracts: Siemens ModelSim/Questa command reference, v2024.2,
