@@ -277,9 +277,9 @@ def test_docker_mounts_the_design_read_only_and_the_run_directory_read_write(mon
     )
     tool.run("arg", stdout=True)
     volumes = [a for a in commands[0] if a.startswith("--volume=")]
-    assert f"--volume={design_root}:{design_root}:ro,z" in volumes
-    assert f"--volume={design_root / 'rtl'}:{design_root / 'rtl'}:ro,z" in volumes
-    assert f"--volume={run_dir}:{run_dir}:z" in volumes
+    assert f"--volume={design_root}:{design_root}:ro" in volumes
+    assert f"--volume={design_root / 'rtl'}:{design_root / 'rtl'}:ro" in volumes
+    assert f"--volume={run_dir}:{run_dir}" in volumes
     assert tool.docker.mounts == {}
 
 
@@ -339,7 +339,7 @@ def test_docker_run_overrides_mount_the_design_read_only(docker_cls, monkeypatch
     run_dir.mkdir()
     monkeypatch.chdir(run_dir)
     docker_cls(image="img").run("some-tool", "--version", stdout=True, read_only=[design])
-    assert f"--volume={design}:{design}:ro,z" in commands[0]
+    assert f"--volume={design}:{design}:ro" in commands[0]
 
 
 def test_tool_output_redirect_is_none_by_default():
@@ -431,6 +431,50 @@ def test_tee_keeps_the_output_of_a_failed_process(tmp_path):
     with pytest.raises(NonZeroExitCode):
         run_process(sys.executable, ["-c", "print('why'); raise SystemExit(3)"], tee=log)
     assert log.read_text().splitlines() == ["why"]
+
+
+def test_a_tee_log_grows_while_the_process_runs(tmp_path):
+    """`tail -f` on a log shows a long run as it goes: the log has its own name from the start."""
+    log = tmp_path / "sim.log"
+    go = tmp_path / "go"
+    child = (
+        "import pathlib, time\n"
+        "print('first', flush=True)\n"
+        f"go = pathlib.Path({str(go)!r})\n"
+        "end = time.monotonic() + 30\n"
+        "while not go.exists() and time.monotonic() < end:\n"
+        "    time.sleep(0.05)\n"
+        "print('last', flush=True)\n"
+    )
+    done = threading.Thread(
+        target=run_process, args=(sys.executable, ["-c", child]), kwargs={"tee": log}
+    )
+    done.start()
+    try:
+        end = time.monotonic() + 20
+        while time.monotonic() < end and not (log.exists() and "first" in log.read_text()):
+            time.sleep(0.05)
+        seen = log.read_text() if log.exists() else None
+    finally:
+        go.write_text("")
+        done.join(timeout=30)
+    assert seen is not None and seen.splitlines() == ["first"]
+    assert log.read_text().splitlines() == ["first", "last"]
+    assert [p.name for p in tmp_path.iterdir() if p.name not in ("sim.log", "go")] == []
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs symbolic links")
+def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path):
+    """Whatever planted a link at the log's name after the run directory cleared it, the tool's
+    output does not reach the file the link names."""
+    target = tmp_path / "precious"
+    target.write_text("keep\n")
+    log = tmp_path / "sim.log"
+    log.symlink_to(target)
+    with pytest.raises(OSError):
+        run_process(sys.executable, ["-c", "print('out')"], tee=log)
+    assert target.read_text() == "keep\n"
+    assert log.is_symlink()
 
 
 @pytest.mark.skipif(

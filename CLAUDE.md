@@ -621,7 +621,10 @@ or they won't ship in the wheel.
 
 `run_process` and `Tool.run` take `timeout` (seconds; on expiry the process -- on POSIX its whole
 process group -- is stopped and `ProcessTimeout` raised; a Docker container is named and
-`docker kill`ed) and `tee` (a file the output is also copied to).
+`docker kill`ed) and `tee` (a file the output is also copied to, as each line arrives, at the
+file's own name: `utils.live_log` opens it with `O_NOFOLLOW` after `RunDirectory.writable` removed a link there -- the
+one write that is not complete-then-rename, since a log is meant to be watched; a dockerized tool mounts without `:z`
+and runs with `--security-opt label=disable`, so xeda never relabels the user's files).
 
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to

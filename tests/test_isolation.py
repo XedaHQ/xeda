@@ -1233,6 +1233,19 @@ REVIEWED_WRITES = [
         'with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:',
         "`replacing_file`: the temporary file `mkstemp` just created",
     ),
+    (
+        "utils.py",
+        "fd = os.open(target, flags, _CREATE_MODE)",
+        "`live_log`: a tool's log, written at its own name so that it can be watched while the run "
+        "goes on. The caller removed a link at the name (`RunDirectory.writable`), and `O_NOFOLLOW` "
+        "makes a link made since then an error, never a write through it. Tool logs only: every "
+        "other file is complete, then renamed",
+    ),
+    (
+        "utils.py",
+        'with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:',
+        "`live_log`: the descriptor it just opened",
+    ),
     ("utils.py", "return path.rename(backup_path)", "`backup_existing`: a rename, not a write"),
     (
         "deliver.py",

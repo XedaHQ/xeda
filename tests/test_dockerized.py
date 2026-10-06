@@ -208,6 +208,26 @@ def test_a_containerized_tool_gets_its_default_arguments_once(monkeypatch, tmp_p
     assert command[command.index("hdlc/impl:latest") + 1 :] == ["yosys", "-q", "-s", "script.ys"]
 
 
+def test_a_containerized_tool_never_relabels_the_users_files(monkeypatch, tmp_path) -> None:
+    """Not gated: the `docker run` command is captured, not run. `:z` makes Docker relabel the
+    mounted directory for SELinux, which changes the attributes of the user's own files. The
+    container runs without a label instead, so every mount is passed as it is."""
+    ran = []
+    monkeypatch.setattr(xeda.tool, "run_process", lambda cli, cmd, **kw: ran.append([cli, *cmd]))
+    monkeypatch.chdir(tmp_path)
+    design = tmp_path / "design"
+    design.mkdir()
+    docker = Docker(image="hdlc/impl", mounts={str(tmp_path / "cache"): "/cache"})
+    docker.run("yosys", read_only=[design])
+    (command,) = ran
+    volumes = [a for a in command if a.startswith("--volume=")]
+    assert len(volumes) == 3
+    assert all(":z" not in v and ",z" not in v and not v.endswith(":Z") for v in volumes), volumes
+    assert f"--volume={design}:{design}:ro" in volumes
+    option = command.index("--security-opt")
+    assert command[option + 1] == "label=disable"
+
+
 @pytest.mark.parametrize(
     "language, body, settings, passes",
     [

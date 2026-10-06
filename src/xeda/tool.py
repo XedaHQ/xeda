@@ -143,12 +143,13 @@ class Docker(XedaBaseModel):
             docker_args += ["--tty", "--interactive"]
         if self.platform:
             docker_args += ["--platform", self.platform]
-        selinux_perm = True
-        cap = ":z" if selinux_perm else ""
-        docker_args += [f"--volume={k}:{v}{cap}" for k, v in mounts.items()]
+        # SELinux: the container runs without a label (`label=disable`), never with the mounts
+        # relabeled (`:z`), which would change the attributes of the user's own files.
+        docker_args += ["--security-opt", "label=disable"]
+        docker_args += [f"--volume={k}:{v}" for k, v in mounts.items()]
         for directory in dict.fromkeys(str(Path(d)) for d in read_only):
             if directory not in mounts:  # the run directory, or a mount configured writable
-                docker_args.append(f"--volume={directory}:{directory}:ro{',z' if cap else ''}")
+                docker_args.append(f"--volume={directory}:{directory}:ro")
         env = {**self.default_env, **(env or {})}
         if env:
             env_file = cwd / f".{self.name}_docker.env"

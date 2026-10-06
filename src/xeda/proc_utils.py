@@ -21,7 +21,7 @@ from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 import colorama
 import psutil
 
-from .utils import ExecutableNotFound, NonZeroExitCode, replacing_file
+from .utils import ExecutableNotFound, NonZeroExitCode, live_log, replacing_file
 
 log = logging.getLogger(__name__)
 
@@ -346,9 +346,10 @@ def run_process(
     """Run `executable`; return its captured stdout when `stdout` is True.
 
     `timeout`: stop the process, and those it started, after this many seconds, raising
-    `ProcessTimeout`. `tee`: also write every line of the output to this file, through
-    `utils.replacing_file` with `keep_on_error=True`; the output is then not captured, so `tee`
-    with a `stdout` other than `None` is a `ValueError`.
+    `ProcessTimeout`. `tee`: also write every line of the output to this file, as the
+    line arrives (`utils.live_log`: at the file's own name, a link there is an error, never
+    followed); the output is then not captured, so `tee` with a `stdout` other than `None` is a
+    `ValueError`. The caller removes a link at the name first (`RunDirectory.writable`).
 
     `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
     called at most once, and only when xeda stopped the process: its time limit expired, or an
@@ -405,9 +406,7 @@ def run_process(
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
                 with contextlib.ExitStack() as stack:
                     tee_file = (
-                        stack.enter_context(
-                            replacing_file(tee, encoding="utf-8", keep_on_error=True)
-                        )
+                        stack.enter_context(live_log(tee, encoding="utf-8"))
                         if tee is not None
                         else None
                     )

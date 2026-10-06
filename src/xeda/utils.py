@@ -213,6 +213,25 @@ def replacing_file(
             Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
 
 
+@contextmanager
+def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator[IO[str]]:
+    """A tool's log, written at its own name from the start and flushed line by line, so that
+    `tail -f` shows a long run as it goes. This is the one write xeda does not make complete
+    and then rename: a log is meant to be watched while it grows, and a failed tool's partial
+    log is its diagnostic, kept as it stands.
+
+    The caller has located `path` in the run directory and removed a link there
+    (`RunDirectory.writable`). The file is opened without following a link at its name
+    (`O_NOFOLLOW`), so a link made since then is an error, never a write through it."""
+    target = Path(path)
+    if target.is_symlink():  # where `O_NOFOLLOW` does not exist
+        raise OSError(errno.ELOOP, "a log is never written through a symbolic link", str(target))
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(target, flags, _CREATE_MODE)
+    with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:
+        yield f
+
+
 #: The largest byte count one `copy_file_range` or `sendfile` call is asked for (the kernel
 #: clamps it anyway: `sendfile` to 0x7ffff000).
 _FAST_COPY_CHUNK = 1 << 30

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- A tool's log (`sim.log` and every other log a flow tees) is now written at its own name while
+  the run goes on, so `tail -f` shows a long simulation as it runs. It was complete only when
+  the run ended. The log is opened without following a symbolic link at its name; every other
+  file xeda writes is still complete, then renamed.
+- A dockerized run no longer relabels the design directory and the configured mounts for SELinux
+  (`:z`), which changed the attributes of your own files. The container now runs with
+  `--security-opt label=disable` and every mount as given.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
