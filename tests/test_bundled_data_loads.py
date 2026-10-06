@@ -69,8 +69,8 @@ def test_every_bundled_board_is_usable_as_a_flow_setting():
 
 @pytest.mark.parametrize("time_unit", ["1pF", "ps * 2", "0ps", "nS", "furlong"])
 def test_a_platform_time_unit_is_checked_when_it_loads(time_unit):
-    """A PDK's `time_unit` scales every delay OpenROAD reports; a bad one used to load and fail
-    only once a run rendered its SDC or parsed its reports."""
+    """A PDK's `time_unit` scales every delay OpenROAD reports; a bad one is an error at load, not
+    once a run renders its SDC or parses its reports."""
     from xeda.platforms.asics import AsicsPlatform
 
     platform = AsicsPlatform.from_resource("nangate45")

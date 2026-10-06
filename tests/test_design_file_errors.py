@@ -33,8 +33,8 @@ FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"
 #: name -> (file content, expected line, expected column); `None` where no position is known.
 MALFORMED = {
     "bad.toml": ('name = "bad"\n[rtl\nsources = ["sqrt.vhdl"]\n', 2, 5),
-    # one line: JSONDecodeError's lineno/colno are already 1-based, and adding 1 to them used to
-    # report "line 2, column 26" for this file, which has no second line
+    # one line: JSONDecodeError's lineno/colno are already 1-based, so the report is line 1,
+    # column 25 -- not a second line this file does not have
     "bad.json": ('{"name": "bad", "rtl": {', 1, 25),
     # a problem with no enclosing context: only the problem mark says where it is
     "bad.yaml": ("a: b: c\n", 1, 5),

@@ -43,7 +43,7 @@ def run_xeda(
     env = dict(os.environ)
     if fake_tools:
         env["PATH"] = str(FAKE_TOOLS_DIR) + os.pathsep + env.get("PATH", "")
-    # A narrow terminal is the case that used to truncate identifiers in the table output.
+    # A narrow terminal is the case that tempts the table output to truncate identifiers.
     env["COLUMNS"] = "80"
     return subprocess.run(
         [sys.executable, "-m", "xeda", *args],
@@ -113,7 +113,7 @@ def test_list_flows_json_reports_canonical_names_and_aliases():
 
 
 def test_list_settings_json_never_truncates_identifiers():
-    """The table used to render `set_synth_proper…`, which cannot be typed back into -s KEY=VALUE."""
+    """An identifier is never cut short (`set_synth_proper…`): it must be typeable into -s KEY=VALUE."""
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json").stdout)
     names = {f["name"] for f in info["fields"]}
     assert "set_synth_properties" in names
@@ -124,7 +124,7 @@ def test_list_settings_json_never_truncates_identifiers():
 def test_list_settings_includes_common_settings_and_aliases():
     info = json.loads(run_xeda("list-settings", "vivado_synth", "--json").stdout)
     by_name = {f["name"]: f for f in info["fields"]}
-    # settings shared by every flow used to be hidden entirely
+    # settings shared by every flow are listed too
     assert by_name["nthreads"]["common"] is True
     assert by_name["nthreads"]["alias"] == "ncpus"
     assert by_name["dockerized"]["common"] is True

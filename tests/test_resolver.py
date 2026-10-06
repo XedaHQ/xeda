@@ -571,7 +571,7 @@ def test_invalid_producer_output_contracts_fail_at_plan_time(
     from xeda.flow import In, Out
 
     class _UnsafeMaker(Flow):
-        """A producer used to check cardinality and full type coverage."""
+        """A producer whose outputs are checked for cardinality and full type coverage."""
 
         results_description: ClassVar[dict[str, str]] = {}
 

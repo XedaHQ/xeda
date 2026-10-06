@@ -192,7 +192,7 @@ def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
 
 
 def test_a_platform_alone_configures_everything_openroad_imposed(tmp_path, monkeypatch):
-    """Everything `openroad` used to hand its dependency follows from `platform` alone: the
+    """Everything `openroad` imposed on its dependency follows from `platform` alone: the
     merged library and the platform's dff library, the mapping files, tie and buffer cells,
     flattening, the abc script `optimize` selects with post-synthesis optimization, the abc
     constraints from the platform's driver cell and load, and a netlist without attributes."""

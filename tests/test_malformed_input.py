@@ -87,12 +87,13 @@ def test_malformed_top_level_design_keys_are_validation_errors():
 
 
 # ---------------------------------------------------------------------------------------------
-# Specific inputs that used to escape, each named so a regression points straight at its cause.
+# Specific inputs that once escaped as tracebacks, each named so a regression points straight at
+# its cause.
 # ---------------------------------------------------------------------------------------------
 
 
 def test_a_bare_part_number_is_accepted_as_the_fpga_setting():
-    """`fpga = "xc7a..."` is the documented shorthand, and it used to be rejected."""
+    """`fpga = "xc7a..."` is the documented shorthand, and it is accepted."""
     settings = YosysFpga.Settings(fpga="LFE5U-25F-6BG381C")  # type: ignore[arg-type]
 
     assert settings.fpga is not None
@@ -153,7 +154,7 @@ def test_a_design_root_that_is_not_a_path_is_a_design_error():
 
 
 def test_repeated_eat_all_option_accumulates():
-    """`-s a=1 -s b=2` used to keep only `b=2` -- click's default "store" action."""
+    """`-s a=1 -s b=2` keeps both, not only `b=2` as click's default "store" action would."""
 
     @click.command()
     @click.option("-s", "--settings", type=tuple, cls=OptionEatAll, default=tuple())

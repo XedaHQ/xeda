@@ -100,8 +100,8 @@ def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
 
 
 def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_path, monkeypatch):
-    """The route that used to fail: `fpga` only in `[flows.yosys_fpga]`. `nextpnr` got past
-    no check -- yosys ran, then `nextpnr` died on `assert ss.fpga is not None`."""
+    """`fpga` given only in `[flows.yosys_fpga]` reaches `nextpnr`, which has no device of its
+    own: it must not die on a missing one after yosys has run."""
     from xeda.flows import Nextpnr
 
     monkeypatch.setenv("PATH", "")

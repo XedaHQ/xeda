@@ -983,7 +983,7 @@ def test_a_failed_remote_run_keeps_only_the_artifacts_the_remote_vouched_for(vou
 
 def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remote_host):
     """With a real simulator: the testbench opens the file its `ROM` generic names, and writes
-    to the one `TRACE` names -- a path the remote made a place for, not a file that travelled."""
+    to the one `TRACE` names -- a path the remote made a place for, not a file that traveled."""
     require_ghdl()
     design_root = tmp_path / "design"
     design_root.mkdir()

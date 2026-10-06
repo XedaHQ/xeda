@@ -36,7 +36,7 @@ FLOW_IDS = [cls.name for cls in FLOW_CLASSES]
 
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_flow_has_its_own_description(flow_class):
-    """`xeda list-flows` used to show inherited base-class docstrings as flow descriptions."""
+    """A flow's description is its own docstring, never an inherited base-class one."""
     own_doc = flow_class.__dict__.get("__doc__")
     assert own_doc and own_doc.strip(), (
         f"{flow_class.__name__} has no docstring of its own, so `xeda list-flows` has nothing "

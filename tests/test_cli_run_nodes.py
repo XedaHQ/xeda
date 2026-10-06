@@ -71,7 +71,7 @@ def _states(document):
 
 
 def test_a_failed_launch_reports_the_nodes_that_ran(toys, design):
-    """A failure document used to carry `nodes: []`, dropping the dependency that ran."""
+    """A failure document lists the nodes that ran, the dependency included."""
     result, document = _run("toy_node_failing", str(design))
     assert result.exit_code != 0 and document["success"] is False
     assert document["error"]["type"] == "FlowFatalError"

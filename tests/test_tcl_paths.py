@@ -485,7 +485,7 @@ EVIL_FRAGMENTS = ("xeda_injected", "xeda_undefined", "{b}", ";c")
 def _evil_design(root: Path) -> Design:
     """A design whose tops, clock port, testbench instance, parameter and define values all
     carry `EVIL`. Its name is a plain one: a name is restricted by `Design` validation (see
-    `test_a_design_name_never_runs_as_tcl`), so it cannot carry any."""
+    `test_a_design_name_with_tcl_metacharacters_is_rejected`), so it cannot carry any."""
     root.mkdir(parents=True)
     (root / "top.vhd").write_text("-- a source\n")
     (root / "tb.vhd").write_text("-- a testbench\n")

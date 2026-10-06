@@ -113,8 +113,8 @@ def test_a_source_table_resolves_the_design_root_too(root, key, prefix):
     ],
 )
 def test_a_missing_source_file_is_a_validation_error_naming_it(root, section, source):
-    """It used to load, and fail only when a flow first read it -- after the run directory was
-    set up, as a bare `FileNotFoundError`."""
+    """A source that does not exist fails at load, not when a flow first reads it -- after the
+    run directory is set up, as a bare `FileNotFoundError`."""
     sections = {"rtl": {"sources": ["a.vhd"], "top": "a"}}
     sections[section] = {"sources": [source], "top": "t"}
     with pytest.raises(DesignValidationError, match=f"{section}.sources") as e:
@@ -220,8 +220,8 @@ def test_a_glob_expands_in_a_stable_order(root):
     ["sub/*.sv", "$DESIGN_ROOT/sub/*.sv", "nowhere/*.vhd", "sub/b*.sv"],
 )
 def test_a_glob_that_matches_nothing_is_an_error(root, pattern):
-    """A mistyped pattern used to contribute no sources at all and load successfully, so the
-    design reached a tool missing its top-level unit instead of naming the bad pattern."""
+    """A mistyped pattern is an error naming it, not a load that contributes no sources and
+    leaves a tool missing its top-level unit."""
     with pytest.raises(DesignValidationError, match="no file matches the source pattern") as e:
         Design(name="d", design_root=root, rtl={"sources": [pattern], "top": "b"})
     assert pattern in str(e.value)

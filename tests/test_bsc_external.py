@@ -22,7 +22,7 @@ Even when opted in, a missing or non-functional tool still skips (or, under
 designs are compiled and simulated, not another way to detect a tool.
 
 CI (`.github/workflows/ci.yml`) sets `XEDA_TESTS_EXTERNAL=1` for the latest Python version only:
-the flows' behaviour does not depend on the Python version, and the layer takes minutes. The
+the flows' behavior does not depend on the Python version, and the layer takes minutes. The
 slowest test, Piccolo's core (about a minute of bsc elaboration alone), is left out of CI too: it
 also needs `XEDA_TESTS_EXTERNAL_SLOW=1`.
 """

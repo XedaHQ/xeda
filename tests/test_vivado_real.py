@@ -117,7 +117,7 @@ def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc
 
 
 def test_vivado_alt_synth_reads_the_xdc_files_it_is_given(work_dir) -> None:
-    """`vivado_alt_synth` used to read its generated clock constraints only."""
+    """`vivado_alt_synth` reads the XDC files it is given, not only its generated clock constraints."""
     root = work_dir / "design"
     _write(root / "inv.v", INVERTER_V)
     _write(root / "top.vhd", TOP_VHD)

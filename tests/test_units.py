@@ -140,7 +140,7 @@ def test_the_case_check_holds_however_the_number_is_written(number, spelling, un
         convert_unit(f"{number}{spelling}", to_unit)
 
 
-#: Text that is not "<number>[<unit>]": expressions pint used to evaluate, malformed numbers,
+#: Text that is not "<number>[<unit>]": expressions pint would evaluate, malformed numbers,
 #: and a unit with no number. Each is a `ValueError`, never another exception, never a value.
 NOT_A_QUANTITY = [
     "5..5ns",  # was 2.5 ns (5. * .5)
@@ -263,15 +263,15 @@ def test_a_unit_specification_may_carry_a_scale(value, to_unit, from_unit, expec
 
 
 def test_a_quantity_string_keeps_its_own_unit_whatever_from_unit_says():
-    """`from_unit` is the unit of a bare number. Its scale used to be applied to a quantity
-    string too, so "5 ns" from a "10ps" `from_unit` came out as 50 ns."""
+    """`from_unit` is the unit of a bare number. Its scale is not applied to a quantity
+    string, so "5 ns" from a "10ps" `from_unit` is 5 ns, not 50 ns."""
     assert convert_unit("5 ns", "ns", from_unit="10ps") == pytest.approx(5.0)
     assert convert_unit("5 ns", "10ps", from_unit="1ns") == pytest.approx(500.0)
 
 
 @pytest.mark.parametrize("spec", ["ns * 2", "1/ns", "ns ns", "", " ", "0ps", "-1ps", "5", "nan"])
 def test_a_malformed_unit_specification_is_a_value_error(spec):
-    """A scale of 0 used to be ignored, and "ns * 2" silently read as "ns"."""
+    """A scale of 0 is not ignored, and "ns * 2" is not silently read as "ns"."""
     with pytest.raises(ValueError, match="unit"):
         convert_unit(5.0, spec, from_unit="nanosecond")
     with pytest.raises(ValueError, match="unit"):
