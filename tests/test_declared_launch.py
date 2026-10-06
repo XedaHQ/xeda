@@ -382,3 +382,45 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
     assert all(recorded[key] for key in ("design_hash", "flow_hash", "run_path", "timestamp"))
     assert not (first.run_path / "trace.json").exists()
     assert not (tmp_path / "out").exists()
+
+
+def test_power_diamond_enters_synthesis_once_with_the_union_of_outputs(tmp_path, monkeypatch):
+    """O-EQ3: direct checkpoint and transitive simulation demands share one producer."""
+    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+    from .tool_utils import fake_calls, launch_until_fresh, use_fake_tools
+
+    write_vivado_design(tmp_path)
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
+    runner = _runner(tmp_path)
+    launch = lambda: runner.run(
+        "vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS
+    )
+    power = launch()
+    assert power and power.succeeded
+    assert [flow.name for flow in runner.launched] == [
+        "vivado_synth",
+        "vivado_postsynth_sim",
+        "vivado_power",
+    ]
+    synth, simulation, _ = runner.launched
+    assert set(synth.results["outputs"]) == {
+        "netlist",
+        "netlist_timing",
+        "sdf",
+        "sdf_min",
+        "checkpoint_synth",
+        "checkpoint_route",
+    }
+    assert simulation.settings.timing_sim
+    assert set(simulation.results["outputs"]) == {"saif", "timing_saif"}
+    assert not any(key.startswith("sim.") for key in power.results)
+    assert power.inputs.activity == simulation.outputs.timing_saif
+    assert power.inputs.checkpoint == synth.outputs.checkpoint_route
+    assert len(list((tmp_path / "xeda_run").rglob("vivado_synth/settings.json"))) == 1
+    power = launch_until_fresh(runner, launch)
+    before = {flow.name: fake_calls(flow.run_path) for flow in runner.launched}
+    again = launch()
+    assert again.reused
+    assert all(flow.reused for flow in runner.launched)
+    assert {flow.name: fake_calls(flow.run_path) for flow in runner.launched} == before
