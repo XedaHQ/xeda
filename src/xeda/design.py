@@ -1264,6 +1264,11 @@ class ChiselGenerator(Generator):
     build_system: str = "mill"
     check: bool = True
 
+    def command_text(self, design_root: Optional[Path] = None) -> str:
+        if self.build_system == "bloop" and not self.project:
+            return self.name
+        return super().command_text(design_root)
+
     def run(self):
         if self.build_system == "mill":
             return self.run_mill()

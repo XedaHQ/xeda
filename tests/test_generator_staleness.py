@@ -1226,3 +1226,13 @@ def test_a_generator_without_an_executable_is_named_by_its_kind():
         ChiselGenerator(project="gcd", main="Main").describe(None)
         == "the generator (mill gcd.runMain Main)"
     )
+
+
+def test_bloop_without_a_project_is_named_by_its_kind():
+    from xeda.design import ChiselGenerator
+
+    generator = ChiselGenerator(build_system="bloop")
+
+    assert generator.execution_command() == ["bloop", "projects"]
+    assert generator.command_text() == "ChiselGenerator"
+    assert generator.describe("d") == "the generator of design 'd' (ChiselGenerator)"
