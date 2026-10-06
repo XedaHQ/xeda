@@ -675,6 +675,8 @@ class FlowLauncher:
         self._pending_clean_ups: List[Tuple[Flow, Path, Path, RunDirPolicy]] = []
         #: the run directories the current launch has entered
         self._claims: set[Path] = set()
+        #: how many flows `launched` held when the current launch began
+        self._launched_before = 0
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -979,6 +981,7 @@ class FlowLauncher:
         top_level = self._launch_depth == 0
         if top_level:
             self._claims = set()
+            self._launched_before = len(self.launched)
             self._planned_completed = {}
             self._completed_runs = {}
             # every file a flow of this launch reads, registered as each flow is launched
@@ -1049,6 +1052,15 @@ class FlowLauncher:
                 log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
                 first_error = first_error or e
         return first_error
+
+    def _entered(self, run_path: Path) -> bool:
+        """Whether this launch built a flow for `run_path`, so that the `results.json` there is
+        its own and not one an earlier launch left."""
+        where = Path(os.path.abspath(run_path))
+        return any(
+            Path(os.path.abspath(f.run_path)) == where
+            for f in self.launched[self._launched_before :]
+        )
 
     def _claim_run_dir(self, run_path: Path) -> None:
         """Record that this launch entered `run_path`. The plan has one node per flow, so a
@@ -1499,10 +1511,13 @@ class FlowLauncher:
                     except DeliveryError:
                         raise  # a refusal made before the producer's tool ran: not its failure
                     except Exception as error:
-                        results = producer_node.run_path / "results.json"
                         raise FlowDependencyFailure(
                             f"dependency {producer_node.name} failed: {error}"
-                            + (f"; see {results}" if results.is_file() else "")
+                            + (
+                                f"; see {producer_node.run_path / 'results.json'}"
+                                if self._entered(producer_node.run_path)
+                                else ""
+                            )
                         ) from error
                     self._planned_completed[key] = producer
                 if not producer.succeeded:

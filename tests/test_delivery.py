@@ -30,7 +30,7 @@ from xeda.deliver import (
     delivery_record,
 )
 from xeda.digest import RACY_NS
-from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
+from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
@@ -858,6 +858,23 @@ def test_a_producer_s_refused_destination_is_the_launch_s_own_error(world):
     with pytest.raises(OutputExistsError, match="net.v"):
         _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
     assert RUNS == []
+
+
+def test_a_producer_refused_before_it_is_entered_names_no_results_of_an_earlier_launch(world):
+    """The results.json of an earlier launch is not this launch's: a failure message that names
+    one would send the reader to the wrong document."""
+    assert _launch(world, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
+    producer = world.root / "d" / _Deliverer.name
+    earlier = producer / "b" / "n.v"
+    assert earlier.is_file() and (producer / "results.json").is_file()
+    with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
+        _launch(
+            world,
+            DefaultRunner(world.root, display_results=False),
+            flow=_Wrapper,
+            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+        )
+    assert "results.json" not in str(refused.value)
 
 
 def test_an_output_changed_after_its_run_is_not_delivered(world):
