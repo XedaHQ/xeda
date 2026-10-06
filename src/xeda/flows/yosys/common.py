@@ -362,7 +362,7 @@ class YosysBase(Flow):
             False,
             description="Run a simple static timing analysis (implies `flatten`)",
         )
-        post_synth_opt: bool = Field(
+        post_synth_opt: Optional[bool] = Field(
             False,
             description="run additional optimization steps after synthesis if complete",
         )
@@ -530,8 +530,9 @@ class YosysBase(Flow):
             value = getattr(ss, name, None)
             if value:
                 setattr(ss, name, self.normalize_path_to_design_root(value))
-        if hasattr(ss, "other_maps"):
-            ss.other_maps = [self.normalize_path_to_design_root(p) for p in ss.other_maps]
+        other_maps = getattr(ss, "other_maps", None)
+        if other_maps is not None:
+            setattr(ss, "other_maps", [self.normalize_path_to_design_root(p) for p in other_maps])
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:

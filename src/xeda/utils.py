@@ -65,6 +65,7 @@ __all__ = [
     "unique",
     "rebuild_like",
     "location_free",
+    "location_roots",
     # str utils
     "camelcase_to_snakecase",
     "snakecase_to_camelcase",
@@ -395,18 +396,69 @@ def rebuild_like(container: Any, items: List[Any]) -> Any:
     return list(items)
 
 
+#: This installation's package directory: a path under it is xeda's own file, the same on every
+#: installation, so a run's identity counts it relative to it (`$XEDA/...`, PCD23), as it counts
+#: a path under the design root relative to that. A module attribute, read at each call.
+XEDA_PACKAGE_ROOT = Path(__file__).absolute().parent
+
+
+def location_roots(
+    design_root: Optional[os.PathLike | str] = None, runner_cwd: Optional[os.PathLike | str] = None
+) -> list[tuple[str, Path]]:
+    """The roots a run's identity counts paths relative to (`location_free`), most specific
+    first: the design root, the directory xeda was started from, and xeda's own installation."""
+    roots = [
+        (var, Path(root).absolute())
+        for var, root in (
+            ("DESIGN_ROOT", design_root),
+            ("PWD", runner_cwd),
+            ("XEDA", XEDA_PACKAGE_ROOT),
+        )
+        if root is not None
+    ]
+    # Specificity is the place's own depth, so a root written as a short link to a deep directory
+    # still outranks a shallower one it lies in; the written depth only breaks a tie.
+    roots.sort(
+        key=lambda var_root: (
+            len(Path(os.path.realpath(var_root[1])).parts),
+            len(var_root[1].parts),
+        ),
+        reverse=True,
+    )
+    return roots
+
+
+def _spellings(path: PurePath) -> list[PurePath]:
+    """`path` as written, then as the file system resolves it, when that differs: one place
+    reached through a symbolic link (a linked prefix, macOS's `/tmp`) has two spellings."""
+    if not path.is_absolute():
+        return [path]
+    resolved = PurePath(os.path.realpath(path))
+    return [path] if resolved == path else [path, resolved]
+
+
 def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
-    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``."""
+    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``.
+
+    A root and a path are each recognized as written and as resolved. `roots` are tried in order,
+    most specific first, and the first one holding the path under any spelling of either names it:
+    a place reached through a symbolic link counts as the same place however it is spelled."""
     if isinstance(value, dict):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
     if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
-        path = PurePath(value)
+        spellings = _spellings(PurePath(value))
+        # The roots are tried in the order given (most specific first), each against every
+        # spelling of the path: the first root that holds the place at all names it, however
+        # the place is written. Spellings in the outer loop let a less specific root claim one
+        # spelling of a path that a more specific root holds under the other.
         for var, root in roots:
-            if path.is_relative_to(root):
-                relative = path.relative_to(root).as_posix()
-                return f"${var}" if relative == "." else f"${var}/{relative}"
+            for root_spelling in _spellings(root):
+                for path in spellings:
+                    if path.is_relative_to(root_spelling):
+                        relative = path.relative_to(root_spelling).as_posix()
+                        return f"${var}" if relative == "." else f"${var}/{relative}"
     return value
 
 

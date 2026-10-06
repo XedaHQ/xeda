@@ -6,12 +6,12 @@ from .flow_runner import DefaultRunner, Dse, FlowRunner
 from .tool import Tool
 from .version import __version__
 
-# P2a remote archive, P1b launch contract, P2b's FPGA graph (`fpga_pack`, and an `openfpgaloader`
-# that only programs) and P3's node identity (D-9: a node's identity is its settings plus its
-# ordered resolved input origins), and the declared outputs of `vivado_synth` and `vivado_alt_synth`
-# with their `write_timing_netlist` setting. Keep this on the imported package so the probe cannot
-# mistake another distribution's version metadata for this checkout's capabilities.
-REMOTE_PROTOCOL_VERSION = 7
+# What a remote must understand of this side's requests (`flow_runner.remote`, which describes
+# protocol 1); no released xeda before it carried a marker. Raised together with
+# `REMOTE_PROTOCOL_MIN_VERSION` once per release cycle, never between releases. Keep this on the
+# imported package so the probe cannot mistake another distribution's version metadata for this
+# checkout's capabilities.
+REMOTE_PROTOCOL_VERSION = 1
 
 __all__ = [
     "FPGA",

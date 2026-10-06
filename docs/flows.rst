@@ -78,7 +78,10 @@ places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, n
 ``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
 ``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` asks that flow for timing activity, which
 switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. Only ``openroad`` still
-launches its dependency itself.
+launches its dependency itself. Its synthesis is configured in the design's or project's ``flows.yosys``
+section (``optimize``, ``abc_driver_cell``, ...): ``yosys`` derives everything else from the
+``platform`` the two share. Until ``openroad`` declares its input, ``-s flows.yosys.*`` is not
+accepted with ``xeda run openroad``.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
@@ -161,7 +164,10 @@ Output paths are set by the flow, verified and recorded with content digests in 
 Consumers get only those checked records, for newly run and reused producers alike.
 
 Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-``prjxray_db``, where both endpoints declare them -- must agree. Leaves given on one node
+``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, where both endpoints declare them --
+must agree. A ``platform`` is one value, compared by what it describes (a bundled name and the path
+to that platform's ``config.toml`` agree) and handed on whole; a ``corner`` is compared by the
+corner it selects. Leaves given on one node
 apply to both; disjoint leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
 project and ``flows.yosys_fpga.fpga.part`` in a design, fail before anything runs, naming both
 files and sections. A command-line leaf (``-s fpga.part=...`` or

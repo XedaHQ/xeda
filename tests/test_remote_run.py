@@ -38,7 +38,7 @@ from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 from xeda.xedaproject import PROJECT_FILE_NAMES
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
-from .tool_utils import require_ghdl
+from .tool_utils import require_ghdl, require_yosys
 
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
@@ -390,32 +390,36 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
 @pytest.mark.parametrize(
     "version,protocol,flow_name,flow_settings",
     [
-        ("0.4.3", 0, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
-        ("0.4.4.dev1", 2, "ghdl_sim", None),
-        ("0.4.4.dev1", 3, "fpga_pack", ["fpga.part=LFE5U-25F-6BG381C"]),
-        ("0.4.4.dev1", 4, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
-        # protocol 5 predates D-9's node identity: its `flow_hash` for the same request differs
-        # from this side's, so it must be refused here, not accepted and failed on a mirror hash
-        ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
-        ("0.4.4.dev1", 5, "ghdl_sim", None),
-        # protocol 6 predates the declared outputs of the Vivado synthesis flows and their
-        # `write_timing_netlist` setting: it would refuse the setting or resolve another identity
-        ("0.4.4.dev1", 6, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
-        ("0.4.4.dev1", 6, "ghdl_sim", None),
+        # a release before protocol 1 carries no marker: the probe reports protocol 0, and its
+        # `flow_hash` for the same request differs from this side's, so it is refused here, not
+        # accepted and failed on a mirror hash
+        ("0.4.3", None, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
+        ("0.4.4", None, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
+        ("0.4.4", None, "yosys", ["platform=nangate45", "clock.period=2.0"]),
+        ("0.4.4", None, "ghdl_sim", None),
+        # a marker lower than this side's floor
+        ("0.4.5", 0, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     tmp_path, remote_host, monkeypatch, version, protocol, flow_name, flow_settings
 ):
-    """Reject a pre-P2a release or a remote of an older protocol before shipping the design."""
+    """Reject a release without the protocol marker, or one of a lower protocol, before shipping
+    the design."""
+    marker = (
+        "del xeda.REMOTE_PROTOCOL_VERSION\n"
+        if protocol is None
+        else f"xeda.REMOTE_PROTOCOL_VERSION = {protocol}\n"
+    )
     monkeypatch.setattr(
         remote_module,
         "REMOTE_PROBE",
         "import xeda\n"
         "from importlib import metadata\n"
         f"xeda.__version__ = {version!r}\n"
-        f"xeda.REMOTE_PROTOCOL_VERSION = {protocol}\n"
-        f"metadata.version = lambda name: {version!r}\n" + remote_module.REMOTE_PROBE,
+        + marker
+        + f"metadata.version = lambda name: {version!r}\n"
+        + remote_module.REMOTE_PROBE,
     )
     shipped = []
     closed = []
@@ -446,13 +450,13 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
         )
     assert version in str(raised.value)
     assert "P3" in str(raised.value)
-    assert f"remote protocol {protocol}" in str(raised.value)
-    assert "remote protocol 7 or newer" in str(raised.value)
+    assert f"remote protocol {protocol or 0}" in str(raised.value)
+    assert "remote protocol 1 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P3 remote (protocol 7), including this branch's dev builds.
+#: The archive accepted by a protocol-1 remote.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
@@ -1878,3 +1882,90 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
     if flow_name == "vivado_power":
         assert "Total On-Chip Power (W)" in results
         assert not any(key.startswith("sim.") for key in results)
+
+
+# ------------------------------------------- O-RI1 (b): a bundled platform on another install
+
+
+def _remote_runner_installed_elsewhere(channel, **kwargs):
+    """The worker of a remote whose xeda is installed at another prefix: its bundled platforms,
+    and its own package directory, are a copy under the remote's run directory. execnet ships
+    this function's source alone, so it imports what it uses."""
+    import shutil
+    from pathlib import Path
+
+    import xeda
+    import xeda.platforms.platform
+    import xeda.utils
+    from xeda.flow_runner.remote import remote_runner
+
+    import gzip
+
+    package = Path(kwargs["remote_path"]).parent / "elsewhere" / "site-packages" / "xeda"
+    if not package.exists():
+        shutil.copytree(
+            Path(xeda.__file__).parent / "platforms" / "nangate45",
+            package / "platforms" / "nangate45",
+        )
+        # this installation's own library is no liberty at all: a run that read it, rather
+        # than the copy it is sent, fails
+        for lib in (package / "platforms" / "nangate45" / "lib").glob("*.lib.gz"):
+            with gzip.open(lib, "wt") as f:
+                f.write("not a liberty library\n")
+    xeda.utils.XEDA_PACKAGE_ROOT = package
+    xeda.platforms.platform.files = {"xeda.platforms": package / "platforms"}.get
+    remote_runner(channel, **kwargs)
+
+
+@pytest.mark.parametrize("remote", ["same install", "another install", "symlinked remote home"])
+def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
+    tmp_path, remote_host, monkeypatch, remote
+):
+    """O-RI1 (b), PCD23: `--remote yosys -s platform=nangate45` is accepted by a remote whose
+    xeda is installed under another prefix, as every remote on another machine is: the remote's
+    `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
+    even from the same installation: the platform's per-corner liberty files reached the remote
+    as unexpanded `$DESIGN_ROOT/...` text, which named no shipped file.) The other installation's
+    own library is unusable, so the run passes only on the copy it is sent. A remote whose run
+    directory is reached through a symbolic link (a linked HOME; macOS's `/tmp`) resolves its
+    design root to the physical path, which the identities of the shipped files must still
+    find."""
+    require_yosys()
+    if remote == "another install":
+        monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_installed_elsewhere)
+    if remote == "symlinked remote home":
+        link = tmp_path / "linked_home"
+        link.symlink_to(remote_host, target_is_directory=True)
+        login_env = remote_module.get_login_env
+        monkeypatch.setattr(
+            remote_module, "get_login_env", lambda conn: {**login_env(conn), "HOME": str(link)}
+        )
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "mac.v").write_text(
+        "module mac(input clk, input [7:0] a, b, output reg [15:0] q);\n"
+        "  always @(posedge clk) q <= a * b;\nendmodule\n"
+    )
+    design = Design(
+        name="mac",
+        design_root=root,
+        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = ["platform=nangate45", "clock.period=2.0"]
+    expected = runner.plan("yosys", design, flow_settings=settings).node("yosys").flowrun_hash
+    results = runner.run_remote(design, "yosys", "fake", flow_settings=settings)
+    assert results and results["success"], results
+    assert results["flow_hash"] == expected
+    # the remote reads the platform it is sent (relocated under its run directory), whatever
+    # its own installation holds; its identity names neither place
+    remote_settings = json.loads(
+        (_remote_run_dir(remote_host, "yosys") / "settings.json").read_text()
+    )
+    assert (
+        Path(remote_settings["flow_settings"]["platform"]["root_dir"])
+        .resolve()
+        .is_relative_to(remote_host.resolve())
+    )
+    netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
+    assert "_X1 " in netlist or "_X2 " in netlist

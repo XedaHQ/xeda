@@ -3,43 +3,20 @@ import logging
 import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from typing import Annotated, List, Literal, Optional, Union
+from typing import Annotated, List, Optional, Union
 
 from importlib_resources import as_file, files
 
 from ...dataclass import WORKING, Field, deliverable, field_validator, model_validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
-from ...flows.yosys import HiLoMap, Yosys, preproc_libs
+from ...flows.yosys import Yosys, preproc_libs
 from ...platforms import AsicsPlatform
 from ...tool import ExecutableNotFound, Tool
 from ...units import convert_unit
 from ...utils import replacing_copy, replacing_file, try_convert, unique
 
 log = logging.getLogger(__name__)
-
-
-def abc_opt_script(opt: Optional[str]) -> Optional[str]:
-    """The abc mapping script for `optimize`, as the `abc_script` setting of `Yosys` takes it.
-
-    The scripts are OpenROAD-flow-scripts' `abc_area.script` and `abc_speed.script`, written
-    inline (``+cmd;cmd;...``, which `Yosys.Settings` adapts for `abc -script`). `None` keeps
-    yosys's own default mapping script.
-    """
-    if opt is None:
-        return None
-    if opt == "area":
-        scr = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
-    else:
-        scr = [
-            # fmt: off
-            "&get -n", "&st", "&dch", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
-            "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2",
-            "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
-            "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "buffer -c", "topo", "stime -c",
-            # fmt: on
-        ]
-    return "+" + ";".join([*scr, "upsize -c", "dnsize -c"])
 
 
 def format_value(v, precision=3) -> Optional[str]:
@@ -70,7 +47,13 @@ def embrace(s):
 class Openroad(AsicSynthFlow):
     """OpenROAD open-source ASIC synthesis flow"""
 
-    merged_lib_file = "merged.lib"  # used by Yosys and floorplan (restructure)
+    merged_lib_file = "merged.lib"  # used by floorplan (restructure)
+
+    required_settings = {
+        "platform": "the ASIC platform: a bundled platform's name with `-s platform=<name>` (see "
+        "`xeda list-platforms`) or the path to a platform's config.toml; in the design file, as "
+        "`platform` in its `[flows.{flow}]` section"
+    }
 
     results_description = describe_results(
         "Fmax",
@@ -85,7 +68,16 @@ class Openroad(AsicSynthFlow):
     )
 
     class Settings(AsicSynthFlow.Settings):
-        platform: AsicsPlatform = Field(
+        #: what `openroad` had only to hand to its synthesis: yosys's own settings now
+        removed_settings = {
+            **AsicSynthFlow.Settings.removed_settings,
+            **{
+                name: f"`flows.yosys.{name}`"
+                for name in ("optimize", "abc_driver_cell", "abc_load_in_ff")
+            },
+        }
+        platform: Optional[AsicsPlatform] = Field(
+            None,
             description="ASIC platform (PDK) to target: a bundled platform name (see "
             "`xeda list-platforms`) or the path to a platform config.toml.",
         )
@@ -135,21 +127,6 @@ class Openroad(AsicSynthFlow):
             description="Directory, relative to the run directory, where OpenROAD writes its "
             "output files.",
             json_schema_extra=WORKING,
-        )
-        optimize: Optional[Literal["speed", "area"]] = Field(
-            "area",
-            description="Optimization target of synthesis: selects OpenROAD-flow-scripts' abc "
-            "mapping script for it. `null` keeps yosys's default script and skips post-synthesis "
-            "optimization.",
-        )
-        abc_load_in_ff: Optional[float] = Field(
-            None,
-            description="Wire load ABC assumes, in units of flip-flop input capacitance. Overrides "
-            "the platform value.",
-        )
-        abc_driver_cell: Optional[int] = Field(
-            None,
-            description="Cell ABC assumes drives the primary inputs. Overrides the platform value.",
         )
         write_metrics: Optional[Path] = Field(
             Path("metrics.json"),
@@ -371,6 +348,10 @@ class Openroad(AsicSynthFlow):
         @model_validator(mode="after")
         def _select_platform_corner(self):
             if self.corner:
+                if self.platform is None:
+                    raise ValueError(
+                        "`corner` selects one of a platform's corners: give `platform` too"
+                    )
                 corner = self.corner[0] if isinstance(self.corner, list) else self.corner
                 self.platform.select_corner(corner)
             return self
@@ -386,27 +367,17 @@ class Openroad(AsicSynthFlow):
         """Resolve platform corners and register synthesis dependencies."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        assert ss.platform is not None, "checked at launch (`required_settings`)"
         if len(ss.platform.corner) < 2:
             ss.multi_corner = False
-
-        yosys_settings = Yosys.Settings(
-            clocks=ss.clocks,
-            flatten=True,
-            black_box=ss.blocks,
-            # `optimize` is OpenROAD's own setting: it reaches yosys as the abc mapping script
-            # it selects, plus post-synthesis optimization. Yosys has no such setting of its own.
-            post_synth_opt=ss.optimize is not None,
-            abc_script=abc_opt_script(ss.optimize),
-            abc_constr=[
-                f"set_driving_cell {ss.abc_driver_cell or ss.platform.abc_driver_cell}",
-                f"set_load {ss.abc_load_in_ff if ss.abc_load_in_ff is not None else ss.platform.abc_load_in_ff}",
-            ],
-            netlist_attrs=False,
-            netlist_hex=False,
-            netlist_dec=False,
-            netlist_blackboxes=False,
-            # systemverilog="slang",
-        )  # pyright: ignore
+        # Everything synthesis needs, yosys derives from the platform and its own settings
+        # (`flows.yosys`): handed on are only the settings the two flows share.
+        shared: dict = dict(clocks=ss.clocks, black_box=ss.blocks, platform=ss.platform)
+        if ss.corner:
+            shared["corner"] = ss.corner
+        if ss.dont_use_cells:
+            shared["dont_use_cells"] = list(ss.dont_use_cells)
+        yosys_settings = Yosys.Settings(**shared)
 
         if not ss.copy_platform_files:
             ss.platform = ss.platform.with_absolute_paths()
@@ -435,18 +406,13 @@ class Openroad(AsicSynthFlow):
 
         my_lib_dir = Path("lib")
         my_lib_dir.mkdir(exist_ok=True)
-        copy_resources = []
         orig_libs = []
-        dff_lib_file = None
         corner = ss.platform.default_corner_settings
         orig_libs += corner.lib_files
         if corner.dff_lib_file:
             src = ss.platform.root_dir / corner.dff_lib_file
             dst = my_lib_dir / src.name
             replacing_copy(src, self.run_directory.writable(dst))
-            copy_resources.append(str(dst))
-        assert ss.platform.default_corner_settings
-        dff_lib_file = ss.platform.default_corner_settings.dff_lib_file
         orig_libs = unique(orig_libs)
         for lib in orig_libs:
             src = ss.platform.root_dir / lib
@@ -461,35 +427,12 @@ class Openroad(AsicSynthFlow):
             use_temp_folder=not ss.debug,
             run_directory=self.run_directory,
         )
-        yosys_libs = [self.merged_lib_file]
-        if dff_lib_file:
-            yosys_settings.dff_liberty = Path(dff_lib_file).absolute()
-        copy_resources += yosys_libs
-        yosys_settings.liberty = [Path(lib).absolute() for lib in yosys_libs]
-        yosys_settings.adder_map = ss.platform.adder_map_file
-        yosys_settings.clockgate_map = ss.platform.clkgate_map_file
-        yosys_settings.other_maps = [path for path in (ss.platform.latch_map_file,) if path]
-        if (
-            ss.platform.tiehi_cell
-            and ss.platform.tiehi_port
-            and ss.platform.tielo_cell
-            and ss.platform.tielo_port
-        ):
-            yosys_settings.hilomap = HiLoMap(
-                hi=(ss.platform.tiehi_cell, ss.platform.tiehi_port),
-                lo=(ss.platform.tielo_cell, ss.platform.tielo_port),
-            )
-        if ss.platform.min_buf_cell:
-            yosys_settings.insbuf = (
-                ss.platform.min_buf_cell,
-                ss.platform.min_buf_ports[0],
-                ss.platform.min_buf_ports[1],
-            )
-        self.add_dependency(Yosys, yosys_settings, copy_resources)
+        self.add_dependency(Yosys, yosys_settings)
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        assert ss.platform is not None, "checked at launch (`required_settings`)"
         ss.results_dir.mkdir(exist_ok=True, parents=True)
         ss.checkpoints_dir.mkdir(exist_ok=True, parents=True)
 
@@ -664,6 +607,7 @@ class Openroad(AsicSynthFlow):
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        assert ss.platform is not None, "checked at launch (`required_settings`)"
         last_log = self.artifacts.logs[-1]
         time_unit = ss.platform.time_unit
         results = self.parse_regex(

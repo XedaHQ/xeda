@@ -54,7 +54,19 @@ from .settings_layers import (
 )
 from .trace import as_recorded
 
-SHARED_SETTINGS = ("fpga", "board", "custom_boards_file", "clocks", "prjxray_db")
+SHARED_SETTINGS = (
+    "fpga",
+    "board",
+    "custom_boards_file",
+    "clocks",
+    "prjxray_db",
+    "platform",
+    "corner",
+    "dont_use_cells",
+)
+#: Shared settings that are one value, compared and propagated whole -- never split into
+#: leaves and merged key by key with another node's (PCD17): a platform is a model.
+INDIVISIBLE_SETTINGS = ("platform",)
 ORIGIN_NAMES = ("the project file", "the design file", "the command line")
 log = logging.getLogger(__name__)
 
@@ -451,10 +463,42 @@ def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
     return components
 
 
+#: one node's contribution to a shared setting at one leaf: the value it propagates, the key
+#: it is compared by (PCD17: the same value for every leaf but `platform` and `corner`), and
+#: where it was given
+_Leaf = tuple[Any, Any, "_Location"]
+
+
+def _platform_key(platform: Any) -> Any:
+    """What a platform is compared by: its validated model, every path in it written relative
+    to its resolved root (one outside the root as itself), together with that root. Two
+    spellings of one platform -- a bundled name and the path to its `config.toml` -- compare
+    equal; two models that share a name and a root but differ anywhere do not."""
+    if platform is None:
+        return None
+    root = Path(platform.root_dir).resolve()
+
+    def located(value: Any) -> Any:
+        if isinstance(value, Path):
+            path = (value if value.is_absolute() else root / value).resolve()
+            return (
+                ("root", path.relative_to(root).as_posix())
+                if path.is_relative_to(root)
+                else ("path", str(path))
+            )
+        if isinstance(value, Mapping):
+            return {key: located(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [located(item) for item in value]
+        return value
+
+    return (str(root), located(platform.model_dump(exclude={"root_dir"})))
+
+
 def _normalized_leaves(
     request: _Request, shared: str, context: dict[str, Any]
-) -> dict[tuple[str, ...], tuple[Any, _Location]]:
-    result = {}
+) -> dict[tuple[str, ...], _Leaf]:
+    result: dict[tuple[str, ...], _Leaf] = {}
     if shared == "clocks":
         clocks = request.raw.values.get("clocks", {})
         if not isinstance(clocks, Mapping):
@@ -467,6 +511,21 @@ def _normalized_leaves(
                     PhysicalClock.model_validate(raw_clock)
                 except ValueError as error:
                     raise _error(request.cls, f"clocks.{name}", str(error)) from error
+    if shared in INDIVISIBLE_SETTINGS:
+        # one value, wherever its parts were given: located at the most specific of them
+        rank = {"file": 0, "cli": 1, "api": 2}
+        given = [loc for path, loc in request.raw.locations.items() if path and path[0] == shared]
+        value = request.raw.values.get(shared)
+        if not given or value is None or value == {}:
+            return result
+        loc = max(given, key=lambda location: rank[location.kind])
+        try:
+            model = settings_in_context(request.cls, {shared: value}, **context)
+            key = _platform_key(getattr(model, shared))
+        except (ValueError, FlowSettingsError) as error:
+            raise _error(request.cls, shared, f"{error} at {loc.label}") from error
+        result[(shared,)] = (value, key, loc)
+        return result
     for path, loc in request.raw.locations.items():
         if not path or path[0] != shared:
             continue
@@ -490,17 +549,22 @@ def _normalized_leaves(
                 # only after they agree; here check the same strict name syntax as the field.
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
-            elif shared == "prjxray_db":
+            elif shared in ("prjxray_db", "dont_use_cells"):
                 model = settings_in_context(request.cls, {shared: value}, **context)
                 value = getattr(model, shared)
-                if value is not None:
+                if shared == "prjxray_db" and value is not None:
                     value = (context["design_root"] / value).resolve()
             elif shared == "custom_boards_file":
                 board = WithFpgaBoardSettings.from_input({shared: value}, **context)
                 value = getattr(board, shared)
         except ValueError as error:
             raise _error(request.cls, ".".join(path), f"{error} at {loc.label}") from error
-        result[target] = (value, loc)
+        if shared == "corner" and isinstance(value, list):
+            # propagated as given; compared by the corner it selects, the first of a list
+            key = value[0] if value else None
+        else:
+            key = value
+        result[target] = (value, key, loc)
     return result
 
 
@@ -522,7 +586,7 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
 
 def _shared_locations(
     raw: _Located, cls: type[Flow], context: dict[str, Any]
-) -> dict[tuple[str, ...], tuple[Any, _Location]]:
+) -> dict[tuple[str, ...], _Leaf]:
     """Compare composed mappings with validated models without inventing API overrides."""
     try:
         settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
@@ -550,18 +614,19 @@ def _agree(
     requests: list[_Request], shared: str, context: dict[str, Any], *, provisional: bool = False
 ) -> None:
     for group in _components(requests, shared):
-        candidates: dict[tuple[str, ...], list[tuple[_Request, Any, _Location]]] = {}
+        candidates: dict[tuple[str, ...], list[tuple[_Request, Any, Any, _Location]]] = {}
         for request in group:
-            for path, (value, loc) in _normalized_leaves(request, shared, context).items():
-                candidates.setdefault(path, []).append((request, value, loc))
+            for path, (value, key, loc) in _normalized_leaves(request, shared, context).items():
+                candidates.setdefault(path, []).append((request, value, key, loc))
         agreed: dict[str, Any] = {}
         for path, contributions in candidates.items():
             rank = {"file": 0, "cli": 1, "api": 2}
-            highest = max(rank[loc.kind] for _r, _v, loc in contributions)
-            winners = [c for c in contributions if rank[c[2].kind] == highest]
-            first, value, location = winners[0]
-            for other, alternative, other_location in winners[1:]:
-                if value != alternative and not provisional:
+            highest = max(rank[loc.kind] for _r, _v, _k, loc in contributions)
+            winners = [c for c in contributions if rank[c[3].kind] == highest]
+            # the winner's value is propagated exactly as given; contributions agree by key
+            first, value, key, location = winners[0]
+            for other, alternative, other_key, other_location in winners[1:]:
+                if key != other_key and not provisional:
                     leaf = ".".join(path)
                     raise _error(
                         first.cls,
@@ -664,12 +729,12 @@ def resolve(
                 and _leaves(supplied.values).get(path) == path[-2]
             )
         }
-    for path, (value, _location) in normalized_supplied.items():
-        if path in normalized_known and value == normalized_known[path][0]:
+    for path, (_value, key, _location) in normalized_supplied.items():
+        if path in normalized_known and key == normalized_known[path][1]:
             # Models store a frequency as period; locate that original contribution too.
-            supplied.locations[path] = normalized_known[path][1]
+            supplied.locations[path] = normalized_known[path][2]
             if path[-1] == "period":
-                supplied.locations[(*path[:-1], "freq")] = normalized_known[path][1]
+                supplied.locations[(*path[:-1], "freq")] = normalized_known[path][2]
     root_raw = _overlay(root_raw, supplied, flow_cls)
     check_chain_collisions(binding_layers, flow_request)
     by_node: dict[NodeKey, _Request] = {}

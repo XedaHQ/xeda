@@ -189,8 +189,8 @@ TOML): TOML or YAML by suffix (`.toml`, `.yaml`, `.yml`; any other suffix is an 
 YAML 1.2 like every YAML file xeda reads. A relative path resolves against the design directory,
 and a board's local `lpf` against the database file's directory.
 
-Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`, where
-both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
+Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
+`platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
 API overrides remain the highest-precedence origin. An undeclared edge (`openroad`'s) still uses
@@ -370,10 +370,11 @@ replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--o
 
 ## Remote runs
 
-`--remote HOST` needs Xeda's 0.4.4 release line (including development builds) or newer and remote
-protocol 6 or newer on the host. Protocol 3 adds the remote simulation evidence rule, protocol
-4 the FPGA build graph (`fpga_pack`), protocol 5 the programming-only `openfpgaloader`, protocol 6
-the node identity of flow chains (a node's hash counts where its declared inputs come from). Xeda
+`--remote HOST` needs Xeda's 0.4.4 release line or newer and remote protocol 1 or newer on the
+host: the remote simulation evidence rule, the FPGA build graph (`fpga_pack`, a programming-only
+`openfpgaloader`), the node identity of flow chains (a node's hash counts where its declared
+inputs come from), the declared Vivado outputs, and `yosys`'s ASIC configuration with a bundled
+platform counted relative to xeda's installation. Xeda
 probes the package the remote interpreter actually imports and refuses an older build, or one of
 an older protocol, before shipping, with an upgrade error. The remote flow always runs fresh;
 `--rebuild-all` is accepted to force local generator loading before shipping, while `--clean` and

@@ -35,7 +35,7 @@ techmap
 opt -purge
 {%- endif %}
 
-{%- for map in settings.other_maps %}
+{%- for map in settings.other_maps or [] %}
 techmap -map {{map|read_path}}
 {%- endfor %}
 

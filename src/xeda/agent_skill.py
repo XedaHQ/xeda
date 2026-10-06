@@ -15,6 +15,7 @@ from typing import Dict, Iterator, List, Optional
 
 from importlib_resources import as_file, files
 
+from .flow_runner import get_flow_class
 from .introspect import flows_info, results_info, settings_info
 
 log = logging.getLogger(__name__)
@@ -96,6 +97,9 @@ def _flow_section(flow: Dict[str, object]) -> str:
     settings = settings_info(name)
     specific = [f for f in settings["fields"] if not f.get("common")]
     required = [f["name"] for f in specific if f.get("required")]
+    # and what the flow cannot run without although its model leaves it optional (`fpga`,
+    # `openroad`'s `platform`): checked at launch, never by the model
+    required += [r for r in get_flow_class(name).required_settings if r not in required]
     if required:
         lines += ["Required settings: " + ", ".join(f"`{r}`" for r in required), ""]
     lines += [

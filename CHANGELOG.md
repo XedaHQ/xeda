@@ -13,6 +13,22 @@ All notable changes to this project will be documented in this file.
 - `xeda run --remote --rebuild-all` forces local generator loading before shipping while the
   remote flow remains fresh; the remote runner's existing fresh-flow policy remains separate from
   local generator freshness.
+- `yosys` given a `platform` merged its liberty files only when `dont_use_cells` was set, so a
+  platform with an empty dont-use list (`sky130hs`) reached abc as several files, of which abc and
+  `dfflibmap` were handed the first; and it never marked the platform's own dont-use cells,
+  although `dont_use_cells` promised to add to them. Both now hold.
+- A platform's per-corner files (`lib_files`, `dff_lib_file`, `rcx_rules`) sent to a `--remote`
+  run arrived as unexpanded `$DESIGN_ROOT/...` text, naming no shipped file and giving the remote
+  another run identity: the path fields of a mapping or list of nested models are expanded too.
+- A run's identity recognizes a root and a path both as written and as resolved: a design root, a
+  start directory or xeda's own installation reached through a symbolic link counts the same
+  either way, and a `--remote` run whose run directory lies under a linked path (a linked HOME,
+  macOS's `/tmp`) is no longer refused for "a different request identity".
+- `yosys`'s `other_maps` takes the platform's latch mapping only when it is left unset: an
+  explicitly empty list (`-s other_maps=`) now means no extra mapping, where the platform's latch
+  map replaced it.
+- `yosys` lists a `timing_report` artifact only when `sta` writes one; a remote run asked for the
+  report it never wrote.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
   does (by each source's `type`, which is its suffix's unless the design states another): a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
   front end other than `default` (the default is the slang plugin) and a nonempty
@@ -214,6 +230,41 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Breaking: `--remote` needs a remote of remote protocol 1** (`xeda.REMOTE_PROTOCOL_VERSION`), the
+  first released protocol: canonical resolved settings, relocated read inputs with their path
+  identities, declared output records with checked hand-over, current-run evidence for remote
+  simulations, the FPGA build graph (`fpga_pack`, a programming-only `openfpgaloader`), the node
+  identity of flow chains (a node's `flow_hash` counts where its declared inputs come from), the
+  declared Vivado outputs, and `yosys`'s declared netlist with its ASIC configuration. A remote
+  without the marker (every earlier release) or with a lower one is refused before anything
+  ships, with an "upgrade the remote xeda" error.
+- A run's identity counts a bundled platform's files relative to xeda's installation
+  (`$XEDA/platforms/...`), so two installations -- this side and a remote -- agree on it; a
+  platform under the design root still counts relative to it, and one elsewhere as its absolute
+  location. `flowrun_hash` (and so a hashed run directory's name) changes for every run given a
+  bundled platform.
+- **`yosys` owns its ASIC configuration.** Given a `platform`, `yosys` alone derives what
+  `openroad` used to hand its synthesis: the corner's liberty set, merged into one library in its
+  own run directory (named `<platform>_merged`, with the platform's own dont-use cells and
+  `dont_use_cells` marked), the flip-flop library, the platform's mapping files, tie and buffer
+  cells, abc's driver cell and load, flattening, the abc script `optimize` selects with
+  post-synthesis optimization, and a gate-level netlist without attributes or hexadecimal
+  constants (`netlist_attrs`/`netlist_hex` unset: kept unless mapping to a liberty library). An
+  explicitly given setting is never replaced. `xeda run yosys -s platform=nangate45` produces the
+  netlist `openroad`'s synthesis produced, byte for byte. `yosys` declares its gate-level netlist
+  (`netlist`, switched on by `netlist_verilog`) and gains `corner`. `openroad` hands its
+  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`) and
+  `blocks`; `yosys`'s own settings reach it from a design's or project's `flows.yosys` section
+  (`-s flows.yosys.*` with `xeda run openroad` is not accepted until `openroad` declares its
+  input, so `-s optimize=...` on the command line has no replacement there yet).
+- **Breaking: `optimize`, `abc_driver_cell` and `abc_load_in_ff` moved from `openroad` to
+  `yosys`.** Given to `openroad` they fail with `` `optimize` was removed: use
+  `flows.yosys.optimize` `` (and likewise); `abc_driver_cell` is a cell name (text), no longer an
+  integer. `abc_driver_cell` and `abc_load_in_ff` given where nothing maps to a liberty library,
+  and `stop_after: rtl` with a `netlist_verilog` (the default), are refused before anything runs.
+- `openroad`'s `platform` is a `required_settings` entry rather than a required model field, so it
+  has the type `yosys`'s and `dc`'s have. The bundled `nangate45` platform names itself, so
+  `-s platform=nangate45` and the path to its `config.toml` are one platform.
 - **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
   byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
   descriptors the atomic write needs, looped until the whole file is copied. Any failure,
@@ -255,10 +306,6 @@ All notable changes to this project will be documented in this file.
   accepted only with `write_flash`. The default graph is
   `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`. `results.tools` records the
   programmer's version (asked with `-V`, which touches no device).
-- **`--remote` needs a remote with protocol 6** (this release): the FPGA build graph, the
-  programming-only loader and the node identity of flow chains (a node's `flow_hash` counts where
-  its declared inputs come from) are part of what a remote must understand. A remote of protocol
-  5 is refused before anything ships, with an "upgrade the remote xeda" error.
 - A failed `nextpnr` is reported by the errors in its log: a constraint error at its original
   file and line, a missed timing constraint as such (`timing_allow_fail` keeps the result), and
   anything else as the tool's own failure -- never by a parser warning.
@@ -266,9 +313,8 @@ All notable changes to this project will be documented in this file.
   to the board file when none are supplied. Typed SDC sources precede the `sdc` setting's file;
   duplicate clock constraints fail with their original locations. The `lpf_cfg`, `pcf_cfg`
   and `pdc_cfg` settings are removed with typed-source migration messages.
-- **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
-  rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
-  protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.
+- Remote simulations apply the shared simulation evidence rule and fail simulations that exit
+  successfully without confirmed completion evidence.
 - All `SimFlow` families now share `timeout` and `fail_severity` (`warning`, `error`, `failure`
   or `fatal`; default `error`). Failure and fatal have the same rank. `timeout` bounds each
   subprocess invocation containing simulation, including analysis/elaboration in a combined
@@ -301,8 +347,10 @@ All notable changes to this project will be documented in this file.
 - A flow hands its tool only the source types it reads: Quartus no longer writes `XDC_FILE` or
   `MEMORYFILE_FILE` assignments, Vivado, Diamond, ISE and DC no longer add a source of a type
   they cannot use, and a language a flow cannot read is an error naming the source.
-- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`)
-  must agree wherever both endpoints of a declared edge declare them.** On the FPGA path
+- **Settings connected flows share (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
+  `platform`, `corner`, `dont_use_cells`) must agree wherever both endpoints of a declared edge
+  declare them.** `platform`, `corner` and `dont_use_cells` are `yosys`'s and `openroad`'s; a
+  `platform` is compared by what it describes and handed on whole, never merged key by key. On the FPGA path
   `fpga` and `clocks` are shared by `yosys_fpga`, `nextpnr`, `fpga_pack` and `openfpgaloader`;
   `board` and `custom_boards_file` by the last three (`yosys_fpga` takes neither); `prjxray_db`
   only by `nextpnr` and `fpga_pack`. Different values in two places are an error naming both
@@ -384,9 +432,6 @@ All notable changes to this project will be documented in this file.
   entry, such as yosys's own library files) has no such record: on the run directory's file
   system its clock still decides, but on another one nothing does, so the next launch runs once
   more, saying so ("input first read by the last run, on another file system").
-- `--remote` needs a P1b-capable xeda build on the remote host: the 0.4.4 release line (including
-  dev builds) or newer, with remote protocol 3 or newer. An older or protocol-2 host is refused
-  before anything ships, with an error asking to upgrade the remote xeda.
 - A flow's identity counts the parts of the design it reads (`Flow.design_parts`, which replaces
   `reads_source_parts`): the RTL for synthesis and implementation flows, the RTL and the testbench
   for simulations, `bsc` and `vivado_project`. A `design_hash` in `results.json` and in the trace
