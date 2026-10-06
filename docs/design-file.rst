@@ -502,7 +502,7 @@ One design file can describe the design for several boards. Each entry of ``targ
 ``xeda run`` and ``xeda dse`` take ``--target``; designs in a project file take targets the same
 way.
 
-Not there yet:
+Limits:
 
 - ``board``, ``fpga`` and ``custom_boards_file`` cannot be written once at a target's top level
   (they are refused, naming where to write them): they are settings of each flow, under the

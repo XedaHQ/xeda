@@ -231,10 +231,10 @@ checks each neighboring pair and never searches for a missing stage.
   searches all flows, so a refusal with no such route carries no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
-  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` and,
-  for the outputs they write, ``vivado_synth`` and ``vivado_alt_synth``, and ``vivado_postsynth_sim``
-  and ``vivado_power`` today. A flow without
-  declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
+  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
+  ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_postsynth_sim`` and
+  ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
+  ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
   ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only

@@ -214,8 +214,8 @@ Four orthogonal abstractions, deliberately decoupled:
   name, no flow's -- a removed flow's included -- and no two of a design's differing only in case), and `_validate_plan` refuses
   a plan for another target even when every hash is equal. The target is still no part of any
   hash: equal targets build separately and stay fresh separately; a pre-target run
-  (`<design>/<flow>`) is neither reused nor touched by a target's launch. Not yet: shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
-  (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
+  (`<design>/<flow>`) is neither reused nor touched by a target's launch. Shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level are not
+  accepted (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
   declares it, which needs the resolver to take a per-origin shared leaf, not a loader-time merge).
 - **`Flow`** (`flow/flow.py`) - *how* to build. Abstract; concrete flows live in `flows/<tool>/`.
 - **`Tool`** (`tool.py`) - an executable, runnable natively, in Docker (`Docker` model), or remotely.
@@ -237,7 +237,7 @@ through, make's order: bring every prerequisite up to date, then judge this flow
 stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
 context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
-*copy* of the input, `init()` (registers legacy dependencies only) -- runs even for a flow that turns out
+*copy* of the input, `init()` (registers dependencies only for an undeclared flow; no built-in flow has any) -- runs even for a flow that turns out
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
 **dependencies** (`_run_producers` for declared flows, following the plan; `_run_dependencies`
 for others; each in a sibling run directory held for reading until the launch ends) ->
@@ -458,8 +458,8 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
-  leaves; API contributions remain a separate highest-precedence origin. Undeclared edges keep
-  `resolve_dependency` until conversion.
+  leaves; API contributions remain a separate highest-precedence origin. An undeclared edge (no built-in
+  flow has one) uses `resolve_dependency`.
 - **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
   `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
   containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
