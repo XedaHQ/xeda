@@ -213,9 +213,8 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: remote's report, so a protocol-5 remote's would never match; protocol 7 the declared outputs
 #: of `vivado_synth` and `vivado_alt_synth` and their `write_timing_netlist` setting, which a
 #: protocol-6 remote refuses as unknown and resolves, undeclared, to another identity.
-#: Protocol 10 adds declared post-synthesis simulation and the power checkpoint/activity diamond.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 10
+REMOTE_PROTOCOL_MIN_VERSION = 7
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
