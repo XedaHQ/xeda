@@ -1312,7 +1312,7 @@ class ChiselGenerator(Generator):
         if self.project is None:
             p = self.run_cmd(["bloop", "projects"], stdout=subprocess.PIPE)
             projects_str = p.stdout.decode()
-            projects = re.split(r"\s+", projects_str)
+            projects = projects_str.split()
             if projects:
                 log.info(f"Found projects: {', '.join(projects)}")
                 self.project = projects[0]
@@ -1320,7 +1320,7 @@ class ChiselGenerator(Generator):
                 log.error("No projects found!")
                 raise ValueError("No projects found!")
         if not self.project:
-            ValueError("`project` must be specified for Chisel generator")
+            raise ValueError("`project` must be specified for Chisel generator")
         return self.run_cmd(self.execution_command())
 
 

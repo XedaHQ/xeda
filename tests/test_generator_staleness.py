@@ -468,6 +468,51 @@ def test_chisel_identity_and_run_share_the_selected_mill_and_bloop_commands(tmp_
     assert ran == [bloop_command]
 
 
+def test_bloop_project_discovery_ignores_empty_whitespace_entries(monkeypatch):
+    from types import SimpleNamespace
+
+    from xeda.design import ChiselGenerator
+
+    calls = []
+
+    def run_cmd(self, command, **kwargs):
+        calls.append(command)
+        if command == ["bloop", "projects"]:
+            return SimpleNamespace(stdout=b"\n  core\nother \t\n")
+        return command
+
+    monkeypatch.setattr(ChiselGenerator, "run_cmd", run_cmd)
+
+    generator = ChiselGenerator(build_system="bloop")
+    assert generator.run_bloop() == ["bloop", "run", "core"]
+    assert generator.project == "core"
+    assert calls == [["bloop", "projects"], ["bloop", "run", "core"]]
+
+
+def test_bloop_project_discovery_reports_empty_output(monkeypatch):
+    from types import SimpleNamespace
+
+    from xeda.design import ChiselGenerator
+
+    monkeypatch.setattr(
+        ChiselGenerator,
+        "run_cmd",
+        lambda self, command, **kwargs: SimpleNamespace(stdout=b" \n\t "),
+    )
+
+    with pytest.raises(ValueError, match="No projects found"):
+        ChiselGenerator(build_system="bloop").run_bloop()
+
+
+def test_bloop_rejects_an_empty_project(monkeypatch):
+    from xeda.design import ChiselGenerator
+
+    monkeypatch.setattr(ChiselGenerator, "run_cmd", lambda self, command, **kwargs: command)
+
+    with pytest.raises(ValueError, match="`project` must be specified"):
+        ChiselGenerator(build_system="bloop", project="").run_bloop()
+
+
 def test_the_environment_the_generator_inherits_is_not_part_of_the_record(tmp_path, monkeypatch):
     """`process_generation` completes a generator with this shell's whole environment before it
     runs it; a record named by that would be reusable from no other shell, and xeda tracks no
