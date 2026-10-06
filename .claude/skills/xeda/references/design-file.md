@@ -270,10 +270,14 @@ targets:
   file has no `target` key; the loader records it and overrides cannot change it.
 - The selected target yields an ordinary design, identical to the file written flat. `--json`
   documents report `target` (`null` without one).
-- Not there yet: targets share the design's run directories (`<design>/<flow>`), so alternate
-  targets re-run shared flows - use `--hashed-run-dirs` or a `--run-root` per target; `xeda scrub`
-  has no `--target`; `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
-  `flows.<flow>` (at its top level they are refused, naming that).
+- A selected target has run directories of its own, `<run root>/<design>/<target>/<flow>`
+  (`<flow>_<hash>` with `--hashed-run-dirs`), also when it is the design's only one and selected
+  by default; without targets a design keeps `<design>/<flow>`. Two targets that yield the same
+  design build separately and each stays up to date. A run made before targets (`<design>/<flow>`)
+  is left alone by a target's launch. `xeda scrub FLOW DESIGN --target NAME` removes only that
+  target's runs; without `--target` it removes every target's and the older ones too.
+- Not there yet: `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
+  `flows.<flow>` (at its top level the three shared leaves are refused, naming that).
 
 ## Environment variables in paths
 

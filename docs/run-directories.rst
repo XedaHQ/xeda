@@ -46,8 +46,17 @@ Within the run root, the layout depends on ``--hashed-run-dirs``:
    * - ``--hashed-run-dirs``
      - ``<design>/<flow>_<16-char run hash>/``
 
+A design selected as a *target* (``targets.<name>`` in its design file, selected with
+``--target`` or, when it has only one, by itself) lies one level deeper, in a directory of the
+target's own: ``<design>/<target>/<flow>/`` (``<design>/<target>/<flow>_<16-char run hash>/`` with
+``--hashed-run-dirs``). A design without a target, or with an empty ``targets`` table, keeps
+``<design>/<flow>/``. The target's name is no part of the run hash, so two targets that yield the
+same design have the same flow directory names in two places: each is built once, and each stays
+up to date without the other re-running it. A run made before targets existed
+(``<design>/<flow>``) is not taken for a target's, and a target's launch never reads or removes it.
+
 A dependency gets its own directory, a **sibling** of the flow that launched it, in the same
-layout -- never nested under it. ``--hashed-run-dirs`` names each by its run hash (the first 16
+layout, within the same target -- never nested under it. ``--hashed-run-dirs`` names each by its run hash (the first 16
 characters of its ``flowrun_hash``), so two variants of one flow (a design's own run and a
 dependency's, or two DSE candidates) coexist instead of overwriting each other. The run hash
 covers the flow's input settings and, for a flow that declares inputs, where each of them comes
@@ -421,7 +430,7 @@ actually imports before shipping the design. A release without the protocol mark
 lower protocol, is refused with an "upgrade the remote xeda" error.
 
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
-locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings
+locally in the hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings
 never share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so each is
 refused. ``--rebuild-all`` forces local generator loading before shipping while the remote flow
 still runs fresh; remote ``clean`` does not force a local generator on ordinary invocations.
@@ -451,7 +460,14 @@ Pruning (``--post-cleanup``/``--post-cleanup-purge``) drops the trace first, bef
 it removes: a pruned run is not reused, even though its ``settings.json``/``results.json`` remain.
 
 ``xeda scrub <flow> <design_name>`` removes previous run directories of one flow for one design,
-without running anything.
+without running anything: the ones directly under ``<design_name>/`` (made before targets existed,
+or by a design without one) and those under every target's directory below it. They are found on
+disk, so a target the design file no longer names is found too, and no design file is read. With
+``--target NAME`` only ``<design_name>/NAME/`` is searched, leaving the pre-target runs and every
+other target's. The directories to be removed are listed first and confirmed once. A run
+directory of another flow is never searched, and a link that leads out of the run root is never
+followed. ``--scrub`` on a launch removes the flow's other run directories in the launch's own
+directory, so it never reaches another target's.
 
 xeda's space and yours
 -----------------------
@@ -549,7 +565,7 @@ field of theirs is assigned, not later.
 ``xeda dse`` delivers nothing: a deliverable setting given as a location, or ``outputs_to``, is
 refused before the search starts, since a design-space exploration has no one requested flow to
 deliver for. ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and
-only from its local mirror -- always the hashed layout, ``<design>/<flow>_<hash>/``, whatever
+only from its local mirror -- always the hashed layout, ``<design>[/<target>]/<flow>_<hash>/``, whatever
 ``--hashed-run-dirs`` says for local runs -- once the remote's results have been fetched there; a
 deliverable given as a location is refused before anything is shipped, since the remote run's own
 identity would otherwise depend on where the local side later copies its output. What a remote

@@ -270,6 +270,23 @@ All notable changes to this project will be documented in this file.
 - `openroad`'s `platform` is a `required_settings` entry rather than a required model field, so it
   has the type `yosys`'s and `dc`'s have. The bundled `nangate45` platform names itself, so
   `-s platform=nangate45` and the path to its `config.toml` are one platform.
+- **A design selected as a target runs in its own directories**:
+  `<run root>/<design>/<target>/<flow>` (or `<flow>_<hash>` with `--hashed-run-dirs`), producers
+  and dependencies beside it within the target, so building the targets of one design in turn
+  neither re-runs nor overwrites one another's flows. A design without a target (or with an empty
+  `targets` table) keeps `<design>/<flow>`. The target name is still no part of any hash. A run
+  made before this (`<design>/<flow>`) is not taken for a target's, and a target's launch never
+  touches it. A plan belongs to the target it was made for: an equal design of another target is
+  refused, and so is a target that is no name (one that is a flow's, or that differs from
+  another target of the design only in letter case, is refused when the design loads).
+  `DefaultRunner.run_path_of`/`get_flow_run_path` take `target=`.
+- **`xeda scrub` takes `--target NAME`**: it removes only that target's run directories of the
+  flow (`<design>/<NAME>/`), and without it the flow's run directories directly under the design
+  and under every target, as found on disk (no design file is read; run directories of other
+  flows are never searched). The directories are listed and confirmed once. `--json` gains
+  `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory).
+  A directory that has come to lead out of the run root while scrub waited for its lock is
+  refused rather than removed.
 - **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
   byte loop: `fcopyfile` on macOS, `copy_file_range` then `sendfile` on Linux, between the two open
   descriptors the atomic write needs, looped until the whole file is copied. Any failure,

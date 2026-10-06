@@ -491,15 +491,19 @@ One design file can describe the design for several boards. Each entry of ``targ
   reported (``target`` in the ``--json`` documents, ``null`` without one) but is no part of the
   design's identity.
 
+- **Run directories.** A selected target has run directories of its own,
+  ``<run root>/<design>/<target>/<flow>`` (``<flow>_<hash>`` with ``--hashed-run-dirs``), also
+  when it was selected because it is the design's only one; a design without targets keeps
+  ``<design>/<flow>``. Two targets that yield the same design therefore build separately and each
+  stays up to date, though they have the same hashes. A run made before targets existed is left
+  alone by a target's launch, and ``xeda scrub FLOW DESIGN --target NAME`` removes only that
+  target's runs (``xeda scrub FLOW DESIGN`` every target's and the older ones too).
+
 ``xeda run`` and ``xeda dse`` take ``--target``; designs in a project file take targets the same
 way.
 
 Not there yet:
 
-- Two targets of one design share its run directories (``<design>/<flow>``), so building one
-  after the other re-runs the flows they have in common. Give each a run root of its own
-  (``--run-root``) or use ``--hashed-run-dirs`` until targets get directories of their own.
-- ``xeda scrub`` has no ``--target``.
 - ``board``, ``fpga`` and ``custom_boards_file`` cannot be written once at a target's top level
   (they are refused, naming where to write them): they are settings of each flow, under the
   target's ``flows.<flow>``. A clock constraint goes there too, as ``flows.<flow>.clock``.
