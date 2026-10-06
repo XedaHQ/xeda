@@ -1,6 +1,5 @@
 import csv
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -47,11 +46,8 @@ def test_vivado_synth_template(tmp_path: Path) -> None:
         assert line in vivado_tcl
 
 
-def test_vivado_synth_py(tmp_path: Path) -> None:
-    # Append to PATH so if the actual tool exists, would take precedences.
-    os.environ["PATH"] = (
-        os.path.join(TESTS_DIR, "fake_tools") + os.pathsep + os.environ.get("PATH", "")
-    )
+def test_vivado_synth_py(tmp_path: Path, monkeypatch) -> None:
+    use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
     xeda_runner = DefaultRunner(tmp_path / "xeda_run", debug=True)
