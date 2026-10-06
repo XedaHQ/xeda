@@ -95,8 +95,9 @@ All notable changes to this project will be documented in this file.
   the design), and of every source its last generation left. A `touch`, a `chmod`, a `cp -p` or
   a branch round-trip costs a hash rather than a re-run, while an edit given back its old
   modification time is caught. `generated_sources` names which of `rtl.sources` the generator
-  writes, when it writes only some of them; `always_runs` says its inputs cannot be judged at
-  all, and a generator declaring neither `sources` nor `packages` runs on every load anyway.
+  writes, when it writes only some of them (an entry that is none of `rtl.sources` is an
+  error); `always_runs` says its inputs cannot be judged at all, and a generator declaring
+  neither `sources` nor `packages` runs on every load anyway.
   The record of a generation is an entry under `<run root>/.cache/generators/`, written under its
   own durable lock beside the Xilinx chip databases -- never beside the design, whose tree holds
   nothing of xeda's. A load with no run root in sight, or one whose run root cannot be written,

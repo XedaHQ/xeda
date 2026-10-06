@@ -1066,8 +1066,10 @@ class Generator(XedaBaseModel):
     packages: List[str] = Field(
         default_factory=list,
         description="Installed Python packages (import names) the generator reads, whose files "
-        "no design can list as sources: every file of each one is digested, so installing, "
-        "upgrading or editing one runs the generator again (`litex`, `litex_boards`, `migen`).",
+        "no design can list as sources: every file of each one but its bytecode and hidden "
+        "files is digested, so installing, upgrading or editing one runs the generator again "
+        "(`litex`, `litex_boards`, `migen`). Looked up in the interpreter running xeda, not "
+        "in the one the generator's `executable` selects.",
     )
     always_runs: bool = Field(
         default=False,
@@ -1078,22 +1080,31 @@ class Generator(XedaBaseModel):
     generated_sources: List[str] = Field(
         default_factory=list,
         description="The sources this generator produces, as a design's `sources` name them, "
-        "when it produces only some of `rtl.sources`: what is judged against the record of its "
-        "last generation. Empty, every one of `rtl.sources` is judged, so editing a source the "
-        "generator does not write runs it again.",
+        "when it produces only some of `rtl.sources` (or a directory holding some): what is "
+        "judged against the record of its last generation. Each entry has to be one of "
+        "`rtl.sources` or hold one. Empty, every one of `rtl.sources` is judged, so editing a "
+        "source the generator does not write runs it again.",
     )
 
     @model_validator(mode="before")
     @classmethod
     def _removed_generator_fields(cls, data):
         """A removed field is named with what replaces it, as every removed setting is."""
-        removed = {
-            "run_only_if_sources_modified": "`always_runs` (a generator is judged by the content "
-            "of what it reads and produces now, never by a modification time)",
-        }
-        for name, replacement in removed.items():
-            if name in data:
-                raise ValueError(f"`{name}` was removed: use {replacement}")
+        if "run_only_if_sources_modified" in data:
+            # The old switch was on by default: written `true` it asks for what a generator is
+            # now always judged by, so it is to be deleted, never turned into `always_runs`.
+            if data["run_only_if_sources_modified"] is True:
+                advice = (
+                    "delete it (a generator is judged by the content of what it reads and "
+                    "produces now, never by a modification time; `always_runs: true` would mean "
+                    "the opposite)"
+                )
+            else:
+                advice = (
+                    "use `always_runs: true` (a generator is judged by the content of what it "
+                    "reads and produces now, never by a modification time)"
+                )
+            raise ValueError(f"`run_only_if_sources_modified` was removed: {advice}")
         return data
 
     @field_validator("args", mode="before")
@@ -2183,6 +2194,31 @@ class Design(XedaBaseModel):
                         f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
                         + ", ".join(missing)
                     )
+                if (
+                    isinstance(generator, Generator)
+                    and generator.generated_sources
+                    and produced is not None
+                ):
+                    # Checked here, where the tree is complete: a pattern of `rtl.sources` the
+                    # generator is still to fill matches nothing before it has run.
+                    declared = [os.path.normpath(src) for src in produced]
+                    claimed = _source_paths_as_given(generator.generated_sources, design_root)
+                    # An entry is one of them, or a directory holding one (a build directory).
+                    outside = [
+                        str(src)
+                        for src in claimed or []
+                        if not any(
+                            name == os.path.normpath(src)
+                            or name.startswith(os.path.normpath(src) + os.sep)
+                            for name in declared
+                        )
+                    ]
+                    if outside:
+                        raise ValueError(
+                            f"generator ({_describe_generator(generator)}) declares "
+                            "`generated_sources` that are not among `rtl.sources`: "
+                            + ", ".join(outside)
+                        )
 
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:

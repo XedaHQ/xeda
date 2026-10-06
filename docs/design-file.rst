@@ -301,10 +301,12 @@ produced changed**, judged by content, never by a modification time:
 ``packages``
     installed Python packages, by import name, that it reads and that no design could list as
     files -- a SoC description reading ``litex``, ``litex_boards`` and ``migen`` from the virtual
-    environment. Every file of each one is digested (its bytecode left out), following package
-    directory links with cycle detection, so installing, upgrading or editing one runs the
-    generator again. A package nothing provides is an error naming it. Each package is digested
-    once per ``xeda`` invocation, so a package changed
+    environment. Every file of each one is digested -- its bytecode and its hidden files (names
+    beginning with a dot) left out -- following package directory links with cycle detection, so
+    installing, upgrading or editing one runs the generator again. A package is looked up in the
+    interpreter that runs ``xeda``, not in the one the generator's ``executable`` selects, so
+    name a package that interpreter provides; one nothing provides is an error naming it. Each
+    package is digested once per ``xeda`` invocation, so a package changed
     *during* one invocation is noticed by the next.
 
 The selected direct executable is also identified by its content, including the selected
@@ -318,8 +320,10 @@ not prove that an untracked environment, indirect tool or external input would p
 bytes on another run. Declare those inputs where possible or use ``always_runs``/``--rebuild-all``.
 
 ``generated_sources``
-    which of ``rtl.sources`` the generator writes, when it does not write them all. Left out,
-    every declared source is judged, so editing a hand-written one runs the generator too.
+    which of ``rtl.sources`` the generator writes, when it does not write them all (or a
+    directory holding some of them). Left out, every declared source is judged, so editing a
+    hand-written one runs the generator too. An entry that is none of ``rtl.sources`` is an
+    error: the source the generator really writes would otherwise go unjudged.
 
 ``always_runs``
     run it on every load. For a generator whose inputs cannot be judged at all -- they are not

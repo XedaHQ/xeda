@@ -687,7 +687,21 @@ def test_run_only_if_sources_modified_was_removed(tmp_path):
     world = World(tmp_path, run_only_if_sources_modified=False)
     with pytest.raises(DesignValidationError) as error:
         world.load()
-    assert "`run_only_if_sources_modified` was removed: use `always_runs`" in str(error.value)
+    assert "`run_only_if_sources_modified` was removed: use `always_runs: true`" in str(error.value)
+    assert world.runs == 0
+
+
+def test_run_only_if_sources_modified_true_is_to_be_deleted_never_turned_into_always_runs(
+    tmp_path,
+):
+    """The old switch was on by default: a design that wrote `true` has the behavior content
+    judging now gives every generator, and `always_runs` would be the opposite of it."""
+    world = World(tmp_path, run_only_if_sources_modified=True)
+    with pytest.raises(DesignValidationError) as error:
+        world.load()
+    message = str(error.value)
+    assert "`run_only_if_sources_modified` was removed: delete it" in message
+    assert "use `always_runs" not in message
     assert world.runs == 0
 
 
@@ -731,6 +745,30 @@ def test_only_the_sources_the_generator_declares_it_generates_are_judged(tmp_pat
     world.generated.write_text("// not what it left\n")
     world.load()
     assert world.runs == 2
+
+
+def test_generated_sources_naming_a_pattern_the_generator_fills_load_on_a_fresh_tree(tmp_path):
+    """The check against `rtl.sources` is made where the tree is complete: before the generator
+    runs, `gen/*.v` matches nothing, and a first load must not be refused for that."""
+    world = World(tmp_path, generated_sources=["gen/top.v"])
+    world.design_file.write_text(
+        world.design_file.read_text().replace("[gen/top.v]", '["gen/*.v"]')
+    )
+    world.load()
+    assert world.runs == 1
+    world.load()
+    assert world.runs == 1
+
+
+def test_generated_sources_that_are_not_rtl_sources_are_refused_on_every_load(tmp_path):
+    """`generated_sources` is *which of `rtl.sources`* the generator writes. One that is not among
+    them leaves the real generated source unjudged, so a stale one would be reused silently."""
+    world = World(tmp_path, generated_sources=["hand.v"])
+    (world.root / "hand.v").write_text("// hand written\n")
+    for expected_runs in (1, 1):
+        with pytest.raises(DesignValidationError, match="not among `rtl.sources`: .*hand.v"):
+            world.load()
+        assert world.runs == expected_runs
 
 
 def test_without_generated_sources_every_declared_source_is_judged(tmp_path):
