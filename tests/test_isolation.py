@@ -645,6 +645,37 @@ def test_the_command_line_changes_nothing_outside_the_run_root(tmp_path, monkeyp
     assert _state(world.parent, [world.root]) == before
 
 
+def test_a_targeted_run_and_its_scrub_change_nothing_outside_the_run_root(tmp_path, monkeypatch):
+    """The target's directory is one level deeper in the run root and no further out: launching
+    each of two targets (`--clean`, `--post-cleanup`, plain) and scrubbing them one by one and
+    then all leaves everything outside the run root as it was, the audit hook seeing no write."""
+    from xeda.console import console
+
+    world = _world(tmp_path)
+    text = (SQRT / "sqrt.yaml").read_text().rstrip("\n")
+    (world.work / "sqrt.yaml").write_text(text + "\ntargets:\n  a: {}\n  b: {}\n")
+    before = _state(world.parent, [world.root])
+    monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ["PATH"])
+    monkeypatch.chdir(world.work)
+    monkeypatch.setattr(console, "input", lambda *a, **kw: "yes")
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1", "--json"]
+    for target in ("a", "b"):
+        for extra in (["--clean"], ["--post-cleanup"], []):
+            with watching(world) as violations:
+                result = CliRunner().invoke(cli, [*args, "--target", target, *extra])
+            assert result.exit_code == 0, result.output  # the oracle keeps its teeth
+            assert not violations, violations
+        assert (world.root / "sqrt" / target / "vivado_synth").is_dir()
+    for extra in (["--target", "a"], []):
+        with watching(world) as violations:
+            result = CliRunner().invoke(cli, ["scrub", "vivado_synth", "sqrt", "--json", *extra])
+        assert result.exit_code == 0, result.output
+        assert not violations, violations
+        assert not (world.root / "sqrt" / "a" / "vivado_synth").exists()
+        assert extra or not (world.root / "sqrt" / "b" / "vivado_synth").exists()
+    assert _state(world.parent, [world.root]) == before
+
+
 INV_TOML = """name = "inv"
 [rtl]
 sources = ["inv.v"]

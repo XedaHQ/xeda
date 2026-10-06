@@ -7,6 +7,7 @@ from .default_runner import (
     XedaOptions,
     add_file_logger,
     get_flow_class,
+    scrub_design,
     scrub_runs,
 )
 from .dse import Dse
@@ -21,5 +22,6 @@ __all__ = [
     "add_file_logger",
     "dse",
     "get_flow_class",
+    "scrub_design",
     "scrub_runs",
 ]

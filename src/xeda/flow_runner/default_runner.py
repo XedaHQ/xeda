@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
-from typing import Any, ClassVar, Dict, List, Optional, Tuple, Type, TypeVar, Union
+from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Tuple, Type, TypeVar, Union
 
 import yaml
 from box import Box
@@ -311,32 +311,45 @@ def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
         return None
 
 
-def scrub_runs(
-    flow_name: str,
-    dir: Path,
-    exclude: Sequence[Path] = (),
-    run_root: Optional[Path] = None,
-) -> bool:
-    """Find and (with confirmation) remove `flow_name`'s run directories under `dir`.
+#: What a launch writes in every run directory it enters (the trace only after a success): a
+#: directory holding one is a run directory, whatever it is called, and never a target's.
+LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json")
 
-    A run directory of the flow is named `flow_name`, optionally followed by an underscore and
-    a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` `flowrun_hash` (the unhashed form is what every default
-    run creates; the hashed form only appears with `hashed_run_dirs=True`). Matched against
-    `dir`'s children rather than a `f"{flow_name}_*"` glob, so the unhashed directory -- which
-    that glob can never match -- is included too. Each is removed as a run directory claimed
-    under `run_root` (default: `dir`'s parent), the real run root, so none that leads out of it
-    is ever removed.
-    """
-    if run_root is None:
-        run_root = dir.parent
+
+class ScrubResult(NamedTuple):
+    """What `scrub_design` did: the directories it searched, and the run directories it
+    removed (none if it found none or the removal was not confirmed)."""
+
+    scanned: list[Path]
+    removed: list[Path]
+
+
+def _distinct(paths: Iterable[Path]) -> list[Path]:
+    """`paths` without a second name of a directory already in them (a link inside the design's
+    directory), in order: what is searched or removed is each directory once."""
+    first: dict[str, Path] = {}
+    for p in paths:
+        first.setdefault(os.path.realpath(p), p)
+    return list(first.values())
+
+
+def _run_directories_in(
+    flow_name: str, directory: Path, exclude: Sequence[Path], run_root: Path
+) -> list[Path]:
+    """`flow_name`'s run directories among the children of `directory`: named `flow_name`,
+    optionally followed by an underscore and a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` `flowrun_hash`
+    (the unhashed form is what every default run creates; the hashed form only appears with
+    `hashed_run_dirs=True`). Matched against the children rather than a `f"{flow_name}_*"` glob,
+    so the unhashed directory -- which that glob can never match -- is included too. Each one
+    is a directory that lies under `run_root` and, resolved, under `directory`."""
     regex = re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
-    xr = dir.resolve()
-    if not dir.exists() or not xr.is_dir():
-        return False
-    dirs_to_rm = unique(
+    if not directory.is_dir():
+        return []
+    xr = directory.resolve()
+    return unique(
         [
             p
-            for p in dir.iterdir()
+            for p in sorted(directory.iterdir())
             if p.is_dir()
             and regex.match(p.name)
             and all(not ex.exists() or not p.samefile(ex) for ex in exclude)
@@ -344,27 +357,106 @@ def scrub_runs(
             and RunDirectory.lies_under(p, run_root)
         ]
     )
-    if dirs_to_rm:
-        console.print(
-            f"[red]This will action will remove all of the following {len(dirs_to_rm)} subfolders:[/red]"
+
+
+def _target_parents(design_dir: Path, run_root: Path) -> list[Path]:
+    """The directories below `design_dir` that can hold a target's run directories: those that
+    could be named as a target (`target_name_problem`: a name that is no flow's) and are no run
+    directory (a launch writes `LAUNCH_DOCUMENTS` in every one), found as they are on disk --
+    a target no design file names any more included -- and never searched deeper. A link
+    leading out of the run root, or out of `design_dir`, is not followed."""
+    if not design_dir.is_dir():
+        return []
+    xr = design_dir.resolve()
+    return [
+        p
+        for p in sorted(design_dir.iterdir())
+        if p.is_dir()
+        and target_name_problem(p.name) is None
+        and not any((p / name).exists() for name in LAUNCH_DOCUMENTS)
+        and xr in p.resolve().parents
+        and RunDirectory.lies_under(p, run_root)
+    ]
+
+
+def _remove_confirmed(candidates: Sequence[Path], run_root: Path) -> list[Path]:
+    """List `candidates`, ask once, and remove them if confirmed: each as a run directory
+    claimed under `run_root`, the real run root, under its own lock (so a producer a consumer
+    holds a read lease on is waited for) and judged again once the lock is held, so none that
+    has since come to lead out of the run root is ever removed. The directories removed."""
+    if not candidates:
+        return []
+    console.print(
+        f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
+    )
+    for p in candidates:
+        console.print(p)
+    confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
+    if confirmation.lower() != "yes":
+        console.print("Not confirmed. No files or folders were removed.")
+        return []
+    log.warning("Removing the following directories: %s", " ".join(str(p) for p in candidates))
+    removed = []
+    for p in candidates:
+        with run_dir_lock(p):
+            if not RunDirectory.lies_under(p, run_root):
+                raise RunDirectoryError(
+                    f"{p} no longer lies in the run root {run_root}: it was not removed"
+                )
+            RunDirectory.claimed(p, run_root).delete()
+            if p.is_symlink():  # a run directory reached through a link in the run root
+                p.unlink()  # the link itself, whose target, xeda's, is gone
+        removed.append(p)
+    console.print(f"{len(removed)} folders removed.")
+    return removed
+
+
+def scrub_runs(
+    flow_name: str,
+    dir: Path,
+    exclude: Sequence[Path] = (),
+    run_root: Optional[Path] = None,
+) -> bool:
+    """Find and (with confirmation) remove `flow_name`'s run directories directly in `dir`,
+    the ones named `flow_name` or `flow_name_<hash>` (`_run_directories_in`), except `exclude`.
+    A launch's `--scrub` scrubs its own directory this way, so it never reaches another
+    target's. Each is removed as a run directory claimed under `run_root` (default: `dir`'s
+    parent), the real run root, so none that leads out of it is ever removed."""
+    if run_root is None:
+        run_root = dir.parent
+    return bool(_remove_confirmed(_run_directories_in(flow_name, dir, exclude, run_root), run_root))
+
+
+def scrub_design(
+    flow_name: str, design_dir: Path, *, run_root: Path, target: str | None = None
+) -> ScrubResult:
+    """Find and (with one confirmation) remove `flow_name`'s run directories of the design whose
+    directory is `design_dir`, under `run_root`: without `target`, those directly in it (the
+    ones made before targets existed) and in every target's directory below it; with one, only
+    those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`); no design
+    file is read, so a target the design no longer names is found, and one that was never built
+    is nothing to do. A `target` that is no target name is a `RunDirectoryError`, before
+    anything is looked at."""
+    if target is not None:
+        problem = target_name_problem(target)
+        if problem is not None:
+            raise RunDirectoryError(problem)
+        parent = design_dir / target
+        xr = design_dir.resolve()
+        found = (
+            [parent]
+            if parent.is_dir()
+            and xr in parent.resolve().parents
+            and RunDirectory.lies_under(parent, run_root)
+            else []
         )
-        for p in dirs_to_rm:
-            console.print(p)
-        confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
-        if confirmation.lower() == "yes":
-            log.warning(
-                "Removing the following directories: %s", " ".join(str(p) for p in dirs_to_rm)
-            )
-            for p in dirs_to_rm:
-                with run_dir_lock(p):
-                    RunDirectory.claimed(p, run_root).delete()
-                    if p.is_symlink():  # a run directory reached through a link in the run root
-                        p.unlink()  # the link itself, whose target, xeda's, is gone
-            console.print(f"{len(dirs_to_rm)} folders removed.")
-            return True
-        else:
-            console.print("Not confirmed. No files or folders were removed.")
-    return False
+    else:
+        found = [design_dir, *_target_parents(design_dir, run_root)] if design_dir.is_dir() else []
+    parents = _distinct(found)
+    candidates = _distinct(
+        [p for parent in parents for p in _run_directories_in(flow_name, parent, (), run_root)]
+    )
+    return ScrubResult(parents, _remove_confirmed(candidates, run_root))
 
 
 def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
