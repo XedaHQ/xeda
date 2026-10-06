@@ -176,7 +176,7 @@ REVIEWED_DELTAS: dict[str, dict[str, str]] = {
 }
 
 
-def activity_recording_delta(record: dict, name: str) -> dict:
+def activity_recording_delta(record: dict, name: str, *, baseline: bool = False) -> dict:
     """Only a direct timing request gains activity calls. Require their exact sequence and
     compare every remaining call with the unchanged golden; never exempt a whole call record."""
     from copy import deepcopy
@@ -187,7 +187,9 @@ def activity_recording_delta(record: dict, name: str) -> dict:
     node = record["nodes"]["sim/vivado_postsynth_sim"]
     activity_commands = {"open_saif", "describe", "get_objects", "log_saif", "close_saif"}
     extra = [call for call in node["calls"] if call[0] in activity_commands]
-    if extra:
+    if baseline:
+        assert not extra, "the original timing golden recorded no activity"
+    else:
         assert extra == [
             ["open_saif", "activity.saif"],
             ["describe", "./dut"],
@@ -550,7 +552,9 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
         path.exists()
     ), f"no golden for {name}: XEDA_PC_EQUIVALENCE_CAPTURE=1 records a missing one"
     deltas = REVIEWED_DELTAS.get(name, {})
-    expected = without(activity_recording_delta(json.loads(path.read_text()), name), deltas)
+    expected = without(
+        activity_recording_delta(json.loads(path.read_text()), name, baseline=True), deltas
+    )
     assert without(activity_recording_delta(json.loads(render(observed)), name), deltas) == expected
 
 
