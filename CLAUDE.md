@@ -32,7 +32,7 @@ tox -e docs                          # Sphinx docs, warnings are errors (-W -n);
 
 **The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
 `-n auto`), with outcomes identical to a serial run (checked on the full suite with the real
-tools: 3767 tests, serial 15.6 min, `-n auto` on 10 cores 3.2 min). Each test works under
+tools; about 8000 tests, which `-n auto` runs in about 9 minutes on 10 cores). Each test works under
 `tmp_path`, so workers share nothing but read-only files (the examples, `tests/resources`, the
 fake tools) and the opt-in layers' checkout `xeda_run/`. The exception that needed a fix is the
 external-repository cache (`XEDA_TESTS_EXTERNAL_CACHE`): every worker asks for the same pinned
