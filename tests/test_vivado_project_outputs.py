@@ -28,7 +28,6 @@ from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 from xeda.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
 from xeda.flows.vivado.vivado_power import VivadoPower
-from xeda.flows.vivado.vivado_sim import VivadoSim
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
 
@@ -380,81 +379,65 @@ def test_a_missing_dependency_output_is_a_fatal_error_naming_it(tmp_path, monkey
         vs.artifact_path(synth, vs.NETLIST)
 
 
-def _write_registered(flow: VivadoSynth) -> None:
-    """Create the files `flow` registered, as the real Vivado would have written them."""
-    for path in _registered(flow).values():
-        path = flow.run_path / path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch()
+def _recorded_output(flow_dir: Path, name: str) -> Path:
+    """The path of a declared output as the node's own `results.json` records it."""
+    return Path(json.loads((flow_dir / "results.json").read_text())["outputs"][name]["path"])
 
 
+@needs_tclsh
 @pytest.mark.parametrize("timing_sim", [False, True], ids=["functional", "timing"])
 def test_postsynth_sim_simulates_what_its_synthesis_registered(
     tmp_path, monkeypatch, timing_sim
 ) -> None:
+    """The declared inputs (PC Task 3) hand the simulation the very files the synthesis recorded
+    as its outputs: the functional netlist, or the timing netlist with its max-corner SDF."""
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
-    synth = _synth(tmp_path, monkeypatch, design, write_netlist=True, write_timing_netlist=True)
-    _write_registered(synth)
-    settings = VivadoPostsynthSim.Settings(
-        synth=VivadoSynth.Settings(fpga=FPGA(part=PART)), timing_sim=timing_sim
-    )  # type: ignore
-    sim = VivadoPostsynthSim(settings, design, tmp_path / "sim")  # type: ignore
-    sim.completed_dependencies.append(synth)
-    sim.init()
-    observed = {}
-
-    def capture_run(self):
-        observed["sources"] = [src.file for src in self.design.rtl.sources]
-        observed["sdf"] = list(self.settings.sdf.delay_items())
-        observed["libs"] = [name for name, _ in self.settings.lib_paths]
-
-    monkeypatch.setattr(VivadoSim, "run", capture_run)
-    sim.run()
-    netlist = vs.NETLIST_TIMING if timing_sim else vs.NETLIST
-    assert observed["sources"] == [synth.run_path / synth.artifacts[netlist]]
-    sdf = [("max", synth.run_path / synth.artifacts[vs.SDF_MAX])]
-    assert observed["sdf"] == (sdf if timing_sim else [])
+    use_fake_tools(monkeypatch)
+    sim = DefaultRunner(tmp_path / "run").run_flow(
+        VivadoPostsynthSim,
+        design,
+        {"timing_sim": timing_sim},
+        all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
+    )
+    assert sim is not None and sim.succeeded
+    synth_dir = sim.run_path.parent / "vivado_synth"
+    calls = fake_calls(sim.run_path)
+    netlist = _recorded_output(synth_dir, "netlist_timing" if timing_sim else "netlist")
+    assert [call[-1] for call in calls if call[:2] == ["exec", "xvlog"]] == [str(netlist)]
+    (xelab,) = [call for call in calls if call[:2] == ["exec", "xelab"]]
+    sdf = [word for word in xelab if word.startswith("uut=")]
+    assert sdf == ([f"uut={_recorded_output(synth_dir, 'sdf')}"] if timing_sim else [])
+    assert ("-sdfmax" in xelab) is timing_sim
     # the functional netlist instantiates UNISIM primitives, the timing one SIMPRIM primitives
-    assert observed["libs"] == (["simprims_ver"] if timing_sim else ["unisims_ver", "simprims_ver"])
+    libraries = [name for flag, name in zip(xelab, xelab[1:]) if flag == "-L" and name != "work"]
+    assert libraries == (["simprims_ver"] if timing_sim else ["unisims_ver", "simprims_ver"])
 
 
 @needs_tclsh
 def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     tmp_path, monkeypatch
 ) -> None:
+    """Power's declared inputs are the routed checkpoint its synthesis wrote and the timing
+    activity its simulation wrote: its `open_checkpoint` and `read_saif` name those files."""
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
-    synth = _synth(
-        tmp_path,
-        monkeypatch,
+    use_fake_tools(monkeypatch)
+    power = DefaultRunner(tmp_path / "run").run_flow(
+        VivadoPower,
         design,
-        write_netlist=True,
-        write_timing_netlist=True,
-        write_checkpoint=True,
+        {},
+        all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
     )
-    _write_registered(synth)
-    post_settings = VivadoPostsynthSim.Settings(synth=VivadoSynth.Settings(fpga=FPGA(part=PART)))  # type: ignore
-    power = VivadoPower(VivadoPower.Settings(postsynthsim=post_settings), design, tmp_path / "power")  # type: ignore
-    power.init()
-    ((_, post_settings, _),) = power.dependencies
-    assert post_settings.synth.write_checkpoint
-    # the simulation, on the fake Vivado, records the activity file it writes (`saif`)
-    post = VivadoPostsynthSim(post_settings, design, tmp_path / "post")
-    post.completed_dependencies.append(synth)
-    post.init()
-    power.completed_dependencies.append(post)
-    for flow in (post, power):
-        flow.run_path.mkdir()
-        monkeypatch.chdir(flow.run_path)  # where the runner runs a flow's tools
-        flow.run()
-        if flow is post:
-            # Complete the activity verdict as the launcher does before handing it to power.
-            post.results.success = post.check_results()
-            assert post.succeeded
-    assert ["open_saif", str(power.settings.saif)] in fake_calls(post.run_path)
+    assert power is not None and power.succeeded
+    synth_dir = power.run_path.parent / "vivado_synth"
+    sim_dir = power.run_path.parent / "vivado_postsynth_sim"
+    checkpoint = _recorded_output(synth_dir, "checkpoint_route")
+    activity = _recorded_output(sim_dir, "timing_saif")
+    assert activity == sim_dir / "activity.saif"
+    # the simulation, on the fake Vivado, records the activity file it writes
+    assert ["open_saif", "activity.saif"] in fake_calls(sim_dir)
     calls = fake_calls(power.run_path)
-    assert ["open_checkpoint", str(synth.run_path / synth.artifacts[vs.CHECKPOINT_ROUTE])] in calls
-    assert Path(post.artifacts["saif"]) == Path(power.settings.saif)
-    assert ["read_saif", "-verbose", str(post.run_path / power.settings.saif)] in calls
+    assert ["open_checkpoint", str(checkpoint)] in calls
+    assert ["read_saif", "-verbose", str(activity)] in calls
 
 
 # --- the declared outputs (PC Task 2, R-PC-a) ---------------------------------------------------
