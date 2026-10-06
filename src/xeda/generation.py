@@ -320,7 +320,8 @@ def _judging_generation_unlocked(
     there; one is made only to write a record (`Generation.produced`), so a design that fails to
     load creates none, and with `planning` nothing is created, locked or written at all. With
     `rebuild_all` (`--rebuild-all`, which
-    `--clean` implies) the generator runs whatever the record says, and records what it leaves.
+    `--clean` implies) the generator runs whatever the record says, and records what it leaves;
+    planned, such a design needs a generator, as one with a stale record does.
     """
     reason = _unjudgeable(generator)
     if reason is not None:
@@ -329,9 +330,10 @@ def _judging_generation_unlocked(
     if run_root is None:  # a `Design` built or loaded outside a launcher
         yield Generation(NO_RUN_ROOT)
         return
-    if rebuild_all and not planning:
+    if rebuild_all:
         # `--rebuild-all`/`--clean` is what forces everything to run again, generation included;
-        # the record is still written, so the next ordinary launch is up to date.
+        # the record is still written, so the next ordinary launch is up to date. A plan
+        # describes that launch, so it needs a generator too, and a plan starts none.
         reason = REBUILD_ALL
     # The configuration as the design states it, before `process_generation` completes the
     # generator with a working directory and this shell's environment: what the identity is of,
@@ -367,7 +369,7 @@ def _judging_generation_unlocked(
     if planning:  # read-only: a plan creates nothing, not even the run root's cache directory
         entry = owner.unlinked(cache / f"{identity}.yaml")
         owner.unlinked(_entry_lock(entry))
-        yield judged(_stale(entry, identity, design_root, outputs))
+        yield judged(reason or _stale(entry, identity, design_root, outputs))
         return
     while True:
         entry = owner.unlinked(cache / f"{identity}.yaml")

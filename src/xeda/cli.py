@@ -994,7 +994,13 @@ def run(
 
     if dry_run:
         try:
-            launcher = DefaultRunner(run_root, hashed_run_dirs=hashed_run_dirs, debug=debug)
+            launcher = DefaultRunner(
+                run_root,
+                rebuild_all=rebuild_all,
+                hashed_run_dirs=hashed_run_dirs,
+                clean=clean,
+                debug=debug,
+            )
             plan = launcher.plan(
                 chain,
                 xedaproject=xedaproject,

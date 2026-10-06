@@ -336,7 +336,8 @@ generator runs on every load -- the direction xeda takes wherever it cannot prov
 to date. The run root is made to *write* that record, after a generation that succeeded, never to
 look one up, so a generator that fails leaves no run root behind; ``xeda run --dry-run`` creates
 nothing at all, reads an existing record, and refuses to plan a design that would have to
-generate. On POSIX, a read-only lock on the resolved design-root directory serializes generators
+generate -- one with a stale record, and, with ``--rebuild-all`` or ``--clean``, any generated
+design, since that launch would run its generator. On POSIX, a read-only lock on the resolved design-root directory serializes generators
 for that same directory, including the first run and different input identities; it creates no
 sidecar and does not create the run root early. The per-identity record lock still protects its
 record. This does not coordinate different design roots writing to the same external output, and

@@ -907,6 +907,78 @@ def test_a_launcher_generates_once_across_two_launches(tmp_path, monkeypatch):
     assert len(world.records()) == 1
 
 
+def _planned_world(tmp_path, monkeypatch) -> World:
+    """A design whose generator has run once, so that a record says it is up to date, with the
+    working directory and tools a launch needs."""
+    from .tool_utils import use_fake_tools
+
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    world = World(tmp_path)
+    world.design_file.write_text(
+        world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
+    )
+    world.load()
+    assert world.runs == 1 and len(world.records()) == 1
+    return world
+
+
+def test_the_api_plans_a_design_whose_generation_is_up_to_date(tmp_path, monkeypatch):
+    from xeda.flow_runner import DefaultRunner
+
+    world = _planned_world(tmp_path, monkeypatch)
+    plan = DefaultRunner(world.run_root, display_results=False).plan(
+        "vivado_synth", world.design_file, flow_settings={"fpga": {"part": "xc7a35ticsg324-1L"}}
+    )
+    assert plan.requested == "vivado_synth"
+    assert world.runs == 1
+
+
+@pytest.mark.parametrize("option", ["rebuild_all", "clean"])
+def test_the_api_refuses_to_plan_what_rebuild_all_would_generate(tmp_path, monkeypatch, option):
+    """A plan describes the launch it stands for: `rebuild_all` (which `clean` implies) runs the
+    generator whatever its record says, so the design needs one, and planning starts none."""
+    from xeda.flow_runner import DefaultRunner
+
+    world = _planned_world(tmp_path, monkeypatch)
+    before = world.records()[0].read_bytes()
+    with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
+        DefaultRunner(world.run_root, display_results=False, **{option: True}).plan(
+            "vivado_synth", world.design_file, flow_settings={"fpga": {"part": "xc7a35ticsg324-1L"}}
+        )
+    assert world.runs == 1
+    assert world.records()[0].read_bytes() == before
+
+
+@pytest.mark.parametrize("option", ["--rebuild-all", "--clean"])
+def test_the_command_line_dry_run_follows_rebuild_all_like_the_launch(
+    tmp_path, monkeypatch, option
+):
+    """`--dry-run` plans a fresh generation; with `--rebuild-all` (or `--clean`) the launch would
+    generate, so it is refused with the same error a stale record gets -- as a JSON document under
+    `--json` -- and no generator runs."""
+    import json
+
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    world = _planned_world(tmp_path, monkeypatch)
+    base = [
+        "run", "vivado_synth", str(world.design_file), "--dry-run", "--json",
+        "--run-root", str(world.run_root), "-s", "fpga.part=xc7a35ticsg324-1L",
+    ]  # fmt: skip
+    planned = CliRunner().invoke(cli, base)
+    assert planned.exit_code == 0, planned.output
+    assert json.loads(planned.stdout)["success"] is True
+    refused = CliRunner().invoke(cli, [*base, option])
+    assert refused.exit_code != 0
+    document = json.loads(refused.stdout)
+    assert document["success"] is False
+    assert "Cannot plan a design that needs a generator" in document["error"]["message"]
+    assert world.runs == 1
+
+
 def test_a_dangling_link_in_a_directory_source_is_a_file_like_any_other(tmp_path):
     """An editor's lock file (`.#Top.scala`) is a link to nothing, and it is there exactly while
     the file is open: a design must still load. An entry of a directory is recorded as itself,
