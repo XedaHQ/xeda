@@ -222,9 +222,10 @@ checks each neighboring pair and never searches for a missing stage.
   searches all flows, so a refusal with no such route carries no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
-  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` and ``openfpgaloader``
-  today. A flow without declarations (``bsc``, ``bsc_sim``, the Vivado flows, ...) runs alone and
-  is refused inside a chain, naming it. No stage is ever fed by reading another flow's
+  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` and,
+  for the outputs they write, ``vivado_synth`` and ``vivado_alt_synth`` today. A flow without
+  declarations (``bsc``, ``bsc_sim``, ``vivado_project``, the Vivado simulation and power flows,
+  ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
   ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
@@ -365,16 +366,21 @@ ECP5, iCE40, Nexus and Xilinx 7-series are what chains cover. The build-only cha
 ends at ``openfpgaloader`` programs a device. The test suite runs those chains against fake
 tools, and never starts a real programmer.
 
-Chains that start at Bluespec or go through Vivado are **not** available yet, and the commands
-below are refused today (``Flow `bsc` has no declared I/O and can only be run alone``). They
-need the remaining flows to declare their inputs and outputs, a design value that ``bsc``
-produces and the flows after it read, and showcase designs and targets that use them:
+Chains that start at Bluespec or go through ``vivado_project`` or the Vivado simulation and
+power flows are **not** available yet, and the command below is refused today (``Flow `bsc` has
+no declared I/O and can only be run alone``). They need the remaining flows to declare their
+inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
+showcase designs and targets that use them:
 
 .. code-block:: bash
 
     # not available yet
     xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
-    xeda run vivado_synth+openfpgaloader knight.yaml
+
+``vivado_synth`` and ``vivado_alt_synth`` declare their outputs, each switched on by its own
+setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint``, ``bitstream``), so
+``vivado_synth+openfpgaloader`` is a chain: the loader switches the ``bitstream`` on. It needs
+the design's ``fpga`` and a clock, and it programs a device: plan it with ``--dry-run``.
 
 Binding an input called ``design`` is refused for the same reason: no flow declares one.
 

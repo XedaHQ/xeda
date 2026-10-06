@@ -63,12 +63,24 @@ write_checkpoint -force {{outputs.checkpoint_route|tcl_word}}
 
 {%- if outputs.netlist is defined %}
 
-puts "\n==========================( Writing netlists, SDF and constraints )=========================="
+puts "\n==========================( Writing netlist )=========================="
 file mkdir [file dirname {{outputs.netlist|tcl_word}}]
 write_verilog -mode funcsim -force -file {{outputs.netlist|tcl_word}}
+{%- endif %}
+
+{%- if outputs.netlist_timing is defined %}
+
+puts "\n==========================( Writing timing netlist and SDF )=========================="
+file mkdir [file dirname {{outputs.netlist_timing|tcl_word}}]
 write_verilog -mode timesim -sdf_anno false -force -file {{outputs.netlist_timing|tcl_word}}
 write_sdf -mode timesim -process_corner fast -force -file {{outputs.sdf_min|tcl_word}}
 write_sdf -mode timesim -process_corner slow -force -file {{outputs.sdf_max|tcl_word}}
+{%- endif %}
+
+{%- if outputs.xdc_exported is defined %}
+
+puts "\n==========================( Writing constraints )=========================="
+file mkdir [file dirname {{outputs.xdc_exported|tcl_word}}]
 write_xdc -no_fixed_only -force {{outputs.xdc_exported|tcl_word}}
 {%- endif %}
 

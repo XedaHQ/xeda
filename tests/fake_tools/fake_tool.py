@@ -546,6 +546,13 @@ proc write_xdc {args} {
     __vivado_text [lindex $args end] "# fake Vivado constraints exported from [__vivado_top_name]\n"
     return $result
 }
+# `write_bitstream [-force] <file>`, as non-project mode runs it (a project's `write_bitstream`
+# step is `__vivado_step`'s)
+proc write_bitstream {args} {
+    set result [__call write_bitstream {*}$args]
+    __vivado_text [lindex $args end] "fake Vivado bitstream of [__vivado_top_name]\n"
+    return $result
+}
 # What a power estimate was made of: the checkpoint opened and the activity read, as they say
 # they are (`__head`).
 set __vivado_checkpoint {}

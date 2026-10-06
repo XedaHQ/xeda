@@ -123,8 +123,8 @@ but never entered shows `"state": "not run"`.
 
 `xeda run a+b` fails with exit status 2 before anything runs, and says why:
 
-- ``Flow `x` has no declared I/O and can only be run alone``: `bsc`, `bsc_sim` and the Vivado flows
-  cannot be part of a chain yet; run each alone.
+- ``Flow `x` has no declared I/O and can only be run alone``: `bsc`, `bsc_sim`, `vivado_project` and the
+  Vivado simulation and power flows cannot be part of a chain yet; run each alone.
 - `no compatible output for a required input`: the pair does not fit. When another output of
   the producer, or the flows between the pair on the required default routes, make it fit, the
   message ends with `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->

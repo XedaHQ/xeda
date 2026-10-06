@@ -573,7 +573,11 @@ def test_list_flows_json_shows_an_action_and_an_undeclared_flow_by_their_boundar
     loader = flows["openfpgaloader"]
     assert loader["action_reason"] == "it programs a device"
     assert loader["can_precede"] == []
-    assert [e["flow"] for e in _real(loader["can_follow"])] == ["fpga_pack"]
+    assert [e["flow"] for e in _real(loader["can_follow"])] == [
+        "fpga_pack",
+        "vivado_alt_synth",
+        "vivado_synth",
+    ]
     assert flows["nextpnr"]["action_reason"] is None
     bsc = flows["bsc"]
     assert bsc["declared"] is False

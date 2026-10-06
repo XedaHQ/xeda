@@ -287,9 +287,9 @@ ALT_SYNTH_OUTPUTS = (
 def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
     enabled, tmp_path, monkeypatch
 ) -> None:
-    """`vivado_alt_synth.tcl` writes three checkpoints under `write_checkpoint`, and the
-    functional and timing netlists, SDF and XDC under `write_netlist`; `VivadoAltSynth` declared
-    none of them. Each is recorded exactly when the script writes it."""
+    """`vivado_alt_synth.tcl` writes three checkpoints under `write_checkpoint`, the functional
+    netlist and the XDC under `write_netlist`, and the timing netlist and SDF under
+    `write_timing_netlist`. Each is recorded exactly when the script writes it."""
     use_fake_tools(monkeypatch)
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     settings = {
@@ -297,6 +297,7 @@ def test_vivado_alt_synth_records_the_checkpoints_and_netlists_it_writes(
         "clock": {"period": 5.5},
         "write_checkpoint": enabled,
         "write_netlist": enabled,
+        "write_timing_netlist": enabled,
     }
     flow = DefaultRunner(tmp_path / "run").run_flow(VivadoAltSynth, design, settings)
     assert flow is not None and flow.succeeded

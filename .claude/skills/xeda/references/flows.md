@@ -71,7 +71,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 *runs first: `vivado_synth`*
 
-Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
+Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
 
 Required settings: `synth`
 
@@ -147,7 +147,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 ### `openfpgaloader`
 
-*runs first: `fpga_pack` | can follow: `fpga_pack` | programs a device and can only end a chain*
+*runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_synth` | programs a device and can only end a chain*
 
 Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
@@ -165,9 +165,11 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 ### `vivado_alt_synth`
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode.
+*can be followed by: `openfpgaloader`*
 
-29 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode. The outputs are switched as in `vivado_synth`, but this flow writes one SDF corner (the slow one) and so declares no `sdf_min`: `write_netlist` writes the functional netlist `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`); `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and `impl_timesim.sdf` (`sdf`); `write_checkpoint` the three checkpoints (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`); `bitstream` the bitstream.
+
+30 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -175,15 +177,17 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 Create a Xilinx Vivado project for the design, to work on in Vivado. The project holds the design's sources and testbench, its constraints, the synthesis and implementation strategies and step settings, and the hooks that write `vivado_synth`'s reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or set `gui` to have the flow open it. For synthesis and implementation in batch, use `vivado_synth`.
 
-50 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+51 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
 Reports no results beyond the keys every flow reports.
 
 ### `vivado_synth`
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`) and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc` (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered.
+*can be followed by: `openfpgaloader`*
 
-29 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
+FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered. Each file has its own switch, and a file is a declared output (recorded in `results.json`'s `outputs` with its digest) where its setting is named here. `write_netlist` writes the functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v` (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf` (`sdf_min`). `write_checkpoint` writes both checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream (`bitstream`).
+
+30 flow-specific settings (plus the common ones): `xeda list-settings vivado_synth --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `status`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 

@@ -95,10 +95,40 @@ GOLDENS = Path(__file__).parent / "resources" / "pc_equivalence"
 CAPTURE = os.environ.get("XEDA_PC_EQUIVALENCE_CAPTURE", "").lower() in ("1", "true", "yes", "on")
 PLATFORMS = Path(xeda.__file__).parent / "platforms"
 
-#: What a later conversion legitimately changes, each entry a path into a golden
-#: (`/`-separated, `*` for any one key) and the reason, per request. It is removed from the
-#: golden and from what is observed before they are compared. Empty: nothing has been converted.
-REVIEWED_DELTAS: dict[str, dict[str, str]] = {}
+#: What a conversion legitimately changes, each entry a path into a golden (`/`-separated, `*`
+#: for any one key; a key that itself holds `/`, such as a file's path, is named whole) and the
+#: reason, per request. It is removed from the golden and from what is observed before they are
+#: compared.
+_SYNTH = "nodes/sim/vivado_synth"
+_SYNTH_DELTAS = {
+    f"{_SYNTH}/effective_flow_settings/write_timing_netlist": "Task 2 (R-PC-a): a new setting "
+    "beside `write_netlist`, which the consumer switches on with it, so the synthesis writes "
+    "what it wrote before",
+    f"{_SYNTH}/results/outputs": "Task 2 (PC-2): `vivado_synth`'s declared outputs, recorded "
+    "with their digests; the files they name are the ones recorded under `files`",
+    f"{_SYNTH}/files/<RUN>/sim/vivado_synth/post_route_design_hook.tcl": "Task 2 (PCD19): the "
+    "route hook writes the netlist, the timing netlist with its SDF and the constraints in "
+    "blocks of their own; it writes the same files in the same order",
+}
+REVIEWED_DELTAS: dict[str, dict[str, str]] = {
+    "vivado_postsynth_sim_functional": {
+        **_SYNTH_DELTAS,
+        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
+        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+    },
+    "vivado_postsynth_sim_timing": {
+        **_SYNTH_DELTAS,
+        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
+        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+    },
+    "vivado_power": {
+        **_SYNTH_DELTAS,
+        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
+        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+        "nodes/sim/vivado_power/effective_flow_settings/postsynthsim/synth/write_timing_netlist": "Task 2: "
+        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+    },
+}
 
 #: Fields of `results.json` that name the run rather than what it did.
 IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
@@ -376,21 +406,23 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
 
 
 def without(record: Any, deltas: dict[str, str]) -> Any:
-    """`record` without the entries `deltas` names: `/`-separated keys, `*` for any one."""
+    """`record` without the entries `deltas` names: `/`-separated keys, `*` for any one. A key may
+    itself hold `/` (a node's `sim/vivado_synth`, a file's path): any run of segments that names
+    a key is taken for it."""
 
     def prune(node: Any, path: list[str]) -> Any:
         if not path or not isinstance(node, dict):
             return node
-        head, rest = path[0], path[1:]
-        keys = list(node) if head == "*" else [head]
         pruned = dict(node)
-        for key in keys:
-            if key not in pruned:
-                continue
-            if rest:
-                pruned[key] = prune(pruned[key], rest)
-            else:
-                del pruned[key]
+        for taken in range(1, len(path) + 1):
+            head, rest = "/".join(path[:taken]), path[taken:]
+            for key in list(node) if head == "*" else [head]:
+                if key not in pruned:
+                    continue
+                if rest:
+                    pruned[key] = prune(pruned[key], rest)
+                else:
+                    del pruned[key]
         return pruned
 
     for delta in deltas:
