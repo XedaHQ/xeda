@@ -13,7 +13,7 @@ from ...design import SourceType
 from ...flow import Flow, FlowException, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
-from ...utils import hierarchical_merge, tcl_word, unique
+from ...utils import ToolException, hierarchical_merge, tcl_word, unique
 
 log = logging.getLogger(__name__)
 YOSYS_DOCKER_IMAGE = "hdlc/impl"
@@ -41,6 +41,33 @@ def yosys_release(yosys: Tool) -> YosysRelease:
         *NEWEST_CHECKED_YOSYS,
     )
     return NEWEST_CHECKED_YOSYS
+
+
+def yosys_data_dir(yosys: Tool) -> Path:
+    """The directory yosys' own `+/` stands for, as the installed `yosys` reports it.
+
+    `yosys-config --datdir`, the same program `CxxRtl` asks for the include directory beside
+    it: the share directory is found by asking the tool, never from an environment variable or
+    a guess at its layout. In a container it is the container's path.
+    """
+    reported = yosys.derive("yosys-config", sibling=True, source_name="yosys").probe_stdout(
+        "--datdir"
+    )
+    if not reported or not reported.strip():
+        raise ToolException("`yosys-config --datdir` reported no data directory.")
+    return Path(reported.strip())
+
+
+def same_file(first: Path, second: Path) -> bool:
+    """Whether two paths name the same file: through a link, a different spelling, another
+    letter case on a case-insensitive file system, or a hard link. Paths that do not both exist
+    are compared by their resolved, case-normalized spelling."""
+    try:
+        return first.samefile(second)
+    except OSError:
+        return os.path.normcase(os.path.realpath(first)) == os.path.normcase(
+            os.path.realpath(second)
+        )
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:

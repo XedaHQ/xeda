@@ -435,6 +435,56 @@ Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
+Running only the Yosys synthesis pass
+-------------------------------------
+
+By default ``yosys_fpga`` adds Xeda's preparation and cleanup stages around
+``synth_<target>``. ``synth_pass_only = true`` omits those Xeda-owned pre- and post-synthesis
+stages; it does not reset the choices that control reading or synthesis. The selected reader and
+its flags, design parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply
+in either mode. Settings that request extra Xeda stages are refused in pass-only mode rather than
+silently ignored:
+
+``prep``, ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``,
+``black_box``, ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``,
+``rmports``, ``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta`` and ``ltp``.
+
+The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
+selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,
+an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not add that
+clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
+either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
+``flow3mfs``. Script names are taken from the installed Yosys build. The legacy ``flow3`` setting
+is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
+both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9 mapping is enabled.
+
+.. code-block:: bash
+
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true -s abc9_script=flow2
+    xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true
+    xeda run yosys_fpga verilog.yaml -s synth_pass_only=true -s "read_verilog_flags=[]"
+    xeda run yosys_fpga systemverilog.yaml -s synth_pass_only=true \
+      -s systemverilog=default -s "read_verilog_flags=[]"
+
+Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
+them, match the Yosys version and target, source paths and order, reader front end and flags,
+parameters, synthesis-pass flags, and ABC9 script. For example, Xeda's ``yosys_fpga`` defaults
+``read_verilog_flags`` to ``-sv``; for a plain Verilog ``.v`` source read by native
+``read_verilog`` without ``-sv``, set ``read_verilog_flags=[]``. For SystemVerilog read by Yosys'
+built-in front end, set ``systemverilog=default`` and use matching ``read_verilog_flags`` (including
+``-sv`` when needed). The default ``systemverilog=slang`` uses a plugin front end and is a
+different reader choice. Yosys also embeds source paths in generated names, so use the same path
+spellings on both sides.
+
+The target synthesis pass reads its own primitive libraries. If ``verilog_lib`` also names one
+of those files, Xeda skips that duplicate read, comparing the file itself (including paths through
+links) against the installed Yosys data directory. Every ``read_verilog`` advances Yosys' shared
+generated-name counter, and ABC9 maps by generated names; an extra library read can therefore
+change the resulting netlist. Xeda gets the data directory from ``yosys-config`` beside the
+selected Yosys executable (or in the selected container image). Cell-count differences alone do
+not establish a quality difference.
+
 Xilinx 7-series with openXC7
 ----------------------------
 

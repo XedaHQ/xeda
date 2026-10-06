@@ -48,7 +48,11 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
     extra = {}
     if flow_cls is YosysFpga:
         extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
-        extra["primitive_libraries"] = flow.settings.primitive_libraries(NEWEST_CHECKED_YOSYS)
+        libraries = flow.settings.primitive_libraries(NEWEST_CHECKED_YOSYS)
+        # as `YosysFpga.run()` does: the reads, and the `verilog_lib` entries that are not one
+        extra["primitive_libraries"] = [] if flow.settings.synth_pass_only else libraries
+        extra["verilog_libs"] = flow.verilog_libraries_to_read(libraries)
+        extra["synth_pass_only"] = flow.settings.synth_pass_only
     script = flow.copy_from_template(
         f"{stem}{flow.script_ext}",
         lstrip_blocks=True,

@@ -1320,6 +1320,50 @@ dependency must also share `custom_boards_file`.
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
+- **`synth_pass_only` controls Xeda's stages around `synth_<target>`; it does not select native
+  reader defaults or reset synthesis choices.** The full recipe adds Xeda preparation and cleanup
+  around the pass. Pass-only omits those Xeda-owned pre- and post-synthesis stages; reader/front-end
+  settings and flags, design parameters, `synth_flags`, and explicit ABC9 script selection still
+  apply in both modes. Settings that add Xeda stages (`prep`, `pre_synth_opt`, `post_synth_opt`,
+  `splitnets`, `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`,
+  `set_mod_attribute`, `clockgate_map`, `rmports`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`,
+  `ltp`) remain refused by `Settings.synth_pass_only_conflicts()`, checked during planning and
+  again in `run()` after initialization has folded design attributes into settings. Keep reader
+  choices separate from those conflicts: `YosysFpga.Settings.read_verilog_flags` defaults to
+  `-sv`, and `systemverilog` defaults to the `slang` plugin. A native-result comparison must match
+  the installed Yosys build and target, source paths and order, front end and all reader flags,
+  parameters, synthesis-pass flags, and ABC9 script. For example, native plain `.v` reading without
+  `-sv` needs `read_verilog_flags=[]`; the built-in SystemVerilog front end uses
+  `systemverilog="default"` and matching `read_verilog_flags` (including `-sv` where required).
+  Source path spelling matters because Yosys embeds it in generated names. `synth_pass_only` alone
+  does not guarantee equality with a native command, and no general area/timing advantage should
+  be claimed from it.
+
+  ABC9 script defaults are mode-specific: with `abc9_script=None`, the full Xeda recipe selects
+  `flow3`, while pass-only leaves the synthesis pass's choice in effect. The full recipe also
+  derives ABC9 delay from the clock; pass-only does not add that implicit delay. An explicit
+  `abc9_script` selects one installed Yosys script (`default`, `default.area`, `default.fast`,
+  `flow`, `flow2`, `flow3`, `flow3mfs`) in either mode when ABC9 mapping is enabled. These names
+  are checked against Yosys 0.63 and 0.69 constpad files; do not copy the scripts into Xeda.
+  Legacy `flow3` remains `Optional[bool]`: `true` selects `flow3` in either mode, `false` leaves
+  script selection to the pass, and unset preserves mode-specific defaults. Reject a request that sets both `abc9_script`
+  and `flow3`; do not treat `flow3` as a pass-only stage conflict. The one `Settings.abc9_scratchpad()`
+  emits these choices, while `synth_command()` emits the target pass's version-specific flags.
+
+  **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
+  by generated cell names; an extra primitive-library read can therefore change a netlist. The
+  target pass's `primitive_libraries()` still describes the libraries it reads internally.
+  `verilog_lib` is a reviewed user read after sources; when it names a file already read by the
+  pass, `YosysFpga.verilog_libraries_to_read()` skips that duplicate by file identity. Yosys' `+/...`
+  spelling is compared lexically; ordinary paths are compared against the selected Yosys
+  installation's data directory (`common.yosys_data_dir`). Resolve `yosys-config --datdir` as a
+  sibling of the selected Yosys executable (inside the selected image for Dockerized tools), never
+  from an unrelated PATH installation. If the sibling helper or data directory cannot be found,
+  fail rather than guessing. Small cell-count differences alone do not establish a quality
+  difference. `tests/test_yosys_recipe.py` sweeps file-valued settings so a new one must be
+  classified as a refused Xeda stage or a reviewed read; tests compare generated scripts and
+  exercise the native result against installed Yosys without claiming every reader/path setup is
+  identical by default.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers).
   (`fpga_pack` refuses a family it has no packer for there). Undeclared flows validate in

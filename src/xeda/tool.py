@@ -603,7 +603,27 @@ class Tool(XedaBaseModel):
     ) -> None:
         self.run(*args, env=env, stdout=redirect_to)
 
-    def derive(self, executable, **kwargs) -> Tool:
+    def derive(
+        self,
+        executable,
+        *,
+        sibling: bool = False,
+        source_name: str | None = None,
+        **kwargs,
+    ) -> Tool:
+        """Derive a command, optionally requiring it beside this installation's executable.
+
+        Ordinary commands retain their own PATH lookup. With `sibling`, native symlinks are
+        resolved before locating the related program; container lookup happens inside the
+        selected image. `source_name` identifies the canonical suffix of the source executable;
+        any prefix before it is retained for the sibling (for example, a `PROGRAM_PREFIX`
+        applied to both `yosys` and `yosys-config`). An absent sibling is an error, never another
+        installation's helper.
+        """
+        if sibling:
+            executable = self._sibling_executable(executable, source_name=source_name)
+        elif source_name is not None:
+            raise ToolException("`source_name` can only be used when deriving a sibling tool.")
         # A derived tool changes its Docker command and may later add mounts/environment entries.
         # It must not share those containers with the source tool.
         new_tool = self.model_copy(deep=True, update=kwargs)
@@ -616,3 +636,50 @@ class Tool(XedaBaseModel):
             new_tool.docker.command = [executable]
             new_tool.docker.invalidate_cached_properties()
         return new_tool
+
+    def _sibling_executable(self, name: str, *, source_name: str | None = None) -> str:
+        if Path(name).name != name or name in ("", ".", ".."):
+            raise ToolException(f"A sibling executable must be a name, got {name!r}.")
+        if source_name is not None and (
+            Path(source_name).name != source_name or source_name in ("", ".", "..")
+        ):
+            raise ToolException(f"A source executable name must be a name, got {source_name!r}.")
+        if self.dockerized and self.docker:
+            # Docker.run executes Docker.command[0] when configured, regardless of the
+            # Tool.executable argument it receives. Resolve the sibling from that same command.
+            source_executable = self.docker.command[0] if self.docker.command else self.executable
+            # Pass names as positional parameters, never interpolate them into shell code.
+            script = (
+                'source=$(command -v "$1") || exit 1; '
+                'if [ -L "$source" ]; then source=$(readlink -f "$source") || exit 1; fi; '
+                'case "$source" in /*) ;; *) source="$PWD/$source" ;; esac; '
+                'source_base="${source##*/}"; '
+                'prefix=""; '
+                'if [ -n "$3" ]; then '
+                'case "$source_base" in *"$3") prefix="${source_base%"$3"}" ;; esac; '
+                "fi; "
+                'helper="${source%/*}/$prefix$2"; '
+                '[ -f "$helper" ] && [ -x "$helper" ] || exit 1; '
+                'printf "%s\\n" "$helper"'
+            )
+            try:
+                result = self.derive("sh").probe_stdout(
+                    "-c", script, "xeda-sibling", source_executable, name, source_name or ""
+                )
+            except ToolException as error:
+                raise ToolException(
+                    f"Cannot locate sibling `{name}` beside `{source_executable}` in the container."
+                ) from error
+            if result and result.strip().startswith("/"):
+                return result.strip()
+        else:
+            source = self.executable_path()
+            if source is not None:
+                source_base = source.name
+                prefix = ""
+                if source_name is not None and source_base.endswith(source_name):
+                    prefix = source_base[: -len(source_name)]
+                helper = source.parent / f"{prefix}{name}"
+                if helper.is_file() and os.access(helper, os.X_OK):
+                    return str(helper)
+        raise ToolException(f"Cannot locate sibling `{name}` beside `{self.executable}`.")

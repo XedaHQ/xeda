@@ -112,6 +112,19 @@ All notable changes to this project will be documented in this file.
   the file and the accepted suffixes. A relative path still resolves against the design directory
   and a board's local `lpf` against the database file's directory, in either format. The bundled
   databases stay TOML.
+- **`yosys_fpga` can omit Xeda's pre- and post-synthesis stages** with `synth_pass_only = true`.
+  Reader/front-end settings, design parameters, `synth_flags` and explicit ABC9 script selection
+  still apply in either mode. An unset ABC9 script preserves each mode's default: the full Xeda
+  recipe uses `flow3` and a constrained clock supplies a clock-derived ABC9 delay; pass-only mode
+  leaves the script to the synthesis pass and adds no clock-derived delay. `abc9_script` selects
+  one of Yosys' installed scripts (`default`, `default.area`, `default.fast`, `flow`, `flow2`,
+  `flow3` or `flow3mfs`) in either mode when ABC9 mapping is enabled; the legacy `flow3` setting
+  remains supported, but cannot be combined with `abc9_script`. Settings that add Xeda stages or
+  separate post-pass operations, including `rmports`, are rejected in pass-only mode. This mode
+  alone does not guarantee the
+  same result as a native Yosys command: comparisons must match the installed Yosys, source paths and order, reader and
+  flags, parameters, synthesis-pass flags and ABC9 script. It makes those comparisons useful for
+  isolating Xeda's surrounding stages, without making a netlist quality claim.
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
 - **Flow chains**: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` runs the last flow of a
