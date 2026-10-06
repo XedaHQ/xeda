@@ -28,6 +28,10 @@ REMOVED = {
     "prerun_time": ("1ns", "flows.vivado_postsynth_sim.prerun_time"),
     "timeout": (10.0, "flows.vivado_postsynth_sim.timeout"),
     "fail_severity": ("error", "flows.vivado_postsynth_sim.fail_severity"),
+    "timing_sim": (
+        True,
+        "switches `flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
+    ),
 }
 
 
@@ -107,7 +111,7 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
             project.write_text(section)
             command.extend(["--xedaproject", str(project)])
         else:
-            value = "{}" if name == "postsynthsim" else str(given)
+            value = "{}" if name == "postsynthsim" else str(given).lower()
             command.extend(["-s", f"flows.vivado_power.{name}={value}"])
         proc = subprocess.run(command, capture_output=True, text=True, timeout=30)
         document = json.loads(proc.stdout)

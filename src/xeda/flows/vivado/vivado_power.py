@@ -53,6 +53,8 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         removed_settings = {
             **Vivado.Settings.removed_settings,
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
+            "timing_sim": "no setting: power asks for timing activity, which switches "
+            "`flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
             **{
                 key: f"`flows.vivado_postsynth_sim.{key}`"
                 for key in (
