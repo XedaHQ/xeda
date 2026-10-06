@@ -260,8 +260,8 @@ All notable changes to this project will be documented in this file.
   explicitly given setting is never replaced. `xeda run yosys -s platform=nangate45` produces the
   netlist `openroad`'s synthesis produced, byte for byte. `yosys` declares its gate-level netlist
   (`netlist`, switched on by `netlist_verilog`) and gains `corner`. `openroad` hands its
-  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`) and
-  `blocks`; `yosys`'s own settings reach it from a design's or project's `flows.yosys` section.
+  synthesis only the settings the two share (`platform`, `corner`, `dont_use_cells`, `clocks`);
+  `yosys`'s own settings reach it from a design's or project's `flows.yosys` section.
 - **Breaking: `optimize`, `abc_driver_cell` and `abc_load_in_ff` moved from `openroad` to
   `yosys`.** Given to `openroad` they fail with `` `optimize` was removed: use
   `flows.yosys.optimize` `` (and likewise); `abc_driver_cell` is a cell name (text), no longer an

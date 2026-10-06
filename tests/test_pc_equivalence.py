@@ -56,11 +56,12 @@ and none can be derived from `platform` alone), checked in `test_each_openroad_v
   a copy of its shipped description under the design's directory, with a tiny liberty file per
   corner written there (`stage_asap7`, deterministic: the compressed ones carry no time stamp).
   `-s platform=asap7` itself cannot run on a checkout.
-* `blocks`: **the liberty and the merged library are identical to the default's.** `blocks` only
-  becomes the `black_box` of `yosys`, which renders it as a `blackbox <module>` command in the
-  script; nothing about a library follows from it. The variant is distinct through the script
-  `yosys` is handed (and the netlist that follows from it), and that is what is recorded and
-  asserted. A conversion that dropped it would still hand yosys the same libraries.
+* `black_box` (the golden `openroad_blocks`, from `openroad`'s removed `blocks`): **the liberty
+  and the merged library are identical to the default's.** It only becomes the `black_box` of
+  `yosys`, which renders it as a `blackbox <module>` command in the script; nothing about a
+  library follows from it. The variant is distinct through the script `yosys` is handed (and the
+  netlist that follows from it), and that is what is recorded and asserted. A conversion that
+  dropped it would still hand yosys the same libraries.
 
 The goldens are `tests/resources/pc_equivalence/*.json`. Setting `XEDA_PC_EQUIVALENCE_CAPTURE=1`
 writes a golden that does not exist yet and never replaces one: a golden is not regenerated, a
@@ -426,7 +427,7 @@ def record_node(run_dir: Path, marks: Placeholders) -> dict[str, Any]:
         "results": marks.value(results_without_identity(results)),
     }
     # a script is read where it is not a digest: what it asks the tool for is what a reviewer
-    # compares, and `blocks` shows nowhere else
+    # compares, and `black_box` shows nowhere else
     scripts = {
         marks.text(str(path)): marks.text(path.read_text())
         for path in files
@@ -672,7 +673,7 @@ def yosys_netlist(record: dict[str, Any]) -> str:
 
 def test_each_openroad_variant_hands_yosys_what_the_default_does_not(captured) -> None:
     """Each nondefault configuration differs from the one it is compared with in what the
-    golden records, or it would pass vacuously. `blocks` differs in the script, not the library
+    golden records, or it would pass vacuously. `black_box` differs in the script, not the library
     (the module docstring says why); `corner` is compared with the same platform's default."""
     default = captured("openroad")
     dont_use = captured("openroad_dont_use_cells")
@@ -682,7 +683,7 @@ def test_each_openroad_variant_hands_yosys_what_the_default_does_not(captured) -
     assert merged_library(dont_use) != merged_library(default)
     assert merged_library(ss) != merged_library(tt)
 
-    # `blocks` changes no library, and changes the script (and so the netlist) yosys is handed
+    # `black_box` changes no library, and changes the script (and so the netlist) yosys is handed
     assert merged_library(blocks) == merged_library(default)
     assert yosys_script(blocks) != yosys_script(default)
     assert yosys_netlist(blocks) != yosys_netlist(default)
