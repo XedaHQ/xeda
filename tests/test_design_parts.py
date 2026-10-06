@@ -12,12 +12,10 @@ other sources, a part wrongly left in only costs a re-run. Three oracles hold th
   is shown to read it.
 * O-DP3: the trace of a `{"rtl"}` flow names no file of `design.tb` as an input.
 
-O-DP1 (ii), the transitive half, is deliberately absent here. It is the power graph: a `tb`-only
-edit leaves `vivado_synth` fresh, makes `vivado_postsynth_sim` stale, and makes `vivado_power`
-stale with its producer's re-run as the reason. That needs `vivado_power` to be a `{"rtl"}` flow
-whose producer reads `tb`, and `vivado_power` is a `VivadoSim`, so it declares `tb` itself, until
-PCD6 gives it another base class (PC Task 4). Task 4 adds half (ii) there, together with
-`vivado_power`'s own parts, which this module therefore does not assert.
+O-DP1 (ii), the transitive half, is the power graph, at the end of this module: a `tb`-only edit
+leaves `vivado_synth` fresh, makes `vivado_postsynth_sim` stale, and makes `vivado_power` stale
+with its producer's re-run as the reason. `vivado_power` reads no testbench itself, so it is a
+`{"rtl"}` flow whose producer reads `tb`.
 """
 
 import ast
@@ -46,18 +44,15 @@ from .tool_utils import launch_until_fresh, require_ghdl, require_yosys, use_fak
 
 RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 
-#: PC plan 4.1, the values every flow takes. `vivado_power` is deliberately not in it: it is a
-#: `VivadoSim`, so it declares `tb` until PCD6 changes its base class (Task 4), and a table
-#: that asserted either value would be wrong now or wrong then.
+#: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
     "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad quartus "
-    "vivado_alt_synth vivado_synth yosys yosys_fpga"
+    "vivado_alt_synth vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
     "bsc bsc_sim ghdl_sim modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
     "vivado_sim yosys_sim"
 ).split()
-NOT_ASSERTED = {"vivado_power"}
 
 
 def _flow(name: str) -> type[Flow]:
@@ -65,10 +60,9 @@ def _flow(name: str) -> type[Flow]:
 
 
 def test_the_table_names_every_flow() -> None:
-    """Every flow of the product is in the table of 4.1 or is one of the two the table leaves
-    open, so a new flow has to be classified here."""
+    """Every flow of the product is in the table, so a new flow has to be classified here."""
     names = {name for _, name in flow_classes()}
-    assert names == set(RTL_FLOWS) | set(RTL_AND_TB_FLOWS) | NOT_ASSERTED
+    assert names == set(RTL_FLOWS) | set(RTL_AND_TB_FLOWS)
 
 
 @pytest.mark.parametrize("name", RTL_FLOWS)
@@ -289,6 +283,44 @@ def test_the_exit_condition_a_testbench_edit_separates_synthesis_from_simulation
     `vivado_synth` and `ghdl_sim`.)"""
     assert _flow("vivado_synth").design_parts == RTL
     assert _flow("ghdl_sim").design_parts == BOTH
+
+
+def test_a_testbench_edit_reruns_the_simulation_and_power_but_not_synthesis(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """O-DP1 (ii). `vivado_power` reads no testbench, yet the activity it reports is a simulation
+    of one: the edit leaves the synthesis it reports against fresh, makes the simulation stale
+    and makes power stale through that simulation's new run, not through its own design hash."""
+    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
+    monkeypatch.chdir(tmp_path)
+    write_vivado_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    def launch() -> Flow:
+        flow = runner.run("vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS)
+        assert flow and flow.succeeded
+        return flow
+
+    first = launch()
+    assert not first.reused
+    settled = launch_until_fresh(runner, launch)
+    assert settled.reused
+
+    (tmp_path / "tb.sv").write_text((tmp_path / "tb.sv").read_text() + "// edited tb\n")
+    entered = len(runner.launched)
+    power = launch()
+    ran = {flow.name: flow for flow in runner.launched[entered:]}
+
+    assert set(ran) == {"vivado_synth", "vivado_postsynth_sim", "vivado_power"}
+    assert ran["vivado_synth"].reused and ran["vivado_synth"].stale_reason is None
+    assert not ran["vivado_postsynth_sim"].reused and ran["vivado_postsynth_sim"].stale_reason
+    assert power is ran["vivado_power"] and not power.reused
+    assert "vivado_postsynth_sim" in power.stale_reason, power.stale_reason
+    assert "tb.sv" not in power.stale_reason
+    assert power.design_hash == settled.design_hash
 
 
 def _trace_inputs(flow: Flow) -> set[Path]:

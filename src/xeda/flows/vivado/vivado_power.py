@@ -35,6 +35,10 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         "component Vivado reports (Clocks, Slice Logic, Signals, Block RAM, DSP, I/O, ...).",
     }
 
+    #: Power reads the routed checkpoint and the activity file its producers hand over, never the
+    #: testbench: an edit to it re-runs power through its producer's new run, not its own hash.
+    design_parts = frozenset({"rtl"})
+
     class Inputs(FpgaSynthFlow.Inputs):
         activity: Path = In(
             SourceType.Saif,
