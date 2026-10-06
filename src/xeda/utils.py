@@ -220,13 +220,16 @@ def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator
     and then rename: a log is meant to be watched while it grows, and a failed tool's partial
     log is its diagnostic, kept as it stands.
 
-    The caller has located `path` in the run directory and removed a link there
-    (`RunDirectory.writable`). The file is opened without following a link at its name
-    (`O_NOFOLLOW`), so a link made since then is an error, never a write through it."""
+    xeda only writes a file it has just made. Whatever is at `path` is removed first -- a link
+    as itself, a file of any link count as a name, never through its inode -- and the log is then
+    created exclusively and without following a link (`O_CREAT | O_EXCL | O_NOFOLLOW`). That
+    matters because a tool may leave a link in the run directory, and a hard link shares its
+    inode with a file that may lie outside it. An entry that appears at the name after the removal
+    is refused (`FileExistsError`), never written through. The caller has located `path` in the
+    run directory (`RunDirectory.writable`)."""
     target = Path(path)
-    if target.is_symlink():  # where `O_NOFOLLOW` does not exist
-        raise OSError(errno.ELOOP, "a log is never written through a symbolic link", str(target))
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    target.unlink(missing_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(target, flags, _CREATE_MODE)
     with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:
         yield f

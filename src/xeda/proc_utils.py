@@ -347,9 +347,9 @@ def run_process(
 
     `timeout`: stop the process, and those it started, after this many seconds, raising
     `ProcessTimeout`. `tee`: also write every line of the output to this file, as the
-    line arrives (`utils.live_log`: at the file's own name, a link there is an error, never
-    followed); the output is then not captured, so `tee` with a `stdout` other than `None` is a
-    `ValueError`. The caller removes a link at the name first (`RunDirectory.writable`).
+    line arrives (`utils.live_log`: a new file at the given name, which replaces whatever was
+    there, a link or a hard link included, and is never written through it); the output is then
+    not captured, so `tee` with a `stdout` other than `None` is a `ValueError`.
 
     `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
     called at most once, and only when xeda stopped the process: its time limit expired, or an

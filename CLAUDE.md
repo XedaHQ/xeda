@@ -622,7 +622,8 @@ or they won't ship in the wheel.
 `run_process` and `Tool.run` take `timeout` (seconds; on expiry the process -- on POSIX its whole
 process group -- is stopped and `ProcessTimeout` raised; a Docker container is named and
 `docker kill`ed) and `tee` (a file the output is also copied to, as each line arrives, at the
-file's own name: `utils.live_log` opens it with `O_NOFOLLOW` after `RunDirectory.writable` removed a link there -- the
+file's own name: `utils.live_log` removes whatever is at the name -- a link as itself, a hard link without touching its inode -- and
+creates the log with `O_CREAT | O_EXCL | O_NOFOLLOW`, so xeda writes only a file it just made; it is the
 one write that is not complete-then-rename, since a log is meant to be watched; a dockerized tool mounts without `:z`
 and runs with `--security-opt label=disable`, so xeda never relabels the user's files).
 

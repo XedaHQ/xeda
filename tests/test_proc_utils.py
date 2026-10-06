@@ -19,6 +19,7 @@ the no-terminal half.
 import os
 import pty
 import select
+import stat
 import subprocess
 import sys
 import termios
@@ -26,8 +27,9 @@ from pathlib import Path
 
 import pytest
 
+from xeda import utils as xeda_utils
 from xeda.proc_utils import run_process
-from xeda.utils import NonZeroExitCode
+from xeda.utils import NonZeroExitCode, live_log
 
 # a rule shaped like the real ones in the vivado/vcs/dc flows
 HIGHLIGHT = {r"^(ERROR:)(.+)$": "<<" + r"\g<0>"}
@@ -464,17 +466,95 @@ def test_a_tee_log_grows_while_the_process_runs(tmp_path):
 
 
 @pytest.mark.skipif(os.name != "posix", reason="needs symbolic links")
-def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path):
-    """Whatever planted a link at the log's name after the run directory cleared it, the tool's
-    output does not reach the file the link names."""
-    target = tmp_path / "precious"
-    target.write_text("keep\n")
-    log = tmp_path / "sim.log"
+@pytest.mark.parametrize("dangling", [False, True], ids=["to a file", "to nothing"])
+def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path, dangling):
+    """A tool may leave a symbolic link at the log's name. The link is replaced as itself by the
+    new log: the file it names is not written, and a name it leads to is not created."""
+    run, outside = tmp_path / "run", tmp_path / "outside"
+    run.mkdir()
+    outside.mkdir()
+    target = outside / "precious"
+    if not dangling:
+        target.write_text("keep\n")
+    log = run / "sim.log"
     log.symlink_to(target)
-    with pytest.raises(OSError):
-        run_process(sys.executable, ["-c", "print('out')"], tee=log)
-    assert target.read_text() == "keep\n"
+    run_process(sys.executable, ["-c", "print('out')"], tee=log)
+    if dangling:
+        assert not target.exists()
+    else:
+        assert target.read_text() == "keep\n"
+    assert not log.is_symlink()
+    assert log.read_text().splitlines() == ["out"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs hard links")
+@pytest.mark.parametrize("fails", [False, True], ids=["passing tool", "failing tool"])
+def test_a_hard_link_at_the_name_of_a_tee_log_is_never_written_through(tmp_path, fails):
+    """A hard link shares its inode with a file that may lie outside the run directory, such as
+    the user's own. The log is a new file at that name: writing to it, or to a failed tool's
+    partial log, leaves the other file as it was."""
+    run, outside = tmp_path / "run", tmp_path / "outside"
+    run.mkdir()
+    outside.mkdir()
+    precious = outside / "precious"
+    precious.write_text("keep\n")
+    log = run / "sim.log"
+    os.link(precious, log)
+    assert precious.stat().st_nlink == 2
+    code = "print('out'); raise SystemExit(3)" if fails else "print('out')"
+    if fails:
+        with pytest.raises(NonZeroExitCode):
+            run_process(sys.executable, ["-c", code], tee=log)
+    else:
+        run_process(sys.executable, ["-c", code], tee=log)
+    assert precious.read_text() == "keep\n"
+    assert precious.stat().st_nlink == 1
+    assert log.read_text().splitlines() == ["out"]
+    assert not os.path.samestat(log.stat(), precious.stat())
+
+
+def test_a_second_run_replaces_the_tee_log_of_the_first(tmp_path):
+    log = tmp_path / "sim.log"
+    run_process(sys.executable, ["-c", "print('first run'); print('more')"], tee=log)
+    run_process(sys.executable, ["-c", "print('second run')"], tee=log)
+    assert log.read_text().splitlines() == ["second run"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="needs symbolic links")
+@pytest.mark.parametrize("dangling", [False, True], ids=["to a file", "to nothing"])
+def test_a_link_made_after_the_log_was_cleared_is_refused_not_followed(
+    tmp_path, monkeypatch, dangling
+):
+    """The log's name is cleared, then the file is created exclusively. An entry that appears at
+    the name in between, which xeda did not make, is refused and never written through."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = outside / "precious"
+    if not dangling:
+        target.write_text("keep\n")
+    log = tmp_path / "sim.log"
+    real_open = os.open
+
+    def open_after_a_link_appears(path, *args, **kwargs):
+        if Path(path) == log:
+            log.symlink_to(target)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", open_after_a_link_appears)
+    with pytest.raises(FileExistsError):
+        with live_log(log) as f:
+            f.write("out\n")
+    if dangling:
+        assert not target.exists()
+    else:
+        assert target.read_text() == "keep\n"
     assert log.is_symlink()
+
+
+def test_a_tee_log_has_the_permissions_of_a_file_opened_for_writing(tmp_path):
+    log = tmp_path / "sim.log"
+    run_process(sys.executable, ["-c", "print('out')"], tee=log)
+    assert stat.S_IMODE(log.stat().st_mode) == xeda_utils._CREATE_MODE
 
 
 @pytest.mark.skipif(

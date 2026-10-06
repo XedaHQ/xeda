@@ -824,6 +824,12 @@ REVIEWED_PY_DELETIONS = {
     ),
     ("flow_runner/trace.py", "os.replace(temporary, path)"): (1, "trace.json.tmp over trace.json"),
     ("utils.py", "return path.rename(backup_path)"): (1, "a backup, to a name nothing has yet"),
+    ("utils.py", "target.unlink(missing_ok=True)"): (
+        1,
+        "`live_log`: the name of the log it is about to create. What is there goes as a name "
+        "(a link as itself, a hard link without touching its inode), as `replacing_file`'s rename "
+        "replaced it, so the file the log becomes is always a new one",
+    ),
     ("utils.py", "os.replace(temporary, target)"): (
         2,
         "`replacing_file`: its own complete temporary over the file it replaces (a failed tool's "
@@ -1237,9 +1243,10 @@ REVIEWED_WRITES = [
         "utils.py",
         "fd = os.open(target, flags, _CREATE_MODE)",
         "`live_log`: a tool's log, written at its own name so that it can be watched while the run "
-        "goes on. The caller removed a link at the name (`RunDirectory.writable`), and `O_NOFOLLOW` "
-        "makes a link made since then an error, never a write through it. Tool logs only: every "
-        "other file is complete, then renamed",
+        "goes on. The name was just cleared, and the file is created exclusively without following "
+        "a link (`O_CREAT | O_EXCL | O_NOFOLLOW`), so xeda writes only a file it made: an entry "
+        "that appeared since is refused, never written through. Tool logs only: every other file "
+        "is complete, then renamed",
     ),
     (
         "utils.py",
