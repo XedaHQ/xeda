@@ -98,7 +98,8 @@ Key points that are easy to get wrong:
 - **One file, several boards:** `targets.<name>` is an overlay on the design (its own keys,
   merged over it; `sources` appended), selected with `--target NAME` on `run` and `dse`. A design
   with one target needs no flag; with several, the error lists them. `--json` documents carry
-  `target`. Targets do not have run directories of their own yet.
+  `target`. A selected target has run directories of its own, `<design>/<target>/<flow>`;
+  `xeda scrub FLOW DESIGN --target NAME` removes only that target's.
 
 See `references/design-file.md` for the full reference.
 
