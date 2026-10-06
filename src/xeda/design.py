@@ -14,7 +14,7 @@ import shlex
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
@@ -78,9 +78,15 @@ log = logging.getLogger(__name__)
 #: it is one path component that no file system reads as anything else.
 DESIGN_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 
+#: The parts of a design a flow can read, of which `Flow.design_parts` names a subset: the RTL
+#: and the testbench. `_DESIGN_PART_ORDER` is the order every consumer visits them in.
+DESIGN_PARTS: frozenset[str] = frozenset({"rtl", "tb"})
+_DESIGN_PART_ORDER = ("rtl", "tb")
+
 __all__ = [
     "AnyDesignValidationException",
     "Clock",
+    "DESIGN_PARTS",
     "Design",
     "DesignFileParseError",
     "DesignSource",
@@ -2581,3 +2587,24 @@ class Design(XedaBaseModel):
         fingerprint = self.tb_fingerprint
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
+
+    def parts_hash(self, parts: Iterable[str]) -> str:
+        """The hash of the design's `parts` (`DESIGN_PARTS`: `rtl`, `tb`), each as its own hash
+        (`rtl_hash`, `tb_hash`) and in a fixed order, whatever order or collection `parts` is
+        given in. It is the design identity of a flow that reads exactly those parts
+        (`Flow.design_parts`): what a part it does not read says never moves it. Both parts
+        make the whole design's hash."""
+        wanted = frozenset(parts)
+        unknown = wanted - DESIGN_PARTS
+        if unknown:
+            raise ValueError(
+                f"{', '.join(sorted(unknown))} is not a part of a design "
+                f"(its parts are {', '.join(_DESIGN_PART_ORDER)})"
+            )
+        return semantic_hash(
+            {
+                f"{part}_hash": getattr(self, f"{part}_hash")
+                for part in _DESIGN_PART_ORDER
+                if part in wanted
+            }
+        )

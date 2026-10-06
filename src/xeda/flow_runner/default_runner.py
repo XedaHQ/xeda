@@ -42,6 +42,7 @@ from ..deliver import (
 )
 from ..design import (
     DESIGN_NAME,
+    DESIGN_PARTS,
     Design,
     loading_in_run_root,
     names_a_design_file,
@@ -69,7 +70,6 @@ from ..utils import (
     dump_json,
     json_encodable,
     replacing_copy,
-    semantic_hash,
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
@@ -687,7 +687,8 @@ class FlowLauncher:
         """Validate a plan minted by this launcher; external plans are deferred (R3)."""
         captured = self._plans.get(id(plan))
         context = plan.context
-        design_hash = semantic_hash(dict(rtl_hash=design.rtl_hash, tb_hash=design.tb_hash))
+        # the whole design: the plan is of this request, not of one node's identity
+        design_hash = design.parts_hash(DESIGN_PARTS)
         if (
             captured is None
             or captured[0] is not plan
@@ -962,7 +963,7 @@ class FlowLauncher:
         deliveries = split_deliveries(input_settings, design.name)
         copy_resources = [res for res in copy_resources if os.path.isfile(res)]
         design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
-            flow_name, design, input_settings, node
+            flow_class, flow_name, design, input_settings, node
         )
         # gpt-6-sol's final (c): what this flow reads -- the settings of a dependency nested in
         # its own included, and every file under a directory one names, as its trace lists it --
@@ -1295,6 +1296,7 @@ class FlowLauncher:
 
     def _run_identity(
         self,
+        flow_class: type[Flow],
         flow_name: str,
         design: Design,
         settings: Flow.Settings,
@@ -1302,15 +1304,10 @@ class FlowLauncher:
     ) -> tuple[str, str, Path, str]:
         """Stage 2: `(design_hash, flowrun_hash, run_path, settings_hash)`. The run's hash is
         its node's identity (`bindings.node_identity`): its settings and, for a planned node,
-        the ordered origins of its inputs; a flow launched without a plan has none."""
-        # GOTCHA: design contains tb settings even for simulation flows
-        # OTOH removing tb from hash for sim flows creates a mismatch for different flows of the same design
-        design_hash = semantic_hash(
-            dict(
-                rtl_hash=design.rtl_hash,
-                tb_hash=design.tb_hash,
-            )
-        )
+        the ordered origins of its inputs; a flow launched without a plan has none. The design
+        counts by the parts the flow reads (`Flow.design_parts`), so an edit to a testbench the
+        flow does not read changes nothing of it."""
+        design_hash = design.parts_hash(flow_class.design_parts)
         settings_hash = flow_run_hash(flow_name, settings, design.name)
         flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
         run_path = self.get_flow_run_path(

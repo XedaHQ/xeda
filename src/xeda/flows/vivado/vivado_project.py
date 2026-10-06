@@ -53,7 +53,8 @@ class VivadoProject(Vivado, FpgaSynthFlow):
     # Creating a project reports nothing beyond the keys every flow reports.
     results_description: dict = {}
 
-    reads_source_parts = ("rtl", "tb")
+    #: the project's simulation fileset holds the testbench
+    design_parts = frozenset({"rtl", "tb"})
     reads_sources = frozenset(
         {
             SourceType.Verilog,

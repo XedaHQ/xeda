@@ -387,6 +387,13 @@ All notable changes to this project will be documented in this file.
 - `--remote` needs a P1b-capable xeda build on the remote host: the 0.4.4 release line (including
   dev builds) or newer, with remote protocol 3 or newer. An older or protocol-2 host is refused
   before anything ships, with an error asking to upgrade the remote xeda.
+- A flow's identity counts the parts of the design it reads (`Flow.design_parts`, which replaces
+  `reads_source_parts`): the RTL for synthesis and implementation flows, the RTL and the testbench
+  for simulations, `bsc` and `vivado_project`. A `design_hash` in `results.json` and in the trace
+  is that of those parts, and a flow's trace records only their files as inputs, so editing a
+  testbench no longer makes `vivado_synth`, `yosys` and the other flows that never read it run
+  again. Only the flow's own freshness is scoped: a flow whose producer reads the testbench still
+  runs again with its producer. The first launch after upgrading runs each such flow once.
 
 ### Removed
 - **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run

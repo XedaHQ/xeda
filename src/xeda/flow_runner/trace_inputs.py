@@ -31,12 +31,12 @@ import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple, Type
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type
 
 from pydantic import BaseModel
 
 from ..artifacts import iter_artifact_paths
-from ..design import Design, FileResource
+from ..design import DESIGN_PARTS, Design, FileResource
 from ..digest import (
     MODIFIED_DURING_RUN,
     UNRECORDED_BEFORE_RUN,
@@ -86,10 +86,15 @@ def _add(found: List[Path], path: Path) -> None:
         found.append(resolved)
 
 
-def design_files(design: Design) -> List[Path]:
-    """Every file the design's RTL and testbench parts name, resolved: their sources, a
+def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Path]:
+    """Every file the design's `parts` name, resolved (`Flow.design_parts`: the RTL, and the
+    testbench for a flow that reads it; the whole design by default): their sources, a
     parameter or define given as a file (`ROM = { file = "rom.mem" }`, which the design holds
     as the file's absolute path), and any other file a field of theirs refers to.
+
+    Only a flow's trace scopes them. What protects the user's files from a delivery -- the
+    launcher's registered reads and refused inputs, a remote run's read inputs -- keeps the whole
+    design, or a `{"rtl"}` flow's delivery could land on a testbench file.
 
     One walker over every value of both parts: a `FileResource` is its file, and any other
     text or path counts when it is absolute and names an existing file -- relative text (a
@@ -116,8 +121,13 @@ def design_files(design: Design) -> List[Path]:
             if path.is_absolute() and path.is_file():
                 _add(found, path)
 
-    visit(design.rtl)
-    visit(design.tb)
+    wanted = frozenset(parts)
+    unknown = wanted - DESIGN_PARTS
+    if unknown:
+        raise ValueError(f"{', '.join(sorted(unknown))} is not a part of a design")
+    visit(design.rtl)  # the RTL is always read
+    if "tb" in wanted:
+        visit(design.tb)
     return found
 
 
@@ -515,7 +525,8 @@ def candidate_inputs(
     excepted."""
     bookkeeping = bookkeeping_files(flow.run_path)
     files = {
-        *design_files(design),
+        # the parts of the design this flow reads, not the whole design (PCD2)
+        *design_files(design, type(flow).design_parts),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
         *dependency_outputs(flow),

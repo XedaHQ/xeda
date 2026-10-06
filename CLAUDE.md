@@ -621,7 +621,8 @@ vivado.log where it runs (the fake `vivado` does too).
 
 ### Caching and run directories
 
-A run is identified by `design_hash` (from `rtl_hash` + `tb_hash`: each source's content hash,
+A run is identified by `design_hash` (`Design.parts_hash(Flow.design_parts)`: the `rtl_hash` of
+every flow and the `tb_hash` of one that reads the testbench -- each source's content hash,
 type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
 RTL/testbench metadata) and the run's hash: `flow.flowrun_hash` (flow name + input settings)
 combined with the ordered origins of its declared inputs (`bindings.node_identity`, D-9; the
@@ -631,7 +632,15 @@ they depend on what the inputs mean, not where anything is: moving a whole desig
 (`../lib/defs.vh`, `Design._source_fingerprint`): a tool can resolve another file from any
 source's location, so re-arranging even VHDL or constraint sources changes the identity.
 `send_design` keeps sources under the root at their relative place for the same reason.
-`flowrun_hash` writes any path under the design
+**`design_parts` is a flow's *direct* scope**: a testbench edit leaves `vivado_synth` and `yosys`
+fresh and makes `ghdl_sim` stale, but a `{"rtl"}` flow downstream of a producer that reads `tb`
+still runs again with it (the dependency's new `run_id`). It scopes the design hash and the trace's
+design files and nothing else: the launcher's registered reads and refused inputs
+(`_read_inputs`, `_refuse_inputs_inside`), a remote run's read inputs and `PlanContext.design_hash`
+keep the whole design, since they protect the user's files and verify the request. A part wrongly
+left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
+or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
+scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), the start directory and design
 root are validation *context* rather than settings. A parameter's value is its only record: one given as a file
 (`{ file = ... }` or `{ path = ... }`) becomes the absolute path the tool is handed, and a path
@@ -666,8 +675,9 @@ plugin flow's own modules (`flow_code_digest`), the programs it started as `File
 resolved executable (`ProgramRecord.file`: size, mtime, inode change time, inode, content hash --
 a program is checked exactly as any other input; a container image is recorded by its ID alone,
 `ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
-`digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over `rtl`
-and `tb`, so a file-valued parameter counts), every existing file a path-typed setting names
+`digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over the
+parts the flow reads, `rtl` and, for `design_parts` with `tb`, `tb`, so a file-valued parameter
+counts), every existing file a path-typed setting names
 (`setting_files`: nested models too, not a dependency's settings; relative paths under the design
 root *and* the start directory), every entry under a directory such a setting names
 (`setting_directory_files`: `xeda.listing.directory_files(follow_links=True)`, recursive, a
@@ -1218,7 +1228,7 @@ dependency must also share `custom_boards_file`.
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
   never reorder the historical ordinals. Script flows declare `reads_sources` and
-  `reads_source_parts`, then iterate `sources_read()` in code/templates. Every consumed part
+  `design_parts`, then iterate `sources_read()` in code/templates. Every consumed part
   rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. Headers need an
   actual include/search path, and source type names must never become tool commands.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
