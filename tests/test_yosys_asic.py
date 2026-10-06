@@ -358,11 +358,11 @@ def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
     assert _effective(run_dir)["post_synth_opt"] is expected
     recorded = json.loads((run_dir / "settings.json").read_text())["flow_settings"]
     assert recorded["post_synth_opt"] is given
-    assert (
-        Yosys.Settings.from_input(recorded).model_dump()
-        == Yosys.Settings.from_input(recorded).model_dump()
-    )
-    assert Yosys.Settings.from_input(recorded).post_synth_opt is given
+    # reloaded from `settings.json`, the settings are the same again, the unset value included
+    reloaded = Yosys.Settings.from_input(recorded)
+    again = Yosys.Settings.from_input(json.loads(json.dumps(reloaded.model_dump(mode="json"))))
+    assert again.model_dump() == reloaded.model_dump()
+    assert reloaded.post_synth_opt is given and again.post_synth_opt is given
 
 
 # ------------------------------------------------------------------ asap7's SS corner

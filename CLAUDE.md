@@ -984,18 +984,16 @@ and `test_nvc.py` simulate the examples in place.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P3-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 8: protocol 2 adds
-  canonical resolved settings, relocated read inputs with their original path identities, declared
-  output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
-  current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow;
-  protocol 5 the programming-only `openfpgaloader`, which consumes `fpga_pack`'s bitstream;
-  protocol 6 requires the D-9 identity rule: a node's `flow_hash` is its settings plus its ordered
-  resolved input origins, the hash `RemoteRunner` names the mirror by and compares with the
-  remote's reported `flow_hash`, so a protocol-5 remote is refused up front, not accepted and
-  then failed on a hash mismatch it cannot explain; protocol 7 the declared Vivado outputs;
-  protocol 8: yosys declares its netlist and takes the ASIC configuration; run identities count a
-  bundled platform relative to xeda's installation (PCD23); `tests/test_remote_streaming.py` and
-  `tests/test_remote_run.py` pin the refusal).
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 1, the first released
+  protocol -- no earlier release carried a marker: canonical resolved settings, relocated read
+  inputs with their original path identities, declared output records and checked hand-over,
+  current-run evidence for remote simulations, the FPGA build graph with `fpga_pack` and a
+  programming-only `openfpgaloader`, the D-9 identity rule -- a node's `flow_hash` is its settings
+  plus its ordered resolved input origins, the hash `RemoteRunner` names the mirror by and compares
+  with the remote's -- the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC
+  configuration, a bundled platform counted relative to xeda's installation (PCD23); a remote
+  with no marker or a lower one is refused up front, not failed on a hash mismatch it cannot
+  explain; `tests/test_remote_streaming.py` and `tests/test_remote_run.py` pin the refusal).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
   support.
@@ -1004,9 +1002,10 @@ and `test_nvc.py` simulate the examples in place.
   remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
   must be upgraded or removed even if another installed distribution is current.
   **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published P2a-or-newer release tuple and
-  retain its protocol marker. For an incompatible remote archive or launch-contract change,
-  increment the exposed `REMOTE_PROTOCOL_VERSION` and the required `REMOTE_PROTOCOL_MIN_VERSION`
-  together; update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
+  retain its protocol marker. The exposed `REMOTE_PROTOCOL_VERSION` and the required
+  `REMOTE_PROTOCOL_MIN_VERSION` are raised together once per release cycle, when anything
+  remote-visible changed since the last release; pull requests between releases do not bump them
+  (development builds are not supported remotes). When they are raised, update `test_remote_run.py`'s `P2A_RTL_KEYS`/`P2A_TB_KEYS`/`P2A_GIT_REFERENCE_KEYS`
   and nullable-key pins and verify archive/source round trips plus the popen remote runs. The
   archive and shipped worker may rely on the API guaranteed by that protocol floor; no 0.4.3
   archive projection or compatibility policy is maintained.

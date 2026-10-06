@@ -227,12 +227,19 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
-- **`--remote` needs a remote with protocol 8**: `yosys` declares its netlist and takes the ASIC
-  configuration, and a run's identity counts a bundled platform's files relative to xeda's
-  installation (`$XEDA/platforms/...`), so two installations -- this side and a remote -- agree on
-  it; a platform under the design root still counts relative to it, and one elsewhere as its
-  absolute location. `flowrun_hash` (and so a hashed run directory's name) changes for every run
-  given a bundled platform. A remote of protocol 7 or older is refused before anything ships.
+- **Breaking: `--remote` needs a remote of remote protocol 1** (`xeda.REMOTE_PROTOCOL_VERSION`), the
+  first released protocol: canonical resolved settings, relocated read inputs with their path
+  identities, declared output records with checked hand-over, current-run evidence for remote
+  simulations, the FPGA build graph (`fpga_pack`, a programming-only `openfpgaloader`), the node
+  identity of flow chains (a node's `flow_hash` counts where its declared inputs come from), the
+  declared Vivado outputs, and `yosys`'s declared netlist with its ASIC configuration. A remote
+  without the marker (every earlier release) or with a lower one is refused before anything
+  ships, with an "upgrade the remote xeda" error.
+- A run's identity counts a bundled platform's files relative to xeda's installation
+  (`$XEDA/platforms/...`), so two installations -- this side and a remote -- agree on it; a
+  platform under the design root still counts relative to it, and one elsewhere as its absolute
+  location. `flowrun_hash` (and so a hashed run directory's name) changes for every run given a
+  bundled platform.
 - **`yosys` owns its ASIC configuration.** Given a `platform`, `yosys` alone derives what
   `openroad` used to hand its synthesis: the corner's liberty set, merged into one library in its
   own run directory (named `<platform>_merged`, with the platform's own dont-use cells and
@@ -296,10 +303,6 @@ All notable changes to this project will be documented in this file.
   accepted only with `write_flash`. The default graph is
   `openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga`. `results.tools` records the
   programmer's version (asked with `-V`, which touches no device).
-- **`--remote` needs a remote with protocol 6** (this release): the FPGA build graph, the
-  programming-only loader and the node identity of flow chains (a node's `flow_hash` counts where
-  its declared inputs come from) are part of what a remote must understand. A remote of protocol
-  5 is refused before anything ships, with an "upgrade the remote xeda" error.
 - A failed `nextpnr` is reported by the errors in its log: a constraint error at its original
   file and line, a missed timing constraint as such (`timing_allow_fail` keeps the result), and
   anything else as the tool's own failure -- never by a parser warning.
@@ -307,9 +310,8 @@ All notable changes to this project will be documented in this file.
   to the board file when none are supplied. Typed SDC sources precede the `sdc` setting's file;
   duplicate clock constraints fail with their original locations. The `lpf_cfg`, `pcf_cfg`
   and `pdc_cfg` settings are removed with typed-source migration messages.
-- **Breaking: `--remote` requires protocol 3.** P1b remotes apply the shared simulation evidence
-  rule and fail simulations that exit successfully without confirmed completion evidence. A P2a
-  protocol-2 remote is refused before the design is shipped; upgrade its xeda installation.
+- Remote simulations apply the shared simulation evidence rule and fail simulations that exit
+  successfully without confirmed completion evidence.
 - All `SimFlow` families now share `timeout` and `fail_severity` (`warning`, `error`, `failure`
   or `fatal`; default `error`). Failure and fatal have the same rank. `timeout` bounds each
   subprocess invocation containing simulation, including analysis/elaboration in a combined
@@ -427,9 +429,6 @@ All notable changes to this project will be documented in this file.
   entry, such as yosys's own library files) has no such record: on the run directory's file
   system its clock still decides, but on another one nothing does, so the next launch runs once
   more, saying so ("input first read by the last run, on another file system").
-- `--remote` needs a P1b-capable xeda build on the remote host: the 0.4.4 release line (including
-  dev builds) or newer, with remote protocol 3 or newer. An older or protocol-2 host is refused
-  before anything ships, with an error asking to upgrade the remote xeda.
 - A flow's identity counts the parts of the design it reads (`Flow.design_parts`, which replaces
   `reads_source_parts`): the RTL for synthesis and implementation flows, the RTL and the testbench
   for simulations, `bsc` and `vivado_project`. A `design_hash` in `results.json` and in the trace

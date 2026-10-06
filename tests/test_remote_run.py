@@ -390,33 +390,36 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
 @pytest.mark.parametrize(
     "version,protocol,flow_name,flow_settings",
     [
-        ("0.4.3", 0, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
-        ("0.4.4.dev1", 2, "ghdl_sim", None),
-        ("0.4.4.dev1", 3, "fpga_pack", ["fpga.part=LFE5U-25F-6BG381C"]),
-        ("0.4.4.dev1", 4, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
-        # protocol 5 predates D-9's node identity: its `flow_hash` for the same request differs
-        # from this side's, so it must be refused here, not accepted and failed on a mirror hash
-        ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
-        ("0.4.4.dev1", 5, "ghdl_sim", None),
-        ("0.4.4.dev1", 6, "ghdl_sim", None),
-        # protocol 7 (declared Vivado outputs) predates PCD23: it hashes a bundled platform by
-        # its own installation's paths, and configures `yosys` without its platform
-        ("0.4.4.dev1", 7, "yosys", ["platform=nangate45", "clock.period=2.0"]),
-        ("0.4.4.dev1", 7, "ghdl_sim", None),
+        # a release before protocol 1 carries no marker: the probe reports protocol 0, and its
+        # `flow_hash` for the same request differs from this side's, so it is refused here, not
+        # accepted and failed on a mirror hash
+        ("0.4.3", None, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
+        ("0.4.4", None, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
+        ("0.4.4", None, "yosys", ["platform=nangate45", "clock.period=2.0"]),
+        ("0.4.4", None, "ghdl_sim", None),
+        # a marker lower than this side's floor
+        ("0.4.5", 0, "openfpgaloader", ["fpga.part=LFE5U-25F-6BG381C"]),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     tmp_path, remote_host, monkeypatch, version, protocol, flow_name, flow_settings
 ):
-    """Reject a pre-P2a release or a remote of an older protocol before shipping the design."""
+    """Reject a release without the protocol marker, or one of a lower protocol, before shipping
+    the design."""
+    marker = (
+        "del xeda.REMOTE_PROTOCOL_VERSION\n"
+        if protocol is None
+        else f"xeda.REMOTE_PROTOCOL_VERSION = {protocol}\n"
+    )
     monkeypatch.setattr(
         remote_module,
         "REMOTE_PROBE",
         "import xeda\n"
         "from importlib import metadata\n"
         f"xeda.__version__ = {version!r}\n"
-        f"xeda.REMOTE_PROTOCOL_VERSION = {protocol}\n"
-        f"metadata.version = lambda name: {version!r}\n" + remote_module.REMOTE_PROBE,
+        + marker
+        + f"metadata.version = lambda name: {version!r}\n"
+        + remote_module.REMOTE_PROBE,
     )
     shipped = []
     closed = []
@@ -447,13 +450,13 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
         )
     assert version in str(raised.value)
     assert "P3" in str(raised.value)
-    assert f"remote protocol {protocol}" in str(raised.value)
-    assert "remote protocol 8 or newer" in str(raised.value)
+    assert f"remote protocol {protocol or 0}" in str(raised.value)
+    assert "remote protocol 1 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P3 remote (protocol 8), including this branch's dev builds.
+#: The archive accepted by a protocol-1 remote.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {

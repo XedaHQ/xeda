@@ -407,20 +407,18 @@ outputs: ``trace.json``, ``trace.json.tmp`` (a trace being written), and ``.xeda
 marker touched to read the file system's clock, removed at once). A flow must not write files by
 these names.
 
-A remote host must run the 0.4.4 release line of xeda (including development builds) or newer,
-with remote protocol 8 or newer. Protocol 2 added canonical resolved settings, relocated read
-inputs with their original path identities, declared output records and checked hand-over.
-Protocol 3 adds the simulation evidence rule: remote simulations must confirm that the
-simulation ended successfully. Protocol 4 adds the FPGA build graph: the ``fpga_pack`` flow and
-the settings of ``nextpnr`` on Xilinx 7-series. Protocol 5 makes ``openfpgaloader`` a
-programming-only flow that consumes ``fpga_pack``'s bitstream. Protocol 6 adds the node identity
-of flow chains: a node's hash is its settings plus where its declared inputs come from, and the
-local mirror is named by it, so a remote that computes another hash cannot take part. Protocol 7
-declares the Vivado synthesis outputs. Protocol 8 declares ``yosys``'s netlist, derives its ASIC
-configuration from its own ``platform``, and counts a bundled platform's files relative to xeda's
-installation in a run's identity, so two installations agree on it. Xeda checks
-the package the remote interpreter actually imports before shipping the design. An older install
-or a build without protocol 8 support is refused with an "upgrade the remote xeda" error.
+A remote host must run the 0.4.4 release line of xeda or newer, with remote protocol 1 or newer,
+the first released protocol. It provides canonical resolved settings, relocated read inputs with
+their original path identities, declared output records and checked hand-over; the simulation
+evidence rule (remote simulations must confirm that the simulation ended successfully); the FPGA
+build graph (``fpga_pack``, ``nextpnr`` on Xilinx 7-series, and a programming-only
+``openfpgaloader``); the node identity of flow chains (a node's hash is its settings plus where
+its declared inputs come from, and the local mirror is named by it, so a remote that computes
+another hash cannot take part); the declared Vivado synthesis outputs; and ``yosys``'s declared
+netlist, with its ASIC configuration derived from its own ``platform`` and a bundled platform's
+files counted relative to xeda's installation. Xeda checks the package the remote interpreter
+actually imports before shipping the design. A release without the protocol marker, or with a
+lower protocol, is refused with an "upgrade the remote xeda" error.
 
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
 locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings
