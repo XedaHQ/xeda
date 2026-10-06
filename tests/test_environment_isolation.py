@@ -5,6 +5,7 @@ The static half is here, because it names the line. A direct write to `os.enviro
 test and every one after it in the worker; `PATH` is the dangerous one -- the fake toolchain
 appended at import made a missing real `nextpnr-ecp5` resolve to the fake, so the real-tool tests
 passed their probes and failed only in a full run, on a machine without the tools on `PATH`.
+Bound aliases such as `env = os.environ` are outside the static scan and are caught by the runtime guard.
 """
 
 import ast
@@ -123,6 +124,8 @@ def test_no_test_writes_the_environment_directly() -> None:
         'os.environ.__setitem__("A", "b")',
         'os.environ.__delitem__("A")',
         'os.environ.__ior__({"A": "b"})',
+        "os.environ.popitem()",
+        "os.environ.clear()",
         'os.putenv("A", "b")',
         'os.unsetenv("A")',
     ],

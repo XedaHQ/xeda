@@ -71,14 +71,14 @@ def _importing_the_tests_leaves_the_environment_alone():
     so a module-level write is in force for every test of the run)."""
     now = _environment()
     if now != ENVIRONMENT_AT_START:
-        changed = {
-            name: (ENVIRONMENT_AT_START.get(name), now.get(name))
+        changed = sorted(
+            name
             for name in sorted(ENVIRONMENT_AT_START.keys() | now.keys())
             if ENVIRONMENT_AT_START.get(name) != now.get(name)
-        }
+        )
         os.environ.clear()
         os.environ.update(ENVIRONMENT_AT_START)
-        pytest.fail(f"importing the test modules changed the environment (was, now): {changed}")
+        pytest.fail(f"importing the test modules changed these environment variables: {changed}")
 
 
 @pytest.fixture(autouse=True)
@@ -96,12 +96,12 @@ def _environment_is_left_as_found():
     if after != before:
         os.environ.clear()
         os.environ.update(before)
-        changed = {
-            name: (before.get(name), after.get(name))
+        changed = sorted(
+            name
             for name in sorted(before.keys() | after.keys())
             if before.get(name) != after.get(name)
-        }
-        pytest.fail(f"the test left the environment changed (was, now): {changed}")
+        )
+        pytest.fail(f"the test left these environment variables changed: {changed}")
 
 
 # ----------------------------------------------------------------- no test programs a device
