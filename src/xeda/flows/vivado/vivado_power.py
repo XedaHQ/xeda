@@ -5,16 +5,14 @@ from typing import Any, Dict
 from xml.etree import ElementTree
 
 from ...dataclass import Field, deliverable
-from ...flow import FlowFatalError
-from ...flow.sim import SimEvidence
-from .vivado_postsynthsim import VivadoPostsynthSim
-from .vivado_sim import VivadoSim
-from .vivado_synth import CHECKPOINT_ROUTE, VivadoSynth, artifact_path
+from ...design import SourceType
+from ...flow import FpgaSynthFlow, In
+from . import Vivado
 
 logger = logging.getLogger(__name__)
 
 
-class VivadoPower(VivadoSim):
+class VivadoPower(Vivado, FpgaSynthFlow):
     """Estimate post-implementation power from real switching activity.
 
     Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity
@@ -26,7 +24,6 @@ class VivadoPower(VivadoSim):
     # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
     # depends on the device and design. These are the ones Vivado always emits.
     results_description = {
-        **VivadoSim.results_description,
         "Total On-Chip Power (W)": "Total on-chip power in watts.",
         "Dynamic (W)": "Dynamic (switching) power in watts, driven by the SAIF activity.",
         "Device Static (W)": "Static (leakage) power in watts.",
@@ -38,34 +35,34 @@ class VivadoPower(VivadoSim):
         "component Vivado reports (Clocks, Slice Logic, Signals, Block RAM, DSP, I/O, ...).",
     }
 
-    class Settings(VivadoSim.Settings):
-        timing_sim: bool = Field(
-            True,
-            description="Gather switching activity from a timing-annotated netlist simulation. "
-            "More accurate than a functional simulation, and much slower.",
+    class Inputs(FpgaSynthFlow.Inputs):
+        activity: Path = In(
+            SourceType.Saif,
+            producer="vivado_postsynth_sim",
+            output="timing_saif",
+            description="Switching activity from a successful timing-annotated simulation.",
         )
-        elab_debug: str = Field(
-            "typical", description="Debug level passed to `xelab -debug` for the activity run."
+        checkpoint: Path = In(
+            SourceType.Checkpoint,
+            producer="vivado_synth",
+            output="checkpoint_route",
+            description="The routed design checkpoint against which power is reported.",
         )
-        saif: Path = Field(
-            Path("activity.saif"),
-            description="SAIF file the netlist simulation writes activity to.",
-        )
-        postsynthsim: VivadoPostsynthSim.Settings = Field(
-            description="Settings for the `vivado_postsynth_sim` dependency that produces the "
-            "switching activity. Its `synth.write_checkpoint` is forced on: power is reported "
-            "against the routed checkpoint."
-        )
-        dependency_settings = {
-            "postsynthsim": (
-                "timing_sim",
-                "elab_debug",
-                "saif",
-                "stop_time",
-                "prerun_time",
-                "timeout",
-                "fail_severity",
-            )
+
+    class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
+        removed_settings = {
+            "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
+            **{
+                key: f"`flows.vivado_postsynth_sim.{key}`"
+                for key in (
+                    "elab_debug",
+                    "saif",
+                    "stop_time",
+                    "prerun_time",
+                    "timeout",
+                    "fail_severity",
+                )
+            },
         }
         power_report_xml: Path = Field(
             Path("power_impl_timing.xml"),
@@ -73,49 +70,13 @@ class VivadoPower(VivadoSim):
             json_schema_extra=deliverable(),
         )
 
-    def init(self) -> None:
-        super().init()
-        assert self.design.tb, "A testbench is required for power estimation"
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        postsynthsim = ss.resolve_dependency("postsynthsim")
-        postsynthsim.synth.write_checkpoint = True
-        self.add_dependency(VivadoPostsynthSim, postsynthsim)
-
-    def simulation_evidence(self) -> SimEvidence | None:
-        return getattr(self, "_activity_evidence", None)
-
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
-
-        postsynth_sim_flow = next(
-            dependency
-            for dependency in self.completed_dependencies
-            if isinstance(dependency, VivadoPostsynthSim)
-        )
-        if not postsynth_sim_flow.succeeded:
-            raise FlowFatalError("The activity simulation did not succeed")
-        try:
-            self._activity_evidence = SimEvidence.model_validate(
-                postsynth_sim_flow.results.get("sim.evidence")
-            )
-        except (ValueError, TypeError) as exc:
-            raise FlowFatalError(
-                "The completed activity simulation has no valid sim.evidence"
-            ) from exc
-        self.pop_dependency(VivadoPostsynthSim)
-        synth_flow = postsynth_sim_flow.pop_dependency(VivadoSynth)
-
-        checkpoint = artifact_path(synth_flow, CHECKPOINT_ROUTE)
-        # the dependency's recorded artifact, under the name its run wrote it: a location given
-        # for it is delivered, and the run writes its conventional name (D21)
-        saif_file = artifact_path(postsynth_sim_flow, "saif")
-
-        # assert isinstance(dep_synth_flow.settings, VivadoSynth.Settings)
+        assert isinstance(self.inputs, self.Inputs)
         script_path = self.copy_from_template(
             "vivado_power.tcl",
-            checkpoint=checkpoint,
-            saif_file=saif_file,
+            checkpoint=self.inputs.checkpoint,
+            saif_file=self.inputs.activity,
         )
 
         self.vivado.run("-source", script_path)

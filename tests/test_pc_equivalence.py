@@ -77,6 +77,7 @@ import sys
 import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
@@ -110,25 +111,101 @@ _SYNTH_DELTAS = {
     "route hook writes the netlist, the timing netlist with its SDF and the constraints in "
     "blocks of their own; it writes the same files in the same order",
 }
+_SIM = "nodes/sim/vivado_postsynth_sim"
+_POSTSYNTH_DELTAS = {
+    **_SYNTH_DELTAS,
+    f"{_SIM}/effective_flow_settings/synth": "Task 3: nested synthesis settings are removed; "
+    "the synthesis node's own complete settings remain compared with the golden",
+    f"{_SIM}/effective_flow_settings/fpga": "Task 3: FPGA shared leaves agree along declared edges",
+    f"{_SIM}/effective_flow_settings/clocks": "Task 3: clock shared leaves agree along declared edges",
+    f"{_SIM}/results/outputs": "Task 3: checked activity output records; their file contents "
+    "remain compared independently",
+}
+_POWER = "nodes/sim/vivado_power"
+# PCD6 changes power's settings model along with its base class. These are settings-shape
+# changes, not power-result exemptions. All actual power metrics and tool inputs stay compared.
+_POWER_SETTINGS_REMOVED = (
+    "analyze_flags",
+    "cocotb",
+    "debug_traces",
+    "elab_debug",
+    "elab_flags",
+    "fail_severity",
+    "initialize_zeros",
+    "optimization_flags",
+    "postsynthsim",
+    "prerun_time",
+    "read_oneshot",
+    "saif",
+    "sdf",
+    "sim_flags",
+    "stop_time",
+    "timeout",
+    "timing_sim",
+    "vcd",
+    "vcd_level",
+    "vcd_scope",
+    "work_lib",
+    "xelab_log",
+)
 REVIEWED_DELTAS: dict[str, dict[str, str]] = {
-    "vivado_postsynth_sim_functional": {
-        **_SYNTH_DELTAS,
-        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
-        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
-    },
+    "vivado_postsynth_sim_functional": {**_POSTSYNTH_DELTAS},
     "vivado_postsynth_sim_timing": {
-        **_SYNTH_DELTAS,
-        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
-        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+        **_POSTSYNTH_DELTAS,
+        f"{_SIM}/effective_flow_settings/saif": "Task 3: timing_sim enables timing_saif on "
+        "a direct request too, so it now writes the required activity file",
+        f"{_SIM}/results/artifacts/saif": "Task 3: the direct timing request's newly required activity",
+        f"{_SIM}/files/<RUN>/sim/vivado_postsynth_sim/activity.saif": "Task 3: the direct timing "
+        "request's newly required activity; its dependence on timing annotation is tested separately",
     },
     "vivado_power": {
-        **_SYNTH_DELTAS,
-        "nodes/sim/vivado_postsynth_sim/effective_flow_settings/synth/write_timing_netlist": "Task 2: "
-        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
-        "nodes/sim/vivado_power/effective_flow_settings/postsynthsim/synth/write_timing_netlist": "Task 2: "
-        "the new setting, in the nested synthesis settings (`init` forces it, as `write_netlist`)",
+        **_POSTSYNTH_DELTAS,
+        f"{_SIM}/effective_flow_settings/elab_debug": "R-PC-c: VivadoSim.run uses typical "
+        "without propagating an elab_debug setting; the xelab command remains compared",
+        **{
+            f"{_POWER}/effective_flow_settings/{key}": "PCD6 and R-PC-c: power's new reporter "
+            "settings model removes simulation and nested producer settings"
+            for key in _POWER_SETTINGS_REMOVED
+        },
+        **{
+            f"{_POWER}/effective_flow_settings/{key}": "Task 4: shared FPGA/clock leaves agree "
+            "with the synthesis node, whose settings remain compared"
+            for key in ("fpga", "clocks")
+        },
+        f"{_POWER}/results/sim.*": "PCD6: the producer checks simulation evidence before "
+        "activity hand-over; power reports only its own metrics",
     },
 }
+
+
+def activity_recording_delta(record: dict, name: str) -> dict:
+    """Only a direct timing request gains activity calls. Require their exact sequence and
+    compare every remaining call with the unchanged golden; never exempt a whole call record."""
+    from copy import deepcopy
+
+    if name != "vivado_postsynth_sim_timing":
+        return record
+    record = deepcopy(record)
+    node = record["nodes"]["sim/vivado_postsynth_sim"]
+    activity_commands = {"open_saif", "describe", "get_objects", "log_saif", "close_saif"}
+    extra = [call for call in node["calls"] if call[0] in activity_commands]
+    if extra:
+        assert extra == [
+            ["open_saif", "activity.saif"],
+            ["describe", "./dut"],
+            [
+                "get_objects",
+                "-r",
+                "-filter",
+                " type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port ",
+                "./dut/*",
+            ],
+            ["log_saif", "1"],
+            ["close_saif"],
+        ]
+    node["calls"] = [call for call in node["calls"] if call[0] not in activity_commands]
+    return record
+
 
 #: Fields of `results.json` that name the run rather than what it did.
 IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
@@ -416,7 +493,7 @@ def without(record: Any, deltas: dict[str, str]) -> Any:
         pruned = dict(node)
         for taken in range(1, len(path) + 1):
             head, rest = "/".join(path[:taken]), path[taken:]
-            for key in list(node) if head == "*" else [head]:
+            for key in [key for key in node if fnmatchcase(key, head)] if "*" in head else [head]:
                 if key not in pruned:
                     continue
                 if rest:
@@ -475,8 +552,8 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
         path.exists()
     ), f"no golden for {name}: XEDA_PC_EQUIVALENCE_CAPTURE=1 records a missing one"
     deltas = REVIEWED_DELTAS.get(name, {})
-    expected = without(json.loads(path.read_text()), deltas)
-    assert without(json.loads(render(observed)), deltas) == expected
+    expected = without(activity_recording_delta(json.loads(path.read_text()), name), deltas)
+    assert without(activity_recording_delta(json.loads(render(observed)), name), deltas) == expected
 
 
 # ------------------------------------------------------------------------------ teeth

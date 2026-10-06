@@ -420,7 +420,8 @@ def test_power_diamond_enters_synthesis_once_with_the_union_of_outputs(tmp_path,
     assert len(list((tmp_path / "xeda_run").rglob("vivado_synth/settings.json"))) == 1
     power = launch_until_fresh(runner, launch)
     before = {flow.name: fake_calls(flow.run_path) for flow in runner.launched}
+    entered = len(runner.launched)
     again = launch()
     assert again.reused
-    assert all(flow.reused for flow in runner.launched)
+    assert all(flow.reused for flow in runner.launched[entered:])
     assert {flow.name: fake_calls(flow.run_path) for flow in runner.launched} == before

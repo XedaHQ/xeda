@@ -3,6 +3,8 @@
 Oracle: every registered simulator flow reports evidence, and a run without evidence fails.
 Every supported bsc backend participates, including fake Icarus runtime coverage; real Icarus
 builtin-task capability verification remains a separate mandatory Linux CI gate.
+PCD6 removes power from this sweep: it reports power and relies on its declared activity
+producer to pass the simulation evidence rule before hand-over.
 """
 
 import pytest
@@ -36,7 +38,6 @@ def test_every_simulator_flow_requires_evidence_without_an_exemption():
         "vcs",
         "vivado_sim",
         "vivado_postsynth_sim",
-        "vivado_power",
         "bsc_sim",
     }
     assert _sim_flows() == converted
@@ -647,7 +648,7 @@ def test_vcs_oracle_detects_suppressed_native_finish(tmp_path, monkeypatch):
     assert (silent.run_path / "oracle.runtime").is_file()
 
 
-@pytest.mark.parametrize("family", ["vivado_sim", "vivado_postsynth_sim", "vivado_power"])
+@pytest.mark.parametrize("family", ["vivado_sim", "vivado_postsynth_sim"])
 def test_vivado_oracle_detects_suppressed_native_finish(family, tmp_path, monkeypatch):
     from .sim_evidence_cases import SimCase, launch_case
 

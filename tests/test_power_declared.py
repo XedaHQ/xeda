@@ -14,7 +14,7 @@ import textwrap
 import pytest
 
 from xeda.flow import FlowSettingsError, SimFlow
-from xeda.flow.io import declared_inputs
+from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPower
 
@@ -67,7 +67,11 @@ def test_power_demands_timing_activity_without_configuring_the_producer(tmp_path
     assert simulation.settings.saif.name == "activity.saif"
     assert "timing_saif" in simulation.switched_on
     synth = plan.node("vivado_synth")
-    assert {"netlist", "netlist_timing", "sdf", "checkpoint_route"} <= set(synth.switched_on)
+    assert {"netlist", "netlist_timing", "sdf", "checkpoint_route"} <= {
+        name
+        for name, declaration in declared_outputs(synth.flow_class).items()
+        if output_enabled(synth.settings, declaration)
+    }
     assert synth.settings.write_netlist and synth.settings.write_timing_netlist
     assert synth.settings.write_checkpoint
 
@@ -110,3 +114,19 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
         assert proc.returncode != 0 and not document["success"]
         message = document["error"]["message"]
     assert "was removed" in message and replacement in message
+
+
+def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch):
+    """PCD6 retains the verdict at the producer; a silent simulator cannot report power."""
+    from xeda.flow import FlowDependencyFailure
+    from .tool_utils import use_fake_tools
+
+    write_vivado_design(tmp_path)
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "silent")
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowDependencyFailure):
+        runner.run("vivado_power", tmp_path / "design.yaml", flow_settings=VIVADO_SETTINGS)
+    assert not (tmp_path / "run/sim/vivado_power/vivado_power.tcl").exists()
+    result = json.loads((tmp_path / "run/sim/vivado_power/results.json").read_text())
+    assert not result["success"]

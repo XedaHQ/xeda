@@ -3,6 +3,8 @@
 The real flow's run method and launcher execute unchanged. Builds succeed; runtime invocations
 execute a separate Python process which leaves a call marker independently of evidence. Family
 conversion tasks extend these stand-ins with their native transcript/checkpoint contracts.
+Power leaves this inventory under PCD6: it reports power from successful declared activity,
+and the postsynth simulator checks evidence before hand-over.
 """
 
 import json
@@ -12,10 +14,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from types import SimpleNamespace
 
 from xeda import Design
-from xeda.flow import FlowDependencyFailure
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
@@ -41,7 +41,6 @@ SIMULATORS = (
     "vcs",
     "vivado_sim",
     "vivado_postsynth_sim",
-    "vivado_power",
     "yosys_sim",
     "verilator",
     "bsc_sim",
@@ -238,11 +237,6 @@ def launch_case(
             marker = cwd / "oracle.runtime"
             program = "from pathlib import Path\n"
             program += f"Path({str(marker)!r}).write_text('runtime executed')\n"
-            if case.flow == "vivado_power":
-                # Activity output permits the power reporter to run; it carries no verdict.
-                activity = cwd / "outputs" / "oracle.saif"
-                activity.parent.mkdir(parents=True, exist_ok=True)
-                activity.write_text("fake activity\n")
             if positive and record:
                 program += f"Path({record!r}).write_text({json.dumps({'ended_by': 'finish', 'time': 0, 'time_unit': '1ps', 'events': []})!r})\n"
             if positive and case.backend == "bluesim":
@@ -317,22 +311,11 @@ def launch_case(
         return ""
 
     monkeypatch.setattr(Tool, "execute", execute)
-    try:
-        flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
-            flow_class, design, settings
-        )
-    except FlowDependencyFailure:
-        assert case.flow == "vivado_power" and not positive
-        # The actual launched activity flow failed before reporting power; read the launcher's
-        # failure document, without constructing a substitute passing flow.
-        results = json.loads(
-            (work / "runs" / "oracle" / "vivado_power" / "results.json").read_text()
-        )
-        flow = SimpleNamespace(
-            succeeded=results["success"],
-            results=results,
-            run_path=work / "runs" / "oracle" / "vivado_power",
-        )
+    if case.flow == "vivado_postsynth_sim":
+        design.flow = {"vivado_synth": {"fpga": "xc7a100tcsg324-1", "clock_period": 5.0}}
+    flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
+        flow_class, design, settings
+    )
     markers = list((work / "runs").rglob("oracle.runtime"))
     assert markers, f"{case.name} never invoked a runtime; calls: {calls}"
     assert all(p.read_text() == "runtime executed" for p in markers)
