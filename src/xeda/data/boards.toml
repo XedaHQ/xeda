@@ -13,3 +13,13 @@ xdc = 'boards/arty/arty_a7_100t.xdc'
 name = 'arty_a7_35t'
 fpga.part = 'xc7a35tcsg324-1'
 xdc = 'boards/arty/arty_a7_35t.xdc'
+
+[BASYS_3]
+name = 'basys3'
+fpga.part = 'xc7a35tcpg236-1'
+xdc = 'boards/basys3/board.xdc'
+
+[STLV7325_V2]
+name = 'stlv7325'
+fpga.part = 'xc7k325tffg676-2'
+xdc = 'boards/stlv7325_v2/board.xdc'

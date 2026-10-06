@@ -545,6 +545,13 @@ The part is given once: ``fpga`` is shared along the declared edges.
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
 before synthesis. ``board: ARTY_A7_100T`` or ``ARTY_A7_35T`` fills it in (``xeda list-boards``).
+So do ``BASYS_3`` (``xc7a35tcpg236-1``) and ``STLV7325_V2`` (``xc7k325tffg676-2``). Their bundled
+pin files are minimal and name the ports they constrain. ``BASYS_3`` constrains ``clk`` on pin W5
+and ``led`` on pin U16, both LVCMOS33. ``STLV7325_V2`` constrains the differential clock with
+``clk_p`` on pin AB11 and ``clk_n`` on pin AC11, both DIFF_SSTL15, and ``led`` on pin AA2, LVCMOS15.
+The design must then buffer the clock with an ``IBUFDS`` and a ``BUFG``. The STLV7325 LED is
+active low in LiteX-Boards. The pins come from the openXC7 demo projects and are not checked on
+hardware. The files have no ``create_clock``: set the clock in the flow settings.
 
 **Constraints.** ``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN``/``LOC``
 and ``IOSTANDARD``) and may carry ``create_clock``; with no ``Xdc`` source and a ``board``, the

@@ -198,6 +198,9 @@ All notable changes to this project will be documented in this file.
   configuration layout do not depend on the speed grade; `nextpnr` keeps the exact grade for
   timing. The flow logs both parts, never uses another device or package, and records the files
   it read, so a change of them runs it again.
+- The bundled boards `BASYS_3` (Digilent Basys 3, `xc7a35tcpg236-1`, loader name `basys3`) and
+  `STLV7325_V2` (`xc7k325tffg676-2`, loader name `stlv7325`), each with a minimal pin file for its
+  clock and one LED. The files name their sources and license, and have no `create_clock`.
 - **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
   every file of its `sources` (a directory counts as every file in it, outside the design root
