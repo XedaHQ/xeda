@@ -152,8 +152,6 @@ REVIEWED_DELTAS: dict[str, dict[str, str]] = {
     "vivado_postsynth_sim_functional": {**_POSTSYNTH_DELTAS},
     "vivado_postsynth_sim_timing": {
         **_POSTSYNTH_DELTAS,
-        f"{_SIM}/effective_flow_settings/saif": "Task 3: timing_sim enables timing_saif on "
-        "a direct request too, so it now writes the required activity file",
         f"{_SIM}/results/artifacts/saif": "Task 3: the direct timing request's newly required activity",
         f"{_SIM}/files/<RUN>/sim/vivado_postsynth_sim/activity.saif": "Task 3: the direct timing "
         "request's newly required activity; its dependence on timing annotation is tested separately",

@@ -123,25 +123,29 @@ def test_removed_synth_reports_its_replacement_from_every_origin(tmp_path, origi
     assert "was removed" in message and "flows.vivado_synth.write_checkpoint" in message
 
 
+@pytest.mark.parametrize("saif", [False, True])
 @pytest.mark.parametrize("timing_sim", [False, True])
-def test_results_record_both_enabled_activity_names(tmp_path, monkeypatch, timing_sim):
+def test_results_record_exactly_the_enabled_activity_names(tmp_path, monkeypatch, timing_sim, saif):
     from dataclasses import replace
 
     request = replace(
         REQUESTS["vivado_postsynth_sim_functional"],
         settings=(
             *REQUESTS["vivado_postsynth_sim_functional"].settings,
-            "saif=activity.saif",
+            *(("saif=activity.saif",) if saif else ()),
             f"timing_sim={'true' if timing_sim else 'false'}",
         ),
     )
     captured = launch(request, tmp_path, monkeypatch)
     results = captured["nodes"]["sim/vivado_postsynth_sim"]["results"]
     outputs = results["outputs"]
-    assert set(outputs) == ({"saif", "timing_saif"} if timing_sim else {"saif"})
-    assert outputs["saif"]["path"].endswith("activity.saif")
-    assert len(outputs["saif"]["sha"]) == 32
-    if timing_sim:
+    assert set(outputs) == ({"saif"} if saif else set()) | (
+        {"timing_saif"} if timing_sim else set()
+    )
+    for recorded in outputs.values():
+        assert recorded["path"].endswith("activity.saif")
+        assert len(recorded["sha"]) == 32
+    if timing_sim and saif:
         assert outputs["timing_saif"] == outputs["saif"]
 
 

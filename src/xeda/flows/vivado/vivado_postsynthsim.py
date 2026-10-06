@@ -80,9 +80,6 @@ class VivadoPostsynthSim(VivadoSim):
         synth_netlist_path = self.inputs.netlist_timing if ss.timing_sim else self.inputs.netlist
         if synth_netlist_path is None or not synth_netlist_path.is_file():
             raise FlowFatalError(f"Netlist {synth_netlist_path} does not exist!")
-        if ss.timing_sim and ss.saif is None:
-            # A direct timing request enables timing_saif too, without a consumer demand.
-            ss.saif = Path("activity.saif")
         postsynth_sources = [DesignSource(synth_netlist_path)]
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
         # also removing top-level generics and everything else
@@ -116,9 +113,18 @@ class VivadoPostsynthSim(VivadoSim):
                 "-pulse_int_e 0",
             ]
         )
-        # run VivadoSim
-        super().run()
-        if ss.saif:
-            self.outputs.saif = self.run_path / ss.saif
+        # A direct timing request enables timing_saif without enabling the separate saif
+        # output. Supply the recorder's filename during simulation, preserving its switch.
+        requested_saif = ss.saif
+        recording_saif = requested_saif or (Path("activity.saif") if ss.timing_sim else None)
+        try:
+            ss.saif = recording_saif
+            super().run()
+        finally:
+            ss.saif = requested_saif
+        if recording_saif:
+            activity_path = self.run_path / recording_saif
+            if requested_saif:
+                self.outputs.saif = activity_path
             if ss.timing_sim:
-                self.outputs.timing_saif = self.outputs.saif
+                self.outputs.timing_saif = activity_path
