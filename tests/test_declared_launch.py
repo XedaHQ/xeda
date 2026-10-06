@@ -1,7 +1,6 @@
 """The launcher executes the plan (`resolver`): a flow that declares its inputs gets each one from
 the producer the plan names -- launched by the launcher, never by the flow's `init()` -- or from
-the design's sources, and is handed only what the producer recorded, checked.
-Flows without declarations keep registering their dependencies, and may launch a declared one."""
+the design's sources, and is handed only what the producer recorded, checked."""
 
 import json
 from contextlib import contextmanager
@@ -16,7 +15,8 @@ from xeda.flow import Flow, In, registered_flows
 from xeda.design import SourceType
 from xeda.flow_runner.trace import TRACE_FORMAT
 
-from .io_flows import _Maker, _Taker, _Wrapper
+from .io_flows import _Maker, _Taker
+from .tool_utils import producers_of
 
 
 @pytest.fixture(autouse=True)
@@ -44,7 +44,7 @@ def test_the_launcher_runs_the_producer_and_hands_over_its_recorded_output(tmp_p
     runner = _runner(tmp_path)
     taker = runner.launch_flow(_Taker, design, {})
     assert taker.succeeded and taker.results["read"] == "made\n"
-    (maker,) = taker.completed_dependencies
+    (maker,) = producers_of(runner, taker)
     assert maker.name == "__maker"
     assert taker.inputs.made == Path(maker.results["outputs"]["made"]["path"])
     assert [flow.name for flow in runner.launched] == ["__maker", "__taker"]
@@ -52,8 +52,9 @@ def test_the_launcher_runs_the_producer_and_hands_over_its_recorded_output(tmp_p
 
 def test_a_second_launch_reuses_both_and_hands_over_the_reused_record(tmp_path, design):
     first = _runner(tmp_path).launch_flow(_Taker, design, {})
-    again = _runner(tmp_path).launch_flow(_Taker, design, {})
-    assert again.reused and again.completed_dependencies[0].reused
+    runner = _runner(tmp_path)
+    again = runner.launch_flow(_Taker, design, {})
+    assert again.reused and producers_of(runner, again)[0].reused
     assert again.inputs.made == first.inputs.made
 
 
@@ -99,33 +100,6 @@ def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_pat
     assert taker is not None and taker.results["read"] == "from its section\n"
 
 
-def test_an_undeclared_flow_launches_a_declared_one_with_its_own_plan(tmp_path, design):
-    runner = _runner(tmp_path)
-    wrapper = runner.launch_flow(_Wrapper, design, {})
-    assert wrapper.succeeded and wrapper.results["read"] == "made\n"
-    assert [flow.name for flow in runner.launched] == ["__maker", "__taker", "__wrapper"]
-
-
-def test_a_legacy_parent_s_cli_context_reaches_its_declared_dependency(tmp_path, design):
-    runner = _runner(tmp_path)
-    wrapper = runner.run(_Wrapper, design, flow_settings={"verbose": 2})
-    assert wrapper.succeeded and wrapper.results["read"] == "made\n"
-    assert all(flow.settings.verbose == 2 for flow in runner.launched)
-
-
-def test_a_legacy_plan_is_opaque_and_cannot_launch_an_unplanned_node(tmp_path, design, monkeypatch):
-    def no_init(self):
-        raise AssertionError("planning constructed a flow")
-
-    monkeypatch.setattr(_Wrapper, "init", no_init)
-    runner = _runner(tmp_path)
-    plan = runner.plan(_Wrapper, design)
-    assert len(plan.nodes) == 1 and not plan.nodes[0].declared
-    with pytest.raises(FlowFatalError, match="plan has no node"):
-        runner.launch_flow(_Taker, design, {}, plan=plan)
-    assert not (tmp_path / "xeda_run").exists()
-
-
 def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, design):
     from xeda.run_dir import RunDirectoryError
     from xeda.run_root import ensure_run_root
@@ -169,18 +143,11 @@ def test_an_output_changed_after_its_run_recorded_it_is_never_handed_over(
     assert results["success"] is False
 
 
-@pytest.mark.parametrize("failure", ["init", "dependency"])
-def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypatch, failure):
+def test_setup_failure_invalidates_a_previous_success(tmp_path, design, monkeypatch):
     first = _runner(tmp_path).launch_flow(_Taker, design, {})
-    if failure == "init":
 
-        def fail(self):
-            raise FlowFatalError("broken init")
-
-    else:
-
-        def fail(self):
-            self.add_dependency(_Maker, {})
+    def fail(self):
+        raise FlowFatalError("broken init")
 
     monkeypatch.setattr(_Taker, "init", fail)
     with pytest.raises(FlowFatalError):
@@ -286,8 +253,9 @@ def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, desi
     else:
         trace["declared_inputs"][0][binding] = "different" if binding == "name" else "source"
     trace_file.write_text(json.dumps(trace))
-    again = _runner(tmp_path).launch_flow(_Taker, design, {})
-    assert not again.reused and again.completed_dependencies[0].reused
+    runner = _runner(tmp_path)
+    again = runner.launch_flow(_Taker, design, {})
+    assert not again.reused and producers_of(runner, again)[0].reused
     assert {
         "format": "another xeda",
         "origin": "made now from __maker.made (was the design's sources)",

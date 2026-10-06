@@ -14,7 +14,7 @@ from xeda.proc_utils import run_process
 from xeda.flows import xilinx
 
 from . import tool_utils
-from .io_flows import _Taker, _Wrapper
+from .io_flows import _Taker
 from .test_read_locks import _probe
 from .test_xilinx_chipdb import _binary, generation as chipdb_generation, prefix  # noqa: F401
 
@@ -268,31 +268,28 @@ def test_program_merge_keeps_first_preparation_state(tmp_path, monkeypatch):
     assert trace["programs"][str(tool)]["file"]["sha"].startswith("unknown:")
 
 
-@pytest.mark.parametrize("consumer", [_Taker, _Wrapper])
-def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypatch, consumer):
+def test_preparation_sees_handed_over_inputs_before_freshness(tmp_path, monkeypatch):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
     seen = []
     original = default_runner.expectation
 
     def prepare(self):
-        producer = self.completed_dependencies[0]
-        assert _probe(producer.run_path) == "blocked"
-        if isinstance(self, _Taker):
-            assert self.inputs.made.read_text() == "made\n"
+        assert _probe(self.inputs.made.parent) == "blocked"
+        assert self.inputs.made.read_text() == "made\n"
         seen.append("prepare")
 
     def expectation(flow, *args):
-        if isinstance(flow, consumer):
+        if isinstance(flow, _Taker):
             seen.append("expectation")
         return original(flow, *args)
 
-    monkeypatch.setattr(consumer, "prepare_inputs", prepare, raising=False)
+    monkeypatch.setattr(_Taker, "prepare_inputs", prepare, raising=False)
     monkeypatch.setattr(default_runner, "expectation", expectation)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.launch_flow(consumer, design, {})
+    first = runner.launch_flow(_Taker, design, {})
     before = tool_utils.run_outputs_state(first.run_path)
     tool_utils.check_after_the_racy_window(monkeypatch)  # the check refreshes the trace
-    again = runner.launch_flow(consumer, design, {})
+    again = runner.launch_flow(_Taker, design, {})
     assert again.reused
     assert seen == ["prepare", "expectation", "prepare", "expectation"]
     assert tool_utils.run_outputs_state(first.run_path) == before

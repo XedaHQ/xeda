@@ -36,9 +36,12 @@ class _DsePlace(_Place):
 
     def run(self):
         super().run()
-        (producer,) = self.completed_dependencies
-        self.results["producer"] = str(producer.run_path)
-        self.results["producer_period"] = producer.settings.main_clock.period
+        producer_dir = self.inputs.netlist.parent
+        recorded = json.loads((producer_dir / "settings.json").read_text())
+        self.results["producer"] = str(producer_dir)
+        self.results["producer_period"] = recorded["effective_flow_settings"]["clocks"][
+            "main_clock"
+        ]["period"]
         self.results["period"] = self.settings.main_clock.period
         self.results["pid"] = os.getpid()
 
@@ -374,6 +377,8 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
 
 
 class _FmaxPlace(_DsePlace):
+    """A declared placer that reports a maximum frequency."""
+
     results_description = {}
 
     def run(self):

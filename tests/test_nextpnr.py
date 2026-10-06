@@ -758,11 +758,12 @@ def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
     tmp_path, monkeypatch, flows, keeps_src
 ):
     """End to end, with the real tools: the JSON netlist nextpnr reads."""
-    from .tool_utils import require_nextpnr_ice40, yosys_json_attribute_holders
+    from .tool_utils import producers_of, require_nextpnr_ice40, yosys_json_attribute_holders
 
     require_nextpnr_ice40()
     monkeypatch.chdir(tmp_path)
-    flow = DefaultRunner(tmp_path / "xeda_run").run(
+    runner = DefaultRunner(tmp_path / "xeda_run")
+    flow = runner.run(
         Nextpnr,
         _blink(tmp_path, flows),
         flow_settings=[
@@ -772,7 +773,7 @@ def test_nextpnr_ice40_places_a_netlist_with_src_unless_told_otherwise(
         ],
     )
     assert flow is not None and flow.succeeded
-    (yosys,) = flow.completed_dependencies
+    (yosys,) = producers_of(runner, flow)
     assert isinstance(yosys.settings, YosysFpga.Settings) and yosys.settings.netlist_json
     holders = yosys_json_attribute_holders(yosys.run_path / yosys.settings.netlist_json, "src")
     if keeps_src:

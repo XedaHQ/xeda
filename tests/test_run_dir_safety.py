@@ -37,7 +37,8 @@ import pytest
 
 from xeda import Design
 from xeda.console import console
-from xeda.flow import Flow, FlowSettingsError, registered_flows
+from xeda.design import SourceType
+from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flows import Bsc, BscSim, DiamondSynth, Verilator, VivadoSim, VivadoSynth
@@ -45,7 +46,7 @@ from xeda.run_dir import RunDirectoryError
 from xeda.run_root import RUN_ROOT_MARKER, RunRootError, ensure_run_root
 from xeda.utils import XedaException
 
-from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, fake_calls, producers_of, use_fake_tools
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
@@ -112,24 +113,33 @@ def _sqrt(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def toy_flows():
-    """A flow with one dependency, each writing a file into its run directory. Registered while
+    """A flow with one producer, each writing a file into its run directory. Registered while
     the test runs only, so the sweeps over every flow never see them."""
 
     class ToyDep(Flow):
-        """A dependency that writes one file."""
+        """A producer that writes one file."""
 
         results_description: ClassVar[dict[str, str]] = {}
+
+        class Outputs(Flow.Outputs):
+            dep: Path = Out(SourceType.Data, description="The file it writes.")
 
         def run(self) -> None:
             (self.run_path / "dep.txt").write_text("dep\n")
+            self.outputs.dep = self.run_path / "dep.txt"
 
     class ToyTop(Flow):
-        """A flow with one dependency."""
+        """A flow with one producer."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyDep, ToyDep.Settings())
+        class Inputs(Flow.Inputs):
+            dep: Path = In(
+                SourceType.Data,
+                producer="toy_dep",
+                output="dep",
+                description="The producer's file.",
+            )
 
         def run(self) -> None:
             (self.run_path / "top.txt").write_text("top\n")
@@ -559,7 +569,7 @@ def test_every_run_directory_xeda_makes_lies_under_a_marked_run_root(tmp_path, t
     assert flow.succeeded
     for name in (RUN_ROOT_MARKER, ".gitignore", "CACHEDIR.TAG"):
         assert (root / name).is_file(), name
-    (done,) = flow.completed_dependencies
+    (done,) = producers_of(launcher, flow)
     assert flow.run_path == root.resolve() / "sqrt" / top.name
     assert done.run_path == root.resolve() / "sqrt" / dep.name
     for directory in (flow.run_path, done.run_path):
