@@ -398,6 +398,10 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         # from this side's, so it must be refused here, not accepted and failed on a mirror hash
         ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
         ("0.4.4.dev1", 5, "ghdl_sim", None),
+        # protocol 6 predates the declared outputs of the Vivado synthesis flows and their
+        # `write_timing_netlist` setting: it would refuse the setting or resolve another identity
+        ("0.4.4.dev1", 6, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
+        ("0.4.4.dev1", 6, "ghdl_sim", None),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
@@ -443,12 +447,12 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     assert version in str(raised.value)
     assert "P3" in str(raised.value)
     assert f"remote protocol {protocol}" in str(raised.value)
-    assert "remote protocol 6 or newer" in str(raised.value)
+    assert "remote protocol 7 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P3 remote (protocol 6), including this branch's dev builds.
+#: The archive accepted by a P3 remote (protocol 7), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {

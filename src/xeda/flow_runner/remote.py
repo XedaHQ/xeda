@@ -211,9 +211,11 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone);
 #: protocol 6 P3's node identity (D-9): a node's `flow_hash` is its settings plus its ordered
 #: resolved input origins, which is the hash this side names the mirror by and compares with the
-#: remote's report, so a protocol-5 remote's would never match.
+#: remote's report, so a protocol-5 remote's would never match; protocol 7 the declared outputs
+#: of `vivado_synth` and `vivado_alt_synth` and their `write_timing_netlist` setting, which a
+#: protocol-6 remote refuses as unknown and resolves, undeclared, to another identity.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 6
+REMOTE_PROTOCOL_MIN_VERSION = 7
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
