@@ -129,7 +129,7 @@ def test_the_probe_reports_the_imported_packages_version_and_capability():
             "import xeda\n"
             "from importlib import metadata\n"
             "xeda.__version__ = '0.4.4.dev99+gprobe'\n"
-            "xeda.REMOTE_PROTOCOL_VERSION = 7\n"
+            "xeda.REMOTE_PROTOCOL_VERSION = 10\n"
             "metadata.version = lambda name: '0.4.3'\n" + REMOTE_PROBE
         ).receive()
         assert reply[3] == "0.4.4.dev99+gprobe"
