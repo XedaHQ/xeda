@@ -47,6 +47,7 @@ from ..design import (
     loading_in_run_root,
     names_a_design_file,
     refusing_load_side_effects,
+    target_name_problem,
 )
 from ..flow import (
     Flow,
@@ -570,17 +571,33 @@ class FlowLauncher:
         """Removed: the run root is `run_root`."""
         raise AttributeError("`xeda_run_dir` was removed: use run_root")
 
-    def run_path_of(self, design_name: str, node_name: str, identity: Optional[str] = None) -> Path:
-        """`<run root>/<design>/<node>`, or `<node>_<identity>` with hashed run directories:
-        strictly inside the run root, resolved -- a `RunDirectoryError` otherwise, before anything
-        (the lock beside it included) is written."""
+    def run_path_of(
+        self,
+        design_name: str,
+        node_name: str,
+        identity: Optional[str] = None,
+        *,
+        target: str | None = None,
+    ) -> Path:
+        """`<run root>/<design>[/<target>]/<node>`, or `<node>_<identity>` with hashed run
+        directories: strictly inside the run root, resolved -- a `RunDirectoryError` otherwise,
+        before anything (the lock beside it included) is written. A design selected as a target
+        runs in that target's directory, as its dependencies do; one without, as it always has.
+        `target` is the design's own (`Design.target`), never read from the launcher, which
+        may be reused for another design."""
         subdir = node_name
         if self.settings.hashed_run_dirs and identity:
             subdir += f"_{identity[:DIR_NAME_HASH_LEN]}"
         if not DESIGN_NAME.fullmatch(design_name):
             raise RunDirectoryError(f"{design_name!r} is not a design name")
+        parent = Path(design_name)
+        if target is not None:
+            problem = target_name_problem(target)
+            if problem is not None:
+                raise RunDirectoryError(problem)
+            parent /= target
         ensure_run_root(self._run_root, start=self._start, create=False)
-        run_path = self._run_root / design_name / subdir
+        run_path = self._run_root / parent / subdir
         if not RunDirectory.lies_under(run_path, self._run_root):
             raise RunDirectoryError(
                 f"{run_path} leads out of the run root {self._run_root} (through a symbolic "
@@ -589,11 +606,18 @@ class FlowLauncher:
         return run_path
 
     def get_flow_run_path(
-        self, design_name: str, node_name: str, identity: str | None = None
+        self,
+        design_name: str,
+        node_name: str,
+        identity: str | None = None,
+        *,
+        target: str | None = None,
     ) -> Path:
-        """Create/mark the root, then revalidate the execution path at operation time."""
+        """Create/mark the root, then revalidate the execution path at operation time. A name
+        that is refused (a design's, a target's) is refused before the root is touched."""
+        self.run_path_of(design_name, node_name, identity, target=target)
         self.run_root
-        return self.run_path_of(design_name, node_name, identity)
+        return self.run_path_of(design_name, node_name, identity, target=target)
 
     def resolve(
         self,
@@ -699,6 +723,7 @@ class FlowLauncher:
                 or context.run_root != self._run_root
                 or context.hashed_run_dirs != self.settings.hashed_run_dirs
                 or context.debug != self.settings.debug
+                or context.target != design.target
             )
         ):
             raise FlowFatalError("The plan does not match this request's context")
@@ -738,7 +763,9 @@ class FlowLauncher:
                 or planned.origins != origins
                 or planned.flowrun_hash != identities[planned.name]
                 or planned.run_path
-                != self.run_path_of(design.name, planned.name, planned.flowrun_hash)
+                != self.run_path_of(
+                    design.name, planned.name, planned.flowrun_hash, target=design.target
+                )
             ):
                 raise FlowFatalError("The plan does not match this request's identity or path")
         return node
@@ -764,7 +791,8 @@ class FlowLauncher:
            never modified afterwards. A missing required setting, or a design the flow cannot
            run, fails the launch here.
         2. **identity** (`_run_identity`): the design's hash and the settings' `flowrun_hash`;
-           the run directory, `<design>/<flow>` (``hashed_run_dirs``: `<flow>_<flowrun_hash>`),
+           the run directory, `<design>[/<target>]/<flow>` (``hashed_run_dirs``:
+           `<flow>_<flowrun_hash>`),
            locked from here until the run's trace is written (`run_lock`). With ``clean``, the
            directory is emptied now (or backed up, with ``backups``).
         3. **prepare**: construct the flow with its own copy of the input and call its `init()`,
@@ -1311,7 +1339,10 @@ class FlowLauncher:
         settings_hash = flow_run_hash(flow_name, settings, design.name)
         flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
         run_path = self.get_flow_run_path(
-            design.name, node.name if node is not None else flow_name, flowrun_hash
+            design.name,
+            node.name if node is not None else flow_name,
+            flowrun_hash,
+            target=design.target,
         )
         return design_hash, flowrun_hash, run_path, settings_hash
 

@@ -140,7 +140,8 @@ class PlanContext:
     hashed_run_dirs: bool
     debug: bool
     input_settings: Mapping[str, Any]
-    #: the design's selected target, reported by the plan and no part of any identity
+    #: the design's selected target: no part of any identity, but where every node runs
+    #: (`<design>/<target>/<flow>`), so a plan belongs to the target it was made for
     target: str | None = None
 
 
@@ -673,7 +674,7 @@ def resolve(
     runner_cwd: Path,
     run_root: Path,
     hashed_run_dirs: bool,
-    run_path: Callable[[str, str, str], Path],
+    run_path: Callable[..., Path],
     origins: Sequence[tuple[str, Mapping[str, Any]]] = (),
     command_line: Mapping[str, Mapping[str, Any]] | None = None,
     api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
@@ -1146,7 +1147,7 @@ def resolve(
                 request.cls,
                 request.settings.model_copy(deep=True),
                 identity,
-                run_path(design.name, label, identity),
+                run_path(design.name, label, identity, target=design.target),
                 is_declared(request.cls),
                 tuple(request.inputs),
                 tuple(out for out in declared_outputs(request.cls) if out in request.switched),
