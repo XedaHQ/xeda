@@ -8,6 +8,7 @@ coverage that has been reached so it cannot silently regress.
 import enum
 import json
 import re
+import subprocess
 import textwrap
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Set, Tuple, get_args, get_origin
@@ -336,6 +337,17 @@ YAML_FIRST_DOCUMENTS = [
     "src/xeda/data/agent/**/*.md",
 ]
 
+#: directories a documentation build writes into the checkout. `make -C docs html` copies every
+#: source into `docs/_build/html/_sources/`, so a recursive sweep of `docs/` would read an earlier
+#: build's copy of a document beside the document itself -- and judge the copy's prose, written
+#: before whatever the sweep now pins, as if it were today's.
+BUILD_OUTPUT_DIRECTORIES = ("_build",)
+
+
+def _is_source_document(path: Path) -> bool:
+    """A document of the checkout, never a copy a documentation build left in it."""
+    return not any(part in BUILD_OUTPUT_DIRECTORIES for part in path.parts)
+
 
 def _prose_outside_toml_snippets(text: str, rst: bool):
     """`(line number, line)` for every line that is not inside a TOML snippet."""
@@ -364,7 +376,8 @@ def _prose_outside_toml_snippets(text: str, rst: bool):
 
 def _yaml_first_files() -> List[Path]:
     root = README.parent
-    return sorted({p for pattern in YAML_FIRST_DOCUMENTS for p in root.glob(pattern)})
+    found = {p for pattern in YAML_FIRST_DOCUMENTS for p in root.glob(pattern)}
+    return sorted(p for p in found if _is_source_document(p))
 
 
 def test_the_documents_shown_in_yaml_name_no_toml_section_header():
@@ -399,6 +412,40 @@ def test_the_toml_header_oracle_sees_prose_and_spares_toml_snippets():
     assert flagged(rst, rst=True) == [1, 10, 12]
 
 
+def test_the_document_sweeps_read_the_checkout_and_never_a_build():
+    """The documents are the checkout's own files. `make -C docs html` leaves a copy of every
+    source in `docs/_build/html/_sources/`, written by whichever revision was built; a sweep that
+    read those would pin an earlier revision's prose, or fail on it. The predicate is checked
+    directly, then every document both sweeps return is checked to be a file the checkout tracks,
+    so nothing a build, a virtual environment or a run directory left behind can reach them."""
+    assert _is_source_document(Path("docs/flows.rst"))
+    assert not _is_source_document(Path("docs/_build/html/_sources/flows.rst"))
+
+    root = Path(__file__).resolve().parent.parent
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    except (OSError, subprocess.SubprocessError) as error:
+        pytest.skip(f"no git checkout to check the document sweeps against: {error}")
+    tracked = {name for name in listed.split("\0") if name}
+    swept = [*_yaml_first_files(), *_maintained_documents()]
+    assert swept, "the sweeps reach the documents"
+    untracked = sorted(
+        {
+            path.resolve().relative_to(root).as_posix()
+            for path in swept
+            if path.resolve().relative_to(root).as_posix() not in tracked
+        }
+    )
+    assert not untracked, "a document sweep reads files the checkout does not track:\n" + "\n".join(
+        untracked
+    )
+
+
 # ------------------------------------------------- removed names are documented only as removed
 
 #: names that no longer exist: a maintained document may mention one only where it says so
@@ -407,12 +454,13 @@ REMOVED_NAMES = ("open_xc7", "openxc7", "lpf_cfg", "pcf_cfg", "pdc_cfg", "bitstr
 
 def _maintained_documents() -> list[Path]:
     root = Path(__file__).parent.parent
-    return [
+    found = [
         *sorted((root / "docs").glob("*.rst")),
         root / "README.md",
         *sorted((root / "src/xeda/data/agent").rglob("*.md")),
         *sorted((root / ".claude/skills/xeda").rglob("*.md")),
     ]
+    return [p for p in found if _is_source_document(p)]
 
 
 def test_no_maintained_document_recommends_a_removed_flow_or_setting():
