@@ -478,8 +478,10 @@ def _canonical_path(text: str) -> str:
 
 @contextmanager
 def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
-    """Keep a shipped read path's original identity while tools use its relocated file. The
-    paths are keyed as this file system resolves them (`_canonical_path`), and looked up so."""
+    """Keep a shipped read path's original identity while tools use its relocated file. The keys
+    are the relocated paths as this file system resolves them (`_canonical_path`), and a lookup
+    resolves the path it is given the same way, so a file is found under any spelling of its
+    path (through a symbolic link or not) and under none that names another file."""
     token = _path_identities.set({_canonical_path(path): value for path, value in paths.items()})
     try:
         yield

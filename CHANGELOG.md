@@ -24,6 +24,9 @@ All notable changes to this project will be documented in this file.
   start directory or xeda's own installation reached through a symbolic link counts the same
   either way, and a `--remote` run whose run directory lies under a linked path (a linked HOME,
   macOS's `/tmp`) is no longer refused for "a different request identity".
+- `yosys`'s `other_maps` takes the platform's latch mapping only when it is left unset: an
+  explicitly empty list (`-s other_maps=`) now means no extra mapping, where the platform's latch
+  map replaced it.
 - `yosys` lists a `timing_report` artifact only when `sta` writes one; a remote run asked for the
   report it never wrote.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`

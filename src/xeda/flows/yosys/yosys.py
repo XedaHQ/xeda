@@ -284,8 +284,11 @@ class Yosys(YosysBase, SynthFlow):
         clockgate_map: Optional[Path] = Field(
             None, description="Verilog file with technology-specific clock-gating cell mappings."
         )
-        other_maps: List[Path] = Field(
-            [], description="Additional Verilog files with technology-specific cell mappings."
+        other_maps: Optional[List[Path]] = Field(
+            None,
+            description="Additional Verilog files with technology-specific cell mappings. Unset: "
+            "the platform's latch mapping when mapping to a liberty library, none otherwise; an "
+            "empty list means none.",
         )
         hilomap: Optional[HiLoMap] = Field(
             None,
@@ -403,16 +406,17 @@ class Yosys(YosysBase, SynthFlow):
             ss.netlist_hex = not mapping
         if ss.post_synth_opt is None:
             ss.post_synth_opt = mapping and ss.optimize is not None
+        platform = ss.platform
+        if ss.other_maps is None:
+            latch_map = platform.latch_map_file if mapping and platform else None
+            ss.other_maps = [latch_map] if latch_map else []
         if not mapping:
             return
-        platform = ss.platform
         if platform:
             if ss.adder_map is None:
                 ss.adder_map = platform.adder_map_file
             if ss.clockgate_map is None:
                 ss.clockgate_map = platform.clkgate_map_file
-            if not ss.other_maps and platform.latch_map_file:
-                ss.other_maps = [platform.latch_map_file]
             if (
                 ss.hilomap is None
                 and platform.tiehi_cell

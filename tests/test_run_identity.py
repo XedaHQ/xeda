@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+import xeda
 from xeda import Design
 from xeda.flow import flowrun_hash
 from xeda.flow_runner.bindings import node_identity
@@ -636,7 +637,8 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
 
 # ------------------------------------------- O-RI1: a bundled platform names no installation
 
-XEDA_PACKAGE = TESTS_DIR.parent / "src" / "xeda"
+# The imported package: under tox it is the installed one, not the checkout's `src/xeda`.
+XEDA_PACKAGE = Path(xeda.__file__).parent
 
 
 def _install_elsewhere(prefix: Path) -> Path:
@@ -737,14 +739,35 @@ def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked
         (physical / "c.xdc").write_text("\n")
         from xeda.flows import VivadoSynth
 
-        def hashed(root: Path, xdc: Path):
+        def hashed(root: Path, xdc: Path, start: Path | None = None):
             settings = VivadoSynth.Settings.from_input(
                 {"fpga": "xc7a100tftg256-2L", "xdc_files": [str(xdc)]},
                 design_root=root,
-                runner_cwd=tmp_path / "start",
+                runner_cwd=start or tmp_path / "start",
             )
             return json.dumps(identity_values("vivado_synth", settings), default=str)
 
         for root, xdc in ((link, physical / "c.xdc"), (physical, link / "c.xdc")):
             values = hashed(root, xdc)
             assert "$DESIGN_ROOT/c.xdc" in values and str(tmp_path) not in values
+
+        # Two roots, one of them reached through a link: the design root is the more specific
+        # place whichever way the file is spelled. Trying each spelling of the path against
+        # every root in turn made `$PWD/design/c.xdc` of one spelling and `$DESIGN_ROOT/c.xdc`
+        # of the other: one file, two identities.
+        (physical / "design").mkdir()
+        (physical / "design" / "c.xdc").write_text("\n")
+        for xdc in (link / "design" / "c.xdc", physical / "design" / "c.xdc"):
+            values = hashed(physical / "design", xdc, start=link)
+            assert "$DESIGN_ROOT/c.xdc" in values and "$PWD" not in values, values
+
+        # Specificity is the place's, not its spelling's: a design root written as a short link
+        # to a deep directory is still the more specific root there.
+        deep = physical / "a" / "b" / "c"
+        deep.mkdir(parents=True)
+        (deep / "c.xdc").write_text("\n")
+        short = tmp_path / "short"
+        short.symlink_to(deep, target_is_directory=True)
+        for xdc in (short / "c.xdc", deep / "c.xdc"):
+            values = hashed(short, xdc, start=physical / "a" / "b")
+            assert "$DESIGN_ROOT/c.xdc" in values and "$PWD" not in values, values

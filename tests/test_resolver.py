@@ -11,6 +11,7 @@ from typing import ClassVar
 
 import pytest
 
+import xeda
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
@@ -978,7 +979,9 @@ def _asic_plan(tmp_path, taker, **kwargs):
     )
 
 
-BUNDLED_NANGATE45 = Path(__file__).parent.parent / "src/xeda/platforms/nangate45/config.toml"
+# Where the installed xeda keeps its bundled platforms: a non-editable install (tox) is not the
+# checkout's `src/xeda`, and `-s platform=nangate45` resolves inside the one that is imported.
+BUNDLED_NANGATE45 = Path(xeda.__file__).parent / "platforms/nangate45/config.toml"
 
 
 def test_every_bundled_platform_is_named_as_its_directory():

@@ -416,7 +416,15 @@ def location_roots(
         )
         if root is not None
     ]
-    roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)
+    # Specificity is the place's own depth, so a root written as a short link to a deep directory
+    # still outranks a shallower one it lies in; the written depth only breaks a tie.
+    roots.sort(
+        key=lambda var_root: (
+            len(Path(os.path.realpath(var_root[1])).parts),
+            len(var_root[1].parts),
+        ),
+        reverse=True,
+    )
     return roots
 
 
@@ -432,19 +440,25 @@ def _spellings(path: PurePath) -> list[PurePath]:
 def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
     """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``.
 
-    A root and a path are each recognized as written and as resolved, the path as written first:
+    A root and a path are each recognized as written and as resolved. `roots` are tried in order,
+    most specific first, and the first one holding the path under any spelling of either names it:
     a place reached through a symbolic link counts as the same place however it is spelled."""
     if isinstance(value, dict):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
     if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
-        root_spellings = [(var, spelling) for var, root in roots for spelling in _spellings(root)]
-        for path in _spellings(PurePath(value)):
-            for var, root in root_spellings:
-                if path.is_relative_to(root):
-                    relative = path.relative_to(root).as_posix()
-                    return f"${var}" if relative == "." else f"${var}/{relative}"
+        spellings = _spellings(PurePath(value))
+        # The roots are tried in the order given (most specific first), each against every
+        # spelling of the path: the first root that holds the place at all names it, however
+        # the place is written. Spellings in the outer loop let a less specific root claim one
+        # spelling of a path that a more specific root holds under the other.
+        for var, root in roots:
+            for root_spelling in _spellings(root):
+                for path in spellings:
+                    if path.is_relative_to(root_spelling):
+                        relative = path.relative_to(root_spelling).as_posix()
+                        return f"${var}" if relative == "." else f"${var}/{relative}"
     return value
 
 

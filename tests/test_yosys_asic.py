@@ -365,6 +365,32 @@ def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
     assert reloaded.post_synth_opt is given and again.post_synth_opt is given
 
 
+# ------------------------------------------------------------------ other_maps
+
+
+@pytest.mark.parametrize("given", [None, [], ["extra.v"]])
+def test_an_explicit_other_maps_wins_over_the_platform_s_latch_map(tmp_path, monkeypatch, given):
+    """`other_maps` is derived from the platform only where it is left unset: an explicit empty
+    list (`-s other_maps=`) means no extra mapping, not "the platform's latch map"."""
+    settings = {"platform": "nangate45", "clock": {"period": 2.0}}
+    if given is not None:
+        (tmp_path / "extra.v").write_text("module _unused(); endmodule\n")
+        settings["other_maps"] = [str(tmp_path / "extra.v") for _ in given]
+    latch = str(AsicsPlatform.from_resource("nangate45").latch_map_file)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    expected = [latch] if given is None else [str(tmp_path / "extra.v") for _ in given]
+    effective = _effective(run_dir)["other_maps"]
+    assert effective == expected
+    assert (latch in _script(run_dir)) is (given is None)
+    recorded = json.loads((run_dir / "settings.json").read_text())["flow_settings"]
+    assert recorded["other_maps"] == (None if given is None else settings["other_maps"])
+    # reloaded from `settings.json`, the settings are the same again, the unset value included
+    reloaded = Yosys.Settings.from_input(recorded)
+    again = Yosys.Settings.from_input(json.loads(json.dumps(reloaded.model_dump(mode="json"))))
+    assert again.model_dump() == reloaded.model_dump()
+    assert reloaded.other_maps == again.other_maps
+
+
 # ------------------------------------------------------------------ asap7's SS corner
 
 #: A `config.toml` of an asap7 platform with its liberty files present (the package ships the
