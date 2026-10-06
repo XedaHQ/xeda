@@ -6,7 +6,7 @@ import sys
 from collections import OrderedDict
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
 import click
 import coloredlogs
@@ -37,13 +37,13 @@ from .cli_utils import (
 )
 from .console import console
 from .deliver import Conflict
-from .design import DESIGN_NAME
+from .design import DESIGN_NAME, target_name_problem
 from .flow import Flow, FlowFatalError, registered_flows
 from .flow_runner import (
     DefaultRunner,
     XedaOptions,
     add_file_logger,
-    scrub_runs,
+    scrub_design,
 )
 from .flow_runner.bindings import LOCAL_REQUESTS_ONLY
 from .flow_runner.chains import parse_request
@@ -1438,6 +1438,13 @@ def dse(
 )
 @_run_root_options
 @click.option(
+    "--target",
+    metavar="NAME",
+    help="Remove only this target's run directories (<run-root>/<design_name>/NAME/), leaving "
+    "the pre-target ones (<design_name>/<flow>) and every other target's. Without it, FLOW_NAME's "
+    "directories under every target are removed too, as found on disk: no design file is read.",
+)
+@click.option(
     "--incremental/--no-incremental",
     default=None,
     hidden=True,
@@ -1457,58 +1464,55 @@ def dse(
     ),
 )
 @click.pass_context
-def scrub(ctx: click.Context, flow, design_name, run_root, json_flag):
-    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>."""
+def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
+    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>:
+    the pre-target ones and those of every target (<design_name>/<target>/), or with --target
+    only that target's. They are listed, and confirmed once."""
     if json_flag:
         machine_readable_mode()
-    if not DESIGN_NAME.fullmatch(design_name):
-        message = f"{design_name!r} is not a design name"
-        if json_flag:
-            emit_structured(
-                {"success": False, "error": {"type": "RunDirectoryError", "message": message}},
-                "json",
-            )
-        else:
-            log.critical("%s", message)
-        sys.exit(1)
-    try:
-        root = ensure_run_root(run_root, create=False)
-    except RunRootError as e:
-        if json_flag:
-            emit_structured(
-                {"success": False, "error": {"type": "RunRootError", "message": str(e)}}, "json"
-            )
-        else:
-            log.critical("%s", e)
-        sys.exit(1)
-    run_root = root if root is not None else Path(run_root).resolve()
-    design_dir = run_root / design_name
-    design_dirs = [design_dir] if design_dir.exists() else []
 
-    try:
-        scrubbed = [dd for dd in design_dirs if scrub_runs(flow, dd, run_root=run_root)]
-    except RunDirectoryError as e:  # a run directory xeda cannot remove
-        log.critical("%s", _error_message(e))
+    def fail(error_type: str, message: str) -> NoReturn:
         if json_flag:
             emit_structured(
                 {
                     "success": False,
                     "flow": flow,
                     "design": design_name,
-                    "error": {"type": type(e).__name__, "message": _error_message(e)},
+                    "target": target,
+                    "error": {"type": error_type, "message": message},
                 },
                 "json",
             )
+        else:
+            log.critical("%s", message)
         sys.exit(1)
+
+    if not DESIGN_NAME.fullmatch(design_name):
+        fail("RunDirectoryError", f"{design_name!r} is not a design name")
+    if target is not None and (problem := target_name_problem(target)) is not None:
+        fail("RunDirectoryError", problem)
+    try:
+        root = ensure_run_root(run_root, create=False)
+    except RunRootError as e:
+        fail("RunRootError", str(e))
+    run_root = root if root is not None else Path(run_root).resolve()
+
+    try:
+        scanned, removed = scrub_design(
+            flow, run_root / design_name, run_root=run_root, target=target
+        )
+    except RunDirectoryError as e:  # a run directory xeda cannot remove
+        fail(type(e).__name__, _error_message(e))
     if json_flag:
         emit_structured(
             {
                 "success": True,
                 "flow": flow,
                 "design": design_name,
+                "target": target,
                 "run_root": str(run_root),
-                "scanned": [str(d) for d in design_dirs],
-                "scrubbed": [str(d) for d in scrubbed],
+                "scanned": [str(d) for d in scanned],
+                "scrubbed": [str(d) for d in removed],
             },
             "json",
         )
