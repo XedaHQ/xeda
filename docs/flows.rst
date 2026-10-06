@@ -174,11 +174,7 @@ files and sections. A command-line leaf (``-s fpga.part=...`` or
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
 still applies within each node.
 
-Undeclared edges (a flow that still calls ``add_dependency``; no built-in flow does) keep the
-legacy rule: the depending flow's nonempty value, else its dependency's nested value.
-Undeclared flows may launch declared ones.
-
-While a flow reads any completed dependency's outputs, it holds a verified shared lease on that
+While a flow reads any completed producer's outputs, it holds a verified shared lease on that
 run directory until its own launch ends. Another Xeda process cleaning, rebuilding or scrubbing
 the producer waits (POSIX only). Missing or changed completion evidence refuses hand-over.
 
@@ -802,9 +798,10 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
 ``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:
 
 ``init()`` (optional)
-    Runs after construction, once settings and design are known. This is where dependencies are
-    registered with ``self.add_dependency(...)``. It is separate from ``__init__`` so that a flow
-    can decide its dependencies based on its effective settings.
+    Runs after construction, once settings and design are known. It is separate from
+    ``__init__``, so a flow can prepare itself from its effective settings. It adds no producer and
+    reads no input: a flow declares the inputs it reads (``Flow.Inputs``), and the launcher runs
+    their producers before ``run()``.
 
 ``run()``
     Generates scripts (Jinja2 templates in a ``templates/`` directory next to the flow module) and

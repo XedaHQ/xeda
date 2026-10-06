@@ -530,6 +530,16 @@ All notable changes to this project will be documented in this file.
   runs again with its producer. The first launch after upgrading runs each such flow once.
 
 ### Removed
+- **Breaking for flows written outside Xeda: the undeclared dependency mechanism.** A flow can no
+  longer call `self.add_dependency(...)` in `init()`, nest another flow's settings in its own
+  (`Flow.Settings.dependency_settings`, `resolve_dependency`), read `completed_dependencies` or
+  `pop_dependency`, or copy files into a dependency (`copy_resources`, `copied_resources_dir`).
+  Declare what the flow reads as `Flow.Inputs` and what a producer makes as `Flow.Outputs`: the
+  launcher then runs the producers, hands over their files, and records them in the trace. A
+  producer's settings go under its own `flows.<flow>` section. No built-in flow used the
+  mechanism any more. `FlowLauncher.launch_flow`, `run_flow` and `Dse.run_flow` lose their
+  `copy_resources` parameter, and `xeda list-flows --json` lists `dependencies` from the declared
+  inputs only.
 - **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run
   decision is its inputs' and outputs' content, never a modification time, so the old switch had
   nothing left to mean; `run_only_if_sources_modified = false` is `always_runs = true`.

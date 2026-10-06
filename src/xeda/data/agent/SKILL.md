@@ -197,13 +197,11 @@ Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clock
 `platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
 naming both origins. An explicit command-line leaf (`-s fpga.part=...` or
 `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group, preserving other leaves.
-API overrides remain the highest-precedence origin. An undeclared edge (a flow that still calls
-`add_dependency`; no built-in flow does) uses the depending flow's nonempty value, else its
-nested dependency's.
-A consumer holds each completed dependency for reading until its launch ends (POSIX only),
+API overrides remain the highest-precedence origin.
+A consumer holds each completed producer for reading until its launch ends (POSIX only),
 so another Xeda process that would rebuild, clean or scrub that directory waits.
 
-`xeda list-flows --json` reports `dependencies`, `declared`, `inputs` and `outputs`.
+`xeda list-flows --json` reports `dependencies`, `inputs` and `outputs`.
 
 ## Flow chains and input bindings
 
@@ -216,8 +214,8 @@ valid one only when another output of the producer, or the flows that the requir
 producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
 `nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
-(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and
-`vivado_sim` run alone, and a chain through one fails naming it. A chain is local: `--remote` and
+(`xeda list-flows --json`: `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and
+`vivado_sim` run alone, and a chain through one fails with `no compatible output`. A chain is local: `--remote` and
 `xeda dse` refuse it.
 
 `-s` sets the last flow; `-s flows.<flow>.key=value` sets any other flow of the chain. With
@@ -280,7 +278,7 @@ delivery. Conflicting settings and impossible targets produce the usual failure 
 
 A design that would run a generator or fetch a Git dependency while loading is refused before
 side effects. Materialize it first; the library can plan an already materialized `Design`.
-Undeclared flows' runtime dependencies are unknown in the plan; freshness is not evaluated.
+Freshness is not evaluated in a plan.
 `--dry-run --remote` is refused.
 
 ## Reading results

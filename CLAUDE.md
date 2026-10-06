@@ -234,15 +234,15 @@ dependency flows. A project file is found by one helper, `resolve_project_file` 
 
 ### Flow lifecycle
 
-`FlowLauncher.launch_flow()` is the one procedure every flow run and every dependency run goes
+`FlowLauncher.launch_flow()` is the one procedure every flow run and every producer run goes
 through, make's order: bring every prerequisite up to date, then judge this flow against them. Its
 stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
 context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
-*copy* of the input, `init()` (registers dependencies only for an undeclared flow; no built-in flow has any) -- runs even for a flow that turns out
+*copy* of the input, `init()` (adds no dependency and reads no input) -- runs even for a flow that turns out
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
-**dependencies** (`_run_producers` for declared flows, following the plan; `_run_dependencies`
-for others; each in a sibling run directory held for reading until the launch ends) ->
+**producers** (`_run_producers`, following the plan; each in a sibling run directory held for
+reading until the launch ends) ->
 **prepare inputs** (`Flow.prepare_inputs`, after hand-over under producer read leases: register
 implicit inputs before freshness and reserve them against delivery; preparation may materialize
 board files in managed cache space, never write the flow's run directory) ->
@@ -299,31 +299,30 @@ removed before the run, so an earlier success never stands for a run that died
   were removed, and power's simulation controls with them. Each fails with its replacement:
   `vivado_postsynth_sim.synth` names `flows.vivado_synth.<key>`, `vivado_power.postsynthsim` and
   power's former simulation controls name `flows.vivado_postsynth_sim.<key>`, and
-  `vivado_power.timing_sim` has none (power switches it on itself). No built-in flow is on `add_dependency` any more. `-s flows.<flow>.key=value` sets any flow of the run (the
-  requested flow or one of its declared dependencies; an unknown flow is an error with
+  `vivado_power.timing_sim` has none (power switches it on itself). `-s flows.<flow>.key=value` sets any flow of the run (the
+  requested flow or one of its declared producers; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
   error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
-  design file; `--` ends the options. Local runs, remote runs and dependencies all use
-  `merge_layers`. Under a field holding an undeclared
-  dependency's settings (no built-in flow has one now), that dependency's own sections
-  (`[flows.<dependency>]`) are the base (`settings_layers.flow_settings_from_sections`, used by the launcher and the
-  remote runner alike). Declared edges agree shared leaves in the resolver; undeclared edges
-  resolve them in `init()` before launching dependencies.
-- A dependency's launch settings are composed in `default_runner.dependency_settings`: the
-  design's/project's own section for the dependency's flow, refined by what the depending flow
-  passed to `add_dependency` (for an undeclared edge, `resolve_dependency`'s result); then the
-  depender's `debug`, and a `verbose` level above 1, carry over.
+  design file; `--` ends the options. Local runs, remote runs and producers all use
+  `merge_layers`. Declared edges agree shared leaves in the resolver. A producer's `debug`, and a
+  `verbose` level above 1, carry over from its consumer (`carry_diagnostics`).
 
-- An undeclared flow registers dependencies in `init()` (not `__init__`) via
-  `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
-  and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  No built-in flow does any more: OpenROAD declares its `netlist`
-  input from `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies
-  and its own `merged.lib` are written in `run()`, so a fresh launch writes no flow output.
-  Declared producers are launched by the
-  launcher, not registered by `init()`.
+- **There is one dependency mechanism: declared inputs and outputs.** No flow registers a
+  dependency, nests another flow's settings or reads another flow's state: `add_dependency`,
+  `resolve_dependency`, `completed_dependencies`, `pop_dependency`, `dependency_settings` and
+  `copy_resources` are gone, and `tests/test_one_dependency_mechanism.py` fails if a name of them
+  returns anywhere in the package. Every flow goes through the resolver, as a one-node plan when it
+  declares nothing (`bsc`, `ghdl_sim`, `dc`, ...); there is no `is_declared` and no `declared`
+  key in `list-flows --json` or in a plan node. OpenROAD declares its `netlist` input from
+  `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies and its
+  own `merged.lib` are written in `run()`, so a fresh launch writes no flow output. A flow's
+  `required_settings` are the settings a model may not require (`dc`'s `target_libraries`): a
+  layer holds only some settings, and validating one that lacks a required field fails. The
+  launcher passes the producers a flow was handed from (`_run_producers`) to
+  `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`). Tests find a
+  flow's producers through `tool_utils.producers_of(runner, flow)`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
   `parse_xml()` (`utils.py`). **Every report (or log, results file, bitstream) a flow reads by
@@ -412,15 +411,15 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   `node`/`inputs` (`introspect.inputs_info`), and after a failure the planned nodes never
   entered as `"state": "not run"` (from `FlowLauncher.last_plan`, the plan the run followed).
 - **A chain is validated, suggested, listed and completed by one predicate.**
-  `chains._check_chain` judges a request (declaration, action last, repeat, edge) and
+  `chains._check_chain` judges a request (action last, repeat, edge) and
   `validate_chain` appends `Did you mean ...` with whole corrected requests that pass the same
   check: another output of the producer, or stages inserted along required default-producer edges
   (`_default_routes`, bounded and breadth-first; never a search over all flows, never an
-  undeclared flow, never a construction of a flow). `edges`/`followers`/`predecessors` are the
+  never a construction of a flow). `edges`/`followers`/`predecessors` are the
   same relation for `list-flows` (`can_follow`/`can_precede`/`target_dependent`, and the
   `required`/`optional` of each input) and for shell completion (`chains.complete_request`,
   `ChainChoice.shell_complete`: the prefix returned as typed, nothing offered after an action,
-  a repeat or an undeclared flow). `Flow.action_reason` (class metadata) is why a flow can only
+  a repeat or a flow that declares nothing). `Flow.action_reason` (class metadata) is why a flow can only
   end a chain; the dry run prints it without calling `always_runs()`. A binding naming an input of
   a flow that declares none says so (`bindings.node_bindings`), which is also the tripwire:
   `tests/test_fpga_chains.py`'s refusals of `bsc`/Vivado chains and of `inputs.design`
@@ -460,8 +459,7 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
-  leaves; API contributions remain a separate highest-precedence origin. An undeclared edge (no built-in
-  flow has one) uses `resolve_dependency`.
+  leaves; API contributions remain a separate highest-precedence origin.
 - **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
   `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
   containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
@@ -475,7 +473,7 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
   `Design` is plannable.
-  Undeclared runtime dependencies are unknown, freshness is not evaluated, and `--remote` is refused.
+  Freshness is not evaluated, and `--remote` is refused.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its
@@ -536,7 +534,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting three conveniences, applied before any field validator runs (by a model `before` validator
+setting two conveniences, applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
@@ -545,14 +543,6 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
-3. A dependency's settings given as an instance are deep-copied, on construction and assignment.
-
-**Undeclared dependencies resolve shared settings at launch.** `dependency_settings` names each
-nested `Flow.Settings` field and its shared settings; every nested field must be declared
-(`tests/test_dependency_settings.py`). Validation copies nothing between nodes. An undeclared
-flow calls `ss.resolve_dependency(field)` in `init()` and passes the private result to
-`add_dependency`: its own nonempty value wins, otherwise it adopts the dependency's. Declared
-edges instead use the resolver's agreement rule above.
 
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
@@ -712,7 +702,7 @@ a program is checked exactly as any other input; a container image is recorded b
 `digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over the
 parts the flow reads, `rtl` and, for `design_parts` with `tb`, `tb`, so a file-valued parameter
 counts), every existing file a path-typed setting names
-(`setting_files`: nested models too, not a dependency's settings; relative paths under the design
+(`setting_files`: nested models too; relative paths under the design
 root *and* the start directory), every entry under a directory such a setting names
 (`setting_directory_files`: `xeda.listing.directory_files(follow_links=True)`, recursive, a
 symbolic link followed -- cycles and re-entry broken by `(st_dev, st_ino)`, so a library reached
@@ -867,7 +857,7 @@ is held (`_unchanged`: name, parent, still a directory in the run root, and the 
 followed. `--json` reports `target`, the `scanned` directories
 and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
-writing, including legacy dependencies; changed or uncertain completion evidence in the
+writing; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry
 retain protection; shared-to-exclusive reentry is refused. Scrub siblings before taking the
 current run lock to avoid cross-variant deadlocks. DSE purge also takes the exclusive lock.
@@ -1468,8 +1458,7 @@ dependency must also share `custom_boards_file`.
   identical by default.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
-  no packer for). Undeclared flows validate in
-  `init()` after `resolve_dependency`.
+  no packer for).
 - **Real proprietary tools and containers are opt-in layers**, skipped unless their variable is set
   (and then failing on what they need): `XEDA_TESTS_VIVADO=1` runs Vivado flows on tiny designs
   (`tests/test_vivado_real.py`, `vivado` on PATH); `XEDA_TESTS_DOCKER=1` runs flows `dockerized`
