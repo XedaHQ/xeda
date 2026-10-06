@@ -363,17 +363,21 @@ def _run_directories_in(
     flow_name: str, directory: Path, exclude: Sequence[Path], run_root: Path
 ) -> list[Path]:
     """`flow_name`'s run directories among the children of `directory` (`_is_run_directory`),
-    except `exclude`. They are matched against the children rather than a `f"{flow_name}_*"` glob,
-    so the unhashed directory -- which that glob can never match -- is included too."""
+    except `exclude`: a launch leaves out its own. They are matched against the children rather
+    than a `f"{flow_name}_*"` glob, so the unhashed directory -- which that glob can never match --
+    is included too. A directory is excluded by where it resolves to, never by whether it exists
+    now or has the same inode: a sibling launch's scrub may remove a launch's own directory while
+    this lists, and it is still not a candidate."""
     if not directory.is_dir():
         return []
     xr = directory.resolve()
+    excluded = {Path(os.path.realpath(ex)) for ex in exclude}
     return unique(
         [
             p
             for p in sorted(directory.iterdir())
             if _is_run_directory(p, flow_name, xr, run_root)
-            and all(not ex.exists() or not p.samefile(ex) for ex in exclude)
+            and Path(os.path.realpath(p)) not in excluded
         ]
     )
 

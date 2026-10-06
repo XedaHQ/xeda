@@ -700,6 +700,36 @@ def test_scrub_runs_keeps_its_one_directory_contract(tmp_path, confirmations):
     assert all(p.exists() for p in (*tree.a, *tree.b, *tree.ghost)), "no directory below it"
 
 
+def test_a_launch_never_lists_its_own_run_directory_when_a_sibling_removes_it_meanwhile(
+    tmp_path, confirmations, monkeypatch
+):
+    """Two launches of variants of one flow, each with `--scrub`, remove each other's run
+    directory. A launch's own can go while it lists: seen as a directory, then gone. It is still
+    its own, and no candidate: the launch makes it again once the scrub is done."""
+    tree = Tree(tmp_path)
+    own, sibling = tree.direct
+    real_judgment = default_runner._is_run_directory
+
+    def seen_then_removed(path, *args, **kwargs):
+        found = real_judgment(path, *args, **kwargs)
+        if path == own and found:
+            default_runner.RunDirectory.claimed(own, tree.root).delete()  # the sibling's scrub
+        return found
+
+    monkeypatch.setattr(default_runner, "_is_run_directory", seen_then_removed)
+    assert default_runner.scrub_runs(FLOW, tree.design, [own], run_root=tree.root) is True
+    assert tree.present([own, sibling]) == [False, False]
+
+
+def test_a_directory_is_excluded_by_any_path_that_resolves_to_it(tmp_path, confirmations):
+    """`exclude` names a directory by where it resolves to, a link to it included."""
+    tree = Tree(tmp_path)
+    alias = tree.design / "alias"
+    alias.symlink_to(tree.direct[0], target_is_directory=True)
+    assert default_runner.scrub_runs(FLOW, tree.design, [alias], run_root=tree.root) is True
+    assert tree.present(tree.direct) == [True, False]
+
+
 # ------------------------------------------------------------------------------- the help text
 
 

@@ -53,6 +53,11 @@ All notable changes to this project will be documented in this file.
 - A message about a Chisel generator with `build_system: bloop` and no `project` named the
   command `bloop projects`, which only finds the project. It names the kind of generator
   (`ChiselGenerator`) until a project is selected.
+- A launch with `--scrub` could fail when another launch of the same flow, scrubbing at the same
+  time, removed the first launch's run directory while the first listed the directories to remove.
+  The listing left out a launch's own directory only if it still existed, so one that had just
+  gone was listed to be removed. A launch now leaves out its own run directory by where it
+  resolves to, whether or not it exists.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

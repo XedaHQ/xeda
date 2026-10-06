@@ -891,7 +891,9 @@ inode number or an inode change time says nothing about a run directory, since e
 adds or removes moves it, and a launch that writes in its directory while scrub waits for the
 lock, or a newer run of the flow in its place, is removed as scrub is asked to; one that is gone,
 no directory, or a link now leading out of the parent or the run root is refused with a
-`RunDirectoryError`. A link out of the run root is never followed. `--json` reports `target`, the
+`RunDirectoryError`. A link out of the run root is never followed. A launch's `--scrub` leaves out
+its own run directory by where it resolves to (`_run_directories_in`), never by whether it
+exists: a sibling's scrub may remove it while this one lists. `--json` reports `target`, the
 `scanned` directories and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
