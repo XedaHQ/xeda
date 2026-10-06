@@ -73,22 +73,30 @@ def _named(path: Path, root: Path) -> str:
 
 
 def _digests(paths: Sequence[Path], root: Path) -> Tuple[Tuple[str, str], ...]:
-    """Each path's name and the digest of its content, sorted by name. A directory is expanded
-    entry by entry (`listing.directory_files`, links followed, version-control metadata left
-    out), exactly as the trace treats a directory a setting names: its own digest is a constant,
-    so a file edited or added inside one would otherwise be invisible. Each entry is recorded as
-    itself (`follow_symlinks=False`), as the trace records a listing: a link by its target and,
-    for a link to a file, that file's content -- so an editor's dangling lock file
-    (`.#Top.scala`) is a file like any other rather than an error."""
-    entries = []
+    """Each path's name and the digest of its content, sorted by name, **one entry per name**. A
+    directory is expanded entry by entry (`listing.directory_files`, links followed,
+    version-control metadata left out), exactly as the trace treats a directory a setting names:
+    its own digest is a constant, so a file edited or added inside one would otherwise be
+    invisible. Each entry is recorded as itself (`follow_symlinks=False`), as the trace records a
+    listing: a link by its target and, for a link to a file, that file's content -- so an
+    editor's dangling lock file (`.#Top.scala`) is a file like any other rather than an error.
+
+    A file can be named twice -- by a pattern and by its own path, or by a directory and by
+    itself -- and a record naming one file twice reads back as damaged (`_stale`), so the names
+    are made unique here, where the record's entries are made. The path the design declared is
+    recorded as the design names it (a link followed, a missing one an error); a directory's
+    entry for the same name defers to it, so the digest does not depend on the order the paths
+    were given in."""
+    named: dict[str, str] = {}
     for path in paths:
-        entries.append((_named(path, root), record_file(path).sha))
+        named[_named(path, root)] = record_file(path).sha
+    for path in paths:
         if path.is_dir():
-            entries.extend(
-                (_named(child, root), record_file(child, follow_symlinks=False).sha)
-                for child in directory_files(path, skip=VCS_METADATA, follow_links=True)
-            )
-    return tuple(sorted(entries))
+            for child in directory_files(path, skip=VCS_METADATA, follow_links=True):
+                name = _named(child, root)
+                if name not in named:
+                    named[name] = record_file(child, follow_symlinks=False).sha
+    return tuple(sorted(named.items()))
 
 
 def generation_identity(generator: Generator, design_root: Path) -> str:

@@ -957,3 +957,88 @@ def test_rebuild_all_runs_the_generator_and_records_what_it_leaves(tmp_path, mon
     assert world.runs == 3
     launch()
     assert world.runs == 3, "the record of the last generation is there again"
+
+
+# --- a file named twice is one entry of the record --------------------------------------------
+
+
+def _record_outputs(world: "World") -> list:
+    (record,) = world.records()
+    return yaml.safe_load(record.read_text())["outputs"]
+
+
+def _declare_sources(world: "World", sources: str) -> None:
+    world.design_file.write_text(
+        world.design_file.read_text().replace("sources: [gen/top.v]", f"sources: {sources}")
+    )
+
+
+def test_a_source_named_by_a_pattern_and_by_its_path_is_recorded_once(tmp_path):
+    """`gen/*.v` and `gen/top.v` expand to the same file. A record naming it twice reads back as
+    damaged, so the generator that just wrote it would run again on every load."""
+    world = World(tmp_path)
+    _declare_sources(world, "['gen/*.v', 'gen/top.v']")
+    world.load()
+    assert world.runs == 1
+    assert [name for name, _ in _record_outputs(world)] == ["gen/top.v"]
+    world.load()
+    world.load()
+    assert world.runs == 1, "a record of overlapping spellings was judged malformed"
+    world.generated.write_text("// edited by hand\n")
+    world.load()
+    assert world.runs == 2, "the one entry still vouches for the content"
+
+
+def test_a_generated_directory_and_a_file_in_it_are_recorded_once(tmp_path):
+    """A directory is recorded entry by entry, and a file it holds may be declared too."""
+    world = World(tmp_path, generated_sources=["gen", "gen/top.v"])
+    world.load()
+    assert world.runs == 1
+    names = [name for name, _ in _record_outputs(world)]
+    assert names == ["gen", "gen/top.v"]
+    world.load()
+    assert world.runs == 1, "a record of a directory and its file was judged malformed"
+
+
+def test_a_record_that_names_a_source_twice_is_still_damaged(tmp_path, caplog):
+    """The check stays for a record some other hand wrote: it is not what the fix relies on."""
+    world = World(tmp_path)
+    world.load()
+    (record,) = world.records()
+    data = yaml.safe_load(record.read_text())
+    data["outputs"] = data["outputs"] * 2
+    record.write_text(yaml.safe_dump(data))
+    with caplog.at_level("INFO", logger="xeda.design"):
+        world.load()
+    assert world.runs == 2
+    assert "is malformed" in caplog.text
+    assert len(_record_outputs(world)) == 1, "the new record names each source once"
+    world.load()
+    assert world.runs == 2
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symbolic links need privileges on Windows")
+def test_digests_have_one_entry_per_name_whatever_order_the_paths_come_in(tmp_path):
+    """A link given as itself is followed (its content is what a design declares) and, listed
+    inside its directory, is recorded as a link: two digests for one name. The declared path's
+    wins, whichever comes first, so collapsing equal pairs would not have been enough."""
+    from xeda.digest import record_file
+    from xeda.generation import _digests
+
+    root = tmp_path.resolve()
+    (root / "gen").mkdir()
+    (root / "real.v").write_text("// real\n")
+    link = root / "gen" / "ln.v"
+    link.symlink_to(root / "real.v")
+    (root / "gen" / "loop").symlink_to(root / "gen")  # a link to its own directory
+    as_listed = record_file(link, follow_symlinks=False).sha
+    as_declared = record_file(link).sha
+    assert as_listed != as_declared
+
+    forward = _digests([root / "gen", link], root)
+    backward = _digests([link, root / "gen"], root)
+    assert forward == backward
+    names = [name for name, _ in forward]
+    assert names == sorted(set(names)) == ["gen", "gen/ln.v", "gen/loop"]
+    assert dict(forward)["gen/ln.v"] == as_declared
+    assert _digests([root / "gen", root / "gen"], root) == _digests([root / "gen"], root)
