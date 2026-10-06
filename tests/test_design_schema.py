@@ -161,6 +161,24 @@ def test_documented_shorthands_are_accepted_by_both(label):
     assert not errors, f"schema rejects {label}: {[e.message for e in errors[:2]]}"
 
 
+def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader():
+    """`generator.args` is stored as a list; the string spelling stays an accepted input."""
+    from xeda.design import Generator
+
+    for args in ("gen.py out.log", ["gen.py", "out.log"]):
+        data = {
+            "name": "d",
+            "rtl": {"sources": [], "top": "t", "generator": {"executable": "py", "args": args}},
+        }
+        errors = list(validator().iter_errors(data))
+        assert not errors, f"schema rejects args={args!r}: {[e.message for e in errors[:2]]}"
+        assert Generator(executable="py", args=args).args == ["gen.py", "out.log"]
+    bad = {"name": "d", "rtl": {"sources": [], "top": "t", "generator": {"args": 3}}}
+    assert list(validator().iter_errors(bad))
+    with pytest.raises(ValueError):
+        Generator(executable="py", args=3)  # type: ignore[arg-type]
+
+
 def test_clock_compatibility_shorthands_are_in_the_input_schema():
     """The derived clock aliases remain documented without becoming stored model fields."""
     schema = design_schema()

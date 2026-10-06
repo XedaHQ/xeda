@@ -153,13 +153,24 @@ def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
     result, document = _run(str(sqrt), "--remote", "host", "--json")
     assert result.exit_code == 0 and document["success"]
     assert _RecordingRemoteRunner.settings_seen == [
-        {"outputs_to": None, "overwrite_outputs": False}
+        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": False}
     ]
 
 
-@pytest.mark.parametrize("option", ["--rebuild-all", "--clean", "--hashed-run-dirs"])
-def test_remote_refuses_the_rebuild_and_layout_flags(sqrt, monkeypatch, option):
-    """Each would be ignored: a remote run always runs fresh, mirrored in hashed directories."""
+def test_remote_rebuild_all_is_a_local_generator_escape(sqrt, monkeypatch):
+    """The remote flow stays fresh, and the explicit flag also reaches local design loading."""
+    _RecordingRemoteRunner.settings_seen = []
+    monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
+    result, document = _run(str(sqrt), "--remote", "host", "--rebuild-all", "--json")
+    assert result.exit_code == 0 and document["success"]
+    assert _RecordingRemoteRunner.settings_seen == [
+        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": True}
+    ]
+
+
+@pytest.mark.parametrize("option", ["--clean", "--hashed-run-dirs"])
+def test_remote_refuses_local_layout_flags(sqrt, monkeypatch, option):
+    """These flags still conflict with the remote runner's fresh hashed layout."""
     _RecordingRemoteRunner.settings_seen = []
     monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
     result, document = _run(str(sqrt), "--remote", "host", option, "--json")

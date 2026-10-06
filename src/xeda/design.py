@@ -10,12 +10,14 @@ import logging
 import os
 import pprint
 import re
+import shutil
 import subprocess
 import tomllib
 from collections.abc import Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from glob import escape as glob_escape
@@ -51,6 +53,7 @@ from .dataclass import (
     validation_errors,
 )
 from .digest import content_digest
+from .generation import judging_generation
 from .proc_utils import tool_output_redirect
 from .utils import (
     NonZeroExitCode,
@@ -357,12 +360,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
 def _describe_generator(generator: Any) -> str:
     """How to name a generator in an error, whichever of its three input forms the design used."""
     if isinstance(generator, Generator):
-        args = generator.args
-        return (
-            generator.command
-            or (args if isinstance(args, str) else " ".join(str(part) for part in args))
-            or generator.name
-        )
+        return generator.command or " ".join(generator.args) or generator.name
     if isinstance(generator, (list, tuple)):
         return " ".join(str(part) for part in generator)
     return str(generator)
@@ -1049,24 +1047,68 @@ class Generator(XedaBaseModel):
     cwd: Optional[str] = None
     executable: Optional[str] = None
     class_: Optional[str] = Field(None, alias="class")
-    args: Union[str, List[str]] = []
+    args: List[str] = Field(
+        default_factory=list,
+        description="The arguments the executable is run with: a list, or one string split on "
+        "whitespace (as `command` is).",
+    )
     command: Optional[str] = None
     check: bool = True
     env: Optional[Dict[str, str]] = None
     # sweepable parameters used in command
     parameters: dict = {}
-    sources: List[Union[str, Path]] = Field(
+    sources: List[Path] = Field(
         default_factory=list,
-        description="The sources this generator produces or reads, as a design's `sources` "
-        "name them: a path relative to the design root, or a pattern where `*` is the only "
-        "pattern character.",
+        description="The sources this generator reads, as a design's `sources` name them: a path "
+        "relative to the design root, or a pattern where `*` is the only pattern character. Each "
+        "one's content is what decides whether the generator runs again, so each has to exist. "
+        "A directory counts as every file in it, so name what the generator reads from outside "
+        "the design too (a library tree, an editable clone); xeda assumes nothing about the "
+        "generator's language or environment.",
     )
-    run_only_if_sources_modified: bool = Field(
-        default=True,
-        description="If True, the generator will run only if either not all rtl.sources exist or one of the sources has a newer modification time than all the rtl.sources",
+    always_runs: bool = Field(
+        default=False,
+        description="Run this generator on every design load: what it reads cannot be judged "
+        "(it is not files, or they cannot be listed), so xeda keeps no record of it. A "
+        "generator that declares no `sources` runs on every load anyway.",
     )
-    # for xeda to know dependencies, clean previous artifacts, check after generation:
-    generated_sources: List[str] = []
+    generated_sources: List[str] = Field(
+        default_factory=list,
+        description="The sources this generator produces, as a design's `sources` name them, "
+        "when it produces only some of `rtl.sources` (or a directory holding some): what is "
+        "judged against the record of its last generation. Each entry has to be one of "
+        "`rtl.sources` or hold one. Empty, every one of `rtl.sources` is judged, so editing a "
+        "source the generator does not write runs it again.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _removed_generator_fields(cls, data):
+        """A removed field is named with what replaces it, as every removed setting is."""
+        if "run_only_if_sources_modified" in data:
+            # The old switch was on by default: written `true` it asks for what a generator is
+            # now always judged by, so it is to be deleted, never turned into `always_runs`.
+            if data["run_only_if_sources_modified"] is True:
+                advice = (
+                    "delete it (a generator is judged by the content of what it reads and "
+                    "produces now, never by a modification time; `always_runs: true` would mean "
+                    "the opposite)"
+                )
+            else:
+                advice = (
+                    "use `always_runs: true` (a generator is judged by the content of what it "
+                    "reads and produces now, never by a modification time)"
+                )
+            raise ValueError(f"`run_only_if_sources_modified` was removed: {advice}")
+        return data
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def _args_to_words(cls, value):
+        """Store the arguments as words whichever way they were written: a string is split on
+        whitespace, exactly as `command` is, and a list is the words already, so every reader
+        (`execution_command`, the freshness identity) sees a list."""
+        return value.split() if isinstance(value, str) else value
 
     @field_validator("sources", mode="before")
     @classmethod
@@ -1093,37 +1135,97 @@ class Generator(XedaBaseModel):
                 raise ValueError(f"Invalid source type: {type(src)} for source '{src}'")
         # remove duplicates, but keep order
         sources = unique(sources)
-        # The generator's inputs: whether to rerun it is decided by their modification times.
+        # The generator's inputs: whether to run it again is decided by their content
+        # (`generation.generation_identity`), so each one has to be there to be read.
         missing = [str(src) for src in sources if not src.exists()]
         if missing:
             raise ValueError(f"generator source file does not exist: {', '.join(missing)}")
         return sources
 
-    def run(self):
+    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
+        """The argv this generator runs, shared by execution and freshness identity."""
         if self.command:
-            cmd = self.command.split()
+            return self.command.split()
         elif not self.executable:
             raise ValueError("executable is not set")
         else:
-            cmd = [self.executable, *self.args]
-        self.run_cmd(cmd)
+            return [self.executable, *self.args]
+
+    def execution_executable_path(
+        self, design_root: Optional[Path] = None, command: Optional[Sequence[str]] = None
+    ) -> Path:
+        """Resolve the direct executable as the child process will, without running it."""
+        selected_command = (
+            list(command) if command is not None else self.execution_command(design_root)
+        )
+        if not selected_command:
+            raise ValueError("generator command is empty")
+        executable = selected_command[0]
+        if self.cwd is None:
+            cwd = Path(design_root or Path.cwd()).resolve()
+        else:
+            cwd = Path(self.cwd)
+            if not cwd.is_absolute():
+                cwd = Path(design_root or Path.cwd()).resolve() / cwd
+            cwd = cwd.resolve()
+        env = self.env
+        path = env.get("PATH") if env is not None else os.environ.get("PATH")
+        if path is None:
+            path = os.defpath
+        if (
+            os.path.isabs(executable)
+            or os.sep in executable
+            or (os.altsep and os.altsep in executable)
+        ):
+            candidate = Path(executable)
+            if not candidate.is_absolute():
+                candidate = cwd / candidate
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                # Preserve a selected symlink alias in argv[0]. Identity reads still follow
+                # the link and hash the target's contents.
+                return candidate
+        else:
+            search_path = os.pathsep.join(
+                str((cwd / entry).resolve()) if not Path(entry).is_absolute() else entry
+                for entry in path.split(os.pathsep)
+            )
+            found = shutil.which(executable, path=search_path)
+            if found:
+                return Path(found).absolute()
+        raise ValueError(
+            f"cannot identify generator executable `{executable}` from cwd `{cwd}` and PATH"
+        )
+
+    def run(self):
+        self.run_cmd(self.execution_command())
 
     def run_cmd(self, cmd, check=None, stdout=None, stderr=None):
+        cmd = list(cmd)
+        executable = None
+        if cmd:
+            # Resolve exactly the executable used by freshness identity. This also makes child
+            # cwd and PATH selection consistent on Windows, where Popen ignores both for lookup.
+            # Pass it separately to preserve argv[0] and symlink-alias behavior for wrappers.
+            executable = str(self.execution_executable_path(Path.cwd(), cmd))
         log.info("Running command: '%s'", " ".join(cmd))
         if stdout is None:
             # A generator's subprocess inherits our stdout, which would corrupt a `--json`
             # document. `tool_output_redirect()` is None unless output has been redirected, so
             # normal runs keep inheriting as before.
             stdout = tool_output_redirect()
+        # Checked here, never by `subprocess.run`: a generator that fails names itself as the
+        # other two spellings of one do (`NonZeroExitCode`), not as a raw `CalledProcessError`.
+        wanted = self.check if check is None else check
         p = subprocess.run(
             cmd,
             cwd=self.cwd,
-            check=check if check is not None else self.check,
+            executable=executable,
+            check=False,
             stdout=stdout,
             stderr=stderr,
             env=self.env,
         )
-        if self.check and p.returncode:
+        if wanted and p.returncode:
             raise NonZeroExitCode(cmd, p.returncode)
         return p
 
@@ -1146,23 +1248,36 @@ class ChiselGenerator(Generator):
         else:
             raise Exception(f"Unsupported build system: {self.build_system}")
 
-    def run_mill(self):
-        # if file ./mill or ./millw exists, use it, otherwise use mill from PATH
-        mill_exec = "./mill"
-        if not Path(mill_exec).exists():
-            mill_exec = "mill"
-        if not self.project:
-            ValueError("`project` must be specified for Chisel generator")
-        cmd = [mill_exec]
-        if self.main:
-            cmd += [f"{self.project}.runMain", self.main]
+    def execution_command(self, design_root: Optional[Path] = None) -> List[str]:
+        if self.cwd is None:
+            cwd = Path(design_root or Path.cwd()).resolve()
         else:
-            cmd.append(f"{self.project}.run")
-        if self.args:
-            if isinstance(self.args, str):
-                self.args = self.args.split()
-            cmd += self.args
-        return self.run_cmd(cmd)
+            cwd = Path(self.cwd)
+            if not cwd.is_absolute():
+                cwd = Path(design_root or Path.cwd()).resolve() / cwd
+        if self.build_system == "mill":
+            mill_exec = "./mill" if (cwd / "mill").exists() else "mill"
+            cmd = [mill_exec]
+            if not self.project:
+                raise ValueError("`project` must be specified for Chisel generator")
+            cmd += [f"{self.project}.runMain", self.main] if self.main else [f"{self.project}.run"]
+            return [*cmd, *self.args]
+        if self.build_system == "bloop":
+            if not self.project:
+                # `run_bloop` discovers the project by invoking `bloop projects`; the executable
+                # whose content matters is still selected here without that side effect.
+                base = ["bloop", "projects"]
+                return base
+            cmd = ["bloop", "run", self.project]
+            if self.main:
+                cmd += ["--main", self.main]
+            if self.args:
+                cmd += ["--", *self.args]
+            return cmd
+        raise ValueError(f"Unsupported build system: {self.build_system}")
+
+    def run_mill(self):
+        return self.run_cmd(self.execution_command())
 
     def run_bloop(self):
         if self.project is None:
@@ -1177,15 +1292,7 @@ class ChiselGenerator(Generator):
                 raise ValueError("No projects found!")
         if not self.project:
             ValueError("`project` must be specified for Chisel generator")
-        cmd = ["bloop", "run", self.project]
-        if self.main:
-            cmd += ["--main", self.main]
-        if self.args:
-            if isinstance(self.args, str):
-                self.args = self.args.split()
-            cmd.append("--")
-            cmd += self.args
-        return self.run_cmd(cmd)
+        return self.run_cmd(self.execution_command())
 
 
 class RtlSettings(DVSettings):
@@ -1411,13 +1518,29 @@ class TbDep(XedaBaseModel):
     pos: int = 0
 
 
-#: Where a git dependency without a `clone_dir` is cloned: a provider of the run root's
-#: `.dependencies`, set by the launcher around loading its designs (`cloning_dependencies_into`);
-#: unset elsewhere. A provider, called only when a dependency is cloned: the launcher's run root
-#: is created on first use, which a design that fails to load must not cause.
-dependency_cache: ContextVar[Optional[Callable[[], Path]]] = ContextVar(
-    "dependency_cache", default=None
-)
+#: Where a Git dependency without a `clone_dir` is cloned, under the run root.
+DEPENDENCY_CLONES = ".dependencies"
+
+
+@dataclass(frozen=True)
+class LoadContext:
+    """What a launcher lends the designs it loads: xeda's own space, and what the launch asked
+    for. `run_root(True)` creates and marks the run root, `run_root(False)` gives one that is
+    already there, or None: it is asked to create one only to keep something there -- never to
+    look for it -- so a load that keeps nothing creates nothing, and a pure plan never asks.
+    What a load keeps there: the directory a Git dependency without a `clone_dir` is cloned into
+    (`DEPENDENCY_CLONES`) and the record of a generator's last generation
+    (`generation.CACHE_DIRECTORY`). Both outlive a design that fails *after* them, as they
+    should: the work they record was really done."""
+
+    run_root: Callable[[bool], Optional[Path]]
+    #: `--rebuild-all` (which `--clean` implies): a generator runs whatever its record says
+    rebuild_all: bool = False
+
+
+#: How a design load reaches xeda's own space, set by the launcher around loading its designs
+#: (`loading_in_run_root`) and unset elsewhere.
+load_context: ContextVar[Optional[LoadContext]] = ContextVar("load_context", default=None)
 
 _planning_load: ContextVar[bool] = ContextVar("planning_load", default=False)
 
@@ -1433,14 +1556,18 @@ def refusing_load_side_effects() -> Iterator[None]:
 
 
 @contextmanager
-def cloning_dependencies_into(provider: Callable[[], Path]) -> Iterator[None]:
-    """Clone the git dependencies of designs loaded meanwhile into the directory `provider`
-    names (in a run root), asking it only when one is cloned."""
-    token = dependency_cache.set(provider)
+def loading_in_run_root(
+    provider: Callable[[bool], Optional[Path]], rebuild_all: bool = False
+) -> Iterator[None]:
+    """Let the designs loaded meanwhile keep what a load keeps in a run root -- a Git
+    dependency's clone, a generator's record -- in the run root `provider` names, asking it only
+    when something is kept there, and for one it may create only then. With `rebuild_all`, a
+    generator runs whatever its record says, as every flow of the launch does."""
+    token = load_context.set(LoadContext(provider, rebuild_all))
     try:
         yield
     finally:
-        dependency_cache.reset(token)
+        load_context.reset(token)
 
 
 class DesignReference(XedaBaseModel):
@@ -1448,7 +1575,7 @@ class DesignReference(XedaBaseModel):
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
     #: where a git dependency is cloned (`<local_cache>/<host>/<path>`) when it names no
-    #: `clone_dir`; unset, a launcher clones into its run root (`cloning_dependencies_into`).
+    #: `clone_dir`; unset, a launcher clones into its run root (`loading_in_run_root`).
     #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
     local_cache: Optional[Path] = None
 
@@ -1593,8 +1720,9 @@ class GitReference(DesignReference):
             raise ValueError("Cannot plan a design that needs a Git dependency fetch")
         clone_dir = self.clone_dir
         if clone_dir is None:
-            provider = dependency_cache.get()
-            cache = self.local_cache or (provider() if provider is not None else None)
+            context = load_context.get()
+            run_root = context.run_root(True) if context is not None else None
+            cache = self.local_cache or (run_root / DEPENDENCY_CLONES if run_root else None)
             if cache is None:
                 raise ValueError(
                     f"{self.repo_url} needs a directory to be cloned into: give its `clone_dir` "
@@ -1948,11 +2076,20 @@ class Design(XedaBaseModel):
             design_root = Path.cwd()
         else:
             design_root = Path(design_root)
+        # Normalize before changing cwd: direct Design constructors accept relative roots too.
+        # Resolving inside the lease after WorkingDirectory would rebase it a second time.
+        design_root = design_root.resolve()
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
         generator = rtl.pop("generator", None)
         if generator:
-            with WorkingDirectory(design_root):
+            if _planning_load.get():
+                generator_lease: AbstractContextManager[None] = nullcontext()
+            else:
+                from .flow_runner.run_lock import generator_design_lock
+
+                generator_lease = generator_design_lock(design_root)
+            with WorkingDirectory(design_root), generator_lease:
                 # A generator is told the design root as `$DESIGN_ROOT` names it in the design's
                 # own paths: replacing whatever the shell exports, which is another directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
@@ -1982,47 +2119,45 @@ class Design(XedaBaseModel):
                                 raise Exception(f"unknown generator class: {clazz}")
                         else:
                             generator = Generator(**generator)
-                    if generator.cwd is None:
-                        generator.cwd = str(design_root)
-                    if generator.env is None:
-                        generator.env = dict(env)
-                    else:
-                        # An `env` the design states is the generator's whole environment, and
-                        # a `DESIGN_ROOT` in it is the design's own word.
-                        generator.env.setdefault("DESIGN_ROOT", str(design_root))
-                    skip_run = False
-                    rtl_sources = _source_paths_as_given(rtl.get("sources", []), design_root)
-                    if generator.run_only_if_sources_modified and generator.sources and rtl_sources:
-                        log.debug("Generator sources: %s", generator.sources)
-                        # check if rtl.sources exist and if they are newer than the generator sources
-                        if all(src.exists() for src in rtl_sources):
-                            generator_sources_last_modified = max(
-                                Path(gen_src).stat().st_mtime for gen_src in generator.sources
-                            )
-                            if all(
-                                src.stat().st_mtime >= generator_sources_last_modified
-                                for src in rtl_sources
-                            ):
-                                skip_run = True
-                                log.info(
-                                    "Skipping generator '%s' run, as all rtl.sources are newer than the generator sources",
-                                    generator.name,
-                                )
-                            else:
-                                log.info(
-                                    "Running generator '%s' as some rtl.sources are older than the generator sources",
-                                    generator.name,
-                                )
-                        else:
+
+                    # Judged before the defaults below complete it: its identity is the
+                    # configuration the design states, never this shell's environment.
+                    def generated() -> Optional[List[Path]]:
+                        declared = generator.generated_sources or rtl.get("sources", [])
+                        return _source_paths_as_given(declared, design_root)
+
+                    planning = _planning_load.get()
+                    context = load_context.get()
+                    with judging_generation(
+                        generator,
+                        design_root,
+                        generated,
+                        run_root=context.run_root if context else None,
+                        planning=planning,
+                        rebuild_all=bool(context and context.rebuild_all),
+                    ) as generation:
+                        if generation.reason is None:
                             log.info(
-                                "Running generator '%s' as not all rtl.sources exist",
+                                "Not running generator '%s': its generated sources are what its "
+                                "last generation left",
                                 generator.name,
                             )
-                    if not skip_run:
-                        if _planning_load.get():
-                            raise ValueError("Cannot plan a design that needs a generator")
-                        log.info("Running generator: %s", generator.name)
-                        generator.run()
+                        else:
+                            if planning:
+                                raise ValueError("Cannot plan a design that needs a generator")
+                            if generator.cwd is None:
+                                generator.cwd = str(design_root)
+                            if generator.env is None:
+                                generator.env = dict(env)
+                            else:
+                                # An `env` the design states is the generator's whole
+                                # environment, and a `DESIGN_ROOT` in it is the design's own word.
+                                generator.env.setdefault("DESIGN_ROOT", str(design_root))
+                            log.info(
+                                "Running generator '%s': %s", generator.name, generation.reason
+                            )
+                            generator.run()
+                            generation.produced()
                 else:
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
@@ -2054,6 +2189,31 @@ class Design(XedaBaseModel):
                         f"{'sources' if len(missing) > 1 else 'the source'} the design declares: "
                         + ", ".join(missing)
                     )
+                if (
+                    isinstance(generator, Generator)
+                    and generator.generated_sources
+                    and produced is not None
+                ):
+                    # Checked here, where the tree is complete: a pattern of `rtl.sources` the
+                    # generator is still to fill matches nothing before it has run.
+                    declared = [os.path.normpath(src) for src in produced]
+                    claimed = _source_paths_as_given(generator.generated_sources, design_root)
+                    # An entry is one of them, or a directory holding one (a build directory).
+                    outside = [
+                        str(src)
+                        for src in claimed or []
+                        if not any(
+                            name == os.path.normpath(src)
+                            or name.startswith(os.path.normpath(src) + os.sep)
+                            for name in declared
+                        )
+                    ]
+                    if outside:
+                        raise ValueError(
+                            f"generator ({_describe_generator(generator)}) declares "
+                            "`generated_sources` that are not among `rtl.sources`: "
+                            + ", ".join(outside)
+                        )
 
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:

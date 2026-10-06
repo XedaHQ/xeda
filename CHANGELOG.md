@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Generator freshness now follows symlinked directories among its `sources`, validates damaged
+  output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
+  generator executable is part of the content identity. A POSIX lease on the existing design-root
+  directory serializes bootstrap and differing-identity generations for the same tree without
+  creating the run root early; separate roots sharing an external output are outside that lease.
+- `xeda run --remote --rebuild-all` forces local generator loading before shipping while the
+  remote flow remains fresh; the remote runner's existing fresh-flow policy remains separate from
+  local generator freshness.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
   does (by each source's `type`, which is its suffix's unless the design states another): a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
   front end other than `default` (the default is the slang plugin) and a nonempty
@@ -88,6 +96,28 @@ All notable changes to this project will be documented in this file.
   refused.
 
 ### Added
+- **A design generator is judged by content, not by a modification time.**
+  `rtl.generator` runs again only when something it reads or produced changed: the digest of
+  every file of its `sources` (a directory counts as every file in it, outside the design root
+  too: a library tree, an editable clone), of its selected executable, and of every source its
+  last generation left. A generator is an external tool and xeda assumes nothing about its
+  language or environment, so what it reads is what `sources` names; a package upgrade xeda
+  cannot see needs `--rebuild-all` or `always_runs`. A `touch`, a `chmod`, a `cp -p` or a
+  branch round-trip costs a hash rather than a re-run, while an edit given back its old
+  modification time is caught. `generated_sources` names which of `rtl.sources` the generator
+  writes, when it writes only some of them (an entry that is none of `rtl.sources` is an
+  error); `always_runs` says its inputs cannot be judged at all, and a generator declaring no
+  `sources` runs on every load anyway.
+  The record of a generation is an entry under `<run root>/.cache/generators/`, written under its
+  own durable lock beside the Xilinx chip databases -- never beside the design, whose tree holds
+  nothing of xeda's. A load with no run root in sight, or one whose run root cannot be written,
+  generates every time: the direction xeda takes wherever it cannot prove something is up to
+  date. `--rebuild-all` (and `--clean`) regenerates too, which is the escape where something xeda
+  cannot see changed; `xeda run --dry-run` still creates and writes nothing, and a generator that
+  fails leaves no run root behind. On upgrading, nothing records the generations an earlier xeda
+  ran, so every generated design generates once more on its next load -- and `--dry-run` refuses
+  to plan it until one real run has recorded that. `--dry-run --rebuild-all` (or `--clean`) plans
+  as that launch would load the design, so it refuses a generated design too.
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
   duplicate key or a non-string key names the file and line. Any other suffix is an error naming
@@ -349,6 +379,9 @@ All notable changes to this project will be documented in this file.
   before anything ships, with an error asking to upgrade the remote xeda.
 
 ### Removed
+- **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run
+  decision is its inputs' and outputs' content, never a modification time, so the old switch had
+  nothing left to mean; `run_only_if_sources_modified = false` is `always_runs = true`.
 - **The `open_xc7` flow**: use `fpga_pack` to build and `openfpgaloader` to program. Its name in
   any spelling, and a `[flows.open_xc7]` section in a design or project file (or
   `-s flows.open_xc7.*`), fail with that message; `xeda scrub open_xc7 <design>` still removes

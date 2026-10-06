@@ -896,9 +896,9 @@ def run(
     if remote:
         from .flow_runner import remote as remote_runner
 
-        # each would be ignored: a remote run always runs fresh, in hashed run directories
+        # The remote flow always runs fresh in hashed directories. `--rebuild-all` also forces
+        # local generators to run before their design is shipped.
         for name, given in (
-            ("--rebuild-all", rebuild_all),
             ("--clean", clean),
             ("--hashed-run-dirs", hashed_run_dirs),
         ):
@@ -909,7 +909,10 @@ def run(
                     ctx=ctx,
                 )
         rl = remote_runner.RemoteRunner(
-            run_root, outputs_to=outputs_to, overwrite_outputs=overwrite_outputs
+            run_root,
+            outputs_to=outputs_to,
+            overwrite_outputs=overwrite_outputs,
+            rebuild_all=rebuild_all,
         )
         if _interactive(json_flag):
             rl.confirm_overwrite = _prompt_overwrite
@@ -991,7 +994,13 @@ def run(
 
     if dry_run:
         try:
-            launcher = DefaultRunner(run_root, hashed_run_dirs=hashed_run_dirs, debug=debug)
+            launcher = DefaultRunner(
+                run_root,
+                rebuild_all=rebuild_all,
+                hashed_run_dirs=hashed_run_dirs,
+                clean=clean,
+                debug=debug,
+            )
             plan = launcher.plan(
                 chain,
                 xedaproject=xedaproject,

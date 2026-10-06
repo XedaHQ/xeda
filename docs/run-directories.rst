@@ -344,6 +344,20 @@ generator, executables and device data, never a version string. One lock per ide
 keeps two launches from generating it twice; an interrupted generation leaves only scratch, which
 the next one removes. ``--clean``, post-cleanup and ``xeda scrub`` leave the cache alone.
 
+A design whose sources a generator writes (``rtl.generator``) keeps its record there too, in
+``.cache/generators/``: the content of what the generator reads -- its ``sources``, which may be
+directories outside the design, and its selected direct executable -- identifies an entry holding
+the digest of every source its last generation left, so the generator runs again only when one of
+them changed. Indirect tools and dependencies remain outside that identity. A
+POSIX lock on the existing design-root directory serializes generations for the same tree,
+including bootstrap and differing identities, without creating a marker beside the design or
+making the run root early. Separate design roots that write to one external destination are not
+coordinated; Windows retains the existing no-interprocess-lock behavior.
+A generation happens while the design is *loaded*, before any flow or run directory exists, which
+is why its record lives in the run root rather than beside the design, and why a design loaded
+with no run root in sight generates every time. ``--rebuild-all`` and ``--clean`` regenerate as
+they re-run every flow. See :ref:`generators`.
+
 What is not tracked
 ---------------------
 
@@ -354,7 +368,8 @@ declared:
   packages such as cocotb imported by a simulator: only the programs Xeda starts itself are
   recorded.
 - **Environment variables.** A flow that reads one without declaring it as a setting can change
-  behavior invisibly to the trace.
+  behavior invisibly to the trace, and so can a design generator: a generator's environment is
+  deliberately not part of its identity, so that one record is reusable from another shell.
 - **Files a tool finds on its own without reporting them** -- a Vivado IP repository, tool data
   outside any setting, anything not named by a setting and not listed in a depfile.
 - **What a symbolic link in a run directory points to, when that is a directory** -- the link is
@@ -403,8 +418,9 @@ or a build without protocol 6 support is refused with an "upgrade the remote xed
 
 A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
 locally in the hashed layout (``<design>/<flow>_<hash>``), so remote runs of different settings
-never share a directory. ``--rebuild-all``, ``--clean`` and ``--hashed-run-dirs`` would change
-nothing, so each is refused.
+never share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so each is
+refused. ``--rebuild-all`` forces local generator loading before shipping while the remote flow
+still runs fresh; remote ``clean`` does not force a local generator on ordinary invocations.
 
 Cleaning up
 ===========

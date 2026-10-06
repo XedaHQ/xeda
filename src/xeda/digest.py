@@ -25,6 +25,10 @@ A directory is recorded by its metadata and `DIRECTORY_DIGEST`: an entry of a li
 listed cannot be recorded (`PermissionError`), since what it holds is unknown. A special file (a
 FIFO, a socket, a device) by its metadata and `SPECIAL_DIGEST` + its kind, never read: reading it
 could block.
+
+A whole tree is digested by its files' names and content (`digest_files` over `package_files`),
+with no metadata and no record to trust: that is how the installed xeda package
+(`trace_inputs.xeda_code_digest`) is identified.
 """
 
 from __future__ import annotations
@@ -34,11 +38,12 @@ import hashlib
 import os
 import stat
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from .dataclass import XedaBaseModel
+from .listing import directory_files
 
 #: Timestamp granularity assumed for the racy check: 2 s covers FAT and HFS+; on filesystems
 #: with nanosecond timestamps it costs one extra hash of files written just before a record.
@@ -229,3 +234,27 @@ def _record_link(
     if before_reading is not None:
         before_reading()
     return FileRecord.of(st, f"{link}:{content_digest(path)}")
+
+
+def package_files(directory: Path) -> List[Path]:
+    """The files that make up a Python package directory (`listing.directory_files`, resolved):
+    everything under it but compiled bytecode (`__pycache__`, `.pyc`) and hidden files, which
+    Python and editors create."""
+    top = directory.resolve()
+    return sorted(
+        p
+        for p in directory_files(top, skip=frozenset({"__pycache__"}), follow_links=True)
+        if p.is_file()
+        and p.suffix not in (".pyc", ".pyo")
+        and not any(part.startswith(".") for part in p.relative_to(top).parts)
+    )
+
+
+def digest_files(files: Sequence[Path], base: Path) -> str:
+    """A digest of `files`' names -- relative to `base` where they lie under it -- and content."""
+    h = hashlib.sha3_256()
+    for file in files:
+        name = file.relative_to(base) if file.is_relative_to(base) else file
+        h.update(name.as_posix().encode() + b"\0")
+        h.update(content_digest(file).encode())
+    return h.hexdigest()[:32]

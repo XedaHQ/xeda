@@ -114,7 +114,8 @@ Top level
    * - ``generator``
      - no
      - Command or generator class that produces the sources (e.g. Chisel elaboration) before the
-       flow runs.
+       flow runs. It runs again only when what it reads or produced changed; see
+       :ref:`generators`.
 
 Clocks here are *logical*: they name the design's clock ports. The *physical* period or frequency
 is a flow setting, because it is a constraint on a particular build rather than a property of the
@@ -268,6 +269,98 @@ verified end to end with yosys, and with Vivado's ``read_verilog``, ``read_vhdl`
 ``read_xdc``. Vivado's ``add_files`` -- which ``vivado_project`` uses for every file, and
 ``vivado_synth`` for memory files, ``xdc_files`` and ``tcl_files`` --
 refuses a name containing ``[``, ``]`` or ``$``: rename such a file for Vivado.
+
+.. _generators:
+
+``generator`` - sources xeda builds first
+=========================================
+
+A design can have its sources produced before any flow runs: ``rtl.generator`` is a shell
+command, a list of arguments, or a table configuring one::
+
+    name: generated
+    rtl:
+      sources: ["gen/top.v"]
+      top: top
+      generator:
+        executable: python3
+        args: ["soc.py", "--build-dir", "gen"]
+        sources: ["soc.py", "../litex/litex", "../migen/migen"]
+
+The generator runs while the design is loaded, and runs **again only when something it reads or
+produced changed**, judged by content, never by a modification time:
+
+``sources``
+    the files it reads, as a design's own ``sources`` name them (patterns included). Each one has
+    to exist, since its content is read. A ``touch``, a ``chmod`` or a branch round-trip of one
+    is not a change; an edit given back its old timestamp is. A source naming a *directory* (a
+    Chisel ``src/main/scala``, a directory of templates) counts as every file in it, so a file
+    edited inside one, or added to one, runs the generator again. A path may lie outside the
+    design root: the example names the library trees of editable ``litex`` and ``migen`` clones
+    next to the design.
+
+A generator is an external tool: xeda assumes nothing about its language or its environment.
+Name what it reads as ``sources``, including directories outside the design such as an editable
+LiteX clone; anything xeda cannot see (a package upgrade in a virtual environment) needs
+``--rebuild-all`` or ``always_runs``. A directory is digested as it is on disk, so whatever the
+generator writes there while it runs (Python's ``__pycache__``, for one) changes what it read:
+the first generation then keeps no record, and the next one, which finds the directory as that
+run left it, does.
+
+The selected direct executable is also identified by its content, including the selected
+``mill`` or ``bloop`` command for a Chisel generator. Xeda resolves it without running it, and the
+same command-selection helper builds the argv used to launch it. The generator script itself still
+belongs in ``sources``; indirect tools and dependencies are outside this identity.
+
+After a successful run, Xeda keeps a record only if the declared file inputs and direct executable
+still have the identity used to start it. The output digests say what the generator left; they do
+not prove that an untracked environment, indirect tool or external input would produce the same
+bytes on another run. Declare those inputs where possible or use ``always_runs``/``--rebuild-all``.
+
+``generated_sources``
+    which of ``rtl.sources`` the generator writes, when it does not write them all (or a
+    directory holding some of them). Left out, every declared source is judged, so editing a
+    hand-written one runs the generator too. An entry that is none of ``rtl.sources`` is an
+    error: the source the generator really writes would otherwise go unjudged.
+
+``always_runs``
+    run it on every load. For a generator whose inputs cannot be judged at all -- they are not
+    files, or they cannot be listed. A generator that declares no ``sources`` runs on every
+    load anyway, since nothing says when it is out of date.
+
+What xeda keeps about a generation -- the digest of every source it left -- is a record under
+``<run root>/.cache/generators/``, beside the chip databases and everything else of xeda's: the
+design's own tree holds nothing of xeda's. So a design loaded with no run root in sight (a
+``Design`` built by hand, outside ``xeda run``) has nowhere to keep that record, and its
+generator runs on every load -- the direction xeda takes wherever it cannot prove something is up
+to date. The run root is made to *write* that record, after a generation that succeeded, never to
+look one up, so a generator that fails leaves no run root behind; ``xeda run --dry-run`` creates
+nothing at all, reads an existing record, and refuses to plan a design that would have to
+generate -- one with a stale record, and, with ``--rebuild-all`` or ``--clean``, any generated
+design, since that launch would run its generator. On POSIX, a read-only lock on the resolved design-root directory serializes generators
+for that same directory, including the first run and different input identities; it creates no
+sidecar and does not create the run root early. The per-identity record lock still protects its
+record. This does not coordinate different design roots writing to the same external output, and
+Windows follows the existing no-interprocess-lock policy. Planning takes no lock.
+
+A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
+declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
+it judged.
+
+``--rebuild-all`` (and ``--clean``, which implies it) runs the generator whatever its record says,
+as it runs every flow of the launch, and records what that generation leaves: that -- not a
+``touch`` -- is what forces a regeneration when something xeda cannot see has changed. An
+environment variable the generator reads is such a thing; so is anything its ``sources`` do not
+name.
+
+With ``--remote``, the remote flow still runs fresh. ``--rebuild-all`` forces local generator
+loading before Xeda ships the generated design; the remote runner's default ``clean`` does not
+force local generation on ordinary invocations.
+
+Writing the design's tree is what a generator is *for*, so what it writes there is its own
+business -- a litex build directory, for instance. Xeda itself writes nothing outside its run root
+while a design loads: the record of the generation is the only thing it keeps, and it keeps it
+there.
 
 .. _language:
 

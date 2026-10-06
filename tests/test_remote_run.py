@@ -125,6 +125,53 @@ def _remote_run_dir(home: Path, flow_name: str) -> Path:
     return settings.parent
 
 
+def test_remote_rebuild_all_forces_only_local_generation_before_transport(tmp_path, monkeypatch):
+    """Remote's default `clean=True` keeps flows fresh; only explicit rebuild forces generation."""
+    from .io_flows import _Maker
+
+    root = tmp_path / "design"
+    root.mkdir()
+    counter = tmp_path / "generator-runs"
+    (root / "gen.py").write_text(
+        "from pathlib import Path\n"
+        "import os, sys\n"
+        "root = Path(os.environ['DESIGN_ROOT'])\n"
+        "(root / 'gen').mkdir(exist_ok=True)\n"
+        "(root / 'gen' / 'top.v').write_text('module top; endmodule\\n')\n"
+        "Path(sys.argv[1]).open('a').write('ran\\n')\n"
+    )
+    (root / "design.yaml").write_text(
+        "name: remote-generated\n"
+        "rtl:\n"
+        "  sources: [gen/top.v]\n"
+        "  top: top\n"
+        "  generator:\n"
+        f"    executable: {sys.executable!r}\n"
+        "    args: [gen.py, " + repr(str(counter)) + "]\n"
+        "    sources: [gen.py]\n"
+    )
+
+    class StopBeforeTransport(Exception):
+        pass
+
+    monkeypatch.setattr(
+        remote_module, "Connection", lambda **_kwargs: (_ for _ in ()).throw(StopBeforeTransport())
+    )
+    local_root = tmp_path / "local-run-root"
+
+    def attempt(rebuild_all=False):
+        runner = RemoteRunner(local_root, display_results=False, rebuild_all=rebuild_all)
+        with pytest.raises(StopBeforeTransport):
+            runner.run_remote(root / "design.yaml", _Maker.name, "host")
+
+    attempt()
+    assert len(counter.read_text().splitlines()) == 1
+    attempt()
+    assert len(counter.read_text().splitlines()) == 1, "remote clean forced ordinary generation"
+    attempt(rebuild_all=True)
+    assert len(counter.read_text().splitlines()) == 2
+
+
 @pytest.mark.parametrize("location", ["design", "cwd", "external"])
 def test_declared_remote_ships_a_producers_settings_only_file(
     tmp_path, remote_host, monkeypatch, location

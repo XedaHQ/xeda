@@ -678,6 +678,8 @@ _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
     },
     "LanguageSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
     "VhdlSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
+    # generator.args is one list; a single string is split on whitespace
+    "Generator": {"args": [{"type": "string"}]},
 }
 
 

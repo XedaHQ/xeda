@@ -51,7 +51,7 @@ required when this flat form is used.
 | `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
-| `generator` | no | Command or generator class producing the sources before the flow runs. |
+| `generator` | no | Command or generator class producing the sources before the flow runs. Its direct executable and its declared `sources` (a directory counts as every file in it, outside the design root too) identify its inputs; it runs again when those or its produced sources change. `generated_sources` names the sources it writes when it writes only some, and `always_runs` says its inputs cannot be judged. A POSIX lease serializes loads for the same design-root directory. The record lives under `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load. |
 
 ## `tb` - the testbench
 

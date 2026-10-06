@@ -187,7 +187,8 @@ Four orthogonal abstractions, deliberately decoupled:
   `rtl` (`RtlSettings`) and `tb` (`TbSettings`) sections, both subclasses of `DVSettings`. Sources become
   `DesignSource`/`FileResource` objects that carry a content hash; `design.rtl_hash` / `design.tb_hash`
   feed the run-directory hashing. Designs can also be fetched from a `GitReference` or produced by a
-  `Generator` (e.g. `ChiselGenerator`).
+  `Generator` (e.g. `ChiselGenerator`), whose re-run decision is `generation.py`'s (see "A
+  generator's re-run decision" below).
   **Targets** (`targets.<name>` in a design file, one per board) are overlays the loader applies
   before anything else sees the design: `Design.select_target(data, target)` works on the raw
   mapping -- the overlay takes the design's own keys (not `TARGET_FORBIDDEN_KEYS`), is folded by
@@ -741,6 +742,49 @@ any file a dependency's run left, or a file added there, makes the dependency st
 dependers follow through its new `run_id`.
 Pin constraints fetched from a URL are not verifiable either, so a flow using them always runs.
 
+**A generator's re-run decision is content-based too** (`xeda/generation.py`), although it is
+made at *design-load* time, before any flow, run directory or trace exists. `process_generation`
+asks `judging_generation`, which hashes the generator's configuration **as the design states it**
+(never the working directory and whole environment the loader completes it with: a record must be
+reusable from another shell, and xeda tracks no environment variable), the content of every file
+of `generator.sources` (a directory counts as every file in it, outside the design root too: a
+library tree, an editable clone) and the selected direct executable. **A generator is an external
+tool, resolved through `PATH`: xeda assumes nothing about its language or environment**, so there
+is no `packages` field and no interpreter lookup -- what it reads is what `sources` names, and
+what xeda cannot see (a package upgrade) needs `--rebuild-all` or `always_runs`; a generator that
+writes into a directory it reads (`__pycache__`) keeps no record on its first generation (its
+inputs changed while it ran) and records on its second. That identity names an entry under `<run root>/.cache/generators/`
+holding the digest of every source the last generation left (`generated_sources` when the
+generator writes only some of `rtl.sources`, else every one of them), written with
+`replacing_file` under the entry's own `run_dir_lock`, exactly as `xilinx.prepare_chipdb` keeps a
+chip database. On POSIX, a read-only lock on the resolved design-root directory serializes first
+generation and differing input identities for that same tree without a sidecar or an early run
+root. It does not coordinate separate roots that write to a shared external output; Windows
+follows the existing no-interprocess-lock policy. Indirect tools and dependencies remain outside
+the executable identity. Metadata is trusted nowhere here: `FileRecord.trusted` needs the time a
+record was taken from the file's own file system (`digest.filesystem_time_ns` writes a marker in the
+directory it reads), and neither the design's tree nor anything else a generator reads is
+xeda's to write in -- so every input is hashed, a `touch`/`chmod`/`cp -p` costs a hash rather than a re-run, and
+an edit given back its old mtime is caught. **Where the run root comes from at load time**: the
+launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`, which replaced
+`cloning_dependencies_into`; `provider(False)` gives only a root that is already marked), and
+`FlowLauncher.load_run_root` is that provider. What cannot be judged runs: `always_runs`, a
+generator declaring no `sources`, no run root in sight (a `Design` built
+directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
+nothing -- it reads an existing record, and still refuses to plan a design that must generate.
+`RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
+symbolic link on the way, not even one that stays inside), shared by the chip databases and the
+generator records. `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+**`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
+records what that generation leaves: that is the escape where something xeda cannot see changed
+(a generator's environment is deliberately untracked), since a `touch` no longer forces anything.
+**Xeda writes nothing outside its run root while a design loads**: the record is the only thing it
+keeps, and it keeps it there. What the *generator* writes in the design's tree is its own business
+-- that is what it is for -- so the oracle admits exactly the sources the design declares it
+generates and nothing else
+(`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`:
+O3 records no violation of xeda's own, O1 sees only those sources; `tests/test_generator_staleness.py`).
+
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: two configurations of one flow resolving to the same
 directory in one launch is a `FlowSettingsError` naming both requesters
@@ -769,8 +813,10 @@ current run lock to avoid cross-variant deadlocks. DSE purge also takes the excl
 `--remote` always mirrors into the hashed layout
 (`<flow>_<flowrun_hash>`, the requested node's identity in the plan this side resolved, which
 the remote's `flow_hash` must equal; `RemoteRunner.Settings.hashed_run_dirs`, `Literal[True]` as `Dse`'s), so
-remote runs of different settings never share a directory, and refuses `--rebuild-all`, `--clean`
-and `--hashed-run-dirs` alike (a remote run always runs fresh); it also refuses a deliverable
+remote runs of different settings never share a directory, and refuses `--clean` and
+`--hashed-run-dirs` (a remote flow always runs fresh). `--rebuild-all` forces local generator
+loading before shipping, while the remote flow remains fresh; the remote runner's default clean
+setting does not force local generation on ordinary invocations. It also refuses a deliverable
 setting given as a location before shipping anything, and delivers `--outputs-to` only after a run
 that succeeded, from the fetched artifacts in its local (always hashed) mirror. From its first write
 to the mirror to that delivery it holds the mirror's `run_dir_lock`, as a local launch of the same
