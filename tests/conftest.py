@@ -51,6 +51,59 @@ def _nothing_is_written_into_the_checkout():
     assert not new, f"tests wrote into the checkout: {sorted(new)}"
 
 
+# ------------------------------------------------------------- the environment is left as found
+
+#: Set and removed by pytest itself around every phase of a test.
+PYTEST_OWN_VARIABLES = ("PYTEST_CURRENT_TEST",)
+
+
+def _environment() -> dict[str, str]:
+    return {k: v for k, v in os.environ.items() if k not in PYTEST_OWN_VARIABLES}
+
+
+#: What the environment was when this file was imported, before any test module was.
+ENVIRONMENT_AT_START = _environment()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _importing_the_tests_leaves_the_environment_alone():
+    """No test module changes `os.environ` as it is imported (collection runs in every worker,
+    so a module-level write is in force for every test of the run)."""
+    now = _environment()
+    if now != ENVIRONMENT_AT_START:
+        changed = {
+            name: (ENVIRONMENT_AT_START.get(name), now.get(name))
+            for name in sorted(ENVIRONMENT_AT_START.keys() | now.keys())
+            if ENVIRONMENT_AT_START.get(name) != now.get(name)
+        }
+        os.environ.clear()
+        os.environ.update(ENVIRONMENT_AT_START)
+        pytest.fail(f"importing the test modules changed the environment (was, now): {changed}")
+
+
+@pytest.fixture(autouse=True)
+def _environment_is_left_as_found():
+    """A test changes `os.environ` only through `monkeypatch` (or a copy of it): a direct write
+    outlives the test, and in the worker that ran it every later test sees it. That is how a
+    module-level `PATH` append of the fake toolchain made `nextpnr-ecp5` resolve to the fake
+    wherever the real one was not on `PATH`, and the real-tool tests then failed only in a full
+    run (`test_environment_isolation.py`). Set up before, hence torn down after, every
+    `monkeypatch` of the test, so what is judged is what survived all of them; the environment is
+    put back, so one offender is not reported against every test after it."""
+    before = _environment()
+    yield
+    after = _environment()
+    if after != before:
+        os.environ.clear()
+        os.environ.update(before)
+        changed = {
+            name: (before.get(name), after.get(name))
+            for name in sorted(before.keys() | after.keys())
+            if before.get(name) != after.get(name)
+        }
+        pytest.fail(f"the test left the environment changed (was, now): {changed}")
+
+
 # ----------------------------------------------------------------- no test programs a device
 
 #: Stands first on every test's `PATH` under the programmer's name: a launch that reaches
@@ -105,7 +158,9 @@ def _programmer_sentinel(tmp_path_factory) -> ProgrammerGuard:
 
 
 @pytest.fixture(autouse=True)
-def programmer_guard(_programmer_sentinel: ProgrammerGuard, monkeypatch):
+def programmer_guard(
+    _environment_is_left_as_found: None, _programmer_sentinel: ProgrammerGuard, monkeypatch
+):
     """Every test, whether or not it remembers the fake: the sentinel is first on `PATH` before
     any of the test's own fixtures (the fake toolchain goes in front of it), a child process or
     remote worker given this `PATH` inherits it, and the test fails if the sentinel was

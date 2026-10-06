@@ -1,7 +1,6 @@
 """test Intel Quartus flow"""
 
 import logging
-import os
 import tempfile
 from pathlib import Path
 
@@ -113,12 +112,6 @@ def test_parse_csv_no_header():
         assert parsed[k] == v
 
 
-def prepend_to_path(path):
-    current_path = os.environ.get("PATH", "").split(os.pathsep)
-    current_path.insert(0, str(path))
-    os.environ["PATH"] = os.pathsep.join(current_path)
-
-
 def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     """`execute_flow -compile` runs the assembler, which writes `<project>.sof` into the project
     directory; `Quartus` never declared it. The project is `<design name>`, created in the run
@@ -136,16 +129,12 @@ def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     assert flow.artifacts.bitstream == f"{design.name}.sof"
 
 
-def test_quartus_synth_py() -> None:
+def test_quartus_synth_py(monkeypatch) -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
-    # Append to PATH so if the actual tool exists, would take precedences.
-    dockerized = True
-    if "PYTEST_CURRENT_TEST" in os.environ:
-        prepend_to_path(TESTS_DIR / "fake_tools")
-        dockerized = False
+    use_fake_tools(monkeypatch)
     assert path.exists()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=dockerized)
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=False)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)

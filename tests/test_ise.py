@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import tempfile
 from pathlib import Path
@@ -17,12 +16,10 @@ TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 
-os.environ["PATH"] += os.pathsep + os.path.join(TESTS_DIR, "fake_tools")
 
-
-def test_ise_synth_py() -> None:
+def test_ise_synth_py(monkeypatch) -> None:
     path = RESOURCES_DIR / "design0/design0.toml"
-    # Append to PATH so if the actual tool exists, would take precedences.
+    use_fake_tools(monkeypatch)
     assert path.exists()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
     settings = dict(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.5)
@@ -188,7 +185,3 @@ def test_ise_project_options_are_quoted_exactly_once() -> None:
 
     reloaded = IseSynth.Settings.model_validate(settings.model_dump())
     assert reloaded.model_dump() == settings.model_dump()
-
-
-if __name__ == "__main__":
-    test_ise_synth_py()

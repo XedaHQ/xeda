@@ -40,7 +40,11 @@ checkout, so `test_bsc_external._fetch_pinned_commit` holds an `flock` beside it
 (`tests/test_external_cache.py`). On platforms without `fcntl`, cache access skips in xdist
 workers; run the external tests serially there. Keep it so: a test must not write outside
 `tmp_path`, leave a process-wide change (`chdir`, `environ`, a registered flow) behind, or take a fixed name, and a
-session-scoped fixture runs once per worker, not once per run. `addopts` deliberately has no
+session-scoped fixture runs once per worker, not once per run. The environment has its own oracle
+(`tests/test_environment_isolation.py`, with the autouse guards in `tests/conftest.py`): a direct
+write to `os.environ`, in a test or at import, fails -- use `monkeypatch`. (A module-level `PATH`
+append of `tests/fake_tools` once made a missing real `nextpnr-*` resolve to the fake in a full
+run, so the real-tool tests passed their probes and failed only there.) `addopts` deliberately has no
 `-n`: it would start workers for `pytest tests/test_x.py::test_y`. Under `-n`, the conftest
 checkout guard still fires (per worker, at its teardown, on whichever test ran last there).
 
