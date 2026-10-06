@@ -1643,6 +1643,56 @@ class DesignReference(XedaBaseModel):
         return Design.from_file(design_path)
 
 
+def _clone_name_text(what: str, text: str) -> str:
+    """Refuse text that would name a directory outside the place it is joined onto."""
+    if not isinstance(text, str):
+        raise ValueError(f"the Git {what} must be a string, not {text!r}")
+    if "\\" in text or "\0" in text or any(part in (".", "..") for part in text.split("/")):
+        raise ValueError(
+            f"the Git {what} {text!r} has a `.` or `..` component, a backslash or a NUL: "
+            "it would name a directory outside the clone cache"
+        )
+    return text
+
+
+def clone_name_parts(
+    repo_url: str, commit: Optional[str], branch: Optional[str]
+) -> tuple[str, str]:
+    """The host and the relative path (below the host) a Git reference is cloned into.
+
+    The repository's host, path, commit and branch name directories in the clone cache, so none
+    may carry a `.` or `..` component or a backslash, and the host and the path may not be empty.
+    A branch may hold `/` (`release/1.0`): it then names nested directories, all inside the cache.
+    """
+    uri = urlparse(repo_url)
+    if not uri.netloc:
+        raise ValueError(f"invalid URL: {uri}")
+    host = _clone_name_text("host", uri.netloc)
+    path = _clone_name_text("repository path", uri.path.lstrip("/"))
+    if not path:
+        raise ValueError(f"the Git URL {repo_url!r} names no repository path")
+    if commit:
+        path += "_commit=" + _clone_name_text("commit", commit)
+    elif branch:
+        path += "_" + _clone_name_text("branch", branch)
+    return host, path
+
+
+def clone_location(
+    cache: Union[str, Path], repo_url: str, commit: Optional[str], branch: Optional[str]
+) -> Path:
+    """Where a Git reference is cloned: `<cache>/<host>/<path>`, always strictly inside `cache`."""
+    host, path = clone_name_parts(repo_url, commit, branch)
+    location = Path(cache) / host / path
+    base = os.path.normpath(cache)
+    inside = os.path.normpath(location)
+    if inside == base or os.path.commonpath([base, inside]) != base:
+        raise ValueError(
+            f"{repo_url} would be cloned to {location}, outside the clone cache {cache}"
+        )
+    return location
+
+
 class GitReference(DesignReference):
     """
     uri: [https,git,...]://<hostname>[:port]/path/to/repo.git[?[branch=mybranch],[commit=mycommit]]#path/to/design_file.toml
@@ -1662,19 +1712,11 @@ class GitReference(DesignReference):
         values = info.data if isinstance(info.data, dict) else {}
         repo_url = values.get("repo_url")
         if not value and repo_url:
-            uri = urlparse(repo_url)
-            uri_path = uri.path.lstrip("/.")
-            if not uri.netloc:
-                raise ValueError(f"invalid URL: {uri}")
-            commit = values.get("commit")
-            branch = values.get("branch")
-            if commit:
-                uri_path += "_commit=" + commit
-            elif branch:
-                uri_path += "_" + branch
             local_cache = values.get("local_cache")
             if local_cache:
-                return Path(local_cache) / uri.netloc / uri_path
+                return clone_location(
+                    local_cache, repo_url, values.get("commit"), values.get("branch")
+                )
         return value
 
     @model_validator(mode="before")
@@ -1723,6 +1765,8 @@ class GitReference(DesignReference):
         }
         merged = {k: v for k, v in derived.items() if v is not None}
         result = {**derived, **merged, **values}
+        if isinstance(result.get("repo_url"), str):
+            clone_name_parts(result["repo_url"], result.get("commit"), result.get("branch"))
         if not result.get("uri"):
             # The mapping form (`{repo_url = ..., design_file = ...}`) that
             # `DesignReference.from_data()` routes here carries no `uri`, but the base class
@@ -1758,13 +1802,7 @@ class GitReference(DesignReference):
                     "(or `local_cache`), or load the design through xeda run / a launcher, which "
                     "clones into its run root"
                 )
-            uri = urlparse(self.repo_url)
-            path = uri.path.lstrip("/.")
-            if self.commit:
-                path += "_commit=" + self.commit
-            elif self.branch:
-                path += "_" + self.branch
-            clone_dir = Path(cache) / uri.netloc / path
+            clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch)
         repo = None
         if clone_dir.exists():
             try:
@@ -1791,7 +1829,7 @@ class GitReference(DesignReference):
                 branch=self.branch,
             )
         if repo is None:
-            ValueError("repo is None!")
+            raise ValueError("repo is None!")
         if self.commit:
             log.info("Checking out commit: %s", self.commit)
             repo.git.checkout(self.commit)

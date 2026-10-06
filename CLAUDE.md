@@ -51,7 +51,7 @@ checkout guard still fires (per worker, at its teardown, on whichever test ran l
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules (`ruff check --select F src tests`, the
+`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules plus `PLW0133`, an exception built but never raised (`ruff check --select F,PLW0133 src tests`, the
 `tox -e ruff` env) all pass; keep them that way. The full `ruff check` ruleset reports many
 pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
 enforced. Don't mass-fix those; keep new code clean.
@@ -1477,8 +1477,8 @@ dependency must also share `custom_boards_file`.
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
 - Formatting: `black` (line-length 100) is enforced on `src/` and `tests/` (`tox -e black`); the
-  Pyflakes rules of `ruff` (`ruff check --select F src tests`, line-length 120, `target-version =
-  "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
+  Pyflakes rules and `PLW0133` of `ruff` (`ruff check --select F,PLW0133 src tests`, line-length
+  120, `target-version = "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
 
 YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
 input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and
