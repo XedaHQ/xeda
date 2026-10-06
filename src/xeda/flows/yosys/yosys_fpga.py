@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import List, Literal, NamedTuple, Optional, Tuple
 
-from ...dataclass import Field, field_validator
+from ...dataclass import Field, field_validator, model_validator
 from ...design import SourceType
 from ...flow import (
     Flow,
@@ -167,17 +167,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         )
         synth_pass_only: bool = Field(
             False,
-            description="Run nothing but the target's own `synth_<target>` pass, as "
-            "`yosys -p 'synth_<target> ...' <sources>` does: the sources are read and the pass "
-            "does its own `hierarchy`, `proc`, flattening, cleanup and ABC9 mapping. Set it to "
-            "reproduce the tool's default result -- to compare against it, or to tell a xeda "
-            "problem from a yosys one. Left false, xeda elaborates and optimizes around the pass "
-            "and tells ABC9 the clock period, which usually gives smaller and faster logic. "
+            description="Omit xeda's preparation and cleanup around the target's "
+            "`synth_<target>` pass, which does its own elaboration and mapping. Reader "
+            "settings, pass flags and explicit ABC9 script choices apply in either mode. "
+            "To compare with a native yosys invocation, match those choices and source paths "
+            "too; this setting alone does not select native reader defaults. Left false, "
+            "xeda elaborates and optimizes around the pass and gives ABC9 a clock-derived delay. "
             "Every flag of the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, "
             "`synth_flags`, ...) applies either way; a setting that would add a step before or "
-            "after the pass is refused rather than ignored. Which front end reads the sources "
-            "stays your choice: to match the tool on SystemVerilog sources, read them as it "
-            "does with `systemverilog = default`.",
+            "after the pass is refused rather than ignored.",
         )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
@@ -192,10 +190,20 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         )
         flow3: Optional[bool] = Field(
             None,
-            description="Map with ABC9's `flow3` script, which runs the mapping several times, "
-            "instead of its default one. Unset means xeda's own recipe uses `flow3` while "
-            "`synth_pass_only` leaves ABC9 the script the pass gives it; `false` uses ABC9's own "
-            "script in either recipe. Has no effect unless ABC9 maps the LUTs.",
+            description="Legacy ABC9 script choice: true selects `flow3`, false leaves the "
+            "script to the synthesis pass. Prefer `abc9_script` for a named script; do not "
+            "give both. Unset uses flow3 in xeda's full recipe and leaves the pass's script "
+            "in `synth_pass_only`. Has no effect unless ABC9 maps LUTs.",
+        )
+        abc9_script: Optional[
+            Literal["default", "default.area", "default.fast", "flow", "flow2", "flow3", "flow3mfs"]
+        ] = Field(
+            None,
+            description="Select one of yosys's included ABC9 scripts in either synthesis "
+            "mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. "
+            "Unset uses flow3 in xeda's full recipe and the synthesis pass's own choice in "
+            "synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined "
+            "with the legacy flow3 setting.",
         )
         retime: bool = Field(
             False,
@@ -409,23 +417,32 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 )
             return command + list(self.synth_flags)
 
+        @model_validator(mode="after")
+        def _one_abc9_script_choice(self):
+            if self.abc9_script is not None and self.flow3 is not None:
+                raise ValueError("use `abc9_script` or legacy `flow3`, not both")
+            return self
+
         def abc9_scratchpad(self) -> List[str]:
             """The `scratchpad` commands that tune ABC9 before the synthesis pass runs.
 
             Computed where the script is written, like `synth_command`, because it depends on
-            several settings at once: ABC9 has to be mapping at all, `flow3` selects its script
-            (unset means xeda's own recipe uses `flow3`), and the clock period becomes ABC9's
-            target delay, reduced to leave room for interconnect delay. `synth_pass_only` leaves
-            ABC9 exactly what the pass gives it, so it yields no commands -- which is where the
-            default recipe earns most of its area and timing advantage over the tool's own.
+            several settings at once: ABC9 has to be mapping at all, an explicit script applies
+            in either mode, and only the full recipe supplies implicit flow3 and a clock-derived
+            delay. The script itself comes from yosys's constpad, never copied into xeda.
             """
-            if self.synth_pass_only or not self.abc9 or self.noabc:
+            if not self.abc9 or self.noabc:
                 return []
             commands: List[str] = []
-            if self.flow3 is not False:
-                commands.append("scratchpad -copy abc9.script.flow3 abc9.script")
+            script = self.abc9_script
+            if script is None and (
+                self.flow3 is True or (self.flow3 is None and not self.synth_pass_only)
+            ):
+                script = "flow3"
+            if script is not None:
+                commands.append(f"scratchpad -copy abc9.script.{script} abc9.script")
             clock = self.main_clock
-            if clock and clock.period_ps:
+            if not self.synth_pass_only and clock and clock.period_ps:
                 commands.append(f"scratchpad -set abc9.D {clock.period_ps / 1.5}")
             return commands
 
@@ -458,14 +475,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             if self.prep is not None:
                 conflicts.append(
                     ("prep", runs_a_pass + "elaborate with `prep`; the pass does that itself")
-                )
-            if self.flow3:
-                conflicts.append(
-                    (
-                        "flow3",
-                        "`synth_pass_only` leaves ABC9 the mapping script the synthesis pass "
-                        "gives it, so it cannot also run `flow3`; leave `flow3` unset",
-                    )
                 )
             if self.pre_synth_opt:
                 conflicts.append(
@@ -672,11 +681,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
     def _warn_if_a_plugin_reads_the_sources(self) -> None:
         """Say so when `synth_pass_only` reads SystemVerilog through a plugin front end.
 
-        The mode makes the *recipe* the pass's own; which front end reads the sources stays the
-        user's choice (`systemverilog`, `read_verilog_flags`). But `yosys <file>.sv` reads with
-        the built-in reader, so with the default `slang` the netlist is the pass's own result on
-        a differently elaborated design -- not a silent mismatch anyone should discover by
-        comparing numbers.
+        Reader settings remain the user's choice. A native `yosys <file>.sv` invocation uses
+        the built-in reader, so comparing against a plugin reader may change elaboration before
+        the synthesis pass even starts.
         """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -686,9 +693,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         if sources:
             log.warning(
                 "synth_pass_only reads %d SystemVerilog source(s) with the %s front end, which "
-                "`yosys <sources>` does not use, so the netlist is the pass's own result on a "
-                "differently elaborated design. Set systemverilog=default to read them as yosys "
-                "itself would.",
+                "`yosys <sources>` does not use. For a native-pass comparison, match reader "
+                "settings too: set systemverilog=default for the built-in reader and match "
+                "its flags.",
                 len(sources),
                 ss.systemverilog,
             )

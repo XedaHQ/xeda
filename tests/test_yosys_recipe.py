@@ -1,10 +1,8 @@
-"""`synth_pass_only`: the script is the synthesis pass's own recipe, and nothing else.
+"""`synth_pass_only` omits Xeda's stages around the synthesis pass.
 
 xeda's default `yosys_fpga` recipe elaborates and optimizes around `synth_<target>` and tells
-ABC9 the clock period. That is deliberate -- it usually gives smaller and faster logic -- but it
-is *not* what `yosys -p 'synth_<target> ...' <sources>` produces, and ABC9's mapping depends on
-which it was. `synth_pass_only` is how a user reproduces the tool's own result, to compare
-against it or to tell a xeda problem from a yosys one.
+ABC9 the clock period. ABC9's mapping can depend on those stages. With reader settings and pass
+choices matched, `synth_pass_only` allows comparison with the native pass to isolate their effect.
 
 These launches run the process fakes of `tests/fake_tools` (`use_fake_fpga_tools`), so the
 oracle runs in CI with no yosys installed. `tests/test_yosys_recipe_real.py` is the other half:
@@ -312,8 +310,7 @@ def test_synth_pass_only_leaves_abc9_the_script_and_the_delay_the_pass_gives_it(
     """No `scratchpad`: not `flow3`, and not the clock period as ABC9's target delay.
 
     A constrained clock is a timing constraint, not a request for a scratchpad tweak, so it is
-    not an error -- it is simply not passed on, which is what the tool's own flow does. This is
-    where the default recipe earns most of its area and timing advantage.
+    not an error -- pass-only mode simply does not supply the implicit ABC9 delay.
     """
     run_path = _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, script_format=script_format)
     # on the commands, not on the script's text: a source path may spell any word at all
@@ -351,7 +348,6 @@ def test_abc9_scratchpad_is_the_one_place_the_tweaks_are_decided():
 #: setting -> a value that asks for the step `synth_pass_only` does not run
 CONFLICTS = {
     "prep": ["-flatten"],
-    "flow3": True,
     "pre_synth_opt": True,
     "post_synth_opt": True,
     "splitnets": True,
@@ -449,11 +445,11 @@ def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, t
                 f"fpga.part={PARTS['ecp5']}",
                 "clock.period=5.0",
                 "flows.yosys_fpga.synth_pass_only=true",
-                "flows.yosys_fpga.flow3=true",
+                "flows.yosys_fpga.prep=-flatten",
             ],
         )
     assert "`synth_pass_only`" in str(raised.value)
-    assert ": flow3 " in str(raised.value)
+    assert ": prep " in str(raised.value)
 
 
 #: the file-valued settings whose files the mode reads on purpose, each beside the reason: it is
@@ -587,3 +583,36 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
     assert default - mode == {"hierarchy", "check", "proc", "opt_clean", "scratchpad"}
     assert mode - default == set()
     assert not mode & DEVIATIONS
+
+
+@pytest.mark.parametrize("mapping", [{"abc9": False}, {"noabc": True}])
+def test_pass_only_accepts_flow3_when_abc9_mapping_is_disabled(mapping):
+    settings = YosysFpga.Settings(fpga=PARTS["ice40"], synth_pass_only=True, flow3=True, **mapping)
+    YosysFpga.check_settings_supported(settings)
+    assert settings.abc9_scratchpad() == []
+
+
+ABC9_SCRIPTS = ("default", "default.area", "default.fast", "flow", "flow2", "flow3", "flow3mfs")
+
+
+@pytest.mark.parametrize("script", ABC9_SCRIPTS)
+@pytest.mark.parametrize("mode", [False, True])
+@BY_FORMAT
+def test_an_explicit_abc9_script_is_honored_in_either_recipe(
+    tmp_path, toolchain, script, mode, script_format
+):
+    path = _launch(
+        tmp_path,
+        PARTS["xilinx"],
+        synth_pass_only=mode,
+        abc9_script=script,
+        script_format=script_format,
+    )
+    text = (path / f"yosys_fpga_synth.{script_format}").read_text()
+    assert f"scratchpad -copy abc9.script.{script} abc9.script" in text
+    assert ("scratchpad -set abc9.D" in text) is (not mode)
+
+
+def test_abc9_script_and_legacy_flow3_are_not_two_competing_choices():
+    with pytest.raises(Exception, match="abc9_script.*flow3|flow3.*abc9_script"):
+        YosysFpga.Settings(fpga=PARTS["xilinx"], abc9_script="flow2", flow3=False)

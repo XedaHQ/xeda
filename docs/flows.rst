@@ -435,49 +435,55 @@ Use ``xeda list-settings yosys_fpga --json``, ``nextpnr --json`` or
 the selected installed tool must support those switches. Placement and programming are
 different operations: ``openfpgaloader`` is the only flow here that writes hardware.
 
-Reproducing Yosys' own default flow
------------------------------------
+Running only the Yosys synthesis pass
+-------------------------------------
 
-By default ``yosys_fpga`` elaborates and optimizes around ``synth_<target>`` and gives ABC9 the
-clock period as its target delay. That is deliberate: it usually produces smaller and faster
-logic than the pass on its own. It is also *not* what ``yosys -p 'synth_<target> ...' <sources>``
-produces, because ABC9's mapping depends on what ran before it.
+By default ``yosys_fpga`` adds Xeda's preparation and cleanup stages around
+``synth_<target>``. ``synth_pass_only = true`` omits those Xeda-owned pre- and post-synthesis
+stages; it does not reset the choices that control reading or synthesis. The selected reader and
+its flags, design parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply
+in either mode. Settings that request extra Xeda stages are refused in pass-only mode rather than
+silently ignored:
 
-``synth_pass_only = true`` runs the pass by itself. The design's sources are read and
-``synth_<target>`` does its own ``hierarchy``, ``proc``, flattening, cleanup and mapping, so the
-netlist is the one that invocation writes -- its cells, their names and their wiring. (Yosys
-embeds in a generated name the path the source was named by, so the two agree on those too only
-when both name the source the same way.) Use it to compare a result against the tool's own flow,
-or to tell a xeda problem apart from a Yosys one:
+``prep``, ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``,
+``black_box``, ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``,
+``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta`` and ``ltp``.
+
+The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
+selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,
+an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not add that
+clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
+either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
+``flow3mfs``. Script names are taken from the installed Yosys build. The legacy ``flow3`` setting
+is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
+both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9 mapping is enabled.
 
 .. code-block:: bash
 
     xeda run yosys_fpga blinky.yaml -s synth_pass_only=true
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true -s abc9_script=flow2
     xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true
+    xeda run yosys_fpga verilog.yaml -s synth_pass_only=true -s "read_verilog_flags=[]"
+    xeda run yosys_fpga systemverilog.yaml -s synth_pass_only=true \
+      -s systemverilog=default -s "read_verilog_flags=[]"
 
-Every flag of the pass itself (``flatten``, ``abc9``, ``nobram``, ``widemux``, ``synth_flags``,
-...) applies either way. Which front end *reads* the sources is a separate choice and stays
-yours: ``yosys <file>.sv`` uses Yosys' built-in SystemVerilog reader, so to match the tool on
-SystemVerilog sources read them the same way with ``systemverilog = default``. A run that reads
-them through the ``slang`` or Surelog/UHDM plugin instead says so in its log. A setting that would add a step before or after the pass -- ``prep``,
-``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``, ``black_box``,
-``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``, ``stop_after``,
-``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta``, ``ltp`` -- is refused at launch, naming both settings, rather than
-ignored. A constrained clock is not refused: it is simply not passed on to ABC9, which is what
-the tool's own flow does.
+Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
+them, match the Yosys version and target, source paths and order, reader front end and flags,
+parameters, synthesis-pass flags, and ABC9 script. For example, Xeda's ``yosys_fpga`` defaults
+``read_verilog_flags`` to ``-sv``; for a plain Verilog ``.v`` source read by native
+``read_verilog`` without ``-sv``, set ``read_verilog_flags=[]``. For SystemVerilog read by Yosys'
+built-in front end, set ``systemverilog=default`` and use matching ``read_verilog_flags`` (including
+``-sv`` when needed). The default ``systemverilog=slang`` uses a plugin front end and is a
+different reader choice. Yosys also embeds source paths in generated names, so use the same path
+spellings on both sides.
 
-The mode reads the design's sources and the libraries you name in ``verilog_lib``, and nothing
-else: no setting adds another read, because each extra ``read_verilog`` changes the netlist (see
-below). A ``verilog_lib`` entry that names a library the target's pass reads itself, such as
-``+/xilinx/cells_sim.v``, is skipped however it is spelled -- as a path under Yosys' data
-directory, through a link, or in another letter case -- so it cannot add that read back. To tell
-which file an ordinary path is, Xeda asks the installed Yosys for its data directory with
-``yosys-config --datdir``.
-
-Comparing cell counts between the two needs care. Every ``read_verilog`` advances Yosys' shared
-generated-name counter, the design's cell names move with it, and ABC9 maps by those names -- so
-reading a primitive library one extra time can change the count by a cell on its own. A small
-difference between two flows is not evidence about either one's quality.
+The target synthesis pass reads its own primitive libraries. If ``verilog_lib`` also names one
+of those files, Xeda skips that duplicate read, comparing the file itself (including paths through
+links) against the installed Yosys data directory. Every ``read_verilog`` advances Yosys' shared
+generated-name counter, and ABC9 maps by generated names; an extra library read can therefore
+change the resulting netlist. Xeda gets the data directory from ``yosys-config`` beside the
+selected Yosys executable (or in the selected container image). Cell-count differences alone do
+not establish a quality difference.
 
 Xilinx 7-series with openXC7
 ----------------------------

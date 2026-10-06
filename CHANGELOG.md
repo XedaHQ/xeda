@@ -85,24 +85,18 @@ All notable changes to this project will be documented in this file.
   the file and the accepted suffixes. A relative path still resolves against the design directory
   and a board's local `lpf` against the database file's directory, in either format. The bundled
   databases stay TOML.
-- **`yosys_fpga` can run the synthesis pass by itself**, with `synth_pass_only = true`: the
-  design's sources are read and `synth_<target>` does its own `hierarchy`, `proc`, flattening,
-  cleanup and ABC9 mapping, exactly as `yosys -p 'synth_<target> ...' <sources>` does. It writes
-  the netlist that invocation writes -- cells, names and wiring alike -- so a result can be
-  compared against the tool's own flow or a problem told apart from one of xeda's. (Generated
-  names embed the path each source was named by, so they agree when both sides name it the same
-  way.) Which front end reads the sources
-  stays a separate choice: to match the tool on SystemVerilog sources, read them as it does with
-  `systemverilog = default` (the run says so when a plugin front end read them instead). Left off (the default), xeda
-  elaborates and optimizes around the pass and gives ABC9 the clock period as its target delay,
-  which usually gives smaller and faster logic. Every flag of the pass itself (`flatten`, `abc9`,
-  `nobram`, `widemux`, `synth_flags`, ...) applies either way; a setting that would add a step
-  before or after the pass (`prep`, `pre_synth_opt`, `post_synth_opt`, `splitnets`,
-  `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`, `set_mod_attribute`,
-  `clockgate_map`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`, `ltp`) is refused at launch, naming both, rather
-  than ignored. `flow3` is now unset by default, meaning the same thing it did before: xeda's own
-  recipe maps with ABC9's `flow3` script, while `synth_pass_only` leaves ABC9 the script the pass
-  gives it.
+- **`yosys_fpga` can omit Xeda's pre- and post-synthesis stages** with `synth_pass_only = true`.
+  Reader/front-end settings, design parameters, `synth_flags` and explicit ABC9 script selection
+  still apply in either mode. An unset ABC9 script preserves each mode's default: the full Xeda
+  recipe uses `flow3` and a constrained clock supplies a clock-derived ABC9 delay; pass-only mode
+  leaves the script to the synthesis pass and adds no clock-derived delay. `abc9_script` selects
+  one of Yosys' installed scripts (`default`, `default.area`, `default.fast`, `flow`, `flow2`,
+  `flow3` or `flow3mfs`) in either mode when ABC9 mapping is enabled; the legacy `flow3` setting
+  remains supported, but cannot be combined with `abc9_script`. Settings that add Xeda stages
+  before or after the pass are rejected in pass-only mode. This mode alone does not guarantee the
+  same result as a native Yosys command: comparisons must match the installed Yosys, source paths and order, reader and
+  flags, parameters, synthesis-pass flags and ABC9 script. It makes those comparisons useful for
+  isolating Xeda's surrounding stages, without making a netlist quality claim.
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.
 - **Flow chains**: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` runs the last flow of a

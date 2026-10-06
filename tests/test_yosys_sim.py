@@ -237,6 +237,9 @@ def test_driver_monitor_paths_use_the_execution_environment(tmp_path, monkeypatc
     def execute(tool, executable, *args, **kwargs):
         words = [str(a) for a in args]
         name = Path(executable).name
+        if name == "sh":
+            assert words[-2:] == ["yosys", "yosys-config"]
+            return "/container/yosys/bin/yosys-config"
         if name == "yosys-config":
             return "/container/yosys/include"
         if name == "g++":
