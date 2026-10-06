@@ -945,15 +945,15 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
     """Remote delivery protects requested flow settings and every producer's own section,
     as well as the design's source files."""
     from xeda.flow_runner.remote import remote_read_inputs
-    from xeda.flows import VivadoSynth
+    from xeda.flows import VivadoPostsynthSim
 
-    for name in ("nested.xdc", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
+    for name in ("nested.sdf", "section.xdc", "nested_lib/a.v", "section_lib/b.v"):
         (world.user / name).parent.mkdir(exist_ok=True)
         (world.user / name).write_text("")
-    settings = VivadoSynth.Settings.from_input(
+    settings = VivadoPostsynthSim.Settings.from_input(
         {
             "fpga": {"part": "xc7a12tcsg325-1"},
-            "xdc_files": ["$PWD/nested.xdc"],
+            "sdf": {"max": "$PWD/nested.sdf"},
             "lib_paths": [["work", "$PWD/nested_lib"]],
         },
         design_root=world.design.root_path,
@@ -972,11 +972,11 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
         settings,
         sections,
         [],
-        flow_class=VivadoSynth,
+        flow_class=VivadoPostsynthSim,
         run_path=root / "d" / "f",
         run_root=root,
     )
-    named = [world.user / "nested.xdc", world.user / "section.xdc"]
+    named = [world.user / "nested.sdf", world.user / "section.xdc"]
     listed = [world.user / "nested_lib" / "a.v", world.user / "section_lib" / "b.v"]
     for path in [*named, *listed, world.design.root_path / "top.v"]:
         assert inputs.find(path) is not None, path
