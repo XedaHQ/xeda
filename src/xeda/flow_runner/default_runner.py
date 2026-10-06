@@ -677,6 +677,8 @@ class FlowLauncher:
         self._claims: set[Path] = set()
         #: how many flows `launched` held when the current launch began
         self._launched_before = 0
+        #: the destinations whose replacement was confirmed in the current launch
+        self._confirmed_replacements: set[Path] = set()
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -967,13 +969,13 @@ class FlowLauncher:
            launch was asked for has completed: until then, a flow may still read files its
            dependencies wrote without declaring them.
 
-        Within one launch, a run directory holds one configuration: a second launch into it with
-        other settings is a `FlowSettingsError`, since it would overwrite what the first one
-        produced; with the same settings, the second reuses the first's run. Every flow launched
-        is appended to `launched` as it completes, whether it succeeded, failed or raised.
+        A launch enters each run directory once: the plan has one node per flow, and a second
+        entry is a `FlowFatalError`. Every flow launched is appended to `launched` as it
+        completes, whether it succeeded, failed or raised.
 
-        Outputs the user named (`xeda.deliver`) are checked before any tool of their flow
-        runs, noted when it succeeded or was found up to date, and delivered once the whole
+        Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs
+        (the requested flow checks the deliveries of every flow of the plan, `_launch`), noted
+        when their flow succeeded or was found up to date, and delivered once the whole
         launch has finished -- only when the requested flow succeeded or was found up to date: a
         launch that raised, or whose requested flow reports failure, delivers nothing, not even
         a successful dependency's outputs (`_finish_launch`).
@@ -982,9 +984,11 @@ class FlowLauncher:
         if top_level:
             self._claims = set()
             self._launched_before = len(self.launched)
+            self._confirmed_replacements = set()
             self._planned_completed = {}
             self._completed_runs = {}
-            # every file a flow of this launch reads, registered as each flow is launched
+            # every file the flows of this launch read: the requested flow registers the
+            # settings of the whole plan, and each flow the files it prepares
             self._read_inputs = ReadInputs(self._launch_inputs)
             self._pending_deliveries = []
         self._launch_depth += 1
@@ -1052,6 +1056,36 @@ class FlowLauncher:
                 log.error("Cleaning up %s failed: %s", flow.run_path, e, exc_info=True)
                 first_error = first_error or e
         return first_error
+
+    def _confirm_replacing(self, conflicts: Sequence[Conflict]) -> bool:
+        """Ask `confirm_overwrite` whether to replace the files in the way, once for each
+        destination in a launch: the checks of a producer's deliveries are made ahead and again
+        at its turn."""
+        if self.confirm_overwrite is None:
+            return False
+        asked = [c for c in conflicts if c.destination not in self._confirmed_replacements]
+        if asked and not self.confirm_overwrite(asked):
+            return False
+        self._confirmed_replacements.update(c.destination for c in asked)
+        return True
+
+    def _refuse_producer_deliveries(self, plan: Plan, requested: PlanNode, design: Design) -> None:
+        """Make now the checks that every producer of the plan makes of its own deliveries when
+        its turn comes (`Deliveries.check`), so that a refusal never follows the run of an
+        earlier producer. The producer makes its check again, which records what it found."""
+        for planned in plan.nodes:
+            if planned.node_key == requested.node_key:
+                continue
+            named = split_deliveries(planned.settings, design.name)
+            if named:
+                Deliveries(
+                    planned.run_path,
+                    self.run_root,
+                    named,
+                    inputs=self._read_inputs,
+                    overwrite=self.settings.overwrite_outputs,
+                    confirm=self._confirm_replacing,
+                ).check()
 
     def _entered(self, run_path: Path) -> bool:
         """Whether this launch built a flow for `run_path`, so that the `results.json` there is
@@ -1124,14 +1158,15 @@ class FlowLauncher:
         # What the flows read -- every file their settings name, and every file under a
         # directory one names, as the trace lists it -- is an input no delivery of the launch
         # may replace, nor land beside in such a directory. The requested flow registers the
-        # reads of the whole plan before any delivery is checked, so a delivery into a read
-        # directory is refused before a tool runs.
+        # reads of the whole plan, and makes the checks of every producer's deliveries, before
+        # any flow is entered: a refusal never comes after the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
         if plan_node is None:
             for planned in plan.nodes:
                 register_read_settings(
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
+            self._refuse_producer_deliveries(plan, node, design)
         _refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
@@ -1152,9 +1187,9 @@ class FlowLauncher:
                 run_path,
                 self.run_root,
                 deliveries,
-                inputs=self._read_inputs,  # the launch's, completed as its flows are launched
+                inputs=self._read_inputs,  # the launch's
                 overwrite=self.settings.overwrite_outputs,
-                confirm=self.confirm_overwrite,
+                confirm=self._confirm_replacing,
             )
             # the directory itself, not only a file predicted from the last run's artifacts: a
             # location becomes a concrete `Delivery` only once its tool has run and reported an
@@ -1205,6 +1240,11 @@ class FlowLauncher:
                     self._read_inputs.add(prepared)
                     _refuse_inputs_inside(flow.run_path, flow.name, prepared)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
+                    if isinstance(e, DeliveryError) and e.before_run:
+                        # a producer's delivery was refused before its tool ran: this flow's
+                        # directory still describes its last run, and an earlier producer that
+                        # ran meanwhile makes the next launch stale through its new run id
+                        raise
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)
                     run_directory.remove(results_json)
@@ -1508,9 +1548,9 @@ class FlowLauncher:
                             plan=plan,
                             plan_node=producer_node.node_key,
                         )
-                    except DeliveryError:
-                        raise  # a refusal made before the producer's tool ran: not its failure
                     except Exception as error:
+                        if isinstance(error, DeliveryError) and error.before_run:
+                            raise  # refused before the producer's tool ran: not its failure
                         raise FlowDependencyFailure(
                             f"dependency {producer_node.name} failed: {error}"
                             + (

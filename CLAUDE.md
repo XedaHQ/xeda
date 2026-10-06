@@ -904,7 +904,14 @@ the requested flow when the launch starts) and every directory such a setting na
 the trace's own listing (`trace_inputs.register_read_settings`, local and remote alike) -- so a
 destination can be none of those files, nor lie in one of those directories, a file there yet or
 not (whether a tool reads it cannot be known before the run; `--outputs-to` into one is refused
-up front). Each node notes what it
+up front). The requested flow also makes the pre-run check of every producer's named deliveries
+(`DefaultRunner._refuse_producer_deliveries`), so a refusal, or the question whether to replace a
+file, never comes after the tool of an earlier flow ran; a producer makes its own check again at
+its turn, which records what it found (`Deliveries.checked`), and `confirm_overwrite` is asked
+once for each destination (`_confirm_replacing`). A refusal made before a flow's tool ran is a
+`DeliveryError` with `before_run` true (`check_outputs_to`, `check`): the launch raises it as it
+is, never as a `FlowDependencyFailure`, and leaves the requested flow's directory untouched.
+Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
 directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
 clean-ups, once every flow of the graph has registered its reads -- a dependency's output could

@@ -17,7 +17,8 @@ destination's directory, renamed into place). An existing file is replaced only 
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
-the flow runs (`Deliveries.check`). A record is checked by the trust rule like any other
+the launch runs, once for each destination (`Deliveries.check`: the requested flow makes the
+check of every flow of the plan when the launch starts). A record is checked by the trust rule like any other
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
 for it, and the check that reads it anchors the record it takes to the clock of the destination's
 own file system, read just before (`_destination_clock`), so the next check of an unchanged
@@ -81,7 +82,15 @@ _State = Optional[tuple[int, int, int, int]]
 
 
 class DeliveryError(XedaException):
-    """An output cannot be delivered where it was named."""
+    """An output cannot be delivered where it was named.
+
+    `before_run` is true for a refusal made before any tool of the output's flow ran
+    (`Deliveries.check_outputs_to` and `check`): nothing of that flow has changed, so the launch
+    reports it as its own error, not as the failure of a flow."""
+
+    def __init__(self, *args: object, before_run: bool = False) -> None:
+        super().__init__(*args)
+        self.before_run = before_run
 
 
 class OutputExistsError(DeliveryError):
@@ -274,8 +283,9 @@ class ReadInputs:
     identity (`st_dev`, `st_ino`) and by resolved path; and those directories themselves, each
     with the setting naming it (`directory_of`). No delivery ever replaces one of those files, or
     lands anywhere in one of those directories, `--overwrite-outputs` or not. One is shared by a
-    launch's `Deliveries` and completed as each flow is launched, so a delivery -- made when the
-    launch has finished -- is checked against all of them."""
+    launch's `Deliveries`. The requested flow registers the settings of every flow of the plan
+    when the launch starts, and each flow adds the files it prepares as it is launched, so a
+    delivery -- made when the launch has finished -- is checked against all of them."""
 
     def __init__(self, paths: Iterable[Path] = ()) -> None:
         self._by_identity: dict[tuple[int, int], Path] = {}
@@ -457,7 +467,7 @@ class Deliveries:
         self.run_path = Path(run_path)
         self.run_root = Path(os.path.realpath(run_root))
         self.named = list(named)
-        #: every file the launch's flows read: shared, and completed as they are launched
+        #: every file the launch's flows read: shared by the launch (`ReadInputs`)
         self.inputs = inputs
         self.overwrite = overwrite
         self.confirm = confirm
@@ -640,7 +650,7 @@ class Deliveries:
                 "an existing file: --outputs-to copies outputs into a directory, not onto a file"
             )
         if refusal is not None:
-            raise DeliveryError(f"--outputs-to names {destination}, {refusal}")
+            raise DeliveryError(f"--outputs-to names {destination}, {refusal}", before_run=True)
 
     def check(self, predicted: Sequence[Delivery] = ()) -> None:
         """Before any tool of the node runs: refuse a destination that is an input, lies in a run
@@ -662,9 +672,9 @@ class Deliveries:
                 conflicts.append(Conflict(delivery, destination, why))
             destinations.append(destination)
         if refusals:
-            raise DeliveryError("; ".join(refusals))
+            raise DeliveryError("; ".join(refusals), before_run=True)
         if conflicts and not self._confirmed(conflicts):
-            raise OutputExistsError(_refused(conflicts))
+            raise OutputExistsError(_refused(conflicts), before_run=True)
         self.checked = {destination: _state(destination) for destination in destinations}
 
     def collect(self, source_root: Path, extra: Sequence[Delivery] = ()) -> None:

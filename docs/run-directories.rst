@@ -533,8 +533,9 @@ match what Xeda wrote, tracked in a delivery record kept beside the run director
 root -- which survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda
 overwrite a file it should ask about first); anything else needs ``--overwrite-outputs``, or a yes
 typed at a terminal prompt (under ``--json``, or with no terminal on both ends, only the flag
-works). This is checked twice: before any tool of the flow runs (so a refusal is reported before
-minutes of tool time are spent) and again right before the copy is made, in case something changed
+works). This is checked twice: before any tool of the launch runs -- the requested flow checks
+the deliveries of every flow of the plan, so a refusal is reported before minutes of tool time are
+spent -- and again right before the copy is made, in case something changed
 in between -- a destination that changed since it was first checked is never replaced, confirmed
 or not. A **fresh** run (one the trace found up to date, so no tool ran) delivers its outputs too:
 delivery follows the run's outcome, not whether a tool executed.

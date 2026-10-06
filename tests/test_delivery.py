@@ -860,6 +860,20 @@ def test_a_producer_s_refused_destination_is_the_launch_s_own_error(world):
     assert RUNS == []
 
 
+def test_a_producer_whose_run_wrote_no_named_output_is_a_failed_dependency(world):
+    """`collect` refuses once the producer's tool ran: the producer failed, and the launch says so
+    as it does of any failed producer, naming its results.json."""
+    DURING_RUN.append(lambda: next(world.root.rglob("outputs/d.rpt")).unlink())
+    with pytest.raises(
+        FlowDependencyFailure, match=r"dependency __deliverer failed: .*results.json"
+    ) as failed:
+        _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v", "report": "$PWD/r.rpt"})
+    cause = failed.value.__cause__
+    assert type(cause) is DeliveryError and not cause.before_run
+    assert "wrote no outputs/d.rpt" in str(cause)
+    assert RUNS == [_Deliverer.name]
+
+
 def test_a_producer_refused_before_it_is_entered_names_no_results_of_an_earlier_launch(world):
     """The results.json of an earlier launch is not this launch's: a failure message that names
     one would send the reader to the wrong document."""

@@ -280,12 +280,25 @@ All notable changes to this project will be documented in this file.
   `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
   of several. Its run directory, its recorded settings and its identity are the ones it had
   before. `--dry-run`, `xeda dse` and `--remote` take such a flow as they take any other. A
-  chain through such a flow is refused as any chain is when no output of a producer fits an input
-  of the next flow (`Flow `bsc` has no compatible output for a required input of ...`), and a
-  binding for a flow that declares no inputs says so. **Breaking for scripts that read
+  chain through such a flow is refused: no output of a producer fits an input of the next flow
+  (`Flow `bsc` has no compatible output for a required input of ...`), or the next flow takes no
+  required input (`Flow `bsc` cannot precede `yosys_fpga`: ...`). A binding for a flow that
+  declares no inputs says so. **Breaking for scripts that read
   `xeda list-flows --json`: the `declared` key is gone**, and so is `declared` in each node of a
   `--dry-run --json` plan. Every flow is planned the same way now, so the key could only be
   constant. A flow that declares nothing is the one with empty `inputs` and `outputs`.
+- A flow written outside Xeda, whose settings model requires a field, launches when the value is
+  given anywhere: in a design file, a project file, `-s` or the API. The resolver checks the parts
+  of a flow's settings before they are composed (one origin's sections, one shared setting) with
+  the flow's own model, and leaves the check of required values to the complete settings. When a
+  value is given nowhere, the error is `Field required`, naming the flow's own settings class.
+- A delivery into a directory any flow of the plan reads, or onto a file of yours, is refused
+  before any tool of the plan runs: the requested flow registers what every flow reads, and checks
+  every producer's named deliveries, when the launch starts. The question whether to replace a file
+  is asked once for each destination, before the first tool runs. A refusal made before a
+  producer's tool ran is raised as it is (`DeliveryError`, `OutputExistsError`), not as the failure
+  of a dependency, and the requested flow's directory stays as it was. A producer's failure message
+  names its `results.json` only when this launch ran the producer.
 - `dc` checks `target_libraries` when a run is launched, as the other flows check their required
   settings. A run without it is refused, and the message says how to give it. A settings layer
   that does not hold it (a platform given alone) no longer fails validation by itself.
@@ -611,12 +624,10 @@ All notable changes to this project will be documented in this file.
 - `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each variant of a flow its own directory
   (`<design>/<flow>_<16-char run hash>/`, the first 16 characters of `flowrun_hash`: the flow's
   input settings and where its declared inputs come from, so editing a source file never moves
-  it); the default is one directory per flow (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
-  it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
-  flow run for two different dependers, each get their own directory. Within one launch, a run
-  directory is entered at most once: two different configurations of one flow resolving to the
-  same directory in the same launch is now an error naming both requesters, instead of the second
-  silently overwriting what the first produced. `xeda run --remote` always mirrors its results in
+  it); the default is one directory per flow (`<design>/<flow>/`). A producer's run directory is
+  always a sibling of the flow that consumes it, in the same layout, never nested under it. A
+  launch has one run for each flow, so it enters each run directory once. `xeda run --remote`
+  always mirrors its results in
   the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
   `--clean` and `--hashed-run-dirs` are refused with `--remote`).
 - `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
