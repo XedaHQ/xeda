@@ -74,15 +74,26 @@ SETTINGS: dict[str, Any] = {
 }
 
 
-def _design(tmp_path: Path) -> Design:
+def _design(tmp_path: Path, source: str = "hier.v", text: str = SOURCE) -> Design:
     root = tmp_path / "design"
     root.mkdir(parents=True, exist_ok=True)
-    (root / "hier.v").write_text(SOURCE)
+    (root / source).write_text(text)
     return Design(
         name="top",
         design_root=root,
-        rtl={"sources": ["hier.v"], "top": "top", "clock": {"port": "clk"}},
+        rtl={"sources": [source], "top": "top", "clock": {"port": "clk"}},
     )
+
+
+#: Plain Verilog that is not SystemVerilog: `logic` is an identifier here and a keyword under
+#: `read_verilog -sv`, so the one reader flag xeda's own default passes decides whether it reads
+KEYWORD_SOURCE = """\
+module top(input clk, input a, output reg q);
+  wire logic;
+  assign logic = ~a;
+  always @(posedge clk) q <= logic;
+endmodule
+"""
 
 
 def _structure(netlist: Any) -> Any:
@@ -127,7 +138,9 @@ def _synth_line(flow: Any) -> str:
     return line
 
 
-def _reference(tmp_path: Path, synth: str, abc9_script: str | None = None) -> Any:
+def _reference(
+    tmp_path: Path, synth: str, abc9_script: str | None = None, source: str = "hier.v"
+) -> Any:
     """Run the native pass with the same optional mapping script and reader settings.
 
     The real command line, not a deferred-read equivalent of it, so a difference between
@@ -140,7 +153,13 @@ def _reference(tmp_path: Path, synth: str, abc9_script: str | None = None) -> An
     assert yosys, "require_yosys() passed but yosys is not on PATH"
     mapping = f"scratchpad -copy abc9.script.{abc9_script} abc9.script; " if abc9_script else ""
     result = subprocess.run(
-        [yosys, "-q", "-p", f"{mapping}{synth}; write_json {out}", str(tmp_path / "design/hier.v")],
+        [
+            yosys,
+            "-q",
+            "-p",
+            f"{mapping}{synth}; write_json {out}",
+            str(tmp_path / "design" / source),
+        ],
         cwd=work,
         capture_output=True,
         text=True,
@@ -252,3 +271,40 @@ def test_an_extra_primitive_library_read_alone_changes_the_netlist(tmp_path):
         "`autoidx` reasoning in design-notes before relying on it"
     )
     assert netlists[0] == _reference(tmp_path, synth)
+
+
+# ----------------------------------------------- the reader, as plain `yosys <file>` has it
+
+
+def _keyword_launch(tmp_path: Path, name: str, **settings: Any) -> Any:
+    runner = DefaultRunner(tmp_path / name, display_results=False)
+    return runner.run(
+        YosysFpga,
+        _design(tmp_path, "kw.v", KEYWORD_SOURCE),
+        flow_settings={"fpga": PART, "clock": {"period": 5.0}, **settings},
+    )
+
+
+def test_the_mode_reads_a_plain_verilog_source_as_yosys_does_and_the_default_reader_does_not(
+    tmp_path,
+):
+    """The reader flag that moved the mode away from `yosys <file>`, observed rather than argued.
+
+    Native yosys reads `kw.v`. xeda's default `read_verilog_flags` (`-sv`) cannot: the same
+    source is a syntax error there, so a comparison made with the default would have compared a
+    failure with a netlist. With the flags the mode requires (`[]`), xeda reads it and writes
+    the netlist the native pass writes, cell for cell and name for name.
+    """
+    from xeda.flow import FlowSettingsError
+
+    # the full recipe, default `-sv`: the source does not read
+    failed = _keyword_launch(tmp_path, "default-recipe")
+    assert failed is None or not failed.succeeded
+    # the mode refuses the default before any tool runs, and says what to write instead
+    with pytest.raises(FlowSettingsError, match=r"read_verilog_flags: \[\]"):
+        _keyword_launch(tmp_path, "refused", synth_pass_only=True)
+    # the mode with no reader flag reads it as yosys does, and writes the native netlist
+    mode = _keyword_launch(tmp_path, "pass-only", synth_pass_only=True, read_verilog_flags=[])
+    assert mode is not None and mode.succeeded
+    netlist = _structure(json.loads((Path(mode.run_path) / "netlist.json").read_text()))
+    assert netlist == _reference(tmp_path, _synth_line(mode), source="kw.v")

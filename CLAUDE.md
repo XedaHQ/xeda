@@ -1276,24 +1276,33 @@ dependency must also share `custom_boards_file`.
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
-- **`synth_pass_only` controls Xeda's stages around `synth_<target>`; it does not select native
-  reader defaults or reset synthesis choices.** The full recipe adds Xeda preparation and cleanup
-  around the pass. Pass-only omits those Xeda-owned pre- and post-synthesis stages; reader/front-end
-  settings and flags, design parameters, `synth_flags`, and explicit ABC9 script selection still
+- **`synth_pass_only` is an option group that reproduces `yosys <file>`'s reading and the target's
+  pass, and it refuses what would make it read differently.** The full recipe adds Xeda
+  preparation and cleanup around the pass. Pass-only omits those Xeda-owned pre- and
+  post-synthesis stages; design parameters, `synth_flags` and explicit ABC9 script selection still
   apply in both modes. Settings that add Xeda stages (`prep`, `pre_synth_opt`, `post_synth_opt`,
   `splitnets`, `post_synth_rename`, `black_box`, `keep_hierarchy`, `set_attribute`,
-  `set_mod_attribute`, `clockgate_map`, `rmports`, `stop_after`, `rtl_json`, `rtl_verilog`, `rtl_graph`, `sta`,
-  `ltp`) remain refused by `Settings.synth_pass_only_conflicts()`, checked during planning and
-  again in `run()` after initialization has folded design attributes into settings. Keep reader
-  choices separate from those conflicts: `YosysFpga.Settings.read_verilog_flags` defaults to
-  `-sv`, and `systemverilog` defaults to the `slang` plugin. A native-result comparison must match
-  the installed Yosys build and target, source paths and order, front end and all reader flags,
-  parameters, synthesis-pass flags, and ABC9 script. For example, native plain `.v` reading without
-  `-sv` needs `read_verilog_flags=[]`; the built-in SystemVerilog front end uses
-  `systemverilog="default"` and matching `read_verilog_flags` (including `-sv` where required).
-  Source path spelling matters because Yosys embeds it in generated names. `synth_pass_only` alone
-  does not guarantee equality with a native command, and no general area/timing advantage should
-  be claimed from it.
+  `set_mod_attribute`, `clockgate_map`, `rmports`, `stop_after`, `rtl_json`, `rtl_verilog`,
+  `rtl_graph`, `sta`, `ltp`) or that change how a source is read (a nonempty
+  `read_verilog_flags`) are refused by `Settings.synth_pass_only_conflicts()`, checked during
+  planning and again in `run()` after initialization has folded design attributes into settings.
+  `read_verilog_flags` is refused **by value, never by whether it was set** (`settings.json` writes
+  every field, so a `model_fields_set` rule would behave differently on reload; omitting a setting
+  and writing its default are the same): `YosysFpga`'s default is `-sv`, which the reference does
+  not pass for a `.v` file, so the mode needs `read_verilog_flags: []` written (`-s
+  read_verilog_flags=` on the command line: `=[]` is the one flag `[]`). A `.sv` source is still
+  read with the template's own `-sv`, as yosys does. `READER_SETTINGS` in
+  `tests/test_yosys_recipe.py` holds a decision for every `settings.*` the reader templates render
+  (a new one fails the sweep until decided). The front end is the one reader choice that stays a
+  warning (`_warn_if_a_plugin_reads_the_sources`), because it depends on the design's sources,
+  which the pure planning check cannot see: the default `systemverilog=slang` renders `read_slang`,
+  not what `yosys <file>.sv` does, and `read_systemverilog_flags` is read only by the `uhdm` plugin,
+  so both belong to that choice. `tests/test_yosys_recipe_real.py` shows a plain `.v` source (one
+  `-sv` cannot read) written by the mode equal, name for name, to the native netlist. Comparing
+  with a native command still means matching the installed Yosys build and target, source paths
+  and order, parameters, synthesis-pass flags and ABC9 script. Source path spelling matters
+  because Yosys embeds it in generated names. No general area/timing advantage should be claimed
+  from the mode.
 
   ABC9 script defaults are mode-specific: with `abc9_script=None`, the full Xeda recipe selects
   `flow3`, while pass-only leaves the synthesis pass's choice in effect. The full recipe also
