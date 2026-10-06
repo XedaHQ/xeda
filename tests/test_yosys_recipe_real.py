@@ -69,8 +69,10 @@ SETTINGS: dict[str, Any] = {
     "fpga": PART,
     "clock": {"period": 5.0},
     "flatten": True,
-    # Plain `yosys file.v` uses its Verilog reader without xeda's default `-sv`.
+    # Plain `yosys file.v` uses its Verilog reader without xeda's default `-sv`, and its own
+    # front end rather than xeda's default slang plugin.
     "read_verilog_flags": [],
+    "systemverilog": "default",
 }
 
 
@@ -304,7 +306,44 @@ def test_the_mode_reads_a_plain_verilog_source_as_yosys_does_and_the_default_rea
     with pytest.raises(FlowSettingsError, match=r"read_verilog_flags: \[\]"):
         _keyword_launch(tmp_path, "refused", synth_pass_only=True)
     # the mode with no reader flag reads it as yosys does, and writes the native netlist
-    mode = _keyword_launch(tmp_path, "pass-only", synth_pass_only=True, read_verilog_flags=[])
+    mode = _keyword_launch(
+        tmp_path, "pass-only", synth_pass_only=True, read_verilog_flags=[], systemverilog="default"
+    )
     assert mode is not None and mode.succeeded
     netlist = _structure(json.loads((Path(mode.run_path) / "netlist.json").read_text()))
     assert netlist == _reference(tmp_path, _synth_line(mode), source="kw.v")
+
+
+SV_SOURCE = """\
+module top(input logic clk, input logic [3:0] a, output logic [3:0] q);
+  logic [3:0] r;
+  always_ff @(posedge clk) r <= a + 4'd1;
+  assign q = r;
+endmodule
+"""
+
+
+def test_the_mode_reads_a_systemverilog_source_as_yosys_does(tmp_path):
+    """`yosys top.sv` reads a `.sv` file with the built-in front end, `read_verilog -sv`.
+
+    The mode needs `systemverilog=default` for exactly that: with it, the netlist is the native
+    one, name for name. The default front end (the slang plugin) is refused before any tool
+    runs; that front end is not run here, so nothing is claimed about what it would write.
+    """
+    from xeda.flow import FlowSettingsError
+
+    design = _design(tmp_path, "top.sv", SV_SOURCE)
+
+    def launch(name: str, **settings: Any) -> Any:
+        return DefaultRunner(tmp_path / name, display_results=False).run(
+            YosysFpga,
+            design,
+            flow_settings={"fpga": PART, "clock": {"period": 5.0}, **settings},
+        )
+
+    with pytest.raises(FlowSettingsError, match=r"systemverilog: default"):
+        launch("slang", synth_pass_only=True, read_verilog_flags=[])
+    mode = launch("pass-only", synth_pass_only=True, read_verilog_flags=[], systemverilog="default")
+    assert mode is not None and mode.succeeded
+    netlist = _structure(json.loads((Path(mode.run_path) / "netlist.json").read_text()))
+    assert netlist == _reference(tmp_path, _synth_line(mode), source="top.sv")

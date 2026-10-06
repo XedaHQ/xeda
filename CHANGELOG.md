@@ -5,12 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- `yosys_fpga`'s `synth_pass_only` reads a Verilog source as plain `yosys <file>` does: a nonempty
-  `read_verilog_flags`, Xeda's own `-sv` default included, is refused at planning with the
-  spelling to write (`read_verilog_flags: []`, or `-s read_verilog_flags=` on the command line),
-  so the mode reproduces the native netlist for a `.v` source that `-sv` cannot even read. The
-  full recipe keeps its reader flags, and a `.sv` source is still read with `-sv`. A run that
-  asked for `synth_pass_only` alone now needs the empty list written with it.
+- `yosys_fpga`'s `synth_pass_only` reads the design's sources exactly as a bare `yosys <files>`
+  does: a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
+  front end other than `default` (the default is the slang plugin) and a nonempty
+  `read_systemverilog_flags` are refused at planning, each naming what to write
+  (`read_verilog_flags: []`, `systemverilog: default`; `-s read_verilog_flags=` on the command
+  line), so the mode reproduces the native netlist for a `.v` source that `-sv` cannot even read
+  and for a `.sv` source read by Yosys' built-in front end. The full recipe keeps its readers, and
+  a `.sv` source is still read with `-sv`. A run that asked for `synth_pass_only` alone now needs
+  those written with it.
 - Target loading applies design overrides to dictionary inputs, rejects `targets: null`, and
   keeps the loader-selected target name authoritative over design and project overrides.
 - `yosys_fpga` reads each target's primitive library (Xilinx, ECP5, Nexus, iCE40) before the
@@ -92,18 +95,18 @@ All notable changes to this project will be documented in this file.
   and a board's local `lpf` against the database file's directory, in either format. The bundled
   databases stay TOML.
 - **`yosys_fpga` can omit Xeda's pre- and post-synthesis stages** with `synth_pass_only = true`.
-  The front-end choice, design parameters, `synth_flags` and explicit ABC9 script selection
+  Design parameters, `synth_flags` and explicit ABC9 script selection
   still apply in either mode. An unset ABC9 script preserves each mode's default: the full Xeda
   recipe uses `flow3` and a constrained clock supplies a clock-derived ABC9 delay; pass-only mode
   leaves the script to the synthesis pass and adds no clock-derived delay. `abc9_script` selects
   one of Yosys' installed scripts (`default`, `default.area`, `default.fast`, `flow`, `flow2`,
   `flow3` or `flow3mfs`) in either mode when ABC9 mapping is enabled; the legacy `flow3` setting
   remains supported, but cannot be combined with `abc9_script`. Settings that add Xeda stages or
-  separate post-pass operations, including `rmports`, and any `read_verilog_flags` (which must be
-  written as `[]`) are rejected in pass-only mode. This mode alone does not guarantee the
+  separate post-pass operations, including `rmports`, and any reader choice that is not yosys's own
+  (`read_verilog_flags: []`, `systemverilog: default` and no `read_systemverilog_flags` must be
+  written) are rejected in pass-only mode. This mode alone does not guarantee the
   same result as a native Yosys command: comparisons must match the installed Yosys, source paths
-  and order, front end (`systemverilog: default` for SystemVerilog), parameters, synthesis-pass
-  flags and ABC9 script. It makes those comparisons useful for
+  and order, parameters, synthesis-pass flags and ABC9 script. It makes those comparisons useful for
   isolating Xeda's surrounding stages, without making a netlist quality claim.
 - Automatic project discovery accepts one of `xedaproject.yaml`, `xedaproject.yml` or
   `xedaproject.toml`; multiple matches report the conflicting files and ask to keep one.

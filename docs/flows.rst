@@ -440,22 +440,26 @@ Running only the Yosys synthesis pass
 
 By default ``yosys_fpga`` adds Xeda's preparation and cleanup stages around
 ``synth_<target>``. ``synth_pass_only = true`` omits those Xeda-owned pre- and post-synthesis
-stages and reads each Verilog source as plain ``yosys <file>`` does, with no reader flag. The
-design parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply in either
-mode. Settings that request extra Xeda stages, or that make the mode read differently from
-``yosys <file>``, are refused in pass-only mode rather than silently ignored:
+stages and reads the design's sources exactly as a bare ``yosys <files>`` does. The design
+parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply in either mode.
+Settings that request extra Xeda stages, or that make the mode read differently from
+``yosys <files>``, are refused in pass-only mode rather than silently ignored:
 
 ``prep``, ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``,
 ``black_box``, ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``,
-``rmports``, ``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta``, ``ltp`` and a
-nonempty ``read_verilog_flags``.
+``rmports``, ``stop_after``, ``rtl_json``, ``rtl_verilog``, ``rtl_graph``, ``sta``, ``ltp``, a
+nonempty ``read_verilog_flags``, a ``systemverilog`` front end other than ``default`` and a
+nonempty ``read_systemverilog_flags``.
 
-``read_verilog_flags`` defaults to ``-sv`` in the full recipe, which Yosys' own reader does not
+Three of these are Xeda's own reader choices, which the full recipe keeps, so the mode needs
+their native values written out: ``read_verilog_flags: []``, ``systemverilog: default`` and no
+``read_systemverilog_flags``. ``read_verilog_flags`` defaults to ``-sv``, which Yosys does not
 pass for a ``.v`` file (and ``-sv`` changes what such a file accepts: ``logic`` is a keyword
-under it and an identifier without it). The default is therefore refused too, so a pass-only run
-writes ``read_verilog_flags: []`` in the design file, or ``-s read_verilog_flags=`` (an empty
-value) on the command line; ``-s "read_verilog_flags=[]"`` is the single flag ``[]``. A
-``.sv`` source is still read with ``-sv``, as Yosys does for that suffix.
+under it and an identifier without it). ``systemverilog`` defaults to ``slang``, a plugin whose
+``read_slang`` is not what ``yosys file.sv`` runs; ``default`` is Yosys' built-in
+``read_verilog -sv``, which a ``.sv`` source is read with. They are refused by value, so the
+defaults are refused too. On the command line the empty list is ``-s read_verilog_flags=`` (an
+empty value); ``-s "read_verilog_flags=[]"`` is the single flag ``[]``.
 
 The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
 selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,
@@ -468,22 +472,19 @@ both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9
 
 .. code-block:: bash
 
-    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags=
-    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= abc9_script=flow2
-    xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
-      flows.yosys_fpga.read_verilog_flags=
-    xeda run yosys_fpga systemverilog.yaml -s synth_pass_only=true read_verilog_flags= \
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= \
       systemverilog=default
+    xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= \
+      systemverilog=default abc9_script=flow2
+    xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
+      flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
 them, match the Yosys version and target, source paths and order, parameters, synthesis-pass
-flags and ABC9 script; the reader flags are matched by the mode itself. For plain Verilog it
-reproduces the native netlist cell for cell and name for name (checked against the installed
-Yosys). SystemVerilog is the exception it leaves to you: the default ``systemverilog=slang`` uses
-a plugin front end, which ``yosys <file>.sv`` does not, so a pass-only run on ``.sv`` sources
-logs a warning unless ``systemverilog=default`` selects Yosys' built-in front end (and
-``read_systemverilog_flags``, which only the ``uhdm`` front end reads, stays at its default).
-Yosys also embeds source paths in generated names, so use the same path spellings on both sides.
+flags and ABC9 script; the reader is matched by the mode itself. For plain Verilog and for
+SystemVerilog read by Yosys' built-in front end it reproduces the native netlist cell for cell and
+name for name (checked against the installed Yosys). Yosys also embeds source paths in generated
+names, so use the same path spellings on both sides.
 
 The target synthesis pass reads its own primitive libraries. If ``verilog_lib`` also names one
 of those files, Xeda skips that duplicate read, comparing the file itself (including paths through
