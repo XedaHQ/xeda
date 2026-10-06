@@ -211,8 +211,8 @@ valid one only when another output of the producer, or the flows that the requir
 producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
 `nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
-(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim` and the
-Vivado flows run alone, and a chain through one fails naming it. A chain is local: `--remote` and
+(`xeda list-flows --json`: `declared`, `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and the
+Vivado simulation and power flows run alone, and a chain through one fails naming it. A chain is local: `--remote` and
 `xeda dse` refuse it.
 
 `-s` sets the last flow; `-s flows.<flow>.key=value` sets any other flow of the chain. With
@@ -256,8 +256,10 @@ flows:
       netlist: yosys_fpga
 ```
 
-Do not suggest Bluespec or Vivado chains (`bsc+yosys_fpga+...`, `vivado_synth+openfpgaloader`) or
-an `inputs.design` binding: they are refused until those flows declare their inputs and outputs.
+Do not suggest Bluespec chains (`bsc+yosys_fpga+...`) or an `inputs.design` binding: they are
+refused until those flows declare their inputs and outputs. `vivado_synth+openfpgaloader` is a
+valid chain (`vivado_synth` declares its `bitstream`), but it programs hardware: plan it with
+`--dry-run` only.
 To check a chain, use `--dry-run` or end it at `fpga_pack`: `openfpgaloader` programs hardware.
 
 ## Planning without running

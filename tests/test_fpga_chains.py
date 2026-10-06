@@ -810,11 +810,12 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 
 # ------------------------------------------------------------------------------ the P4 boundary
 #
-# Bluespec and Vivado flows declare no inputs or outputs yet (P4 derives a design from `bsc`;
-# P5 chains Bluespec to simulation and synthesis). Until then a chain through one is refused,
-# and a binding for one is refused for the missing declaration -- before any tool runs.
+# Bluespec and most Vivado flows declare no inputs or outputs yet (P4 derives a design from `bsc`;
+# P5 chains Bluespec to simulation and synthesis; `vivado_synth` and `vivado_alt_synth` declare
+# their outputs). Until then a chain through one is refused, and a binding for one is refused for
+# the missing declaration -- before any tool runs.
 
-UNDECLARED = ["bsc", "bsc_sim", "vivado_synth", "vivado_project"]
+UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]
 
 
 def _nothing_started(tmp_path: Path) -> None:
@@ -828,9 +829,9 @@ def _nothing_started(tmp_path: Path) -> None:
         ("bsc+yosys_fpga", "bsc"),
         ("bsc+vivado_synth", "bsc"),
         ("bsc_sim+openfpgaloader", "bsc_sim"),
-        ("vivado_synth+openfpgaloader", "vivado_synth"),
+        ("vivado_project+openfpgaloader", "vivado_project"),
         ("yosys_fpga+vivado_project", "vivado_project"),
-        ("yosys_fpga+nextpnr+vivado_synth", "vivado_synth"),
+        ("yosys_fpga+nextpnr+vivado_project", "vivado_project"),
     ],
 )
 def test_a_chain_through_an_undeclared_flow_is_refused_before_any_tool_runs(
@@ -849,6 +850,29 @@ def test_a_chain_through_an_undeclared_flow_is_refused_before_any_tool_runs(
     assert dry.exit_code == 2 and refused["error"]["message"] == message
     with pytest.raises(FlowSettingsException, match="can only be run alone"):
         parse_request(chain)
+
+
+@pytest.mark.parametrize("flow", ["vivado_synth", "vivado_alt_synth"])
+def test_a_vivado_synthesis_precedes_the_loader_and_has_its_bitstream_switched_on(
+    tmp_path, monkeypatch, flow
+):
+    """The Vivado synthesis flows declare their outputs: `bitstream` is the loader's input, and
+    the loader's demand names one (`enable_output`). Only planned: the loader programs hardware."""
+    tool_utils.use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    design = _write_design(
+        tmp_path, flows={flow: {"fpga": A100T, "clock": {"period": 5.0}}}, name="top"
+    )
+    result, document = _xeda(
+        "run", f"{flow}+openfpgaloader", design, "--dry-run", "-s", f"fpga.part={A100T}"
+    )
+    assert result.exit_code == 0, result.output
+    nodes = {node["name"]: node for node in document["plan"]["nodes"]}
+    assert list(nodes) == [flow, "openfpgaloader"]
+    assert nodes[flow]["switched_on"] == ["bitstream"]
+    (bitstream,) = [i for i in nodes["openfpgaloader"]["inputs"] if i["name"] == "bitstream"]
+    assert (bitstream["producer"], bitstream["output"]) == (flow, "bitstream")
+    _nothing_started(tmp_path)
 
 
 def _unbound_design(tmp_path: Path, flow: str, bound: bool) -> Path:
@@ -896,9 +920,9 @@ def test_an_unknown_setting_is_a_settings_error_and_a_binding_is_not(tmp_path, m
     tool_utils.use_fake_tools(monkeypatch)
     monkeypatch.chdir(tmp_path)
     plain = _write_design(tmp_path)
-    result, document = _xeda("run", "vivado_synth", plain, "-s", "bogus=1")
+    result, document = _xeda("run", "vivado_project", plain, "-s", "bogus=1")
     assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsError"
-    result, document = _xeda("run", "vivado_synth", plain, "-s", "inputs.design=bsc")
+    result, document = _xeda("run", "vivado_project", plain, "-s", "inputs.design=bsc")
     assert result.exit_code == 1 and document["error"]["type"] == "FlowSettingsException"
     _nothing_started(tmp_path)
 

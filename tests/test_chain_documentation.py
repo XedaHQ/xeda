@@ -237,7 +237,7 @@ def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp
         for line in body.splitlines():
             if line.startswith("xeda run "):
                 commands.append((shlex.split(line, comments=True)[2:], future))
-    assert len(commands) >= 6 and any(future for _, future in commands)
+    assert len(commands) >= 5 and any(future for _, future in commands)
     for words, future in commands:
         words = [str(root / w) if w.endswith(".yaml") else w for w in words]
         result = CliRunner().invoke(cli, ["run", *words, "--dry-run", "--json"])
@@ -623,28 +623,30 @@ def test_chains_and_reached_bindings_are_local_and_refused_before_anything_conne
 
 
 def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tmp_path):
-    """The boundary the guide states: `bsc` and the Vivado flows are not chainable, and an
-    `inputs.design` binding is refused (no flow declares one), in the file, on the command
-    line, and saying why."""
+    """The boundary the guide states: `bsc`, `vivado_project` and the Vivado simulation and power
+    flows are not chainable, and an `inputs.design` binding is refused (no flow declares one),
+    in the file, on the command line, and saying why. `vivado_synth` declares its outputs, so
+    it precedes the loader."""
     listed = {
         f["name"]: f for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
     }
-    for flow in ("bsc", "bsc_sim", "vivado_synth", "vivado_project"):
+    assert [e["flow"] for e in listed["vivado_synth"]["can_precede"]] == ["openfpgaloader"]
+    for flow in ("bsc", "bsc_sim", "vivado_project"):
         info = listed[flow]
         assert info["declared"] is False and info["can_follow"] == info["can_precede"] == [], flow
         assert flow_info(get_flow_class(flow))["inputs"] == []
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
-    for chain in ("bsc+yosys_fpga", "yosys_fpga+bsc", "vivado_synth+openfpgaloader"):
+    for chain in ("bsc+yosys_fpga", "yosys_fpga+bsc", "vivado_project+openfpgaloader"):
         result, document = _xeda("run", chain, design, "--dry-run")
         assert result.exit_code == 2, chain
         assert "has no declared I/O and can only be run alone" in document["error"]["message"]
     data = yaml.safe_load(design.read_text())
-    data["flows"]["vivado_synth"] = {"inputs": {"design": "bsc"}}
+    data["flows"]["vivado_project"] = {"inputs": {"design": "bsc"}}
     (root / "saved_design_binding.yaml").write_text(yaml.safe_dump(data))
     for args in (
-        ("vivado_synth", root / "saved_design_binding.yaml"),
-        ("vivado_synth", design, "-s", "flows.vivado_synth.inputs.design=bsc"),
+        ("vivado_project", root / "saved_design_binding.yaml"),
+        ("vivado_project", design, "-s", "flows.vivado_project.inputs.design=bsc"),
     ):
         result, document = _xeda("run", *args, "--dry-run")
         assert result.exit_code != 0

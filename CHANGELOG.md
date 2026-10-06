@@ -118,6 +118,14 @@ All notable changes to this project will be documented in this file.
   ran, so every generated design generates once more on its next load -- and `--dry-run` refuses
   to plan it until one real run has recorded that. `--dry-run --rebuild-all` (or `--clean`) plans
   as that launch would load the design, so it refuses a generated design too.
+- `vivado_synth` and `vivado_alt_synth` declare their outputs (`netlist`, `netlist_timing`,
+  `sdf`, `checkpoint_synth`, `checkpoint_route`, `bitstream`, and `sdf_min` on `vivado_synth`
+  alone, which writes both SDF corners), each switched on by its own setting and recorded in
+  `results.json`'s `outputs` with its digest. A new `write_timing_netlist` setting writes the
+  timing netlist and its SDF on its own: `write_netlist` now writes the functional netlist and the
+  exported constraints only, so a run that wanted the timing files asks for both. Both flows now
+  precede `openfpgaloader` in a chain (`vivado_synth+openfpgaloader`), which names a bitstream
+  when the loader demands one. `vivado_postsynth_sim` still asks its synthesis for both netlists.
 - `custom_boards_file` accepts a YAML board database (`.yaml` or `.yml`) as well as TOML, by the
   file's suffix; YAML is read by the same strict YAML 1.2 loader as every other YAML file, so a
   duplicate key or a non-string key names the file and line. Any other suffix is an error naming

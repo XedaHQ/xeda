@@ -722,7 +722,12 @@ def _run_vivado_alt_synth_with_netlist(tmp_path: Path) -> dict | None:
         design_root / "sqrt.yaml",
         "vivado_alt_synth",
         host="somewhere",
-        flow_settings=["fpga.part=xc7a12tcsg325-1", "clock.period=5.0", "write_netlist=true"],
+        flow_settings=[
+            "fpga.part=xc7a12tcsg325-1",
+            "clock.period=5.0",
+            "write_netlist=true",
+            "write_timing_netlist=true",
+        ],
     )
 
 
@@ -758,19 +763,42 @@ def _remote_runner_with_unwritten_artifacts(channel, **kwargs):
     remote_runner(channel, **kwargs)
 
 
+def _remote_runner_listing_an_artifact_it_never_wrote(channel, **kwargs):
+    """Inject a flow that succeeds, with every declared output written, and lists a plain
+    artifact it did not write. execnet ships this function's source alone."""
+    from pathlib import Path
+
+    from xeda.flow_runner.remote import remote_runner
+    from xeda.flows import VivadoAltSynth
+
+    # as source: execnet refuses a shipped function that has nested functions or free names
+    exec(
+        "original = VivadoAltSynth.run\n"
+        "def run(self):\n"
+        "    original(self)\n"
+        "    self.artifacts['ghost'] = Path('outputs/ghost.txt')\n"
+        "VivadoAltSynth.run = run\n",
+        {"VivadoAltSynth": VivadoAltSynth, "Path": Path},
+    )
+    remote_runner(channel, **kwargs)
+
+
 @pytest.mark.parametrize("fails", [True, False], ids=["failed", "succeeded"])
 def test_a_remote_listing_unwritten_artifacts_is_handled(
     fails, tmp_path, remote_host, monkeypatch, caplog
 ):
     """A faulty worker reporting unwritten artifacts cannot make the transport fetch them
-    after failure; after success, a missing artifact is still an error."""
-    monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_with_unwritten_artifacts)
+    after failure; after success, a missing artifact is still an error. (A declared output a
+    run did not write fails the run itself, `MissingOutput`, before any transport: the artifact
+    after success is a plain one.)"""
     if not fails:
-        # the fake Vivado writes the netlist unless it is told its commands write nothing
-        monkeypatch.setenv("XEDA_FAKE_TOOL_NO_OUTPUT", "1")
-        with pytest.raises(FileNotFoundError, match=r"impl_funcsim\.v"):
+        monkeypatch.setattr(
+            remote_module, "remote_runner", _remote_runner_listing_an_artifact_it_never_wrote
+        )
+        with pytest.raises(FileNotFoundError, match=r"ghost\.txt"):
             _run_vivado_alt_synth_with_netlist(tmp_path)
         return
+    monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_with_unwritten_artifacts)
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "route_design")
 
     with caplog.at_level(logging.WARNING):

@@ -11,6 +11,7 @@ hook again as its run would, in step order, each in a directory of its own, and 
 output the flow registers is written by the hook of its step, at the registered path.
 """
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,9 +20,11 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 
 from xeda import Design
+from xeda.digest import content_digest
 from xeda.flow import FPGA, FlowFatalError
+from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoSynth
+from xeda.flows import VivadoAltSynth, VivadoSynth
 from xeda.flows.vivado import vivado_synth as vs
 from xeda.flows.vivado.vivado_postsynthsim import VivadoPostsynthSim
 from xeda.flows.vivado.vivado_power import VivadoPower
@@ -195,6 +198,7 @@ def test_each_registered_output_is_written_by_its_steps_hook(
         tmp_path,
         monkeypatch,
         write_netlist=True,
+        write_timing_netlist=True,
         write_checkpoint=write_checkpoint,
         bitstream="outputs/sqrt.bit",
     )
@@ -327,6 +331,7 @@ def test_hooks_render_only_their_own_steps_writes_and_leave_active_step_to_vivad
         tmp_path,
         monkeypatch,
         write_netlist=True,
+        write_timing_netlist=True,
         write_checkpoint=True,
         bitstream="outputs/sqrt.bit",
         qor_suggestions=True,
@@ -388,7 +393,7 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
     tmp_path, monkeypatch, timing_sim
 ) -> None:
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
-    synth = _synth(tmp_path, monkeypatch, design, write_netlist=True)
+    synth = _synth(tmp_path, monkeypatch, design, write_netlist=True, write_timing_netlist=True)
     _write_registered(synth)
     settings = VivadoPostsynthSim.Settings(
         synth=VivadoSynth.Settings(fpga=FPGA(part=PART)), timing_sim=timing_sim
@@ -418,7 +423,14 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     tmp_path, monkeypatch
 ) -> None:
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
-    synth = _synth(tmp_path, monkeypatch, design, write_netlist=True, write_checkpoint=True)
+    synth = _synth(
+        tmp_path,
+        monkeypatch,
+        design,
+        write_netlist=True,
+        write_timing_netlist=True,
+        write_checkpoint=True,
+    )
     _write_registered(synth)
     post_settings = VivadoPostsynthSim.Settings(synth=VivadoSynth.Settings(fpga=FPGA(part=PART)))  # type: ignore
     power = VivadoPower(VivadoPower.Settings(postsynthsim=post_settings), design, tmp_path / "power")  # type: ignore
@@ -443,3 +455,135 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     assert ["open_checkpoint", str(synth.run_path / synth.artifacts[vs.CHECKPOINT_ROUTE])] in calls
     assert Path(post.artifacts["saif"]) == Path(power.settings.saif)
     assert ["read_saif", "-verbose", str(post.run_path / power.settings.saif)] in calls
+
+
+# --- the declared outputs (PC Task 2, R-PC-a) ---------------------------------------------------
+
+#: Which declared output each switch turns on, on each flow (`41-plan-pc.md` 3.1a, read per
+#: flow: `vivado_alt_synth` writes one SDF corner and declares no `sdf_min`).
+SWITCHED_OUTPUTS = {
+    VivadoSynth: {
+        "write_netlist": {"netlist"},
+        "write_timing_netlist": {"netlist_timing", "sdf", "sdf_min"},
+        "write_checkpoint": {"checkpoint_synth", "checkpoint_route"},
+        "bitstream": {"bitstream"},
+    },
+    VivadoAltSynth: {
+        "write_netlist": {"netlist"},
+        "write_timing_netlist": {"netlist_timing", "sdf"},
+        "write_checkpoint": {"checkpoint_synth", "checkpoint_route"},
+        "bitstream": {"bitstream"},
+    },
+}
+#: A value that turns each switch on (`bitstream` is a path, the others are flags).
+SWITCH_ON = {
+    "write_netlist": True,
+    "write_timing_netlist": True,
+    "write_checkpoint": True,
+    "bitstream": "outputs/sqrt.bit",
+}
+FLOW_IDS = {VivadoSynth: "vivado_synth", VivadoAltSynth: "vivado_alt_synth"}
+
+
+def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
+    use_fake_tools(monkeypatch)
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        flow_class, Design.from_file(SQRT), {"fpga": PART, "clock_period": 5.5, **settings}
+    )
+    assert isinstance(flow, flow_class) and flow.succeeded
+    return flow
+
+
+def _recorded_outputs(flow) -> dict:
+    """The `outputs` of the run's `results.json`, as written to disk."""
+    saved = json.loads((flow.run_path / "results.json").read_text())
+    assert saved["outputs"] == flow.results["outputs"]
+    return saved["outputs"]
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_each_flow_declares_the_outputs_the_plan_assigns_it(flow_class) -> None:
+    declared = {
+        name: declaration.enabled_by for name, declaration in declared_outputs(flow_class).items()
+    }
+    expected = {
+        output: switch
+        for switch, outputs in SWITCHED_OUTPUTS[flow_class].items()
+        for output in outputs
+    }
+    assert declared == expected
+    # one SDF corner for the alternative flow: `sdf_min` is `vivado_synth`'s alone (PCD18)
+    assert ("sdf_min" in declared) == (flow_class is VivadoSynth)
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+@pytest.mark.parametrize("switch", SWITCH_ON)
+def test_each_switch_enables_exactly_the_outputs_the_plan_assigns_it(
+    flow_class, switch, tmp_path, monkeypatch
+) -> None:
+    """R-PC-a's table: `enabled_by` setting -> outputs, on both flows. The record is the run's
+    own: path inside the run directory, digest of the file as written."""
+    flow = _run(flow_class, tmp_path, monkeypatch, **{switch: SWITCH_ON[switch]})
+    recorded = _recorded_outputs(flow)
+    assert set(recorded) == SWITCHED_OUTPUTS[flow_class][switch]
+    for name, entry in recorded.items():
+        path = Path(entry["path"])
+        assert path.is_file() and path.is_relative_to(flow.run_path.resolve()), name
+        assert entry["sha"] == content_digest(path), name
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_write_netlist_alone_writes_the_functional_netlist_and_constraints_and_no_sdf(
+    flow_class, tmp_path, monkeypatch
+) -> None:
+    flow = _run(flow_class, tmp_path, monkeypatch, write_netlist=True)
+    written = [call for call in fake_calls(flow.run_path) if call[0].startswith("write_")]
+    modes = [c[c.index("-mode") + 1] for c in written if c[0] == "write_verilog"]
+    assert modes == ["funcsim"]
+    assert [c[0] for c in written if c[0] in ("write_sdf", "write_xdc")] == ["write_xdc"]
+    assert {vs.NETLIST, vs.XDC_EXPORTED} <= set(flow.artifacts)
+    assert not {vs.NETLIST_TIMING, vs.SDF_MIN, vs.SDF_MAX, vs.SDF} & set(flow.artifacts)
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_write_timing_netlist_alone_writes_the_timing_netlist_and_sdf_and_no_functional_one(
+    flow_class, tmp_path, monkeypatch
+) -> None:
+    flow = _run(flow_class, tmp_path, monkeypatch, write_timing_netlist=True)
+    written = [call for call in fake_calls(flow.run_path) if call[0].startswith("write_")]
+    modes = [c[c.index("-mode") + 1] for c in written if c[0] == "write_verilog"]
+    assert modes == ["timesim"]
+    corners = [c[c.index("-process_corner") + 1] for c in written if c[0] == "write_sdf"]
+    assert corners == (["fast", "slow"] if flow_class is VivadoSynth else ["slow"])
+    assert not [c for c in written if c[0] == "write_xdc"]
+    assert vs.NETLIST not in flow.artifacts and vs.XDC_EXPORTED not in flow.artifacts
+    assert vs.NETLIST_TIMING in flow.artifacts
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_both_netlist_switches_together_record_both_halves(
+    flow_class, tmp_path, monkeypatch
+) -> None:
+    flow = _run(flow_class, tmp_path, monkeypatch, write_netlist=True, write_timing_netlist=True)
+    switches = SWITCHED_OUTPUTS[flow_class]
+    assert (
+        set(_recorded_outputs(flow)) == switches["write_netlist"] | switches["write_timing_netlist"]
+    )
+    # the plan's exit table counts the exported constraints too: a plain artifact, not an output
+    assert vs.XDC_EXPORTED in flow.artifacts
+    assert len(_recorded_outputs(flow)) + 1 == (5 if flow_class is VivadoSynth else 4)
+
+
+def test_an_output_whose_switch_is_off_is_not_recorded(tmp_path, monkeypatch) -> None:
+    flow = _run(VivadoSynth, tmp_path, monkeypatch)
+    assert _recorded_outputs(flow) == {}
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_a_consumer_can_switch_the_bitstream_on(flow_class) -> None:
+    """`bitstream` has no default, so a consumer's demand needs `enable_output` to name one."""
+    settings = flow_class.Settings(fpga=FPGA(part=PART))  # type: ignore
+    assert settings.bitstream is None
+    flow_class.enable_output(settings, "bitstream")
+    assert settings.bitstream is not None
+    assert settings.write_netlist is False and settings.write_timing_netlist is False

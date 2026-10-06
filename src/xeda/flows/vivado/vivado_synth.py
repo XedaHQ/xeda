@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
-from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
+from ...flow import Flow, FlowFatalError, FpgaSynthFlow, Out, describe_results
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -95,8 +95,9 @@ def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
     Vivado's run sources after the step, in the run's own directory. Each sources the user's own
     `TCL.POST` for the step, if any, then writes the step's reports under `reports/<step>/` and
     the requested outputs the step completes (`project_outputs`): the synthesis checkpoint after
-    `synth_design`; the routed checkpoint, the netlists, the SDF corners and the exported
-    constraints after `route_design`; with a bitstream requested, the `write_bitstream` step's
+    `synth_design`; the routed checkpoint, the functional netlist and the exported constraints
+    (`write_netlist`), and the timing netlist and the SDF corners (`write_timing_netlist`) after
+    `route_design`; with a bitstream requested, the `write_bitstream` step's
     hook copies the bitstream Vivado wrote to its path. Returns the hooks, which the project's
     `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
     hooks: List[Path] = []
@@ -143,13 +144,35 @@ def project_outputs(flow: Any, settings: Any) -> Dict[str, Path]:
         paths[CHECKPOINT_ROUTE] = route / "post_route.dcp"
     if settings.write_netlist:
         paths[NETLIST] = route / "funcsim.v"
+        paths[XDC_EXPORTED] = route / "impl.xdc"
+    if settings.write_timing_netlist:
         paths[NETLIST_TIMING] = route / "timesim.v"
         paths[SDF_MIN] = route / "timesim.min.sdf"
         paths[SDF_MAX] = route / "timesim.max.sdf"
-        paths[XDC_EXPORTED] = route / "impl.xdc"
     if settings.bitstream is not None:
         paths[BITSTREAM] = Path(settings.bitstream)
     return {label: _run_relative(flow.run_path, path) for label, path in paths.items()}
+
+
+#: The declared output each artifact label of a project-mode run is recorded as. `sdf` is the
+#: slow-corner SDF, which a timing simulation annotates its netlist with (`vivado_postsynth_sim`).
+OUTPUT_LABELS = {
+    "netlist": NETLIST,
+    "netlist_timing": NETLIST_TIMING,
+    "sdf": SDF_MAX,
+    "sdf_min": SDF_MIN,
+    "checkpoint_synth": CHECKPOINT_SYNTH,
+    "checkpoint_route": CHECKPOINT_ROUTE,
+    "bitstream": BITSTREAM,
+}
+
+
+def declare_outputs(flow: Any, paths: Dict[str, Optional[Path]]) -> None:
+    """Set each declared output of `flow` that has a path (the run writes the others only when
+    their setting is on) to that path in the run directory."""
+    for name, path in paths.items():
+        if path is not None:
+            setattr(flow.outputs, name, flow.run_path / path)
 
 
 def bitstream_bin_file(bitstream: Path) -> Path:
@@ -197,6 +220,47 @@ class RunOptions(XedaBaseModel):
     steps: Dict[str, StepsValType] = {}
 
 
+class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
+    """What both Vivado synthesis flows write, each switched on by its own setting.
+
+    `VivadoSynth.Outputs` and `VivadoAltSynth.Outputs` extend it rather than one another: the
+    alternative flow writes a single SDF corner, so it must not inherit an `sdf_min` it never
+    produces (a switched-on output a run did not write fails the run).
+    """
+
+    netlist: Path | None = Out(
+        SourceType.VerilogNetlist,
+        enabled_by="write_netlist",
+        description="The routed design's functional Verilog netlist.",
+    )
+    netlist_timing: Path | None = Out(
+        SourceType.VerilogNetlist,
+        enabled_by="write_timing_netlist",
+        description="The routed design's timing Verilog netlist, simulated with `sdf`.",
+    )
+    sdf: Path | None = Out(
+        SourceType.Sdf,
+        enabled_by="write_timing_netlist",
+        description="The routed design's SDF timing annotation for `netlist_timing`: the "
+        "slow-corner (max) delays.",
+    )
+    checkpoint_synth: Path | None = Out(
+        SourceType.Checkpoint,
+        enabled_by="write_checkpoint",
+        description="The design checkpoint (.dcp) after synthesis.",
+    )
+    checkpoint_route: Path | None = Out(
+        SourceType.Checkpoint,
+        enabled_by="write_checkpoint",
+        description="The design checkpoint (.dcp) after routing.",
+    )
+    bitstream: Path | None = Out(
+        SourceType.Bitstream,
+        enabled_by="bitstream",
+        description="The FPGA bitstream, at `bitstream`.",
+    )
+
+
 class VivadoSynth(Vivado, FpgaSynthFlow):
     """FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch.
 
@@ -209,15 +273,25 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
     asked for are registered as artifacts (label in parentheses). `write_checkpoint`:
     `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and
     `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in
-    `outputs/route_design/`: the functional and timing Verilog netlists `funcsim.v` (`netlist`)
-    and `timesim.v` (`netlist_timing`), the fast- and slow-corner SDF `timesim.min.sdf`
-    (`sdf_min`) and `timesim.max.sdf` (`sdf_max`), and the constraints `impl.xdc`
-    (`xdc_exported`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
+    `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the
+    constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the
+    timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF
+    `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output
+    `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
     beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
 
     The flow fails unless each run completes the step it is launched to (Vivado's own status of
     the run, which the `status` result records), and, with a bitstream asked for, unless the
     bitstream is where it is registered.
+
+    Each file has its own switch, and a file is a declared output (recorded in `results.json`'s
+    `outputs` with its digest) where its setting is named here. `write_netlist` writes the
+    functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a
+    plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v`
+    (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf`
+    (`sdf_min`). `write_checkpoint` writes both
+    checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream
+    (`bitstream`).
     """
 
     results_description = describe_results(
@@ -278,9 +352,14 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
         write_netlist: bool = Field(
             False,
-            description="Write the routed design's functional and timing Verilog netlists, its "
-            "fast- and slow-corner SDF timing and its constraints (XDC), in "
-            "`outputs/route_design/`. Required by `vivado_postsynth_sim`.",
+            description="Write the routed design's functional Verilog netlist and its constraints "
+            "(XDC), in `outputs/route_design/`. Required by `vivado_postsynth_sim`.",
+        )
+        write_timing_netlist: bool = Field(
+            False,
+            description="Write the routed design's timing Verilog netlist and its SDF timing "
+            "annotation (fast- and slow-corner), in `outputs/route_design/`. Required by "
+            "`vivado_postsynth_sim`.",
         )
         bitstream: Optional[Path] = Field(
             None,
@@ -395,6 +474,24 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
                 raise ValueError("Vivado needs the FPGA's part number (`fpga.part`)")
             return value
 
+    class Outputs(_VivadoSynthOutputs):
+        sdf_min: Path | None = Out(
+            SourceType.Sdf,
+            enabled_by="write_timing_netlist",
+            description="The routed design's SDF timing annotation for the fast corner (min "
+            "delays); `sdf` is the slow corner's.",
+        )
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+        """Demanding the bitstream names one: `bitstream` has no default to switch on."""
+        if name != "bitstream":
+            return super().enable_output(settings, name)
+        assert isinstance(settings, cls.Settings)
+        if settings.bitstream is None:
+            # a fixed name: the hook is given no design name for `outputs/<design>.bit`
+            settings.bitstream = Path(settings.outputs_dir) / "bitstream.bit"
+
     def init(self):
         super().init()
         ss = self.settings
@@ -454,6 +551,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             stale.append(bitstream_bin_file(outputs[BITSTREAM]))
         self.run_directory.remove(*stale)
         self.artifacts.update(outputs)
+        declare_outputs(self, {name: outputs.get(label) for name, label in OUTPUT_LABELS.items()})
 
         tcl_files += post_step_hooks(self, settings)
         xdc_files = constraint_files(self, settings)

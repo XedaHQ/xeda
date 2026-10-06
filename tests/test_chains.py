@@ -311,7 +311,12 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     assert _pairs(followers(Nextpnr, classes), "consumer") == [("fpga_pack", None, True)]
     assert _pairs(followers(FpgaPack, classes), "consumer") == [("openfpgaloader", None, False)]
     assert followers(Openfpgaloader, classes) == []
-    assert _pairs(predecessors(Openfpgaloader, classes), "producer") == [("fpga_pack", None, False)]
+    # the Vivado flows write a bitstream on request (`bitstream`), which the loader reads
+    assert _pairs(predecessors(Openfpgaloader, classes), "producer") == [
+        ("fpga_pack", None, False),
+        ("vivado_alt_synth", None, False),
+        ("vivado_synth", None, False),
+    ]
     assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
     assert predecessors(YosysFpga, classes) == []
 

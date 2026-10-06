@@ -101,6 +101,8 @@ def test_the_declared_flows():
         "fpga_pack",
         "nextpnr",
         "openfpgaloader",
+        "vivado_alt_synth",
+        "vivado_synth",
         "yosys_fpga",
     }
 

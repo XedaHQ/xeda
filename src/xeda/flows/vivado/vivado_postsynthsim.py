@@ -13,17 +13,17 @@ log = logging.getLogger(__name__)
 class VivadoPostsynthSim(VivadoSim):
     """Simulate the testbench on the routed netlist `vivado_synth` writes.
 
-    Runs `vivado_synth` with `write_netlist`, then simulates its functional netlist (`netlist`),
-    or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF
-    (`sdf_max`).
+    Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its
+    functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`)
+    annotated with its slow-corner SDF (`sdf_max`).
     """
 
     class Settings(VivadoSim.Settings):
         synth: VivadoSynth.Settings = Field(
             description="Settings for the `vivado_synth` dependency that produces the netlist. "
-            "`write_netlist` is forced on."
+            "`write_netlist` and `write_timing_netlist` are forced on."
         )
-        dependency_settings = {"synth": ()}  # nothing to propagate; `init` forces `write_netlist`
+        dependency_settings = {"synth": ()}  # nothing to propagate; `init` forces the netlists
         timing_sim: bool = Field(
             False,
             description="Simulate the routed timing netlist annotated with its slow-corner SDF, "
@@ -37,6 +37,7 @@ class VivadoPostsynthSim(VivadoSim):
 
         synth = ss.resolve_dependency("synth")
         synth.write_netlist = True
+        synth.write_timing_netlist = True
         self.add_dependency(VivadoSynth, synth)
 
     def run(self) -> None:
