@@ -1162,3 +1162,67 @@ def test_a_generator_with_text_args_runs_its_words(tmp_path):
     assert world.generated.is_file()
     world.load()
     assert world.runs == 1
+
+
+# --- what a log line says about the generator ---------------------------------------------
+
+
+def _generator_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if "enerator" in r.getMessage()]
+
+
+def test_the_log_names_the_design_and_what_its_generator_runs(tmp_path, caplog):
+    """Not the class name (`Generator`, which says nothing): the design and the command."""
+    world = World(tmp_path)
+    command = f"{sys.executable} gen.py {world.counter}"
+    with caplog.at_level("INFO", logger="xeda.design"):
+        world.load()
+    (line,) = [m for m in _generator_lines(caplog) if m.startswith("Running")]
+    assert line.startswith(f"Running the generator of design 'generated' ({command}): ")
+    assert "'Generator'" not in caplog.text
+    caplog.clear()
+    with caplog.at_level("INFO", logger="xeda.design"):
+        world.load()
+    (line,) = _generator_lines(caplog)
+    assert line.startswith(f"Not running the generator of design 'generated' ({command}): ")
+
+
+def test_a_generator_with_a_command_is_named_by_it(tmp_path, caplog):
+    world = World(
+        tmp_path, executable=None, command=f"{sys.executable} gen.py {tmp_path / 'runs.log'}"
+    )
+    with caplog.at_level("INFO", logger="xeda.design"):
+        world.load()
+    assert f"({sys.executable} gen.py " in caplog.text
+
+
+def test_the_record_failure_names_the_design_and_command(tmp_path, caplog):
+    """The messages of `xeda.generation` name the generator as the design's loader does."""
+    from xeda.design import Generator
+    from xeda.generation import Generation
+
+    generator = Generator(executable="python3", args=["hdmi_demo.py", "--build"])
+    generation = Generation(
+        "why",
+        run_root=lambda create: None,
+        outputs=lambda: [],
+        generator=generator,
+        design_root=tmp_path,
+        description=generator.describe("hdmi_demo", tmp_path),
+    )
+    with caplog.at_level("DEBUG", logger="xeda.generation"):
+        generation.produced()
+    assert (
+        "Keeping no record of the generator of design 'hdmi_demo' (python3 hdmi_demo.py --build)"
+        in caplog.text
+    )
+
+
+def test_a_generator_without_an_executable_is_named_by_its_kind():
+    from xeda.design import ChiselGenerator, Generator
+
+    assert Generator().describe("d") == "the generator of design 'd' (Generator)"
+    assert (
+        ChiselGenerator(project="gcd", main="Main").describe(None)
+        == "the generator (mill gcd.runMain Main)"
+    )

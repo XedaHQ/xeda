@@ -153,6 +153,7 @@ class Generation:
         generator: Optional[Generator] = None,
         design_root: Optional[Path] = None,
         outputs: Optional[Callable[[], Optional[List[Path]]]] = None,
+        description: Optional[str] = None,
     ) -> None:
         self.reason = reason
         self._run_root = run_root
@@ -161,6 +162,8 @@ class Generation:
         self._generator = generator
         self._design_root = design_root
         self._outputs = outputs
+        # How a message names the generator: its design and what it runs (`Generator.describe`).
+        self._description = description or (generator.describe() if generator else "a generator")
 
     def produced(self) -> None:
         """Record the sources this generation left, with their content, under the identity its
@@ -174,16 +177,14 @@ class Generation:
         assert self._generator is not None and self._design_root is not None
         produced = self._outputs()
         if not produced:
-            log.debug(
-                "Keeping no record of generator '%s': %s", self._generator.name, NOTHING_PRODUCED
-            )
+            log.debug("Keeping no record of %s: %s", self._description, NOTHING_PRODUCED)
             return
         try:
             outputs = _digests(produced, self._design_root)
             if generation_identity(self._generator, self._design_root) != self._identity:
                 log.info(
-                    "The inputs of generator '%s' changed while it ran: keeping no record of it",
-                    self._generator.name,
+                    "The inputs of %s changed while it ran: keeping no record of it",
+                    self._description,
                 )
                 return
             root = self._root if self._root is not None else self._run_root(True)
@@ -207,9 +208,7 @@ class Generation:
                     yaml.safe_dump(record, stream, sort_keys=True)
         except (OSError, ValueError, yaml.YAMLError) as error:
             # A record is an optimization: failing to keep one costs a re-run, never a wrong one.
-            log.warning(
-                "Cannot record what generator '%s' produced: %s", self._generator.name, error
-            )
+            log.warning("Cannot record what %s produced: %s", self._description, error)
 
 
 def _unjudgeable(generator: Generator) -> Optional[str]:
@@ -284,11 +283,12 @@ def judging_generation(
     run_root: Optional[Callable[[bool], Optional[Path]]] = None,
     planning: bool = False,
     rebuild_all: bool = False,
+    description: Optional[str] = None,
 ) -> Iterator[Generation]:
     """Judge a generator under a lease for its design tree, except during read-only planning."""
     if planning:
         with _judging_generation_unlocked(
-            generator, design_root, outputs, run_root, planning, rebuild_all
+            generator, design_root, outputs, run_root, planning, rebuild_all, description
         ) as generation:
             yield generation
         return
@@ -297,7 +297,7 @@ def judging_generation(
     design_root = Path(design_root).resolve()
     with generator_design_lock(design_root):
         with _judging_generation_unlocked(
-            generator, design_root, outputs, run_root, planning, rebuild_all
+            generator, design_root, outputs, run_root, planning, rebuild_all, description
         ) as generation:
             yield generation
 
@@ -310,6 +310,7 @@ def _judging_generation_unlocked(
     run_root: Optional[Callable[[bool], Optional[Path]]] = None,
     planning: bool = False,
     rebuild_all: bool = False,
+    description: Optional[str] = None,
 ) -> Iterator[Generation]:
     """Judge `generator` under a same-design-root lease and a per-identity record lock.
 
@@ -354,6 +355,7 @@ def _judging_generation_unlocked(
             generator=stated,
             design_root=design_root,
             outputs=outputs,
+            description=description,
         )
 
     root = run_root(False)
