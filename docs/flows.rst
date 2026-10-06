@@ -776,6 +776,8 @@ Defaults and limits:
   driver, it is an error.
 * ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
   an error, since Xeda's driver runs a C++ model.
+* A run root whose path has a space does not work with the Verilator release checked (5.052): its
+  makefile refuses to build in such a directory.
 * Verilator 5.024 or newer is required.
 
 Writing a new flow

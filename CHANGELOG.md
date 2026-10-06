@@ -121,6 +121,11 @@ All notable changes to this project will be documented in this file.
   Not affected: a cocotb testbench, a design with no testbench, `ghdl_sim` with a VHDL testbench
   (it finds the top with `ghdl find-top`), and a design with a C++ driver of its own for
   `verilator` and `yosys_sim`, whatever HDL its testbench also holds.
+- `verilator` includes the header of its hooks by name (`-include xeda_hooks.h`, found in the
+  directory the model is built in), no longer by the absolute path of the run directory: the C++
+  compiler flags go through make, which splits them at a space. The makefile of Verilator 5.052
+  still refuses to build in a directory whose path has a space, so a run root with one still fails
+  there.
 
 ### Added
 - **A design generator is judged by content, not by a modification time.**

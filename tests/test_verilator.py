@@ -180,6 +180,17 @@ def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_pat
     assert not flow.succeeded
 
 
+def test_the_hooks_header_is_included_by_name_not_by_the_run_directory_path(tmp_path):
+    """The compiler flags go through make, which splits them at a space: a path in them breaks
+    a build whose path has one. The model is compiled in `sim_dir`, where the header is."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #5 $finish; end", {"timing": True})
+    assert flow.succeeded
+    makefile = (flow.run_path / flow.settings.sim_dir / "Vtop.mk").read_text()
+    assert "-include xeda_hooks.h" in makefile
+    assert str(flow.run_path) not in makefile
+
+
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     """Two top-level candidates: the design's `tb.top` is the one simulated."""
     require_verilator()

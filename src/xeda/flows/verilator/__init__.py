@@ -520,7 +520,8 @@ class Verilator(SimFlow):
                 )
             for macro in HOOK_MACROS:
                 args += ["-CFLAGS", f"-D{macro}"]
-            args += ["-CFLAGS", f"-include {self.run_path / header}"]
+            # by name: make splits a flag at a space, and the model is compiled in `sim_dir`
+            args += ["-CFLAGS", f"-include {header.name}"]
 
         env = None
 

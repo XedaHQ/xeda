@@ -1323,6 +1323,9 @@ dependency must also share `custom_boards_file`.
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
+  The hooks header goes into the compiler flags by name (`-include xeda_hooks.h`, the model builds
+  in `sim_dir`): make splits flags at a space. The makefile of Verilator 5.052 still refuses a
+  build directory whose path has a space, so a run root with one fails there.
   `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
   `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
