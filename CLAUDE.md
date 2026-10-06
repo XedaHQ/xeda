@@ -84,7 +84,7 @@ xeda design-schema                   # JSON Schema of a design file
 xeda list-boards / list-platforms / list-optimizers
 xeda run vivado_synth examples/vhdl/sqrt/sqrt.yaml -s clock.period=5.0 impl.strategy=Debug
 xeda dse vivado_synth --design <file>  # parallel design-space exploration (Fmax search)
-xeda scrub <flow> <design_name>      # remove previous run dirs
+xeda scrub <flow> <design_name> [--target T]  # remove previous run dirs (every target's, or T's)
 ```
 
 Flow runs land in the **run root**, `./xeda_run/` (configurable via `--run-root` / `XEDA_RUN_ROOT`,
@@ -105,8 +105,9 @@ below). Each run dir gets `settings.json`, `results.json` and `trace.json`, plus
 `outputs/`, `checkpoints/`. Every run directory lies under the run root -- xeda created and marked
 it (`.xeda-run-root`, `.gitignore`, `CACHEDIR.TAG`); keep nothing of yours there.
 
-A run directory is `<run root>/<design>/<flow>` (or `<flow>_<hash>`) and nothing else:
-`get_flow_run_path` refuses a design name that is not a name (`design.DESIGN_NAME`) and a directory
+A run directory is `<run root>/<design>[/<target>]/<flow>` (or `<flow>_<hash>`) and nothing else:
+`get_flow_run_path` refuses a design name that is not a name (`design.DESIGN_NAME`), a target that
+is not a target name (`design.target_name_problem`) and a directory
 that leads out of the run root through a symbolic link; one that is itself a link resolving inside
 the run root is used. **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
 the launcher snapshots every file and directory under the run directory right before `run()`
@@ -206,8 +207,14 @@ Four orthogonal abstractions, deliberately decoupled:
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
   field, hash and dump but `target`. `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
-  carry it as `PlanContext.target`. Not yet: `<design>/<target>/<flow>` run directories,
-  `scrub --target`, shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
+  carry it as `PlanContext.target`, which names where every node runs: a run directory is
+  `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
+  the `target=` keyword of `run_path_of`/`get_flow_run_path` (never read from the launcher, which
+  may be reused), judged by `design.target_name_problem` at the path boundary and at load (a
+  name, no flow's, and no two of a design's differing only in case), and `_validate_plan` refuses
+  a plan for another target even when every hash is equal. The target is still no part of any
+  hash: equal targets build separately and stay fresh separately; a pre-target run
+  (`<design>/<flow>`) is neither reused nor touched by a target's launch. Not yet: shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level
   (refused, naming `flows.<flow>.<leaf>`: a top-level leaf has to reach every planned node that
   declares it, which needs the resolver to take a per-origin shared leaf, not a loader-time merge).
 - **`Flow`** (`flow/flow.py`) - *how* to build. Abstract; concrete flows live in `flows/<tool>/`.
@@ -827,7 +834,16 @@ make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clea
 read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
-takes the same exclusive lock and retains the durable lock file. Consumers hold verified
+takes the same exclusive lock and retains the durable lock file. **Scrub reads the disk, never
+a design file** (`default_runner.scrub_design`, with `scrub_runs` the one-directory form a
+launch's `--scrub` uses, so it stays in its own target): `xeda scrub FLOW DESIGN` collects `FLOW`
+and `FLOW_<hash>` run directories directly under `<design>` and under each directory below it
+that could be a target's (a target name, `design.target_name_problem`, holding none of
+`LAUNCH_DOCUMENTS`, so never a run directory) -- one level, found as they are, a target the design
+no longer names included -- and `--target T` only those under `<design>/T`; it lists them,
+confirms once, then removes each under its own lock and judges it again once the lock is held, a
+link out of the run root never followed. `--json` reports `target`, the `scanned` directories
+and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry

@@ -311,7 +311,8 @@ Keys beginning with `_` are internal and may change.
 
 ## Where output lands
 
-Default `./xeda_run/<design>/<flow>/`, under the run root `./xeda_run` (`--run-root` moves it).
+Default `./xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` for a design selected as a
+target), under the run root `./xeda_run` (`--run-root` moves it).
 The first time xeda uses a run root it creates and marks it (`.xeda-run-root`, `.gitignore`,
 `CACHEDIR.TAG`); **everything under a marked run root is xeda's -- never keep files of your own in
 `xeda_run/`.** A directory named as the run root that already holds files and carries no marker is

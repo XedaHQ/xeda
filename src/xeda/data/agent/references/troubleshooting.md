@@ -258,7 +258,8 @@ and `--incremental`/`--no-incremental` no longer exist - they fail naming their 
 | Keep each settings variant of a flow in its own directory | `--hashed-run-dirs` |
 | Want previous runs of this flow removed first | `--scrub` |
 
-By default a flow reuses one directory per design (`xeda_run/<design>/<flow>/`), which keeps
+By default a flow reuses one directory per design (`xeda_run/<design>/<flow>/`; per target,
+`xeda_run/<design>/<target>/<flow>/`), which keeps
 incremental tool state between runs - good while iterating, occasionally the cause of a confusing
 result; `--clean` empties it first and reruns everything ("make clean, then make"). A dependency
 gets its own directory, a sibling of the flow that launched it, never nested under it.
