@@ -1,4 +1,4 @@
-"""xeda's space: a run root it created and marked (D21).
+"""xeda's space: a run root it created and marked.
 
 Every run directory lies in a run root: `--run-root`, `XEDA_RUN_ROOT` or the launcher's
 `run_root`, `./xeda_run` by default. xeda works only in a run root it created, or one that was

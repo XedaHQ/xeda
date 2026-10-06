@@ -359,7 +359,7 @@ class Dse(FlowLauncher):
         # successful run".
         flow_class.check_required_settings(base_settings)
         flow_class.check_design_supported(design)
-        # D21: many variants would deliver to one path, so an exploration delivers nothing
+        # many variants would deliver to one path, so an exploration delivers nothing
         located = deliverable_locations(base_settings)
         if located or self.settings.outputs_to is not None:
             reason = "an exploration runs many variants, so nothing is delivered"

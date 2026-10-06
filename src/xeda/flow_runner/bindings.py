@@ -63,7 +63,7 @@ class BindingLayer:
 
     ``kind`` is the origin's rank: a ``"file"`` (design or project), the command line
     (``"cli"``) or the API (``"api"``). A chain adjacency is command-line data: it overrides a
-    file's binding of the same input and collides with a command-line or API one (PC1).
+    file's binding of the same input and collides with a command-line or API one.
     """
 
     location: str
@@ -206,7 +206,7 @@ def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], Inp
 
 
 def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
-    """PC1: a chain adjacency and a command-line or API binding of the same input are always
+    """A chain adjacency and a command-line or API binding of the same input are always
     an error, even when equal, before precedence or value validation. A design or project
     file's binding is not a collision: the chain, command-line data, overrides it."""
     chain = chain_bindings(request)
@@ -303,7 +303,7 @@ def effective_bindings(
     *,
     request: FlowRequest | None = None,
 ) -> Mapping[NodeKey, Mapping[str, InputBinding]]:
-    """`node_bindings` of every reached node that has any, after the PC1 collision check.
+    """`node_bindings` of every reached node that has any, after the chain collision check.
 
     Nodes are told apart by ``NodeKey``, never by flow name. This does not select edges,
     append design sources, compose producer settings or validate target-dependent types.
@@ -346,7 +346,7 @@ def input_origins(
 
 
 def node_identity(settings_hash: str, origins: Sequence[Any] = ()) -> str:
-    """D-9, the one identity rule: a node is its settings plus its ordered resolved input
+    """The one identity rule: a node is its settings plus its ordered resolved input
     origins (`input_origins`), for default and explicit edges alike. `settings_hash` is the
     settings-only `flowrun_hash`; a flow that declares no inputs has no origins.
 

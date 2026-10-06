@@ -517,7 +517,7 @@ def scrub_design(
 
 
 def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
-    """Rule R5: xeda empties and rewrites a flow's run directory, so no file of the design, and no
+    """xeda empties and rewrites a flow's run directory, so no file of the design, and no
     file a setting reads, may lie in the run directory of the flow that reads it (in another
     run's directory it is that run's output, read by content)."""
     run_dir = Path(os.path.realpath(run_path))
@@ -635,7 +635,7 @@ class FlowLauncher:
         post_cleanup_purge: bool = False
         # remove previous flow directories _before_ running the flow:
         scrub_old_runs: bool = False
-        #: copy the requested flow's artifacts into this directory once it succeeded (D21)
+        #: copy the requested flow's artifacts into this directory once it succeeded
         outputs_to: Optional[Path] = None
         #: replace a file at an output path the user named that is not xeda's own earlier,
         #: unchanged copy (`xeda.deliver`): never an input, a directory or a run root
@@ -857,7 +857,7 @@ class FlowLauncher:
         sections: Mapping[str, Any] | None,
         node_key: NodeKey | None = None,
     ) -> PlanNode:
-        """Validate a plan minted by this launcher; external plans are deferred (R3)."""
+        """Validate a plan minted by this launcher; external plans are not supported."""
         captured = self._plans.get(id(plan))
         context = plan.context
         # the whole design: the plan is of this request, not of one node's identity
@@ -896,7 +896,7 @@ class FlowLauncher:
         ):
             raise FlowFatalError("The plan does not match this request's settings")
         # Every node's identity is recomputed from its settings and its ordered input origins,
-        # producers first, by the one helper the resolver froze it with (D-9).
+        # producers first, by the one helper the resolver froze it with.
         identities: dict[str, str] = {}
         for planned in plan.nodes:
             try:
@@ -975,7 +975,7 @@ class FlowLauncher:
         produced; with the same settings, the second reuses the first's run. Every flow launched
         is appended to `launched` as it completes, whether it succeeded, failed or raised.
 
-        Outputs the user named (D21, `xeda.deliver`) are checked before any tool of their flow
+        Outputs the user named (`xeda.deliver`) are checked before any tool of their flow
         runs, noted when it succeeded or was found up to date, and delivered once the whole
         launch has finished -- only when the requested flow succeeded or was found up to date: a
         launch that raised, or whose requested flow reports failure, delivers nothing, not even
@@ -1135,14 +1135,14 @@ class FlowLauncher:
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
         )
-        # D21: a deliverable given as a location becomes its conventional name here, before the
+        # a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
         copy_resources = [res for res in copy_resources if os.path.isfile(res)]
         design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
             flow_class, flow_name, design, input_settings, node
         )
-        # gpt-6-sol's final (c): what this flow reads -- the settings of a dependency nested in
+        # What this flow reads -- the settings of a dependency nested in
         # its own included, and every file under a directory one names, as its trace lists it --
         # is an input no delivery of the launch may replace, nor land beside in such a directory:
         # registered before any of this flow's deliveries, or its dependencies', is checked
@@ -1311,8 +1311,8 @@ class FlowLauncher:
                 # from here until a new trace is written, nothing vouches for this directory
                 remove_trace(run_path)
                 if previous is not None:
-                    # R50 j: the reports the last run read are not this run's, whatever their
-                    # mtime (R49's rule, `Flow.report_file`, stays as a second line)
+                    # the reports the last run read are not this run's, whatever their mtime
+                    # (`Flow.report_file` is a second line of defense)
                     run_directory.remove(*(p for p in previous.reports if run_directory.holds(p)))
                 # The run starts now: its inputs are recorded as it finds them, so that a file
                 # edited while it runs no longer matches what its trace says it consumed.
@@ -1460,7 +1460,7 @@ class FlowLauncher:
                 settings.model_dump_json(exclude_unset=True, indent=2),
             )
             settings.debug = True  # the launcher's `--debug` is part of the input
-        # a path the flow writes that leads out of its run directory (rule R4), a setting the
+        # a path the flow writes that leads out of its run directory, a setting the
         # flow cannot run without, and a design it cannot run are reported now, before anything
         # is set up for the run
         check_launchable(flow_class, settings, design)
@@ -2097,7 +2097,7 @@ class FlowLauncher:
         design_remove_fields: list[str] = [],
         target: str | None = None,
     ) -> Plan:
-        """Plan what run() would execute, refusing side-effecting design loading (R2)."""
+        """Plan what run() would execute, refusing side-effecting design loading."""
         return self._resolve_request(
             self._request(
                 flow,
@@ -2279,7 +2279,7 @@ class FlowLauncher:
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)
-        # Ordinary calls keep P1's early CLI addressing check. A bound request is checked by
+        # Ordinary calls keep the early CLI addressing check. A bound request is checked by
         # the resolver against its graph: an alternate producer can be outside the default one.
         if (
             not any(layer.entries or layer.invalid_inputs for layer in binding_layers)
@@ -2295,7 +2295,7 @@ class FlowLauncher:
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
         final_flow_settings = compose_flow_settings(flow_class, origins)
         if settings_instance:
-            # Preserve P1's final-value model API while the captured CLI origin records only
+            # Preserve the final-value model API while the captured CLI origin records only
             # supplied contributions for nested-default diagnostics and shared agreement.
             final_flow_settings = compose_flow_settings(
                 flow_class, origins[:2], flow_settings, api_sections[flow_class.name]

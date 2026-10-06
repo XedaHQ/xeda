@@ -379,7 +379,7 @@ Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim``
 available yet, and the command below is refused today (``Flow `bsc` has
 no declared I/O and can only be run alone``). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
-showcase designs and targets that use them:
+example designs and targets that use them:
 
 .. code-block:: bash
 

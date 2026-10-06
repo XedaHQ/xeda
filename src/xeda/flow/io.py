@@ -1,4 +1,4 @@
-"""Declared inputs and outputs of a flow (plan 2's API, `14-plan-2-spec` section 2).
+"""Declared inputs and outputs of a flow.
 
 A flow declares its files the way it declares its settings: nested `Inputs` and `Outputs`
 models, one field per input or output, each made with `In(...)` or `Out(...)`. The annotation is

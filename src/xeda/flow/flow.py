@@ -302,7 +302,7 @@ def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
 
 
 def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
-    """What is wrong with the paths `settings` says the flow writes (D21, rule R4), as
+    """What is wrong with the paths `settings` says the flow writes, as
     `(key path, message)`: a working location that is not a name inside the run directory, a
     deliverable name that leaves it, and a variable that is not expanded (`$CWD`: the start
     directory is `$PWD`). A dependency's settings are checked by its own launch."""
@@ -446,7 +446,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
 def identity_settings(
     settings: "Flow.Settings", design_name: Optional[str] = None
 ) -> "Flow.Settings":
-    """`settings` as a run's identity sees them (D21): a copy in which every deliverable given as
+    """`settings` as a run's identity sees them: a copy in which every deliverable given as
     a location -- the flow's own, and one in a dependency's settings nested in them -- is its
     conventional name (`output_name`), the name the run writes the output under whatever the
     location. Where an output is delivered, and what it is called there, is never part of what
@@ -522,7 +522,7 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
     or under the directory xeda was started from counts relative to it (`$DESIGN_ROOT/c.xdc`),
     so moving a design, or starting xeda elsewhere, keeps the hash, and a path under xeda's own
     installation (a bundled platform's files) counts relative to that (`$XEDA/platforms/...`),
-    so two installations agree on it (PCD23). Paths count as their text:
+    so two installations agree on it. Paths count as their text:
     only a design's source files are hashed by content (`Design.rtl_hash`), and no directory's
     content is ever read. Where an output is delivered is no part of it (`identity_settings`,
     for the design `design_name`): a deliverable given as a location counts as its conventional
@@ -1257,7 +1257,7 @@ class Flow(metaclass=ABCMeta):
         self.implicit_inputs: List[Path] = []
         #: Every report the flow asked for (`report_file`), as an absolute path: the trace
         #: records those inside the run directory, which the launcher removes before the next
-        #: run executes, so a previous run's report is gone whatever its mtime (R50 j).
+        #: run executes, so a previous run's report is gone whatever its mtime.
         self.reports_read: List[Path] = []
         #: Set by the launcher: the previous run was still fresh and its results are reused.
         self.reused: bool = False

@@ -397,7 +397,7 @@ def rebuild_like(container: Any, items: List[Any]) -> Any:
 
 
 #: This installation's package directory: a path under it is xeda's own file, the same on every
-#: installation, so a run's identity counts it relative to it (`$XEDA/...`, PCD23), as it counts
+#: installation, so a run's identity counts it relative to it (`$XEDA/...`), as it counts
 #: a path under the design root relative to that. A module attribute, read at each call.
 XEDA_PACKAGE_ROOT = Path(__file__).absolute().parent
 

@@ -297,7 +297,7 @@ def flow_settings_from_sections(
     then can the depender see it: a setting it shares with the dependency is resolved in its
     `init()` (`resolve_dependency`), long before the dependency launches. Recursive. Only
     flows that still launch a dependency themselves have such a field; a declared producer's
-    settings are written under its own ``flows.<flow>`` (D-10).
+    settings are written under its own ``flows.<flow>``.
     """
     sections = sections or {}
     dependencies: dict[str, Any] = {}

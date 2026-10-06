@@ -2,7 +2,7 @@
 
 A generator runs while the design is loaded, before any flow, run directory or trace exists, so
 the decision cannot use the trace's machinery -- and its record may not be kept beside the design:
-everything outside a run root is the user's (D21). The record is therefore the same object as a
+everything outside a run root is the user's. The record is therefore the same object as a
 prepared Xilinx chip database (`flows.xilinx.prepare_chipdb`) with another payload: an entry under
 `<run root>/.cache/generators/`, named by an identity hashed from the generator's inputs and direct
 executable, holding the digest of every source the last generation left, written atomically under

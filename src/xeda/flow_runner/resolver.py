@@ -6,7 +6,7 @@ the design's typed sources, or by its declared default producer. Nodes are told 
 `NodeKey`, each resolved once, so every demand on a producer's outputs is known before its
 settings are frozen and hashed.
 
-Composition precedes agreement: a node keeps P1's origin-first precedence, while explicit
+Composition precedes agreement: a node keeps the origin-first precedence of `settings_layers`, while explicit
 shared leaves at different nodes are independent evidence. Only CLI/API leaves override the
 whole connected component. No flow instance or execution state is needed to make a plan.
 """
@@ -65,7 +65,7 @@ SHARED_SETTINGS = (
     "dont_use_cells",
 )
 #: Shared settings that are one value, compared and propagated whole -- never split into
-#: leaves and merged key by key with another node's (PCD17): a platform is a model.
+#: leaves and merged key by key with another node's: a platform is a model.
 INDIVISIBLE_SETTINGS = ("platform",)
 ORIGIN_NAMES = ("the project file", "the design file", "the command line")
 log = logging.getLogger(__name__)
@@ -295,7 +295,7 @@ def _at(values: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
 
 
 def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
-    """Merge with P1, retaining single-clock spellings until their lower layer is known."""
+    """Merge as `settings_layers` does, retaining single-clock spellings until their lower layer is known."""
     values = deepcopy(layer.values)
     incoming = dict(layer.locations)
     clock_inputs = dict(base.clock_inputs)
@@ -371,7 +371,7 @@ def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> 
     values = merge_layers(_explicit(raw), settings_cls=cls.Settings)
     _fpga_shorthands(values)
     locations = {path: _Location(label, kind) for path in _leaves(values)}
-    # P1 synthesizes a name when a singular spelling creates a clock. It is not caller input.
+    # `settings_layers` synthesizes a name when a singular spelling creates a clock. It is not caller input.
     original = merge_layers(_explicit(raw))
     singular = original.get("clock", {})
     if "clock_period" in original or (
@@ -403,7 +403,7 @@ def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: st
         for path, loc in own.locations.items()
     }
     located = _overlay(result, own, cls)
-    # P1 owns ordinary precedence and aliases; this traversal carries the parallel locations.
+    # `settings_layers` owns ordinary precedence and aliases; this traversal carries the parallel locations.
     composed = compose_flow_settings(cls, [sections])
     located.values = _located(composed, cls, origin, kind).values
     return located
@@ -465,7 +465,7 @@ def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
 
 
 #: one node's contribution to a shared setting at one leaf: the value it propagates, the key
-#: it is compared by (PCD17: the same value for every leaf but `platform` and `corner`), and
+#: it is compared by (the same value for every leaf but `platform` and `corner`), and
 #: where it was given
 _Leaf = tuple[Any, Any, "_Location"]
 
@@ -657,7 +657,7 @@ def _agree(
 
 
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Use P1's flow-name checks while preserving per-layer single-clock input syntax."""
+    """Use the flow-name checks of `settings_layers` while preserving per-layer single-clock input syntax."""
     normalized = merge_flow_sections(values, flow_class_for=registered_flow)
     for name, raw in (values or {}).items():
         cls = registered_flow(name)
@@ -702,7 +702,7 @@ def resolve(
     root_raw = _Located()
     for label, values, kind in layers:
         root_raw = _overlay(root_raw, _compose(flow_cls, values, label, kind), flow_cls)
-    # settings is normally already composed by P1. Preserve locations for identical leaves;
+    # settings is normally already composed by `settings_layers`. Preserve locations for identical leaves;
     # only additional caller edits form a final direct-API contribution.
     supplied = _located(
         _explicit(settings) if settings is not None else {}, flow_cls, "the API", "api"
@@ -718,7 +718,7 @@ def resolve(
         and not (known.get(path) == supplied_leaves[path] and path not in root_raw.locations)
     }
     if isinstance(settings, Flow.Settings):
-        # P1's single-clock normalization puts a generated name in model_fields_set too.
+        # The single-clock normalization puts a generated name in model_fields_set too.
         # A name equal to its mapping key carries no independent naming contribution.
         supplied.locations = {
             path: loc
@@ -805,7 +805,7 @@ def resolve(
         if key in by_node:
             return by_node[key]
         if raw is None:
-            # A producer's settings come from its own `flows.<producer>` sections (D-10).
+            # A producer's settings come from its own `flows.<producer>` sections.
             raw = _Located()
             for label, values, kind in layers:
                 raw = _overlay(raw, _compose(cls, values, label, kind), cls)

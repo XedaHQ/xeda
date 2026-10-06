@@ -47,7 +47,7 @@ class ChainElement:
 
     @property
     def node(self) -> str:
-        """The canonical request-node name (P3 currently has one node per flow)."""
+        """The canonical request-node name (a request has one node per flow)."""
         return self.flow_class.name
 
 

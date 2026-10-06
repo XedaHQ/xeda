@@ -1,6 +1,6 @@
 """A flow's run directory, and the one way anything in it is deleted.
 
-Every run directory is xeda's (D21): one the launcher chose under the run root it created
+Every run directory is xeda's: one the launcher chose under the run root it created
 (`claimed`), whose every file is the run's. Every deletion in it -- the launcher's (`--clean`,
 `--post-cleanup`, `xeda scrub`, DSE's pruning), a flow's, and those a tool script used to make --
 goes through `RunDirectory.remove`, `clear` or `delete`, which act inside the directory only:
