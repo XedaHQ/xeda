@@ -83,7 +83,18 @@ def test_a_protocol_6_remote_is_refused_for_the_vivado_synthesis_outputs():
     message = str(refused.value)
     assert "upgrade the remote xeda" in message
     assert "remote protocol 6" in message
-    assert "remote protocol 7 or newer" in message
+    assert "remote protocol 10 or newer" in message
+
+
+@pytest.mark.parametrize("protocol", [7, 8, 9])
+def test_pre_composite_remote_protocols_are_refused(protocol):
+    """The remote must resolve the same declared postsynth/power graph before shipping."""
+    with pytest.raises(RemoteIncompatible) as refused:
+        check_remote_xeda(
+            "0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", protocol
+        )
+    assert f"remote protocol {protocol}" in str(refused.value)
+    assert "remote protocol 10 or newer" in str(refused.value)
 
 
 def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
@@ -92,8 +103,8 @@ def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
     origins. `RemoteRunner` names the mirror by this side's hash and compares it with the one the
     remote reports, so a protocol-5 remote that was accepted would fail only afterwards, on a
     hash mismatch nobody can explain. It is refused up front, naming both protocols."""
-    assert xeda.REMOTE_PROTOCOL_VERSION == 7
-    assert REMOTE_PROTOCOL_MIN_VERSION == 7
+    assert xeda.REMOTE_PROTOCOL_VERSION == 10
+    assert REMOTE_PROTOCOL_MIN_VERSION == 10
     # this build satisfies its own floor, so a remote of this checkout is accepted
     check_remote_xeda(
         xeda.__version__,
@@ -106,7 +117,7 @@ def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
     message = str(refused.value)
     assert "upgrade the remote xeda" in message
     assert "remote protocol 5" in message
-    assert "remote protocol 7 or newer" in message
+    assert "remote protocol 10 or newer" in message
     assert "0.4.4.dev42+gabc" in message and "/site/xeda/__init__.py" in message
 
 
@@ -123,7 +134,7 @@ def test_the_probe_reports_the_imported_packages_version_and_capability():
         ).receive()
         assert reply[3] == "0.4.4.dev99+gprobe"
         assert reply[4].endswith("xeda/__init__.py")
-        assert reply[5] == 7
+        assert reply[5] == 10
     finally:
         gw.exit()
 

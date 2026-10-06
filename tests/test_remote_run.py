@@ -398,6 +398,11 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         # from this side's, so it must be refused here, not accepted and failed on a mirror hash
         ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
         ("0.4.4.dev1", 5, "ghdl_sim", None),
+        *[
+            ("0.4.4.dev1", protocol, flow, ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"])
+            for protocol in (7, 8, 9)
+            for flow in ("vivado_postsynth_sim", "vivado_power")
+        ],
         # protocol 6 predates the declared outputs of the Vivado synthesis flows and their
         # `write_timing_netlist` setting: it would refuse the setting or resolve another identity
         ("0.4.4.dev1", 6, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
@@ -447,7 +452,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     assert version in str(raised.value)
     assert "P3" in str(raised.value)
     assert f"remote protocol {protocol}" in str(raised.value)
-    assert "remote protocol 7 or newer" in str(raised.value)
+    assert "remote protocol 10 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
@@ -1851,3 +1856,29 @@ def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, m
         assert str(named_as.value) == planned.flowrun_hash
         seen.append(planned.flowrun_hash)
     assert seen[0] != seen[1]
+
+
+@pytest.mark.parametrize("flow_name", ["vivado_postsynth_sim", "vivado_power"])
+def test_remote_vivado_composite_resolves_the_same_declared_graph(
+    tmp_path, remote_host, monkeypatch, flow_name
+):
+    """Protocol 10 hand-over survives archive relocation and the remote identity check."""
+    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+
+    root = tmp_path / "design"
+    root.mkdir()
+    write_vivado_design(root)
+    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    flow = runner.run_remote(
+        root / "design.yaml", flow_name, host="somewhere", flow_settings=VIVADO_SETTINGS
+    )
+    assert flow and flow.succeeded
+    remote = _remote_run_dir(remote_host, flow_name)
+    results = json.loads((remote / "results.json").read_text())
+    assert results["flow_hash"] == flow.flow_hash
+    trace = json.loads((remote / "trace.json").read_text())
+    assert len(trace["declared_inputs"]) == (3 if flow_name == "vivado_postsynth_sim" else 2)
+    if flow_name == "vivado_power":
+        assert "Total On-Chip Power (W)" in flow.results
+        assert not any(key.startswith("sim.") for key in flow.results)
