@@ -1276,8 +1276,10 @@ dependency must also share `custom_boards_file`.
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
-- **`synth_pass_only` is an option group that reads the design's sources exactly as a bare
+- **`synth_pass_only` is an option group that reads the design's sources as a bare
   `yosys <files>` does, then runs the target's pass, and it refuses what would make it differ.**
+  The reader is still chosen by each source's `type` (xeda's source type is authoritative), so a
+  source whose explicit `type` contradicts its suffix is read as that type, not by suffix.
   The full recipe adds Xeda preparation and cleanup around the pass. Pass-only omits those
   Xeda-owned pre- and post-synthesis stages; design parameters, `synth_flags` and explicit ABC9
   script selection still apply in both modes. `Settings.synth_pass_only_conflicts()` (20
