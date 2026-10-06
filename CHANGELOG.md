@@ -276,6 +276,8 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- `dc` no longer needs `target_libraries` to be part of its settings model: the launch refuses a
+  run without one, naming how to give it, as it does for the other required settings.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged
