@@ -154,9 +154,57 @@ def test_the_default_recipe_still_runs_every_step_xeda_adds(
     commands = _commands(run_path, script_format)
     assert set(commands) >= {"hierarchy", "check", "proc", "opt_clean", "scratchpad"}
     # the libraries the pass reads in its `begin` step, read early so xeda's own passes resolve
-    # the primitives -- `synth_gowin` is the one target xeda has no libraries for
+    # the primitives
     reads = commands.count("read_verilog")
-    assert reads == (1 if target == "gowin" else 1 + len(_libraries(PARTS[target])))
+    assert reads == 1 + len(_libraries(PARTS[target]))
+
+
+def _flattening(run_path: Path, script_format: str) -> dict[str, bool]:
+    """Where the rendered script flattens: `prep -flatten` or a `flatten` command (xeda's own
+    steps), and `-flatten` on the target's pass."""
+    lines = (run_path / f"yosys_fpga_synth.{script_format}").read_text().splitlines()
+    words = [line.split()[1:] if line.startswith("yosys ") else line.split() for line in lines]
+    pass_line = next(w for w in words if w[:1] and w[0].startswith("synth_"))
+    return {
+        "xeda": any(w[:1] == ["flatten"] or (w[:1] == ["prep"] and "-flatten" in w) for w in words),
+        "pass": "-flatten" in pass_line,
+        "pass_off": "-noflatten" in pass_line,
+    }
+
+
+@BY_FORMAT
+@pytest.mark.parametrize(
+    "flatten,pass_only,expected",
+    [
+        (None, False, {"xeda": True, "pass": True, "pass_off": False}),
+        (True, False, {"xeda": True, "pass": True, "pass_off": False}),
+        (False, False, {"xeda": False, "pass": False, "pass_off": False}),
+        # the mode's rule is the pass's own defaults: `synth_xilinx` keeps the hierarchy
+        (None, True, {"xeda": False, "pass": False, "pass_off": False}),
+        (True, True, {"xeda": False, "pass": True, "pass_off": False}),
+        (False, True, {"xeda": False, "pass": False, "pass_off": False}),
+    ],
+)
+def test_xilinx_flattens_by_default_except_under_synth_pass_only(
+    tmp_path, toolchain, script_format, flatten, pass_only, expected
+):
+    """The measured better default: `synth_xilinx` alone keeps the hierarchy, and xeda's recipe
+    flattens it unless told not to. An explicit value is honored in both modes."""
+    settings: dict[str, Any] = {"synth_pass_only": pass_only}
+    if flatten is not None:
+        settings["flatten"] = flatten
+    run_path = _launch(tmp_path, PARTS["xilinx"], script_format=script_format, **settings)
+    assert _flattening(run_path, script_format) == expected
+
+
+@BY_FORMAT
+@pytest.mark.parametrize("target", ["ecp5", "ice40", "nexus", "gowin"])
+def test_the_other_targets_leave_flattening_to_their_pass_by_default(
+    tmp_path, toolchain, script_format, target
+):
+    """Those passes flatten on their own, so an unset `flatten` adds nothing of xeda's."""
+    run_path = _launch(tmp_path, PARTS[target], script_format=script_format)
+    assert _flattening(run_path, script_format) == {"xeda": False, "pass": False, "pass_off": False}
 
 
 def _share(tmp_path: Path) -> Path:
@@ -209,9 +257,8 @@ def test_a_verilog_lib_naming_the_passs_own_library_adds_no_read_however_it_is_s
     link, or spelled round about, is one library -- otherwise a configuration carrying it would
     read the library once more, and one read is enough to move every generated cell name.
     """
-    libraries = [library for library in _libraries(PARTS[target])]
-    if not libraries:
-        pytest.skip("synth_gowin reads no library, so no entry can name one")
+    libraries = _libraries(PARTS[target])
+    assert libraries
     run_path = _launch(
         tmp_path,
         PARTS[target],
@@ -248,7 +295,7 @@ def test_a_verilog_lib_that_is_not_the_passs_library_is_still_read(
 
 def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, toolchain, monkeypatch):
     """`yosys-config` runs only to compare an ordinary path with the pass's libraries: a
-    `+/` entry is yosys' own spelling, and Gowin's pass reads no library to compare with."""
+    `+/` entry is yosys' own spelling, so it needs no data directory."""
 
     def asked(*_):
         raise AssertionError("yosys' data directory was asked for")
@@ -257,7 +304,6 @@ def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, tool
     own = tmp_path / "own.v"
     own.write_text("module own(); endmodule\n")
     _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, verilog_lib=["+/xilinx/cells_sim.v"])
-    _launch(tmp_path, PARTS["gowin"], synth_pass_only=True, verilog_lib=[str(own)])
 
 
 @pytest.mark.parametrize("failure", ["missing", "blank"])
@@ -292,7 +338,7 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
 
 def _libraries(part: "str | dict[str, str]") -> list:
     settings = YosysFpga.Settings(fpga=part, clock={"period": 5.0})  # type: ignore[arg-type]
-    return settings.primitive_libraries((0, 63))
+    return settings.primitive_libraries()
 
 
 @BY_TARGET
@@ -306,7 +352,7 @@ def test_synth_pass_only_reads_no_primitive_library_but_still_says_which_the_pas
     """
     part = PARTS[target]
     settings = YosysFpga.Settings(fpga=part, clock={"period": 5.0}, synth_pass_only=True)  # type: ignore[arg-type]
-    assert settings.primitive_libraries((0, 63)) == _libraries(part)
+    assert settings.primitive_libraries() == _libraries(part)
     script = (_launch(tmp_path, part, synth_pass_only=True) / "yosys_fpga_synth.ys").read_text()
     reads = [line for line in script.splitlines() if line.startswith("read_verilog")]
     assert not [line for line in reads if " +/" in line], reads
@@ -910,7 +956,8 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
     the mode: a new pre- or post-pass added later fails here until it is classified."""
     default = set(_commands(_launch(tmp_path, PARTS["xilinx"]), "ys"))
     mode = set(_commands(_launch(tmp_path, PARTS["xilinx"], synth_pass_only=True), "ys"))
-    assert default - mode == {"hierarchy", "check", "proc", "opt_clean", "scratchpad"}
+    # `flatten`: xeda's recipe flattens for Xilinx by default, the pass alone does not
+    assert default - mode == {"hierarchy", "check", "proc", "flatten", "opt_clean", "scratchpad"}
     assert mode - default == set()
     assert not mode & DEVIATIONS
 

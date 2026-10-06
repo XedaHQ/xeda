@@ -321,6 +321,25 @@ def test_yosys_fpga_xilinx_primitive_frontends(tmp_path):
     assert flow is not None and flow.succeeded
 
 
+@pytest.mark.parametrize("family", ["GW1N-9", "GW2A-18", "GW5A-25"])
+def test_yosys_fpga_gowin_primitives_are_known_at_hierarchy_check(family, tmp_path):
+    """A design instantiating a Gowin primitive reaches the pass: the device library is read
+    before `hierarchy -check`, as `synth_gowin` itself reads it."""
+    require_yosys()
+    root = tmp_path / "gowin-primitives"
+    _write(
+        root / "top.v",
+        "module top(input clk, input d, output q);\n  DFF ff(.D(d), .CLK(clk), .Q(q));\nendmodule\n",
+    )
+    design = Design(
+        name="gowin-primitives", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga, design, {"fpga": {"vendor": "gowin", "family": "gowin", "device": family}}
+    )
+    assert flow is not None and flow.succeeded
+
+
 def test_yosys_fpga_xilinx_library_does_not_hide_unknown_modules(tmp_path):
     require_yosys()
     root = tmp_path / "unknown-xilinx-primitive"

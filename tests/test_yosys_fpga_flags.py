@@ -9,8 +9,11 @@ combination the pass accepts, or it is rejected -- never dropped -- and it is re
 the pass cannot honor it.
 """
 
+import os
 import re
+import shutil
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, FrozenSet, List
 
@@ -83,6 +86,7 @@ TARGETS: Dict[str, Dict[str, Any]] = {
     "crosslink-nx": {"part": "LIFCL-40-9BG400C"},
     "certus-nx": {"part": "LFD2NX-40-7BG256C"},
     "gw1n": {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"},
+    "gw2a": {"vendor": "gowin", "family": "gowin", "device": "GW2A-18"},
     "gw5a": {"vendor": "gowin", "family": "gowin", "device": "GW5A-25"},
 }
 
@@ -195,8 +199,8 @@ def test_every_setting_becomes_an_option_of_that_release_or_is_rejected(target):
         ("crosslink-nx", (0, 63), ["synth_lattice", "-family", "lifcl"]),
         ("certus-nx", (0, 69), ["synth_lattice", "-family", "lfd2nx"]),
         ("ecp5", (0, 63), ["synth_ecp5"]),
-        ("xilinx", (0, 68), ["synth_xilinx", "-family", "xc7", "-abc9"]),
-        ("xilinx", (0, 69), ["synth_xilinx", "-family", "xc7"]),
+        ("xilinx", (0, 68), ["synth_xilinx", "-family", "xc7", "-abc9", "-flatten"]),
+        ("xilinx", (0, 69), ["synth_xilinx", "-family", "xc7", "-flatten"]),
         ("ice40-up", (0, 69), ["synth_ice40", "-device", "u"]),
         ("ice40-hx", (0, 63), ["synth_ice40", "-device", "hx"]),
         ("gw1n", (0, 63), ["synth_gowin", "-family", "gw1n"]),
@@ -205,6 +209,35 @@ def test_every_setting_becomes_an_option_of_that_release_or_is_rejected(target):
 )
 def test_default_command(target, release, command):
     assert YosysFpga.Settings(fpga=TARGETS[target]).synth_command(release) == command
+
+
+@pytest.mark.parametrize("target", ["xilinx", "xilinx-lut4"])
+def test_xilinx_flattens_by_default_but_the_pass_only_mode_leaves_it_to_the_pass(target):
+    """`synth_xilinx` keeps the hierarchy unless told to flatten; xeda's recipe flattens it (the
+    measured better default), and `synth_pass_only` keeps the pass's own default."""
+    fpga = TARGETS[target]
+    for release in RELEASES:
+        flattened = YosysFpga.Settings(fpga=fpga).synth_command(release)
+        assert "-flatten" in flattened, (release, flattened)
+        for settings in (
+            {"flatten": False},
+            {"synth_pass_only": True},
+            {"synth_pass_only": True, "flatten": False},
+        ):
+            command = YosysFpga.Settings(fpga=fpga, **settings).synth_command(release)
+            assert "-flatten" not in command, (release, settings, command)
+        explicit = YosysFpga.Settings(fpga=fpga, synth_pass_only=True, flatten=True)
+        assert "-flatten" in explicit.synth_command(release)
+
+
+@pytest.mark.parametrize("target", [t for t in TARGETS if not t.startswith("xilinx")])
+def test_the_other_targets_pass_no_flatten_option_by_default(target):
+    """Their passes flatten unless told `-noflatten`, so an unset `flatten` adds no option."""
+    for release in RELEASES:
+        for pass_only in (False, True):
+            settings = YosysFpga.Settings(fpga=TARGETS[target], synth_pass_only=pass_only)
+            command = settings.synth_command(release)
+            assert not {"-flatten", "-noflatten"} & set(command), (release, pass_only, command)
 
 
 def test_classic_abc_and_no_abc_are_distinct_on_ice40():
@@ -390,31 +423,118 @@ def _begin_reads(pass_name: str) -> list[tuple[frozenset[str], str]]:
     return reads
 
 
-@pytest.mark.parametrize("target", ["xilinx", "ecp5", "ice40-hx", "crosslink-nx", "certus-nx"])
-def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(target):
-    """xeda reads each primitive library before the pass does, to check the hierarchy: with the
-    flags the pass reads it with (`-lib -specify`), so the two reads agree."""
-    require_yosys()
+_LIB = frozenset({"-lib", "-specify"})
+_LATTICE_ECP5 = {(_LIB, "+/lattice/cells_sim_ecp5.v"), (_LIB, "+/lattice/cells_bb_ecp5.v")}
+_LATTICE_NEXUS = {(_LIB, "+/lattice/cells_sim_nexus.v"), (_LIB, "+/lattice/cells_bb_nexus.v")}
+_XILINX = {(_LIB, "+/xilinx/cells_sim.v"), (frozenset({"-lib"}), "+/xilinx/cells_xtra.v")}
+
+
+def _gowin(family: str):
+    return {(_LIB, "+/gowin/cells_sim.v"), (_LIB, f"+/gowin/cells_xtra_{family}.v")}
+
+
+#: What each target's pass reads in its `begin` step, as `(flags, path)`. Every supported release
+#: (0.63 to 0.69) reads the same files: checked by running `synth_ecp5`, `synth_lattice`,
+#: `synth_nexus`, `synth_gowin`, `synth_xilinx` and `synth_ice40` of each release and listing the
+#: files its frontend read. `synth_ecp5` has always been `synth_lattice -family ecp5`, so it reads
+#: the Lattice library of its family, never `+/ecp5/cells_sim.v`. The iCE40 define is left out;
+#: it follows the device, and `test_the_ice40_library_is_defined_for_the_device` covers it.
+PASS_READS: Dict[str, set] = {
+    "xilinx": _XILINX,
+    "xilinx-lut4": _XILINX,
+    "ecp5": _LATTICE_ECP5,
+    "ice40-hx": {(_LIB, "+/ice40/cells_sim.v")},
+    "ice40-up": {(_LIB, "+/ice40/cells_sim.v")},
+    "crosslink-nx": _LATTICE_NEXUS,
+    "certus-nx": _LATTICE_NEXUS,
+    "gw1n": _gowin("gw1n"),
+    "gw2a": _gowin("gw2a"),
+    "gw5a": _gowin("gw5a"),
+}
+
+
+def _as_read(library) -> tuple:
+    flags = frozenset(w for w in library.flags if w != "-D" and not w.startswith("ICE40_"))
+    return flags, library.path
+
+
+def test_every_target_has_a_pass_read_to_compare_with():
+    assert set(PASS_READS) == set(TARGETS)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_primitive_libraries_are_exactly_what_the_pass_reads(target):
+    """Equal as sets, so a library the pass reads and xeda does not (Gowin's, once) fails as a
+    library xeda reads and the pass does not (ECP5's old `+/ecp5/cells_sim.v`) does. The table
+    holds for every supported release, so one list serves them all."""
+    libraries = YosysFpga.Settings(fpga=TARGETS[target]).primitive_libraries()
+    reads = [_as_read(library) for library in libraries]
+    assert len(reads) == len(set(reads)), libraries
+    assert set(reads) == PASS_READS[target], (target, libraries)
+
+
+def _named_by_help(path: str) -> str:
+    """A library's path as `yosys -h` writes it: without its family."""
+    path = re.sub(r"_(ecp5|nexus)(?=\.v$)", "", path)
+    return re.sub(r"(?<=cells_xtra_)gw\w+(?=\.v$)", "<family>", path)
+
+
+def _installed_release() -> YosysRelease:
     version = subprocess.run(["yosys", "-V"], capture_output=True, text=True, check=True).stdout
     match = re.search(r"Yosys (\d+)\.(\d+)", version)
     assert match, version
-    release: YosysRelease = min((int(match[1]), int(match[2])), NEWEST_CHECKED_YOSYS)
+    return min((int(match[1]), int(match[2])), NEWEST_CHECKED_YOSYS)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(target, tmp_path):
+    """The installed pass, both ways: the files its frontend reads in `begin` are the files xeda
+    reads, and with the flags its help gives them (`-lib -specify`). The table the other test
+    checks every release against must agree with it too."""
+    require_yosys()
+    release = _installed_release()
     settings = YosysFpga.Settings(fpga=TARGETS[target])
-    libraries = settings.primitive_libraries(release)
-    assert libraries
-    # the help names a family's file without its family: `cells_sim.v` for `cells_sim_ecp5.v`
+    libraries = settings.primitive_libraries()
+    assert {_as_read(library) for library in libraries} == PASS_READS[target]
+    # the help names a family's file without its family: `cells_sim.v` for `cells_sim_ecp5.v`,
+    # `cells_xtra_<family>.v` for `cells_xtra_gw1n.v`
     pass_reads = _begin_reads(settings.synth_command(release)[0])
-    for library in libraries:
-        name = re.sub(r"_(ecp5|nexus)(?=\.v$)", "", library.path)
-        # a define is the pass's too, by the device: the help shows the default one
-        flags = frozenset(w for w in library.flags if not w.startswith("ICE40_") and w != "-D")
-        assert (flags, name) in {
-            (frozenset(f for f in fl if f != "-D" and not f.startswith("ICE40_")), p)
-            for fl, p in pass_reads
-        }, (library, pass_reads)
+    named_by_help = {
+        (flags, _named_by_help(path)) for flags, path in (_as_read(x) for x in libraries)
+    }
+    assert named_by_help == {
+        (frozenset(f for f in flags if f != "-D" and not f.startswith("ICE40_")), path)
+        for flags, path in pass_reads
+    }, (libraries, pass_reads)
+    # and the files it really reads, from a run: the first command reads the design, the pass
+    # then reads its libraries before it checks the hierarchy
+    (tmp_path / "top.v").write_text("module top(input a, output b); assign b = a; endmodule\n")
+    command = " ".join([*settings.synth_command(release), "-top", "top", "-run", "begin:coarse"])
+    log = subprocess.run(
+        ["yosys", "-p", f"read_verilog top.v; {command}"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    datdir = Path(
+        subprocess.run(
+            [str(Path(shutil.which("yosys") or "yosys").with_name("yosys-config")), "--datdir"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    )
+    files = re.findall(r"^\d+\.\d+\. Executing Verilog-2005 frontend: (.*)$", log, re.MULTILINE)
+    read = {
+        "+/" + Path(os.path.normpath(f)).relative_to(os.path.normpath(datdir)).as_posix()
+        for f in files
+        if Path(f).name != "top.v"
+    }
+    assert read == {library.path for library in libraries}, (read, libraries)
 
 
 def test_the_ice40_library_is_defined_for_the_device():
     for part, define in (("iCE40HX1K-TQ144", "ICE40_HX"), ("iCE40UP5K-SG48I", "ICE40_U")):
-        (library,) = YosysFpga.Settings(fpga={"part": part}).primitive_libraries((0, 69))
+        (library,) = YosysFpga.Settings(fpga={"part": part}).primitive_libraries()
         assert library.flags[:2] == ("-D", define), library

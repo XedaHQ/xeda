@@ -53,6 +53,12 @@ All notable changes to this project will be documented in this file.
 - A message about a Chisel generator with `build_system: bloop` and no `project` named the
   command `bloop projects`, which only finds the project. It names the kind of generator
   (`ChiselGenerator`) until a project is selected.
+- `yosys_fpga` for Gowin read no primitive library, so a design that instantiated a Gowin
+  primitive (`DFF`, for example) failed at `hierarchy -check`. It now reads the two libraries
+  `synth_gowin` reads, `cells_sim.v` and the `cells_xtra_<family>.v` of the device's family. For
+  ECP5 with Yosys older than 0.69 it read `+/ecp5/cells_sim.v`, a file the pass never reads, and
+  not `cells_bb_ecp5.v`; every supported release reads the Lattice pair, as the pass does. A test
+  now compares the libraries with the pass's own, in both directions, for every target.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -310,6 +316,12 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **`yosys_fpga` flattens Xilinx designs by default.** `synth_xilinx` alone keeps the hierarchy,
+  and flattening was never worse in 18 measured designs: Fmax rose by a factor of 1.08 (1.03 to
+  1.13), at a cost of 0.2 to 1.1 CPU seconds. An unset `flatten` now adds `-flatten` for Xilinx targets; `flatten: false`
+  keeps the hierarchy. Under `synth_pass_only`, an unset `flatten` is still the pass's own
+  choice, so that mode keeps matching a native `yosys` run. The other targets' passes flatten on
+  their own and are unchanged. Netlists, and the results of runs that used the default, change.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

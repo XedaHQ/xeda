@@ -160,8 +160,9 @@ class YosysBase(Flow):
         flatten: Optional[bool] = Field(
             None,
             description="Flatten the design hierarchy. Unset leaves it to the synthesis command: "
-            "`synth` and `synth_xilinx` keep the hierarchy, while the Lattice, iCE40 and Gowin "
-            "passes flatten it.",
+            "`synth` keeps the hierarchy, while the Lattice, iCE40 and Gowin passes flatten it. "
+            "`yosys_fpga` flattens a Xilinx design when this is unset, unless `synth_pass_only` "
+            "leaves it to `synth_xilinx`, which keeps the hierarchy.",
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],

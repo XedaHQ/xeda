@@ -295,32 +295,38 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                 "families ecp5, ice40 and nexus."
             )
 
-        def primitive_libraries(self, release: YosysRelease) -> list[PrimitiveLibrary]:
+        def primitive_libraries(self) -> list[PrimitiveLibrary]:
             """The primitive models the target's pass reads in its `begin` step, which xeda reads
-            the same way before checking the hierarchy (`tests/test_yosys_templates.py` compares
-            them with the installed yosys's own `begin`)."""
+            the same way before checking the hierarchy. Every supported yosys release reads the
+            same files. `tests/test_yosys_fpga_flags.py` compares them with each release's pass
+            and with the installed yosys's own `begin`, in both directions."""
             target = self.synthesis_target()
             if target == "xilinx":
                 return [
                     PrimitiveLibrary("+/xilinx/cells_sim.v"),
                     PrimitiveLibrary("+/xilinx/cells_xtra.v", ("-lib",)),
                 ]
-            if target == "nexus":
+            if target in ("ecp5", "nexus"):  # `synth_<target>` is `synth_lattice -family <family>`
                 return [
-                    PrimitiveLibrary("+/lattice/cells_sim_nexus.v"),
-                    PrimitiveLibrary("+/lattice/cells_bb_nexus.v"),
+                    PrimitiveLibrary(f"+/lattice/cells_sim_{target}.v"),
+                    PrimitiveLibrary(f"+/lattice/cells_bb_{target}.v"),
                 ]
-            if target == "ecp5" and release >= (0, 69):
+            if target == "gowin":
                 return [
-                    PrimitiveLibrary("+/lattice/cells_sim_ecp5.v"),
-                    PrimitiveLibrary("+/lattice/cells_bb_ecp5.v"),
+                    PrimitiveLibrary("+/gowin/cells_sim.v"),
+                    PrimitiveLibrary(f"+/gowin/cells_xtra_{self._gowin_family()}.v"),
                 ]
-            if target == "ecp5":
-                return [PrimitiveLibrary("+/ecp5/cells_sim.v")]
-            if target == "ice40":
-                define = f"ICE40_{self._ice40_device().upper()}"
-                return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
-            return []
+            define = f"ICE40_{self._ice40_device().upper()}"
+            return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
+
+        def effective_flatten(self) -> Optional[bool]:
+            """Whether xeda's recipe flattens the design: `flatten` when it is set. Unset, a
+            Xilinx target flattens, which `synth_xilinx` alone does not (it keeps the hierarchy)
+            and which measured better; `synth_pass_only` keeps the pass's own default. None is the
+            pass's choice: the other targets' passes flatten unless told not to."""
+            if self.flatten is None and self.synthesis_target() == "xilinx":
+                return not self.synth_pass_only
+            return self.flatten
 
         def synth_command(self, release: YosysRelease) -> List[str]:
             """The device synthesis command for yosys `release`, with its flags.
@@ -384,11 +390,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     raise FlowSettingsException("synth_gowin has no -dff option for abc_dff.")
                 command.append("-dff")
             # `synth_xilinx` keeps the hierarchy unless told to flatten; the others flatten it
-            # unless told not to. An unset `flatten` leaves the pass's own choice.
+            # unless told not to. An unset `flatten` leaves the pass's own choice, except that
+            # xeda's recipe flattens for Xilinx (`effective_flatten`).
+            flatten = self.effective_flatten()
             if target == "xilinx":
-                if self.flatten:
+                if flatten:
                     command.append("-flatten")
-            elif self.flatten is False:
+            elif flatten is False:
                 command.append("-noflatten")
             if self.nobram:
                 command.append("-nobram")
@@ -791,7 +799,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         release = yosys_release(self.yosys)
         synth_command = ss.synth_command(release)
-        libraries = ss.primitive_libraries(release)
+        libraries = ss.primitive_libraries()
 
         abc_constr_file = None
         if ss.abc_constr:

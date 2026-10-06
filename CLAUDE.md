@@ -1463,6 +1463,10 @@ dependency must also share `custom_boards_file`.
   Source path spelling matters because Yosys embeds it in generated names. No general area/timing
   advantage should be claimed from the mode.
 
+  `flatten` is mode-specific too: unset, xeda's recipe flattens a Xilinx design (`Settings.effective_flatten`,
+  where `synth_xilinx` alone keeps the hierarchy), while `synth_pass_only` leaves it to the pass; the other
+  targets' passes flatten on their own, so unset adds nothing there. An explicit value applies in both modes.
+
   ABC9 script defaults are mode-specific: with `abc9_script=None`, the full Xeda recipe selects
   `flow3`, while pass-only leaves the synthesis pass's choice in effect. The full recipe also
   derives ABC9 delay from the clock; pass-only does not add that implicit delay. An explicit
@@ -1476,7 +1480,9 @@ dependency must also share `custom_boards_file`.
 
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The
-  target pass's `primitive_libraries()` still describes the libraries it reads internally.
+  target pass's `primitive_libraries()` still describes the libraries it reads internally (one list
+  for every supported release; `tests/test_yosys_fpga_flags.py` checks it against the pass's own
+  `begin` step in both directions, for every target, Gowin included).
   `verilog_lib` is a reviewed user read after sources; when it names a file already read by the
   pass, `YosysFpga.verilog_libraries_to_read()` skips that duplicate by file identity. Yosys' `+/...`
   spelling is compared lexically; ordinary paths are compared against the selected Yosys

@@ -48,7 +48,7 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
     extra = {}
     if flow_cls is YosysFpga:
         extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
-        libraries = flow.settings.primitive_libraries(NEWEST_CHECKED_YOSYS)
+        libraries = flow.settings.primitive_libraries()
         # as `YosysFpga.run()` does: the reads, and the `verilog_lib` entries that are not one
         extra["primitive_libraries"] = [] if flow.settings.synth_pass_only else libraries
         extra["verilog_libs"] = flow.verilog_libraries_to_read(libraries)
@@ -123,30 +123,31 @@ def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, script_format, tmp
 
 
 @pytest.mark.parametrize(
-    "fpga,release,expected",
+    "fpga,expected",
     [
         (
             {"part": "LFE5U-25F-6BG256C"},
-            (0, 69),
             ["+/lattice/cells_sim_ecp5.v", "+/lattice/cells_bb_ecp5.v"],
         ),
         (
             {"part": "iCE40HX1K-TQ144"},
-            (0, 69),
             ["+/ice40/cells_sim.v"],
         ),
         (
             {"part": "LIFCL-40-9BG400C"},
-            (0, 69),
             ["+/lattice/cells_sim_nexus.v", "+/lattice/cells_bb_nexus.v"],
+        ),
+        (
+            {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"},
+            ["+/gowin/cells_sim.v", "+/gowin/cells_xtra_gw1n.v"],
         ),
     ],
 )
-def test_fpga_primitive_libraries_follow_release_recipe(fpga, release, expected):
+def test_fpga_primitive_libraries_follow_the_target(fpga, expected):
     from xeda.flows.yosys.yosys_fpga import YosysFpga
 
     settings = YosysFpga.Settings(fpga=fpga)
-    assert [library.path for library in settings.primitive_libraries(release)] == expected
+    assert [library.path for library in settings.primitive_libraries()] == expected
 
 
 @pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])

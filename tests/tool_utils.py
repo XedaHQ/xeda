@@ -735,12 +735,15 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
     yosys_files = {
         "xilinx/cells_sim.v": "// fake Xilinx simulation primitives\n",
         "xilinx/cells_xtra.v": "// fake Xilinx extra primitives\n",
-        "ecp5/cells_sim.v": "// fake ECP5 simulation primitives\n",
         "ice40/cells_sim.v": "// fake iCE40 simulation primitives\n",
         "lattice/cells_sim_ecp5.v": "// fake ECP5 simulation primitives\n",
         "lattice/cells_bb_ecp5.v": "// fake ECP5 black boxes\n",
         "lattice/cells_sim_nexus.v": "// fake Nexus simulation primitives\n",
         "lattice/cells_bb_nexus.v": "// fake Nexus black boxes\n",
+        "gowin/cells_sim.v": "// fake Gowin simulation primitives\n",
+        "gowin/cells_xtra_gw1n.v": "// fake Gowin GW1N extra primitives\n",
+        "gowin/cells_xtra_gw2a.v": "// fake Gowin GW2A extra primitives\n",
+        "gowin/cells_xtra_gw5a.v": "// fake Gowin GW5A extra primitives\n",
     }
     for name, content in yosys_files.items():
         path = yosys_share / name

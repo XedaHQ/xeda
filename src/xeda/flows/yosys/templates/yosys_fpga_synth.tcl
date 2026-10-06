@@ -10,10 +10,10 @@ yosys logger -notime
 
 {% if not pass_only -%}
 {% if settings.prep is not none -%}
-yosys prep {%- if settings.flatten %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
+yosys prep {%- if settings.effective_flatten() %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
 {% else %}
 yosys proc
-{% if settings.flatten -%}
+{% if settings.effective_flatten() -%}
 yosys flatten
 {% endif -%}
 {% endif -%}
