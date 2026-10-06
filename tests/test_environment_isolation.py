@@ -15,7 +15,16 @@ import pytest
 TESTS = Path(__file__).parent
 
 #: Methods that write the mapping.
-WRITING_METHODS = {"update", "setdefault", "pop", "popitem", "clear"}
+WRITING_METHODS = {
+    "update",
+    "setdefault",
+    "pop",
+    "popitem",
+    "clear",
+    "__setitem__",
+    "__delitem__",
+    "__ior__",
+}
 #: Functions that write the process environment behind the mapping's back.
 WRITING_FUNCTIONS = {"putenv", "unsetenv"}
 
@@ -116,6 +125,9 @@ def test_no_test_writes_the_environment_directly() -> None:
         'os.environ.update({"A": "b"})',
         'os.environ.setdefault("A", "b")',
         'os.environ.pop("A", None)',
+        'os.environ.__setitem__("A", "b")',
+        'os.environ.__delitem__("A")',
+        'os.environ.__ior__({"A": "b"})',
         'os.putenv("A", "b")',
         'os.unsetenv("A")',
     ],
