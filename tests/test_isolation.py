@@ -47,7 +47,7 @@ from .tool_utils import (
 )
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
-#: PR #88's example, for the flows whose tools read Bluespec
+#: The Bluespec example, for the flows whose tools read Bluespec
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 PACKAGE = Path(xeda.__file__).parent
 
@@ -536,7 +536,7 @@ def test_a_launch_needs_nothing_writable_but_its_run_root(flow_class, tmp_path, 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
 def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, monkeypatch):
-    """With the real tools: bsc compiles PR #88's `gcd` and Bluesim
+    """With the real tools: bsc compiles the `gcd` example and Bluesim
     runs its Bluespec testbench, everything but the run root read-only."""
     require_bluesim()
     world = _world(tmp_path)

@@ -534,7 +534,7 @@ def test_a_remote_run_takes_a_target(tmp_path, remote_host):
 
 
 #: A design dependency at the protocol floor (`GitReference`) and the keys it accepts as `null`.
-#: Unlike the old floor, this one accepts an unset local_cache directly.
+#: It accepts an unset local_cache directly.
 ARCHIVE_GIT_REFERENCE_KEYS = {
     "uri",
     "rtl",
