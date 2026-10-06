@@ -594,10 +594,19 @@ design against itself across settings or seeds with one toolchain, not across to
 **Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
 database and the part, into a scratch file in its run directory, and publishes the bitstream
 only when the packer succeeded with a nonempty file: a failed run leaves no partial bitstream.
+A Project X-Ray database often has the part data of one speed grade only. The pin map and the
+configuration layout of a part do not depend on its speed grade, so ``fpga_pack`` uses the
+directory of the exact part when the database has one. If not, it uses the directory of the
+same device and package at the lowest other speed grade (the smallest grade number; a plain
+grade comes before its ``L`` variant), and logs which part it asked for and which directory it
+used. It never uses another device or package: if the database has no directory for the device
+and package, ``fpga-as`` reports the missing part. ``nextpnr`` keeps the exact grade for timing.
+The files of the directory in use are inputs of the run: an edit of one, or a new directory for
+the exact part, makes ``fpga_pack`` run again.
 ``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
 ``verify`` is accepted only with it.
 
-What is not noticed: an in-place change of the installed Project X-Ray database alone, with
+What is not noticed: an in-place change of other files of the installed Project X-Ray database, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
 from its own installation are not inputs; ``--rebuild-all`` runs everything).
 

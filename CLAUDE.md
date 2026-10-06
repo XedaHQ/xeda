@@ -508,7 +508,14 @@ nextpnr is reported by the `ERROR:` lines of this run's log (`Nextpnr._failure`:
 error at its origin, a missed timing constraint, else the tool's failure) -- a warning is never
 the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
 killed run left) and publishes with `replacing_copy` only a nonempty file of a packer that
-exited 0. Known limit: an in-place change of the installed Project X-Ray data alone, with
+exited 0. `fpga-as` is given the part's own Project X-Ray directory (`<family>/<part>/part.json`)
+when the database has it; else the directory of the lowest speed grade of the same device and
+package (`xilinx.locate_part_data`: smallest grade number, a plain grade before its `L` variant,
+never another device or package; the pin map and configuration layout do not depend on the grade,
+and `nextpnr` keeps the exact grade for timing), logged at info level naming both parts. With no
+such directory, `fpga-as` gets the exact part and reports it missing. `FpgaPack.prepare_inputs`
+registers that directory's files as implicit inputs, so an edit, or a new exact directory, makes
+the run stale. Known limit: an in-place change of other installed Project X-Ray data, with
 `fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards

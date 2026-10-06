@@ -192,6 +192,12 @@ All notable changes to this project will be documented in this file.
   warning does not fail the run, unless `warnings_fatal` is set. `timing` stays off by default.
 
 ### Added
+- `fpga_pack` packs a Xilinx 7-series part whose exact speed grade the Project X-Ray database
+  lacks with the part data of the same device and package at the lowest other speed grade
+  (for example `xc7k325tffg676-2`, whose database has only the `-1` directory). The pin map and
+  configuration layout do not depend on the speed grade; `nextpnr` keeps the exact grade for
+  timing. The flow logs both parts, never uses another device or package, and records the files
+  it read, so a change of them runs it again.
 - **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
   every file of its `sources` (a directory counts as every file in it, outside the design root

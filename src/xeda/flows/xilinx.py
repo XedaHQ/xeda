@@ -242,6 +242,69 @@ def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
     return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
+@dataclass(frozen=True)
+class PartData:
+    """The Project X-Ray part data ``fpga-as`` packs one part with.
+
+    ``name`` is the part whose directory ``directory`` is: the part asked for, or another speed
+    grade of the same device and package.
+    """
+
+    requested: str
+    name: str
+    directory: Path
+
+    @property
+    def exact(self) -> bool:
+        return self.name.lower() == self.requested.lower()
+
+    def files(self) -> list[Path]:
+        """Every file of the directory: the pin map and the configuration layout."""
+        return sorted(path for path in self.directory.iterdir() if path.is_file())
+
+
+def _speed_grade_order(name: str) -> tuple[int, int, str]:
+    """Order of a part's speed grades: the number, then a plain grade before its ``L`` variant."""
+    match = re.fullmatch(r"(\d+)(L?)", (FPGA(name).speed or "").lstrip("-").upper())
+    return (int(match[1]), len(match[2]), name) if match else (sys.maxsize, 0, name)
+
+
+def locate_part_data(selection: XilinxSelection) -> PartData | None:
+    """The part data directory of ``selection``: the exact part's, if the database has it.
+
+    The pin map and the configuration layout of a part do not depend on its speed grade (only
+    timing does, and ``nextpnr`` keeps the exact grade for that), and a database often has the
+    directory of one grade only. When the exact part has none, the directory of the lowest speed
+    grade of the same device and package stands in: the smallest grade number, a plain grade
+    before its ``L`` variant. Never another device or package. ``None`` when no directory of
+    that device and package holds a ``part.json``.
+    """
+    root = selection.database / selection.family
+    exact = root / selection.name
+    if (exact / "part.json").is_file():
+        return PartData(selection.part, selection.name, exact)
+    parts_path = root / "mapping/parts.yaml"
+    parts = _mapping(parts_path, selection.part)
+    wanted = FPGA(selection.part)
+    candidates = []
+    for name, entry in parts.values():
+        try:
+            other = FPGA(name)
+            same_device = _mapped_name(entry, "device", parts_path, name) == selection.device
+        except (ValueError, FlowFatalError):
+            continue
+        if (
+            same_device
+            and (other.package, other.pins) == (wanted.package, wanted.pins)
+            and (root / name / "part.json").is_file()
+        ):
+            candidates.append(name)
+    if not candidates:
+        return None
+    name = min(candidates, key=_speed_grade_order)
+    return PartData(selection.part, name, root / name)
+
+
 def _tree_contents(
     root: Path, ancestors: frozenset[Path] = frozenset()
 ) -> tuple[tuple[str, str], ...]:
