@@ -21,6 +21,7 @@ a broken world and see it find them.
 """
 
 import ast
+import json
 import inspect
 import re
 import textwrap
@@ -244,6 +245,13 @@ def _leaf_flow_launch(flow_class, tmp_path, monkeypatch):
     return world, plans
 
 
+#: The flows whose request the resolver refuses in the isolation sweep's world, with why. Reviewed:
+#: a flow joining the list needs a reason, and one that leaves it must be removed.
+PLANNING_REFUSED = {
+    "vivado_power": "its producer vivado_postsynth_sim cannot run the sweep's cocotb testbench",
+}
+
+
 @pytest.mark.parametrize("flow_class", [cls for cls, _ in FLOWS], ids=[n for _, n in FLOWS])
 def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     flow_class, tmp_path, monkeypatch
@@ -251,23 +259,25 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     """A flow that declares nothing goes through the resolver like any other: its plan has one
     node, and that node is what a launch without a plan used to make -- the run directory, the
     recorded settings and the identity are those of the flow's own validated settings."""
+    from pathlib import Path
+
     from xeda import Design
+    from xeda.flow import flowrun_hash
     from xeda.flow_runner.bindings import node_identity
     from xeda.flow_runner.default_runner import DefaultRunner
+    from xeda.flow_runner.trace import as_recorded
 
     from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN
 
     world, plans = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
     asked = [plan for plan in plans if plan is flow_class or plan.requested == flow_class.name]
     assert len(asked) == 1, f"{flow_class.name} was not launched through the resolver"
-    if asked[0] is flow_class:  # planning refused it: the design does not suit the flow
+    if asked[0] is flow_class:
+        assert flow_class.name in PLANNING_REFUSED, f"planning refused {flow_class.name}"
         return
+    assert flow_class.name not in PLANNING_REFUSED, f"{flow_class.name} plans now: unlist it"
     plan = asked[0]
-    if not (declared_inputs(flow_class) or declared_outputs(flow_class)):
-        assert [node.name for node in plan.nodes] == [flow_class.name]
-        node = plan.node(flow_class.name)
-        assert node.inputs == () and node.origins == ()
-        assert node.flowrun_hash == node_identity(node.settings_hash)
+    node = plan.node(flow_class.name)
     rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
     design = Design(
         name="sqrt",
@@ -278,8 +288,21 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     )
     settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
     again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
-    assert again.node(flow_class.name).flowrun_hash == plan.node(flow_class.name).flowrun_hash
-    assert plan.node(flow_class.name).run_path == world.root / "sqrt" / flow_class.name
+    assert again.node(flow_class.name).flowrun_hash == node.flowrun_hash
+    assert node.run_path == world.root / "sqrt" / flow_class.name
+    if declared_inputs(flow_class) or declared_outputs(flow_class):
+        return
+    assert [n.name for n in plan.nodes] == [flow_class.name]
+    assert node.inputs == () and node.origins == ()
+    assert node.flowrun_hash == node_identity(node.settings_hash)
+    # what a launch without a plan made: the flow's own settings, validated in the same context
+    direct = flow_class.Settings.from_input(
+        settings, design_root=design.root_path, runner_cwd=Path.cwd()
+    )
+    assert node.settings_hash == flowrun_hash(flow_class.name, direct, design.name)
+    recorded = json.loads((node.run_path / "settings.json").read_text())
+    assert recorded["flow_settings"] == as_recorded(direct)
+    assert recorded["flowrun_hash"] == node.flowrun_hash
 
 
 # ------------------------------------------------------------------------- no registration

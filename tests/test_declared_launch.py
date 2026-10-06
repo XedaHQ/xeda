@@ -100,6 +100,15 @@ def test_run_composes_a_producer_s_own_section_and_plan_launches_nothing(tmp_pat
     assert taker is not None and taker.results["read"] == "from its section\n"
 
 
+def test_a_plan_cannot_launch_a_flow_it_has_no_node_for(tmp_path, design):
+    runner = _runner(tmp_path)
+    plan = runner.plan(_Maker, design)
+    assert [node.name for node in plan.nodes] == ["__maker"]
+    with pytest.raises(FlowFatalError, match="plan has no node"):
+        runner.launch_flow(_Taker, design, {}, plan=plan)
+    assert not (tmp_path / "xeda_run").exists()
+
+
 def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, design):
     from xeda.run_dir import RunDirectoryError
     from xeda.run_root import ensure_run_root
