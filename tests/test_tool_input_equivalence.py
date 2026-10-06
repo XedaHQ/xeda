@@ -1,13 +1,13 @@
-"""Goldens for flows that take their producer's files through `add_dependency`: what each of them
-hands its tools, recorded before the flows are converted to declared inputs and outputs.
+"""Goldens for what `vivado_postsynth_sim`, `vivado_power` and `openroad` hand their tools, recorded
+from the flows as they were before they took their producers' files through declared inputs and
+outputs.
 
 `vivado_postsynth_sim` runs `vivado_synth` and simulates its netlist; `vivado_power` runs
 `vivado_postsynth_sim` and reports power from its activity file against the routed checkpoint;
-`openroad` builds the whole configuration of its `yosys` dependency from its own settings. A
-conversion of them must change none of what the tools are handed. After it, the old behavior is
-gone, so what it did is recorded here, from the unchanged code, and the converted flows are held
-to it. This test passes on the code it was written against; a later change that moves anything
-recorded must either be a bug, or go on `REVIEWED_DELTAS` below, with the reason.
+`openroad` builds the whole configuration of its `yosys` producer from its own settings. Moving
+them to declared inputs and outputs had to change none of what the tools are handed. The goldens
+record what the earlier code did, and the flows are held to them: a later change that moves
+anything recorded must either be a bug, or go on `REVIEWED_DELTAS` below, with the reason.
 
 Each request is launched as a user would launch it (`xeda run <flow> design.yaml -s ...`, in a
 subprocess, on the fake tools) and records, per run directory it entered:
@@ -22,18 +22,15 @@ subprocess, on the fake tools) and records, per run directory it entered:
 * `results.json`, minus what names the run rather than what it did (hashes, run time, time stamp,
   tool versions).
 
-Every request is spelled with the flat `-s flows.<flow>.<key>=...` of a flow's dependency: that is
-the spelling that survives the conversion (the nested `synth.<key>` and `postsynthsim.<key>` do
-not), so no request needs mapping when the same test is run on the converted flows. The hashed
-run-directory layout is deliberately not recorded: a node's hashed directory name follows from its
-settings and the origins of its inputs, and the shape of the settings changes with the conversion,
-so those names must differ.
+Every request is spelled with the flat `-s flows.<flow>.<key>=...` of a producer's own section,
+the one spelling the flows accept now. The hashed run-directory layout is deliberately not
+recorded: a node's hashed directory name follows from its settings and the origins of its inputs,
+which differ from the earlier flows' settings, so those names must differ.
 
 What the fakes carry (checked here, `test_the_fake_vivado_writes_the_seven_outputs`):
 
-* The fake `vivado` used to record `write_verilog`, `write_sdf` and `write_checkpoint` as Tcl calls
-  and write nothing, so a flow could not be told to have handed on the wrong netlist: no netlist
-  existed. It now writes, for each, a file that says what asked for it -- the command, its mode and
+* The fake `vivado` writes, for each `write_verilog`, `write_sdf` and `write_checkpoint`, a file
+  that says what asked for it, so a flow that handed on the wrong netlist can be told -- the command, its mode and
   corner (`funcsim`/`timesim`, `fast`/`slow`), the top, and for a checkpoint the stage it is named
   for (`post_synth`, `post_route`) -- and never a path, so the same request in another directory
   writes the same bytes. `funcsim.v`, `timesim.v`, both SDF corners, both `.dcp` files, the
@@ -63,7 +60,7 @@ and none can be derived from `platform` alone), checked in `test_each_openroad_v
   netlist that follows from it), and that is what is recorded and asserted. A conversion that
   dropped it would still hand yosys the same libraries.
 
-The goldens are `tests/resources/pc_equivalence/*.json`. Setting `XEDA_PC_EQUIVALENCE_CAPTURE=1`
+The goldens are `tests/resources/tool_input_equivalence/*.json`. Setting `XEDA_TESTS_CAPTURE_GOLDENS=1`
 writes a golden that does not exist yet and never replaces one: a golden is not regenerated, a
 difference is a bug or a reviewed delta.
 """
@@ -93,8 +90,8 @@ from .tool_utils import (
     use_fake_tools,
 )
 
-GOLDENS = Path(__file__).parent / "resources" / "pc_equivalence"
-CAPTURE = os.environ.get("XEDA_PC_EQUIVALENCE_CAPTURE", "").lower() in ("1", "true", "yes", "on")
+GOLDENS = Path(__file__).parent / "resources" / "tool_input_equivalence"
+CAPTURE = os.environ.get("XEDA_TESTS_CAPTURE_GOLDENS", "").lower() in ("1", "true", "yes", "on")
 PLATFORMS = Path(xeda.__file__).parent / "platforms"
 
 #: What a conversion legitimately changes, each entry a path into a golden (`/`-separated, `*`
@@ -115,15 +112,15 @@ _SYNTH_DELTAS = {
 _SIM = "nodes/sim/vivado_postsynth_sim"
 _POSTSYNTH_DELTAS = {
     **_SYNTH_DELTAS,
-    f"{_SIM}/effective_flow_settings/synth": "Task 3: nested synthesis settings are removed; "
+    f"{_SIM}/effective_flow_settings/synth": "nested synthesis settings are removed; "
     "the synthesis node's own complete settings remain compared with the golden",
-    f"{_SIM}/effective_flow_settings/fpga": "Task 3: FPGA shared leaves agree along declared edges",
-    f"{_SIM}/effective_flow_settings/clocks": "Task 3: clock shared leaves agree along declared edges",
-    f"{_SIM}/results/outputs": "Task 3: checked activity output records; their file contents "
+    f"{_SIM}/effective_flow_settings/fpga": "FPGA shared leaves agree along declared edges",
+    f"{_SIM}/effective_flow_settings/clocks": "clock shared leaves agree along declared edges",
+    f"{_SIM}/results/outputs": "checked activity output records; their file contents "
     "remain compared independently",
 }
 _POWER = "nodes/sim/vivado_power"
-# PCD6 changes power's settings model along with its base class. These are settings-shape
+# Power's settings model changed along with its base class. These are settings-shape
 # changes, not power-result exemptions. All actual power metrics and tool inputs stay compared.
 _POWER_SETTINGS_REMOVED = (
     "analyze_flags",
@@ -153,25 +150,25 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
     "vivado_postsynth_sim_functional": {**_POSTSYNTH_DELTAS},
     "vivado_postsynth_sim_timing": {
         **_POSTSYNTH_DELTAS,
-        f"{_SIM}/results/artifacts/saif": "Task 3: the direct timing request's newly required activity",
-        f"{_SIM}/files/<RUN>/sim/vivado_postsynth_sim/activity.saif": "Task 3: the direct timing "
+        f"{_SIM}/results/artifacts/saif": "the direct timing request's newly required activity",
+        f"{_SIM}/files/<RUN>/sim/vivado_postsynth_sim/activity.saif": "the direct timing "
         "request's newly required activity; its dependence on timing annotation is tested separately",
     },
     "vivado_power": {
         **_POSTSYNTH_DELTAS,
-        f"{_SIM}/effective_flow_settings/elab_debug": "R-PC-c: VivadoSim.run uses typical "
+        f"{_SIM}/effective_flow_settings/elab_debug": "VivadoSim.run uses typical "
         "without propagating an elab_debug setting; the xelab command remains compared",
         **{
-            f"{_POWER}/effective_flow_settings/{key}": "PCD6 and R-PC-c: power's new reporter "
+            f"{_POWER}/effective_flow_settings/{key}": "power's new reporter "
             "settings model removes simulation and nested producer settings"
             for key in _POWER_SETTINGS_REMOVED
         },
         **{
-            f"{_POWER}/effective_flow_settings/{key}": "Task 4: shared FPGA/clock leaves agree "
+            f"{_POWER}/effective_flow_settings/{key}": "shared FPGA/clock leaves agree "
             "with the synthesis node, whose settings remain compared"
             for key in ("fpga", "clocks")
         },
-        f"{_POWER}/results/sim.*": "PCD6: the producer checks simulation evidence before "
+        f"{_POWER}/results/sim.*": "the producer checks simulation evidence before "
         "activity hand-over; power reports only its own metrics",
     },
 }
@@ -239,19 +236,19 @@ REVIEWED_DELTAS["openroad_dont_use_cells"][
     "in its merge beside the platform's, instead of handing it a library already merged"
 )
 
-# Task 6 (c): the platform-plus-setting union is a template global rather than a
+# The platform-plus-setting union is a template global rather than a
 # stored setting. All four set_dont_use commands and merged-lib bytes still compare.
 for _name in REVIEWED_RENAMES:
     REVIEWED_DELTAS[_name][
         ("nodes", _OPENROAD, "effective_flow_settings", "dont_use_cells")
-    ] = "PCD16: keep the user's setting; compute the platform union where the merge and Tcl use it"
+    ] = "keep the user's setting; compute the platform union where the merge and Tcl use it"
 
-# Task 6 (d), PCD16: refuse the removed vehicle; the flat setting still hands
+# Refuse the removed setting; the flat setting still hands
 # yosys the identical blackbox command. The golden's original request remains unchanged.
 for _name in REVIEWED_RENAMES:
     REVIEWED_DELTAS[_name][
         ("nodes", _OPENROAD, "effective_flow_settings", "blocks")
-    ] = "PCD16 owner ruling: blocks was removed; configure flows.yosys.black_box instead"
+    ] = "blocks was removed; configure flows.yosys.black_box instead"
 REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
 
 
@@ -651,7 +648,7 @@ def test_a_request_hands_its_tools_what_it_did_before_the_conversion(captured, n
         path.write_text(render(observed))
     assert (
         path.exists()
-    ), f"no golden for {name}: XEDA_PC_EQUIVALENCE_CAPTURE=1 records a missing one"
+    ), f"no golden for {name}: XEDA_TESTS_CAPTURE_GOLDENS=1 records a missing one"
     deltas = REVIEWED_DELTAS.get(name, {})
     expected = without(
         activity_recording_delta(json.loads(path.read_text()), name, baseline=True), deltas

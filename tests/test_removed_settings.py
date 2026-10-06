@@ -290,7 +290,7 @@ MOVED_TO_YOSYS = {
 @pytest.mark.parametrize("name", MOVED_TO_YOSYS)
 def test_openroad_s_yosys_settings_moved_and_name_where(tmp_path, monkeypatch, name, origin):
     """The settings used to configure synthesis name their replacements at every origin;
-    `blocks` becomes `flows.yosys.black_box` (PCD16's owner ruling)."""
+    `blocks` becomes `flows.yosys.black_box`."""
     from xeda import Design
     from xeda.flow_runner import DefaultRunner
 

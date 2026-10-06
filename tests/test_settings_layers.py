@@ -323,7 +323,7 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
 def test_local_run_allows_higher_clock_spelling_to_override_design_layer(
     tmp_path, monkeypatch, launched, design_clock, override, expected
 ):
-    """Exercise both reviewer-reported CLI combinations through the real runner layering."""
+    """Exercise both CLI combinations through the real runner layering."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
     design = _write(

@@ -1,4 +1,4 @@
-"""PCD9: OpenROAD prepares no output until run(), and keeps its own cell policy."""
+"""OpenROAD prepares no output until run(), and keeps its own cell policy."""
 
 from pathlib import Path
 
@@ -83,7 +83,7 @@ def test_the_cli_sends_all_moved_settings_to_real_yosys(tmp_path, monkeypatch):
     import subprocess
     import sys
 
-    from .test_pc_equivalence import write_asic_design
+    from .test_tool_input_equivalence import write_asic_design
     from .tool_utils import require_yosys, use_fake_asic_tools
 
     require_yosys()

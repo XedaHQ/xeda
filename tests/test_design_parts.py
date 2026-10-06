@@ -12,7 +12,7 @@ other sources, a part wrongly left in only costs a re-run. Three checks hold tha
   is shown to read it.
 * The trace of a `{"rtl"}` flow names no file of `design.tb` as an input.
 
-O-DP1 (ii), the transitive half, is the power graph, at the end of this module: a `tb`-only edit
+The transitive half is the power graph, at the end of this module: a `tb`-only edit
 leaves `vivado_synth` fresh, makes `vivado_postsynth_sim` stale, and makes `vivado_power` stale
 with its producer's re-run as the reason. `vivado_power` reads no testbench itself, so it is a
 `{"rtl"}` flow whose producer reads `tb`.
@@ -288,10 +288,10 @@ def test_a_testbench_edit_separates_synthesis_from_simulation() -> None:
 def test_a_testbench_edit_reruns_the_simulation_and_power_but_not_synthesis(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """O-DP1 (ii). `vivado_power` reads no testbench, yet the activity it reports is a simulation
+    """`vivado_power` reads no testbench, yet the activity it reports is a simulation
     of one: the edit leaves the synthesis it reports against fresh, makes the simulation stale
     and makes power stale through that simulation's new run, not through its own design hash."""
-    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+    from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")

@@ -385,8 +385,8 @@ def test_a_failed_handover_invalidates_previous_success_without_delivery(
 
 
 def test_power_diamond_enters_synthesis_once_with_the_union_of_outputs(tmp_path, monkeypatch):
-    """O-EQ3: direct checkpoint and transitive simulation demands share one producer."""
-    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+    """Direct checkpoint and transitive simulation demands share one producer."""
+    from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
     from .tool_utils import fake_calls, launch_until_fresh, use_fake_tools
 
     write_vivado_design(tmp_path)

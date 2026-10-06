@@ -581,7 +581,7 @@ def test_every_design_text_reaches_the_tool_as_a_literal_word(flow, tmp_path, mo
     ],
 )
 def test_a_design_name_with_tcl_metacharacters_is_rejected(name, tmp_path):
-    """The reviewer's reproduction: a design name holding a Tcl command substitution that deletes
+    """A design name holding a Tcl command substitution that deletes
     a file of the user's outside the run directory. A name is restricted to
     `[A-Za-z][A-Za-z0-9_-]*` when the design is loaded, so it is rejected before anything runs
     -- and no tool script ever holds one."""

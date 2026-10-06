@@ -1,9 +1,9 @@
 """Behavioral oracle inventory and narrow build/runtime stand-ins.
 
 The real flow's run method and launcher execute unchanged. Builds succeed; runtime invocations
-execute a separate Python process which leaves a call marker independently of evidence. Family
-conversion tasks extend these stand-ins with their native transcript/checkpoint contracts.
-Power leaves this inventory under PCD6: it reports power from successful declared activity,
+execute a separate Python process which leaves a call marker independently of evidence. Each
+simulator family extends these stand-ins with its native transcript/checkpoint contracts.
+Power is not in this inventory: it reports power from successful declared activity,
 and the postsynth simulator checks evidence before hand-over.
 """
 

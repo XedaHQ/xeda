@@ -1865,7 +1865,7 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
     tmp_path, remote_host, monkeypatch, flow_name
 ):
     """Declared hand-over survives archive relocation and the remote identity check."""
-    from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+    from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
     root = tmp_path / "design"
     root.mkdir()
@@ -1887,7 +1887,7 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
         assert not any(key.startswith("sim.") for key in results)
 
 
-# ------------------------------------------- O-RI1 (b): a bundled platform on another install
+# ------------------------------------------- a bundled platform on another install
 
 
 def _remote_runner_installed_elsewhere(channel, **kwargs):
@@ -1925,7 +1925,7 @@ def _remote_runner_installed_elsewhere(channel, **kwargs):
 def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     tmp_path, remote_host, monkeypatch, remote, flow_name
 ):
-    """O-RI1 (b), PCD23: yosys and declared openroad with a bundled platform are accepted by a remote whose
+    """`yosys` and declared openroad with a bundled platform are accepted by a remote whose
     xeda is installed under another prefix, as every remote on another machine is: the remote's
     `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
     even from the same installation: the platform's per-corner liberty files reached the remote

@@ -810,10 +810,10 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 
 # ------------------------------------------------------------------------------ undeclared flows
 #
-# Bluespec and most Vivado flows declare no inputs or outputs yet (P4 derives a design from `bsc`;
-# P5 chains Bluespec to simulation and synthesis; `vivado_synth` and `vivado_alt_synth` declare
-# their outputs. Postsynth declares optional inputs, so adjacency still cannot reach it.
-# Until P5 a chain through Bluespec is refused, and a binding for one is refused for
+# Bluespec and most Vivado flows declare no inputs or outputs yet (`bsc` derives no design value and
+# nothing chains Bluespec to simulation and synthesis); `vivado_synth` and `vivado_alt_synth`
+# declare their outputs. Postsynth declares optional inputs, so adjacency still cannot reach it.
+# A chain through Bluespec is refused, and a binding for one is refused for
 # the missing declaration -- before any tool runs.
 
 UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]

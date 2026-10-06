@@ -326,7 +326,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
 
 # A bracketed section header is TOML. The documents below show YAML first, where a flow's
 # settings are the `flows.<flow>` mapping, so a `[flows.x]`, `[rtl]` or `[tb]` in their prose is
-# TOML left behind by the conversion. A snippet that is explicitly TOML (a `toml` fence or
+# TOML left behind from an older document. A snippet that is explicitly TOML (a `toml` fence or
 # code-block) is correct -- TOML design files are still accepted.
 TOML_SECTION_HEADER = re.compile(r"\[(?:flows(?:\.[\w<>.\-]+)?|rtl|tb|design|designs)\]")
 YAML_FIRST_DOCUMENTS = [

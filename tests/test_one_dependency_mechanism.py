@@ -1,5 +1,6 @@
-"""The oracles of PC's one dependency mechanism (`41-plan-pc` section 6), as the tasks that need
-them build them. So far: O-ND3, and for OpenROAD O-ND1 and O-ND2.
+"""The oracles of the one dependency mechanism: no flow registers a dependency of its own, and
+declared flows reach a producer's files only through the resolver. For OpenROAD, see the tests
+on its synthesis prerequisite and on its reads of producer state.
 
 Over every registered flow and every combination of its target-narrowing settings reachable from
 `settings_samples.PROBES`:
@@ -191,7 +192,7 @@ def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
 
 
 def test_openroad_passes_no_synthesis_resources():
-    """PCD9 step (a): synthesis derives its files in its own run directory."""
+    """Synthesis derives its files in its own run directory."""
     tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
     calls = [
         node
@@ -208,7 +209,7 @@ def test_openroad_passes_no_synthesis_resources():
 
 
 def test_openroad_registers_no_undeclared_dependency():
-    """O-ND1: the resolver alone supplies OpenROAD's synthesis prerequisite."""
+    """The resolver alone supplies OpenROAD's synthesis prerequisite."""
     assert Openroad.Settings.dependency_settings == {}
     for field in Openroad.Settings.model_fields.values():
         annotation = field.annotation
@@ -220,7 +221,7 @@ def test_openroad_registers_no_undeclared_dependency():
 
 
 def test_openroad_reads_no_producer_state():
-    """O-ND2: a producer's file is reached through self.inputs alone."""
+    """A producer's file is reached through self.inputs alone."""
     tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
     state = {"settings", "run_path", "artifacts", "results", "outputs", "inputs"}
     other = [

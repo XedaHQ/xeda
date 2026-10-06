@@ -224,7 +224,7 @@ def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
 
 @pytest.mark.parametrize("copy_platform_files", [False, True])
 def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files, monkeypatch):
-    """O-OR1 replaces R45: real yosys synthesis, stand-in OpenROAD/KLayout, and an
+    """Real yosys synthesis, stand-in OpenROAD/KLayout, and an
     unchanged relaunch starts no tools and rewrites no run output, even byte-identically."""
     from .tool_utils import run_outputs_state, use_fake_asic_tools
 

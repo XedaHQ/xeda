@@ -1,6 +1,6 @@
-"""PC Task 4: declared timing activity, removed propagation and the power-only verdict.
+"""Declared timing activity, removed propagation and the power-only verdict.
 
-Power no longer belongs to the simulation-evidence sweep (PCD6): its producer must succeed
+Power no longer belongs to the simulation-evidence sweep: its producer must succeed
 before the launcher hands over activity. The reporter checks only its own power report.
 """
 
@@ -18,7 +18,7 @@ from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPower
 
-from .test_pc_equivalence import VIVADO_SETTINGS, write_vivado_design
+from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
 REMOVED = {
     "postsynthsim": ({}, "flows.vivado_postsynth_sim.<key>"),
@@ -121,7 +121,7 @@ def test_removed_power_setting_names_its_replacement_from_every_origin(tmp_path,
 
 
 def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch):
-    """PCD6 retains the verdict at the producer; a silent simulator cannot report power."""
+    """The verdict stays at the producer; a silent simulator cannot report power."""
     from xeda.flow import FlowDependencyFailure
     from .tool_utils import use_fake_tools
 

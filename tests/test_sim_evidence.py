@@ -3,7 +3,7 @@
 Oracle: every registered simulator flow reports evidence, and a run without evidence fails.
 Every supported bsc backend participates, including fake Icarus runtime coverage; real Icarus
 builtin-task capability verification remains a separate mandatory Linux CI gate.
-PCD6 removes power from this sweep: it reports power and relies on its declared activity
+Power is not in this sweep: it reports power and relies on its declared activity
 producer to pass the simulation evidence rule before hand-over.
 """
 

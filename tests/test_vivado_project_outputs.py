@@ -389,7 +389,7 @@ def _recorded_output(flow_dir: Path, name: str) -> Path:
 def test_postsynth_sim_simulates_what_its_synthesis_registered(
     tmp_path, monkeypatch, timing_sim
 ) -> None:
-    """The declared inputs (PC Task 3) hand the simulation the very files the synthesis recorded
+    """The declared inputs hand the simulation the very files the synthesis recorded
     as its outputs: the functional netlist, or the timing netlist with its max-corner SDF."""
     design = _sqrt_with_an_hdl_testbench(tmp_path / "design")
     use_fake_tools(monkeypatch)
@@ -442,8 +442,8 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
 
 # --- the declared outputs ---------------------------------------------------
 
-#: Which declared output each switch turns on, on each flow (`41-plan-pc.md` 3.1a, read per
-#: flow: `vivado_alt_synth` writes one SDF corner and declares no `sdf_min`).
+#: Which declared output each switch turns on, on each flow (read per flow: `vivado_alt_synth`
+#: writes one SDF corner and declares no `sdf_min`).
 SWITCHED_OUTPUTS = {
     VivadoSynth: {
         "write_netlist": {"netlist"},

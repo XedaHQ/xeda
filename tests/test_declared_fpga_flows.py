@@ -97,8 +97,8 @@ DECLARED = [YosysFpga, Nextpnr, FpgaPack, Openfpgaloader]
 
 
 def test_the_declared_flows():
-    """The FPGA graph, the Vivado synthesis flows (PC Task 2), `yosys`, whose gate-level netlist
-    is a declared output (PC Task 5), and `openroad`, which consumes it (PC Task 6)."""
+    """The FPGA graph, the Vivado synthesis flows, `yosys`, whose gate-level netlist
+    is a declared output, and `openroad`, which consumes it."""
     assert {cls.name for cls, _ in flow_classes() if is_declared(cls)} == {
         "fpga_pack",
         "nextpnr",

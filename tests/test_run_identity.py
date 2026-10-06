@@ -673,7 +673,7 @@ def _platform_settings(tmp_path: Path, platform: str, flow_name="yosys"):
 def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
     tmp_path, monkeypatch, flow_name
 ):
-    """O-RI1 (a), PCD23: `-s platform=nangate45` is one request under any installation. A
+    """`-s platform=nangate45` is one request under any installation. A
     validated platform holds absolute paths (`with_absolute_paths`), so its identity named the
     installation, and two machines never agreed on it."""
     here = _platform_settings(tmp_path, "nangate45", flow_name)

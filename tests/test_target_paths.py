@@ -1,9 +1,9 @@
-"""Per-target run directories (PT-3, PTD1-2): a run's directory is
+"""Per-target run directories: a run's directory is
 `<run root>/<design>[/<target>]/<flow>[_<hash>]`, and nothing else.
 
 A selected target is part of where a run lives and no part of what it is: two targets that yield
 the same effective design have the same hashes and the same flow names, in directories of their
-own, built and kept fresh separately. The oracles (the plan's O-PATH, O-CONTEXT and O-LEGACY):
+own, built and kept fresh separately. The oracles:
 
 - every path -- planned, entered, direct API, chain, hashed or not -- names the design's own
   target, and a design without one keeps `<design>/<flow>`;
@@ -83,7 +83,7 @@ def parent_of(tmp_path: Path, layout: str, name: str = "d") -> Path:
     return base / SELECTED[layout] if SELECTED[layout] else base
 
 
-# ---------------------------------------------------------------------- O-PATH: the path table
+# ---------------------------------------------------------------------- the path table
 
 
 @BY_LAYOUT
@@ -235,7 +235,7 @@ def test_a_diamond_runs_each_node_once_in_the_target_in_plan_order(tmp_path):
 def test_a_selected_target_plans_the_flat_design_but_for_its_directory(
     tmp_path, target, flow, hashed
 ):
-    """O-FLAT, with the one thing that may differ: the target's name and the directory it
+    """The flat design, with the one thing that may differ: the target's name and the directory it
     names. Every node's settings, identity, input origins and switches are the flat design's."""
     from .test_targets import KNIGHT, RESOURCES
 
@@ -252,7 +252,7 @@ def test_a_selected_target_plans_the_flat_design_but_for_its_directory(
     assert selected.context.design_hash == flat.context.design_hash
 
 
-# ---------------------------------------------------------------- O-PATH: a chain, through the CLI
+# ---------------------------------------------------------------- a chain, through the CLI
 
 CHAIN = "yosys_fpga+nextpnr+fpga_pack"
 STAGES = CHAIN.split("+")
@@ -329,7 +329,7 @@ def test_a_dry_run_plans_the_target_s_directories_and_writes_nothing(tmp_path, t
     assert not (tmp_path / "xeda_run").exists()
 
 
-# ---------------------------------------------------------------------- O-CONTEXT: plan binding
+# ---------------------------------------------------------------------- plan binding
 
 
 def test_a_launcher_keeps_each_design_s_paths_however_it_is_reused(tmp_path):
@@ -428,7 +428,7 @@ def test_a_target_directory_leading_out_of_the_run_root_is_refused(tmp_path):
     assert list(outside.iterdir()) == []
 
 
-# ---------------------------------------------------------------------- O-LEGACY: older layout
+# ---------------------------------------------------------------------- the older layout
 
 
 def test_a_pre_target_run_is_neither_reused_nor_touched_by_a_target(tmp_path):

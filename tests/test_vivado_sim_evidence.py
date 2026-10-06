@@ -33,7 +33,7 @@ def launch(
 ):
     """Launch `flow_class`. A declared flow's producers have their own sections: the synthesis
     node's FPGA is given in `flows.vivado_synth`, and for `vivado_power`, whose simulation
-    controls were removed (R-PC-c), `producers` names the `flows.vivado_postsynth_sim` ones."""
+    controls were removed, `producers` names the `flows.vivado_postsynth_sim` ones."""
     use_fake_tools(monkeypatch)
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", state)
     if flow_class is not VivadoSim:
@@ -151,7 +151,7 @@ def test_vivado_timeout_is_applied_to_combined_process(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("state", ["silent", "error", "fatal"])
 def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypatch, state):
-    """PCD6: the verdict is made where the simulation runs; a failed producer is never handed
+    """The verdict is made where the simulation runs; a failed producer is never handed
     over, so power's reporter never starts."""
     from xeda.flow import FlowDependencyFailure
 
@@ -176,8 +176,8 @@ def test_vivado_power_activity_failure_prevents_power_report(tmp_path, monkeypat
 def test_vivado_power_reports_after_fresh_and_reused_producer_evidence(
     tmp_path, monkeypatch, state, settings
 ):
-    """The simulation controls live in `flows.vivado_postsynth_sim` (R-PC-c) and the evidence
-    stays on that node (PCD6): power reports only its own metrics, here after the producer ran
+    """The simulation controls live in `flows.vivado_postsynth_sim` and the evidence
+    stays on that node: power reports only its own metrics, here after the producer ran
     and again while the producer is trace-reused."""
     producers = {"timeout": 10.0, **settings}
     flow = launch(tmp_path, monkeypatch, state, producers=producers, flow_class=VivadoPower)
@@ -287,7 +287,7 @@ def test_vivado_power_requires_its_own_current_power_xml(tmp_path, monkeypatch):
     monkeypatch.setenv("XEDA_FAKE_POWER_NO_OUTPUT", "1")
     rerun = launch(tmp_path, monkeypatch, "finish5", flow_class=VivadoPower)
     assert not rerun.succeeded
-    # PCD6: the simulation succeeded on its own node; power's failure is its own report's
+    # The simulation succeeded on its own node; power's failure is its own report's
     simulation = json.loads(
         (rerun.run_path.parent / "vivado_postsynth_sim" / "results.json").read_text()
     )
