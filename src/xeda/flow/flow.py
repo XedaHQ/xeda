@@ -264,17 +264,12 @@ def map_written_leaves(
     model: BaseModel,
     fn: Callable[[WrittenLeaf], Any],
     *,
-    dependencies: bool = False,
     prefix: str = "",
 ) -> None:
     """Call `fn` at every path leaf of every field whose paths the flow writes (`written_role`),
-    in `model` and the models nested in it -- a dependency's settings too with `dependencies` --
-    walked by declared shape (`map_keyed_path_leaves`); assign each field back whose leaves `fn`
-    changed."""
-    skipped = model.dependency_settings if isinstance(model, Flow.Settings) else {}
+    in `model` and the models nested in it, walked by declared shape (`map_keyed_path_leaves`);
+    assign each field back whose leaves `fn` changed."""
     for name, info in type(model).model_fields.items():
-        if name in skipped and not dependencies:
-            continue
         value = getattr(model, name)
         role = written_role(type(model), name)
         if role is not None:
@@ -289,7 +284,7 @@ def map_written_leaves(
                     setattr(model, name, changed)
             continue
         for key, nested in _nested_models(value, prefix + name):
-            map_written_leaves(nested, fn, dependencies=dependencies, prefix=key + ".")
+            map_written_leaves(nested, fn, prefix=key + ".")
 
 
 def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
@@ -304,7 +299,7 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
     """What is wrong with the paths `settings` says the flow writes, as
     `(key path, message)`: a working location that is not a name inside the run directory, a
     deliverable name that leaves it, and a variable that is not expanded (`$CWD`: the start
-    directory is `$PWD`). A dependency's settings are checked by its own launch."""
+    directory is `$PWD`)."""
     problems: list[tuple[str, str]] = []
 
     def check(written: WrittenLeaf) -> Any:
@@ -446,7 +441,7 @@ def identity_settings(
     settings: "Flow.Settings", design_name: Optional[str] = None
 ) -> "Flow.Settings":
     """`settings` as a run's identity sees them: a copy in which every deliverable given as
-    a location -- the flow's own, and one in a dependency's settings nested in them -- is its
+    a location is its
     conventional name (`output_name`), the name the run writes the output under whatever the
     location. Where an output is delivered, and what it is called there, is never part of what
     the run is. Without `design_name`, `{design}` stays as written."""
@@ -462,7 +457,7 @@ def identity_settings(
                     return Path(name)
         return leaf
 
-    map_written_leaves(copy, conventional, dependencies=True)
+    map_written_leaves(copy, conventional)
     return copy
 
 
@@ -618,9 +613,8 @@ def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
 def is_unset(value: Any) -> bool:
     """`None`, or an empty string or container: a setting that says nothing.
 
-    Decides which side of a setting shared with a dependency is used; see
-    `Flow.Settings.resolve_dependency`. An empty `clocks` is how `SynthFlow` spells "not given".
-    `False` and `0` are values.
+    A required setting that is unset is missing. An empty `clocks` is how `SynthFlow` spells "not
+    given". `False` and `0` are values.
     """
     if value is None:
         return True
@@ -650,7 +644,6 @@ class Flow(metaclass=ABCMeta):
 
     name: str  # set automatically
     aliases: List[str] = []  # list of alternative names for the flow
-    copied_resources_dir: str = "copied_resources"
 
     #: Documentation for the flow-specific keys this flow writes to `results` (and therefore to
     #: `results.json`). Reported by `xeda list-results <flow>`. Build it with `describe_results`.
@@ -668,9 +661,9 @@ class Flow(metaclass=ABCMeta):
 
     #: Settings this flow cannot run without, each with what it is and how to give it (the text
     #: may name the flow as ``{flow}``). Checked when the flow is launched, by
-    #: `check_required_settings`, not when its settings are validated: the same settings also sit
-    #: inside another flow's settings as a dependency's, where the launching flow supplies what
-    #: they lack, so a model that insisted on them could not even be nested.
+    #: `check_required_settings`, not when its settings are validated: a layer of settings, such
+    #: as one section of a design file, holds only some of them, and a model that insisted on all
+    #: of them could not validate it.
     required_settings: Dict[str, str] = {}
 
     #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
@@ -818,19 +811,13 @@ class Flow(metaclass=ABCMeta):
         print_commands: bool = Field(True, description="Print executed commands")
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
-        #: The settings this flow shares with each of its dependencies, keyed by the field that
-        #: holds that dependency's settings: `vivado_power` declares
-        #: `{"postsynthsim": ("timing_sim", "elab_debug", ...)}`.
-        #: `resolve_dependency` applies it when the flow launches the dependency.
-        dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {}
-
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)"
         }
 
-        # Every flow setting shares three input conveniences, applied by `_normalize_flow_setting`
+        # Every flow setting shares two input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
         # normalized value: on construction and `settings.json` reload through
         # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
@@ -841,25 +828,17 @@ class Flow(metaclass=ABCMeta):
         def _normalize_flow_setting(cls, name: str, value: Any, roots: Dict[str, Any]) -> Any:
             """One flow setting's input conveniences:
 
-            1. A dependency's settings (`dependency_settings`) are this flow's own object: an
-               instance given for them is deep-copied, so two flows never share settings.
-            2. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
+            1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
                Spaces around items and empty items are dropped, so `""` is an empty list. A
                setting that also accepts plain text keeps the text whole. Likewise an optional
                path given as `""` is unset (`-s textcfg=`): as a `Path` it would name the
                current directory.
-            3. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
+            2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
-                return value
-            if name in cls.dependency_settings:
-                if isinstance(value, XedaBaseModel):
-                    copied = value.model_copy(deep=True)
-                    copied.invalidate_cached_properties()
-                    return copied
                 return value
             if isinstance(value, str) and _is_comma_separated_list(annotation):
                 value = [item.strip() for item in value.split(",") if item.strip()]
@@ -923,30 +902,9 @@ class Flow(metaclass=ABCMeta):
                 self._attach_context(context)
 
         def _attach_context(self, context: Mapping[str, Any]) -> None:
-            """Attach input location context to this setting tree.
-
-            Pydantic passes validation context to nested values supplied by the caller, but a
-            nested settings object created from a field default has already been constructed by
-            then.  Carry the parent's context into every declared dependency as well, so later
-            assignment has the same path semantics whether that dependency was explicit or a
-            default.
-            """
+            """Attach the input location context (the design root and the start directory) to
+            these settings, so that a later assignment resolves paths as the input did."""
             self._context = {k: context.get(k) for k in ("design_root", "runner_cwd")}
-            for field in type(self).dependency_settings:
-                dependency = getattr(self, field, None)
-                if isinstance(dependency, Flow.Settings):
-                    dependency._attach_context(self._context)
-
-        @classmethod
-        def _dependency_settings_class(cls, name: str) -> type[Flow.Settings] | None:
-            """Return the nested settings class declared for dependency field ``name``."""
-            annotation = field_annotation(cls, name)
-            if annotation is None:
-                return None
-            for accepted in annotation_args(annotation):
-                if isinstance(accepted, type) and issubclass(accepted, Flow.Settings):
-                    return accepted
-            return None
 
         @model_validator(mode="before")
         @classmethod
@@ -972,12 +930,6 @@ class Flow(metaclass=ABCMeta):
                 value = type(self)._normalize_flow_setting(
                     name, value, self._path_roots(self.context)
                 )
-                if name in type(self).dependency_settings:
-                    dependency_cls = type(self)._dependency_settings_class(name)
-                    if dependency_cls is not None and isinstance(value, Mapping):
-                        value = dependency_cls.from_input(value, **self.context)
-                    if isinstance(value, Flow.Settings):
-                        value._attach_context(self.context)
             super().__setattr__(name, value)
 
         def conventional_output(self, field: str, design: str) -> Optional[PurePath]:
@@ -992,41 +944,6 @@ class Flow(metaclass=ABCMeta):
             is read, so `quiet` holds what was written and the order the three were given in
             does not matter."""
             return self.quiet and not (self.verbose or self.debug)
-
-        def resolve_dependency(self, field: str) -> Any:
-            """The settings to launch the dependency held in `field` with.
-
-            Each setting shared with it (`dependency_settings[field]`) takes this flow's value
-            unless that `is_unset`, and the dependency's own value otherwise; this flow adopts the
-            result as well, so the two always run with the same one. Returns a deep copy of the
-            dependency's settings carrying the shared values: the settings given for the
-            dependency are left exactly as written, which is what keeps the outcome independent
-            of the order settings were constructed and assigned in.
-            """
-            dependency = getattr(self, field)
-            shared = {}
-            adopted = {}
-            for name in type(self).dependency_settings[field]:
-                ours, theirs = getattr(self, name), getattr(dependency, name)
-                if not is_unset(ours):
-                    shared[name] = ours
-                elif not is_unset(theirs):
-                    adopted[name] = theirs
-            # Coupled settings (especially board/database) must be validated together.
-            # Field-by-field assignment can reject an intermediate pair nobody requested.
-            resolved = type(dependency).from_input(
-                {**dependency.model_dump(), **shared}, **dependency.context
-            )
-            if adopted:
-                validated = type(self).from_input({**self.model_dump(), **adopted}, **self.context)
-                # Keep unrelated established objects, while applying all validator-derived
-                # changes as well as the adopted fields, only after complete validation.
-                for name in type(self).model_fields:
-                    if name in adopted or getattr(self, name) != getattr(validated, name):
-                        self.__dict__[name] = getattr(validated, name)
-                self.__pydantic_fields_set__.update(adopted)
-                self.invalidate_cached_properties()
-            return resolved
 
         @field_validator("verbose", mode="before")
         @classmethod
@@ -1077,7 +994,7 @@ class Flow(metaclass=ABCMeta):
     def init(self) -> None:
         """Flow custom initialization stage. At this point, more properties have been set than during __init__
         This is usually the most appropriate place for initialization task.
-        Any dependent flows should be registered here by using add_dependency
+        Producers of a flow's inputs are declared (`Flow.Inputs`), never registered here.
         """
 
     def prepare_inputs(self) -> None:
@@ -1087,21 +1004,6 @@ class Flow(metaclass=ABCMeta):
         launch; it must not write the flow's run directory. Register resolved files in
         ``implicit_inputs`` so freshness and delivery reservations see them before execution.
         """
-
-    def add_dependency(
-        self,
-        dep_flow_class: Union[Type[Flow], str],
-        dep_settings: Settings,
-        copy_resources: List[str] = [],
-    ) -> None:
-        """
-        dep_flow_class:   dependency Flow class
-        dep_settings:     settings for dependency Flow
-        copy_resources:   copy these resources to dependency before running.
-                            All resources should be _within_ the depender (parent) run_path and the
-                            paths should be _relative_ to depender's run_path.
-        """
-        self.dependencies.append((dep_flow_class, dep_settings, copy_resources))
 
     @classmethod
     def _create_jinja_env(
@@ -1239,8 +1141,6 @@ class Flow(metaclass=ABCMeta):
         self.jinja_env.globals["sources_read"] = self.sources_read
         self.add_template_filter("quote", lambda x: f'"{x}"')
         self.add_template_test("match", regex_match)
-        self.dependencies: List[Tuple[Union[Type[Flow], str], Flow.Settings, List[str]]] = []
-        self.completed_dependencies: List[Flow] = []
         #: Declared inputs, filled by the launcher before freshness is judged; init never reads them.
         self.inputs = type(self).Inputs.model_construct()
         #: Declared outputs, set by the flow and recorded by the launcher after a successful run.
@@ -1273,18 +1173,9 @@ class Flow(metaclass=ABCMeta):
         A flow that changes the world outside its run directory (programs a device), whose
         settings ask for a fresh random seed, or that reads something no trace can verify, says
         so here: the launcher then runs it every time, keeps no trace of it, and reports the
-        reason. Its dependencies are checked for freshness as usual. Asked once the flow's
-        `init()` and its dependencies have run."""
+        reason. Its producers are checked for freshness as usual. Asked once the flow's
+        `init()` has run and its producers have completed."""
         return None
-
-    def pop_dependency(self, typ: Type[Flow]) -> Flow:
-        assert inspect.isclass(typ) and issubclass(typ, Flow), f"{typ} is not a subclass of Flow"
-        for i in range(len(self.completed_dependencies) - 1, -1, -1):
-            if isinstance(self.completed_dependencies[i], typ):
-                dep = self.completed_dependencies.pop(i)
-                assert isinstance(dep, typ), f"Dependency: {dep} is not of type {typ}"
-                return dep
-        raise ValueError(f"No {typ.__name__} found in completed_dependencies")
 
     @abstractmethod
     def run(self) -> None:

@@ -136,7 +136,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
     """In place: each of the flow's own deliverable settings given as a location becomes its
     conventional name for the design `design` (`flow.output_name`), which the run writes in its
     run directory whatever the location says, and a `Delivery` of that file to the location. A
-    dependency's settings are its own launch's. A `FlowSettingsError` when two outputs would be
+    producer's settings are its own launch's. A `FlowSettingsError` when two outputs would be
     written under one name, or one under a name xeda keeps for itself."""
     deliveries: list[Delivery] = []
     names: dict[PurePath, str] = {}
@@ -194,8 +194,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
 
 
 def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
-    """Every deliverable of `settings` given as a location, a dependency's settings included, by
-    key path; nothing is changed."""
+    """Every deliverable of `settings` given as a location, by key path; nothing is changed."""
     found: list[tuple[str, Path]] = []
 
     def note(written: WrittenLeaf) -> Any:
@@ -205,13 +204,13 @@ def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
                 found.append((written.key, Path(leaf)))
         return leaf
 
-    map_written_leaves(settings, note, dependencies=True)
+    map_written_leaves(settings, note)
     return found
 
 
 def deliverable_setting_names(settings_cls: "type[Flow.Settings]") -> list[str]:
     """The name of every field `settings_cls` itself declares deliverable (`DELIVERABLE_ROLE`),
-    whatever its current value -- a dependency's are its own launch's, so not included. Named in
+    whatever its current value -- a producer's are its own launch's, so not included. Named in
     the warning `--outputs-to` gives when a flow delivered nothing, so an unset `vcd` is not
     mistaken for xeda silently dropping a file it wrote."""
     return [
@@ -271,8 +270,7 @@ def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
 class ReadInputs:
     """Every file the flows of a launch read: the design's files, the design
     and project file the launch was given, the file each read setting of any of its flows names
-    -- a dependency's settings nested in its depender's included -- and every entry under a
-    directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
+    and every entry under a directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
     identity (`st_dev`, `st_ino`) and by resolved path; and those directories themselves, each
     with the setting naming it (`directory_of`). No delivery ever replaces one of those files, or
     lands anywhere in one of those directories, `--overwrite-outputs` or not. One is shared by a
