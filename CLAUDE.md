@@ -309,7 +309,7 @@ removed before the run, so an earlier success never stands for a run that died
 - An undeclared flow registers dependencies in `init()` (not `__init__`) via
   `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
   and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  Example: `VivadoPostsynthSim` depends on `VivadoSynth`. Declared producers are launched by the
+  Example: `Openroad` depends on `Yosys`. Declared producers are launched by the
   launcher, not registered by `init()`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
