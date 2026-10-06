@@ -587,3 +587,19 @@ def test_a_consumer_can_switch_the_bitstream_on(flow_class) -> None:
     flow_class.enable_output(settings, "bitstream")
     assert settings.bitstream is not None
     assert settings.write_netlist is False and settings.write_timing_netlist is False
+
+
+@pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
+def test_a_bitstream_located_outside_the_run_directory_is_recorded_inside_it_and_delivered(
+    flow_class, tmp_path, monkeypatch
+) -> None:
+    """`bitstream` is a deliverable: given a location, the run writes the conventional name in its
+    run directory, the declared output is that file (never the location, which would fail the
+    recording as outside the run directory), and the launch delivers a copy to the location."""
+    target = tmp_path / "elsewhere" / "x.bit"
+    flow = _run(flow_class, tmp_path, monkeypatch, bitstream=str(target))
+    recorded = _recorded_outputs(flow)
+    assert set(recorded) == {"bitstream"}
+    path = Path(recorded["bitstream"]["path"])
+    assert path.is_relative_to(flow.run_path.resolve()) and path != target.resolve()
+    assert target.read_bytes() == path.read_bytes()

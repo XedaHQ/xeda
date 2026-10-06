@@ -155,11 +155,13 @@ All notable changes to this project will be documented in this file.
   fit is a usage error; it suggests a valid chain only when another output of the producer or the
   flows on the required declared default routes between the pair fix it (`nextpnr+openfpgaloader`
   -> `nextpnr+fpga_pack+openfpgaloader`), and has no suggestion otherwise; a flow that programs a
-  device can only end a chain, and a flow with no declared I/O (`bsc`, the Vivado flows) runs alone.
+  device can only end a chain, and a flow with no declared I/O (`bsc`, `vivado_project`, the Vivado simulation and power flows)
+  runs alone.
   `-s flows.<flow>.key=value` sets any flow of the chain. `--json` adds `request` and per-node
   `node`/`inputs`, lists nodes planned but never entered as `"state": "not run"`, and keeps
   the last flow's `flow`, `results` and exit status. Chains are local: `--remote` and `dse` refuse
-  them. Bluespec and Vivado chains need the later conversion of those flows to declared I/O.
+  them. Bluespec chains and chains through the other Vivado flows need the later conversion of those
+  flows to declared I/O (`vivado_synth` and `vivado_alt_synth` declare their outputs; see below).
 - **Saved input bindings**: `flows.<consumer>.inputs.<input>: <producer>[.<output>]` (an ordered
   list for a list input) in a design or project file, on the command line or through the API.
   An explicit binding is chosen before a typed source, which is chosen before the default
