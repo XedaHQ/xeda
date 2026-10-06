@@ -264,7 +264,6 @@ class Dse(FlowLauncher):
         design: Design,
         flow_settings: Union[None, Dict[str, Any], Flow.Settings] = None,
         depender: Optional[Flow] = None,
-        copy_resources: List[str] = [],
         all_flows_settings: Optional[Dict[str, Any]] = None,
         *,
         plan: Plan | None = None,
