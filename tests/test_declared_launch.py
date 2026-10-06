@@ -1,6 +1,6 @@
 """The launcher executes the plan (`resolver`): a flow that declares its inputs gets each one from
 the producer the plan names -- launched by the launcher, never by the flow's `init()` -- or from
-the design's sources, and is handed only what the producer recorded, checked (T7's mechanism).
+the design's sources, and is handed only what the producer recorded, checked.
 Flows without declarations keep registering their dependencies, and may launch a declared one."""
 
 import json
@@ -71,7 +71,7 @@ def test_a_design_source_of_the_accepted_type_replaces_the_producer(tmp_path, de
 
 
 def test_the_launch_runs_exactly_its_plan(tmp_path, design):
-    """D16's oracle: the flows launched are the plan's nodes, with the plan's identities."""
+    """The flows launched are the plan's nodes, with the plan's identities."""
     runner = _runner(tmp_path)
     sections = {"__maker": {"text": "planned\n"}}
     plan = runner.resolve(_Taker, design, {"verbose": 2}, sections)

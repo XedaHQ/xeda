@@ -542,7 +542,7 @@ SCRATCHER_AGAIN = "probe_scratcher (p/probe_scratcher) ran again"
 def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depender(
     probes, root, name, change
 ):
-    """A managed run directory's outputs are every file in it (ruling R37): a depender that
+    """A managed run directory's outputs are every file in it: a depender that
     reads a file of its dependency's by path -- as vivado_postsynth_sim reads the netlist and
     vivado_power the routed checkpoint -- no longer reuses a result built from a file edited or
     deleted by hand since. The dependency is stale, re-runs, and its depender follows."""
@@ -567,7 +567,7 @@ def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depend
 
 def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
     """Every entry under the directory, recursively -- not only the artifacts, and its
-    subdirectories too (R50 h) -- but neither the trace itself nor xeda's temporary files."""
+    subdirectories too -- but neither the trace itself nor xeda's temporary files."""
     first, _ = _launch(root, probes["ProbeScratchReader"])
     run_dir = first.completed_dependencies[0].run_path.resolve()
     trace = json.loads((run_dir / "trace.json").read_text())
@@ -581,7 +581,7 @@ def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
 @pytest.mark.parametrize("name", ["notes.txt", "sub/later.txt"])
 def test_a_file_added_to_a_managed_run_directory_makes_it_stale(probes, root, name):
     """A managed run directory is xeda's alone: a file that appears in it after the run is a
-    change -- a depender reading the directory may find it (ruling R44). The run is stale, and
+    change -- a depender reading the directory may find it. The run is stale, and
     its depender follows; once the file is recorded, both are fresh again."""
     cls = probes["ProbeScratchReader"]
     first, _ = _launch(root, cls)
@@ -614,7 +614,7 @@ def test_pruning_still_drops_the_trace(probes, root):
 @pytest.mark.skipif(sys.platform == "win32", reason="symbolic links and FIFOs")
 def test_a_symbolic_link_in_a_run_directory_is_recorded_as_itself(root, tmp_path):
     """A symbolic link is an entry of its own, recorded by its target and, when that is a file,
-    by the file's content (ruling R44) -- a directory it points to is not walked; a FIFO or
+    by the file's content -- a directory it points to is not walked; a FIFO or
     socket is an entry recorded by its metadata alone, never read (reading one would block)."""
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -724,7 +724,7 @@ def _count_hashes(monkeypatch) -> list:
 def test_a_same_size_edit_with_its_recorded_mtime_restored_is_stale(probes, root):
     """An edit of the same size whose mtime is set back to the recorded one (`os.utime`,
     `touch -r`), long before the record was taken, still changes the file's inode change time:
-    its metadata no longer matches the record, so it is hashed (ruling R38)."""
+    its metadata no longer matches the record, so it is hashed."""
     cls = probes["ProbeSettingFile"]
     constraints = root / "c.xdc"
     past = time.time_ns() - 60 * 10**9
@@ -783,8 +783,7 @@ def test_a_file_a_flow_resolves_in_init_is_an_input_before_any_reuse(
     """yosys expands `abc_script` in `init()` -- against the start directory, or an environment
     variable -- and registers the file it names (`Flow.implicit_inputs`). Launched again with the
     same settings from elsewhere, into the same run directory, it names another file: a new
-    input, known before the check, not a reuse of the script the first launch read (ruling
-    R39)."""
+    input, known before the check, not a reuse of the script the first launch read."""
     from xeda.flows.yosys.common import YosysBase
 
     class ProbeAbc(YosysBase):
@@ -823,7 +822,7 @@ def test_a_read_only_run_directory_can_still_be_checked(probes, root, touched):
     """A check reads the file-system clock (by writing a marker into the run directory) only to
     refresh the trace, before it reads a file's content. In a directory it cannot write, it
     checks all the same and refreshes nothing: a refresh only saves later hashes, and no record
-    is trusted without one (ruling R40)."""
+    is trusted without one."""
     cls = probes["ProbeSettingFile"]
     settings = {"constraints": "c.xdc"}
     first, _ = _launch(root, cls, settings)
@@ -851,7 +850,7 @@ def test_a_version_probe_leaves_nothing_in_the_run_directory(root, tmp_path, mon
     """A tool's version is probed when the flow creates it -- in `init()` too, which runs
     before the check -- and some tools write into their working directory even then (Vivado's
     journal and log). Every file of a managed run directory is an output, so a probe run there
-    would change one at every launch: probes run in a temporary directory (ruling R42)."""
+    would change one at every launch: probes run in a temporary directory."""
     from xeda.tool import Tool
 
     bin_dir = tmp_path / "bin"
@@ -885,7 +884,7 @@ def test_a_version_probe_leaves_nothing_in_the_run_directory(root, tmp_path, mon
 def test_a_record_read_after_its_racy_window_is_refreshed(probes, root, monkeypatch):
     """A file that changed just before its record was taken is read at the next check: its
     metadata cannot vouch for it yet (racy). Once that window has passed, the check that read it
-    refreshes the trace, so the check after it reads nothing (ruling R43)."""
+    refreshes the trace, so the check after it reads nothing."""
     from xeda import digest
 
     monkeypatch.setattr(digest, "RACY_NS", 300_000_000)  # 0.3 s rather than 2 s, not to wait

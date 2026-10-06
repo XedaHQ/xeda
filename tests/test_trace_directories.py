@@ -1,4 +1,4 @@
-"""What a setting that names no file binds a run to: where it points (ruling R46).
+"""What a setting that names no file binds a run to: where it points.
 
 A setting may name a directory (a compiled library, an include directory) or a path that does
 not exist yet. The run's identity (`flowrun_hash`) is location-free -- `$PWD/libs` and
@@ -68,7 +68,7 @@ def _launch(run_root: Path, design: Design, settings: dict):
 
 
 def test_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeypatch):
-    """P1: `$PWD/libs`, launched from `A` and then from `B`, one run directory."""
+    """`$PWD/libs`, launched from `A` and then from `B`, one run directory."""
     a, b = _library(tmp_path / "A", 1), _library(tmp_path / "B", 2)
     (tmp_path / "design").mkdir()
     design = Design(name="t", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
@@ -86,7 +86,7 @@ def test_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeyp
 
 
 def test_a_library_of_another_design_tree_with_the_same_text_is_stale(tmp_path):
-    """P2: two design trees whose design files read the same, each beside its own `libs/`."""
+    """Two design trees whose design files read the same, each beside its own `libs/`."""
     trees = [_library(tmp_path / "v" / name, k) for name, k in (("a", 1), ("b", 2))]
     settings = {"lib_paths": [["mylib", "$DESIGN_ROOT/libs"]]}
     outs = []
@@ -162,7 +162,7 @@ def _compiled(directory: Path, k: int) -> Path:
 
 
 def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeypatch):
-    """P1 as found: from `B`, whose `pkg.K` is 2, GHDL was "up to date and passing"."""
+    """As found: from `B`, whose `pkg.K` is 2, GHDL was "up to date and passing"."""
     require_ghdl()
     from xeda.flows import GhdlSim
 
@@ -187,7 +187,7 @@ def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp
 
 
 def test_ghdl_sim_of_another_design_tree_with_the_same_text_is_stale(tmp_path, monkeypatch):
-    """P2 as found, through the command line: `v/b/soc.toml` was "up to date"."""
+    """As found, through the command line: `v/b/soc.toml` was "up to date"."""
     require_ghdl()
     (tmp_path / "common").mkdir()
     (tmp_path / "common" / "tb.vhd").write_text(TB)
@@ -216,7 +216,7 @@ lib_paths = [["mylib", "$DESIGN_ROOT/libs"]]
     assert "now names" in outcomes[1] and os.fspath(tmp_path) in outcomes[1]
 
 
-# --- What is in a directory a setting names (ruling R48) ----------------------------------------
+# --- What is in a directory a setting names ----------------------------------------
 
 
 def _probe_design(tmp_path: Path) -> Design:
@@ -269,9 +269,9 @@ def test_a_change_inside_a_library_directory_makes_the_run_stale(tmp_path, chang
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links and FIFOs")
 def test_a_link_in_a_library_directory_is_recorded_as_itself(tmp_path):
-    """As in a run directory (R44): a link to a file by its target and the file's content, a
-    link to a directory by its target -- and then followed (R50 i), each directory once, so a
-    loop is no trouble; a FIFO is listed, never read (R50 h)."""
+    """As in a run directory: a link to a file by its target and the file's content, a
+    link to a directory by its target -- and then followed, each directory once, so a
+    loop is no trouble; a FIFO is listed, never read."""
     lib = _library(tmp_path / "L", 1)
     outside = tmp_path / "outside"
     (outside / "a").mkdir(parents=True)
@@ -299,7 +299,7 @@ def test_a_link_in_a_library_directory_is_recorded_as_itself(tmp_path):
     assert flow.stale_reason == f"input changed: {libs / 'vendor'}"
 
 
-# --- R50 h, i: directory entries, special files and directory links in a listing -----------------
+# --- Directory entries, special files and directory links in a listing -----------------
 
 LIBS = {"lib_paths": [["mylib", "$DESIGN_ROOT/libs"]]}
 
@@ -310,7 +310,7 @@ def _tree(tmp_path) -> tuple[Path, Design]:
 
 
 def test_an_empty_directory_added_to_a_library_is_a_new_input(tmp_path):
-    """R50 h."""
+    """An empty directory is an entry of its own."""
     tree, design = _tree(tmp_path)
     _launch(tmp_path / "run", design, LIBS)
     (tree / "libs" / "work").mkdir()
@@ -340,7 +340,7 @@ def test_a_fifo_in_a_library_is_listed_and_never_read(tmp_path):
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links")
 def test_a_library_behind_a_directory_link_is_listed_through_it(tmp_path):
-    """R50 i: an edit beneath a linked directory's target is noticed; a link cycle ends."""
+    """An edit beneath a linked directory's target is noticed; a link cycle ends."""
     real = _library(tmp_path / "real", 1) / "libs"
     tree = tmp_path / "t"
     (tree / "libs").mkdir(parents=True)
@@ -387,7 +387,7 @@ def test_a_large_library_directory_is_reported(tmp_path, monkeypatch, caplog):
 
 
 def test_ghdl_sim_with_a_library_recompiled_in_place_is_stale(tmp_path, monkeypatch):
-    """The in-place variant of P1/P2: the same `libs` recompiled with `pkg.K` = 2 -- the
+    """The in-place variant of the two above: the same `libs` recompiled with `pkg.K` = 2 -- the
     setting names the same directory -- was "up to date and passing"."""
     require_ghdl()
     from xeda.flows import GhdlSim
@@ -476,7 +476,7 @@ def test_an_unchanged_library_directory_is_not_read_again(tmp_path, monkeypatch)
     assert [p for p in read if p.is_relative_to(libs)] == [], "the library was read again"
 
 
-# --- R47d: VCS metadata in a library directory --------------------------------------------------
+# --- VCS metadata in a library directory --------------------------------------------------
 
 
 @pytest.mark.parametrize("vcs", [".git", ".hg", ".svn"])

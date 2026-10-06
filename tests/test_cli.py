@@ -119,7 +119,7 @@ def test_a_missing_design_after_dash_s_is_reported_as_missing(tmp_path, monkeypa
 
 
 def test_dash_s_needs_key_value_items(tmp_path, monkeypatch):
-    """R11: a bare first token is an error naming it, never silently taken as the design."""
+    """A bare first token is an error naming it, never silently taken as the design."""
     _fake_vivado(tmp_path, monkeypatch)
     result = CliRunner().invoke(cli, ["run", "vivado_synth", "-s", "missing.toml", "--json"])
     document = json.loads(result.stdout)

@@ -1,4 +1,4 @@
-"""D-9, the one identity rule: a node's identity is its settings plus the ordered origins of
+"""The one identity rule: a node's identity is its settings plus the ordered origins of
 its inputs (a producer's identity and output key, or "source"), for default and explicit edges
 alike -- in the plan, the run directory, `results.json` and the trace, whose stale reasons name
 the binding that changed."""

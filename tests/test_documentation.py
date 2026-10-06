@@ -487,7 +487,7 @@ def test_no_maintained_document_recommends_a_removed_flow_or_setting():
 
 
 def test_the_documents_state_what_the_lut_count_is_and_is_not():
-    """PB7: `lut` is per toolchain, with its stage and method, and not certified comparable
+    """`lut` is per toolchain, with its stage and method, and not certified comparable
     with Vivado's."""
     root = Path(__file__).parent.parent
     for document in (

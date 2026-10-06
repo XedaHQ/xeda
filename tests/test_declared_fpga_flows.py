@@ -1,6 +1,6 @@
 """`yosys_fpga` and `nextpnr` declare their files: nextpnr's netlist is `yosys_fpga`'s recorded
 output, or a `JsonNetlist` among the design's sources, and nextpnr reads nothing else of
-yosys_fpga's -- not its settings, not its run directory (T7). The tools are stand-ins that write
+yosys_fpga's -- not its settings, not its run directory. The tools are stand-ins that write
 what the real ones would; the real-tool tests in `tests/test_nextpnr.py` run the same path."""
 
 import ast
@@ -206,7 +206,7 @@ def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
 
 
 def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, monkeypatch, tools):
-    """C7: the project file's `[flows.nextpnr] fpga` silently beat the design file's
+    """The project file's `[flows.nextpnr] fpga` must not silently win over the design file's
     `[flows.yosys_fpga] fpga`."""
     design_file = _files(tmp_path, OTHER_PART, PART)
     with pytest.raises(FlowSettingsError) as raised:

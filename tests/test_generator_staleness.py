@@ -10,7 +10,7 @@ costs a hash rather than a re-run.
 
 A generator writes the design's own sources, at the paths the design declares: that is its job,
 and the design's tree is not xeda's. What *xeda* keeps about it -- the record -- goes in the run
-root, like every other thing of xeda's (D21); `test_isolation.py` holds the oracle for that.
+root, like every other thing of xeda's; `test_isolation.py` holds the oracle for that.
 """
 
 import os

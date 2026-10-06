@@ -1,14 +1,13 @@
-"""Outside the run roots it created, xeda changes nothing but the output paths a launch named
-(D21): the isolation oracle (research/run-dir-isolation.md section 8, O1-O4). Everything runs in
-scratch copies under `tmp_path`.
+"""Outside the run roots it created, xeda changes nothing but the output paths a launch named:
+the isolation oracle. Everything runs in scratch copies under `tmp_path`.
 
 What the oracle cannot see:
 - A tool outside `FAKED` is stubbed (`run_process` does nothing), so for those flows only xeda's
   own writes and the fake TCL tools' are observed, never what the real tool would write.
-- The audit hook (O3) sees this process only, not the tools it starts; O1 and O2 see those
-  through the file system.
-- Only the start directory's parent is snapshotted (O1) and made read-only (O2): a write
-  elsewhere on the file system is seen by O3 alone, and only when it is this process's own.
+- The audit hook sees this process only, not the tools it starts; the snapshot and the read-only
+  tree see those through the file system.
+- Only the start directory's parent is snapshotted and made read-only: a write elsewhere on the
+  file system is seen by the audit hook alone, and only when it is this process's own.
 The opt-in real-tool layers (`XEDA_TESTS_VIVADO`, `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`) are
 where the sweep can be extended to real tools (a follow-up); real GHDL, nvc and bsc already run in
 `test_a_cocotb_simulation_leaves_the_design_directory_as_it_was` and
@@ -221,7 +220,7 @@ def _state(root: Path, exclude: Sequence[Path]) -> dict:
     return state
 
 
-# --- O3: the audit hook ---------------------------------------------------------------------
+# --- the audit hook -------------------------------------------------------------------------
 
 _WATCH: dict = {}
 _WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
@@ -306,9 +305,9 @@ def watching(world: World, delivered: Optional[list] = None) -> Iterator[list]:
 
 
 def test_the_oracle_sees_every_change_outside_the_run_root(tmp_path):
-    """The teeth of O1 and O3: each way of changing a path outside the run root is seen by both,
-    a write inside the run root by neither, and a write under a named destination is admitted
-    only from `xeda/deliver.py`."""
+    """The teeth of the sweep and the audit hook: each way of changing a path outside the run
+    root is seen by both, a write inside the run root by neither, and a write under a named
+    destination is admitted only from `xeda/deliver.py`."""
     world = _world(tmp_path)
     world.root.mkdir()
     world.delivered.mkdir()
@@ -439,7 +438,7 @@ def _named(world: World, flow_name: str, scenario: str, delivered: List[Path]) -
 
 def _sweep(flow_class, world: World, monkeypatch, scenario: str) -> tuple:
     """One launch of the sweep: what changed outside the run root but the destinations it named
-    (O1), what the audit hook saw (O3), and whether the flow reached its `run()`."""
+    what the audit hook saw, and whether the flow reached its `run()`."""
     before = _state(world.parent, [world.root])
     reached: list = []
     delivered: List[Path] = []
@@ -458,7 +457,7 @@ def _sweep(flow_class, world: World, monkeypatch, scenario: str) -> tuple:
 def test_nothing_outside_the_run_root_changes_but_what_was_named(
     flow_class, scenario, tmp_path, monkeypatch
 ):
-    """O1 and O3."""
+    """No change outside the run root, seen in the file system or by the audit hook."""
     changed, violations, reached = _sweep(flow_class, _world(tmp_path), monkeypatch, scenario)
     assert not changed, f"{flow_class.name} changed {changed}"
     assert not violations, f"{flow_class.name}: {violations}"
@@ -468,7 +467,7 @@ def test_nothing_outside_the_run_root_changes_but_what_was_named(
 
 def _also_runs(flow_class, monkeypatch, command: str) -> None:
     """`flow_class.run` runs `command` in a child process after the flow's own `run()`: a
-    tool's write, which only the file system shows (O1), never the audit hook (O3)."""
+    tool's write, which only the file system shows, never the audit hook."""
     run = flow_class.run
 
     def run_and_command(self):
@@ -488,7 +487,7 @@ def test_the_sweep_sees_an_extra_file_beside_a_delivered_one(tmp_path, monkeypat
     changed, violations, _ = _sweep(vivado_sim, world, monkeypatch, "delivered")
     assert (world.delivered / "sim.saif").is_file(), "the named output was delivered beside it"
     assert changed == ["work/delivered/extra.txt"]
-    assert not violations, "a child process's write: O3 cannot see it"
+    assert not violations, "a child process's write: the audit hook cannot see it"
 
 
 def test_the_sweep_sees_a_touch_only_change(tmp_path, monkeypatch):
@@ -498,7 +497,7 @@ def test_the_sweep_sees_a_touch_only_change(tmp_path, monkeypatch):
     _also_runs(vivado_synth, monkeypatch, f"touch -m -t 200001010000 '{world.work / 'notes.txt'}'")
     changed, violations, _ = _sweep(vivado_synth, world, monkeypatch, "clean")
     assert changed == ["work/notes.txt"]
-    assert not violations, "a child process's write: O3 cannot see it"
+    assert not violations, "a child process's write: the audit hook cannot see it"
 
 
 def _freeze(root: Path, keep: Path) -> None:
@@ -523,7 +522,7 @@ def _thaw(root: Path) -> None:
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
 @pytest.mark.parametrize("flow_class", FLOWS, ids=lambda c: c.name)
 def test_a_launch_needs_nothing_writable_but_its_run_root(flow_class, tmp_path, monkeypatch):
-    """O2: with the user's tree read-only (but the run root), a launch ends as it does with a
+    """With the user's tree read-only (but the run root), a launch ends as it does with a
     writable tree."""
     expected = _launch(flow_class, _world(tmp_path / "rw"), monkeypatch, "once", [])
     world = _world(tmp_path / "ro")
@@ -537,7 +536,7 @@ def test_a_launch_needs_nothing_writable_but_its_run_root(flow_class, tmp_path, 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
 def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, monkeypatch):
-    """O2 with the real tools (gpt-6-sol's final (d)): bsc compiles PR #88's `gcd` and Bluesim
+    """With the real tools: bsc compiles PR #88's `gcd` and Bluesim
     runs its Bluespec testbench, everything but the run root read-only."""
     require_bluesim()
     world = _world(tmp_path)
@@ -556,9 +555,9 @@ def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, mo
 
 
 #: A design generator: it writes the sources the design declares, and counts its runs in the one
-#: place the oracle ignores, the run root. Its job is to write the design's own tree, so O1 admits
-#: exactly the sources it generates -- and nothing else, xeda's own record of the generation
-#: included, which lies under the run root (`xeda.generation`).
+#: place the oracle ignores, the run root. Its job is to write the design's own tree, so the sweep
+#: admits exactly the sources it generates -- and nothing else, xeda's own record of the
+#: generation included, which lies under the run root (`xeda.generation`).
 GENERATOR = """\
 import os, sys
 from pathlib import Path
@@ -572,7 +571,7 @@ with open(sys.argv[1], "a") as counter:
 
 
 def test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates(tmp_path):
-    """O1 and O3 for a generator: a load changes nothing outside the run root but the sources the
+    """A load that runs a generator: a load changes nothing outside the run root but the sources the
     design declares its generator produces. The generator writes the design's tree because that
     is what it is for; everything xeda keeps about it goes under the run root, and a second load
     of the unchanged design generates nothing at all."""
@@ -689,7 +688,7 @@ INV_V = "module inv(input clk, input a, output reg y); always @(posedge clk) y <
 def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
     tmp_path, monkeypatch, tools
 ):
-    """The ise_synth probe (P10): `xeda run ise_synth inv.toml --cwd --clean`, started in the
+    """The ise_synth probe: `xeda run ise_synth inv.toml --cwd --clean`, started in the
     design's directory, deleted inv.toml, inv.v and an unrelated notes.txt. `--cwd` is gone; the
     run goes to ./xeda_run, and the directory keeps every file, with the tool or without it."""
     work = tmp_path / "work"
@@ -718,7 +717,7 @@ def test_ise_synth_from_the_design_directory_deletes_none_of_its_files(
     assert _state(work, [work / "xeda_run"]) == before, "the design directory changed"
 
 
-# --- O4: the static scan (moved from tests/test_run_dir_ownership.py) --------------------------
+# --- the static scan ------------------------------------------------------------------------
 
 
 def test_fake_tools_are_where_the_sweep_expects_them():
@@ -915,7 +914,7 @@ _REPORT = "a report, output or checkpoint the tool writes under its own name in 
 _REPORT += "reports/outputs/checkpoints directory"
 _BITSTREAM = "the bitstream named by the flow's `bitstream` setting"
 #: a command that replaces by name, or deletes where it runs: only ever in the flow's run directory
-IN_THE_RUN_DIRECTORY = "inside the flow's run directory, which is xeda's (D21)"
+IN_THE_RUN_DIRECTORY = "inside the flow's run directory, which is xeda's"
 
 #: Every such line, reviewed, with how many times it occurs: (file, line) -> (count, why it
 #: removes or replaces only xeda's own, and -- for a command that replaces by name or deletes
@@ -1126,7 +1125,7 @@ def test_every_tool_command_that_deletes_or_replaces_is_reviewed_and_guarded():
 
 
 # ---------------------------------------------------------------------------------------------
-# O4, the static scan, for writes: every file xeda writes by name goes through
+# The static scan, for writes: every file xeda writes by name goes through
 # `utils.replacing_file`/`replacing_copy` (complete-then-rename, which replaces a link at the name
 # rather than writing through it) -- in a run directory, at the path `RunDirectory.writable`
 # located -- or is one reviewed here.

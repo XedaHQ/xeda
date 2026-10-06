@@ -1,7 +1,7 @@
 """The resolver turns a launch into one immutable plan before anything runs: each declared
-input's origin in D3's order (a design source of an accepted type, else the default producer),
-the outputs a consumer switches on (Q6), every node's effective settings -- a shared setting
-agreeing along every edge (Q4, C7): given in one place it reaches every connected flow, given
+input's origin (a design source of an accepted type, else the default producer),
+the outputs a consumer switches on, every node's effective settings -- a shared setting
+agreeing along every edge: given in one place it reaches every connected flow, given
 differently it is an error naming both places, and the command line wins for the whole run --
 and every node's identity."""
 
@@ -128,7 +128,7 @@ def test_leaves_given_in_one_place_each_combine(tmp_path):
 
 
 def test_conflicting_values_are_an_error_naming_both_places(tmp_path):
-    """C7: a project file's `[flows.nextpnr] fpga` silently beat a design file's
+    """A project file's `[flows.nextpnr] fpga` must not silently win over a design file's
     `[flows.yosys_fpga] fpga`."""
     project = {"__place": {"fpga": {"part": OTHER}}}
     design = {"__synth": {"fpga": {"part": PART}}}
@@ -913,13 +913,13 @@ def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
         assert node.settings.clock.uncertainty is None
 
 
-# ------------------------------------------------------------ O-PL1: the ASIC shared leaves
+# ------------------------------------------------------------ the ASIC shared leaves
 
 
 def _asic_taker():
     """A declared consumer of `yosys`'s netlist that shares its ASIC configuration -- `platform`,
     `corner` and `dont_use_cells` with yosys's own types -- as `openroad` will once it declares
-    its input (Task 6). Today it is the only declared edge on which the three can agree."""
+    its input. Today it is the only declared edge on which the three can agree."""
     from typing import List, Optional, Union
 
     from xeda.dataclass import Field, field_validator
@@ -1002,7 +1002,7 @@ def test_every_bundled_platform_is_named_as_its_directory():
 
 
 def test_two_spellings_of_one_platform_agree_on_one_yosys(tmp_path):
-    """O-PL1 (a): a bundled name on one node and the path to that bundled `config.toml` on the
+    """A bundled name on one node and the path to that bundled `config.toml` on the
     other are one platform: one plan, one yosys identity, one run."""
     from xeda.platforms import AsicsPlatform
 
@@ -1027,7 +1027,7 @@ def test_two_spellings_of_one_platform_agree_on_one_yosys(tmp_path):
 
 
 def test_two_platforms_that_share_a_name_and_a_root_conflict(tmp_path):
-    """O-PL1 (b): two `config.toml` files in one directory with one `name` are two platforms;
+    """Two `config.toml` files in one directory with one `name` are two platforms;
     the error names both nodes and both origins."""
     root = tmp_path / "pdk"
     root.mkdir(parents=True)
@@ -1048,7 +1048,7 @@ def test_two_platforms_that_share_a_name_and_a_root_conflict(tmp_path):
 
 
 def test_a_mapping_platform_is_propagated_whole_and_valid(tmp_path):
-    """O-PL1 (c): the propagated value is a valid `platform` input and each node's model is
+    """The propagated value is a valid `platform` input and each node's model is
     complete; a mapping is one value, never merged key by key with another node's."""
     from xeda.platforms import AsicsPlatform
 
@@ -1073,7 +1073,7 @@ def test_a_mapping_platform_is_propagated_whole_and_valid(tmp_path):
 
 @pytest.mark.parametrize("leaf, value", [("corner", "SS"), ("dont_use_cells", "AND2_X2")])
 def test_a_corner_or_dont_use_list_given_once_reaches_both(tmp_path, leaf, value):
-    """O-PL1 (d): `-s corner=SS` and `-s dont_use_cells=X`, given once, reach both flows."""
+    """`-s corner=SS` and `-s dont_use_cells=X`, given once, reach both flows."""
     taker = _asic_taker()
     platform = "asap7" if leaf == "corner" else "nangate45"
     plan = _asic_plan(

@@ -147,7 +147,7 @@ class _RecordingRemoteRunner:
 
 def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
     """A remote run's results are mirrored in `<flow>_<flowrun_hash>`, the remote runner's own
-    layout: the command line hands it none -- only where its outputs are delivered (D21)."""
+    layout: the command line hands it none -- only where its outputs are delivered."""
     _RecordingRemoteRunner.settings_seen = []
     monkeypatch.setattr(remote, "RemoteRunner", _RecordingRemoteRunner)
     result, document = _run(str(sqrt), "--remote", "host", "--json")

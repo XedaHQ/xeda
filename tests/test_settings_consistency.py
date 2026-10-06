@@ -438,7 +438,7 @@ def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
 
 
 def test_corner_and_dont_use_cells_are_yosys_s_and_openroad_s_alone():
-    """PCD17's containment: `yosys -> openroad` is the only edge on which `corner` or
+    """Containment: `yosys -> openroad` is the only edge on which `corner` or
     `dont_use_cells` can agree, because no other product flow declares either."""
     flows = _product_flows()
     for name in ("corner", "dont_use_cells"):

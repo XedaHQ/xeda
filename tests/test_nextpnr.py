@@ -694,7 +694,7 @@ def test_the_synthesis_declared_nextpnr_places_keeps_src_unless_told_otherwise(
     tmp_path, monkeypatch, flows, cli, keeps_src
 ):
     """The same default, for the producer `nextpnr` declares: `flows.yosys_fpga` is the one
-    place its settings are written (D-10), and a `netlist_src_attrs` given there wins."""
+    place its settings are written, and a `netlist_src_attrs` given there wins."""
     settings = _yosys_launch_settings(tmp_path, monkeypatch, Nextpnr, flows, cli)
     assert settings.netlist_src_attrs is keeps_src
 

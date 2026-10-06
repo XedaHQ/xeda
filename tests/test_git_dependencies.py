@@ -49,7 +49,7 @@ def test_a_launcher_clones_into_its_run_root(tmp_path, monkeypatch, clones):
 
 
 def test_a_design_without_git_dependencies_makes_no_run_root(tmp_path, monkeypatch, clones):
-    """Opus I1: the cache is a provider, called only to clone -- the lazy run root stays unmade."""
+    """The cache is a provider, called only to clone -- the lazy run root stays unmade."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)

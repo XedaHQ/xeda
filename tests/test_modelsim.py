@@ -82,7 +82,7 @@ def test_flags_reach_their_tools_one_word_each(tmp_path, monkeypatch) -> None:
 
 @needs_tclsh
 def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monkeypatch, caplog):
-    """Opus minor: `--outputs-to` copies only what a flow reported as an artifact inside its run
+    """`--outputs-to` copies only what a flow reported as an artifact inside its run
     directory; a bare simulation (no `vcd`) reports none, so it silently delivered nothing there.
     The warning names the flow and its deliverable settings (`vcd`, for a simulator)."""
     use_fake_tools(monkeypatch)

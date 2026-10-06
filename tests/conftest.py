@@ -1,4 +1,4 @@
-"""The suite's own isolation (D21): a test works under `tmp_path`, never in the checkout."""
+"""The suite's own isolation: a test works under `tmp_path`, never in the checkout."""
 
 import os
 import shutil

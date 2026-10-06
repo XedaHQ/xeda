@@ -1,4 +1,4 @@
-"""A report a previous run left is never taken for this run's (ruling R49).
+"""A report a previous run left is never taken for this run's.
 
 A run directory is reused across runs, so the reports of the previous run are still there when a
 flow runs again: if the tool fails before it writes new ones, or writes none, a flow that reads
@@ -333,8 +333,8 @@ class _ReadsReport(Flow):
 
 
 def test_the_reports_a_run_read_are_removed_before_the_next_run(tmp_path):
-    """R50 j: a report whose mtime was moved forward passes R49's rule; removing the reports the
-    last run read before the next one runs does not let it through."""
+    """A report whose mtime was moved forward passes the check that a run wrote it; removing the
+    reports the last run read before the next one runs does not let it through."""
     design = Design(name="d", design_root=tmp_path, rtl={"sources": []})
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     try:
@@ -383,8 +383,8 @@ class _ReportsWhenTold(Flow):
 def test_a_previous_trace_s_reports_are_removed_before_every_run(tmp_path, monkeypatch, why):
     """Whatever makes the flow run again -- other settings, an edited input, `rebuild_all`, a
     flow that can never be reused -- the report its last traced run read is removed before it
-    runs: left with a future mtime, it passes R49's rule, and must never be read as this run's
-    (every run directory is xeda's: no exception)."""
+    runs: left with a future mtime, it passes the check that a run wrote it, and must never be
+    read as this run's (every run directory is xeda's: no exception)."""
     (tmp_path / "a.v").write_text("module a; endmodule\n")
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a"})
     monkeypatch.setenv(WRITE_REPORT, "1")

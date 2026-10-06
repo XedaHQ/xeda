@@ -635,7 +635,7 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     assert design.source_artifact_name(design.rtl.sources[0], ".v") == names[0]
 
 
-# ------------------------------------------- O-RI1: a bundled platform names no installation
+# ------------------------------------------- a bundled platform names no installation
 
 # The imported package: under tox it is the installed one, not the checkout's `src/xeda`.
 XEDA_PACKAGE = Path(xeda.__file__).parent

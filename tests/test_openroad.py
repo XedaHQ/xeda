@@ -1,6 +1,6 @@
 """The OpenROAD flow's synthesis step: the abc script `optimize` selects.
 
-`optimize` is a setting of the flow that acts on it, `yosys` (R-PC-b): it is given as
+`optimize` is a setting of the flow that acts on it, `yosys`: it is given as
 `flows.yosys.optimize`, and reaches OpenROAD's synthesis through its `yosys` dependency."""
 
 import contextlib

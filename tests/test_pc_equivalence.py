@@ -103,12 +103,12 @@ PLATFORMS = Path(xeda.__file__).parent / "platforms"
 #: compared. A tuple of keys names each key whole.
 _SYNTH = "nodes/sim/vivado_synth"
 _SYNTH_DELTAS = {
-    f"{_SYNTH}/effective_flow_settings/write_timing_netlist": "Task 2 (R-PC-a): a new setting "
+    f"{_SYNTH}/effective_flow_settings/write_timing_netlist": "A new setting "
     "beside `write_netlist`, which the consumer switches on with it, so the synthesis writes "
     "what it wrote before",
-    f"{_SYNTH}/results/outputs": "Task 2 (PC-2): `vivado_synth`'s declared outputs, recorded "
+    f"{_SYNTH}/results/outputs": "`vivado_synth`'s declared outputs, recorded "
     "with their digests; the files they name are the ones recorded under `files`",
-    f"{_SYNTH}/files/<RUN>/sim/vivado_synth/post_route_design_hook.tcl": "Task 2 (PCD19): the "
+    f"{_SYNTH}/files/<RUN>/sim/vivado_synth/post_route_design_hook.tcl": "The "
     "route hook writes the netlist, the timing netlist with its SDF and the constraints in "
     "blocks of their own; it writes the same files in the same order",
 }
@@ -181,29 +181,29 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
 #: that names it are still compared.
 REVIEWED_RENAMES: dict[str, dict[str, str]] = {}
 
-# PC Task 5 (PCD9 step 1, R-PC-b, PCD16): `yosys` is configured by its own `platform`, which
+# `yosys` is configured by its own `platform`, which
 # `openroad` now hands it with the settings the two share, instead of by `openroad` building its
 # whole configuration. What yosys is handed is otherwise unchanged -- the merged library, the
 # maps, the abc script and constraints, the netlist -- and is compared as before.
 _YOSYS = "mac/yosys"
 _OPENROAD = "mac/openroad"
-_TASK5_DELTAS: dict[tuple[str, ...] | str, str] = {
+_YOSYS_ASIC_DELTAS: dict[tuple[str, ...] | str, str] = {
     **{
         ("nodes", _OPENROAD, "effective_flow_settings", key): (
-            "R-PC-b: a setting of the flow that acts on it, `yosys`; `openroad` has it no more"
+            "A setting of the flow that acts on it, `yosys`; `openroad` has it no more"
         )
         for key in ("optimize", "abc_driver_cell", "abc_load_in_ff")
     },
     **{
         ("nodes", _YOSYS, "effective_flow_settings", key): (
-            "yosys's own setting now (R-PC-b, PCD16): `optimize` and the abc cell settings moved "
+            "yosys's own setting now: `optimize` and the abc cell settings moved "
             "to it; `platform` and `corner` are what `openroad` hands it, the shared leaves it "
             "derives the rest from"
         )
         for key in ("optimize", "abc_driver_cell", "abc_load_in_ff", "platform", "corner")
     },
     ("nodes", _YOSYS, "effective_flow_settings", "merge_libs_to"): (
-        "yosys merges the platform's liberty set in its own run directory (PCD16), under its own "
+        "yosys merges the platform's liberty set in its own run directory, under its own "
         "default name; the merged library's content is compared, after REVIEWED_RENAMES"
     ),
     ("nodes", _YOSYS, "files", "<RUN>/mac/yosys/yosys_synth.ys"): (
@@ -215,10 +215,10 @@ _TASK5_DELTAS: dict[tuple[str, ...] | str, str] = {
         "these runs writes it, and a remote run was asked for the file it never wrote"
     ),
     ("nodes", _YOSYS, "results", "outputs"): (
-        "yosys declares its netlist (PC Task 5): the declared output's record is new"
+        "yosys declares its netlist: the declared output's record is new"
     ),
 }
-_TASK5_RENAMES = {
+_YOSYS_ASIC_RENAMES = {
     # longest first: the merged library, by its path and as the script names it
     "<RUN>/mac/yosys/merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
     "merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
@@ -230,12 +230,12 @@ for _name in (
     "openroad_asap7_ss",
     "openroad_asap7_tt",
 ):
-    REVIEWED_DELTAS[_name] = dict(_TASK5_DELTAS)
-    REVIEWED_RENAMES[_name] = dict(_TASK5_RENAMES)
+    REVIEWED_DELTAS[_name] = dict(_YOSYS_ASIC_DELTAS)
+    REVIEWED_RENAMES[_name] = dict(_YOSYS_ASIC_RENAMES)
 REVIEWED_DELTAS["openroad_dont_use_cells"][
     ("nodes", _YOSYS, "effective_flow_settings", "dont_use_cells")
 ] = (
-    "a shared leaf (PCD16): `openroad` hands yosys its own `dont_use_cells`, which yosys marks "
+    "a shared leaf: `openroad` hands yosys its own `dont_use_cells`, which yosys marks "
     "in its merge beside the platform's, instead of handing it a library already merged"
 )
 
@@ -737,7 +737,7 @@ def test_the_timing_and_functional_simulations_are_handed_different_netlists(cap
 
 def merged_library(record: dict[str, Any]) -> str:
     """The merged liberty library `yosys` reads: one content, wherever the flows keep it (it
-    read `merged.lib` in `openroad`'s run directory, and since PC Task 5 merges its own,
+    read `merged.lib` in `openroad`'s run directory, and now merges its own,
     `merged_lib.lib`, from the same platform)."""
     found = {
         digest

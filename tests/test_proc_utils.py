@@ -595,7 +595,7 @@ def test_non_group_cleanup_needs_no_sigkill(monkeypatch, stop):
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_interruption_signals_the_group_before_reaping_the_leader(monkeypatch):
-    """R29's recycled-group hazard applies to interruption cleanup as well as a timeout."""
+    """The recycled-group hazard applies to interruption cleanup as well as a timeout."""
     proc = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
     )

@@ -130,7 +130,7 @@ def test_a_dependency_that_ran_again_reruns_its_depender_even_with_an_identical_
     consumer, although the producer's declared output is byte-identical: a flow may read files
     its dependency wrote without declaring them, so a dependency's new run is a change. (Early
     cutoff across a dependency edge returns once flows read their dependencies' files only
-    through declared outputs, in plan 2; cutoff on a flow's own inputs is below.)"""
+    through declared outputs; cutoff on a flow's own inputs is below.)"""
     _, consumer = toys
     _run(tmp_path, consumer, design)
     flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"verbose": 1}})

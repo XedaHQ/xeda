@@ -250,7 +250,7 @@ def test_two_inputs_bound_to_one_producer_enable_its_outputs_together(tmp_path):
 
 
 def test_one_producer_reached_through_two_branches_is_one_node_one_identity_one_run(tmp_path):
-    """PC4: `_Left` demands `_Fork.a`, `_Right` demands `_Fork.b`; both outputs are switched on
+    """`_Left` demands `_Fork.a`, `_Right` demands `_Fork.b`; both outputs are switched on
     before `_Fork` is hashed, and it runs once."""
     runner = _runner(tmp_path, hashed_run_dirs=True)
     design = _design(tmp_path)
@@ -399,7 +399,7 @@ class _EcpTaker(Flow):
 
 
 def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
-    """M4 / PD3: what an output can make must be a subset of what the input takes. A chain and
+    """What an output can make must be a subset of what the input takes. A chain and
     a saved binding of the same edge are accepted or refused alike."""
     from xeda.flow_runner.chains import fitting_outputs
 
@@ -421,7 +421,7 @@ def test_a_binding_and_a_chain_judge_an_edge_by_the_same_predicate(tmp_path):
 
 
 def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
-    """M1: a saved binding the chain replaces is not validated, as one a command-line binding
+    """A saved binding the chain replaces is not validated, as one a command-line binding
     replaces is not."""
     for bad in (False, "no such flow", "__maker.no_such_output", ["__maker"]):
         design = _design(tmp_path, flows={"__taker": {"inputs": {"made": bad}}})
@@ -437,7 +437,7 @@ def test_a_chain_over_an_invalid_saved_binding_succeeds(tmp_path):
 
 
 def test_a_producer_s_settings_do_not_depend_on_who_asks(tmp_path):
-    """I1: no consumer gives its producer defaults. `yosys_fpga` requested alone and as
+    """No consumer gives its producer defaults. `yosys_fpga` requested alone and as
     `nextpnr`'s producer is one configuration, one identity, one directory."""
     from xeda.flows import YosysFpga
 

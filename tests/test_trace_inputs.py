@@ -208,7 +208,7 @@ def test_a_flow_of_xeda_s_own_has_no_separate_code_digest():
 
 
 def test_one_walker_lists_every_file_under_a_directory():
-    """R50 m: every "every file under" of the trace and of delivery is `listing.directory_files`
+    """Every "every file under" of the trace and of delivery is `listing.directory_files`
     (a link as itself unless asked to follow, no `rglob` that resolves or follows)."""
     import xeda
 
@@ -219,7 +219,7 @@ def test_one_walker_lists_every_file_under_a_directory():
 
 
 def test_a_followed_link_never_enters_a_pruned_directory(tmp_path):
-    """Opus minor: pruned by (st_dev, st_ino), so a library link to an ancestor of the run root
+    """Pruned by (st_dev, st_ino), so a library link to an ancestor of the run root
     does not list the runs through it."""
     libs = tmp_path / "t" / "libs"
     libs.mkdir(parents=True)

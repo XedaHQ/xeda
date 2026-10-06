@@ -3,14 +3,14 @@
 A flow's identity (`design_hash`) and the files its trace records as inputs cover the parts it
 declares, and only those, so a testbench edit leaves a synthesis flow fresh and makes a simulation
 flow stale. The risk is one-sided: a part wrongly left out is a stale reuse of a result built from
-other sources, a part wrongly left in only costs a re-run. Three oracles hold that down:
+other sources, a part wrongly left in only costs a re-run. Three checks hold that down:
 
-* O-DP1 (i): freshness, direct: on the fake and real tools, a testbench-only edit leaves a
+* Freshness, direct: on the fake and real tools, a testbench-only edit leaves a
   `{"rtl"}` flow fresh and makes a `{"rtl", "tb"}` flow stale; an RTL edit makes every flow stale.
-* O-DP2: the converse. A scan of everything a flow's code and templates can reach finds no read of
+* The converse. A scan of everything a flow's code and templates can reach finds no read of
   `design.tb` in a `{"rtl"}` flow, and a flow that is not a simulation flow and yet declares `tb`
   is shown to read it.
-* O-DP3: the trace of a `{"rtl"}` flow names no file of `design.tb` as an input.
+* The trace of a `{"rtl"}` flow names no file of `design.tb` as an input.
 
 O-DP1 (ii), the transitive half, is the power graph, at the end of this module: a `tb`-only edit
 leaves `vivado_synth` fresh, makes `vivado_postsynth_sim` stale, and makes `vivado_power` stale
@@ -76,7 +76,7 @@ def test_a_flow_that_reads_the_testbench_declares_both_parts(name: str) -> None:
 
 
 def test_design_parts_is_one_frozenset_and_the_old_name_is_gone() -> None:
-    """One name for "which parts of the design this flow reads" (PCD1): a frozenset of part
+    """One name for "which parts of the design this flow reads": a frozenset of part
     names, the parts a design has, and no second class variable beside it."""
     assert Flow.design_parts == RTL
     assert SimFlow.design_parts == BOTH
@@ -150,7 +150,7 @@ def test_design_files_cover_the_parts_they_are_given(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------------------------
-# O-DP1 (i), O-DP3: a testbench edit, on the fake and the real tools
+# A testbench edit, on the fake and the real tools
 # ---------------------------------------------------------------------------------------------
 
 VHDL_INVERTER = (
@@ -251,8 +251,8 @@ def project(request, tmp_path: Path, monkeypatch) -> Project:
 
 
 def test_a_testbench_edit_leaves_a_flow_reading_only_rtl_fresh(project: Project) -> None:
-    """O-DP1 (i). The flow has no producer: the one case in which `design_parts` is the whole
-    story (a flow downstream of a producer that reads `tb` runs again with it, PCD22)."""
+    """The flow has no producer: the one case in which `design_parts` is the whole
+    story (a flow downstream of a producer that reads `tb` runs again with it)."""
     parts = _flow(project.case.flow).design_parts
     assert project.settle().succeeded
 
@@ -277,8 +277,8 @@ def test_an_rtl_edit_makes_every_flow_stale(project: Project) -> None:
     assert flow.stale_reason
 
 
-def test_the_exit_condition_a_testbench_edit_separates_synthesis_from_simulation() -> None:
-    """PC Task 1's exit, in the two flows it names, as the table says it: `vivado_synth` reads
+def test_a_testbench_edit_separates_synthesis_from_simulation() -> None:
+    """A testbench edit separates synthesis from simulation: `vivado_synth` reads
     no testbench and `ghdl_sim` does. (The launches that show it are the two tests above, run for
     `vivado_synth` and `ghdl_sim`.)"""
     assert _flow("vivado_synth").design_parts == RTL
@@ -329,7 +329,7 @@ def _trace_inputs(flow: Flow) -> set[Path]:
 
 
 def test_the_trace_of_a_flow_names_the_files_of_the_parts_it_reads(project: Project) -> None:
-    """O-DP3. A `{"rtl"}` flow's trace names no file of `design.tb` -- through its inputs or
+    """A `{"rtl"}` flow's trace names no file of `design.tb` -- through its inputs or
     anything it read after the run -- though the testbench is in the design it was given. A flow
     that declares `tb` names them: the same trace, as the control that the check can see."""
     parts = _flow(project.case.flow).design_parts
@@ -344,7 +344,7 @@ def test_the_trace_of_a_flow_names_the_files_of_the_parts_it_reads(project: Proj
 
 
 # ---------------------------------------------------------------------------------------------
-# O-DP2: a flow that declares only `rtl` never reads `tb`, in code or in a template
+# A flow that declares only `rtl` never reads `tb`, in code or in a template
 # ---------------------------------------------------------------------------------------------
 
 #: The calls that take a `tb` argument, and the number of positional arguments that precede it.
@@ -352,7 +352,7 @@ TB_TAKERS = {"sources_of_type": None, "header_dirs": 1, "sources_read": 1}
 
 #: Flows declared `{"rtl"}` that nevertheless read `tb`, each with why it is allowed. Nothing is
 #: allowed today: a part wrongly left out is a stale reuse of other sources, and a read that
-#: cannot be removed is declared in `design_parts` instead (`bsc`, PCD3). An entry is a finding.
+#: cannot be removed is declared in `design_parts` instead (`bsc`). An entry is a finding.
 READS_TB_THOUGH_RTL_ONLY: dict[str, str] = {}
 
 #: Flows that are not simulation flows and still declare `tb`: each reads it, and the reason
@@ -360,7 +360,7 @@ READS_TB_THOUGH_RTL_ONLY: dict[str, str] = {}
 #: and says to narrow the flow's parts.
 DECLARES_TB_THOUGH_NOT_A_SIMULATION: dict[str, str] = {
     "bsc": "BscFlow._path_flags adds the testbench's Verilog directories to -vsearch "
-    "(`sources_of_type(..., rtl=True, tb=True)`); declared both until that read is narrowed (PCD3)",
+    "(`sources_of_type(..., rtl=True, tb=True)`); declared both until that read is narrowed",
     "vivado_project": "the project's simulation fileset holds the testbench "
     "(`vivado_project.tcl`: `sources_read(rtl=false, tb=true)`, `design.tb.top`)",
 }
@@ -468,7 +468,7 @@ def template_tb_reads(text: str, supplied: set[str]) -> list[str]:
 
 
 def test_the_scan_sees_each_way_of_reading_the_testbench() -> None:
-    """The teeth of O-DP2: a scan that finds nothing in anything proves nothing."""
+    """The teeth of the scan: a scan that finds nothing in anything proves nothing."""
     code = {
         "attribute": "def f(self): return self.design.tb.top",
         "getattr": "def f(d): return getattr(d, 'tb')",
@@ -682,7 +682,7 @@ RTL_ONLY_CLASSES = [(cls, name) for cls, name in flow_classes() if cls.design_pa
 
 @pytest.mark.parametrize(("cls", "name"), RTL_ONLY_CLASSES, ids=[n for _, n in RTL_ONLY_CLASSES])
 def test_a_flow_declaring_only_rtl_never_reads_the_testbench(cls: type[Flow], name: str) -> None:
-    """O-DP2. Over the classes of the flow's MRO and the templates its loader offers and its code
+    """Over the classes of the flow's MRO and the templates its loader offers and its code
     names, in the modules they live in, never only the flow's own (`GhdlSynth` shares a module
     with `GhdlSim`, a Vivado template directory holds every Vivado flow's)."""
     hits = tb_reads(cls)

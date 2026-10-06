@@ -275,7 +275,7 @@ def test_a_removed_flow_named_on_the_command_line_as_a_section_says_so(tmp_path)
         assert error["type"] == "FlowRemovedError" and REMOVED_OPEN_XC7 in error["message"]
 
 
-# ------------------------------------- openroad's settings that configured yosys (R-PC-b)
+# ------------------------------------- openroad's settings that configured yosys
 
 #: what `openroad` had only to hand to its `yosys` dependency, now yosys's own settings
 MOVED_TO_YOSYS = {

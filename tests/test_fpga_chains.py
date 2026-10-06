@@ -808,7 +808,7 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
     )
 
 
-# ------------------------------------------------------------------------------ the P4 boundary
+# ------------------------------------------------------------------------------ undeclared flows
 #
 # Bluespec and most Vivado flows declare no inputs or outputs yet (P4 derives a design from `bsc`;
 # P5 chains Bluespec to simulation and synthesis; `vivado_synth` and `vivado_alt_synth` declare

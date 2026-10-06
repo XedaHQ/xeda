@@ -1,5 +1,5 @@
 """A flow that cannot be reused says why, per instance (`Flow.always_runs`); seeds are settings
-with fixed defaults, so a default configuration is reusable (S6 of the foundations).
+with fixed defaults, so a default configuration is reusable.
 
 A flow always runs when it changes the world outside its run directory (programs a device), when
 its settings ask for a fresh random seed, or when it reads something no trace can verify (a pin

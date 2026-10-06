@@ -897,7 +897,7 @@ def test_no_flow_has_a_setting_named_flows():
 
 
 def test_dash_s_flows_must_name_a_flow_of_the_run(tmp_path, monkeypatch):
-    """R13: a typo in `-s flows.<name>` is an error with suggestions, never silently ignored."""
+    """A typo in `-s flows.<name>` is an error with suggestions, never silently ignored."""
     monkeypatch.chdir(tmp_path)
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')
     with pytest.raises(FlowSettingsError, match=r"yosys_fpg.*yosys_fpga"):
@@ -922,7 +922,7 @@ def test_a_command_line_dependency_setting_beats_the_producers_file_value(
 
 
 def test_an_unknown_setting_in_a_lower_layer_is_still_reported(tmp_path, monkeypatch):
-    """R7: the merge keeps every name, so a higher layer never hides an unknown one."""
+    """The merge keeps every name, so a higher layer never hides an unknown one."""
     monkeypatch.chdir(tmp_path)
     _write(tmp_path / PROJECT_FILE, "flows:\n  nextpnr:\n    no_such_setting: 1\n")
     design = _one_design(tmp_path, '[flows.nextpnr]\nfpga.part = "LFE5U-25F-6BG381C"\n')

@@ -1,5 +1,5 @@
 """A consumer holds a shared lock on each dependency's run directory from the moment it completes
-to the end of the consumer's launch (13-foundations S5, register L1), so another xeda process
+to the end of the consumer's launch, so another xeda process
 cannot clean or rebuild a producer while its output is read: a launch takes its own run directory
 exclusively. Within one process a lock already held is never waited for."""
 

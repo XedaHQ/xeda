@@ -1,4 +1,4 @@
-"""Outputs are delivered where the user named them (D21): copied after the run, never onto an
+"""Outputs are delivered where the user named them: copied after the run, never onto an
 input, never deleting, never through a link, and never over a file of the user's without their
 say; where an output goes is never part of what the run is."""
 
@@ -307,7 +307,7 @@ def test_an_unchanged_delivery_reads_the_destination_once_not_at_every_launch(
     world, hashed, later_clock
 ):
     """A check that reads a destination anchors the record it takes to that file system's own
-    clock, read just before: the next check recognizes the unchanged file by its metadata (R38)
+    clock, read just before: the next check recognizes the unchanged file by its metadata
     and reads nothing, and the delivery copies nothing either."""
     destination = world.user / "net.v"
     first = _launch(world, netlist="$PWD/net.v")
@@ -573,7 +573,7 @@ def test_an_input_is_never_a_destination_even_with_overwrite_outputs(world, spel
 def test_an_earlier_delivery_into_a_directory_a_setting_now_reads_is_never_replaced(
     world, overwrite
 ):
-    """gpt-6-sol's PR 2 review, finding 1: an output delivered into a library directory, which a
+    """An output delivered into a library directory, which a
     later launch reads through a setting naming the directory (`lib_paths`, an include
     directory), is an input of that launch -- the trace lists every file there -- so the later
     launch refuses to replace it, before its tool runs, even though the delivery record says it
@@ -830,7 +830,7 @@ def test_outputs_to_copies_the_requested_flow_s_artifacts_only(world):
 
 
 def test_outputs_to_into_the_run_root_is_refused_before_the_first_tool_runs(world):
-    """Opus minor: a location only becomes a concrete `Delivery` -- and so reaches `check`'s
+    """A location only becomes a concrete `Delivery` -- and so reaches `check`'s
     per-destination loop -- once its flow's tool has run and reported an artifact, so without
     `check_outputs_to` this was refused only in `deliver()`, after both the dependency's and the
     depending flow's tools had already run."""
@@ -841,7 +841,7 @@ def test_outputs_to_into_the_run_root_is_refused_before_the_first_tool_runs(worl
 
 
 def test_a_dependency_s_read_input_is_never_a_destination(world):
-    """gpt-6-sol's final (c): the guard covers every read input of the launched graph -- here a
+    """The guard covers every read input of the launched graph -- here a
     file only the dependency's settings, nested in the wrapper's, name -- flag or not."""
     kept = world.user / "summary.txt"
     kept.write_text("the dependency reads this\n")
@@ -928,7 +928,7 @@ def test_a_remote_run_refuses_a_located_output_before_connecting(world, monkeypa
 
 
 def test_a_remote_run_checks_its_output_names_before_connecting(world, monkeypatch):
-    """`results.json` would overwrite the remote's own record (Opus minor)."""
+    """`results.json` would overwrite the remote's own record."""
     from xeda.flow_runner import remote
 
     monkeypatch.setattr(remote, "Connection", lambda *a, **k: pytest.fail("it connected"))
@@ -993,7 +993,7 @@ def test_a_remote_run_protects_every_read_input_it_can_name(world):
 
 
 def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(world):
-    """gpt-6-sol's re-check: the requested flow's section is registered only as merged into its
+    """The requested flow's section is registered only as merged into its
     settings (the command line's over it), never as written -- `lib_paths` given on the command
     line replaces the section's, and the run reads only that; another flow's section is
     registered as written, since which dependencies the remote launches is not known here."""
@@ -1028,7 +1028,7 @@ def test_a_remote_run_registers_its_own_flow_s_section_as_the_launch_uses_it(wor
 
 
 def test_a_failed_remote_run_delivers_nothing(world):
-    """Opus I2: `--outputs-to` delivers a remote run's fetched artifacts only when it succeeded:
+    """`--outputs-to` delivers a remote run's fetched artifacts only when it succeeded:
     a failed run's files never replace xeda's earlier copies."""
     from xeda.deliver import Deliveries, ReadInputs
     from xeda.flow_runner.remote import RemoteRunner

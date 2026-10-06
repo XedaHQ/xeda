@@ -270,7 +270,7 @@ def test_an_extra_primitive_library_read_alone_changes_the_netlist(tmp_path):
         netlists.append(_structure(json.loads(out.read_text())))
     assert netlists[0] != netlists[1], (
         "an extra library read no longer changes the netlist on this yosys; re-check the "
-        "`autoidx` reasoning in design-notes before relying on it"
+        "`autoidx` reasoning (each read advances it) before relying on it"
     )
     assert netlists[0] == _reference(tmp_path, synth)
 

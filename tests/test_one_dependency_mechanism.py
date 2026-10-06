@@ -1,7 +1,6 @@
 """The oracles of PC's one dependency mechanism (`41-plan-pc` section 6), as the tasks that need
 them build them. So far: O-ND3, and for OpenROAD O-ND1 and O-ND2.
 
-**O-ND3: every declared edge names something that exists, and every switch can be thrown.**
 Over every registered flow and every combination of its target-narrowing settings reachable from
 `settings_samples.PROBES`:
 
@@ -10,8 +9,8 @@ Over every registered flow and every combination of its target-narrowing setting
   settings stays inside the declared vocabulary;
 * an output with an `enabled_by` can be switched on the way a consumer switches it on
   (`Flow.enable_output`, from the resolver) without a setting that has no default raising "give
-  `<setting>` a value" -- which would make a consumer's demand fail at resolve time (plan section 8,
-  `enabled_by` risk). `vivado_synth`'s `bitstream` is exactly that case: it has no default, so its
+  `<setting>` a value" -- which would make a consumer's demand fail at resolve time.
+  `vivado_synth`'s `bitstream` is exactly that case: it has no default, so its
   `enable_output` override names one;
 * no source type a design may state by file suffix displaces a producer it need not: a netlist
   (`VerilogNetlist`) is given by `type` only.

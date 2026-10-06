@@ -1,4 +1,4 @@
-"""A run that fails leaves a failure document, never an earlier run's success (C4)."""
+"""A run that fails leaves a failure document, never an earlier run's success."""
 
 import json
 import sys
