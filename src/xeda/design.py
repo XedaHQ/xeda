@@ -1822,15 +1822,23 @@ class Design(XedaBaseModel):
         `tb.sources` are appended after the design's; any other list replaces the design's.
 
         With one target and no `target` given, that target is selected. Without `targets`, the
-        data is returned as it is, and naming a `target` is an error. Every problem is a
-        `DesignValidationError` located at `targets.<name>.<key>`.
+        data is returned as it is, and naming a `target` is an error. A design cannot write
+        `target`, and an explicit null target table is invalid. Every problem is a
+        `DesignValidationError` located at the offending key.
         """
         data = dict(data)
 
         def invalid(loc: str, msg: str) -> DesignValidationError:
             return DesignValidationError([(loc, msg, "", "value_error")], data=data)
 
-        if "targets" not in data or data["targets"] in (None, {}):
+        if "target" in data:
+            raise invalid("target", _NO_SINGULAR_TARGET)
+
+        if "targets" in data and data["targets"] is None:
+            raise invalid(
+                "targets", "`targets` must be a table of named targets (`targets.<name>`)"
+            )
+        if "targets" not in data or data["targets"] == {}:
             data.pop("targets", None)
             if target is not None:
                 raise invalid(
@@ -1838,8 +1846,6 @@ class Design(XedaBaseModel):
                     f"target {target!r} was asked for, but the design has no `targets`",
                 )
             return data
-        if "target" in data:
-            raise invalid("target", _NO_SINGULAR_TARGET)
         targets = data.pop("targets")
         if not isinstance(targets, Mapping):
             raise invalid(
@@ -2252,12 +2258,20 @@ class Design(XedaBaseModel):
         entry), with its target selected and then `overrides` applied: what every loader of
         written designs builds the `Design` from. Written input has no `target` key: the
         loader records the name there."""
-        if "target" in data:
-            raise DesignValidationError(
-                [("target", _NO_SINGULAR_TARGET, "", "value_error")], data=dict(data)
-            )
         selected = cls.select_target(data, target)
         overrides = deepcopy(dict(overrides or {}))
+        if "target" in overrides:
+            raise DesignValidationError(
+                [
+                    (
+                        "target",
+                        "`target` is recorded by selection and cannot be overridden",
+                        "",
+                        "value_error",
+                    )
+                ],
+                data=dict(data),
+            )
         if selected.get("target") is not None:
             # the selected design is folded, so the flat form of an override is folded too
             overrides = cls.process_compatibility(overrides, defaults=False)

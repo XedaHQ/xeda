@@ -2018,7 +2018,7 @@ class FlowLauncher:
                     )
 
                 elif isinstance(design, dict):
-                    design = Design.select_target(design, target)
+                    design = Design.target_selected(design, target, design_overrides)
                     if "design_root" not in design:
                         design["design_root"] = Path.cwd()
                     design = Design(**design)

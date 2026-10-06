@@ -381,7 +381,8 @@ One design file can describe the design for several boards. Each entry of ``targ
   error, and a ``seed`` the target does not write stays the design's. The full order of the
   places a setting can come from, lowest first, is: the flow's defaults, the project file, the
   design file, the target, the command line (``-s``), the API. So ``-s seed=9`` and an API
-  override still win over a target. This is a different matter from two *flows* of one run that
+  override still win over a target for design settings. The selected target name is recorded by
+  the loader and cannot be set or changed by a design override. This is a different matter from two *flows* of one run that
   disagree about a setting they share (``yosys_fpga`` and ``nextpnr`` naming different boards),
   which is an error: a target is one author's overlay on one design, not a second opinion.
 - **Paths** in a target resolve against the design root, like the design's own.
@@ -391,7 +392,7 @@ One design file can describe the design for several boards. Each entry of ``targ
   selected target.
 - **Names.** A target name starts with a letter and holds letters, digits, ``_`` and ``-``, and
   is not the name or alias of a flow. There is one spelling, ``targets.<name>``: a design file
-  has no ``target`` key.
+  has no ``target`` key; the loader records the selected name, which overrides cannot change.
 - **Identity.** Selecting a target yields an ordinary design: the same design, hash and results
   as the file written out flat with the target's keys applied by hand. The target's name is
   reported (``target`` in the ``--json`` documents, ``null`` without one) but is no part of the
