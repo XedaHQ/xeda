@@ -288,9 +288,11 @@ All notable changes to this project will be documented in this file.
   A directory that is no longer what was listed once scrub holds its lock (replaced, renamed,
   turned into a link, or out of the run root) is refused rather than removed.
 - **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has
-  become**: the parent is resolved, the last component never is, so a run directory replaced by
-  a link no longer sends the lock file to the link's target. The launcher, remote runner, DSE
-  purge and scrub also refuse to lock a directory reached through a link out of the run root.
+  become**: the parent is resolved, and the last component only when it is a link staying inside the
+  run root (a launch through the link's name and one through the real name share one lock), so a
+  run directory replaced by a link out of the run root no longer sends the lock file there. The
+  launcher, remote runner, DSE purge and scrub refuse to lock a directory reached through a link
+  out of the run root, or one that is itself a link out of it or to nowhere.
   The names of removed flows (`open_xc7`, `openxc7`, in any spelling) are refused as target
   names, as flows' are, since their legacy run directories may be under `<design>/`.
 - **Delivery and `replacing_copy` use the platform's copy primitive** instead of a hand-written
