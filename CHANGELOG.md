@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- `yosys_fpga`'s `synth_pass_only` reads the design's sources exactly as a bare `yosys <files>`
-  does: a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
+- `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
+  does (by each source's `type`, which is its suffix's unless the design states another): a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
   front end other than `default` (the default is the slang plugin) and a nonempty
   `read_systemverilog_flags` are refused at planning, each naming what to write
   (`read_verilog_flags: []`, `systemverilog: default`; `-s read_verilog_flags=` on the command

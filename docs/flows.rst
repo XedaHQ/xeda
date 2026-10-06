@@ -440,7 +440,11 @@ Running only the Yosys synthesis pass
 
 By default ``yosys_fpga`` adds Xeda's preparation and cleanup stages around
 ``synth_<target>``. ``synth_pass_only = true`` omits those Xeda-owned pre- and post-synthesis
-stages and reads the design's sources exactly as a bare ``yosys <files>`` does. The design
+stages and reads the design's sources as a bare ``yosys <files>`` does: a Verilog source with
+plain ``read_verilog``, a SystemVerilog source with ``read_verilog -sv``. The reader follows
+each source's ``type``, which its suffix gives unless the design states another, so a ``.v``
+file typed ``SystemVerilog`` (or a ``.sv`` typed ``Verilog``) is read as that type, not by its
+suffix as yosys would. The design
 parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply in either mode.
 Settings that request extra Xeda stages, or that make the mode read differently from
 ``yosys <files>``, are refused in pass-only mode rather than silently ignored:

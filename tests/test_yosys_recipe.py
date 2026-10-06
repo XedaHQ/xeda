@@ -618,6 +618,52 @@ def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
     assert after[2].strip('"').endswith("top.sv"), line
 
 
+@BY_FORMAT
+@pytest.mark.parametrize(
+    ("name", "declared", "sv"),
+    [
+        ("top.v", "Verilog", False),
+        ("top.sv", "SystemVerilog", True),
+        ("top.v", "SystemVerilog", True),
+        ("top.sv", "Verilog", False),
+    ],
+)
+def test_the_reader_follows_the_sources_type_not_its_suffix(
+    tmp_path, toolchain, script_format, name, declared, sv
+):
+    """A source's `type` is authoritative (the suffix only infers it), so under the mode a
+    SystemVerilog source is read `-sv` and a Verilog one plain, whatever it is called. That is
+    `yosys <file>`'s own choice when the type is the suffix's, and the documented difference
+    when the design states a contradicting `type` (`docs/flows.rst`, the setting's description)."""
+    root = tmp_path / "design"
+    root.mkdir(exist_ok=True)
+    (root / name).write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": [{"file": name, "type": declared}], "top": "top", "clock": {"port": "clk"}},
+    )
+    flow = DefaultRunner(tmp_path / "run", display_results=False).run(
+        YosysFpga,
+        design,
+        flow_settings={
+            "fpga": PARTS["xilinx"],
+            "clock": {"period": 5.0},
+            "synth_pass_only": True,
+            "systemverilog": "default",
+            "script_format": script_format,
+            **PASS_ONLY_READER,
+        },
+    )
+    assert flow is not None and flow.succeeded
+    text = (Path(flow.run_path) / f"yosys_fpga_synth.{script_format}").read_text()
+    (line,) = [ln for ln in text.splitlines() if "read_verilog" in ln]
+    words = line.split()
+    after = words[words.index("read_verilog") + 1 :]
+    assert after[:-1] == (["-sv", "-defer"] if sv else ["-defer"]), line
+    assert after[-1].strip('"').endswith(name), line
+
+
 #: every `settings.<name>` that `read_files.ys`/`.tcl` renders into a reader command, with the
 #: decision for the mode. "refused": a conflict (and so in `CONFLICTS`); otherwise the reason it
 #: is kept. A new setting in either template fails the sweep until it is decided here.

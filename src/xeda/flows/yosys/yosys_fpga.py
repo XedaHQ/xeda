@@ -170,9 +170,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             description="Omit xeda's preparation and cleanup around the target's "
             "`synth_<target>` pass, which does its own elaboration and mapping. Pass flags and "
             "explicit ABC9 script choices apply in either mode. Reads the design's sources "
-            "exactly as a bare `yosys <files>` does, so it requires `read_verilog_flags: []`, "
-            "`systemverilog: default` (yosys's built-in reader; a `.sv` source is read with "
-            "`-sv`, as yosys does) and no `read_systemverilog_flags`. To compare with a native "
+            "as a bare `yosys <files>` does, so it requires `read_verilog_flags: []`, "
+            "`systemverilog: default` (yosys's built-in reader) and no "
+            "`read_systemverilog_flags`. A Verilog source is then read with plain "
+            "`read_verilog` and a SystemVerilog source with `read_verilog -sv`, chosen by the "
+            "source's `type`; that is what yosys does by file suffix unless the design gives a "
+            "`type` that contradicts the suffix. To compare with a native "
             "yosys invocation, also match source paths and order. Left false, xeda elaborates "
             "and optimizes around the pass and gives ABC9 a clock-derived delay. Every flag of "
             "the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) "
@@ -472,7 +475,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             (`systemverilog`, whose default is the slang plugin) and the flags only that front
             end's plugin reads (`read_systemverilog_flags`). All three are settings values, so
             the check stays pure and class-level whatever sources the design has: the rule is
-            that the mode reads the sources exactly as a bare `yosys <files>` does.
+            that the mode reads the sources as a bare `yosys <files>` does. Which reader a source
+            gets stays its design `type` (the suffix's inference unless the design states one,
+            "every design source is typed"), so a source whose explicit `type` contradicts its
+            suffix is read as that type; that is the author's statement, not a conflict, and
+            reading it by suffix instead would make the same source read differently in the full
+            recipe.
             """
             if not self.synth_pass_only:
                 return []
@@ -537,8 +545,9 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                         "read_verilog_flags",
                         "`synth_pass_only` reads each Verilog source as `yosys <file>` does, with "
                         f"no reader flag, so it cannot also pass {self.read_verilog_flags!r}: the "
-                        "flags change how a `.v` source parses and what it accepts (a `.sv` "
-                        "source is read with `-sv` regardless, as yosys does). Write "
+                        "flags change how a `.v` source parses and what it accepts (a "
+                        "SystemVerilog source is read with `-sv` regardless, as yosys does for "
+                        "`.sv`). Write "
                         "`read_verilog_flags: []` (`-s read_verilog_flags=` on the command line)",
                     )
                 )
