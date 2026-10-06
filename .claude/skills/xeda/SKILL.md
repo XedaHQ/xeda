@@ -141,7 +141,10 @@ Set a dependency's settings in its own section, `-s flows.<flow>.<setting>`:
 xeda run openfpgaloader blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
-`yosys_fpga`, `nextpnr`, `fpga_pack` and `openfpgaloader` declare file I/O. `fpga_pack` packs
+`openroad` declares its netlist input from `yosys.netlist`; a typed `VerilogNetlist` source
+skips synthesis. Synthesis settings belong in `flows.yosys`: the removed `openroad.blocks`
+setting names `flows.yosys.black_box`. `yosys_fpga`, `nextpnr`, `fpga_pack` and
+`openfpgaloader` declare file I/O. `fpga_pack` packs
 `nextpnr`'s configuration (or a typed `EcpConfig`/`IceAsc`/`Fasm` source) into a bitstream and
 programs nothing; `openfpgaloader` programs `fpga_pack`'s bitstream, or a typed `Bitstream`
 source, and builds nothing. The `open_xc7` flow was removed: use `fpga_pack` to build,

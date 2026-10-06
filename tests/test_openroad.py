@@ -249,7 +249,7 @@ def test_a_second_launch_of_openroad_is_fresh(tmp_path, copy_platform_files, mon
     first = runner.launch_flow(Openroad, design, settings)
     assert first.succeeded and not first.reused
     again = launch_until_fresh(runner, lambda: runner.launch_flow(Openroad, design, settings))
-    assert again.completed_dependencies[0].reused
+    assert next(flow for flow in runner.launched if flow.name == "yosys").succeeded
     assert (again.run_path / "merged.lib").read_bytes() == (
         again.run_path.parent / "yosys" / "merged_lib.lib"
     ).read_bytes()

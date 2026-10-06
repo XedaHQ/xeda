@@ -53,3 +53,81 @@ def test_an_incomplete_footprint_is_refused_before_producers_run():
     with pytest.raises(FlowSettingsError, match="sig_map_file"):
         Openroad.check_settings_supported(settings)
     assert settings.model_dump() == before
+
+
+def test_a_typed_netlist_displaces_synthesis(tmp_path, monkeypatch):
+    from xeda.flow_runner import DefaultRunner
+    from .tool_utils import use_fake_asic_tools
+
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    netlist = tmp_path / "d.v"
+    netlist.write_text("module d(input clk, output q); assign q=clk; endmodule\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [{"file": "d.v", "type": "VerilogNetlist"}], "top": "d"},
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    plan = runner.plan(Openroad, design, flow_settings=["platform=nangate45"])
+    assert len(plan.nodes) == 1
+    (resolved,) = plan.node("openroad").inputs
+    assert resolved.name == "netlist" and resolved.origin == "source"
+    flow = runner.launch_flow(Openroad, design, {"platform": "nangate45"})
+    assert flow.succeeded
+    assert not (flow.run_path.parent / "yosys").exists()
+    assert (flow.run_path / "results" / "1_synth.v").read_bytes() == netlist.read_bytes()
+
+
+def test_the_cli_sends_all_moved_settings_to_real_yosys(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    import sys
+
+    from .test_pc_equivalence import write_asic_design
+    from .tool_utils import require_yosys, use_fake_asic_tools
+
+    require_yosys()
+    binary = use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    (binary / "yosys").unlink()
+    write_asic_design(tmp_path)
+    root = tmp_path / "runs"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "xeda",
+            "run",
+            "openroad",
+            str(tmp_path / "design.yaml"),
+            "--run-root",
+            str(root),
+            "--json",
+            "-s",
+            "platform=nangate45",
+            "clock.period=2.0",
+            "flows.yosys.optimize=speed",
+            "flows.yosys.abc_driver_cell=BUF_X4",
+            "flows.yosys.abc_load_in_ff=2.5",
+            "flows.yosys.black_box=mul8",
+            "flows.yosys.post_synth_opt=false",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    document = json.loads(proc.stdout)
+    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
+    producer = root / "mac" / "yosys"
+    settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
+    assert settings["optimize"] == "speed"
+    assert settings["abc_driver_cell"] == "BUF_X4"
+    assert settings["abc_load_in_ff"] == 2.5
+    assert settings["black_box"] == ["mul8"]
+    assert settings["post_synth_opt"] is False
+    script = (producer / "yosys_synth.ys").read_text()
+    assert "&if,-g,-K,6" in script and "blackbox mul8" in script
+    assert "opt -full -purge -sat" not in script
+    assert (producer / "abc.constr").read_text() == "set_driving_cell BUF_X4\nset_load 2.5\n"
+    assert (root / "mac" / "openroad" / "results" / "1_synth.v").read_bytes() == (
+        producer / "netlist.v"
+    ).read_bytes()

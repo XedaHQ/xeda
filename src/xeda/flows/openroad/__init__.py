@@ -9,8 +9,8 @@ from importlib_resources import as_file, files
 
 from ...dataclass import WORKING, Field, deliverable, field_validator, model_validator
 from ...design import SourceType
-from ...flow import AsicSynthFlow, Flow, FlowSettingsError, describe_results
-from ...flows.yosys import Yosys, preproc_libs
+from ...flow import AsicSynthFlow, Flow, FlowSettingsError, In, describe_results
+from ...flows.yosys import preproc_libs
 from ...platforms import AsicsPlatform
 from ...tool import ExecutableNotFound, Tool
 from ...units import convert_unit
@@ -47,6 +47,14 @@ def embrace(s):
 class Openroad(AsicSynthFlow):
     """OpenROAD open-source ASIC synthesis flow"""
 
+    class Inputs(AsicSynthFlow.Inputs):
+        netlist: Path = In(
+            SourceType.VerilogNetlist,
+            producer="yosys",
+            output="netlist",
+            description="Gate-level Verilog netlist from yosys, or a typed VerilogNetlist source.",
+        )
+
     merged_lib_file = "merged.lib"  # used by floorplan (restructure)
 
     required_settings = {
@@ -71,6 +79,7 @@ class Openroad(AsicSynthFlow):
         #: what `openroad` had only to hand to its synthesis: yosys's own settings now
         removed_settings = {
             **AsicSynthFlow.Settings.removed_settings,
+            "blocks": "`flows.yosys.black_box`",
             **{
                 name: f"`flows.yosys.{name}`"
                 for name in ("optimize", "abc_driver_cell", "abc_load_in_ff")
@@ -189,11 +198,6 @@ class Openroad(AsicSynthFlow):
         )
         place_pins_args: List[str] = Field(
             [], description="Extra arguments passed to OpenROAD's `place_pins`."
-        )
-        blocks: List[str] = Field(
-            [],
-            description="Sub-blocks that are hardened separately; treated as black boxes during "
-            "synthesis.",
         )
         global_placement_args: List[str] = Field(
             [], description="Extra arguments passed to OpenROAD's `global_placement`."
@@ -381,21 +385,8 @@ class Openroad(AsicSynthFlow):
             )
 
     def init(self):
-        """Validate the configuration; retain the legacy edge until declared hand-over."""
+        """Validate settings without reading inputs or writing the run directory."""
         self.check_settings_supported(self.settings)
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        assert ss.platform is not None, "checked at launch (`required_settings`)"
-        # Everything synthesis needs, yosys derives from the platform and its own settings
-        # (`flows.yosys`): handed on are only the settings the two flows share.
-        shared: dict = dict(clocks=ss.clocks, black_box=ss.blocks, platform=ss.platform)
-        if ss.corner:
-            shared["corner"] = ss.corner
-        if ss.dont_use_cells:
-            shared["dont_use_cells"] = list(ss.dont_use_cells)
-        yosys_settings = Yosys.Settings(**shared)
-
-        self.add_dependency(Yosys, yosys_settings)
 
     def dont_use_cells(self) -> List[str]:
         """The platform's forbidden cells plus the user's, computed where they are used."""
@@ -405,6 +396,7 @@ class Openroad(AsicSynthFlow):
 
     def run(self):
         assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
         ss = self.settings
         assert ss.platform is not None, "checked at launch (`required_settings`)"
         if len(ss.platform.corner) < 2:
@@ -461,12 +453,8 @@ class Openroad(AsicSynthFlow):
         ss.results_dir.mkdir(exist_ok=True, parents=True)
         ss.checkpoints_dir.mkdir(exist_ok=True, parents=True)
 
-        yosys_dep = self.pop_dependency(Yosys)
-        netlist = yosys_dep.artifacts.netlist_verilog
-        if not os.path.isabs(netlist):
-            netlist = os.path.join(yosys_dep.run_path, netlist)
         synth_netlist = ss.results_dir / "1_synth.v"
-        replacing_copy(netlist, self.run_directory.writable(synth_netlist))
+        replacing_copy(self.inputs.netlist, self.run_directory.writable(synth_netlist))
 
         # yosys doesn't support SDC so we generate it here
         clocks_sdc = self.copy_from_template("clocks.sdc")

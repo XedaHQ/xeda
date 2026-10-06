@@ -200,6 +200,14 @@ for _name in REVIEWED_RENAMES:
         ("nodes", _OPENROAD, "effective_flow_settings", "dont_use_cells")
     ] = "PCD16: keep the user's setting; compute the platform union where the merge and Tcl use it"
 
+# Task 6 (d), PCD16: refuse the removed vehicle; the flat setting still hands
+# yosys the identical blackbox command. The golden's original request remains unchanged.
+for _name in REVIEWED_RENAMES:
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "effective_flow_settings", "blocks")
+    ] = "PCD16 owner ruling: blocks was removed; configure flows.yosys.black_box instead"
+REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
+
 #: Fields of `results.json` that name the run rather than what it did.
 IDENTITY_AND_TIMING = {"design_hash", "flow_hash", "settings_hash", "runtime", "timestamp"}
 
@@ -227,7 +235,9 @@ REQUESTS: dict[str, Request] = {
     ),
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS, "vivado"),
     "openroad": Request("openroad", OPENROAD_SETTINGS, "asic"),
-    "openroad_blocks": Request("openroad", (*OPENROAD_SETTINGS, "blocks=mul8"), "asic"),
+    "openroad_blocks": Request(
+        "openroad", (*OPENROAD_SETTINGS, "flows.yosys.black_box=mul8"), "asic"
+    ),
     "openroad_dont_use_cells": Request(
         "openroad", (*OPENROAD_SETTINGS, "dont_use_cells=AND2_X2"), "asic"
     ),
@@ -461,6 +471,17 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
     marks = Placeholders(work)
     run_dirs = sorted(path.parent for path in run_root.rglob("settings.json"))
+    if request.design == "asic":
+        from .tool_utils import run_outputs_state
+
+        before = run_outputs_state(*run_dirs)
+        again = subprocess.run(
+            command, cwd=design, env=dict(os.environ), capture_output=True, text=True, timeout=600
+        )
+        fresh = json.loads(again.stdout)
+        assert again.returncode == 0 and fresh["success"], again.stderr[-3000:] or fresh
+        assert {node["state"] for node in fresh["nodes"]} == {"fresh"}
+        assert run_outputs_state(*run_dirs) == before
     record = {
         "request": {"flow": request.flow, "settings": marks.value(items)},
         "run_directories": [str(path.relative_to(run_root)) for path in run_dirs],

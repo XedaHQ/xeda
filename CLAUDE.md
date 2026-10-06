@@ -287,7 +287,7 @@ removed before the run, so an earlier success never stands for a run that died
   requested alone and as `nextpnr`'s producer is one configuration, one identity and one run
   (`yosys_fpga` keeps `src` attributes by its own default, since nextpnr's reports cite them).
   Only flows still on `add_dependency` (`vivado_postsynth_sim.synth`,
-  `vivado_power.postsynthsim`, `openroad`) keep a nested field until PC; there, nesting
+  `vivado_power.postsynthsim`) keep a nested field until PC; there, nesting
   applies only within one origin, so a design's `[flows.vivado_synth] fail_timing` beats a
   project's `[flows.vivado_postsynth_sim] synth.fail_timing`. `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
@@ -309,7 +309,10 @@ removed before the run, so an earlier success never stands for a run that died
 - An undeclared flow registers dependencies in `init()` (not `__init__`) via
   `self.add_dependency(DepFlowClass, dep_settings, copy_resources=[...])`. Deps run in sibling run dirs
   and completed instances are available as `self.completed_dependencies` / `self.pop_dependency(Cls)`.
-  Example: `VivadoPostsynthSim` depends on `VivadoSynth`. Declared producers are launched by the
+  Example: `VivadoPostsynthSim` depends on `VivadoSynth`. OpenROAD declares its `netlist`
+  input from `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies
+  and its own `merged.lib` are written in `run()`, so a fresh launch writes no flow output.
+  Declared producers are launched by the
   launcher, not registered by `init()`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,

@@ -658,35 +658,40 @@ def _as_installed_at(monkeypatch, package: Path) -> None:
     monkeypatch.setattr(xeda.platforms.platform, "files", lambda _package: package / "platforms")
 
 
-def _yosys_settings(tmp_path: Path, platform: str):
-    from xeda.flows import Yosys
+def _platform_settings(tmp_path: Path, platform: str, flow_name="yosys"):
+    from xeda.flow_runner import get_flow_class
 
     root, start = tmp_path / "d", tmp_path / "start"
     root.mkdir(exist_ok=True)
     start.mkdir(exist_ok=True)
-    return Yosys.Settings.from_input(
+    return get_flow_class(flow_name).Settings.from_input(
         {"platform": platform, "clock": {"period": 2.0}}, design_root=root, runner_cwd=start
     )
 
 
-def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(tmp_path, monkeypatch):
+@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
+    tmp_path, monkeypatch, flow_name
+):
     """O-RI1 (a), PCD23: `-s platform=nangate45` is one request under any installation. A
     validated platform holds absolute paths (`with_absolute_paths`), so its identity named the
     installation, and two machines never agreed on it."""
-    here = _yosys_settings(tmp_path, "nangate45")
-    expected = flowrun_hash("yosys", here, "d")
+    here = _platform_settings(tmp_path, "nangate45", flow_name)
+    expected = flowrun_hash(flow_name, here, "d")
     _as_installed_at(monkeypatch, _install_elsewhere(tmp_path / "elsewhere"))
-    there = _yosys_settings(tmp_path, "nangate45")
+    there = _platform_settings(tmp_path, "nangate45", flow_name)
     assert there.platform is not None
     assert there.platform.root_dir.is_relative_to(tmp_path / "elsewhere")  # really elsewhere
-    assert flowrun_hash("yosys", there, "d") == expected
+    assert flowrun_hash(flow_name, there, "d") == expected
 
 
-def test_the_hashed_settings_name_no_path_under_the_installation(tmp_path):
+@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+def test_the_hashed_settings_name_no_path_under_the_installation(tmp_path, flow_name):
     from xeda.flow.flow import identity_values
 
     values = json.dumps(
-        identity_values("yosys", _yosys_settings(tmp_path, "nangate45"), "d"), default=str
+        identity_values(flow_name, _platform_settings(tmp_path, "nangate45", flow_name), "d"),
+        default=str,
     )
     assert str(XEDA_PACKAGE) not in values and os.path.realpath(XEDA_PACKAGE) not in values
     assert "$XEDA/platforms/nangate45/" in values
@@ -702,7 +707,7 @@ def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
     place = (tmp_path / "d" / "pdk") if where == "design" else (tmp_path / "pdks" / "pdk")
     shutil.copytree(source, place)
     values = json.dumps(
-        identity_values("yosys", _yosys_settings(tmp_path, str(place / "config.toml")), "d"),
+        identity_values("yosys", _platform_settings(tmp_path, str(place / "config.toml")), "d"),
         default=str,
     )
     if where == "design":
@@ -711,8 +716,11 @@ def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
         assert str(place) in values and "$XEDA" not in values
 
 
-@pytest.mark.parametrize("linked", ["installation", "design root"])
-def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked):
+@pytest.mark.parametrize(
+    "linked,flow_name",
+    [("installation", "yosys"), ("installation", "openroad"), ("design root", None)],
+)
+def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked, flow_name):
     """A root reached through a symbolic link is one root: a path under it counts relative to it
     whether it is spelled through the link or by the physical path. xeda imported through a
     linked prefix gave `platform=nangate45` `$XEDA/...`, while the resolved path of that very
@@ -728,10 +736,12 @@ def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked
         linked_package = link / package.relative_to(physical)
         _as_installed_at(monkeypatch, linked_package)
         assert xeda.utils.XEDA_PACKAGE_ROOT == linked_package
-        by_name = _yosys_settings(tmp_path, "nangate45")
-        by_path = _yosys_settings(tmp_path, str(package / "platforms/nangate45/config.toml"))
-        assert flowrun_hash("yosys", by_path, "d") == flowrun_hash("yosys", by_name, "d")
-        values = json.dumps(identity_values("yosys", by_path, "d"), default=str)
+        by_name = _platform_settings(tmp_path, "nangate45", flow_name)
+        by_path = _platform_settings(
+            tmp_path, str(package / "platforms/nangate45/config.toml"), flow_name
+        )
+        assert flowrun_hash(flow_name, by_path, "d") == flowrun_hash(flow_name, by_name, "d")
+        values = json.dumps(identity_values(flow_name, by_path, "d"), default=str)
         assert str(physical) not in values and "$XEDA/platforms/nangate45/" in values
     else:
         physical.mkdir()
