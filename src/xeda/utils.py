@@ -296,8 +296,9 @@ def copy_fd(src_fd: int, dst_fd: int) -> None:
     """Copy the whole content of the open file `src_fd` into the open, writable file `dst_fd`,
     replacing what `dst_fd` holds: `shutil.copyfileobj` between two descriptors, through the
     copy primitive the platform has (`os.copy_file_range`, then `os.sendfile`, on Linux;
-    `fcopyfile` on macOS). Nothing is cloned or linked: the bytes are copied. Permission bits are
-    not copied.
+    `fcopyfile` on macOS). The destination is a separate file with the same logical content. On
+    Linux, `copy_file_range` may use filesystem reflinks (shared copy-on-write extents) or a
+    server-side copy. Permission bits are not copied.
 
     A source that is a regular file is read from its start whatever its offset is. Every attempt
     starts from a rewound source and an emptied destination (`_rewind`), and any `OSError` from
