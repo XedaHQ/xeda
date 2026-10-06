@@ -772,6 +772,10 @@ Defaults and limits:
 
 * ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it;
   ``x_initial`` and ``x_assign`` default to ``"0"`` (they were ``"unique"``).
+* ``timing`` is off by default, for speed. Verilator then ignores a ``#delay`` and says so with
+  its ``STMTDLY`` or ``INITIALDLY`` warning, so a testbench's ``#100; $finish`` ends at time 0 and
+  still passes. Such a warning does not fail the run, unless ``warnings_fatal`` is set. Set
+  ``timing: true`` for a testbench that uses delays or waits.
 * ``stop_time`` is enforced by Xeda's own driver only: with cocotb, or with a design's own C++
   driver, it is an error.
 * ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is

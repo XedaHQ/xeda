@@ -159,7 +159,9 @@ class Verilator(SimFlow):
         timing: bool = Field(
             False,
             description="Enable Verilator's `--timing` support for delays and non-blocking "
-            "event controls, needed by testbenches that use `#delay` or `wait`.",
+            "event controls, needed by testbenches that use `#delay` or `wait`. When it is off, "
+            "Verilator ignores a delay and warns about it (`STMTDLY`, `INITIALDLY`), so a "
+            "testbench's `#100; $finish` ends at time 0.",
         )
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
@@ -420,11 +422,6 @@ class Verilator(SimFlow):
         args += [
             "-Wno-DECLFILENAME",
         ]
-        if not ss.timing:
-            args += [
-                "-Wno-STMTDLY",
-                "-Wno-INITIALDLY",
-            ]
 
         if ss.threads:
             args += ["--threads", ss.threads]

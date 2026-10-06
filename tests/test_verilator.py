@@ -191,6 +191,18 @@ def test_the_hooks_header_is_included_by_name_not_by_the_run_directory_path(tmp_
     assert str(flow.run_path) not in makefile
 
 
+def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):
+    """Without `timing`, Verilator ignores a `#delay`: the testbench's `#100; $finish` ends at
+    time 0. The warning says so, in the build's output; the default `-Wno-fatal` keeps it a
+    warning, so the run still passes."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #100; $finish; end", {})
+    output = capfd.readouterr()
+    assert "%Warning-STMTDLY" in output.out + output.err
+    assert flow.succeeded
+    assert flow.results["sim.time"] == 0
+
+
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     """Two top-level candidates: the design's `tb.top` is the one simulated."""
     require_verilator()

@@ -1323,6 +1323,9 @@ dependency must also share `custom_boards_file`.
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
+  `timing` is off by default: Verilator then ignores `#delay` (a `#100; $finish` ends at time 0),
+  and xeda leaves its `STMTDLY` and `INITIALDLY` warnings on, which fail a run only with
+  `warnings_fatal`.
   The hooks header goes into the compiler flags by name (`-include xeda_hooks.h`, the model builds
   in `sim_dir`): make splits flags at a space. The makefile of Verilator 5.052 still refuses a
   build directory whose path has a space, so a run root with one fails there.
