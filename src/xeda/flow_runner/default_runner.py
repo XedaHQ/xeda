@@ -33,6 +33,7 @@ from ..deliver import (
     OUTPUTS_TO,
     Conflict,
     Deliveries,
+    DeliveryError,
     ReadInputs,
     deliverable_setting_names,
     outputs_to_deliveries,
@@ -1495,10 +1496,13 @@ class FlowLauncher:
                             plan=plan,
                             plan_node=producer_node.node_key,
                         )
+                    except DeliveryError:
+                        raise  # a refusal made before the producer's tool ran: not its failure
                     except Exception as error:
+                        results = producer_node.run_path / "results.json"
                         raise FlowDependencyFailure(
-                            f"dependency {producer_node.name} failed: {error}; see "
-                            f"{producer_node.run_path / 'results.json'}"
+                            f"dependency {producer_node.name} failed: {error}"
+                            + (f"; see {results}" if results.is_file() else "")
                         ) from error
                     self._planned_completed[key] = producer
                 if not producer.succeeded:

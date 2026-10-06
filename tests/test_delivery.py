@@ -30,7 +30,7 @@ from xeda.deliver import (
     delivery_record,
 )
 from xeda.digest import RACY_NS
-from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
+from xeda.flow import Flow, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
@@ -570,7 +570,7 @@ def test_a_destination_inside_a_directory_a_setting_reads_is_refused_before_the_
     (lib / "cells.v").write_text("module cell; endmodule\n")
     if where == "a dependency's":
         launch = dict(flow=_Wrapper, deliverer={"reads": "$PWD/lib", "netlist": "$PWD/lib/net.v"})
-        refusal = FlowDependencyFailure  # the producer's refusal, as the launch reports it
+        refusal = DeliveryError  # the producer's own refusal, as it is
     else:
         name = "net.v" if where == "a new file" else "sub/net.v"
         launch = dict(reads="$PWD/lib", netlist=f"$PWD/lib/{name}")
@@ -838,7 +838,7 @@ def test_a_dependency_never_delivers_onto_what_its_depender_reads(world):
     """Refused before the dependency's tool runs: the depender's inputs are registered first."""
     (world.user / "in.v").write_text("the wrapper reads this\n")
     launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
-    with pytest.raises(FlowDependencyFailure, match="an input of the run"):
+    with pytest.raises(DeliveryError, match="an input of the run"):
         _launch(
             world, launcher, flow=_Wrapper, reads="$PWD/in.v", deliverer={"netlist": "$PWD/in.v"}
         )
@@ -850,6 +850,14 @@ def test_a_dependency_s_output_is_delivered_once_the_launch_has_finished(world):
     DURING_WRAPPER.append(lambda wrapper: seen.append((world.user / "net.v").exists()))
     _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
     assert seen == [False] and (world.user / "net.v").read_text() == "net\n"
+
+
+def test_a_producer_s_refused_destination_is_the_launch_s_own_error(world):
+    """A refusal made before the producer's tool runs is not a failed dependency."""
+    (world.user / "net.v").write_text("the user's file\n")
+    with pytest.raises(OutputExistsError, match="net.v"):
+        _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
+    assert RUNS == []
 
 
 def test_an_output_changed_after_its_run_is_not_delivered(world):
