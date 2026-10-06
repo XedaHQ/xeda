@@ -60,6 +60,7 @@ from ..utils import (
     camelcase_to_snakecase,
     expand_env_vars,
     location_free,
+    location_roots,
     parse_patterns_in_file,
     rebuild_like,
     regex_match,
@@ -427,6 +428,17 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     expanded = map_path_leaves(value, annotation, expand)
     model = _plain_model(annotation)
     if model is None or expanded is None:
+        # a mapping or a list of plain models (an `AsicsPlatform`'s `corner`): each model's own
+        origin, args = get_origin(annotation), get_args(annotation)
+        if origin is dict and len(args) == 2 and _plain_model(args[1]) is not None:
+            if isinstance(expanded, Mapping):
+                return {
+                    key: _expand_path_values(item, args[1], overrides)
+                    for key, item in expanded.items()
+                }
+        if origin is list and len(args) == 1 and _plain_model(args[0]) is not None:
+            if isinstance(expanded, list):
+                return [_expand_path_values(item, args[0], overrides) for item in expanded]
         return expanded
     return _expand_model_paths(expanded, model, overrides)
 
@@ -478,33 +490,36 @@ def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
     return value
 
 
+def identity_values(
+    flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None
+) -> dict[str, Any]:
+    """What `flowrun_hash` hashes: the flow's name and its settings as a run's identity sees
+    them (`identity_settings`), every path under the design root, the start directory or xeda's
+    own installation written relative to it (`utils.location_roots`)."""
+    roots = location_roots(settings.context.get("design_root"), settings.context.get("runner_cwd"))
+    identity = identity_settings(settings, design_name)
+    values = identity.model_dump()
+    paths = _path_identities.get()
+    if paths:
+        values = _with_path_identities(values, paths)
+    return dict(flow_name=flow_name, flow_settings=location_free(values, roots))
+
+
 def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None) -> str:
     """What identifies a run of `flow_name` with `settings`: the key `--cached-dependencies`
     reuses a previous run by, and part of a hashed run directory's name.
 
     It depends on what the settings mean, not on where anything is: a path under the design root
     or under the directory xeda was started from counts relative to it (`$DESIGN_ROOT/c.xdc`),
-    so moving a design, or starting xeda elsewhere, keeps the hash. Paths count as their text:
+    so moving a design, or starting xeda elsewhere, keeps the hash, and a path under xeda's own
+    installation (a bundled platform's files) counts relative to that (`$XEDA/platforms/...`),
+    so two installations agree on it (PCD23). Paths count as their text:
     only a design's source files are hashed by content (`Design.rtl_hash`), and no directory's
     content is ever read. Where an output is delivered is no part of it (`identity_settings`,
     for the design `design_name`): a deliverable given as a location counts as its conventional
     name.
     """
-    roots = [
-        (var, Path(root).absolute())
-        for var, root in (
-            ("DESIGN_ROOT", settings.context.get("design_root")),
-            ("PWD", settings.context.get("runner_cwd")),
-        )
-        if root is not None
-    ]
-    roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)  # most specific first
-    identity = identity_settings(settings, design_name)
-    values = identity.model_dump()
-    paths = _path_identities.get()
-    if paths:
-        values = _with_path_identities(values, paths)
-    return semantic_hash(dict(flow_name=flow_name, flow_settings=location_free(values, roots)))
+    return semantic_hash(identity_values(flow_name, settings, design_name))
 
 
 #: Descriptions of result keys that several flows report with the same meaning. A flow declares

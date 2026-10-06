@@ -632,3 +632,78 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     assert names[4] == "rtl_alone.v", "a name nothing collides with is left alone"
     # The same source always gets the same name, whichever list it is found through.
     assert design.source_artifact_name(design.rtl.sources[0], ".v") == names[0]
+
+
+# ------------------------------------------- O-RI1: a bundled platform names no installation
+
+XEDA_PACKAGE = TESTS_DIR.parent / "src" / "xeda"
+
+
+def _install_elsewhere(prefix: Path) -> Path:
+    """Another installation's package directory, holding the bundled `nangate45` platform: what
+    `-s platform=nangate45` resolves to under that installation."""
+    package = prefix / "site-packages" / "xeda"
+    shutil.copytree(XEDA_PACKAGE / "platforms" / "nangate45", package / "platforms" / "nangate45")
+    return package
+
+
+def _as_installed_at(monkeypatch, package: Path) -> None:
+    """Make this process resolve bundled platforms, and its own installation, as `package`."""
+    import xeda.platforms.platform
+    import xeda.utils
+
+    monkeypatch.setattr(xeda.utils, "XEDA_PACKAGE_ROOT", package, raising=False)
+    monkeypatch.setattr(xeda.platforms.platform, "files", lambda _package: package / "platforms")
+
+
+def _yosys_settings(tmp_path: Path, platform: str):
+    from xeda.flows import Yosys
+
+    root, start = tmp_path / "d", tmp_path / "start"
+    root.mkdir(exist_ok=True)
+    start.mkdir(exist_ok=True)
+    return Yosys.Settings.from_input(
+        {"platform": platform, "clock": {"period": 2.0}}, design_root=root, runner_cwd=start
+    )
+
+
+def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(tmp_path, monkeypatch):
+    """O-RI1 (a), PCD23: `-s platform=nangate45` is one request under any installation. A
+    validated platform holds absolute paths (`with_absolute_paths`), so its identity named the
+    installation, and two machines never agreed on it."""
+    here = _yosys_settings(tmp_path, "nangate45")
+    expected = flowrun_hash("yosys", here, "d")
+    _as_installed_at(monkeypatch, _install_elsewhere(tmp_path / "elsewhere"))
+    there = _yosys_settings(tmp_path, "nangate45")
+    assert there.platform is not None
+    assert there.platform.root_dir.is_relative_to(tmp_path / "elsewhere")  # really elsewhere
+    assert flowrun_hash("yosys", there, "d") == expected
+
+
+def test_the_hashed_settings_name_no_path_under_the_installation(tmp_path):
+    from xeda.flow.flow import identity_values
+
+    values = json.dumps(
+        identity_values("yosys", _yosys_settings(tmp_path, "nangate45"), "d"), default=str
+    )
+    assert str(XEDA_PACKAGE) not in values and os.path.realpath(XEDA_PACKAGE) not in values
+    assert "$XEDA/platforms/nangate45/" in values
+
+
+@pytest.mark.parametrize("where", ["design", "outside"])
+def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
+    """Only the installation became a root: a `config.toml` under the design root still counts
+    relative to it, and one elsewhere as the absolute location it names."""
+    from xeda.flow.flow import identity_values
+
+    source = XEDA_PACKAGE / "platforms" / "nangate45"
+    place = (tmp_path / "d" / "pdk") if where == "design" else (tmp_path / "pdks" / "pdk")
+    shutil.copytree(source, place)
+    values = json.dumps(
+        identity_values("yosys", _yosys_settings(tmp_path, str(place / "config.toml")), "d"),
+        default=str,
+    )
+    if where == "design":
+        assert "$DESIGN_ROOT/pdk/" in values and str(place) not in values
+    else:
+        assert str(place) in values and "$XEDA" not in values

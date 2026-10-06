@@ -233,9 +233,9 @@ class Yosys(YosysBase, SynthFlow):
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area",
             description="Optimization target when mapping to a liberty library: selects "
-            "OpenROAD-flow-scripts' abc mapping script for it, together with post-synthesis "
-            "optimization. `null` keeps yosys's default mapping script and adds no "
-            "post-synthesis optimization. An explicit `abc_script` replaces the selected script.",
+            "OpenROAD-flow-scripts' abc mapping script for it, and post-synthesis optimization "
+            "unless `post_synth_opt` says otherwise. `null` keeps yosys's default mapping script. "
+            "An explicit `abc_script` replaces the selected script.",
         )
         abc_driver_cell: Optional[str] = Field(
             None,
@@ -252,6 +252,11 @@ class Yosys(YosysBase, SynthFlow):
             description="Include cell and wire attributes in the written Verilog netlist. Unset: "
             "included, except when mapping to a liberty library, whose gate-level netlist is "
             "written for a place and route.",
+        )
+        post_synth_opt: Optional[bool] = Field(
+            None,
+            description="Run additional optimization after synthesis. Unset: on when mapping to "
+            "a liberty library with an `optimize` target, off otherwise.",
         )
         netlist_hex: Optional[bool] = Field(
             None,
@@ -386,7 +391,9 @@ class Yosys(YosysBase, SynthFlow):
         """Complete the settings that mapping to a liberty library needs and that were not set:
         from the `platform`, its maps and cells; and, for any liberty mapping, flattening, the
         abc script `optimize` selects with post-synthesis optimization, and a gate-level netlist
-        (no attributes, no hexadecimal constants). An explicit setting is never replaced."""
+        (no attributes, no hexadecimal constants). An explicit setting is never replaced: an
+        unset (`None`) one is what is derived, so `post_synth_opt: false` stands beside the
+        default `optimize: area`."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
         mapping = ss.maps_to_liberty()
@@ -394,6 +401,8 @@ class Yosys(YosysBase, SynthFlow):
             ss.netlist_attrs = not mapping
         if ss.netlist_hex is None:
             ss.netlist_hex = not mapping
+        if ss.post_synth_opt is None:
+            ss.post_synth_opt = mapping and ss.optimize is not None
         if not mapping:
             return
         platform = ss.platform
@@ -423,10 +432,8 @@ class Yosys(YosysBase, SynthFlow):
                 )
         if ss.flatten is None:
             ss.flatten = True
-        if ss.optimize is not None:
-            ss.post_synth_opt = True
-            if ss.abc_script is None:
-                ss.abc_script = abc_opt_script(ss.optimize)
+        if ss.optimize is not None and ss.abc_script is None:
+            ss.abc_script = abc_opt_script(ss.optimize)
         ss.abc_constr = ss.abc_constraints()
 
     def run(self) -> None:
@@ -453,10 +460,13 @@ class Yosys(YosysBase, SynthFlow):
         if ss.dff_liberty:
             ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
 
-        self.artifacts.timing_report = ss.reports_dir / "timing.rpt"
+        # a timing report only where `sta` writes one, as `yosys_fpga` lists it: an artifact this
+        # run never writes is one a remote run is asked for and cannot send
+        timing_report = ss.reports_dir / "timing.rpt"
+        self.artifacts.timing_report = timing_report if ss.sta else None
         self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
         # a previous run's reports must not pass for this run's
-        self.run_directory.remove(self.artifacts.utilization_report, self.artifacts.timing_report)
+        self.run_directory.remove(self.artifacts.utilization_report, timing_report)
         if ss.gates:
             append_flag(ss.abc_flags, f"-g {','.join(ss.gates)}")
         elif ss.lut:

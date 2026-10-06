@@ -52,6 +52,7 @@ from ..utils import (
     dump_json,
     json_encodable,
     location_free,
+    location_roots,
     settings_to_dict,
 )
 from ..version import __version__
@@ -210,11 +211,13 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: the programming-only `openfpgaloader` (its build settings and the `open_xc7` flow are gone);
 #: protocol 6 P3's node identity (D-9): a node's `flow_hash` is its settings plus its ordered
 #: resolved input origins, which is the hash this side names the mirror by and compares with the
-#: remote's report, so a protocol-5 remote's would never match; protocol 7 the declared outputs
-#: of `vivado_synth` and `vivado_alt_synth` and their `write_timing_netlist` setting, which a
-#: protocol-6 remote refuses as unknown and resolves, undeclared, to another identity.
+#: remote's report, so a protocol-5 remote's would never match; protocol 7 the declared Vivado
+#: outputs (PC Task 2); protocol 8 `yosys`'s declared netlist with the ASIC configuration moved
+#: into it, and run identities that count a bundled platform relative to xeda's installation
+#: (PCD23) -- a protocol-7 remote configures `yosys` otherwise and hashes such a run by its own
+#: installation's paths.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
-REMOTE_PROTOCOL_MIN_VERSION = 7
+REMOTE_PROTOCOL_MIN_VERSION = 8
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
 # distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
@@ -261,7 +264,9 @@ def check_remote_xeda(
     P2a requires its release line (`REMOTE_XEDA_MIN_VERSION`, including dev builds), P1b
     protocol 3 for the remote simulation evidence rule, and P3 protocol 6 for its node identity
     (D-9; a remote of protocol 5 reports another `flow_hash` for the same request, so it is
-    refused here rather than failing on a hash mismatch after the run). Version alone cannot
+    refused here rather than failing on a hash mismatch after the run), and protocol 8 for
+    `yosys`'s ASIC configuration and a bundled platform's installation-free identity (PCD23).
+    Version alone cannot
     distinguish development checkouts that predate a contract.
     A compatible remote on another release line is warned about settings differences.
     """
@@ -448,8 +453,7 @@ def send_design(
                 digest = hashlib.sha256(str(path).encode()).hexdigest()[:16]
                 relative = Path("_setting_inputs") / digest / local.name
             if path_identities is not None:
-                roots = [("DESIGN_ROOT", design.root_path), ("PWD", Path.cwd())]
-                roots.sort(key=lambda item: len(item[1].parts), reverse=True)
+                roots = location_roots(design.root_path, Path.cwd())
                 path_identities[str(Path(remote_path) / relative)] = str(
                     location_free(value, roots)
                 )

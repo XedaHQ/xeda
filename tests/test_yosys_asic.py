@@ -15,6 +15,8 @@ one library, named `<platform>_merged` as `openroad` names its own, and the plat
 
 import contextlib
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -334,3 +336,94 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
     assert "$_" not in text, "an unmapped generic cell is left in the netlist"
     (merged,) = [p for p in run_dir.glob("*.lib")]
     assert "library (nangate45_merged)" in merged.read_text()
+
+
+# ------------------------------------------------------------------ post_synth_opt
+
+
+@pytest.mark.parametrize("given", [None, True, False])
+@pytest.mark.parametrize("optimize", ["area", None])
+def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
+    tmp_path, monkeypatch, given, optimize
+):
+    """`optimize` turns post-synthesis optimization on only where `post_synth_opt` is left unset:
+    `post_synth_opt: false` with the default `optimize: area` keeps the abc script and drops the
+    extra optimization, and `true` adds it with `optimize: null`."""
+    settings = {"platform": "nangate45", "clock": {"period": 2.0}, "optimize": optimize}
+    if given is not None:
+        settings["post_synth_opt"] = given
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    expected = (optimize is not None) if given is None else given
+    assert ("opt -full -purge -sat" in _script(run_dir)) is expected
+    assert _effective(run_dir)["post_synth_opt"] is expected
+    recorded = json.loads((run_dir / "settings.json").read_text())["flow_settings"]
+    assert recorded["post_synth_opt"] is given
+    assert (
+        Yosys.Settings.from_input(recorded).model_dump()
+        == Yosys.Settings.from_input(recorded).model_dump()
+    )
+    assert Yosys.Settings.from_input(recorded).post_synth_opt is given
+
+
+# ------------------------------------------------------------------ asap7's SS corner
+
+#: A `config.toml` of an asap7 platform with its liberty files present (the package ships the
+#: description, not the libraries). Opt-in: the test below is skipped without it.
+ASAP7_PLATFORM = os.environ.get("XEDA_TESTS_ASAP7_PLATFORM", "")
+
+
+def _abc_failure(run_dir: Path) -> list[str]:
+    """ABC's own failure lines in yosys's log, without the temporary paths they name."""
+    log_text = (run_dir / "yosys.log").read_text()
+    lines = [
+        line
+        for line in log_text.splitlines()
+        if "Assertion failed" in line or line.startswith("ERROR")
+    ]
+    return [re.sub(r"\S*yosys-abc-\S+", "<abc>", line) for line in lines]
+
+
+def test_asap7_ss_hands_abc_the_same_inputs_standalone_and_under_openroad(tmp_path):
+    """PCD16's `platform=asap7 -s corner=SS` variant, with the real yosys and the real asap7
+    libraries: `yosys` alone and `openroad`'s dependency hand abc identical inputs -- the merged
+    library, the flip-flop library, the abc constraints and script -- and end alike.
+
+    Owner exception (2026-10-06): with this design the SS corner crashes yosys's ABC
+    (`Abc_NtkCheck ... A CI/CO pair share the name`, an assertion in `abcFanio.c`) on
+    `origin/main` as well, so no netlist can be compared. Identical ABC inputs and an identical
+    failure are accepted as passing the R1 gate for this variant; the crash is recorded
+    separately. If a yosys release fixes it, both sides must produce the same netlist instead."""
+    require_yosys()
+    if not ASAP7_PLATFORM or not Path(ASAP7_PLATFORM).is_file():
+        pytest.skip("set XEDA_TESTS_ASAP7_PLATFORM to an asap7 config.toml with its libraries")
+    design = _design(tmp_path / "design")
+    settings = {"platform": ASAP7_PLATFORM, "clock": {"period": 2.0}, "corner": "SS"}
+    runs = {}
+    for flow in (Yosys, Openroad):
+        run_root = tmp_path / flow.name
+        with contextlib.suppress(Exception):
+            DefaultRunner(run_root, display_results=False).run_flow(flow, design, dict(settings))
+        runs[flow.name] = run_root / "mac" / "yosys"
+    alone, under = runs["yosys"], runs["openroad"]
+
+    def handed(run_dir: Path) -> dict[str, bytes]:
+        effective = _effective(run_dir)
+        (liberty,) = effective["liberty"]
+        script = _script(run_dir).replace(str(run_dir.parent.parent.parent), "<RUNROOT>")
+        return {
+            "liberty": (run_dir / liberty).read_bytes(),
+            "dff_liberty": Path(effective["dff_liberty"]).read_bytes(),
+            "abc.constr": (run_dir / "abc.constr").read_bytes(),
+            "script": script.encode(),
+        }
+
+    assert handed(alone) == handed(under)
+    outcomes = {
+        name: json.loads((run_dir / "results.json").read_text())["success"]
+        for name, run_dir in runs.items()
+    }
+    assert outcomes["yosys"] == outcomes["openroad"], outcomes
+    if outcomes["yosys"]:
+        assert (alone / "netlist.v").read_bytes() == (under / "netlist.v").read_bytes()
+    else:
+        assert _abc_failure(alone) == _abc_failure(under) != []

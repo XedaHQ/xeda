@@ -38,7 +38,7 @@ from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 from xeda.xedaproject import PROJECT_FILE_NAMES
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
-from .tool_utils import require_ghdl
+from .tool_utils import require_ghdl, require_yosys
 
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
@@ -398,10 +398,11 @@ def test_remote_declared_shared_settings_agree_before_connecting(tmp_path, monke
         # from this side's, so it must be refused here, not accepted and failed on a mirror hash
         ("0.4.4.dev1", 5, "nextpnr", ["fpga.part=LFE5U-25F-6BG381C"]),
         ("0.4.4.dev1", 5, "ghdl_sim", None),
-        # protocol 6 predates the declared outputs of the Vivado synthesis flows and their
-        # `write_timing_netlist` setting: it would refuse the setting or resolve another identity
-        ("0.4.4.dev1", 6, "vivado_synth", ["fpga.part=xc7a12tcsg325-1", "clock.period=5.0"]),
         ("0.4.4.dev1", 6, "ghdl_sim", None),
+        # protocol 7 (declared Vivado outputs) predates PCD23: it hashes a bundled platform by
+        # its own installation's paths, and configures `yosys` without its platform
+        ("0.4.4.dev1", 7, "yosys", ["platform=nangate45", "clock.period=2.0"]),
+        ("0.4.4.dev1", 7, "ghdl_sim", None),
     ],
 )
 def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
@@ -447,12 +448,12 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     assert version in str(raised.value)
     assert "P3" in str(raised.value)
     assert f"remote protocol {protocol}" in str(raised.value)
-    assert "remote protocol 7 or newer" in str(raised.value)
+    assert "remote protocol 8 or newer" in str(raised.value)
     assert not shipped
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P3 remote (protocol 7), including this branch's dev builds.
+#: The archive accepted by a P3 remote (protocol 8), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
@@ -1851,3 +1852,70 @@ def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, m
         assert str(named_as.value) == planned.flowrun_hash
         seen.append(planned.flowrun_hash)
     assert seen[0] != seen[1]
+
+
+# ------------------------------------------- O-RI1 (b): a bundled platform on another install
+
+
+def _remote_runner_installed_elsewhere(channel, **kwargs):
+    """The worker of a remote whose xeda is installed at another prefix: its bundled platforms,
+    and its own package directory, are a copy under the remote's run directory. execnet ships
+    this function's source alone, so it imports what it uses."""
+    import shutil
+    from pathlib import Path
+
+    import xeda
+    import xeda.platforms.platform
+    import xeda.utils
+    from xeda.flow_runner.remote import remote_runner
+
+    package = Path(kwargs["remote_path"]).parent / "elsewhere" / "site-packages" / "xeda"
+    if not package.exists():
+        shutil.copytree(
+            Path(xeda.__file__).parent / "platforms" / "nangate45",
+            package / "platforms" / "nangate45",
+        )
+    xeda.utils.XEDA_PACKAGE_ROOT = package
+    xeda.platforms.platform.files = {"xeda.platforms": package / "platforms"}.get
+    remote_runner(channel, **kwargs)
+
+
+@pytest.mark.parametrize("elsewhere", [False, True], ids=["same install", "another install"])
+def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
+    tmp_path, remote_host, monkeypatch, elsewhere
+):
+    """O-RI1 (b), PCD23: `--remote yosys -s platform=nangate45` is accepted by a remote whose
+    xeda is installed under another prefix, as every remote on another machine is: the remote's
+    `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
+    even from the same installation: the platform's per-corner liberty files reached the remote
+    as unexpanded `$DESIGN_ROOT/...` text, which named no shipped file.)"""
+    require_yosys()
+    if elsewhere:
+        monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_installed_elsewhere)
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "mac.v").write_text(
+        "module mac(input clk, input [7:0] a, b, output reg [15:0] q);\n"
+        "  always @(posedge clk) q <= a * b;\nendmodule\n"
+    )
+    design = Design(
+        name="mac",
+        design_root=root,
+        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    settings = ["platform=nangate45", "clock.period=2.0"]
+    expected = runner.plan("yosys", design, flow_settings=settings).node("yosys").flowrun_hash
+    results = runner.run_remote(design, "yosys", "fake", flow_settings=settings)
+    assert results and results["success"], results
+    assert results["flow_hash"] == expected
+    # the remote reads the platform it is sent (relocated under its run directory), whatever
+    # its own installation holds; its identity names neither place
+    remote_settings = json.loads(
+        (_remote_run_dir(remote_host, "yosys") / "settings.json").read_text()
+    )
+    assert Path(remote_settings["flow_settings"]["platform"]["root_dir"]).is_relative_to(
+        remote_host
+    )
+    netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
+    assert "_X1 " in netlist or "_X2 " in netlist

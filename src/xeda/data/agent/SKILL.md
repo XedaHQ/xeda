@@ -371,9 +371,11 @@ replacement (`--run-root`, `--rebuild-all`, `--hashed-run-dirs`, `--clean`, `--o
 ## Remote runs
 
 `--remote HOST` needs Xeda's 0.4.4 release line (including development builds) or newer and remote
-protocol 6 or newer on the host. Protocol 3 adds the remote simulation evidence rule, protocol
+protocol 8 or newer on the host. Protocol 3 adds the remote simulation evidence rule, protocol
 4 the FPGA build graph (`fpga_pack`), protocol 5 the programming-only `openfpgaloader`, protocol 6
-the node identity of flow chains (a node's hash counts where its declared inputs come from). Xeda
+the node identity of flow chains (a node's hash counts where its declared inputs come from),
+protocol 7 the declared Vivado outputs, protocol 8 `yosys`'s ASIC configuration and a bundled
+platform counted relative to xeda's installation. Xeda
 probes the package the remote interpreter actually imports and refuses an older build, or one of
 an older protocol, before shipping, with an upgrade error. The remote flow always runs fresh;
 `--rebuild-all` is accepted to force local generator loading before shipping, while `--clean` and

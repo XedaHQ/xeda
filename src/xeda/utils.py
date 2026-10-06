@@ -65,6 +65,7 @@ __all__ = [
     "unique",
     "rebuild_like",
     "location_free",
+    "location_roots",
     # str utils
     "camelcase_to_snakecase",
     "snakecase_to_camelcase",
@@ -393,6 +394,30 @@ def rebuild_like(container: Any, items: List[Any]) -> Any:
     if isinstance(container, set):
         return set(items)
     return list(items)
+
+
+#: This installation's package directory: a path under it is xeda's own file, the same on every
+#: installation, so a run's identity counts it relative to it (`$XEDA/...`, PCD23), as it counts
+#: a path under the design root relative to that. A module attribute, read at each call.
+XEDA_PACKAGE_ROOT = Path(__file__).absolute().parent
+
+
+def location_roots(
+    design_root: Optional[os.PathLike | str] = None, runner_cwd: Optional[os.PathLike | str] = None
+) -> list[tuple[str, Path]]:
+    """The roots a run's identity counts paths relative to (`location_free`), most specific
+    first: the design root, the directory xeda was started from, and xeda's own installation."""
+    roots = [
+        (var, Path(root).absolute())
+        for var, root in (
+            ("DESIGN_ROOT", design_root),
+            ("PWD", runner_cwd),
+            ("XEDA", XEDA_PACKAGE_ROOT),
+        )
+        if root is not None
+    ]
+    roots.sort(key=lambda var_root: len(var_root[1].parts), reverse=True)
+    return roots
 
 
 def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:

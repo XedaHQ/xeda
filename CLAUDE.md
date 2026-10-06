@@ -645,7 +645,9 @@ keep the whole design, since they protect the user's files and verify the reques
 left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
 scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
-root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), the start directory and design
+root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
+installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`, PCD23: a bundled
+platform's files are the same on every installation), the start directory and design
 root are validation *context* rather than settings. A parameter's value is its only record: one given as a file
 (`{ file = ... }` or `{ path = ... }`) becomes the absolute path the tool is handed, and a path
 under the design root counts relative to it (`location_free`, the `flowrun_hash` rule; one outside
@@ -979,7 +981,7 @@ and `test_nvc.py` simulate the examples in place.
   The design archive `send_design` builds is read by the *remote's* xeda, which forbids unknown
   keys. **Requirement: a remote runs a P3-capable build (this branch or newer)**: release line
   `REMOTE_XEDA_MIN_VERSION = (0, 4, 4)` (including `0.4.4.devN+g...`) and
-  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 7: protocol 2 adds
+  `xeda.REMOTE_PROTOCOL_VERSION >= REMOTE_PROTOCOL_MIN_VERSION` (currently 8: protocol 2 adds
   canonical resolved settings, relocated read inputs with their original path identities, declared
   output records and checked hand-over; protocol 3 requires remote simulations to satisfy P1b's
   current-run evidence rule; protocol 4 adds P2b's FPGA build graph, the `fpga_pack` flow;
@@ -987,10 +989,9 @@ and `test_nvc.py` simulate the examples in place.
   protocol 6 requires the D-9 identity rule: a node's `flow_hash` is its settings plus its ordered
   resolved input origins, the hash `RemoteRunner` names the mirror by and compares with the
   remote's reported `flow_hash`, so a protocol-5 remote is refused up front, not accepted and
-  then failed on a hash mismatch it cannot explain; protocol 7: `vivado_synth` and
-  `vivado_alt_synth` declare their outputs and gain `write_timing_netlist`, so a protocol-6
-  remote would refuse the setting and resolve those flows, undeclared, to another identity;
-  `tests/test_remote_streaming.py` and
+  then failed on a hash mismatch it cannot explain; protocol 7 the declared Vivado outputs;
+  protocol 8: yosys declares its netlist and takes the ASIC configuration; run identities count a
+  bundled platform relative to xeda's installation (PCD23); `tests/test_remote_streaming.py` and
   `tests/test_remote_run.py` pin the refusal).
   `check_remote_xeda` refuses xeda 0.4.3 and development checkouts without the capability with an
   "upgrade the remote xeda" error before anything ships. Version alone does not prove protocol
@@ -1420,6 +1421,10 @@ dependency must also share `custom_boards_file`.
   nothing, a second design reusing the one chip database (generated once per session, shared
   by xdist workers under their common temporary directory), and the generator tree unchanged.
   It is its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: CI has no openXC7.
+  `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
+  package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
+  yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for
+  `corner=SS` and end alike (an owner exception, 2026-10-06: ABC crashes there on `main` too).
 - **No test programs a device, structurally.** `tests/conftest.py`'s autouse `programmer_guard`
   puts a sentinel `openFPGALoader` first on every test's `PATH` (the fake toolchain goes in front
   of it; child processes and the popen remote worker inherit it) and fails a test that started

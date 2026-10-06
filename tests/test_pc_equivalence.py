@@ -164,6 +164,10 @@ _TASK5_DELTAS: dict[tuple[str, ...] | str, str] = {
         "the script names the merged library at its new place; its text is compared, after "
         "REVIEWED_RENAMES, under `scripts`"
     ),
+    ("nodes", _YOSYS, "results", "artifacts", "timing_report"): (
+        "yosys lists its timing report only where `sta` writes one, as `yosys_fpga` does; none of "
+        "these runs writes it, and a remote run was asked for the file it never wrote"
+    ),
     ("nodes", _YOSYS, "results", "outputs"): (
         "yosys declares its netlist (PC Task 5): the declared output's record is new"
     ),

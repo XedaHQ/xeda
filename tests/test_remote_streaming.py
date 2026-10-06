@@ -47,8 +47,8 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 7)
-    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 7)
+    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 8)
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 8)
     for version, protocol in (
         ("0.4.3", 0),
         ("0.4.3", 2),
@@ -59,6 +59,7 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         ("0.4.4.dev42+gabc", 4),
         ("0.4.4.dev42+gabc", 5),
         ("0.4.4.dev42+gabc", 6),
+        ("0.4.4.dev42+gabc", 7),
     ):
         with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
             check_remote_xeda(version, "/site/xeda/__init__.py", "/usr/bin/python3", protocol)
@@ -92,8 +93,8 @@ def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
     origins. `RemoteRunner` names the mirror by this side's hash and compares it with the one the
     remote reports, so a protocol-5 remote that was accepted would fail only afterwards, on a
     hash mismatch nobody can explain. It is refused up front, naming both protocols."""
-    assert xeda.REMOTE_PROTOCOL_VERSION == 7
-    assert REMOTE_PROTOCOL_MIN_VERSION == 7
+    assert xeda.REMOTE_PROTOCOL_VERSION == 8
+    assert REMOTE_PROTOCOL_MIN_VERSION == 8
     # this build satisfies its own floor, so a remote of this checkout is accepted
     check_remote_xeda(
         xeda.__version__,
@@ -106,8 +107,23 @@ def test_a_protocol_5_remote_is_refused_for_its_node_identity_not_accepted():
     message = str(refused.value)
     assert "upgrade the remote xeda" in message
     assert "remote protocol 5" in message
-    assert "remote protocol 7 or newer" in message
+    assert "remote protocol 8 or newer" in message
     assert "0.4.4.dev42+gabc" in message and "/site/xeda/__init__.py" in message
+
+
+@pytest.mark.parametrize("protocol", [6, 7])
+def test_a_remote_before_protocol_8_is_refused(protocol):
+    """Protocol 8 declares `yosys`'s netlist and moves the ASIC configuration into it, and counts
+    a bundled platform relative to xeda's installation in a run's identity (PCD23). A protocol-7
+    remote (declared Vivado outputs) or older hashes such a run by its own installation's paths,
+    and configures `yosys` differently: it is refused up front, naming both protocols."""
+    with pytest.raises(RemoteIncompatible) as refused:
+        check_remote_xeda(
+            "0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", protocol
+        )
+    message = str(refused.value)
+    assert f"remote protocol {protocol}" in message
+    assert "remote protocol 8 or newer" in message
 
 
 def test_the_probe_reports_the_imported_packages_version_and_capability():
@@ -118,12 +134,12 @@ def test_the_probe_reports_the_imported_packages_version_and_capability():
             "import xeda\n"
             "from importlib import metadata\n"
             "xeda.__version__ = '0.4.4.dev99+gprobe'\n"
-            "xeda.REMOTE_PROTOCOL_VERSION = 7\n"
+            "xeda.REMOTE_PROTOCOL_VERSION = 8\n"
             "metadata.version = lambda name: '0.4.3'\n" + REMOTE_PROBE
         ).receive()
         assert reply[3] == "0.4.4.dev99+gprobe"
         assert reply[4].endswith("xeda/__init__.py")
-        assert reply[5] == 7
+        assert reply[5] == 8
     finally:
         gw.exit()
 

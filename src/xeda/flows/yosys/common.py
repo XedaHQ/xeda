@@ -362,7 +362,7 @@ class YosysBase(Flow):
             False,
             description="Run a simple static timing analysis (implies `flatten`)",
         )
-        post_synth_opt: bool = Field(
+        post_synth_opt: Optional[bool] = Field(
             False,
             description="run additional optimization steps after synthesis if complete",
         )

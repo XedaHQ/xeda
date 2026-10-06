@@ -17,6 +17,11 @@ All notable changes to this project will be documented in this file.
   platform with an empty dont-use list (`sky130hs`) reached abc as several files, of which abc and
   `dfflibmap` were handed the first; and it never marked the platform's own dont-use cells,
   although `dont_use_cells` promised to add to them. Both now hold.
+- A platform's per-corner files (`lib_files`, `dff_lib_file`, `rcx_rules`) sent to a `--remote`
+  run arrived as unexpanded `$DESIGN_ROOT/...` text, naming no shipped file and giving the remote
+  another run identity: the path fields of a mapping or list of nested models are expanded too.
+- `yosys` lists a `timing_report` artifact only when `sta` writes one; a remote run asked for the
+  report it never wrote.
 - `yosys_fpga`'s `synth_pass_only` reads the design's sources as a bare `yosys <files>`
   does (by each source's `type`, which is its suffix's unless the design states another): a nonempty `read_verilog_flags` (Xeda's own `-sv` default included), a `systemverilog`
   front end other than `default` (the default is the slang plugin) and a nonempty
@@ -218,6 +223,12 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **`--remote` needs a remote with protocol 8**: `yosys` declares its netlist and takes the ASIC
+  configuration, and a run's identity counts a bundled platform's files relative to xeda's
+  installation (`$XEDA/platforms/...`), so two installations -- this side and a remote -- agree on
+  it; a platform under the design root still counts relative to it, and one elsewhere as its
+  absolute location. `flowrun_hash` (and so a hashed run directory's name) changes for every run
+  given a bundled platform. A remote of protocol 7 or older is refused before anything ships.
 - **`yosys` owns its ASIC configuration.** Given a `platform`, `yosys` alone derives what
   `openroad` used to hand its synthesis: the corner's liberty set, merged into one library in its
   own run directory (named `<platform>_merged`, with the platform's own dont-use cells and
