@@ -49,31 +49,20 @@ def _is_environ(node: ast.AST) -> bool:
     )
 
 
-def _writes_target(target: ast.AST) -> bool:
-    """Whether assigning to (or deleting) `target` writes `os.environ`: the mapping itself
-    (`os.environ = {}`, `os.environ |= ...`), one of its items, or either inside an unpacking."""
-    if _is_environ(target):
-        return True
-    if isinstance(target, ast.Subscript):
-        return _is_environ(target.value)
-    if isinstance(target, (ast.Tuple, ast.List)):
-        return any(_writes_target(element) for element in target.elts)
-    if isinstance(target, ast.Starred):
-        return _writes_target(target.value)
-    return False
-
-
 def writes(tree: ast.AST) -> list[ast.AST]:
-    """Every node of `tree` that writes `os.environ`."""
+    """Every node of `tree` that writes `os.environ`.
+
+    A syntactic binding or deletion is marked by the parser (`ctx` is `Store` or `Del`) wherever
+    it stands -- assignment, augmented or annotated, `del`, `for`, `with ... as`, a comprehension,
+    an unpacking -- so one test covers them all: the mapping itself (`os.environ = {}`,
+    `os.environ |= ...`) or one of its items. A call is a write by its method or function name.
+    """
     found: list[ast.AST] = []
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.Delete)):
-            targets = (
-                node.targets
-                if isinstance(node, (ast.Assign, ast.Delete))
-                else [node.target]  # type: ignore[union-attr]
-            )
-            if any(_writes_target(t) for t in targets):
+        if isinstance(node, (ast.Attribute, ast.Subscript)) and isinstance(
+            node.ctx, (ast.Store, ast.Del)
+        ):
+            if _is_environ(node) or (isinstance(node, ast.Subscript) and _is_environ(node.value)):
                 found.append(node)
         elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             if _is_environ(node.func.value) and node.func.attr in WRITING_METHODS:
@@ -122,6 +111,12 @@ def test_no_test_writes_the_environment_directly() -> None:
         'os.environ["PATH"], other = values',
         'other, *os.environ["PATH"] = values',
         '[os.environ["PATH"]] = values',
+        'for os.environ["A"] in values: pass',
+        'for i, os.environ["A"] in values: pass',
+        'with open(f) as os.environ["A"]: pass',
+        'async def f():\n    async with g() as os.environ["A"]: pass',
+        '[0 for os.environ["A"] in values]',
+        "for os.environ in values: pass",
         'os.environ.update({"A": "b"})',
         'os.environ.setdefault("A", "b")',
         'os.environ.pop("A", None)',
