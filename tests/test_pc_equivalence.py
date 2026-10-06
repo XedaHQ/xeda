@@ -203,6 +203,15 @@ def activity_recording_delta(record: dict, name: str, *, baseline: bool = False)
             ["log_saif", "1"],
             ["close_saif"],
         ]
+        # The recorder is set up after the simulation loads and before it runs, and closed after:
+        # a recording that moved would be filtered out below and go unnoticed.
+        names = [call[0] for call in node["calls"]]
+        loaded, run = names.index("xsim"), names.index("run")
+        positions = [
+            names.index(name) for name in ("open_saif", "describe", "get_objects", "log_saif")
+        ]
+        assert loaded < positions[0] < positions[1] < positions[2] < positions[3] < run
+        assert run < names.index("close_saif")
     node["calls"] = [call for call in node["calls"] if call[0] not in activity_commands]
     return record
 
