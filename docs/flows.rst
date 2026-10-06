@@ -229,7 +229,7 @@ checks each neighboring pair and never searches for a missing stage.
   ``xeda list-flows --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
   ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_postsynth_sim`` and
   ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
-  ``vivado_sim``, ...) runs alone. A chain through it is refused with ``no compatible output for a required input``.
+  ``vivado_sim``, ...) runs alone. A chain through it is refused: no output fits an input, or the flow after it takes no required input.
   No stage is ever fed by reading another flow's ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
@@ -371,8 +371,8 @@ ends at ``openfpgaloader`` programs a device. The test suite runs those chains a
 tools, and never starts a real programmer.
 
 Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim`` are **not**
-available yet, and the command below is refused today (``Flow `bsc` has
-no compatible output for a required input of `yosys_fpga```). They need the remaining flows to declare their
+available yet, and the command below is refused today (``Flow `bsc` cannot
+precede `yosys_fpga`: `yosys_fpga` takes no required input``). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
 example designs and targets that use them:
 

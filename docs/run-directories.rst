@@ -395,7 +395,7 @@ A durable lock file, ``<run dir>.lock`` beside the run directory -- never inside
 serializes writers to the same directory (POSIX only; there is no lock on Windows). A consumer
 holds each completed dependency's lock *shared*, after verifying completion evidence under the
 acquired lease, until its own launch ends, including results and trace writing. This protects
-declared and legacy dependencies, including producers without a trace. A change in the gap
+every producer, including those without a trace. A change in the gap
 between producer completion and shared-lock acquisition refuses hand-over; matching declared
 output bytes alone do not prove the rest of the completed run is unchanged.
 

@@ -489,8 +489,7 @@ def send_design(
             except FlowSettingsError:
                 shipped_sections[name] = section
             else:
-                # Preserve explicitness: canonical declared sections are complete already;
-                # an undeclared section still contributes only its stated keys.
+                # Preserve explicitness: a section contributes only the keys it states.
                 rewritten = packaged_value(model)
                 shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
         new_design["flow"] = shipped_sections

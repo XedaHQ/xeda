@@ -46,6 +46,7 @@ DESIGN_FILE_MD = AGENT / "references/design-file.md"
 
 CHAIN = "yosys_fpga+nextpnr+fpga_pack"
 CHAIN_SECTION = ("Flow chains and input bindings\n", "Open-source FPGA flow targets and tuning\n")
+NO_EDGE = r"has no compatible output for a required input of|takes no required input"
 FUTURE_MARKER = "# not available yet"
 
 # ---------------------------------------------------------------------------------- the documents
@@ -243,7 +244,7 @@ def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp
         result = CliRunner().invoke(cli, ["run", *words, "--dry-run", "--json"])
         if future:
             assert result.exit_code == 2, (words, result.output)
-            assert "has no compatible output for a required input of" in result.output, words
+            assert re.search(NO_EDGE, result.output), words
         else:
             assert result.exit_code == 0, (words, result.output)
     assert not (tmp_path / "xeda_run").exists()
@@ -646,7 +647,7 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
     for chain in ("bsc+yosys_fpga", "yosys_fpga+bsc", "vivado_project+openfpgaloader"):
         result, document = _xeda("run", chain, design, "--dry-run")
         assert result.exit_code == 2, chain
-        assert "has no compatible output for a required input of" in document["error"]["message"]
+        assert re.search(NO_EDGE, document["error"]["message"])
     data = yaml.safe_load(design.read_text())
     data["flows"]["vivado_project"] = {"inputs": {"design": "bsc"}}
     (root / "saved_design_binding.yaml").write_text(yaml.safe_dump(data))

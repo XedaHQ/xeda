@@ -326,7 +326,7 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
     before the last `+`, exactly as typed, followed by the completed element.
 
     After a `+` only flows that the validator accepts as the next element are offered (so none
-    repeats, none follows an action, none is undeclared and none lacks a compatible edge); in a
+    repeats, none follows an action, none declares no required input and none lacks a compatible edge); in a
     qualifier (`nextpnr.`) the producer's outputs that lead to some follower. Static: it reads
     declarations only, loads no design, constructs no flow and probes no tool.
     """
@@ -487,6 +487,11 @@ def _no_edge(producer: type[Flow], consumer: type[Flow]) -> str:
     required = {
         name: declared for name, declared in declared_inputs(consumer).items() if declared.required
     }
+    if not required:
+        return (
+            f"Flow `{producer.name}` cannot precede `{consumer.name}`: `{consumer.name}` takes no "
+            "required input, and a chain feeds only required inputs."
+        )
     return (
         f"Flow `{producer.name}` has no compatible output for a required input of "
         f"`{consumer.name}`: `{consumer.name}` takes {listed(required)}; `{producer.name}` "

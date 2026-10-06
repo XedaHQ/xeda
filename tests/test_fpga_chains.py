@@ -9,6 +9,7 @@ carries the file that ran, rather than trusting PATH order. `conftest.programmer
 behind both."""
 
 import json
+import re
 import os
 import shutil
 from pathlib import Path
@@ -817,6 +818,8 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 # the missing declaration -- before any tool runs.
 
 UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]
+#: how a pair that is no edge is refused: no output fits, or the consumer takes no required input
+NO_EDGE = r"has no compatible output for a required input of|takes no required input"
 
 
 def _nothing_started(tmp_path: Path) -> None:
@@ -844,12 +847,12 @@ def test_a_chain_through_a_flow_without_declared_io_is_refused_before_any_tool_r
     result, document = _xeda("run", chain, design)
     assert result.exit_code == 2 and document["success"] is False
     message = document["error"]["message"]
-    assert f"Flow `{flow}` has no compatible output for a required input of" in message
+    assert f"Flow `{flow}` " in message and re.search(NO_EDGE, message)
     assert not {"plan", "nodes", "request"} & set(document)
     _nothing_started(tmp_path)
     dry, refused = _xeda("run", chain, design, "--dry-run")
     assert dry.exit_code == 2 and refused["error"]["message"] == message
-    with pytest.raises(FlowSettingsException, match="has no compatible output"):
+    with pytest.raises(FlowSettingsException, match=NO_EDGE):
         parse_request(chain)
 
 

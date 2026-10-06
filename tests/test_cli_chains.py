@@ -157,7 +157,7 @@ def test_a_dry_run_of_a_chain_shows_the_graph_that_then_runs(tmp_path):
         ("__input_maker+__takr", "__takr"),
         ("__taker+__taker", "appears more than once"),
         ("__input_maker.nope+__taker", "no output `nope`"),
-        ("__taker+__input_maker", "no compatible output"),
+        ("__taker+__input_maker", "takes no required input"),
     ],
 )
 def test_a_malformed_chain_is_one_json_error_document_and_plans_nothing(tmp_path, chain, message):

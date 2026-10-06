@@ -123,9 +123,9 @@ but never entered shows `"state": "not run"`.
 
 `xeda run a+b` fails with exit status 2 before anything runs, and says why:
 
-- `no compatible output for a required input`: the pair does not fit. `bsc`, `bsc_sim`,
-  `vivado_project` and `vivado_sim` declare no inputs and no outputs, so they cannot be part of a
-  chain yet; run each alone. When another output of the producer, or the flows between the pair
+- `no compatible output for a required input` or `takes no required input`: the pair does not
+  fit. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no inputs and no outputs, so
+  they cannot be part of a chain yet; run each alone. When another output of the producer, or the flows between the pair
   on the required default routes, make a pair fit, the message ends with `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->
   `nextpnr+fpga_pack+openfpgaloader`). Otherwise there is no suggestion; `xeda list-flows --json`
   has `can_follow`/`can_precede` for finding a flow that fits.

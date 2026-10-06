@@ -215,7 +215,7 @@ producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
 `nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
 (`xeda list-flows --json`: `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and
-`vivado_sim` run alone, and a chain through one fails with `no compatible output`. A chain is local: `--remote` and
+`vivado_sim` run alone, and a chain through one is refused (no compatible output, or the next flow takes no required input). A chain is local: `--remote` and
 `xeda dse` refuse it.
 
 `-s` sets the last flow; `-s flows.<flow>.key=value` sets any other flow of the chain. With

@@ -899,8 +899,8 @@ nested model afterwards is not expanded, and `written_path_problems` reports it 
 
 **`xeda.deliver`** makes good on a deliverable setting's location, or `--outputs-to`, once a
 launch has finished, never sooner: `ReadInputs` holds every file the launch's flows read (the
-design's files, the files given, and every read setting of every launched flow, a dependency's
-nested settings included) and every directory such a setting names, with each entry under it --
+design's files, the files given, and every read setting of every flow of the plan, registered by
+the requested flow when the launch starts) and every directory such a setting names, with each entry under it --
 the trace's own listing (`trace_inputs.register_read_settings`, local and remote alike) -- so a
 destination can be none of those files, nor lie in one of those directories, a file there yet or
 not (whether a tool reads it cannot be known before the run; `--outputs-to` into one is refused
