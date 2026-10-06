@@ -1,4 +1,4 @@
-"""Interchangable dataclass abstraction"""
+"""Interchangeable dataclass abstraction"""
 
 from __future__ import annotations
 

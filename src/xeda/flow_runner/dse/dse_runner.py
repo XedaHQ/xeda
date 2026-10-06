@@ -281,7 +281,7 @@ class Dse(FlowLauncher):
 
         optimizer.max_failed_iters = self.settings.max_failed_iters
 
-        # consecutive "unsuccessfull" iterations where in all runs success == False
+        # consecutive "unsuccessful" iterations where in all runs success == False
         consecutive_failed_iters = 0
         num_iterations = 0
         future = None
@@ -465,7 +465,7 @@ class Dse(FlowLauncher):
 
                     if consecutive_failed_iters > self.settings.max_failed_iters:
                         log.info(
-                            "Stopping after %d unsuccessfull iterations.",
+                            "Stopping after %d unsuccessful iterations.",
                             consecutive_failed_iters,
                         )
                         break
@@ -474,7 +474,7 @@ class Dse(FlowLauncher):
                         and consecutive_failed_iters > self.settings.max_failed_iters_with_best
                     ):
                         log.info(
-                            "Stopping after %d unsuccessfull iterations (max_failed_iters_with_best=%d)",
+                            "Stopping after %d unsuccessful iterations (max_failed_iters_with_best=%d)",
                             consecutive_failed_iters,
                             self.settings.max_failed_iters_with_best,
                         )

@@ -22,7 +22,7 @@ def test_sqrt() -> None:
     QUICK_TEST = [8, 32]
     ws = QUICK_TEST
     if os.environ.get("LONG_TEST"):
-        print("runing long test!")
+        print("running long test!")
         ws = LONG_TEST
     for w in ws:
         assert design.tb

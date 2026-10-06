@@ -205,8 +205,8 @@ What makes a flow stale
   its own modules and templates;
 - a program it started (an executable's path, size or mtime; a container image's ID) changed, or
   was replaced while the run was going on;
-- a dependency ran again -- until declared inputs/outputs arrive, a dependency re-running always
-  re-runs what depends on it, even if nothing it produced actually changed for this consumer;
+- a dependency ran again -- a dependency that re-ran always re-runs what depends on it, even if
+  nothing it produced actually changed for this consumer;
 - an input was added, removed, changed, or has gone missing -- a file in a directory a setting
   names too (a library recompiled in place) -- or was modified while the run that read it was
   going on, so that what the run read is unknown;
@@ -291,8 +291,7 @@ file no longer matches the trace, so the next launch runs again. A file that no 
 before the run (one a depfile names for the first time, a program) and that was written while the
 run went on is recorded as unknown, which never matches.
 
-Without declared outputs, location is the only safe way to tell a run's file from a user's edit.
-The run directory -- always under the run root -- is the run's alone: every entry in it
+Location is how Xeda tells a run's file from a user's edit. The run directory -- always under the run root -- is the run's alone: every entry in it
 is the run's output, whether the run wrote it or not; a file that appears there since the last run
 makes the run stale ("new file in the run directory"). Anywhere else, a file named by a setting, a
 depfile, or the design stays an input; if it was absent before the run or changed during it (its
@@ -322,8 +321,7 @@ not read it again.
 ------------
 
 Empties each flow's run directory before it runs, and runs every flow -- "make clean, then make".
-It replaces the old
-``--no-incremental``, the per-flow ``clean`` setting, GHDL's ``clean`` (now
+It replaces the old ``--no-incremental``, the per-flow ``clean`` setting, GHDL's ``clean`` (now
 ``clean_before_analyze``), Verilator's ``clean_before_run``, and the launcher's
 ``cleanup_before_run`` setting -- each of those names now fails with what to use instead.
 
@@ -373,8 +371,7 @@ they re-run every flow. See :ref:`generators`.
 What is not tracked
 ---------------------
 
-Each of these can make a stale result look fresh; ``--rebuild-all`` is the escape until each is
-declared:
+Each of these can make a stale result look fresh; ``--rebuild-all`` is the escape:
 
 - **Programs started indirectly** -- a compiler run by ``make`` (Verilator's model build), Python
   packages such as cocotb imported by a simulator: only the programs Xeda starts itself are

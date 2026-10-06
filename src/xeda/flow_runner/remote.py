@@ -514,7 +514,7 @@ def send_design(
         with zipfile.ZipFile(zip_file, mode="r") as archive:
             archive.printdir()
 
-        log.info("Transfering design to %s in %s", conn.host, remote_path)
+        log.info("Transferring design to %s in %s", conn.host, remote_path)
         conn.put(zip_file, remote=remote_path)
         return zip_file.name, design_file.name
 

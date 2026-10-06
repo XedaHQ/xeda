@@ -1099,7 +1099,7 @@ def expand_env_vars(
 
 class XedaException(Exception):
     """Super-class of all xeda exceptions
-    should be catched by CLI and handled appropriately
+    should be caught by CLI and handled appropriately
     """
 
 

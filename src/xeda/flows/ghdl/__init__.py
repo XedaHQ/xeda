@@ -138,7 +138,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
             "every file GHDL generated from it in the run directory.",
         )
         diagnostics: bool = Field(
-            True, description="Enable both color and source line carret diagnostics."
+            True, description="Enable both color and source line caret diagnostics."
         )
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         expect_failure: bool = Field(

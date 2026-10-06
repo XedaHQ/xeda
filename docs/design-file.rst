@@ -207,7 +207,7 @@ only ever given that way. Explicit type names are case-tolerant; suffixes are no
 is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
 design can still read it. An invalid explicit ``type`` is an error naming the closest types.
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
-``{ file = "net.v", type = "VerilogNetlist" }``.
+``{file: net.v, type: VerilogNetlist}``.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
 skips synthesis for ``nextpnr``, a ``Fasm``, ``EcpConfig`` or ``IceAsc`` configuration is packed
