@@ -1,4 +1,4 @@
-"""What a setting accepts: exactly its declared type, plus three documented flow conveniences.
+"""What a setting accepts: exactly its declared type, plus two documented flow conveniences.
 
 There is no implicit conversion between types -- a number is not text, text is not a list, `True`
 is not a name -- so the type a setting declares is the whole truth about what it takes, and a
@@ -8,8 +8,7 @@ so and its consumer renders each kind explicitly.
 
 On top of that, every *flow* setting gets the conveniences of `Flow.Settings._normalize_flow_setting`:
 a list setting may be written as a comma-separated string (`-s xdc_files=a.xdc,b.xdc`), and
-`$DESIGN_ROOT`/`$DESIGN_DIR`/`$PWD` are expanded at each path. Dependency settings are covered by
-`test_dependency_settings.py`.
+`$DESIGN_ROOT`/`$DESIGN_DIR`/`$PWD` are expanded at each path.
 """
 
 import copy

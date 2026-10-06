@@ -454,13 +454,12 @@ def test_nextpnr_names_the_device_and_package_its_own_way(tmp_path, monkeypatch,
     ],
 )
 def test_nextpnr_rejects_a_target_before_synthesis(tmp_path, settings, message):
-    """An unsupported target or a setting of another architecture fails in `init`, before the
-    yosys_fpga dependency is registered, let alone run."""
+    """An unsupported target or a setting of another architecture fails in `init`, before any
+    producer runs."""
     design = Design(name="d", rtl={"sources": [], "top": "d"}, design_root=tmp_path)
     flow = Nextpnr(Nextpnr.Settings(**settings), design, tmp_path)
     with pytest.raises(FlowSettingsException, match=re.escape(message)):
         flow.init()
-    assert not flow.dependencies
 
 
 def test_nextpnr_ice40_end_to_end(tmp_path, monkeypatch):

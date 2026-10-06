@@ -22,11 +22,15 @@ a broken world and see it find them.
 
 import ast
 import inspect
+import re
+import textwrap
 from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+import xeda
 from xeda.design import TYPE_ONLY, SourceType
 from xeda.flow import Flow, FlowSettingsError
 from xeda.flow.io import (
@@ -275,3 +279,97 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
     assert again.node(flow_class.name).flowrun_hash == plan.node(flow_class.name).flowrun_hash
     assert plan.node(flow_class.name).run_path == world.root / "sqrt" / flow_class.name
+
+
+# ------------------------------------------------------------------------- no registration
+
+REMOVED_NAMES = (
+    "add_dependency",
+    "resolve_dependency",
+    "_run_dependencies",
+    "dependency_settings",
+    "completed_dependencies",
+    "pop_dependency",
+    "copy_resources",
+    "copied_resources_dir",
+    "flow_settings_from_sections",
+)
+
+
+def registration_problems(cls: type[Flow]) -> list[str]:
+    """How `cls` still takes part in the removed mechanism: a table of nested producer settings,
+    a field holding another flow's settings, or an `add_dependency` call in an `init()` along
+    its MRO."""
+    problems: list[str] = []
+    if getattr(cls.Settings, "dependency_settings", {}):
+        problems.append(f"{cls.name}: Settings.dependency_settings is not empty")
+    for name, field in cls.Settings.model_fields.items():
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, Flow.Settings):
+            problems.append(f"{cls.name}: field `{name}` holds another flow's settings")
+    for klass in cls.__mro__:
+        init = klass.__dict__.get("init")
+        if init is None:
+            continue
+        tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_dependency"
+            ):
+                problems.append(f"{cls.name}: {klass.__name__}.init calls add_dependency")
+    return problems
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=[name for _, name in FLOWS])
+def test_no_flow_registers_a_dependency_or_nests_another_flow_s_settings(cls) -> None:
+    assert registration_problems(cls) == []
+
+
+def test_a_flow_that_registers_a_dependency_is_found() -> None:
+    class _Registering(Flow):
+        """Registers a dependency in its init()."""
+
+        results_description: dict[str, str] = {}
+
+        def init(self) -> None:
+            self.add_dependency(Openroad, {})
+
+        def run(self) -> None:
+            pass
+
+    try:
+        problems = registration_problems(_Registering)
+    finally:
+        from xeda.flow import registered_flows
+
+        for name in (_Registering.name, _Registering.__name__):
+            registered_flows.pop(name, None)
+    assert any("calls add_dependency" in p for p in problems), problems
+
+
+def names_left(root: Path) -> dict[str, list[str]]:
+    """The names of the removed mechanism in the text files under `root`, by name."""
+    found: dict[str, list[str]] = {}
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.suffix in {".pyc", ".so", ".png", ".gz"}:
+            continue
+        try:
+            text = path.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        for name in REMOVED_NAMES:
+            if re.search(re.escape(name), text):
+                found.setdefault(name, []).append(str(path.relative_to(root)))
+    return found
+
+
+def test_no_name_of_the_removed_mechanism_is_left_in_the_package() -> None:
+    assert names_left(Path(xeda.__file__).parent) == {}
+
+
+def test_the_text_scan_finds_a_name_left_in_a_file(tmp_path) -> None:
+    (tmp_path / "flow.py").write_text("self.add_dependency(X)\n")
+    (tmp_path / "doc.md").write_text("see copy_resources\n")
+    assert names_left(tmp_path) == {"add_dependency": ["flow.py"], "copy_resources": ["doc.md"]}

@@ -15,7 +15,6 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import dependency_settings
 from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
 from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
@@ -530,20 +529,6 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     assert settings.nthreads == 2
     assert settings.fail_timing is False
     assert settings.out_of_context is False
-
-
-def test_a_dependency_refines_the_design_section_for_its_flow():
-    """`[flows.yosys_fpga]` is the base; what `nextpnr` hands its yosys dependency wins."""
-    given = YosysFpga.Settings(flatten=False, fpga="LFE5U-25F-6BG381C")
-    depender = Nextpnr.Settings(verbose=2, debug=True)
-
-    settings = dependency_settings(
-        YosysFpga, given, depender, {"yosys_fpga": {"flatten": True, "abc9": True}}
-    )
-
-    assert (settings.flatten, settings.abc9) == (False, True)
-    assert settings.fpga is not None and settings.fpga.part == "LFE5U-25F-6BG381C"
-    assert (settings.debug, settings.verbose) == (True, 2)
 
 
 def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):

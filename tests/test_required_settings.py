@@ -2,9 +2,8 @@
 how to give it -- not from inside `run()` (`FlowFatalException FPGA target device not
 specified`), from a template (`'None' has no attribute 'part'`), or from the tool.
 
-The check belongs to the launch, not to the settings model: the same settings also sit inside
-another flow's settings as a dependency's, where the launching flow supplies what they lack
-(`dependency_settings`), so a model that insisted on them could not even be nested.
+The check belongs to the launch, not to the settings model: one section of a design file holds
+only some of a flow's settings, so a model that insisted on all of them could not validate it.
 """
 
 import shutil
@@ -83,20 +82,20 @@ def test_a_device_supplied_through_a_producer_section_counts(design, tmp_path, m
     assert "was removed" not in str(raised.value)
 
 
-def test_a_dependency_s_own_section_reaches_the_flow_that_launches_it():
-    """A declared producer's settings are written under its own section only: a flow's
-    section is its own, and its producers' sections are theirs. The device given only for
-    `yosys_fpga` reaches `nextpnr` along their declared edge, in the resolver."""
-    from xeda.flow_runner.settings_layers import flow_settings_from_sections
+def test_a_producer_s_own_section_is_no_part_of_the_consumer_s_settings():
+    """A producer's settings are written under its own section only: a flow's section is its
+    own, and its producers' sections are theirs. The device given only for `yosys_fpga` reaches
+    `nextpnr` along their declared edge, in the resolver."""
+    from xeda.flow_runner.settings_layers import compose_flow_settings
     from xeda.flows import Nextpnr, Openfpgaloader
 
     sections = {
         "yosys_fpga": {"fpga": {"part": "LFE5U-25F-6BG381C"}, "abc9": False},
         "nextpnr": {"seed": 3},
     }
-    assert flow_settings_from_sections(Nextpnr, sections) == sections["nextpnr"]
-    assert flow_settings_from_sections(Openfpgaloader, sections) == {}
-    assert flow_settings_from_sections(Nextpnr, {}) == {}
+    assert compose_flow_settings(Nextpnr, [sections]) == sections["nextpnr"]
+    assert compose_flow_settings(Openfpgaloader, [sections]) == {}
+    assert compose_flow_settings(Nextpnr, [{}]) == {}
 
 
 def test_a_device_given_only_for_the_synthesis_dependency_is_enough(design, tmp_path, monkeypatch):

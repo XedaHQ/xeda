@@ -92,7 +92,6 @@ def test_the_loader_takes_one_bitstream_and_declares_no_output():
     assert not declared_outputs(Openfpgaloader)
     fields = set(Openfpgaloader.Settings.model_fields)
     assert not {"nextpnr", "packer_args", "bitstream_file", "bitstream"} & fields
-    assert not Openfpgaloader.Settings.dependency_settings
 
 
 def test_the_loader_always_runs_because_it_programs(tmp_path):
@@ -100,7 +99,7 @@ def test_the_loader_always_runs_because_it_programs(tmp_path):
     flow = Openfpgaloader(Openfpgaloader.Settings(fpga=ECP5), design, tmp_path / "loader")
     assert flow.always_runs() == "it programs a device"
     flow.init()
-    assert not flow.dependencies and not hasattr(flow, "packer")
+    assert not hasattr(flow, "packer")
 
 
 def test_the_loader_is_a_tool_of_its_flow_like_any_other(tmp_path, fake_loader):
