@@ -644,11 +644,12 @@ def test_a_file_a_read_directory_reaches_through_a_link_is_never_a_destination(w
     assert not (elsewhere / "new.v").exists() and RUNS == []
 
 
+@pytest.mark.parametrize("owner", ["the requested flow", "a producer"])
 @pytest.mark.parametrize("named", ["the directory", "inside it", "a link to it"])
 def test_outputs_to_into_a_directory_a_setting_reads_is_refused_before_the_first_tool_runs(
-    world, named
+    world, named, owner
 ):
-    """The requested flow's own read directory is known before any producer is launched."""
+    """Every flow of the plan registers its reads before any delivery is checked."""
     lib = world.user / "lib"
     lib.mkdir()
     (lib / "cells.v").write_text("module cell; endmodule\n")
@@ -658,25 +659,13 @@ def test_outputs_to_into_a_directory_a_setting_reads_is_refused_before_the_first
     launcher = DefaultRunner(
         world.root, display_results=False, outputs_to=outputs_to[named], overwrite_outputs=True
     )
+    if owner == "the requested flow":
+        launch = dict(reads=str(lib), deliverer={"netlist": "b/n.v"})
+    else:
+        launch = dict(deliverer={"netlist": "b/n.v", "reads": str(lib)})
     with pytest.raises(DeliveryError, match=r"--outputs-to names .*`reads` names"):
-        _launch(world, launcher, flow=_Wrapper, reads=str(lib), deliverer={"netlist": "b/n.v"})
+        _launch(world, launcher, flow=_Wrapper, **launch)
     assert RUNS == [] and sorted(p.name for p in lib.iterdir()) == ["cells.v"]
-
-
-def test_outputs_to_into_a_directory_a_producer_reads_is_refused_before_anything_is_delivered(
-    world,
-):
-    """A producer's settings are read when it is launched, so the requested flow's delivery is
-    checked against them once the producer has run: nothing is delivered."""
-    lib = world.user / "lib"
-    lib.mkdir()
-    (lib / "cells.v").write_text("module cell; endmodule\n")
-    launcher = DefaultRunner(
-        world.root, display_results=False, outputs_to=lib / "got", overwrite_outputs=True
-    )
-    with pytest.raises(DeliveryError, match=r"`--outputs-to` names .*`reads` names"):
-        _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "b/n.v", "reads": str(lib)})
-    assert sorted(p.name for p in lib.iterdir()) == ["cells.v"]
 
 
 def test_a_directory_is_not_a_file_s_destination(world):

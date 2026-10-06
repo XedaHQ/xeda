@@ -1133,12 +1133,17 @@ class FlowLauncher:
         design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
             flow_class, flow_name, design, input_settings, node
         )
-        # What this flow reads -- the settings of a dependency nested in
-        # its own included, and every file under a directory one names, as its trace lists it --
-        # is an input no delivery of the launch may replace, nor land beside in such a directory:
-        # registered before any of this flow's deliveries, or its dependencies', is checked
+        # What the flows read -- every file their settings name, and every file under a
+        # directory one names, as the trace lists it -- is an input no delivery of the launch
+        # may replace, nor land beside in such a directory. The requested flow registers the
+        # reads of the whole plan before any delivery is checked, so a delivery into a read
+        # directory is refused before a tool runs.
         self._read_inputs.add(design_files(design))
-        register_read_settings(self._read_inputs, input_settings, run_path, self.run_root)
+        if plan_node is None:
+            for planned in plan.nodes:
+                register_read_settings(
+                    self._read_inputs, planned.settings, planned.run_path, self.run_root
+                )
         _refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
