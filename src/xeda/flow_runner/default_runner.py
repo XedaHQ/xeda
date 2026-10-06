@@ -57,7 +57,7 @@ from ..flow import (
     FlowSettingsException,
     registered_flows,
 )
-from ..flow.io import declared_inputs, is_declared, selected_types
+from ..flow.io import declared_inputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -1106,8 +1106,7 @@ class FlowLauncher:
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
         runner_cwd = Path.cwd()
-        node = None
-        if plan is None and is_declared(flow_class):
+        if plan is None:
             request = self._request_context
             run_flows = {flow_name, *transitive_dependencies(flow_class)}
             plan = self.resolve(
@@ -1128,11 +1127,10 @@ class FlowLauncher:
                 api_overrides=request.api_overrides if request else None,
                 binding_layers=request.binding_layers if request else (),
             )
-        if plan is not None:
-            node = self._validate_plan(
-                plan, flow_class, design, flow_settings, all_flows_settings, plan_node
-            )
-            flow_settings = node.settings
+        node = self._validate_plan(
+            plan, flow_class, design, flow_settings, all_flows_settings, plan_node
+        )
+        flow_settings = node.settings
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
         )
@@ -1244,17 +1242,8 @@ class FlowLauncher:
                 try:
                     with WorkingDirectory(run_path):
                         flow.init()
-                    if node is not None and node.declared:
-                        if flow.dependencies:
-                            raise FlowFatalError(
-                                f"Declared flow {flow.name} may not add a dependency in init()"
-                            )
-                        assert plan is not None
-                        self._run_producers(
-                            flow, design, node, plan, all_flows_settings, read_leases
-                        )
-                    else:
-                        self._run_dependencies(flow, design, all_flows_settings, read_leases)
+                    assert plan is not None and node is not None
+                    self._run_producers(flow, design, node, plan, all_flows_settings, read_leases)
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
                     with recording_programs() as programs:
@@ -1478,23 +1467,25 @@ class FlowLauncher:
         flow_name: str,
         design: Design,
         settings: Flow.Settings,
-        node: PlanNode | None = None,
+        node: PlanNode,
     ) -> tuple[str, str, Path, str]:
         """Stage 2: `(design_hash, flowrun_hash, run_path, settings_hash)`. The run's hash is
-        its node's identity (`bindings.node_identity`): its settings and, for a planned node,
-        the ordered origins of its inputs; a flow launched without a plan has none. The design
+        its node's identity (`bindings.node_identity`): its settings and the ordered origins of
+        its inputs. The design
         counts by the parts the flow reads (`Flow.design_parts`), so an edit to a testbench the
         flow does not read changes nothing of it."""
         design_hash = design.parts_hash(flow_class.design_parts)
         settings_hash = flow_run_hash(flow_name, settings, design.name)
-        flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
-        name = node.name if node is not None else flow_name
+        flowrun_hash = node_identity(settings_hash, node.origins)
         # a directory the flow cannot work in is refused on the path alone: nothing is created yet
         # (`get_flow_run_path` creates the run root)
         flow_class.check_run_directory(
-            settings, self.run_path_of(design.name, name, flowrun_hash, target=design.target)
+            settings,
+            self.run_path_of(design.name, node.name, flowrun_hash, target=design.target),
         )
-        run_path = self.get_flow_run_path(design.name, name, flowrun_hash, target=design.target)
+        run_path = self.get_flow_run_path(
+            design.name, node.name, flowrun_hash, target=design.target
+        )
         return design_hash, flowrun_hash, run_path, settings_hash
 
     def _run_dir_policy(self) -> RunDirPolicy:
@@ -1887,9 +1878,7 @@ class FlowLauncher:
             all_flows_settings = sections
             if not isinstance(flow_settings, Flow.Settings):
                 flow_settings = own[flow_cls.name]
-            if any(layer.entries or layer.invalid_inputs for layer in layers) and is_declared(
-                flow_cls
-            ):
+            if any(layer.entries or layer.invalid_inputs for layer in layers):
                 plan = self.resolve(
                     flow_cls, design, flow_settings, sections, binding_layers=layers
                 )
@@ -2066,13 +2055,13 @@ class FlowLauncher:
             design_remove_fields,
             target=target,
         )
-        plan = self._resolve_request(request) if is_declared(request.flow_class) else None
+        plan = self._resolve_request(request)
         if not self.accepts_bindings and (
             len(request.flow_request.elements) > 1
-            or (plan is not None and any(i.binding_origin for n in plan.nodes for i in n.inputs))
+            or any(i.binding_origin for n in plan.nodes for i in n.inputs)
         ):
             raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
-        #: the plan this run follows, for reporting (None for a flow without declarations)
+        #: the plan this run follows, for reporting
         self.last_plan = plan
         previous, self._request_context = self._request_context, request
         try:

@@ -32,7 +32,6 @@ from ..settings_layers import merge_layers
 from ..resolver import Plan
 from ..run_lock import run_dir_lock
 from ..trace import as_recorded
-from ...flow.io import is_declared
 
 log = logging.getLogger(__name__)
 
@@ -146,30 +145,27 @@ class Executioner:
     def __call__(self, args: Tuple[int, Dict[str, Any]]) -> Tuple[Optional[FlowOutcome], int]:
         idx, flow_settings = args
         try:
-            plan = None
-            delta = None
-            if is_declared(self.flow_class):
-                delta = merge_layers(
-                    self.candidate_changes,
-                    _variation_delta(flow_settings, self.candidate_base or {}),
-                    settings_cls=self.flow_class.Settings,
-                )
-                flow_settings = merge_layers(
-                    self.candidate_input or {}, delta, settings_cls=self.flow_class.Settings
-                )
-                request = self.launcher._request_context
-                api = merge_layers(
-                    request.api_overrides if request else {}, {self.flow_class.name: delta}
-                )
-                plan = self.launcher.resolve(
-                    self.flow_class,
-                    self.design,
-                    flow_settings,
-                    self.all_flows_settings,
-                    origins=request.origins if request else (),
-                    command_line=request.command_line if request else None,
-                    api_overrides=api,
-                )
+            delta = merge_layers(
+                self.candidate_changes,
+                _variation_delta(flow_settings, self.candidate_base or {}),
+                settings_cls=self.flow_class.Settings,
+            )
+            flow_settings = merge_layers(
+                self.candidate_input or {}, delta, settings_cls=self.flow_class.Settings
+            )
+            request = self.launcher._request_context
+            api = merge_layers(
+                request.api_overrides if request else {}, {self.flow_class.name: delta}
+            )
+            plan = self.launcher.resolve(
+                self.flow_class,
+                self.design,
+                flow_settings,
+                self.all_flows_settings,
+                origins=request.origins if request else (),
+                command_line=request.command_line if request else None,
+                api_overrides=api,
+            )
             flow = self.launcher.launch_flow(
                 self.flow_class,
                 self.design,
@@ -333,26 +329,19 @@ class Dse(FlowLauncher):
         )
 
         request = self._request_context
-        if is_declared(flow_class):
-            # Base agreement happens before Logs, best records or the process pool exist.
-            base_plan = self.resolve(
-                flow_class,
-                design,
-                flow_settings,
-                all_flows_settings,
-                origins=request.origins if request else (),
-                command_line=request.command_line if request else None,
-                api_overrides=merge_layers(
-                    request.api_overrides if request else {}, {flow_class.name: base_variation}
-                ),
-            )
-            base_settings = base_plan.node(flow_class.name).settings
-        else:
-            base_settings = flow_class.Settings.from_input(
-                flow_settings,
-                design_root=design.root_path,
-                runner_cwd=Path.cwd(),
-            )
+        # Base agreement happens before Logs, best records or the process pool exist.
+        base_plan = self.resolve(
+            flow_class,
+            design,
+            flow_settings,
+            all_flows_settings,
+            origins=request.origins if request else (),
+            command_line=request.command_line if request else None,
+            api_overrides=merge_layers(
+                request.api_overrides if request else {}, {flow_class.name: base_variation}
+            ),
+        )
+        base_settings = base_plan.node(flow_class.name).settings
 
         # Once, here: launched in each worker instead, a missing setting (or a design the flow
         # cannot run) failed every run of the search separately and was reported only as "no
@@ -416,20 +405,19 @@ class Dse(FlowLauncher):
             )
         }
         candidate_input = merge_layers(flow_settings, adjustments, settings_cls=flow_class.Settings)
-        if is_declared(flow_class):
-            adjusted_plan = self.resolve(
-                flow_class,
-                design,
-                candidate_input,
-                all_flows_settings,
-                origins=request.origins if request else (),
-                command_line=request.command_line if request else None,
-                api_overrides=merge_layers(
-                    request.api_overrides if request else {},
-                    {flow_class.name: merge_layers(base_variation, adjustments)},
-                ),
-            )
-            base_settings = adjusted_plan.node(flow_class.name).settings
+        adjusted_plan = self.resolve(
+            flow_class,
+            design,
+            candidate_input,
+            all_flows_settings,
+            origins=request.origins if request else (),
+            command_line=request.command_line if request else None,
+            api_overrides=merge_layers(
+                request.api_overrides if request else {},
+                {flow_class.name: merge_layers(base_variation, adjustments)},
+            ),
+        )
+        base_settings = adjusted_plan.node(flow_class.name).settings
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
         worker = FlowLauncher(

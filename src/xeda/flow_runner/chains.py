@@ -15,7 +15,7 @@ from typing import Any
 
 from ..design import SourceType
 from ..flow import Flow, FlowSettingsException
-from ..flow.io import declared_inputs, declared_outputs, is_declared
+from ..flow.io import declared_inputs, declared_outputs
 
 __all__ = [
     "ChainEdge",
@@ -136,7 +136,7 @@ def request_text(elements: Sequence[ChainElement]) -> str:
 
 
 def _check_chain(elements: Sequence[ChainElement]) -> None:
-    """The one chain validator: declaration, action, repeat and edge rules, without instantiation.
+    """The one chain validator: action, repeat and edge rules, without instantiation.
     A pair that is no edge is an `_EdgeFailure`; every other refusal a `FlowSettingsException`."""
     if len(elements) <= 1:
         return
@@ -148,11 +148,6 @@ def _check_chain(elements: Sequence[ChainElement]) -> None:
                 "may appear only once."
             )
         seen.add(element.node)
-    for element in elements:
-        if not is_declared(element.flow_class):
-            raise FlowSettingsException(
-                f"Flow `{element.node}` has no declared I/O and can only be run alone."
-            )
     for index, producer in enumerate(elements[:-1]):
         consumer = elements[index + 1]
         reason = getattr(producer.flow_class, "action_reason", None)
@@ -198,7 +193,7 @@ def validate_chain(elements: Sequence[ChainElement]) -> None:
 def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[ChainElement, ...]]:
     """Corrected requests for the pair at `index` and `index + 1` that is no edge. Every one is
     the whole request -- its prefix, its suffix and the other qualifiers kept -- and passes
-    `_check_chain`, so no repeat, action, undeclared flow or missing edge is ever advertised.
+    `_check_chain`, so no repeat, action or missing edge is ever advertised.
 
     Two corrections, nothing else: another output of the producer (an ambiguous or unfitting
     qualifier), and flows inserted between the pair along **required default-producer edges**
@@ -250,7 +245,7 @@ def _default_routes(producer: type[Flow], consumer: type[Flow]) -> list[tuple[ty
             if not declaration.required or declaration.producer is None:
                 continue
             upstream = registered_flow(declaration.producer)
-            if upstream is None or not is_declared(upstream):
+            if upstream is None:
                 continue
             if upstream is producer:
                 if between and between not in routes:
@@ -279,8 +274,6 @@ def edges(producer: type[Flow], consumer: type[Flow]) -> list[ChainEdge]:
     """The ways `producer+consumer` is a valid adjacency: the unqualified one, else one
     qualified request per output of the producer that makes it valid. Judged by the chain
     validator itself, on declarations alone."""
-    if not (is_declared(producer) and is_declared(consumer)):
-        return []
     outputs = declared_outputs(producer)
     found: list[ChainEdge] = []
     for output in (None, *outputs):

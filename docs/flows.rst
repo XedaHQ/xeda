@@ -193,9 +193,8 @@ unsupported targets and shared-setting conflicts fail during planning.
 
 Loading that needs a generator or a Git dependency fetch is refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan``. An undeclared node's runtime dependencies are unknown: its ``init()``
-is not called while planning. Freshness and always-run decisions are not evaluated, and
-``--dry-run --remote`` is refused.
+``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
+decisions are not evaluated, and ``--dry-run --remote`` is refused.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
@@ -377,7 +376,7 @@ tools, and never starts a real programmer.
 
 Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim`` are **not**
 available yet, and the command below is refused today (``Flow `bsc` has
-no declared I/O and can only be run alone``). They need the remaining flows to declare their
+no compatible output for a required input of `yosys_fpga```). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
 example designs and targets that use them:
 

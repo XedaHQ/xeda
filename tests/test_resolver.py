@@ -52,7 +52,6 @@ def test_the_default_producer_is_planned_before_its_consumer(tmp_path):
     (made,) = plan.node("__taker").inputs
     assert (made.origin, made.producer, made.output) == ("producer", "__maker", "made")
     assert made.describe() == "made <- __maker.made"
-    assert plan.node("__taker").declared
 
 
 def test_a_design_source_of_an_accepted_type_replaces_the_default_producer(tmp_path):

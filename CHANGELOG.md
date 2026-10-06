@@ -276,8 +276,19 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
-- `dc` no longer needs `target_libraries` to be part of its settings model: the launch refuses a
-  run without one, naming how to give it, as it does for the other required settings.
+- **Every flow runs through the resolver.** A flow that declares no inputs and no outputs (`bsc`,
+  `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
+  of several. Its run directory, its recorded settings and its identity are the ones it had
+  before. `--dry-run`, `xeda dse` and `--remote` take such a flow as they take any other. A
+  chain through such a flow is refused as any chain is when no output of a producer fits an input
+  of the next flow (`Flow `bsc` has no compatible output for a required input of ...`), and a
+  binding for a flow that declares no inputs says so. **Breaking for scripts that read
+  `xeda list-flows --json`: the `declared` key is gone**, and so is `declared` in each node of a
+  `--dry-run --json` plan. Every flow is planned the same way now, so the key could only be
+  constant. A flow that declares nothing is the one with empty `inputs` and `outputs`.
+- `dc` checks `target_libraries` when a run is launched, as the other flows check their required
+  settings. A run without it is refused, and the message says how to give it. A settings layer
+  that does not hold it (a platform given alone) no longer fails validation by itself.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

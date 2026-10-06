@@ -568,7 +568,7 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
     ]
 
 
-def test_list_flows_json_shows_an_action_and_an_undeclared_flow_by_their_boundary():
+def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their_boundary():
     flows = _listed()
     loader = flows["openfpgaloader"]
     assert loader["action_reason"] == "it programs a device"
@@ -580,12 +580,13 @@ def test_list_flows_json_shows_an_action_and_an_undeclared_flow_by_their_boundar
     ]
     assert flows["nextpnr"]["action_reason"] is None
     bsc = flows["bsc"]
-    assert bsc["declared"] is False
+    assert bsc["inputs"] == [] and bsc["outputs"] == []
     assert bsc["can_follow"] == bsc["can_precede"] == [] and bsc["action_reason"] is None
-    # only declared flows take part: nothing here needs a design value or an artifact
+    # only flows that declare I/O take part: nothing here needs a design value or an artifact
     for flow in flows.values():
         for edge in flow["can_follow"] + flow["can_precede"]:
-            assert flows[edge["flow"]]["declared"]
+            other = flows[edge["flow"]]
+            assert other["inputs"] or other["outputs"]
 
 
 def test_list_flows_json_qualifies_an_ambiguous_follower():
@@ -623,7 +624,7 @@ def test_list_flows_table_names_takes_makes_followers_and_the_boundary(monkeypat
     assert "fpga_pack (depends on the target)" in rows["nextpnr"]
     assert "it programs a device" in rows["openfpgaloader"]
     assert "ends a chain" in rows["openfpgaloader"]
-    assert "undeclared: runs alone" in rows["bsc"]
+    assert "declared" not in rows["bsc"] and "runs alone" not in rows["bsc"]
 
 
 def test_action_reason_is_class_metadata_the_dry_run_shows_without_running_flows(

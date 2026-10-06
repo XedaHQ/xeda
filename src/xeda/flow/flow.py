@@ -79,7 +79,6 @@ from .io import (
     check_io_declarations,
     declared_inputs,
     declared_outputs,
-    is_declared,
     output_enabled,
     switch_on,
 )
@@ -695,19 +694,10 @@ class Flow(metaclass=ABCMeta):
     @classmethod
     def check_required_settings(cls, settings: "Flow.Settings") -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
-        before anything is set up for the run. A value given in a dependency's section counts
-        when the flow shares that setting with the dependency (`dependency_settings`), since
-        `resolve_dependency` adopts it from there. Declared flows use their final agreed values:
-        a source may displace the producer whose nested settings would otherwise count."""
-        dependency_settings = {} if is_declared(cls) else type(settings).dependency_settings
+        before anything is set up for the run. The settings are the final, agreed values."""
         missing = []
         for name, how in cls.required_settings.items():
-            candidates = [getattr(settings, name, None)] + [
-                getattr(getattr(settings, field, None), name, None)
-                for field, shared in dependency_settings.items()
-                if name in shared
-            ]
-            if all(is_unset(value) for value in candidates):
+            if is_unset(getattr(settings, name, None)):
                 missing.append(f"`{name}`, {how.format(flow=cls.name)}")
         if missing:
             raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))

@@ -191,30 +191,10 @@ def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
 # ------------------------------------------------------------------------------------- OpenROAD
 
 
-def test_openroad_passes_no_synthesis_resources():
+def test_openroad_hands_synthesis_nothing_but_its_declared_input():
     """Synthesis derives its files in its own run directory."""
-    tree = ast.parse(inspect.getsource(inspect.getmodule(Openroad)))
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "add_dependency"
-    ]
-    for call in calls:
-        assert len(call.args) == 2
-        assert not call.keywords
-    assert "copy_resources" not in inspect.getsource(Openroad)
-    assert "yosys_settings.liberty" not in inspect.getsource(Openroad)
-
-
-def test_openroad_registers_no_undeclared_dependency():
-    """The resolver alone supplies OpenROAD's synthesis prerequisite."""
-    assert Openroad.Settings.dependency_settings == {}
-    for field in Openroad.Settings.model_fields.values():
-        annotation = field.annotation
-        assert not (isinstance(annotation, type) and issubclass(annotation, Flow.Settings))
-    assert "add_dependency" not in inspect.getsource(Openroad.init)
+    source = inspect.getsource(inspect.getmodule(Openroad))
+    assert "yosys_settings.liberty" not in source
     inputs = declared_inputs(Openroad)
     assert inputs["netlist"].producer == "yosys"
     assert inputs["netlist"].output == "netlist"
@@ -232,4 +212,66 @@ def test_openroad_reads_no_producer_state():
         and not (isinstance(node.value, ast.Name) and node.value.id == "self")
     ]
     assert not other
-    assert "pop_dependency" not in inspect.getsource(Openroad)
+
+
+# ------------------------------------------------------------------------- one-node plans
+
+
+def _leaf_flow_launch(flow_class, tmp_path, monkeypatch):
+    """Launch `flow_class` as the isolation sweep does, and return the plans the launcher made."""
+    from xeda.flow_runner import DefaultRunner
+
+    from .test_isolation import _launch, _world
+
+    plans: list = []
+    resolve = DefaultRunner.resolve
+
+    def spy(self, flow_cls, *args, **kwargs):
+        plans.append(flow_cls)  # asked for, whether or not the request resolves
+        plan = resolve(self, flow_cls, *args, **kwargs)
+        plans[-1] = plan
+        return plan
+
+    monkeypatch.setattr(DefaultRunner, "resolve", spy)
+    world = _world(tmp_path)
+    reached: list = []
+    _launch(flow_class, world, monkeypatch, "clean", reached)
+    return world, plans
+
+
+@pytest.mark.parametrize("flow_class", [cls for cls, _ in FLOWS], ids=[n for _, n in FLOWS])
+def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
+    flow_class, tmp_path, monkeypatch
+):
+    """A flow that declares nothing goes through the resolver like any other: its plan has one
+    node, and that node is what a launch without a plan used to make -- the run directory, the
+    recorded settings and the identity are those of the flow's own validated settings."""
+    from xeda import Design
+    from xeda.flow_runner.bindings import node_identity
+    from xeda.flow_runner.default_runner import DefaultRunner
+
+    from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN
+
+    world, plans = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
+    asked = [plan for plan in plans if plan is flow_class or plan.requested == flow_class.name]
+    assert len(asked) == 1, f"{flow_class.name} was not launched through the resolver"
+    if asked[0] is flow_class:  # planning refused it: the design does not suit the flow
+        return
+    plan = asked[0]
+    if not (declared_inputs(flow_class) or declared_outputs(flow_class)):
+        assert [node.name for node in plan.nodes] == [flow_class.name]
+        node = plan.node(flow_class.name)
+        assert node.inputs == () and node.origins == ()
+        assert node.flowrun_hash == node_identity(node.settings_hash)
+    rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
+    design = Design(
+        name="sqrt",
+        design_root=world.work,
+        rtl=rtl,
+        tb=tb,
+        language={"vhdl": {"standard": "2008"}},
+    )
+    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
+    assert again.node(flow_class.name).flowrun_hash == plan.node(flow_class.name).flowrun_hash
+    assert plan.node(flow_class.name).run_path == world.root / "sqrt" / flow_class.name

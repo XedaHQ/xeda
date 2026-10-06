@@ -441,11 +441,11 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
     )
     composed = {}
 
-    def capture(flow_name, settings, design_name=None):
+    def capture(settings):
         composed.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "vivado_synth", "host", flow_settings=["out_of_context=true"]
@@ -472,17 +472,17 @@ def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design
     before = deepcopy(design.flow)
     captured = {}
 
-    def capture(flow_name, settings, design_name=None):
-        captured.update(flow_name=flow_name, settings=settings)
+    def capture(settings):
+        captured.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "ghdl", "host", flow_settings=["warn_error=false"]
         )
 
-    assert captured["flow_name"] == "ghdl_sim"
+    assert type(captured["settings"]).__qualname__ == "GhdlSim.Settings"
     assert captured["settings"].werror is False
     assert design.flow == before
 
@@ -511,11 +511,11 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     )
     captured = {}
 
-    def capture(flow_name, settings, design_name=None):
-        captured.update(flow_name=flow_name, settings=settings)
+    def capture(settings):
+        captured.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             "d",
@@ -526,7 +526,7 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
         )
 
     settings = captured["settings"]
-    assert captured["flow_name"] == "vivado_synth"
+    assert type(settings).__qualname__ == "VivadoSynth.Settings"
     assert settings.nthreads == 2
     assert settings.fail_timing is False
     assert settings.out_of_context is False
@@ -773,11 +773,11 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
     )
     composed = {}
 
-    def capture(flow_name, settings, design_name=None):
+    def capture(settings):
         composed.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "vivado_postsynth_sim", "host"

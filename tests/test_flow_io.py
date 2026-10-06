@@ -209,7 +209,6 @@ def test_a_declaration_names_at_least_one_source_type():
 
 def test_list_flows_publishes_the_declarations():
     info = flow_info(_Taker)
-    assert info["declared"] is True
     assert info["inputs"] == [
         {
             "name": "made",

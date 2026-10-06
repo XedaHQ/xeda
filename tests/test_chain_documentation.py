@@ -243,7 +243,7 @@ def test_every_command_the_chain_chapter_shows_runs_or_is_refused_as_it_says(tmp
         result = CliRunner().invoke(cli, ["run", *words, "--dry-run", "--json"])
         if future:
             assert result.exit_code == 2, (words, result.output)
-            assert "has no declared I/O and can only be run alone" in result.output, words
+            assert "has no compatible output for a required input of" in result.output, words
         else:
             assert result.exit_code == 0, (words, result.output)
     assert not (tmp_path / "xeda_run").exists()
@@ -638,14 +638,15 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
     ]
     for flow in ("bsc", "bsc_sim", "vivado_project"):
         info = listed[flow]
-        assert info["declared"] is False and info["can_follow"] == info["can_precede"] == [], flow
+        assert info["can_follow"] == info["can_precede"] == [], flow
+        assert info["inputs"] == [] and info["outputs"] == [], flow
         assert flow_info(get_flow_class(flow))["inputs"] == []
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
     for chain in ("bsc+yosys_fpga", "yosys_fpga+bsc", "vivado_project+openfpgaloader"):
         result, document = _xeda("run", chain, design, "--dry-run")
         assert result.exit_code == 2, chain
-        assert "has no declared I/O and can only be run alone" in document["error"]["message"]
+        assert "has no compatible output for a required input of" in document["error"]["message"]
     data = yaml.safe_load(design.read_text())
     data["flows"]["vivado_project"] = {"inputs": {"design": "bsc"}}
     (root / "saved_design_binding.yaml").write_text(yaml.safe_dump(data))
@@ -656,7 +657,8 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
         result, document = _xeda("run", *args, "--dry-run")
         assert result.exit_code != 0
         message = document["error"]["message"]
-        assert "declares no inputs" in message and "can only be run alone" in message
+        assert "declares no inputs" in message
+        assert "only a flow's declared inputs can be bound" in message
     # the guide's own suggestion for an external file is a typed source, never a path binding
     result, document = _xeda("run", "nextpnr", design, "--dry-run", "-s", "inputs.netlist=top.json")
     assert result.exit_code != 0 and "unknown producer 'top'" in document["error"]["message"]

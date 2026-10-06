@@ -27,7 +27,7 @@ from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
-from ..flow.io import declared_inputs, declared_outputs, is_declared, selected_types
+from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow.synth import PhysicalClock
 from .bindings import (
     BindingLayer,
@@ -154,7 +154,6 @@ class PlanNode:
     _settings: Flow.Settings = field(repr=False)
     flowrun_hash: str
     run_path: Path
-    declared: bool
     inputs: tuple[ResolvedInput, ...] = ()
     switched_on: tuple[str, ...] = ()
     key: NodeKey | None = None
@@ -1148,7 +1147,6 @@ def resolve(
                 request.settings.model_copy(deep=True),
                 identity,
                 run_path(design.name, label, identity, target=design.target),
-                is_declared(request.cls),
                 tuple(request.inputs),
                 tuple(out for out in declared_outputs(request.cls) if out in request.switched),
                 request.key,

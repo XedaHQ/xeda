@@ -549,7 +549,7 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
     for edge in info["can_follow"]:
         qualifier = f".{edge['output']}" if edge["output"] else ""
         parse_request(f"{edge['flow']}{qualifier}+{info['name']}")
-    if not info["declared"] or info["action_reason"]:
-        assert info["can_precede"] == [] if info["action_reason"] else True
-    if not info["declared"]:
+    if info["action_reason"]:
+        assert info["can_precede"] == []
+    if not info["inputs"] and not info["outputs"]:
         assert info["can_follow"] == info["can_precede"] == []

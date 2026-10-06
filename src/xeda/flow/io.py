@@ -32,7 +32,6 @@ __all__ = [
     "check_io_declarations",
     "declared_inputs",
     "declared_outputs",
-    "is_declared",
     "output_enabled",
     "selected_types",
     "switch_on",
@@ -191,12 +190,6 @@ def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
         )
         for name, marker in _markers(model, "output").items()
     }
-
-
-def is_declared(flow_cls: Any) -> bool:
-    """Whether `flow_cls` declares any input or output: the launcher then launches its
-    producers (`resolver`), and its `init()` registers none."""
-    return bool(declared_inputs(flow_cls) or declared_outputs(flow_cls))
 
 
 def selected_types(

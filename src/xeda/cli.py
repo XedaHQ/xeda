@@ -550,8 +550,6 @@ def _print_plan(plan: Plan) -> None:
     click.echo(f"Plan for {plan.requested}{target} (a dry run: nothing runs)")
     for node in plan.nodes:
         click.echo(f"  {node.name}  {node.run_path}")
-        if not node.declared:
-            click.echo("      runtime dependencies are unknown: init() registers them when it runs")
         # static class metadata, never the flow's dynamic `always_runs()`
         if node.flow_class.action_reason:
             click.echo(f"      always runs: {node.flow_class.action_reason}")
@@ -798,7 +796,7 @@ def _print_plan(plan: Plan) -> None:
     default=False,
     help="Print the resolved plan: each flow in execution order, its run directory, input "
     "origins and outputs switched on for consumers. Run nothing. Designs needing a generator "
-    "or Git dependency fetch are refused; runtime dependencies of undeclared flows are unknown.",
+    "or Git dependency fetch are refused.",
 )
 @click.option(
     "--json",

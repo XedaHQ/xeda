@@ -262,30 +262,6 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
     ]
 
 
-def test_default_dependency_inherits_context_for_later_assignment(tmp_path):
-    from .test_custom_boards import _LegacyParent
-
-    settings = _LegacyParent.from_input(
-        {"nextpnr": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
-    )
-
-    assert settings.nextpnr.context == settings.context
-    settings.nextpnr.sdc = "$DESIGN_ROOT/pins.sdc"
-    assert settings.nextpnr.sdc == tmp_path / "pins.sdc"
-
-
-def test_dependency_mapping_assignment_uses_parent_context(tmp_path):
-    from .test_custom_boards import _LegacyParent
-
-    settings = _LegacyParent.from_input(
-        {"nextpnr": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
-    )
-    settings.nextpnr = {"fpga": "xc7a100t", "sdc": "$DESIGN_ROOT/pins.sdc"}
-
-    assert settings.nextpnr.context == settings.context
-    assert settings.nextpnr.sdc == tmp_path / "pins.sdc"
-
-
 def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
     from xeda.flows import VivadoSynth
 

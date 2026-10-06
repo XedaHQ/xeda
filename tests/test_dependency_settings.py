@@ -20,7 +20,7 @@ from typing import Any, Dict, Tuple
 import pytest
 
 from xeda.design import Design
-from xeda.flow.io import is_declared
+from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow import Flow, is_unset
 from xeda.flows.vivado.vivado_power import VivadoPower
 from xeda.flows.yosys.common import YosysBase
@@ -51,7 +51,11 @@ UNSET_BY_DEFAULT = [case for case in CASES if is_unset(_default(case[0], case[2]
 VALUE_BY_DEFAULT = [case for case in CASES if not is_unset(_default(case[0], case[2]))]
 DEPENDENCIES = sorted({(cls, field) for cls, field, _ in CASES}, key=lambda c: (c[0].name, c[1]))
 DEPENDENCY_IDS = [f"{cls.name}.{field}" for cls, field in DEPENDENCIES]
-UNDECLARED_DEPENDENCIES = [(cls, field) for cls, field in DEPENDENCIES if not is_declared(cls)]
+UNDECLARED_DEPENDENCIES = [
+    (cls, field)
+    for cls, field in DEPENDENCIES
+    if not (declared_inputs(cls) or declared_outputs(cls))
+]
 
 _ECP5 = ({"part": "LFE5U-45F-6BG381C"}, {"part": "LFE5U-25F-6BG381C"})
 

@@ -41,7 +41,6 @@ from ..design import (
     names_a_design_file,
 )
 from ..flow import Flow, FlowSettingsError
-from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
 from ..dataclass import BaseModel, written_role
@@ -57,12 +56,7 @@ from ..utils import (
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, XedaProject, resolve_project_file
-from .bindings import (
-    NodeKey,
-    node_identity,
-    require_no_bindings,
-    split_bindings,
-)
+from .bindings import require_no_bindings, split_bindings
 from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
@@ -77,7 +71,6 @@ from .trace_inputs import design_files, register_read_settings
 from .outputs import declared_output_files
 from .trace import as_recorded
 from ..digest import content_digest
-from ..flow.io import is_declared
 
 log = logging.getLogger(__name__)
 
@@ -994,34 +987,26 @@ class RemoteRunner(FlowLauncher):
         flow_settings = {key: value for key, value in flow_settings.items() if key != "inputs"}
         origins = [project_sections, design_sections, cli_sections]
         sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
-        if not is_declared(flow_class):
-            require_no_bindings(binding_layers, [NodeKey(flow_name)])
         flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
-        plan = None
-        if is_declared(flow_class):
-            # Agree and validate before identity, input/delivery preflight and shipping.
-            plan = self.resolve(
-                flow_class,
-                design,
-                flow_settings,
-                sections,
-                origins=[
-                    (str(project_label.absolute()), origins[0]),
-                    (str(given_file.absolute()) if given_file else "the design", origins[1]),
-                ],
-                command_line=command_line,
-            )
-            require_no_bindings(binding_layers, [node.node_key for node in plan.nodes])
-            input_settings = plan.node(flow_name).settings
-            sections = {
-                **sections,
-                **{node.name: as_recorded(node.settings) for node in plan.nodes},
-            }
-            flow_settings = as_recorded(input_settings)
-        else:
-            input_settings = flow_class.Settings.from_input(
-                flow_settings, design_root=design.root_path, runner_cwd=Path.cwd()
-            )
+        # Agree and validate before identity, input/delivery preflight and shipping.
+        plan = self.resolve(
+            flow_class,
+            design,
+            flow_settings,
+            sections,
+            origins=[
+                (str(project_label.absolute()), origins[0]),
+                (str(given_file.absolute()) if given_file else "the design", origins[1]),
+            ],
+            command_line=command_line,
+        )
+        require_no_bindings(binding_layers, [node.node_key for node in plan.nodes])
+        input_settings = plan.node(flow_name).settings
+        sections = {
+            **sections,
+            **{node.name: as_recorded(node.settings) for node in plan.nodes},
+        }
+        flow_settings = as_recorded(input_settings)
         # Hashed exactly as a local run would be, from the validated settings.
         # Here, not on the remote: a path the flow writes that leads out of its run directory, a
         # missing setting, and a design the flow cannot run are known before anything is
@@ -1045,14 +1030,11 @@ class RemoteRunner(FlowLauncher):
         # own `results.json`), no two outputs under one name; no location is left to split
         split_deliveries(input_settings, design.name)
         # The mirror is named by the requested node's identity, as a local hashed run
-        # directory is: for a declared flow the plan's, which counts its settings and where
-        # its inputs come from (so two configurations of a producer are two mirrors); a flow
-        # without declared inputs has no origins. The remote resolves the same request, and
-        # its `flow_hash` is compared with this one.
-        settings_hash = flow_run_hash(flow_name, input_settings, design.name)
-        flowrun_hash = (
-            plan.node(flow_name).flowrun_hash if plan is not None else node_identity(settings_hash)
-        )
+        # directory is: the plan's, which counts its settings and where its inputs come from
+        # (so two configurations of a producer are two mirrors). The remote resolves the same
+        # request, and its `flow_hash` is compared with this one.
+        flowrun_hash = plan.node(flow_name).flowrun_hash
+        settings_hash = plan.node(flow_name).settings_hash
         # as a local run counts the design: by the parts the flow reads
         design_hash = design.parts_hash(flow_class.design_parts)
         outputs_to = self.settings.outputs_to
@@ -1250,8 +1232,7 @@ class RemoteRunner(FlowLauncher):
 
             if results:
                 if (
-                    is_declared(flow_class)
-                    and results.get("success")
+                    results.get("success")
                     # the remote's `flow_hash` is its node's identity: another one means it
                     # resolved another configuration of this flow or of one of its producers
                     and results.get("flow_hash") != flowrun_hash

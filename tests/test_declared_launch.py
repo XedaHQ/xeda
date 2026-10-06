@@ -119,12 +119,6 @@ def test_pure_paths_create_nothing_and_launch_revalidates_containment(tmp_path, 
     assert list(outside.iterdir()) == []
 
 
-def test_a_declared_flow_s_init_may_not_register_a_dependency(tmp_path, design, monkeypatch):
-    monkeypatch.setattr(_Taker, "init", lambda self: self.add_dependency(_Maker, {}))
-    with pytest.raises(FlowFatalError, match="may not add a dependency"):
-        _runner(tmp_path).launch_flow(_Taker, design, {})
-
-
 def test_an_output_changed_after_its_run_recorded_it_is_never_handed_over(
     tmp_path, design, monkeypatch
 ):

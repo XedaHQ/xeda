@@ -23,6 +23,7 @@ from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.dataclass import Field
+from xeda.flow import FpgaSynthFlow
 from .io_flows import _Place
 
 
@@ -104,6 +105,34 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
             == outcome.results["period"]
             == (12.0 if name == "clock" else 10.0)
         )
+
+
+class _DseLeaf(FpgaSynthFlow):
+    """A synthesis flow that declares no inputs and no outputs."""
+
+    results_description = {}
+
+    class Settings(FpgaSynthFlow.Settings):
+        tag: str = Field("base", description="The search variant.")
+
+    def run(self):
+        self.results["period"] = self.settings.main_clock.period
+        self.results["pid"] = os.getpid()
+
+
+def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
+    )
+    runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
+    best = runner.run(
+        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+    )
+    assert best is not None
+    outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
+    assert set(outcomes) == {"one", "two", "clock"}
+    assert outcomes["clock"].results["period"] == 12.0 and outcomes["one"].results["period"] == 10.0
 
 
 def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, monkeypatch):

@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from .dataclass import PydanticUndefined, input_names, written_role
 from .design import DESIGN_NAME, FLAT_RTL_KEYS, TARGET_FORBIDDEN_KEYS, Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
-from .flow.io import declared_inputs, declared_outputs, is_declared, selected_types
+from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
@@ -102,8 +102,7 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
 
 def plan_info(plan: Plan) -> dict[str, Any]:
     """A resolved plan as plain data: the design's selected target (or None), producers
-    first, directories, input origins, and outputs switched on because a consumer reads them. Undeclared nodes have unknown
-    runtime dependencies, indicated by ``declared: false``.
+    first, directories, input origins, and outputs switched on because a consumer reads them.
     """
     return json_safe(
         {
@@ -113,7 +112,6 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                 {
                     "name": node.name,
                     "flow": node.flow_class.name,
-                    "declared": node.declared,
                     "run_path": str(node.run_path),
                     "flowrun_hash": node.flowrun_hash,
                     "settings_hash": node.settings_hash,
@@ -253,7 +251,6 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
             _declared_dependencies(cls)
             + [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
-        "declared": is_declared(cls),
         "action_reason": cls.action_reason,
         "inputs": [
             {
@@ -286,9 +283,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
 
 def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
     """The `list-flows` table's chain columns for one `flow_info` document: what it takes, what
-    it makes, and what can follow it. An undeclared flow shows its boundary instead."""
-    if not info["declared"]:
-        return "undeclared: runs alone", "-", "-"
+    it makes, and what can follow it."""
 
     def kinds(item: dict[str, Any]) -> str:
         return "/".join(item["types"])

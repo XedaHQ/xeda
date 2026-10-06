@@ -6,7 +6,7 @@ import pytest
 
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsException, registered_flows
-from xeda.flow.io import is_declared
+from xeda.flow.io import declared_outputs
 from xeda.flow_runner import FlowNotFoundError
 from xeda.flow_runner.chains import (
     ChainElement,
@@ -112,9 +112,9 @@ def test_many_output_cannot_feed_scalar_input():
         match_required_inputs(_ChainProducer, _ChainAmbiguousConsumer, output="many_json")
 
 
-def test_undeclared_flows_are_allowed_alone_but_not_in_a_chain():
+def test_a_flow_without_declarations_is_allowed_alone_but_makes_nothing_to_chain():
     assert parse_request("_ChainUndeclared").requested is _ChainUndeclared
-    with pytest.raises(FlowSettingsException, match="declared I/O"):
+    with pytest.raises(FlowSettingsException, match="no compatible output"):
         validate_chain((ChainElement(_ChainUndeclared), ChainElement(_ChainAction)))
 
 
@@ -151,7 +151,7 @@ def test_selected_type_narrowing_requires_produced_types_to_fit_consumer():
 
 
 def test_chain_fixture_flows_have_declarations():
-    assert is_declared(_ChainProducer)
+    assert declared_outputs(_ChainProducer)
 
 
 # ------------------------------------------------------------------ validated suggestions
@@ -354,13 +354,11 @@ def _accepts(producer, output, consumer):
 
 
 def test_a_follow_relation_is_exactly_what_the_chain_validator_accepts():
-    from xeda.flow.io import declared_outputs
     from xeda.flow_runner.chains import followers
 
     classes = _classes()
-    declared = [c for c in classes if is_declared(c)]
-    for producer in declared:
-        for consumer in declared:
+    for producer in classes:
+        for consumer in classes:
             edges = [e.output for e in followers(producer, classes) if e.consumer is consumer]
             if _accepts(producer, None, consumer):
                 assert edges == [None], (producer.name, consumer.name)
