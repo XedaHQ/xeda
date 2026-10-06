@@ -286,9 +286,11 @@ removed before the run, so an earlier success never stands for a run that died
   on which consumer asked**: there are no consumer-given producer defaults, so `yosys_fpga`
   requested alone and as `nextpnr`'s producer is one configuration, one identity and one run
   (`yosys_fpga` keeps `src` attributes by its own default, since nextpnr's reports cite them).
-  `vivado_postsynth_sim` and `vivado_power` are declared too (PC): `synth` and `postsynthsim`
-  were removed, and power's simulation controls with them (each fails naming
-  `flows.vivado_postsynth_sim.<key>`). Only `openroad` is still on `add_dependency` (it builds its yosys settings itself and has no
+  `vivado_postsynth_sim` and `vivado_power` are declared too: `synth` and `postsynthsim`
+  were removed, and power's simulation controls with them. Each fails with its replacement:
+  `vivado_postsynth_sim.synth` names `flows.vivado_synth.<key>`, `vivado_power.postsynthsim` and
+  power's former simulation controls name `flows.vivado_postsynth_sim.<key>`, and
+  `vivado_power.timing_sim` has none (power switches it on itself). Only `openroad` is still on `add_dependency` (it builds its yosys settings itself and has no
   nested settings field). `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared dependencies; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an

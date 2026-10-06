@@ -72,9 +72,13 @@ the design's for the same key, and only for the keys the target writes.
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
 flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``
 places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming
-``flows.yosys_fpga.<key>``. The flows that still launch a dependency themselves
-(``vivado_postsynth_sim``'s ``synth``, ``vivado_power``'s ``postsynthsim``, ``openroad``'s
-``synthesis``) keep a nested section for it until they declare their inputs; it refines the dependency's own section only within one origin.
+``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow the same rule:
+``vivado_postsynth_sim``'s former ``synth`` section names ``flows.vivado_synth.<key>``, and
+``vivado_power``'s former ``postsynthsim`` section and simulation controls (``elab_debug``,
+``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
+``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` asks that flow for timing activity, which
+switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. Only ``openroad`` still
+launches its dependency itself.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
@@ -165,7 +169,7 @@ files and sections. A command-line leaf (``-s fpga.part=...`` or
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
 still applies within each node.
 
-Undeclared edges (the Vivado simulation/power flows) keep the
+Undeclared edges (``openroad``'s) keep the
 legacy rule: the depending flow's nonempty value, else its dependency's nested value.
 Undeclared flows may launch declared ones.
 
@@ -223,9 +227,9 @@ checks each neighboring pair and never searches for a missing stage.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
   --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` and,
-  for the outputs they write, ``vivado_synth`` and ``vivado_alt_synth`` today. A flow without
-  declarations (``bsc``, ``bsc_sim``, ``vivado_project``, the Vivado simulation and power flows,
-  ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
+  for the outputs they write, ``vivado_synth`` and ``vivado_alt_synth``, and ``vivado_postsynth_sim``
+  and ``vivado_power`` today. A flow without
+  declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
   ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
@@ -366,8 +370,8 @@ ECP5, iCE40, Nexus and Xilinx 7-series are what chains cover. The build-only cha
 ends at ``openfpgaloader`` programs a device. The test suite runs those chains against fake
 tools, and never starts a real programmer.
 
-Chains that start at Bluespec or go through ``vivado_project`` or the Vivado simulation and
-power flows are **not** available yet, and the command below is refused today (``Flow `bsc` has
+Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim`` are **not**
+available yet, and the command below is refused today (``Flow `bsc` has
 no declared I/O and can only be run alone``). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
 showcase designs and targets that use them:
