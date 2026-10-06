@@ -364,7 +364,7 @@ class Openroad(AsicSynthFlow):
             return value
 
     def init(self):
-        """Resolve platform corners and register synthesis dependencies."""
+        """Normalize platform analysis and register synthesis dependencies without writing files."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         assert ss.platform is not None, "checked at launch (`required_settings`)"
@@ -379,6 +379,12 @@ class Openroad(AsicSynthFlow):
             shared["dont_use_cells"] = list(ss.dont_use_cells)
         yosys_settings = Yosys.Settings(**shared)
 
+        self.add_dependency(Yosys, yosys_settings)
+
+    def run(self):
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        assert ss.platform is not None, "checked at launch (`required_settings`)"
         if not ss.copy_platform_files:
             ss.platform = ss.platform.with_absolute_paths()
         else:
@@ -427,12 +433,7 @@ class Openroad(AsicSynthFlow):
             use_temp_folder=not ss.debug,
             run_directory=self.run_directory,
         )
-        self.add_dependency(Yosys, yosys_settings)
 
-    def run(self):
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        assert ss.platform is not None, "checked at launch (`required_settings`)"
         ss.results_dir.mkdir(exist_ok=True, parents=True)
         ss.checkpoints_dir.mkdir(exist_ok=True, parents=True)
 
