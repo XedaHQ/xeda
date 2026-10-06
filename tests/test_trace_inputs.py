@@ -145,8 +145,8 @@ def test_implicit_input_files_are_what_depfiles_and_the_flow_name(tmp_path, hook
 
 def test_a_nested_model_s_files_are_candidates_but_not_a_dependency_s(tmp_path):
     """yosys's ghdl plugin settings are no dependency: the files they name are yosys's inputs.
-    `vivado_postsynth_sim`'s `synth` settings are a dependency's: its own run records those."""
-    from xeda.flows import VivadoPostsynthSim
+    `vivado_synth` records its own files; its consumer records the declared hand-over."""
+    from xeda.flows import VivadoPostsynthSim, VivadoSynth
     from xeda.flows.yosys import YosysFpga
 
     (tmp_path / "ghdl.lib").write_text("library\n")
@@ -157,12 +157,14 @@ def test_a_nested_model_s_files_are_candidates_but_not_a_dependency_s(tmp_path):
         runner_cwd=tmp_path,
     )
     assert setting_files(yosys) == [(tmp_path / "ghdl.lib").resolve()]
-    depender = VivadoPostsynthSim.Settings.from_input(
-        {"synth": {"fpga": "xc7a100t", "xdc_files": ["pins.xdc"]}},
+    producer = VivadoSynth.Settings.from_input(
+        {"fpga": "xc7a100t", "xdc_files": ["pins.xdc"]},
         design_root=tmp_path,
         runner_cwd=tmp_path,
     )
+    depender = VivadoPostsynthSim.Settings.from_input({})
     assert setting_files(depender) == []
+    assert setting_files(producer) == [(tmp_path / "pins.xdc").resolve()]
 
 
 def test_a_file_valued_parameter_and_define_are_design_files(tmp_path):

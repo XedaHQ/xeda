@@ -103,6 +103,8 @@ def test_the_declared_flows():
         "openfpgaloader",
         "vivado_alt_synth",
         "vivado_synth",
+        "vivado_postsynth_sim",
+        "vivado_power",
         "yosys_fpga",
     }
 

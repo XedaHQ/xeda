@@ -47,8 +47,8 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
     shell), and an old one fails on the design archive with whatever its loader chokes on first
     -- a 0.2 checkout said `rtl.sources: unhashable type: 'dict'`. The check names the version,
     the interpreter and *where* that xeda lives, which is what finds a shadowing install."""
-    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 7)
-    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 7)
+    check_remote_xeda("0.4.4.dev42+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 10)
+    check_remote_xeda("0.5.2.dev3+gabc", "/site/xeda/__init__.py", "/usr/bin/python3", 10)
     for version, protocol in (
         ("0.4.3", 0),
         ("0.4.3", 2),

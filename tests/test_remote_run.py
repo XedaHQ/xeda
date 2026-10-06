@@ -457,7 +457,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     assert sorted(closed) == ["connection", "gateway"]
 
 
-#: The archive accepted by a P3 remote (protocol 7), including this branch's dev builds.
+#: The archive accepted by this remote (protocol 10), including this branch's dev builds.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
 #: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
 P2A_RTL_KEYS = {
