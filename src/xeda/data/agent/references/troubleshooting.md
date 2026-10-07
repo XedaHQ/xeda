@@ -255,7 +255,7 @@ PULLUP` for a pull-up. The bundled pin files use neither.
 - **`Fmax` is per tool.** nextpnr's timing model is not Vivado's. On one design with a block RAM
   and a DSP they reported 429 to 453 MHz and 232 to 241 MHz for the same two netlists; on a counter
   Vivado's timing of nextpnr's own routing differed from nextpnr's report by 0.14 ns. Compare
-  `Fmax` only between runs of the same place-and-route tool.
+  `Fmax` only between runs of the same tool.
 - Canonical keys `Fmax`, `lut` and `ff` are added by the runner alongside whatever the flow
   reported (`f_max`, `maximum_frequency`, `LUT`, `FF`), so prefer the canonical ones.
 - Keys beginning with `_` are internal and may change without notice.

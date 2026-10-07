@@ -835,11 +835,12 @@ The original keys are kept, so nothing that already reads ``results.json`` break
 
 .. note::
    Every tool times a design with its own model, so compare ``Fmax`` only between runs of the
-   same place-and-route tool. For one Artix-7 design with a block RAM and a multiply-accumulate,
-   ``nextpnr`` reported 453 MHz for the netlist from Yosys and 429 MHz for the netlist from
-   Vivado. Vivado placed and routed the same two netlists and reported 241 MHz and 232 MHz. On a
-   counter that drives LEDs, Vivado timed ``nextpnr``'s own placement and routing, and its result
-   differed from the report of ``nextpnr`` by 0.14 ns.
+   same tool. ``nextpnr`` and Vivado, which place and route with different models, show it. For
+   one Artix-7 design with a block RAM and a multiply-accumulate, ``nextpnr`` reported 453 MHz
+   for the netlist from Yosys and 429 MHz for the netlist from Vivado. Vivado placed and routed
+   the same two netlists and reported 241 MHz and 232 MHz. On a counter that drives LEDs, Vivado
+   timed ``nextpnr``'s own placement and routing, and its result differed from the report of
+   ``nextpnr`` by 0.14 ns.
 
 Simulation results
 ==================
