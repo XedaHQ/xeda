@@ -895,27 +895,32 @@ gone. One that is no run directory of the flow any more (`_still_a_run_directory
 `_is_run_directory`, the one rule that listed it: named for the flow, a directory, and resolving to
 a child of the directory it was listed in -- itself or, for a link, a directory beside it, never
 one below it or above it; `_run_directories_in` lists nothing in a directory outside the run root)
-is refused with a `RunDirectoryError`. **One whose completion records changed is kept**: the
-listing keeps the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`,
-`_completion_records`: identity, size and times, absent counted), and a directory where they
-differ, or have appeared, holds a run that ended after the listing -- a newer run, a failed one, a
-refreshed trace -- which nobody confirmed. The rest are removed. **Neither an inode number nor an
-inode change time says anything about a run directory**: every file a launch adds or removes moves
-the change time, and a launch that finds its run fresh only writes a marker, so it ends no run and
-keeps nothing. Gone and kept are no error: each is said on the console, one line (`kept PATH: a run
-finished there after the listing`, `PATH is gone already`) and a summary (`N folders removed, K
-kept, G gone already.`), and logged at info level, because `xeda scrub` configures no logging; none
-is in `scrubbed`, and two scrubs that listed the same directory both succeed. A link out of the run
-root is never followed. A launch's `--scrub` leaves out its own run directory by where it resolves
+is refused with a `RunDirectoryError`. **One whose run records changed is kept**: the listing keeps
+the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`, `_completion_records`:
+identity, size and times, absent counted), and a directory where they differ, or have appeared, was
+written to by a launch after the listing. Either a run ended there (a newer run, a failed one), or
+a launch of the requested flow found its run fresh and refreshed the trace once the records it had
+to read by content settled (`check_trace`, `Freshness.refreshed`; a dependency's launch,
+`refresh=False`, writes nothing). Scrub cannot tell the two apart and keeps both: what is there is
+no longer what was confirmed. The rest are removed. **Neither an inode number nor an inode change
+time says anything about a run directory**: every file a launch adds or removes moves the change
+time. The marker a launch writes to read the file-system clock changes no run record, so it keeps
+nothing; the trace it may refresh is a run record, and keeps the directory. Gone and kept are no
+error: each is said on the console, one line (`kept PATH: its run records changed after the
+listing (a run finished or refreshed there)`, `PATH is gone already`) and a summary (`N folders
+removed, K kept, G gone already.`), and logged at info level, because `xeda scrub` configures no
+logging; `--json` lists them as `kept` and `gone`, and none is in `scrubbed`; two scrubs that listed
+the same directory both succeed. A link out of the run root is never followed. A launch's `--scrub` leaves out its own run directory by where it resolves
 to (`_run_directories_in`), never by whether it exists: a sibling's scrub may remove it while this
 one lists. **What the lock protects, exactly**: scrub never removes a directory while a launch runs
-in it (it waits for the launch), and never the run that ended while it waited. It does not protect a
-run that was complete when scrub listed it. If another launch is about to read that run -- a
+in it (it waits for the launch), and keeps one whose run records a launch wrote while it waited. It
+does not protect a run that was complete when scrub listed it. If another launch is about to read that run -- a
 consumer that has run its producer and has not yet taken its read lease on the producer's directory
 -- scrub removes it, and the consumer's launch fails closed with a `FlowDependencyFailure` (`changed
 before acquiring its read lease`) instead of reading a directory that is going: the designed
-fail-closed behavior. Do not scrub a flow whose runs other launches are starting to use. `--json` reports `target`, the `scanned` directories
-and the `scrubbed` run directories. Consumers hold verified
+fail-closed behavior. Do not scrub a flow whose runs other launches are starting to use. `--json`
+reports `target`, the `scanned` directories and the `scrubbed`, `kept` and `gone` run directories,
+one document on stdout; the lines above go to stderr. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry

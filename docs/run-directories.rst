@@ -466,17 +466,19 @@ the runs it listed, which are the runs you confirmed. It takes each directory's 
 never removes a directory while a launch is running in it: it waits until the launch ends. Then it
 looks at what is at the listed path:
 
-* If a run finished there after the listing (its ``results.json`` or ``trace.json`` is not what
-  the listing saw), scrub keeps it and says so. You did not confirm that run.
+* If the run records of the directory (its ``results.json`` and ``trace.json``) are not what the
+  listing saw, scrub keeps it and says so. A launch wrote them after the listing: a run finished
+  there, or a launch found its run fresh and refreshed its trace. What is there is no longer what
+  you confirmed.
 * If nothing is at the path any more, because another scrub or a purge removed it, scrub says so
   and goes on. That is what you asked for, so it is no error.
 * If the path is no longer a directory, or is now a link that does not lead to a directory beside
   it, scrub stops with an error and leaves it alone.
 * Otherwise scrub removes it.
 
-The summary line says how many directories scrub removed, kept, and found gone already. A run
-directory that is a link counts only when it leads to a directory beside it, and scrub removes
-both. A run directory of another flow is never searched, and a link that leads out of the run
+The summary line says how many directories scrub removed, kept, and found gone already. With
+``--json``, the document lists them (see :doc:`machine-readable`). A run directory that is a link
+counts only when it leads to a directory beside it, and scrub removes both. A run directory of another flow is never searched, and a link that leads out of the run
 root is never followed.
 
 The lock does not protect a run that was complete when scrub listed it. If another launch is

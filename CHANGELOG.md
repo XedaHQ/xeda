@@ -369,14 +369,17 @@ All notable changes to this project will be documented in this file.
   flow (`<design>/<NAME>/`), and without it the flow's run directories directly under the design
   and under every target, as found on disk (no design file is read; run directories of other
   flows are never searched). The directories are listed and confirmed once. `--json` gains
-  `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory).
+  `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory);
+  `kept` and `gone` list the ones scrub did not remove, as below.
   Scrub removes the runs it listed. It takes each directory's lock first, so it never removes a
   directory while a launch runs in it, and then judges it by what is at the path: a run directory
-  of the flow is removed, whether a launch only wrote in it while scrub waited or not. A run that
-  finished there after the listing (`results.json` or `trace.json` changed, or appeared) is kept
-  and said, not removed. A directory that is gone by then (another scrub, or a purge, removed it)
-  is skipped and said. Neither is an error, and neither is in `scrubbed`; the summary line counts
-  them. One that is no longer a directory, or a link that no longer leads to a directory beside
+  of the flow is removed, also when a launch only added files to it while scrub waited. A
+  directory whose run records (`results.json`, `trace.json`) changed or appeared after the listing
+  is kept and said, not removed: a run finished there, or a launch found its run fresh and
+  refreshed its trace. A directory that is gone by then (another scrub, or a purge, removed it)
+  is skipped and said. Neither is an error. They are in `kept` and `gone` of the `--json`
+  document, and counted by the summary line, and not in `scrubbed`. One that is no longer a
+  directory, or a link that no longer leads to a directory beside
   it, is refused (`RunDirectoryError`) and left alone. A link counts as a run directory only when
   it leads to a directory beside it, and scrub locks it by that directory, so two scrubs that list
   the same link both succeed. The lock does not protect a run that was complete when scrub listed

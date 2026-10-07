@@ -315,18 +315,31 @@ def _get_flow_class_if_known(flow_name: str) -> Type[Flow] | None:
 #: directory holding one is a run directory, whatever it is called, and never a target's.
 LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json")
 
-#: What a launch writes when its run ends, as against `settings.json`, which it writes when the
-#: run starts: a directory where these have changed holds a run that ended since they were seen.
+#: The run records: what a launch writes when its run ends, as against `settings.json`, which it
+#: writes when the run starts. A launch that finds its run fresh may write `trace.json` again, a
+#: refresh, once its records have settled. A directory where these have changed was written to by a
+#: launch since they were seen.
 COMPLETION_DOCUMENTS = ("results.json", "trace.json")
 
 
 class ScrubResult(NamedTuple):
-    """What `scrub_design` did: the directories it searched, and the run directories it
-    removed (none if it found none or the removal was not confirmed). A directory that was gone
-    by its turn, or kept because a run finished there after the listing, is not among them."""
+    """What `scrub_design` did: the directories it searched, the run directories it removed
+    (none if it found none or the removal was not confirmed), the ones it kept because their run
+    records changed after the listing, and the ones that were gone already when their turn came.
+    The removed, the kept and the gone are three lists: none is in another."""
 
     scanned: list[Path]
     removed: list[Path]
+    kept: list[Path]
+    gone: list[Path]
+
+
+class _Removal(NamedTuple):
+    """What `_remove_confirmed` did with its candidates."""
+
+    removed: list[Path]
+    kept: list[Path]
+    gone: list[Path]
 
 
 def _distinct(paths: Iterable[Path]) -> list[Path]:
@@ -408,10 +421,10 @@ def _target_parents(design_dir: Path, run_root: Path) -> list[Path]:
 
 class _Listed(NamedTuple):
     """A run directory as listed for removal: the path, the flow it is a run directory of, the
-    resolved directory it was listed in and what the listing saw of its completion records
+    resolved directory it was listed in and what the listing saw of its run records
     (`_completion_records`). Scrub judges the path again once it holds the lock
-    (`_still_a_run_directory`), by what is there then, and compares the records to find a run that
-    ended after the listing."""
+    (`_still_a_run_directory`), by what is there then, and compares the records to find a
+    directory that a launch wrote its records to after the listing."""
 
     path: Path
     flow_name: str
@@ -420,11 +433,12 @@ class _Listed(NamedTuple):
 
 
 def _completion_records(path: Path) -> tuple[Optional[OutputState], ...]:
-    """What the run directory `path` holds of the documents a run writes when it ends
-    (`COMPLETION_DOCUMENTS`): the state of each (`record_output_state`: identity, size and times),
-    or None where it is not there. A run that ends writes each one anew, made whole and renamed
-    into place. So they differ when, and only when, a run has ended since they were last seen. One
-    that was not there and is, counts as well."""
+    """What the run directory `path` holds of its run records (`COMPLETION_DOCUMENTS`): the state
+    of each (`record_output_state`: identity, size and times), or None where it is not there. A
+    launch that ends a run writes each one anew, made whole and renamed into place. A launch that
+    finds its run fresh may write the trace again, once its records have settled. So the records
+    differ when a launch has written them since they were last seen, and not when it only added
+    other files to the directory. A record that was not there and is, counts as well."""
     return tuple(record_output_state(path / name) for name in COMPLETION_DOCUMENTS)
 
 
@@ -461,8 +475,8 @@ def _still_a_run_directory(listed: _Listed) -> bool:
 
     What the directory held when it was listed does not matter, and nor does whether it is the
     same directory. A launch writes in its run directory, and its inode change time moves with
-    every file it adds or removes. Whether a run ended there since the listing is another
-    question, which `_completion_records` answers."""
+    every file it adds or removes. Whether it wrote the run records there since the listing is
+    another question, which `_completion_records` answers."""
     try:
         return _is_run_directory(listed.path, listed.flow_name, listed.parent)
     except OSError:
@@ -475,7 +489,7 @@ def _say(message: str) -> None:
     console.print(message, markup=False, highlight=False, soft_wrap=True)
 
 
-def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Path]:
+def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal:
     """List `candidates`, ask once, and remove them if confirmed: each as a run directory
     claimed under `run_root`, the real run root, under its own lock. The lock is waited for, so
     scrub never removes a directory while a launch runs in it. It is refused for a directory
@@ -486,11 +500,13 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     scrub, or a purge, removed it while this one waited) is skipped, and said: the scrub wanted
     it gone. Anything else that is no run directory of the flow -- no directory, or a link that
     now leads anywhere but to a directory beside it -- is not removed, and the scrub fails
-    (`RunDirectoryError`). A run directory whose completion records are not what the listing saw
-    (`_completion_records`) holds a run that ended after the listing: it is kept, and said. The
-    rest are removed. The directories removed, not the skipped or kept."""
+    (`RunDirectoryError`). A run directory whose run records are not what the listing saw
+    (`_completion_records`) was written to by a launch after the listing: a run ended there, or
+    a launch found its run fresh and refreshed the trace. Scrub cannot tell which, and what is
+    there is no longer what was confirmed: it is kept, and said. The rest are removed. The three
+    lists are the directories removed, kept and gone."""
     if not candidates:
-        return []
+        return _Removal([], [], [])
     console.print(
         f"[red]This will remove all of the following {len(candidates)} run directories:[/red]"
     )
@@ -499,18 +515,16 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
     if confirmation.lower() != "yes":
         console.print("Not confirmed. No files or folders were removed.")
-        return []
+        return _Removal([], [], [])
     log.warning("Removing the following directories: %s", " ".join(str(c.path) for c in candidates))
-    removed: list[Path] = []
-    kept: list[Path] = []
-    gone: list[Path] = []
+    done = _Removal([], [], [])
     for c in candidates:
         p = c.path
         with run_dir_lock(_lock_path(p, run_root), run_root):
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
                 _say(f"{p} is gone already")
-                gone.append(p)
+                done.gone.append(p)
                 continue
             if not _still_a_run_directory(c):
                 raise RunDirectoryError(
@@ -519,21 +533,24 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
                     "was not removed."
                 )
             if _completion_records(p) != c.records:
-                log.info("Not removing %s: a run finished there after the listing", p)
-                _say(f"kept {p}: a run finished there after the listing")
-                kept.append(p)
+                log.info("Not removing %s: its run records changed after the listing", p)
+                _say(
+                    f"kept {p}: its run records changed after the listing "
+                    "(a run finished or refreshed there)"
+                )
+                done.kept.append(p)
                 continue
             RunDirectory.claimed(p, run_root).delete()
             if p.is_symlink():  # a run directory reached through a link in the run root
                 p.unlink()  # the link itself, whose target, xeda's, is gone
-        removed.append(p)
-    summary = f"{len(removed)} folders removed"
-    if kept:
-        summary += f", {len(kept)} kept"
-    if gone:
-        summary += f", {len(gone)} gone already"
+        done.removed.append(p)
+    summary = f"{len(done.removed)} folders removed"
+    if done.kept:
+        summary += f", {len(done.kept)} kept"
+    if done.gone:
+        summary += f", {len(done.gone)} gone already"
     _say(summary + ".")
-    return removed
+    return done
 
 
 def scrub_runs(
@@ -550,7 +567,7 @@ def scrub_runs(
     if run_root is None:
         run_root = dir.parent
     listed = [_listed(flow_name, p) for p in _run_directories_in(flow_name, dir, exclude, run_root)]
-    return bool(_remove_confirmed(listed, run_root))
+    return bool(_remove_confirmed(listed, run_root).removed)
 
 
 def scrub_design(
@@ -583,7 +600,8 @@ def scrub_design(
         [p for parent in parents for p in _run_directories_in(flow_name, parent, (), run_root)]
     )
     listed = [_listed(flow_name, p) for p in candidates]
-    return ScrubResult(parents, _remove_confirmed(listed, run_root))
+    done = _remove_confirmed(listed, run_root)
+    return ScrubResult(parents, done.removed, done.kept, done.gone)
 
 
 def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
