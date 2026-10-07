@@ -811,6 +811,27 @@ class Flow(metaclass=ABCMeta):
         print_commands: bool = Field(True, description="Print executed commands")
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
+        @classmethod
+        def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+            """Refuse a settings field that has no default, when its class is defined.
+
+            A setting a flow cannot run without is declared in `Flow.required_settings` and
+            checked when the flow is launched. The model must not require it: one section of a
+            design file holds only some of a flow's settings, and `Optional[X]` without
+            `= None` is such a field by mistake.
+            """
+            super().__pydantic_init_subclass__(**kwargs)
+            required = [name for name, info in cls.model_fields.items() if info.is_required()]
+            if required:
+                names = ", ".join(f"`{name}`" for name in required)
+                raise TypeError(
+                    f"{cls.__qualname__}: {names} {'has' if len(required) == 1 else 'have'} no "
+                    "default. A setting a flow cannot run without goes in "
+                    "`Flow.required_settings`, which the launch checks, never in a field "
+                    "without a default: give the field a default (`None`, or an empty value) "
+                    "and name it in `required_settings`."
+                )
+
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
         removed_settings: ClassVar[Dict[str, str]] = {

@@ -1,55 +1,64 @@
-"""A flow whose settings model requires a field launches when the value is given, wherever it is
-given, and is refused with a clear error when it is given nowhere.
+"""A setting a flow cannot run without is a `Flow.required_settings` entry, and the launch checks it.
 
-The convention is a `required_settings` entry, which the launch checks. A flow written outside
-Xeda may still require a field in its model, so the resolver, which checks parts of a flow's
-settings (one origin's sections, one shared leaf) before they are composed, must not turn a part
-that lacks the field into an error. It checks the parts with the flow's own model: a validator
-written for a field's type sees that type, and an error names the flow's own settings class.
+The settings model never requires it: its field has a default (`None`, or an empty value), and
+the flow's validators handle that default, as they handle every other. So the setting is given
+the way any setting is -- by a design file, a project file, `-s`, the API as a mapping, as a
+settings instance or as a flow section, alone or split among them -- and a launch that finds it
+given nowhere is refused with an error that names the flow and the setting.
 """
 
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 import pytest
 import yaml
 
 from xeda import Design
 from xeda.dataclass import Field, field_validator, model_validator
-from xeda.flow import Flow, FlowSettingsError
+from xeda.flow import Flow, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 
 
 class _RequiredLeaf(Flow):
-    """Declares nothing, and its settings model requires one field."""
+    """Declares nothing, and cannot run without one setting."""
 
     results_description: ClassVar[dict[str, str]] = {}
+    required_settings = {"foo": "some text: `-s foo=<text>`, or `foo` in `[flows.{flow}]`"}
 
     class Settings(Flow.Settings):
-        foo: str = Field(description="A setting the model requires.")
+        foo: Optional[str] = Field(None, description="A setting the flow needs.")
 
     def run(self) -> None:
         self.results["foo"] = self.settings.foo
 
 
 class _RequiredChecked(Flow):
-    """Requires a path and a label, each checked by a validator written for its type."""
+    """Needs a path and a label, each checked by a validator written for its type."""
 
     results_description: ClassVar[dict[str, str]] = {}
+    required_settings = {
+        "where": "a path: `-s where=<path>`, or `where` in `[flows.{flow}]`",
+        "label": "a label: `-s label=<text>`, or `label` in `[flows.{flow}]`",
+    }
 
     class Settings(Flow.Settings):
-        where: Path = Field(description="A required path, which its validator expands.")
-        label: str = Field(description="A required label, checked once the model is built.")
+        where: Optional[Path] = Field(
+            None, description="A needed path, which its validator expands."
+        )
+        label: Optional[str] = Field(
+            None, description="A needed label, checked once the model is built."
+        )
         note: str = Field("", description="An optional note.")
 
         @field_validator("where")
         @classmethod
-        def _expand(cls, value: Path) -> Path:
-            return value.expanduser()  # a method of the type: it needs a Path, not raw text
+        def _expand(cls, value: Optional[Path]) -> Optional[Path]:
+            # a method of the type: it needs a Path, not raw text; the default is validated too
+            return value.expanduser() if value is not None else None
 
         @model_validator(mode="after")
         def _label_ends_well(self):
-            if self.label.lower().endswith("bad"):  # reads a required field
+            if self.label is not None and self.label.lower().endswith("bad"):
                 raise ValueError("a label may not end with `bad`")
             return self
 
@@ -148,6 +157,8 @@ def test_a_value_its_model_validator_refuses_is_refused_by_the_complete_settings
 ):
     """The settings given in parts are never judged by a validator that needs them all: the
     complete settings are, once every part is composed."""
+    from xeda.flow import FlowSettingsError
+
     cls = _RequiredChecked
     bad = {"where": "a/b", "label": "very bad"}
     with pytest.raises(FlowSettingsError, match="may not end with `bad`") as refused:
@@ -160,23 +171,26 @@ def test_a_value_its_model_validator_refuses_is_refused_by_the_complete_settings
     assert f"{cls.__name__}.Settings" in str(refused.value)
 
 
-@pytest.mark.parametrize("how", ["API dict", "sections", "design file"])
+@pytest.mark.parametrize("how", ["API dict", "sections", "design file", "-s"])
 def test_a_setting_given_nowhere_is_a_clear_error_naming_it_and_the_flow(
     how, runner, design, tmp_path
 ):
     cls = _RequiredChecked
     given = {"note": "only an optional one"}
-    with pytest.raises(FlowSettingsError) as refused:
+    with pytest.raises(FlowSettingsException) as refused:
         if how == "API dict":
             runner.launch_flow(cls, design, given)
         elif how == "sections":
             runner.launch_flow(cls, design, {}, all_flows_settings={NAME: given})
+        elif how == "-s":
+            runner.run(cls, _design_file(tmp_path), flow_settings=["note=only an optional one"])
         else:
             runner.run(cls, _design_file(tmp_path, {NAME: given}))
     message = str(refused.value)
-    assert f"{cls.__name__}.Settings" in message
-    assert "Field required: where" in message and "Field required: label" in message
-    assert "AttributeError" not in message
+    assert NAME in message
+    assert "`where`" in message and "`label`" in message
+    assert "-s where=<path>" in message, "it says how to give each one"
+    assert not list((tmp_path / "xeda_run").rglob("settings.json")), "nothing ran"
 
 
 def test_a_required_text_setting_is_launched_by_dict_by_instance_and_by_a_section(runner, design):
@@ -191,6 +205,7 @@ def test_a_required_text_setting_is_launched_by_dict_by_instance_and_by_a_sectio
         assert flow.succeeded and flow.results["foo"] == "x"
 
 
-def test_a_required_text_setting_given_nowhere_is_still_refused(runner, design):
-    with pytest.raises(FlowSettingsError, match="foo"):
-        runner.launch_flow(_RequiredLeaf, design, {})
+@pytest.mark.parametrize("empty", [None, ""])
+def test_a_required_text_setting_that_says_nothing_is_still_refused(runner, design, empty):
+    with pytest.raises(FlowSettingsException, match="needs `foo`"):
+        runner.launch_flow(_RequiredLeaf, design, {"foo": empty})

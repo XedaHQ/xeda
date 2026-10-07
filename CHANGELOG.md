@@ -287,11 +287,13 @@ All notable changes to this project will be documented in this file.
   `xeda list-flows --json`: the `declared` key is gone**, and so is `declared` in each node of a
   `--dry-run --json` plan. Every flow is planned the same way now, so the key could only be
   constant. A flow that declares nothing is the one with empty `inputs` and `outputs`.
-- A flow written outside Xeda, whose settings model requires a field, launches when the value is
-  given anywhere: in a design file, a project file, `-s` or the API. The resolver checks the parts
-  of a flow's settings before they are composed (one origin's sections, one shared setting) with
-  the flow's own model, and leaves the check of required values to the complete settings. When a
-  value is given nowhere, the error is `Field required`, naming the flow's own settings class.
+- **Breaking for flows written outside Xeda: a flow's settings model may not require a field.** A
+  `Flow.Settings` field that has no default (`Optional[X]` without `= None` too) is refused when
+  its class is defined, with a `TypeError` that names the field. A setting a flow cannot run
+  without goes in `Flow.required_settings`: give its field a default (`None`, or an empty value),
+  and name the setting there with how to give it. The launch then checks it. When the value is
+  given nowhere, the error names the flow and the setting, and says how to give it. A design file,
+  a project file, `-s` and the API all give such a setting the same way as any other.
 - A delivery into a directory any flow of the plan reads, or onto a file of yours, is refused
   before any tool of the plan runs: the requested flow registers what every flow reads, and checks
   every producer's named deliveries, when the launch starts. The question whether to replace a file

@@ -319,7 +319,8 @@ removed before the run, so an earlier success never stands for a run that died
   `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies and its
   own `merged.lib` are written in `run()`, so a fresh launch writes no flow output. A flow's
   `required_settings` are the settings a model may not require (`dc`'s `target_libraries`): a
-  layer holds only some settings, and validating one that lacks a required field fails. The
+  layer holds only some settings, and validating one that lacks a required field fails, so
+  `Flow.Settings` refuses a field without a default (see "Settings"). The
   launcher passes the producers a flow was handed from (`_run_producers`) to
   `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`). Tests find a
   flow's producers through `tool_utils.producers_of(runner, flow)`.
@@ -562,9 +563,18 @@ unchanged from their `settings.json`, and that a setting all flows share keeps i
 
 **A setting a flow cannot run without goes in `Flow.required_settings`** (name -> what it is and
 how to give it), checked once at launch by `check_required_settings` -- never made required on
-the model, and never checked in `run()`: the same settings sit inside another flow's as a
-dependency's, where the launching flow supplies what they lack. `FpgaSynthFlow` requires
-`fpga`; `tests/test_required_settings.py` sweeps every FPGA flow.
+the model, and never checked in `run()`. The rule is enforced, not a habit: a `Flow.Settings`
+field without a default (`Optional[X]` with no `= None` included) is refused with a `TypeError`
+when its class is defined (`Flow.Settings.__pydantic_init_subclass__`; the message names the
+field and points here), so no settings model of any flow, a plugin's included, can require a
+field. The reason is that a layer (one origin's `flows.<flow>` section, one shared leaf) holds
+only some of a flow's settings, and the resolver validates such a part with the flow's real
+model before the layers are composed; a required field would fail every part that lacks it. The
+field takes a default (`None`, or an empty value) that its validators handle, as `validate_default`
+makes them. `FpgaSynthFlow` requires `fpga`; `tests/test_required_settings.py` sweeps every FPGA
+flow and every registered flow's model, and `tests/test_required_model_fields.py` shows each way
+of giving a required setting (file, project, `-s`, API mapping, instance, section) and the error
+when it is given nowhere.
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow
@@ -1115,7 +1125,8 @@ dependency must also share `custom_boards_file`.
   same. Never opt a field out with `validate_default=False`; that is what made reloaded settings
   differ from the originals. Make the validator handle the default instead.
 - **`Optional[X]` needs an explicit `= None`.** A bare `x: Optional[int]` (or
-  `Field(description=...)` with no default) is a *required* field.
+  `Field(description=...)` with no default) is a *required* field, which a `Flow.Settings` refuses
+  when its class is defined.
 - **pydantic runs a subclass's `before` validators ahead of its base class's**, at field and model
   level alike. So a base-class *field* validator cannot normalize input for the subclass's
   validators, and a model `before` validator cannot change the value being *assigned*.

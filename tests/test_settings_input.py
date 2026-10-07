@@ -145,10 +145,10 @@ def test_path_placeholders_expand_recursively_without_rewriting_non_path_strings
     """Path expansion follows the annotation through lists, mappings, tuples, and unions."""
 
     class PathSettings(Flow.Settings):
-        scalar: Path
-        paths: list[Path]
-        hooks: dict[str, Path | None]
-        libraries: list[tuple[str, str | Path]]
+        scalar: Path = Path()
+        paths: list[Path] = []
+        hooks: dict[str, Path | None] = {}
+        libraries: list[tuple[str, str | Path]] = []
 
     payload = {
         "scalar": "$DESIGN_ROOT/scalar.sdc",
