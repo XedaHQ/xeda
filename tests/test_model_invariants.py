@@ -274,7 +274,8 @@ def test_quiet_verbose_and_debug_mean_the_same_whatever_order_they_are_given_in(
 # ----------------------------------------------------------------- validators log nothing above DEBUG
 
 SRC = Path(__file__).parent.parent / "src" / "xeda"
-LOUD = {"info", "warning", "warn", "error", "exception", "critical"}
+#: the logging methods that log above DEBUG
+LOUD = {"info", "warning", "warn", "error", "exception", "critical", "fatal"}
 
 
 def _validators(tree):
@@ -288,20 +289,71 @@ def _validators(tree):
             yield node
 
 
+def _is_logger(node, aliases: frozenset[str] = frozenset()) -> bool:
+    """Whether `node` is a logger expression: the `logging` module, a name or an attribute named
+    as a logger (`log`, `logger`, `self._logger`, `module_log`), a name in `aliases`, or a
+    `getLogger(...)` call."""
+    import ast
+
+    def named(name: str) -> bool:
+        name = name.lower().lstrip("_")
+        return name in ("log", "logger", "logging") or name.endswith(("_log", "_logger"))
+
+    if isinstance(node, ast.Name):
+        return named(node.id) or node.id in aliases
+    if isinstance(node, ast.Attribute):
+        return named(node.attr)
+    if isinstance(node, ast.Call):
+        callee = node.func
+        return (isinstance(callee, ast.Name) and callee.id == "getLogger") or (
+            isinstance(callee, ast.Attribute) and callee.attr == "getLogger"
+        )
+    return False
+
+
+def _logs_above_debug(call, aliases: frozenset[str]) -> bool:
+    """Whether `call` logs above DEBUG on a logger expression: a method in `LOUD`, or `log`
+    with a level other than DEBUG (`logging.DEBUG`, `DEBUG` or 10) -- an unknown level counts."""
+    import ast
+
+    if not (
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and _is_logger(call.func.value, aliases)
+    ):
+        return False
+    if call.func.attr in LOUD:
+        return True
+    if call.func.attr != "log":
+        return False
+    level = call.args[0] if call.args else None
+    debug = (
+        (isinstance(level, ast.Attribute) and level.attr == "DEBUG")
+        or (isinstance(level, ast.Name) and level.id == "DEBUG")
+        or (isinstance(level, ast.Constant) and level.value == 10)
+    )
+    return not debug
+
+
 def _loud_validators(source: str, name: str) -> list[str]:
     """The validators in `source` that log above DEBUG, as `name:line function`."""
     import ast
 
+    tree = ast.parse(source, name)
+    # a name the module binds to a logger expression (`lg = logging.getLogger(__name__)`)
+    aliases = frozenset(
+        target.id
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Assign, ast.AnnAssign))
+        and node.value is not None
+        and _is_logger(node.value)
+        for target in (node.targets if isinstance(node, ast.Assign) else [node.target])
+        if isinstance(target, ast.Name)
+    )
     loud = []
-    for function in _validators(ast.parse(source, name)):
+    for function in _validators(tree):
         for call in ast.walk(function):
-            if (
-                isinstance(call, ast.Call)
-                and isinstance(call.func, ast.Attribute)
-                and call.func.attr in LOUD
-                and isinstance(call.func.value, ast.Name)
-                and call.func.value.id in ("log", "logger", "logging")
-            ):
+            if _logs_above_debug(call, aliases):
                 loud.append(f"{name}:{call.lineno} {function.name}")
     return loud
 
@@ -317,13 +369,48 @@ def test_no_validator_logs_above_debug():
     assert loud == []
 
 
-def test_the_validator_scan_sees_a_validator_that_logs():
-    source = (
+def _validator_logging(statement: str) -> str:
+    """A model validator whose body logs with `statement`, as module source."""
+    return (
         "class M:\n"
         "    @model_validator(mode='before')\n"
         "    @classmethod\n"
         "    def v(cls, values):\n"
-        "        log.info('noise')\n"
+        f"        {statement}\n"
         "        return values\n"
     )
-    assert _loud_validators(source, "m.py") == ["m.py:5 v"]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "log.info('noise')",
+        "logger.warning('noise')",
+        "logging.error('noise')",
+        "logging.getLogger(__name__).warning('noise')",
+        "getLogger(__name__).critical('noise')",
+        "cls.log.info('noise')",
+        "self._logger.exception('noise')",
+        "logger.log(logging.INFO, 'noise')",
+        "log.log(20, 'noise')",
+        "log.log(level, 'noise')",
+        "lg = logging.getLogger(__name__); lg.warning('noise')",
+    ],
+)
+def test_the_validator_scan_sees_a_validator_that_logs(statement):
+    assert _loud_validators(_validator_logging(statement), "m.py") == ["m.py:5 v"]
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "log.debug('detail')",
+        "logging.getLogger(__name__).debug('detail')",
+        "logger.log(logging.DEBUG, 'detail')",
+        "log.log(10, 'detail')",
+        "catalog.error('not a logger')",
+        "values.get('info')",
+    ],
+)
+def test_the_validator_scan_leaves_debug_and_what_is_no_logger(statement):
+    assert _loud_validators(_validator_logging(statement), "m.py") == []

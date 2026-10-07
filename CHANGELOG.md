@@ -86,8 +86,8 @@ All notable changes to this project will be documented in this file.
   board's part, and the option replaced it with a part that has a speed grade; the loader uses the
   option as written to name the bridge bitstream that writes a flash (`spiOverJtag_<device>
   <package>.bit.gz`), which has no grade, so `write_flash` on a Xilinx board found no bridge. With
-  a `cable`, or a board without an `openfpgaloader_board`, `--fpga-part` is still given, and a
-  Xilinx part is written without its speed grade (`xc7a35tcpg236`).
+  a `cable`, or a board without an `openfpgaloader_board`, `--fpga-part` is still given when the
+  part is known, and a Xilinx part is written without its speed grade (`xc7a35tcpg236`).
 - The error for a missing `fpga` names each section that gives it without reaching the flow, such
   as a part written only for `yosys_fpga` in `xeda run vivado_synth+openfpgaloader`.
 - Planning logs each unused section of a producer that a source or a chain displaced. Validators
@@ -379,8 +379,9 @@ All notable changes to this project will be documented in this file.
   `synth_pass_only`, an unset `flatten` is still the pass's own choice, so that mode keeps
   matching a native `yosys` run. The other targets' passes flatten on their own and are
   unchanged. The netlists, and the results of runs that used the default, change.
-- `openfpgaloader` needs the FPGA device only for `write_flash`. Without one it gives no
-  `--fpga-part`, and openFPGALoader detects the device.
+- `openfpgaloader` needs the FPGA device (`fpga`, or a `board` that gives one) only for
+  `write_flash`, which is refused without it before anything runs. When no part is known, the flow
+  gives no `--fpga-part`, and openFPGALoader detects the device.
 - `--outputs-to` with a programmer as the requested flow is refused before anything runs. The
   error names what delivers the bitstream: a setting with a location
   (`-s flows.fpga_pack.bitstream=$PWD/<file>`), or under `--remote` the producer's own request.
@@ -429,8 +430,9 @@ All notable changes to this project will be documented in this file.
   `xeda list-boards --json`. It is optional, and an entry that still has `name` fails with
   `` `name` was removed: use `openfpgaloader_board` ``. Every bundled board has the name that
   openFPGALoader's own board list gives it (`basys_3` is `basys3`, `ulx3s_85f` is `ulx3s`), and
-  `openfpgaloader` passes it as `--board` whenever `board` is set. A `cable` takes precedence, and a
-  board without the field adds no `--board`.
+  `openfpgaloader` passes it as `--board` when `board` is set and no `cable` is. A `cable` takes
+  precedence: the flow then passes `--cable` and no board name. A board without the field adds no
+  `--board`.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

@@ -637,19 +637,21 @@ at any speed grade, it fails before any tool runs. The message names the part, t
 searched and the packages of the same device that the database has, with their speed grades.
 
 ``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
-``verify`` is accepted only with it. When ``board`` is set, it passes the board's
-``openfpgaloader_board`` to openFPGALoader as ``--board``, and no ``--fpga-part``: openFPGALoader
-knows the board's part, and the option would replace it. A ``cable`` takes precedence over the
-board. A board that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow
-gives the part and the cable alone. openFPGALoader uses ``--fpga-part`` as written to name the
+``verify`` is accepted only with it. A ``cable`` takes precedence over the board. With a
+``cable``, the flow passes ``--cable``, and ``--fpga-part`` when the part is known. It passes no
+board name, even when ``board`` is set. Without a ``cable``, when ``board`` is set, the flow
+passes the board's ``openfpgaloader_board`` to openFPGALoader as ``--board``, and no
+``--fpga-part``: openFPGALoader knows the board's part, and the option would replace it. A board
+that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow gives the
+board's part as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name the
 bridge bitstream it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has
 no speed grade. So the flow gives a Xilinx part without it (``xc7a35tcpg236``), and any other
 part as it is. Every bundled board has an ``openfpgaloader_board``, taken from openFPGALoader's
-own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``).
-Without a board name or a part, the flow gives no ``--fpga-part`` and openFPGALoader detects the
-device. Programming the flash needs the part, so ``write_flash`` without one, or a board that has
-one, is refused before anything runs. What the loader printed is in ``openfpgaloader.log`` in its
-run directory.
+own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is known,
+from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader detects
+the device. Programming the flash needs the device, so ``write_flash`` is refused before anything
+runs when neither ``fpga`` nor a board gives it. What the loader printed is in
+``openfpgaloader.log`` in its run directory.
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads

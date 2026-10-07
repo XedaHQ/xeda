@@ -477,6 +477,13 @@ def test_a_prebuilt_bitstream_is_programmed_without_a_device_for_the_loader_to_d
     assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit")]
 
 
+def test_a_cable_with_no_part_known_gives_the_loader_no_part(tmp_path, fake_loader):
+    """A cable names no device: with no part known, the loader detects the device itself."""
+    _program(tmp_path, _prebuilt(tmp_path), {"cable": "ft231X"})
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--cable", "ft231X"]
+
+
 def test_programming_the_flash_needs_the_device(tmp_path, fake_loader):
     """openFPGALoader programs a Xilinx flash through a bridge made for the part, so
     `write_flash` needs the device: refused before anything runs, saying why."""
@@ -495,6 +502,18 @@ def test_a_board_gives_the_device_the_flash_needs(tmp_path, fake_loader):
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
     assert call["argv"][2:] == ["--board", "ulx3s", "--write-flash"]
+
+
+def test_a_board_without_a_device_does_not_give_the_flash_one(tmp_path, fake_loader):
+    """A board entry without an `fpga` names no device: `write_flash` is refused, as without a
+    board, although the loader would be given the board's name."""
+    boards = tmp_path / "design" / "boards.toml"
+    boards.parent.mkdir()
+    boards.write_text('[MY_BOARD]\nopenfpgaloader_board = "programmer_board"\n')
+    settings = {"board": "MY_BOARD", "custom_boards_file": "boards.toml", "write_flash": True}
+    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`"):
+        _runner(tmp_path).plan(Openfpgaloader, _prebuilt(tmp_path), flow_settings=settings)
+    assert not _calls(tmp_path, "openfpgaloader")
 
 
 def test_the_loader_s_output_is_kept_in_its_run_directory(tmp_path, fake_loader, monkeypatch):

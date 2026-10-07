@@ -202,9 +202,11 @@ YAML 1.2 like every YAML file xeda reads. A relative path resolves against the d
 and a board's local `lpf` against the database file's directory. Its board names are
 case-sensitive, as written. A board's entry has `fpga`, `lpf` or `xdc`, and optionally
 `openfpgaloader_board`, the board's name in openFPGALoader (the former `name` key is an error that
-says so). `openfpgaloader` passes it as `--board`, and no `--fpga-part`, whenever `board` is set;
-a `cable` takes precedence, and a board without one adds no `--board`. Without `--board` the
-part is `--fpga-part`, a Xilinx part without its speed grade (`xc7a35tcpg236`).
+says so). `openfpgaloader` passes it as `--board`, and no `--fpga-part`, when `board` is set and
+no `cable` is. A `cable` takes precedence: the flow passes `--cable` and no board name. A board
+without one adds no `--board`. Without `--board`, a known part is `--fpga-part`, a Xilinx part
+without its speed grade (`xc7a35tcpg236`); with no part known, openFPGALoader detects the device.
+`write_flash` needs the device (`fpga`, or a `board` that gives one) and is refused without it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,
