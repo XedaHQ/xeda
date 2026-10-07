@@ -1,0 +1,123 @@
+name: openXC7
+
+# The real openXC7 toolchain builds an Arty A7-100T design (tests/test_openxc7_real.py): yosys,
+# nextpnr-himbaechel with the Xilinx backend, and fpga-as. No package has the layout xeda reads,
+# so this job builds the three tools once with openXC7's own installer and caches the
+# installation. A cache miss builds for about 16 minutes, and the job takes about 20. A cache hit
+# restores the tools in seconds, and the job takes 5 to 8 minutes. This is a separate workflow,
+# so it runs beside the tox legs in ci.yml, and a build delays none of them.
+on:
+  push:
+    branches: ["main", "release/*"]
+  pull_request:
+    branches: ["main", "release/*"]
+  schedule:
+    # GitHub deletes a cache that no run has used for seven days. Two runs a week keep it.
+    - cron: "17 4 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # Pinned, not ubuntu-latest: the cached tools link against the libraries of this image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # The one pin: a commit of openXC7/toolchain-installer. It fixes the versions of yosys,
+      # nextpnr, the Project X-Ray database, fpga-assembler and Bazel together. To change it, edit
+      # it in a pull request, which runs this job, and read the installer's diff first.
+      INSTALLER_REV: efe9e07330e88434a831f2c52bee72739da0f0a5
+      # Change it when this workflow changes what the installation holds.
+      RECIPE: "1"
+    steps:
+      # Full history: xeda's version is derived from the git tags.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Restore the openXC7 installation
+        id: toolchain
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/openxc7/bin
+            ~/openxc7/lib
+            ~/openxc7/share
+          # No restore-keys: an installation made from another installer commit must not stand in.
+          key: openxc7-ubuntu-24.04-${{ runner.arch }}-${{ env.INSTALLER_REV }}-r${{ env.RECIPE }}
+
+      - name: Get the installer and install its system packages
+        # Also on a cache hit: the cached tools link against shared libraries (Boost, Tcl) that
+        # the runner image does not have. The limit is for the package mirror of the runners,
+        # which has stopped answering for many minutes.
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/openXC7/toolchain-installer.git "$RUNNER_TEMP/installer"
+          git -C "$RUNNER_TEMP/installer" checkout --quiet --detach "$INSTALLER_REV"
+          # Sourcing the script defines its functions. It does not build anything.
+          # shellcheck source=/dev/null
+          source "$RUNNER_TEMP/installer/toolchain-sources-builder.sh"
+          check_dependencies
+
+      - name: Build yosys, nextpnr-himbaechel and fpga-as
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # The installer clones the sources into the current directory.
+          mkdir "$RUNNER_TEMP/openxc7-build"
+          cd "$RUNNER_TEMP/openxc7-build"
+          INSTALL_PREFIX="$HOME/openxc7" JOBS="$(nproc)" \
+            bash "$RUNNER_TEMP/installer/toolchain-sources-builder.sh" yosys nextpnr fpga-as
+          # Keep out of the cache what the tests do not use: Bazel, and the Project X-Ray data of
+          # the families other than Artix-7.
+          rm -f "$HOME/openxc7/bin/bazel"
+          rm -rf "$HOME/openxc7/share/nextpnr/prjxray-db"/{kintex7,spartan7,virtex7,zynq7}
+          df -h /
+
+      - name: Save the openXC7 installation
+        # Before the tests, so that a failing test does not discard the build.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/openxc7/bin
+            ~/openxc7/lib
+            ~/openxc7/share
+          key: ${{ steps.toolchain.outputs.cache-primary-key }}
+
+      - name: Check the installation
+        run: |
+          set -euo pipefail
+          echo "$HOME/openxc7/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/openxc7/bin:$PATH"
+          for tool in yosys nextpnr-himbaechel bbasm fpga-as; do
+            path="$(readlink -f "$(command -v "$tool")")"
+            # tests/tool_utils.py requires the tools to share one bin directory.
+            test "$(dirname "$path")" = "$(readlink -f "$HOME/openxc7/bin")"
+            missing="$(ldd "$path" 2>&1 | grep 'not found' || true)"
+            if [ -n "$missing" ]; then
+              echo "$tool needs a shared library that is missing:" >&2
+              echo "$missing" >&2
+              exit 1
+            fi
+          done
+          yosys -V
+          nextpnr-himbaechel --version
+          du -sh "$HOME"/openxc7/{bin,lib,share}
+          df -h /
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install xeda and run the openXC7 tests
+        env:
+          XEDA_TESTS_OPENXC7: "1"
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --editable . pytest
+          python -m pytest tests/test_openxc7_real.py -v --durations=10

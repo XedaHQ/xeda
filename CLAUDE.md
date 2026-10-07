@@ -1673,7 +1673,13 @@ dependency must also share `custom_boards_file`.
   bitstream, the same FASM features as the upstream Makefile's commands, a relaunch that runs
   nothing, a second design reusing the one chip database (generated once per session, shared
   by xdist workers under their common temporary directory), and the generator tree unchanged.
-  It is its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: CI has no openXC7.
+  It is its own variable, not `XEDA_TESTS_REQUIRE_TOOLS`: the tox legs have no openXC7. CI runs
+  this layer in its own workflow, `.github/workflows/openxc7.yml` (`ubuntu-24.04`): openXC7's
+  installer, pinned to one commit (`INSTALLER_REV`), builds yosys, nextpnr-himbaechel and
+  `fpga-as` into `~/openxc7`, and `actions/cache` keeps that installation under a key of the
+  commit, a `RECIPE` counter and the runner image. The chip database is generated on every run.
+  Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading the installer's
+  diff: a new yosys or nextpnr can move the counts `tests/test_openxc7_real.py` pins.
   `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
   package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
   yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for
