@@ -1584,8 +1584,17 @@ dependency must also share `custom_boards_file`.
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
   never reorder the historical ordinals. Script flows declare `reads_sources` and
   `design_parts`, then iterate `sources_read()` in code/templates. Every consumed part
-  rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. Headers need an
-  actual include/search path, and source type names must never become tool commands.
+  rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. So is a design
+  none of whose sources the flow reads (an `.edf`-only design, or none at all): `Flow.check_design_supported`
+  refuses it, naming each part's sources with their types and the types the flow reads. It runs
+  for every planned node, so `nextpnr`'s default `yosys_fpga` producer is refused, while a typed
+  `JsonNetlist` that displaces the producer plans. The rule covers the eight flows that declare
+  `reads_sources` (`tests/test_source_contracts.py` sweeps every flow); a flow that chooses its
+  inputs in its own code (`reads_sources` is None) is not covered. One source of any type the flow
+  reads is enough, a constraint or header file included: an `.edf` with an `.xdc` still plans for
+  `vivado_synth`, because requiring a language source would refuse a Tcl-only design whose script
+  reads its own RTL. Headers need an actual include/search path, and source type names must never
+  become tool commands.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source

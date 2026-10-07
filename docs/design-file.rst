@@ -233,7 +233,11 @@ Source-consumption contracts apply to ``vivado_synth``, ``vivado_alt_synth``, ``
 ``quartus``, ``diamond_synth``, ``ise_synth``, ``dc`` and ``yosys_fpga``. They read only the types
 they declare: ``vivado_synth`` passes over an ``Lpf`` source, for example. A source in an
 unsupported language (a Bluespec source for ``vivado_synth``) is an error naming it before the
-flow runs. Contracts cover ``rtl.sources``; ``vivado_project`` also checks ``tb.sources``.
+flow runs. So is a design with no source that the flow reads: a design whose only netlist is an
+``.edf`` file, for example, gives ``yosys_fpga`` and ``vivado_synth`` nothing to read. The error
+names the sources the design lists, with their types, and the types the flow reads. It also
+stops ``nextpnr``, because the ``yosys_fpga`` synthesis that ``nextpnr`` would plan has no source
+to read. Contracts cover ``rtl.sources``; ``vivado_project`` also checks ``tb.sources``.
 Headers reach include/search paths; no template turns a source type's name into a tool command.
 
 .. note::

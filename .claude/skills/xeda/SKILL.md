@@ -255,6 +255,7 @@ name: prebuilt_demo
 rtl:
   top: top
   sources:
+    - top.v
     - file: top.json
       type: JsonNetlist
 flows:

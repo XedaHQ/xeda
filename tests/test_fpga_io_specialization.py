@@ -62,9 +62,11 @@ XILINX_PART = "xc7a100tcsg324-1"
 
 
 def _design(tmp_path, sources=()):
+    """A design of one Verilog module, which a synthesis node reads, and the given sources."""
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
-    entries = []
+    (root / "top.v").write_text("module top; endmodule\n")
+    entries = ["top.v"]
     for name, kind in sources:
         (root / name).write_text("{}\n" if kind == SourceType.JsonNetlist else "input\n")
         entries.append({"file": name, "type": kind.name})

@@ -340,6 +340,7 @@ without them. They matter when they differ from what the sources or defaults wou
     rtl:
       top: top
       sources:
+        - top.v
         - file: top.json
           type: JsonNetlist
     flows:

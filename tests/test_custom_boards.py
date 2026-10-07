@@ -17,7 +17,8 @@ from .test_nextpnr import write_nextpnr_config
 
 def _plan(tmp_path: Path, settings: dict, sections: dict | None = None):
     """The plan of `fpga_pack` and its producer `nextpnr`, which share the board and its database."""
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    (tmp_path / "top.v").write_text("module t; endmodule\n")  # `yosys_fpga` reads a source
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "t"})
     return DefaultRunner(tmp_path / "run").resolve(FpgaPack, design, settings, sections or {})
 
 
