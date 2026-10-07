@@ -77,6 +77,11 @@ All notable changes to this project will be documented in this file.
   `extra characters after close-quote`. With `rtl_graph` set, yosys rejected the `show` command
   with `Unexpected option in selection arguments`. With `stop_after: rtl`, `exit` was joined to
   the next command, so the script did not stop. Every RTL output now ends with a newline.
+- A launch with `--scrub` could fail when another launch of the same flow, scrubbing at the same
+  time, removed the first launch's run directory while the first listed the directories to remove.
+  The listing left out a launch's own directory only if it still existed, so one that had just
+  gone was listed to be removed. A launch now leaves out its own run directory by where it
+  resolves to, whether or not it exists.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -428,9 +433,23 @@ All notable changes to this project will be documented in this file.
   flow (`<design>/<NAME>/`), and without it the flow's run directories directly under the design
   and under every target, as found on disk (no design file is read; run directories of other
   flows are never searched). The directories are listed and confirmed once. `--json` gains
-  `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory).
-  A directory that is no longer what was listed once scrub holds its lock (replaced, renamed,
-  turned into a link, or out of the run root) is refused rather than removed.
+  `target`, and `scrubbed` now lists the run directories removed (it listed the design's directory);
+  `kept` and `gone` list the ones scrub did not remove, as below.
+  Scrub removes the runs it listed. It takes each directory's lock first, so it never removes a
+  directory while a launch runs in it, and then judges it by what is at the path: a run directory
+  of the flow is removed, also when a launch only added files to it while scrub waited. A
+  directory whose run records (`results.json`, `trace.json`) changed or appeared after the listing
+  is kept and said, not removed: a run finished there, or a launch found its run fresh and
+  refreshed its trace. A directory that is gone by then (another scrub, or a purge, removed it)
+  is skipped and said. Neither is an error. They are in `kept` and `gone` of the `--json`
+  document, and counted by the summary line, and not in `scrubbed`. One that is no longer a
+  directory, or a link that no longer leads to a directory beside
+  it, is refused (`RunDirectoryError`) and left alone. A link counts as a run directory only when
+  it leads to a directory beside it, and scrub locks it by that directory, so two scrubs that list
+  the same link both succeed. A link that was retargeted, or replaced by a directory, while scrub
+  waited for the lock is refused: scrub would hold the lock of one directory and remove another. The lock does not protect a run that was complete when scrub listed
+  it: a consumer about to read such a producer fails with a `FlowDependencyFailure` instead of
+  reading a directory that is being removed.
 - **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has
   become**: the parent is resolved, and the last component only when it is a link staying inside the
   run root (a launch through the link's name and one through the real name share one lock), so a

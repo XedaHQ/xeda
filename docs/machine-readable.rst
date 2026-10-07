@@ -341,6 +341,47 @@ and no ``request``; a binding that cannot be applied (an unknown input or produc
 a flow that declares no inputs, a chain and a command-line or API binding of the same input) is a
 settings error naming the input and where the binding was written.
 
+Removing run directories
+========================
+
+``xeda scrub <flow> <design> --json`` removes a flow's previous run directories for one design
+(see :doc:`run-directories`) and writes a single JSON object to stdout. The listing, the
+confirmation prompt and the lines about the directories scrub kept or found gone go to stderr,
+with the rest of its output:
+
+.. code-block:: json
+
+    {
+      "success": true,
+      "flow": "vivado_synth",
+      "design": "sqrt",
+      "target": null,
+      "run_root": "/path/to/xeda_run",
+      "scanned": ["/path/to/xeda_run/sqrt"],
+      "scrubbed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
+      "kept": ["/path/to/xeda_run/sqrt/vivado_synth_fedcba9876543210"],
+      "gone": []
+    }
+
+``target`` is the ``--target`` that was given, or ``null``. The four lists hold paths:
+
+* ``scanned`` -- the directories scrub searched for run directories of the flow.
+* ``scrubbed`` -- the run directories it removed. The list is empty if scrub found none, or if you
+  did not confirm.
+* ``kept`` -- the run directories it listed and did not remove, because their run records
+  (``results.json`` and ``trace.json``) changed after the listing: a run finished there, or a
+  launch found its run fresh and refreshed its trace. What is there is no longer what was
+  confirmed.
+* ``gone`` -- the run directories it listed that were not there any more when its turn came:
+  another scrub or a purge removed them first. That is what scrub was asked to do, so it is no
+  error.
+
+No path is in more than one of ``scrubbed``, ``kept`` and ``gone``. A failure writes
+``{"success": false, "flow": ..., "design": ..., "target": ..., "error": {"type": ...,
+"message": ...}}`` and exits with status 1. ``error.type`` is ``RunDirectoryError`` for a design or
+target name that is not a name, or a run directory scrub refuses to remove (one that is no longer
+a directory, for example), and ``RunRootError`` for a run root it cannot use.
+
 Exit status
 ===========
 
