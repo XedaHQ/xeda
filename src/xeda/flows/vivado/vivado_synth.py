@@ -483,14 +483,17 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         )
 
     @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
-        """Demanding the bitstream names one: `bitstream` has no default to switch on."""
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """Demanding the bitstream names it: `bitstream` has no default to switch on, so a
+        consumer's demand gives it its conventional name, the one the run writes when the setting
+        names a location (`outputs/<design>.bit`, as `fpga_pack` writes its bitstream)."""
         if name != "bitstream":
-            return super().enable_output(settings, name)
+            return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
         if settings.bitstream is None:
-            # a fixed name: the hook is given no design name for `outputs/<design>.bit`
-            settings.bitstream = Path(settings.outputs_dir) / "bitstream.bit"
+            conventional = settings.conventional_output("bitstream", design_name)
+            assert conventional is not None  # the field is a deliverable with a conventional name
+            settings.bitstream = Path(conventional)
 
     def init(self):
         super().init()
@@ -530,11 +533,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
-
-        if self.settings.bitstream is not None:
-            self.settings.bitstream = self.settings.bitstream or (
-                self.settings.outputs_dir / f"{self.design.rtl.top or 'bitstream'}.bit"
-            )
 
         if self.settings.bitstream:
             bs_str = str(self.settings.bitstream)

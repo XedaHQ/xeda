@@ -578,9 +578,9 @@ class Nextpnr(FpgaSynthFlow):
         return super().output_types(settings, name)
 
     @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
         if name != "config":
-            return super().enable_output(settings, name)
+            return super().enable_output(settings, name, design_name=design_name)
         if getattr(settings, "fpga", None) is None:
             return  # no target yet: the required-settings check names what is missing
         family = cls.io_family(settings)

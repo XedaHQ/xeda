@@ -62,15 +62,15 @@ class VivadoPostsynthSim(VivadoSim):
         )
 
     @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
         """An activity demand supplies the fixed filename; timing activity also enables timing."""
         if name not in ("saif", "timing_saif"):
-            return super().enable_output(settings, name)
+            return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
         if settings.saif is None:
             settings.saif = Path("activity.saif")
         if name == "timing_saif":
-            super().enable_output(settings, name)
+            super().enable_output(settings, name, design_name=design_name)
 
     def run(self) -> None:
         ss = self.settings

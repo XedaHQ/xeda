@@ -38,7 +38,7 @@ def _legacy_settings():
 @pytest.mark.parametrize("name", ["saif", "timing_saif"])
 def test_a_consumer_can_enable_activity_without_giving_a_filename(name):
     settings = VivadoPostsynthSim.Settings.from_input(_legacy_settings())
-    VivadoPostsynthSim.enable_output(settings, name)
+    VivadoPostsynthSim.enable_output(settings, name, design_name="d")
     assert settings.saif == Path("activity.saif")
     assert settings.timing_sim is (name == "timing_saif")
 

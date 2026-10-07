@@ -22,6 +22,7 @@ from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import ChainElement, parse_request, predecessors, request_text
 from xeda.flow_runner.settings_layers import transitive_dependencies
+from xeda.introspect import boards_info
 
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes
@@ -29,7 +30,13 @@ from .settings_samples import flow_classes
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes()]
 #: every product flow that takes a board, from the registry: one that gains `board` is swept too
 BOARD_FLOWS = [cls for cls in PRODUCT_FLOWS if "board" in cls.Settings.model_fields]
-BUNDLED_BOARDS = ("ULX3S_85F", "ARTY_A7_100T", "ARTY_A7_35T")
+#: every bundled board whose entry names its part: a board added to the database is swept too
+BUNDLED_BOARDS = [
+    entry["board"]
+    for entry in boards_info()
+    if isinstance(entry.get("fpga"), str)
+    or (isinstance(entry.get("fpga"), dict) and entry["fpga"].get("part"))
+]
 CUSTOM_PART = "LFE5U-25F-6BG381C"
 #: where a board can be written for one node of a run
 ORIGINS = (
@@ -49,7 +56,8 @@ VERILOG = "module blinky(input clk, output led); assign led = clk; endmodule\n"
 def _part(board: str) -> str:
     data = get_board_data(board)
     assert data is not None
-    return data["fpga"]["part"]
+    fpga = data["fpga"]
+    return fpga if isinstance(fpga, str) else fpga["part"]
 
 
 def _write_design(root: Path, flows: dict, targets: dict | None = None) -> Path:
@@ -114,6 +122,7 @@ def _cases():
 
 def test_the_sweep_covers_every_board_aware_flow_and_the_vivado_chains():
     assert {"nextpnr", "fpga_pack", "openfpgaloader"} <= {cls.name for cls in BOARD_FLOWS}
+    assert {"ULX3S_85F", "ARTY_A7_100T", "ARTY_A7_35T"} <= set(BUNDLED_BOARDS)
     requests = [request for request, _nodes in REQUESTS]
     assert {"vivado_synth+openfpgaloader", "vivado_alt_synth+openfpgaloader"} <= set(requests)
     for cls in BOARD_FLOWS:

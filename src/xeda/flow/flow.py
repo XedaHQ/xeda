@@ -729,8 +729,10 @@ class Flow(metaclass=ABCMeta):
         return declared_outputs(cls)[name].types
 
     @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
-        """Enable a demanded output on the resolver's mutable settings proposal."""
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """Enable a demanded output on the resolver's mutable settings proposal. `design_name`
+        is the design's name, which a deliverable's conventional name holds
+        (`Flow.Settings.conventional_output`)."""
         declaration = declared_outputs(cls)[name]
         if declaration.cardinality == "optional" and declaration.enabled_by is None:
             raise ValueError(f"{cls.name}.{name} cannot be switched on")

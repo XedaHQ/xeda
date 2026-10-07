@@ -80,7 +80,8 @@ def test_pure_family_hooks_select_types_and_change_no_setting(
     assert Nextpnr.input_types(settings, "constraints") == (pins,)
     assert Nextpnr.input_types(settings, "sdc") == (SourceType.Sdc,)
     assert Nextpnr.output_types(settings, "config") == (config,)
-    Nextpnr.enable_output(settings, "config")  # always written: nothing to switch on
+    # always written: nothing to switch on
+    Nextpnr.enable_output(settings, "config", design_name="d")
     assert settings.model_dump() == before
     assert getattr(settings, setting) == Path(filename)
 

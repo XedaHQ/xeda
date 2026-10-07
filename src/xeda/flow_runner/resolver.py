@@ -1082,7 +1082,7 @@ def resolve(
             if name in request.needed:
                 before = request.settings.model_dump()
                 try:
-                    request.cls.enable_output(request.settings, name)
+                    request.cls.enable_output(request.settings, name, design_name=design.name)
                 except ValueError as error:
                     raise FlowSettingsException(
                         f"{request.cls.name}.{name} is required by a consumer: {error}"

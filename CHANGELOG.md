@@ -94,6 +94,9 @@ All notable changes to this project will be documented in this file.
   log nothing above DEBUG, so a part in such a section no longer logs "Detected FPGA family".
 - A board/device conflict names where the board is written, and a board and a device that
   disagree on one node name both parts.
+- A bitstream that a chain asks `vivado_synth` or `vivado_alt_synth` for is now
+  `outputs/<design>.bit`, the name `fpga_pack` and a located bitstream use. It was
+  `outputs/bitstream.bit`.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

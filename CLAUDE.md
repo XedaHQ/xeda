@@ -378,7 +378,13 @@ cardinality: `Path` one, `Path | None` optional, `list[Path]` an ordered nonempt
 list with `In(optional=True)` may be empty). `In` names accepted `SourceType`s and optionally a
 canonical default `producer` and its `output`; `Out(enabled_by=...)` names a setting that enables
 an optional output. A consumer switches a Boolean setting on; other settings need a valid
-nonempty default or an explicit value. The flow chooses its output paths inside its run directory.
+nonempty default or an explicit value. A deliverable switch (`vivado_synth`'s `bitstream`) gets
+its conventional name, `outputs/<design>.<ext>`, the name the run writes when the setting names a
+location: `Flow.enable_output(settings, name, design_name=...)` takes the design's name for it,
+so one output has one name however it is asked for
+(`test_one_dependency_mechanism.py::naming_problems`; `vivado_postsynth_sim.saif`, still
+`activity.saif` in the reviewed tool-input goldens, is its one listed exception). The flow chooses
+its output paths inside its run directory.
 
 - **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input
   origins, switched-on outputs, identities and paths before constructing flows. Settings access gives

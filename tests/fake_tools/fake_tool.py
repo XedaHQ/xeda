@@ -442,9 +442,10 @@ proc __vivado_step {run step} {
         return 0
     }
     if {$step eq "write_bitstream"} {
-        __output $::__vivado_top.bit
+        # what a real step writes is never empty: a programmer refuses an empty file
+        __vivado_text $::__vivado_top.bit "fake Vivado bitstream of $::__vivado_top\n"
         if {[string is true -strict [__vivado_run_property $run STEPS.$STEP.ARGS.BIN_FILE 0]]} {
-            __output $::__vivado_top.bin
+            __vivado_text $::__vivado_top.bin "fake Vivado bin of $::__vivado_top\n"
         }
     }
     __vivado_hook $run $STEP POST
