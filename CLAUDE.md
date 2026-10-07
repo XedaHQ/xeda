@@ -51,8 +51,9 @@ checkout guard still fires (per worker, at its teardown, on whichever test ran l
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules (`ruff check --select F src tests`, the
-`tox -e ruff` env) all pass; keep them that way. The full `ruff check` ruleset reports many
+`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules plus `PLW0133`, which flags a built-in exception that is built and never raised (`ruff check --select F,PLW0133 src tests`, the
+`tox -e ruff` env) all pass; keep them that way. `PLW0133` does not see the exception classes xeda
+defines (`RunDirectoryError(...)` on a line of its own); `tests/test_exceptions_are_raised.py` does. The full `ruff check` ruleset reports many
 pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
 enforced. Don't mass-fix those; keep new code clean.
 
@@ -820,8 +821,8 @@ generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
-symbolic link on the way, not even one that stays inside), shared by the chip databases and the
-generator records. `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+symbolic link on the way, not even one that stays inside), shared by the chip databases, the
+generator records and the Git dependency clones (see below). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
 **`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
 records what that generation leaves: that is the escape where something xeda cannot see changed
 (a generator's environment is deliberately untracked), since a `touch` no longer forces anything.
@@ -831,6 +832,27 @@ keeps, and it keeps it there. What the *generator* writes in the design's tree i
 generates and nothing else
 (`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`:
 the audit hook records no violation of xeda's own, the canary sweep sees only those sources; `tests/test_generator_staleness.py`).
+
+**A Git dependency's clone lies at `<cache>/<host>/<name>`**, the cache being `<run root>/.dependencies`
+(named through `RunDirectory.unlinked`), a `local_cache` the user names, or none when the user gives
+`clone_dir`. `design.clone_name_parts` makes the two names: the host and its port folded into one
+token, and the repository path with the commit (else the branch) folded into one readable token,
+then `_` and a 16-digit digest of the whole identity, the repository URL, the branch and the commit.
+Folding cannot keep `a/b` and `a_b` apart; the digest does, so references that select different
+clones never share a directory, and one reference always has the same. `tests/test_git_dependencies.py`
+pins a name: changing the identity re-clones everything, and moves the `design_hash` of every design
+with a Git dependency (its sources count by path). A clone is one directory below its host's, so
+none lies inside another. A path, branch or commit with a `.` or `..` component, a drive such as
+`C:`, a leading `/`, a backslash or a NUL is refused -- each makes a joined path leave the cache, on
+Windows or POSIX -- and so is a host with any but the drive (`h:8443` is a host and a port) and an
+empty path. `design.clone_location` joins the names below the cache and requires the result to lie
+inside it, for a cache under the run root too (where `RunDirectory.unlinked` alone keeps a name
+inside the run root, not inside the cache), then applies `unlinked` there. The names are checked
+where they name a directory, at load (`GitReference.validate_repo`) and when the clone is located.
+A `clone_dir` is used as given: nothing is named from the URL, so nothing is checked, and a URL with
+no host (`git@host:path`, `file:///path`, a bare path) loads with it. A `local_cache` is the user's
+own directory: only the names and the lexical containment are checked (`os.path.abspath`, so a
+cache that is `.` works), and a link is followed.
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: the plan has one node per flow, so a second entry into a
@@ -1460,6 +1482,14 @@ dependency must also share `custom_boards_file`.
   Source path spelling matters because Yosys embeds it in generated names. No general area/timing
   advantage should be claimed from the mode.
 
+  `flatten` is mode-specific too. Unset on a Xilinx target it is exactly `flatten: true`
+  (`Settings.effective_flatten`, used by `synth_command` and both `yosys_fpga_synth` templates):
+  xeda flattens before the RTL outputs (`rtl_verilog`, `rtl_json`) and passes `-flatten`, because
+  `synth_xilinx` alone keeps the hierarchy and the measured corpus was `flatten: true`.
+  `synth_pass_only` leaves it to the pass (False for Xilinx, no option), and the other targets'
+  passes flatten on their own, so unset adds nothing there. An explicit value applies in both
+  modes. `tests/test_yosys_recipe.py` pins the unset script equal to the `flatten: true` one.
+
   ABC9 script defaults are mode-specific: with `abc9_script=None`, the full Xeda recipe selects
   `flow3`, while pass-only leaves the synthesis pass's choice in effect. The full recipe also
   derives ABC9 delay from the clock; pass-only does not add that implicit delay. An explicit
@@ -1473,7 +1503,10 @@ dependency must also share `custom_boards_file`.
 
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The
-  target pass's `primitive_libraries()` still describes the libraries it reads internally.
+  target pass's `primitive_libraries()` still describes the libraries it reads internally. It is
+  one list for every supported release (`PASS_READS` in `tests/test_yosys_fpga_flags.py`, checked
+  by hand against each release's pass); the installed yosys is compared with it by test, both
+  directions, for every target, Gowin included.
   `verilog_lib` is a reviewed user read after sources; when it names a file already read by the
   pass, `YosysFpga.verilog_libraries_to_read()` skips that duplicate by file identity. Yosys' `+/...`
   spelling is compared lexically; ordinary paths are compared against the selected Yosys
@@ -1485,6 +1518,21 @@ dependency must also share `custom_boards_file`.
   classified as a refused Xeda stage or a reviewed read; tests compare generated scripts and
   exercise the native result against installed Yosys without claiming every reader/path setup is
   identical by default.
+
+  **Library boxes and `write_json`.** Every `-lib` read leaves boxes in the design, and `-lib`
+  keeps the `lib_whitebox` models with their unprocessed `always` blocks, which `write_json`
+  refuses ("Module ALU contains processes"). `write_verilog` and `show` skip boxes; `write_json`
+  does not. So the RTL stage (`post_rtl`, shared by `yosys`, `yosys_sim` and `yosys_fpga`) writes
+  `write_json -selected`, and the default selection holds no box: the RTL outputs describe the
+  design's own modules. The FPGA passes end with `blackbox =A:whitebox`, and `yosys_synth` does
+  the same before its netlist when `verilog_lib` is set (without it the script is as it was,
+  which `tests/test_tool_input_equivalence.py` pins), so the netlist JSON never meets a
+  whitebox. A new `write_json` needs one of the two. `post_rtl` blocks end their last command
+  with a newline: an includer's `-%}` would otherwise glue the next command to it (the `.tcl`
+  form failed in Tcl that way). CI's yosys has no Tcl, so `tests/test_yosys_templates.py`
+  renders the three flows' scripts over every combination of RTL outputs and `stop_after`,
+  checks each command is a line of its own, and runs the `.tcl` ones under `tclsh` with stub
+  commands (`require_tclsh`); each glue fix has a revert that fails it.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).
@@ -1522,8 +1570,9 @@ dependency must also share `custom_boards_file`.
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
 - Formatting: `black` (line-length 100) is enforced on `src/` and `tests/` (`tox -e black`); the
-  Pyflakes rules of `ruff` (`ruff check --select F src tests`, line-length 120, `target-version =
-  "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
+  Pyflakes rules and `PLW0133` (a built-in exception built and never raised) of `ruff`
+  (`ruff check --select F,PLW0133 src tests`, line-length 120, `target-version = "py311"`) are
+  enforced there too, and the rest of `ruff`'s ruleset is not.
 
 YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
 input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and

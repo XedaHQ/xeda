@@ -19,6 +19,64 @@ All notable changes to this project will be documented in this file.
   is enforcing, the container is no longer confined by SELinux. The old `:z` kept the confinement
   but relabeled your files. To have a mount relabeled, write `:z` in its `Docker.mounts` value,
   which Xeda passes through as given.
+- A Git dependency whose URL or reference had a `..` component (`https://h/a/../../x.git`, a branch
+  `../../x`) was cloned outside the clone cache and could leave the run root. Where xeda names a
+  clone directory from a reference, the repository path, the branch and the commit must not have a
+  `.` or `..` component, a drive such as `C:`, a leading `/`, a backslash or a NUL. The host must
+  not have those either, but `h:8443` (a host and its port) is not a drive. The path must not be
+  empty. Xeda checks the names when it loads the design, before it clones anything. It also checks
+  that the clone directory lies inside the cache, for a cache under the run root too. A `clone_dir`
+  is used as given, so nothing is checked then: a URL with no host (`git@host:org/repo.git`,
+  `file:///srv/lib.git`, a path) works with it.
+- Two references that select different clones could share one clone directory, and the second then
+  loaded the design the first had cloned. `https://h/u/lib.git_a/b` and
+  `https://h/u/lib.git?branch=a/b` were both `h/u/lib.git_a/b`, `.../lib.git_commit=abc` and
+  `?commit=abc` were alike, and so were `U/Lib.git` and `u/lib.git` on a file system that ignores
+  letter case. A clone directory is now `<host>/<name>`, one directory below its host's. The name
+  is the repository path and the commit, or else the branch, in a readable form, then `_` and a
+  16-digit digest of the repository URL, the branch and the commit. Existing clones are made again
+  once, in their new directories. A design with a Git dependency names the dependency's sources by
+  their path, so its flows run again once too.
+- The clone cache under the run root (`.dependencies`) follows the rule of every other cache
+  there: a symbolic link anywhere on the way to a clone, even one that stays inside the run root,
+  is refused, and nothing is cloned through it. A `local_cache` or `clone_dir` you name stays yours
+  to direct.
+- `GitReference.fetch_design` built `ValueError("repo is None!")` and dropped it, so a clone that
+  returned no repository went on. It raises the error now. `tox -e ruff` enforces `PLW0133`, which
+  flags a built-in exception that is built and never raised, and
+  `tests/test_exceptions_are_raised.py` makes the same check for the exception classes xeda defines.
+- A Chisel generator with `build_system: bloop` and an empty `project` ran `bloop projects`
+  instead of the generator. The error for the missing project was built and never raised, and the
+  command built for an empty project is `bloop projects`. It raises "`project` must be specified
+  for Chisel generator" now. Blank output from `bloop projects` was split into an empty project
+  name, which had the same result. It now reports "No projects found!".
+- A message about a Chisel generator with `build_system: bloop` and no `project` named the
+  command `bloop projects`, which only finds the project. It names the kind of generator
+  (`ChiselGenerator`) until a project is selected.
+- `yosys_fpga` for Gowin read no primitive library, so a design that instantiated a Gowin
+  primitive (`DFF`, for example) failed at `hierarchy -check`. It now reads the two libraries
+  `synth_gowin` reads: `cells_sim.v` and the `cells_xtra_<family>.v` of the device's family. For
+  ECP5 with Yosys older than 0.69 it read `+/ecp5/cells_sim.v`, a file the pass never reads, and
+  not `cells_bb_ecp5.v`. Every supported release reads the Lattice pair, as the pass does. A test
+  now compares the libraries with the pass's own, in both directions, for every target.
+  Each library read moves Yosys's name counter, so the generated cell names of a Gowin netlist
+  (and of an ECP5 netlist with Yosys older than 0.69) can differ from before. In the designs
+  checked, the cell counts were equal. A Gowin run with a `verilog_lib` entry given as an ordinary
+  path now asks `yosys-config` for Yosys's data directory, as the other targets do.
+- `rtl_json` failed with `ERROR: Module ALU contains processes` when the design held a primitive
+  library. Every `yosys_fpga` target reads one. A `verilog_lib` file can hold the same models for
+  the `yosys` flow, when Yosys keeps them as whiteboxes. `rtl_json` now writes the design's own
+  modules only, as `rtl_verilog` and `rtl_graph` always did. A blackbox module, such as a library
+  cell or a `black_box` module, is no longer listed in it. With a `verilog_lib`, the `yosys` flow
+  now ends its synthesis with `blackbox =A:whitebox`, as the FPGA passes do, so its netlist JSON
+  no longer fails on such a library either. With a whitebox library, its `cells` result and the
+  `num_submodules` of its utilization report now count the library instances as cells, not as
+  submodules, as the `yosys_fpga` results do. Its script is unchanged without a `verilog_lib`.
+- `yosys_fpga` with `script_format: tcl` put the command after the RTL outputs on the same line
+  as the last one. With `rtl_json` or `rtl_verilog` set, Tcl rejected the script with
+  `extra characters after close-quote`. With `rtl_graph` set, yosys rejected the `show` command
+  with `Unexpected option in selection arguments`. With `stop_after: rtl`, `exit` was joined to
+  the next command, so the script did not stop. Every RTL output now ends with a newline.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -276,6 +334,14 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **`yosys_fpga` flattens Xilinx designs by default.** An unset `flatten` on a Xilinx target is
+  now `flatten: true`. `synth_xilinx` alone keeps the hierarchy, and flattening was never worse
+  in 18 measured designs: Fmax rose by a factor of 1.08 (1.03 to 1.13), at a cost of 0.2 to 1.1
+  CPU seconds. Xeda flattens before it writes the RTL outputs, so `rtl_verilog` and `rtl_json`
+  are flat too, and `-flatten` goes on the pass. `flatten: false` keeps the hierarchy. Under
+  `synth_pass_only`, an unset `flatten` is still the pass's own choice, so that mode keeps
+  matching a native `yosys` run. The other targets' passes flatten on their own and are
+  unchanged. The netlists, and the results of runs that used the default, change.
 - **Every flow runs through the resolver.** A flow that declares no inputs and no outputs (`bsc`,
   `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
   of several. Its run directory, its recorded settings and its identity are the ones it had
