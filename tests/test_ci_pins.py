@@ -7,8 +7,8 @@ pin never moves back, and nothing runs when upstream is not newer. What GitHub a
 before it reaches a file.
 """
 
-import importlib.util
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +17,18 @@ import pytest
 ROOT = Path(__file__).parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "bump_ci_pins.py"
 
-_spec = importlib.util.spec_from_file_location("bump_ci_pins", SCRIPT)
-assert _spec is not None and _spec.loader is not None
-pins = importlib.util.module_from_spec(_spec)
-sys.modules["bump_ci_pins"] = pins  # the dataclasses of the script look their module up here
-_spec.loader.exec_module(pins)
+
+def _load_script() -> types.ModuleType:
+    """The script as a module. `.github/scripts/` is no package, and importing the file would
+    write its bytecode into the checkout, so its source runs in a module of its own."""
+    module = types.ModuleType("bump_ci_pins")
+    module.__file__ = str(SCRIPT)
+    sys.modules["bump_ci_pins"] = module  # the dataclasses of the script look their module up here
+    exec(compile(SCRIPT.read_text(encoding="utf-8"), str(SCRIPT), "exec"), module.__dict__)
+    return module
+
+
+pins = _load_script()
 
 OLD_SHA256 = "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
 NEW_SHA256 = "ab" * 32

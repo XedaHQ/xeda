@@ -1148,14 +1148,18 @@ directory).
   case: links in, out, dangling, cyclic and at a working location's name, through a relaunch,
   `--clean`, post-cleanup, a purge, `xeda scrub` and deliveries, with the outside tree unchanged.
 
-`tests/conftest.py`'s autouse, session-scoped fixture snapshots the checkout's top level, `tests/`
-and every example design's own directory before the suite runs, and fails if any of them gained a
-new entry by the end -- the exemptions are `tests/__pycache__` (the suite's own imports) and a
-top-level `xeda_run/`, the latter only when an opt-in
+`tests/conftest.py`'s autouse, session-scoped fixture fails if the checkout's top level, `tests/`,
+any example design's own directory, or `.github/` and `tools/` (each with every directory below
+it) gained a new entry since `conftest.py` was imported -- the snapshot is taken at import, before
+pytest imports the test modules, so a module that writes as it is imported (the bytecode of a
+script it loads) fails the run too. The exemptions are `tests/__pycache__` (the suite's own
+imports) and a top-level `xeda_run/`, the latter only when an opt-in
 layer (`XEDA_TESTS_VIVADO`/`XEDA_TESTS_DOCKER`/`XEDA_TESTS_EXTERNAL`) is set, since those tests
 deliberately work in the checkout's own `xeda_run/` (a container can mount it where the system
 temp directory is not). A `__pycache__` in an example's directory is a failure: `test_ghdl.py`
-and `test_nvc.py` simulate the examples in place.
+and `test_nvc.py` simulate the examples in place. A test that runs a script of `.github/` or
+`tools/` as a module loads its source without bytecode (`tests/test_changelog_fragments.py`,
+`tests/test_ci_pins.py`); `tests/test_checkout_guard.py` is the guard's own oracle.
 
 ### Other runners
 

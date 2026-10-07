@@ -19,16 +19,30 @@ OPT_IN_WORK_DIR = "xeda_run"
 #: `__pycache__` it may add. Nothing xeda starts may add one elsewhere (a cocotb testbench's is
 #: cached in the run directory).
 TESTS_PYCACHE = CHECKOUT / "tests" / "__pycache__"
+#: Directories, with every directory below them, whose scripts and workflows the suite reads or
+#: loads as modules. Their names start with a dot, or they are no package: nothing else would
+#: notice the bytecode that loading a script there writes.
+WATCHED_TREES = (".github", "tools")
 
 
 def _watched() -> list[Path]:
-    """The checkout's top level, `tests/`, and every directory holding an example design."""
+    """The checkout's top level, `tests/`, every directory holding an example design, and
+    `WATCHED_TREES` (those that exist) with each directory below them."""
     examples = {
         p.parent
         for p in (CHECKOUT / "examples").rglob("*")
         if p.suffix in (".toml", ".yaml", ".yml") and "xeda_run" not in p.parts
     }
-    return [CHECKOUT, CHECKOUT / "tests", *sorted(examples)]
+    trees = [
+        directory
+        for name in WATCHED_TREES
+        if (CHECKOUT / name).is_dir()
+        for directory in (
+            CHECKOUT / name,
+            *sorted(p for p in (CHECKOUT / name).rglob("*") if p.is_dir()),
+        )
+    ]
+    return [CHECKOUT, CHECKOUT / "tests", *sorted(examples), *trees]
 
 
 def _entries(directories: list[Path]) -> set[str]:
@@ -40,14 +54,24 @@ def _entries(directories: list[Path]) -> set[str]:
     }
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _nothing_is_written_into_the_checkout():
-    directories = _watched()
-    before = _entries(directories)
-    yield
-    new = _entries(directories) - before
+#: What the checkout held when this file was imported, before pytest imported any test module. A
+#: fixture would be too late: collection runs first, and a module that writes as it is imported
+#: (the bytecode of a script it loads) would be part of the picture the fixture takes.
+DIRECTORIES_AT_START = _watched()
+ENTRIES_AT_START = _entries(DIRECTORIES_AT_START)
+
+
+def _entries_added_since_the_start() -> set[str]:
+    new = _entries(DIRECTORIES_AT_START) - ENTRIES_AT_START
     if any(_opted_in(layer) for layer in OPT_IN_LAYERS):
         new.discard(OPT_IN_WORK_DIR)
+    return new
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _nothing_is_written_into_the_checkout():
+    yield
+    new = _entries_added_since_the_start()
     assert not new, f"tests wrote into the checkout: {sorted(new)}"
 
 
