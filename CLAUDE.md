@@ -921,7 +921,11 @@ allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_
 only then asks the producers' questions; its own question comes at its turn, still before any
 tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
-a launch; that second check records what it found (`Deliveries.checked`). A yes holds for the
+a launch; that second check records what it found (`Deliveries.checked`). The object read its
+delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
+the record again if its file changed (`Deliveries.reread_record`, by the file's `_state`):
+another launch of the run directory may have delivered meanwhile, and this one would otherwise
+find its file not xeda's, or write the old record back over the other launch's entry. A yes holds for the
 file as it was when asked (`ConfirmedReplacements`, keyed on the file's `_state`): the second
 check asks again about a file that changed meanwhile, and `checked` is taken before the question,
 so a file edited while the question is open is not replaced. A refusal made before a flow's tool

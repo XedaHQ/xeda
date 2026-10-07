@@ -571,6 +571,23 @@ def test_a_yes_is_remembered_for_the_file_as_it_was_and_only_for_that(tmp_path):
     assert confirmed.confirm(ask, conflicts) and asked[2:] == [["second.v"]], "no was no yes"
 
 
+def test_a_record_is_read_again_only_when_its_file_changed(tmp_path):
+    run_path, run_root = tmp_path / "run" / "d" / "flow", tmp_path / "run"
+    mine = deliver.Deliveries(run_path, run_root, inputs=deliver.ReadInputs())
+    mine.record["files"]["held"] = {"anchored": "in memory"}
+    mine.reread_record()
+    assert "held" in mine.record["files"], "its file did not change: what it holds still stands"
+
+    theirs = deliver.Deliveries(run_path, run_root, inputs=deliver.ReadInputs())
+    theirs.record["files"]["written"] = {"by": "another launch"}
+    theirs._write_record()
+    mine.reread_record()
+    assert list(mine.record["files"]) == ["written"], "its file changed: what is there is read"
+    mine.record["files"]["held"] = {"anchored": "in memory"}
+    mine.reread_record()
+    assert "held" in mine.record["files"], "and again, nothing changed since"
+
+
 def test_a_file_edited_while_the_question_is_open_is_not_replaced(world):
     """A yes is for the file the user was asked about, as it was when the question was asked: a
     file edited while the answer is awaited is not delivered over."""

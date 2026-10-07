@@ -508,6 +508,8 @@ class Deliveries:
         self.overwrite = overwrite
         self.confirm = confirm
         self.record_path = delivery_record(self.run_path)
+        #: the record file as it was just before it was read (`reread_record`)
+        self._record_state: _State = _state(self.record_path)
         self.record = _read_record(self.record_path)
         #: every destination checked before the run, as it was then
         self.checked: dict[Path, _State] = {}
@@ -517,6 +519,19 @@ class Deliveries:
         #: what `deliver` has copied so far this call, even one it goes on to raise out of: an
         #: `OSError` partway through must not make the copies already made unreported
         self.delivered: list[Delivered] = []
+
+    def reread_record(self) -> None:
+        """Read the delivery record again if its file changed since it was read. The run
+        directory's lock is what keeps the file from changing during a node's turn, so a node
+        whose deliveries were made ready before its turn (`FlowLauncher._check_deliveries_ahead`)
+        calls this once it holds the lock: another launch of the run directory may have delivered
+        and written the record meanwhile, and what this object read then is no longer true. The
+        record is kept as it is when its file did not change: the entries a check anchored in it
+        still vouch for their destinations, so nothing is read twice."""
+        state = _state(self.record_path)
+        if state != self._record_state:
+            self._record_state = state
+            self.record = _read_record(self.record_path)
 
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Why nothing may ever be delivered to `destination` (located), whatever the options."""
@@ -709,7 +724,8 @@ class Deliveries:
         confirmed, refuse to replace a file that is not xeda's own unchanged earlier delivery
         (`OutputExistsError`). A launch checks a producer's deliveries ahead and again at its
         turn with the same object: the second check finds the record the first anchored, so a
-        destination is read once for the launch.
+        destination is read once for the launch. The turn first reads the record again if its
+        file changed meanwhile (`reread_record`).
 
         Each destination is taken as it is when examined, and that is what `deliver` compares
         with: a file edited while the question was open is not replaced on a yes given for the

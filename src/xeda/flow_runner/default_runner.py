@@ -1089,7 +1089,8 @@ class FlowLauncher:
         of the producers, in the order they run, each asked once. The requested flow asks its own
         at its turn, which comes before any tool runs. A producer keeps the object it checked and
         checks again with it at its turn: that finds the record this check anchored, so the
-        destination is read once in the launch."""
+        destination is read once in the launch. At its turn, under its lock, the producer reads
+        the delivery record again if another launch wrote it meanwhile."""
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries)
         own.check_outputs_to(outputs_to)
@@ -1223,6 +1224,9 @@ class FlowLauncher:
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:
                 delivery = self._deliveries_of(run_path, deliveries)
+            else:
+                # made ready before this lock was taken: the record may have been written since
+                delivery.reread_record()
             # the directory itself, not only a file predicted from the last run's artifacts: a
             # location becomes a concrete `Delivery` only once its tool has run and reported an
             # artifact, so without this a run root or an input named by `--outputs-to` is refused
