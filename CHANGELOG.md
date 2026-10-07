@@ -19,15 +19,6 @@ All notable changes to this project will be documented in this file.
   is enforcing, the container is no longer confined by SELinux. The old `:z` kept the confinement
   but relabeled your files. To have a mount relabeled, write `:z` in its `Docker.mounts` value,
   which Xeda passes through as given.
-- A Git dependency whose URL or reference held a `..` component (`https://h/a/../../x.git`, a branch
-  `../../x`) was cloned outside the clone cache and could leave the run root. The host, the path,
-  the branch and the commit now may not have a `.` or `..` component or a backslash, the path may
-  not be empty, and the clone directory must lie inside the cache; xeda refuses such a reference
-  when it loads the design, before it clones anything. The clone cache under the run root
-  (`.dependencies`) follows the rule of every other cache there: a symbolic link anywhere on the
-  way to a clone, even one that stays inside the run root, is refused and nothing is cloned through
-  it. A `local_cache` or `clone_dir` you name stays yours to direct. A clone that returned no
-  repository was built as an error but never raised; it is raised now.
 - A Git dependency whose URL or reference had a `..` component (`https://h/a/../../x.git`, a branch
   `../../x`) was cloned outside the clone cache and could leave the run root. Where xeda names a
   clone directory from a reference, the repository path, the branch and the commit must not have a
