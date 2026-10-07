@@ -198,6 +198,25 @@ def test_xilinx_flattens_by_default_except_under_synth_pass_only(
 
 
 @BY_FORMAT
+def test_an_unset_flatten_on_xilinx_renders_exactly_the_script_of_flatten_true(
+    tmp_path, toolchain, script_format
+):
+    """The configuration measured as the better default is `flatten: true`, which flattens in
+    xeda's own step, before the RTL outputs, and again with `-flatten` on the pass. An unset
+    `flatten` is that run, not a flatter one or a sparser one."""
+    name = f"yosys_fpga_synth.{script_format}"
+    unset = (_launch(tmp_path, PARTS["xilinx"], script_format=script_format) / name).read_text()
+    flat = (
+        _launch(tmp_path, PARTS["xilinx"], script_format=script_format, flatten=True) / name
+    ).read_text()
+    kept = (
+        _launch(tmp_path, PARTS["xilinx"], script_format=script_format, flatten=False) / name
+    ).read_text()
+    assert unset == flat
+    assert unset != kept
+
+
+@BY_FORMAT
 @pytest.mark.parametrize("target", ["ecp5", "ice40", "nexus", "gowin"])
 def test_the_other_targets_leave_flattening_to_their_pass_by_default(
     tmp_path, toolchain, script_format, target
@@ -301,8 +320,6 @@ def test_no_data_directory_is_asked_for_unless_an_entry_needs_one(tmp_path, tool
         raise AssertionError("yosys' data directory was asked for")
 
     monkeypatch.setattr("xeda.flows.yosys.yosys_fpga.yosys_data_dir", asked)
-    own = tmp_path / "own.v"
-    own.write_text("module own(); endmodule\n")
     _launch(tmp_path, PARTS["xilinx"], synth_pass_only=True, verilog_lib=["+/xilinx/cells_sim.v"])
 
 

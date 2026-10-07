@@ -55,10 +55,23 @@ All notable changes to this project will be documented in this file.
   (`ChiselGenerator`) until a project is selected.
 - `yosys_fpga` for Gowin read no primitive library, so a design that instantiated a Gowin
   primitive (`DFF`, for example) failed at `hierarchy -check`. It now reads the two libraries
-  `synth_gowin` reads, `cells_sim.v` and the `cells_xtra_<family>.v` of the device's family. For
+  `synth_gowin` reads: `cells_sim.v` and the `cells_xtra_<family>.v` of the device's family. For
   ECP5 with Yosys older than 0.69 it read `+/ecp5/cells_sim.v`, a file the pass never reads, and
-  not `cells_bb_ecp5.v`; every supported release reads the Lattice pair, as the pass does. A test
+  not `cells_bb_ecp5.v`. Every supported release reads the Lattice pair, as the pass does. A test
   now compares the libraries with the pass's own, in both directions, for every target.
+  Each library read moves Yosys's name counter, so the generated cell names of a Gowin netlist
+  (and of an ECP5 netlist with Yosys older than 0.69) can differ from before. The cell counts are
+  equal. A Gowin run with a `verilog_lib` entry given as an ordinary path now asks `yosys-config`
+  for Yosys's data directory, as the other targets do.
+- `rtl_json` failed with `ERROR: Module ALU contains processes` whenever a primitive library was
+  in the design. Every `yosys_fpga` target reads one, and so does a `verilog_lib` model that Yosys
+  keeps as a whitebox. `rtl_json` now writes the design's own modules only, as `rtl_verilog` and
+  `rtl_graph` always did. A blackbox module, such as a library cell or a `black_box` module, is no
+  longer listed in it. The `yosys` flow now ends its synthesis with `blackbox =A:whitebox`, as the
+  FPGA passes do, so its netlist JSON no longer fails on such a library either.
+- `yosys_fpga` with `script_format: tcl` put the command after the RTL outputs on the same line
+  as the last one, so Tcl rejected the script ("extra characters after close-quote") whenever
+  `rtl_json`, `rtl_verilog` or `rtl_graph` was set.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -316,12 +329,14 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
-- **`yosys_fpga` flattens Xilinx designs by default.** `synth_xilinx` alone keeps the hierarchy,
-  and flattening was never worse in 18 measured designs: Fmax rose by a factor of 1.08 (1.03 to
-  1.13), at a cost of 0.2 to 1.1 CPU seconds. An unset `flatten` now adds `-flatten` for Xilinx targets; `flatten: false`
-  keeps the hierarchy. Under `synth_pass_only`, an unset `flatten` is still the pass's own
-  choice, so that mode keeps matching a native `yosys` run. The other targets' passes flatten on
-  their own and are unchanged. Netlists, and the results of runs that used the default, change.
+- **`yosys_fpga` flattens Xilinx designs by default.** An unset `flatten` on a Xilinx target is
+  now `flatten: true`. `synth_xilinx` alone keeps the hierarchy, and flattening was never worse
+  in 18 measured designs: Fmax rose by a factor of 1.08 (1.03 to 1.13), at a cost of 0.2 to 1.1
+  CPU seconds. Xeda flattens before it writes the RTL outputs, so `rtl_verilog` and `rtl_json`
+  are flat too, and `-flatten` goes on the pass. `flatten: false` keeps the hierarchy. Under
+  `synth_pass_only`, an unset `flatten` is still the pass's own choice, so that mode keeps
+  matching a native `yosys` run. The other targets' passes flatten on their own and are
+  unchanged. The netlists, and the results of runs that used the default, change.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

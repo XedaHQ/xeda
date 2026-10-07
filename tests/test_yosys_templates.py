@@ -284,10 +284,49 @@ def test_script_format_selects_template_and_flag(tmp_path: Path) -> None:
 def test_stop_after_rtl_omits_synthesis(tmp_path: Path) -> None:
     """`.ys` has no `exit`, so stop_after=rtl must omit the post-RTL commands."""
     script = _render(YosysFpga, _fpga_settings(stop_after="rtl", rtl_json="rtl.json"), tmp_path)
-    assert "write_json rtl.json" in script
+    assert "write_json -selected rtl.json" in script
     assert "synth_xilinx" not in script
     assert "write_netlist" not in script
     assert "opt_clean" not in script
+
+
+def test_every_rtl_json_is_written_from_the_selected_modules() -> None:
+    """`post_rtl` is included by every yosys flow, `yosys_sim` too. The primitive libraries a flow
+    reads with `-lib` are in the design then, as boxes that can keep unprocessed `always` blocks,
+    which `write_json` refuses (`ERROR: Module ALU contains processes`). The default selection
+    holds no box, so `-selected` writes the design's own modules, as `write_verilog` does."""
+    for template in sorted(TEMPLATES_DIR.glob("post_rtl.*")):
+        lines = template.read_text().splitlines()
+        writes = [line for line in lines if re.match(r"(yosys )?write_json\b", line)]
+        assert len(writes) == 1, template.name
+        assert "write_json -selected " in writes[0], f"{template.name}: {writes[0]}"
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize(
+    "flow_cls, settings",
+    [(Yosys, _asic_settings), (YosysFpga, _fpga_settings)],
+    ids=["yosys_synth", "yosys_fpga_synth"],
+)
+def test_the_rendered_rtl_json_is_written_from_the_selected_modules(
+    flow_cls, settings, script_format, tmp_path: Path
+) -> None:
+    script = _render(flow_cls, settings(rtl_json="rtl.json", script_format=script_format), tmp_path)
+    assert re.search(r'^(yosys )?write_json -selected "?rtl\.json"?$', script, re.MULTILINE), script
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_the_synthesis_flow_makes_library_whiteboxes_blackboxes_before_its_netlist(
+    script_format, tmp_path: Path
+) -> None:
+    """The FPGA passes end with `blackbox =A:whitebox`, so no whitebox is left to `write_json`;
+    `synth` does not, so the generic flow does it itself, before it writes any netlist."""
+    script = _render(
+        Yosys, _asic_settings(netlist_json="netlist.json", script_format=script_format), tmp_path
+    )
+    box = re.search(r"^(yosys )?blackbox =A:whitebox$", script, re.MULTILINE)
+    netlist = re.search(r'^(yosys )?write_json "?netlist\.json"?$', script, re.MULTILINE)
+    assert box and netlist and box.start() < netlist.start(), script
 
 
 # yosys commands that expand a file name as a glob pattern, so their file arguments go through

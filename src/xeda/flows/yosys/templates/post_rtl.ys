@@ -1,14 +1,20 @@
-{%- if settings.rtl_json %}
+{#- The RTL outputs describe the design's own modules. At this point every primitive library a
+    flow read with `-lib` is in the design as boxes, and a box can keep its `always` blocks, which
+    `write_json` refuses to write (`Module ALU contains processes`). The default selection holds
+    no box, so `-selected` writes the design's modules only, as `write_verilog` and `show` do.
+    Every block ends its last command with a newline, so an including template that strips the
+    whitespace after the include cannot join the next command to it.
+    yosys scripts have no `exit` command: `stop_after == "rtl"` is handled by the including
+    template, which simply does not emit the post-RTL commands. -#}
+{% if settings.rtl_json -%}
 log -stdout Writing JSON {{settings.rtl_json}}
-write_json {{settings.rtl_json|path}}
-{%- endif %}
-{%- if settings.rtl_verilog %}
+write_json -selected {{settings.rtl_json|path}}
+{% endif -%}
+{% if settings.rtl_verilog -%}
 log -stdout Writing Verilog {{settings.rtl_verilog}}
 write_verilog {{settings.rtl_verilog|path}}
-{%- endif %}
-{%- if settings.rtl_graph %}
+{% endif -%}
+{% if settings.rtl_graph -%}
 log -stdout Writing RTL graph to {{settings.rtl_graph.with_suffix('.dot')}}
 show -prefix {{settings.rtl_graph.with_suffix("")|verbatim_path}} -format dot {{settings.rtl_graph_flags|join(" ")}}
-{%- endif %}
-{#- yosys scripts have no `exit` command: `stop_after == "rtl"` is handled by the
-    including template, which simply does not emit the post-RTL commands. #}
+{% endif -%}

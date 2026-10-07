@@ -182,6 +182,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "applies either way; a setting that would add a step before or after the pass, or "
             "make it read differently from `yosys <files>`, is refused rather than ignored.",
         )
+        flatten: Optional[bool] = Field(
+            None,
+            description="Flatten the design hierarchy. `true` flattens before the RTL outputs "
+            "are written and before synthesis. `false` keeps the hierarchy (`-noflatten` for the "
+            "Lattice, iCE40 and Gowin passes). Unset on a Xilinx target is `true`, so the RTL "
+            "outputs are flat too: `synth_xilinx` alone keeps the hierarchy, and flattening "
+            "measured better. Unset on the other targets leaves it to their passes, which "
+            "flatten on their own. Under `synth_pass_only`, unset is the pass's own choice.",
+        )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
             description="Flags passed to yosys' `read_verilog` for each Verilog source. Add "
@@ -297,9 +306,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
         def primitive_libraries(self) -> list[PrimitiveLibrary]:
             """The primitive models the target's pass reads in its `begin` step, which xeda reads
-            the same way before checking the hierarchy. Every supported yosys release reads the
-            same files. `tests/test_yosys_fpga_flags.py` compares them with each release's pass
-            and with the installed yosys's own `begin`, in both directions."""
+            the same way before checking the hierarchy.
+
+            Every supported yosys release (0.63 to 0.69) reads the same files; `PASS_READS` in
+            `tests/test_yosys_fpga_flags.py` records them, as checked by hand against each
+            release's pass. Only the installed yosys is compared with this list by a test, in
+            both directions: its help, and the files it reads in a run.
+            """
             target = self.synthesis_target()
             if target == "xilinx":
                 return [
@@ -320,10 +333,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
 
         def effective_flatten(self) -> Optional[bool]:
-            """Whether xeda's recipe flattens the design: `flatten` when it is set. Unset, a
-            Xilinx target flattens, which `synth_xilinx` alone does not (it keeps the hierarchy)
-            and which measured better; `synth_pass_only` keeps the pass's own default. None is the
-            pass's choice: the other targets' passes flatten unless told not to."""
+            """Whether the recipe flattens the design: in its own step before the RTL outputs,
+            and with `-flatten` on `synth_xilinx`. It is `flatten` when that is set.
+
+            Unset on a Xilinx target, it is True, so the run is exactly the one `flatten=True`
+            gives, RTL outputs included. `synth_xilinx` alone keeps the hierarchy, and flattening
+            measured better. With `synth_pass_only` it is False instead: the pass keeps its own
+            default. Unset on any other target it is None, as their passes flatten on their own
+            unless told `-noflatten`.
+            """
             if self.flatten is None and self.synthesis_target() == "xilinx":
                 return not self.synth_pass_only
             return self.flatten
@@ -769,8 +787,6 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             text = entry.as_posix()
             if text.startswith("+/"):
                 return any(posixpath.normpath(text) == posixpath.normpath(p) for p in passes)
-            if not passes:
-                return False
             if data_dir is None:
                 try:
                     data_dir = yosys_data_dir(self.yosys)

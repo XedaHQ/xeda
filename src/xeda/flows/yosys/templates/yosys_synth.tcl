@@ -86,6 +86,11 @@ rmports
 {%- if settings.liberty %}
 check {% if settings.check_assert -%} -assert {% endif -%} -mapped
 {%- endif %}
+
+{#- The FPGA passes end with this command, so none leaves a whitebox for `write_json`. `synth`
+    does not, and a library read with `-lib` keeps its `lib_whitebox` models with their `always`
+    blocks, which `write_json` refuses to write. #}
+blackbox =A:whitebox
 {% include "write_netlist.tcl" %}
 
 log -stdout "***** Synthesis Completed *****"

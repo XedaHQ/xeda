@@ -329,7 +329,9 @@ def test_yosys_fpga_gowin_primitives_are_known_at_hierarchy_check(family, tmp_pa
     root = tmp_path / "gowin-primitives"
     _write(
         root / "top.v",
-        "module top(input clk, input d, output q);\n  DFF ff(.D(d), .CLK(clk), .Q(q));\nendmodule\n",
+        "module top(input clk, input d, output q);\n"
+        "  DFF ff(.D(d), .CLK(clk), .Q(q));\n"
+        "endmodule\n",
     )
     design = Design(
         name="gowin-primitives", design_root=root, rtl={"sources": ["top.v"], "top": "top"}
@@ -338,6 +340,53 @@ def test_yosys_fpga_gowin_primitives_are_known_at_hierarchy_check(family, tmp_pa
         YosysFpga, design, {"fpga": {"vendor": "gowin", "family": "gowin", "device": family}}
     )
     assert flow is not None and flow.succeeded
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("library", ["+/gowin/cells_sim.v", "+/xilinx/cells_sim.v"])
+def test_yosys_writes_its_json_with_whitebox_library_cells_in_the_design(
+    library, script_format, tmp_path
+):
+    """`verilog_lib` is read with `-lib`, which keeps the models yosys marks `lib_whitebox` as
+    whiteboxes with their `always` blocks: `write_json` fails on those (`ERROR: Module ALU
+    contains processes`). The RTL outputs describe the design's own modules; the netlist, written
+    after synthesis, holds the library cells as blackboxes, as the FPGA passes leave them."""
+    require_yosys()
+    if script_format == "tcl" and not _yosys_has_tcl():
+        pytest.skip("this yosys has no TCL support")
+    root = tmp_path / "design"
+    _write(
+        root / "top.v",
+        "module leaf(input a, output y); assign y = ~a; endmodule\n"
+        "module top(input clk, input a, output reg q);\n"
+        "  wire n;\n  leaf u(.a(a), .y(n));\n  always @(posedge clk) q <= n;\nendmodule\n",
+    )
+    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    settings = {
+        "script_format": script_format,
+        "verilog_lib": [library],
+        "flatten": False,
+        "rtl_json": "rtl.json",
+        "rtl_verilog": "rtl.v",
+        "rtl_graph": "rtl.dot",
+        "netlist_json": "netlist.json",
+        "netlist_verilog": "netlist.v",
+    }
+    flow = DefaultRunner(tmp_path / "run").run_flow(Yosys, design, settings)
+    assert flow is not None and flow.succeeded
+    run = Path(flow.run_path)
+    assert set(json.loads((run / "rtl.json").read_text())["modules"]) == {"leaf", "top"}
+    rtl = (run / "rtl.v").read_text()
+    assert set(re.findall(r"^module\s+(\S+?)\s*\(", rtl, re.MULTILINE)) == {"leaf", "top"}
+    dot = (run / "rtl.dot").read_text()
+    assert set(re.findall(r'^digraph "([^"]+)"', dot, re.MULTILINE)) == {"leaf", "top"}
+    netlist = json.loads((run / "netlist.json").read_text())["modules"]
+    assert "top" in netlist
+    assert not [
+        name
+        for name, module in netlist.items()
+        if "whitebox" in module.get("attributes", {}) and "blackbox" not in module["attributes"]
+    ]
 
 
 def test_yosys_fpga_xilinx_library_does_not_hide_unknown_modules(tmp_path):

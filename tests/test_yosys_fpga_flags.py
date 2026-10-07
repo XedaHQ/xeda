@@ -9,9 +9,8 @@ combination the pass accepts, or it is rejected -- never dropped -- and it is re
 the pass cannot honor it.
 """
 
-import os
+import json
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,15 +20,17 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsException
+from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import (
     MINIMUM_YOSYS,
     NEWEST_CHECKED_YOSYS,
     YosysRelease,
+    same_file,
     yosys_release,
 )
 
-from .tool_utils import require_yosys
+from .tool_utils import _command_succeeds, require_yosys, require_yosys_config
 
 # `synth_ecp5` runs `synth_lattice -family ecp5`, so the two take the same options.
 LATTICE_0_63 = frozenset(
@@ -434,11 +435,13 @@ def _gowin(family: str):
 
 
 #: What each target's pass reads in its `begin` step, as `(flags, path)`. Every supported release
-#: (0.63 to 0.69) reads the same files: checked by running `synth_ecp5`, `synth_lattice`,
-#: `synth_nexus`, `synth_gowin`, `synth_xilinx` and `synth_ice40` of each release and listing the
-#: files its frontend read. `synth_ecp5` has always been `synth_lattice -family ecp5`, so it reads
-#: the Lattice library of its family, never `+/ecp5/cells_sim.v`. The iCE40 define is left out;
-#: it follows the device, and `test_the_ice40_library_is_defined_for_the_device` covers it.
+#: (0.63 to 0.69) reads the same files. That was checked by hand, once per release: by running
+#: `synth_ecp5`, `synth_lattice`, `synth_nexus`, `synth_gowin`, `synth_xilinx` and `synth_ice40`
+#: and listing the files the frontend read, and by reading each pass's help. Only the installed
+#: yosys is compared with this table by a test (below). `synth_ecp5` is `synth_lattice -family
+#: ecp5` in every supported release, so it reads the Lattice library of its family, never
+#: `+/ecp5/cells_sim.v`. The iCE40 define is left out; it follows the device, and
+#: `test_the_ice40_library_is_defined_for_the_device` covers it.
 PASS_READS: Dict[str, set] = {
     "xilinx": _XILINX,
     "xilinx-lut4": _XILINX,
@@ -492,6 +495,7 @@ def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(targ
     reads, and with the flags its help gives them (`-lib -specify`). The table the other test
     checks every release against must agree with it too."""
     require_yosys()
+    require_yosys_config()
     release = _installed_release()
     settings = YosysFpga.Settings(fpga=TARGETS[target])
     libraries = settings.primitive_libraries()
@@ -519,22 +523,113 @@ def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(targ
     ).stdout
     datdir = Path(
         subprocess.run(
-            [str(Path(shutil.which("yosys") or "yosys").with_name("yosys-config")), "--datdir"],
-            capture_output=True,
-            text=True,
-            check=True,
+            ["yosys-config", "--datdir"], capture_output=True, text=True, check=True
         ).stdout.strip()
     )
     files = re.findall(r"^\d+\.\d+\. Executing Verilog-2005 frontend: (.*)$", log, re.MULTILINE)
-    read = {
-        "+/" + Path(os.path.normpath(f)).relative_to(os.path.normpath(datdir)).as_posix()
-        for f in files
-        if Path(f).name != "top.v"
-    }
-    assert read == {library.path for library in libraries}, (read, libraries)
+    read = [Path(f) for f in files if Path(f).name != "top.v"]
+    expected = [datdir / library.path.removeprefix("+/") for library in libraries]
+    # by file, not by spelling: a Homebrew yosys reports `<prefix>/bin/../share/yosys/...` while
+    # `yosys-config` names the same directory through the Cellar
+    assert len(read) == len(expected), (read, expected)
+    assert all(any(same_file(r, e) for r in read) for e in expected), (read, expected)
 
 
 def test_the_ice40_library_is_defined_for_the_device():
     for part, define in (("iCE40HX1K-TQ144", "ICE40_HX"), ("iCE40UP5K-SG48I", "ICE40_U")):
         (library,) = YosysFpga.Settings(fpga={"part": part}).primitive_libraries()
         assert library.flags[:2] == ("-D", define), library
+
+
+@pytest.mark.parametrize(
+    "target,pass_only,flatten,expected",
+    [
+        # Xilinx: an unset `flatten` is `True`, except that `synth_pass_only` leaves it to the
+        # pass, which keeps the hierarchy
+        ("xilinx", False, None, True),
+        ("xilinx", False, True, True),
+        ("xilinx", False, False, False),
+        ("xilinx", True, None, False),
+        ("xilinx", True, True, True),
+        ("xilinx", True, False, False),
+        ("xilinx-lut4", False, None, True),
+        # the others: unset is the pass's own choice, which is to flatten
+        ("ecp5", False, None, None),
+        ("ecp5", True, None, None),
+        ("ecp5", False, True, True),
+        ("gw1n", False, False, False),
+        ("ice40-hx", True, True, True),
+    ],
+)
+def test_effective_flatten(target, pass_only, flatten, expected):
+    settings = YosysFpga.Settings(fpga=TARGETS[target], synth_pass_only=pass_only, flatten=flatten)
+    assert settings.effective_flatten() is expected
+
+
+HIERARCHY = """\
+module leaf(input a, output y); assign y = ~a; endmodule
+module top(input clk, input a, output q);
+  wire n;
+  leaf u(.a(a), .y(n));
+  reg r;
+  always @(posedge clk) r <= n;
+  assign q = r;
+endmodule
+"""
+
+#: Every target with `flatten` unset, and both values of it on a Xilinx and on another target;
+#: all in a `.ys` script, and three targets in a `.tcl` one.
+RTL_CASES = (
+    [(target, None, "ys") for target in TARGETS]
+    + [(target, flatten, "ys") for target in ("xilinx", "ecp5") for flatten in (True, False)]
+    + [(target, None, "tcl") for target in ("xilinx", "ecp5", "gw1n")]
+)
+
+
+@pytest.mark.parametrize(
+    "target,flatten,script_format",
+    RTL_CASES,
+    ids=[f"{target}-{flatten}-{script_format}" for target, flatten, script_format in RTL_CASES],
+)
+def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_format, tmp_path):
+    """The RTL outputs are written before synthesis, with every primitive library the target's
+    pass reads still in the design as boxes. `write_json` cannot write a box that keeps its
+    `always` blocks (`ERROR: Module ALU contains processes`), and `write_verilog` and `show`
+    skip boxes; so all three describe the design's own modules, and nothing else. The `.tcl`
+    script, which not every yosys build can run, must also keep each command on its own line.
+
+    A flat design is the proof of what `flatten` did before the outputs were written: an unset
+    `flatten` is `True` on Xilinx, so there the hierarchy is gone from them too."""
+    require_yosys()
+    if script_format == "tcl" and not _command_succeeds(["yosys", "-q", "-c", "/dev/null"]):
+        pytest.skip("this yosys has no TCL support")  # oss-cad-suite has none
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text(HIERARCHY)
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+    )
+    settings: Dict[str, Any] = {
+        "fpga": TARGETS[target],
+        "clock": {"period": 5.0},
+        "rtl_json": "rtl.json",
+        "rtl_verilog": "rtl.v",
+        "rtl_graph": "rtl.dot",
+        "script_format": script_format,
+    }
+    if flatten is not None:
+        settings["flatten"] = flatten
+    flow = DefaultRunner(tmp_path / "run", display_results=False).run(
+        YosysFpga, design, flow_settings=settings
+    )
+    assert flow is not None and flow.succeeded
+    run = Path(flow.run_path)
+    flat = flatten if flatten is not None else target.startswith("xilinx")
+    modules = {"top"} if flat else {"leaf", "top"}
+    assert set(json.loads((run / "rtl.json").read_text())["modules"]) == modules
+    verilog = (run / "rtl.v").read_text()
+    assert set(re.findall(r"^module\s+(\S+?)\s*\(", verilog, re.MULTILINE)) == modules
+    graphs = re.findall(r'^digraph "([^"]+)"', (run / "rtl.dot").read_text(), re.MULTILINE)
+    assert set(graphs) == modules
