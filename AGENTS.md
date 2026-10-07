@@ -39,5 +39,8 @@ dashes, underscores and CamelCase; setting names do not.
 ## Contributing to Xeda itself
 
 See [CLAUDE.md](CLAUDE.md) for the repository's own conventions, `mypy src`
-and `black --check src tests` must stay clean, and `tests/test_documentation.py` requires every new flow
+and `black --check src tests tools` must stay clean, and `tests/test_documentation.py` requires every new flow
 to have its own docstring, a `description=` on every setting, and a `results_description`.
+
+A change that a user can see adds one changelog fragment, `changelog.d/<slug>.<type>.md`, and never
+edits `CHANGELOG.md`: CLAUDE.md has the rule.

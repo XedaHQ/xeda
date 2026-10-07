@@ -47,6 +47,24 @@ uv run pytest tests/ -n auto  # one worker per CPU, several times faster
 
 An editable pip installation also works if `uv` is unavailable.
 
+Do not edit `CHANGELOG.md` to record a change. Instead, add one file to `changelog.d/` for each
+change that a user can see. At release, the maintainer folds the files into the changelog with
+`python tools/fold_changelog.py v<version>`. Name the file `<slug>.<type>.md`:
+
+- `<slug>` is a short name for the change, in kebab-case.
+- `<type>` is `fixed`, `added`, `changed` or `removed`.
+
+The file holds one Markdown bullet: one or two short sentences about what changed for a user. For a
+breaking change, say what to do instead. Wrap the lines at 100 columns, and start each line after
+the first with two spaces. For example, `changelog.d/scrub-keeps-new-runs.fixed.md` can hold this
+text:
+
+```markdown
+- `xeda scrub` no longer removes a run that finished after it listed the directories.
+```
+
+`tests/test_changelog_fragments.py` checks every fragment.
+
 ## Usage
 
 The CLI is self-describing. Discover the installed flows and their exact contracts before running

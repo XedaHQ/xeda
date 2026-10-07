@@ -25,7 +25,7 @@ pytest tests/                        # the same, serially
 pytest tests/test_vivado.py::test_vivado_synth_py -s -v   # single test
 tox                                  # CI matrix: py311-py314 + mypy + black + ruff
 tox -e mypy                          # mypy --install-types --non-interactive src - currently clean
-tox -e black                         # black --check --diff src tests (line-length 100) - clean
+tox -e black                         # black --check --diff src tests tools (line-length 100) - clean
 ruff check src tests                 # .ruff.toml, line-length 120
 tox -e docs                          # Sphinx docs, warnings are errors (-W -n); also a CI job
 ```
@@ -51,7 +51,7 @@ checkout guard still fires (per worker, at its teardown, on whichever test ran l
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules plus `PLW0133`, which flags a built-in exception that is built and never raised (`ruff check --select F,PLW0133 src tests`, the
+`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests tools` and the Pyflakes rules plus `PLW0133`, which flags a built-in exception that is built and never raised (`ruff check --select F,PLW0133 src tests tools`, the
 `tox -e ruff` env) all pass; keep them that way. `PLW0133` does not see the exception classes xeda
 defines (`RunDirectoryError(...)` on a line of its own); `tests/test_exceptions_are_raised.py` does. The full `ruff check` ruleset reports many
 pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
@@ -1172,7 +1172,8 @@ and `test_nvc.py` simulate the examples in place.
   and protocol marker; a missing or broken import is an incompatible install. The streaming setup
   remains stdlib-only. execnet starts `python3` from the *non-login* PATH, so a shadowing checkout
   must be upgraded or removed even if another installed distribution is current.
-  **On release**, raise `REMOTE_XEDA_MIN_VERSION` to the published release tuple that carries the
+  **On release**, fold the changelog fragments (see "Conventions and gotchas"), and raise
+  `REMOTE_XEDA_MIN_VERSION` to the published release tuple that carries the
   current protocol and retain its protocol marker. The exposed `REMOTE_PROTOCOL_VERSION` and the
   required `REMOTE_PROTOCOL_MIN_VERSION` are raised together once per release cycle, when anything
   remote-visible changed since the last release; pull requests between releases do not bump them
@@ -1689,10 +1690,30 @@ dependency must also share `custom_boards_file`.
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
-- Formatting: `black` (line-length 100) is enforced on `src/` and `tests/` (`tox -e black`); the
-  Pyflakes rules and `PLW0133` (a built-in exception built and never raised) of `ruff`
-  (`ruff check --select F,PLW0133 src tests`, line-length 120, `target-version = "py311"`) are
-  enforced there too, and the rest of `ruff`'s ruleset is not.
+- **A change that a user can see adds a changelog fragment; nobody edits `CHANGELOG.md`'s
+  `[Unreleased]` section**, so no two pull requests touch the same lines. One file per entry,
+  `changelog.d/<slug>.<type>.md`: `<slug>` is kebab-case (the pull request number is not known
+  yet), `<type>` is `fixed`, `added`, `changed` or `removed`, and the file is one Markdown bullet
+  wrapped at 100 columns, each later line indented by two spaces. The entry says what changed for
+  a user in one or two short sentences (a breaking change says what to do instead); mechanism,
+  evidence and rationale go to the docs, this file or the pull request text.
+  `tools/fold_changelog.py` holds the rule for a fragment and the fold.
+  `tests/test_changelog_fragments.py` fails a fragment that breaks the rule and a `###` heading
+  that a section of `CHANGELOG.md` has twice. Every file in `changelog.d/`, hidden or not, must
+  be a fragment, except `.gitkeep` (it keeps the directory) and `.DS_Store` (macOS Finder writes
+  it into any folder it shows): those two are `NON_FRAGMENT_FILES` in the tool. **On release**,
+  run `python tools/fold_changelog.py vX.Y.Z [--date YYYY-MM-DD]` and commit the result. It adds the
+  fragments, sorted by slug, to the end of the matching lists of the `## [Unreleased]` section
+  (or of a new section above the newest release, if the file has no `[Unreleased]` section),
+  renames that section `## [vX.Y.Z] - <date>`, and deletes the files. It refuses a list of that
+  section that holds a line other than a bullet or the continuation of one (a note, a link
+  reference), so an entry never lands after such a line. It does not make a new `[Unreleased]`
+  section: the fragments are the notes of the next release. The entries written before fragments
+  existed stay in `[Unreleased]` and join the first release.
+- Formatting: `black` (line-length 100) is enforced on `src/`, `tests/` and `tools/` (`tox -e
+  black`); the Pyflakes rules and `PLW0133` (a built-in exception built and never raised) of
+  `ruff` (`ruff check --select F,PLW0133 src tests tools`, line-length 120,
+  `target-version = "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
 
 YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
 input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and
