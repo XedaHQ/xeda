@@ -614,8 +614,10 @@ def test_an_error_does_not_show_the_credentials_of_the_url_it_names(tmp_path, mo
         clone_location(tmp_path, url, None, None)
     with pytest.raises(ValueError, match="no repository path") as no_path:
         clone_name_parts(f"https://user:{SECRET}@example.com/", None, None)
-    for error in (no_directory, outside, no_path):
-        assert SECRET not in str(error.value) and "example.com" in str(error.value)
+    named = (url, url, f"https://user:{SECRET}@example.com/")
+    for error, given in zip((no_directory, outside, no_path), named):
+        # the message names the URL, with its credentials masked
+        assert SECRET not in str(error.value) and redacted_url(given) in str(error.value)
 
 
 def test_a_url_is_shown_without_its_credentials():
@@ -782,11 +784,11 @@ def test_a_failed_clone_does_not_show_the_credentials(tmp_path, monkeypatch):
     monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
     monkeypatch.chdir(tmp_path)
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    url = f"https://user:{SECRET}@example.com/u/l.git"
     with (
         loading_in_run_root(runner.load_run_root),
         pytest.raises(git.exc.GitCommandError) as failed,
     ):
-        Design.from_file(
-            _credentialed_design(tmp_path, f"https://user:{SECRET}@example.com/u/l.git")
-        )
-    assert SECRET not in str(failed.value) and "example.com" in str(failed.value)
+        Design.from_file(_credentialed_design(tmp_path, url))
+    # GitPython masks the credentials in its own way; the rest of the URL is still named
+    assert SECRET not in str(failed.value) and url.partition("@")[2] in str(failed.value)
