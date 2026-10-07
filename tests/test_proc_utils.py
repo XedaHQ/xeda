@@ -567,7 +567,7 @@ def test_a_link_made_while_the_log_is_created_is_replaced_not_followed(
         assert target.read_text() == "keep\n"
     assert not log.is_symlink()
     assert log.read_text() == "out\n"
-    assert [p.name for p in tmp_path.iterdir()] == ["outside", "sim.log"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["outside", "sim.log"]
 
 
 @LOG_ROUTES
