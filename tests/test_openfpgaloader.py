@@ -522,6 +522,30 @@ def test_the_loader_s_output_is_kept_in_its_run_directory(tmp_path, fake_loader,
     assert "requested failure in openFPGALoader" in log.read_text()
 
 
+def test_a_relaunch_whose_loader_is_missing_leaves_no_earlier_log(
+    tmp_path, fake_loader, monkeypatch
+):
+    """The log is the run's own: a relaunch that cannot start the loader leaves no earlier
+    run's output to be read as its own."""
+    log = tmp_path / "run/top/openfpgaloader/openfpgaloader.log"
+    monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "openFPGALoader")
+    monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
+    try:
+        _runner(tmp_path).run("openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5})
+    except Exception as error:  # reported or raised, it is a failure
+        assert type(error).__name__ == "NonZeroExitCode"
+    assert "requested failure in openFPGALoader" in log.read_text()
+
+    class _NotInstalled(OpenfpgaloaderTool):
+        executable: str = "openFPGALoader-not-installed"
+
+    monkeypatch.setattr("xeda.flows.openfpgaloader.OpenfpgaloaderTool", _NotInstalled)
+    with pytest.raises(Exception) as raised:
+        _runner(tmp_path).run("openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5})
+    assert type(raised.value).__name__ == "ExecutableNotFound", raised.value
+    assert not log.exists() or "requested failure" not in log.read_text()
+
+
 def test_outputs_to_a_programmer_of_a_design_source_is_refused_before_it_runs(
     tmp_path, fake_loader
 ):

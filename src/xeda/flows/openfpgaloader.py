@@ -115,7 +115,12 @@ class Openfpgaloader(FpgaSynthFlow):
             description='Programming cable to use, e.g. "ft2232". Takes precedence over the '
             "cable implied by `board`.",
         )
-        write_flash: bool = Field(False, description="Program nonvolatile flash (`--write-flash`).")
+        write_flash: bool = Field(
+            False,
+            description="Program nonvolatile flash (`--write-flash`). Needs the FPGA device "
+            "(`fpga.part`, or a `board` that has one): the flash is programmed through a bridge "
+            "made for the part.",
+        )
         verify: bool = Field(
             False, description="Verify SPI flash after programming; needs `write_flash`."
         )

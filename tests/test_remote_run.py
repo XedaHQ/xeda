@@ -1647,6 +1647,30 @@ def test_outputs_to_a_remote_programmer_is_refused_before_anything_is_sent(tmp_p
     assert not (tmp_path / "mirror").exists() and not (tmp_path / "out").exists()
 
 
+def test_outputs_to_a_remote_programmer_names_the_request_that_delivers_its_bitstream(
+    tmp_path, monkeypatch
+):
+    """On a remote, a producer's located setting would deliver on the remote host: the refusal
+    names the request whose own outputs come back, the flow that writes the bitstream."""
+    from xeda.deliver import DeliveryError
+
+    def no_connection(*args, **kwargs):
+        raise AssertionError("connected")
+
+    monkeypatch.setattr(remote_module, "get_login_env", no_connection)
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False, outputs_to=tmp_path / "out")
+    with pytest.raises(DeliveryError, match="openfpgaloader writes no outputs") as raised:
+        runner.run_remote(design, "openfpgaloader", "fake", flow_settings=["board=ULX3S_85F"])
+    message = str(raised.value)
+    assert "xeda run --remote fpga_pack" in message and "--outputs-to" in message, message
+    assert "-s flows." not in message, message
+    assert not (tmp_path / "mirror").exists() and not (tmp_path / "out").exists()
+
+
 def _nextpnr_design(tmp_path: Path) -> Path:
     (tmp_path / "top.v").write_text("module top; endmodule\n")
     design = tmp_path / "d.yaml"

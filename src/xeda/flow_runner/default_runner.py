@@ -684,31 +684,42 @@ def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
     return None
 
 
-def _refuse_outputs_to_a_programmer(plan: Plan, node: PlanNode, outputs_to: Path) -> None:
+def _refuse_outputs_to_a_programmer(
+    plan: Plan, node: PlanNode, outputs_to: Path, *, remote: bool = False
+) -> None:
     """`--outputs-to` copies what the requested flow writes. A flow that programs a device
     (`Flow.action_reason`) writes no outputs, so there is nothing to deliver: a `DeliveryError`
     before anything runs, a dry run alike, naming what would deliver the file it reads -- the
-    setting of the flow that writes it in this plan, given a location -- or the design source it
+    setting of the flow that writes it in this plan, given a location (only an absolute or
+    `$PWD`-anchored value is one); on a `remote` run, where that setting would deliver on the
+    remote host, the request of that flow, whose own outputs come back -- or the design source it
     is."""
     flow_class = node.flow_class
     if flow_class.action_reason is None:
         return
-    settings, sources = [], []
+    producers, settings, sources = [], [], []
     for selected in node.inputs:
         sources += [str(path) for path in selected.sources]
         for reference in selected.references:
             producer = plan.node(reference.node)
+            producers.append(producer.name)
             setting = _setting_naming(producer.flow_class, reference.output)
             if setting is not None:
-                settings.append(f"-s flows.{producer.name}.{setting}=<path>")
+                settings.append(f"-s flows.{producer.name}.{setting}=$PWD/<file>")
     message = (
         f"--outputs-to {outputs_to}: {flow_class.name} writes no outputs "
         f"({flow_class.action_reason}), so there is nothing to deliver"
     )
-    if settings:
+    if remote and producers:
+        message += ". To receive the file it reads, request the flow that writes it instead: " + (
+            ", ".join(
+                f"xeda run --remote {name} ... --outputs-to {outputs_to}" for name in producers
+            )
+        )
+    elif settings:
         message += (
-            ". To receive the file it reads, give the setting that writes it a location instead: "
-            + ", ".join(settings)
+            ". To receive the file it reads, give the setting that writes it a location (an "
+            "absolute path, or one under $PWD) instead: " + ", ".join(settings)
         )
     if sources:
         message += ". The file it reads is a design source: " + ", ".join(sources)

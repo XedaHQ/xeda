@@ -606,7 +606,7 @@ flow and every registered flow's model, and `tests/test_required_model_fields.py
 of giving a required setting (file, project, `-s`, API mapping, instance, section) and the error
 when it is given nowhere. What the given settings need is
 `Flow.required_settings_for(settings)`, by default `required_settings`, which the launch check and
-the resolver's unreached-section note both read. It narrows the declared requirement by the other
+the resolver's unreached-section note both read. It decides the requirement from the other
 settings and is still never the model: `openfpgaloader`'s `required_settings` is empty, and its
 hook adds `fpga` only with `write_flash` (openFPGALoader programs a flash through a bridge made for
 the part; loading SRAM it detects the device, and the flow passes `--fpga-part` only when the part
@@ -1033,9 +1033,12 @@ directory untouched and does not list that flow in `launched`, so `--json` repor
 `--outputs-to` with a requested flow that writes no outputs -- one with an `action_reason`, the
 programmer -- is refused before anything runs, in `_launch` (before the run root and
 `_check_deliveries_ahead`), `plan` (dry runs) and the remote runner alike, a `DeliveryError` with
-`before_run` true naming the setting whose location delivers the file it reads
+`before_run` true naming the setting whose location delivers the file it reads, written
+`=$PWD/<file>` since only an absolute or `$PWD`-anchored value is a location
 (`default_runner._refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
-deliverable of the output's own name) or the design source it is.
+deliverable of the output's own name), or the design source it is. Under `--remote` that setting
+would deliver on the remote host, so the error names the producer's own request instead
+(`xeda run --remote fpga_pack ... --outputs-to DIR`).
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
 directory's lock); the copies themselves are made in `_finish_launch`, before the deferred

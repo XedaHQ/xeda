@@ -382,7 +382,8 @@ All notable changes to this project will be documented in this file.
 - `openfpgaloader` needs the FPGA device only for `write_flash`. Without one it gives no
   `--fpga-part`, and openFPGALoader detects the device.
 - `--outputs-to` with a programmer as the requested flow is refused before anything runs. The
-  error names the setting, or under `--remote` the request, that delivers the bitstream.
+  error names what delivers the bitstream: a setting with a location
+  (`-s flows.fpga_pack.bitstream=$PWD/<file>`), or under `--remote` the producer's own request.
 - **Every flow runs through the resolver.** A flow that declares no inputs and no outputs (`bsc`,
   `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
   of several. Its run directory, its recorded settings and its identity are the ones it had

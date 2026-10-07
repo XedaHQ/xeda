@@ -273,7 +273,9 @@ it without reaching the flow.
 ``--json`` adds ``request`` (the chain, element by element) and, for every flow of the plan, its
 ``node`` name and resolved ``inputs``; a flow that was planned but never entered after a failure
 is listed as ``"state": "not run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the
-last flow's outputs, only after the whole chain succeeded. ``--dry-run`` shows the graph and runs
+last flow's outputs, only after the whole chain succeeded. A chain that ends at ``openfpgaloader``
+has none: ``--outputs-to`` is refused before anything runs, and the error names the setting that
+delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the graph and runs
 no tools.
 
 Input sources and saved bindings

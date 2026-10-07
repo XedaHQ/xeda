@@ -1040,7 +1040,7 @@ class RemoteRunner(FlowLauncher):
         outputs_to = self.settings.outputs_to
         if outputs_to is not None:
             # before the mirror, the run root or a connection, as a local launch refuses it
-            _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to)
+            _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
         # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
         # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's
         run_path = self.get_flow_run_path(

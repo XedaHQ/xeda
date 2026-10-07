@@ -1033,7 +1033,7 @@ def test_optional_postsynth_inputs_are_never_bound_by_chain_adjacency(producer):
 
 # -------------------------------------------------- the Vivado chain into the programmer, launched
 
-#: The project file of the owner's demo repositories: the yosys recipe their Makefiles run.
+#: The project file of the demo repositories: the yosys recipe their Makefiles run.
 DEMO_PROJECT = {
     "flows": {
         "yosys_fpga": {
@@ -1198,5 +1198,6 @@ def test_outputs_to_a_programmer_is_refused_naming_the_setting_that_delivers_its
     assert document["error"]["type"] == "DeliveryError", document
     message = document["error"]["message"]
     assert "openfpgaloader writes no outputs" in message, message
-    assert f"-s flows.{producer}.bitstream=<path>" in message, message
+    # only an absolute or `$PWD`-anchored value is a location: a bare name stays in the run
+    assert f"-s flows.{producer}.bitstream=$PWD/<file>" in message, message
     assert not (root / "xeda_run").exists() and not (root / "out").exists()

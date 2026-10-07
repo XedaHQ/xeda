@@ -779,7 +779,8 @@ def _print_plan(plan: Plan) -> None:
     default=None,
     help="Copy the requested flow's outputs (its artifacts, each at its path in the run "
     "directory) into DIR once it succeeded. An existing file there is replaced only if it is "
-    "xeda's own earlier copy, unchanged (see --overwrite-outputs).",
+    "xeda's own earlier copy, unchanged (see --overwrite-outputs). Refused before anything runs "
+    "for a flow that writes no outputs (a programmer), naming what delivers the file it reads.",
 )
 @click.option(
     "--overwrite-outputs",

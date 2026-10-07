@@ -545,12 +545,17 @@ its own default name). Give such a setting a location -- an absolute path, or on
 the run directory (what the tools do and what the run is identified by never depend on where you
 asked for the copy); once the whole launch has finished, that file is **delivered**: copied to the
 location you named. The same is true of ``--outputs-to DIR``, which delivers the requested flow's
-artifacts, each at its path relative to the run directory. A requested flow that writes no
-outputs -- a programmer, as in ``xeda run vivado_synth+openfpgaloader`` -- has nothing to
-deliver: ``--outputs-to`` is then refused before anything runs, naming the setting whose location
-delivers the file it reads (here ``-s flows.vivado_synth.bitstream=<path>``). Renaming or moving a delivery's
+artifacts, each at its path relative to the run directory. Renaming or moving a delivery's
 destination therefore never re-runs the flow, and never changes what the tools do -- only where
 the copy lands.
+
+A requested flow that writes no outputs -- a programmer, as in
+``xeda run vivado_synth+openfpgaloader`` -- has nothing to deliver. ``--outputs-to`` is then
+refused before anything runs. The error names the setting whose location delivers the file the
+programmer reads, here ``-s flows.vivado_synth.bitstream=$PWD/<file>``: only an absolute path, or
+one under ``$PWD``, is a location, and a bare name stays in the run directory. On a ``--remote``
+run, that setting would deliver on the remote host, so the error names the request that brings the
+file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
 
 A delivery never replaces a directory, and never lands on a file any flow of the launch reads (a
 dependency's input, a later sibling's), inside a directory a setting of any of them reads (a

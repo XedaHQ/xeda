@@ -234,7 +234,7 @@ def test_a_board_and_another_part_on_one_node_name_both_values_and_origins(tmp_p
     assert f"[flows.openfpgaloader] in {design} (fpga.part)" in message, message
 
 
-# ---------------------------------------------------------- the owner's two designs, on stand-ins
+# ---------------------------------------------- the demo repositories' two designs, on stand-ins
 
 
 def test_a_board_on_the_loader_gives_a_vivado_chain_its_device(tmp_path, monkeypatch):
@@ -298,6 +298,28 @@ def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_
     assert (
         "The `fpga` in [flows.yosys_fpga] in the command line does not reach vivado_synth"
         in str(raised.value)
+    )
+
+
+def test_a_device_the_loader_needs_for_the_flash_is_named_where_it_does_not_reach(
+    tmp_path, monkeypatch
+):
+    """The loader needs the device only to program the flash (`required_settings_for`): with
+    `write_flash`, the part written only for yosys_fpga, outside the run, is named in its error."""
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "given.bit").write_bytes(b"bits")
+    flows = {"yosys_fpga": {"fpga": {"part": "xc7a35tcpg236-1"}}}
+    design = _write_design(root, flows)
+    data = yaml.safe_load(design.read_text())
+    data["rtl"]["sources"].append({"file": "given.bit", "type": "Bitstream"})
+    design.write_text(yaml.safe_dump(data, sort_keys=False))
+    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
+        _plan(tmp_path, "openfpgaloader", design, flow_settings=["write_flash=true"])
+    assert (
+        f"The `fpga` in [flows.yosys_fpga] in {design} does not reach openfpgaloader: "
+        "yosys_fpga is not part of this run" in str(raised.value)
     )
 
 
