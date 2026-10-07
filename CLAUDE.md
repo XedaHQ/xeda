@@ -1351,6 +1351,12 @@ dependency must also share `custom_boards_file`.
   `NoSuchOption` with the matches taken from the visible long options
   (`cli_utils.reraise_suggesting_visible`). A command built with another class loses the rule:
   `tests/test_hidden_options.py` sweeps the whole command tree for both.
+- **A log record is never changed for one handler's sake.** Every handler of the process gets
+  the same `LogRecord`, so what the detailed logs show of a logger name (`xeda.flow` as `flow`)
+  is a formatter of the CLI's own handler (`cli.ShortLoggerNames`), which formats a copy.
+  `setup_logger` wraps only the handler it installed, never another party's (pytest's, an API
+  user's); `tests/test_cli_logging.py` logs through the CLI's setup with a handler before and one
+  after it.
 - **cocotb integration sets `GPI_USERS` itself.** Xeda builds the simulator environment by hand
   rather than going through `cocotb_tools.runner`, so anything the runner sets has to be mirrored
   in `Cocotb.env()`. From cocotb 2.1 the GPI library no longer finds its Python entry point on its

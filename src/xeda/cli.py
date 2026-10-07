@@ -92,15 +92,25 @@ CONTEXT_SETTINGS = dict(
 )
 
 
-class LoggerContextFilter(logging.Filter):
-    def filter(self, record):
-        record.name = removeprefix(record.name, "xeda.")
-        # Don't filter the record.
-        return 1
+class ShortLoggerNames(logging.Formatter):
+    """Shows a log record with its logger's name shortened (`xeda.flow` as `flow`) by formatting a
+    copy of it. The record itself, which every other handler of the process is given as well,
+    keeps the name of its logger."""
+
+    def __init__(self, formatter: logging.Formatter) -> None:
+        super().__init__()
+        self.formatter = formatter
+
+    def format(self, record: logging.LogRecord) -> str:
+        shown = logging.makeLogRecord(record.__dict__)
+        shown.name = removeprefix(record.name, "xeda.")
+        return self.formatter.format(shown)
 
 
 def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
-    logging.getLogger().setLevel(log_level)
+    root = logging.getLogger()
+    root.setLevel(log_level)
+    before = list(root.handlers)
     coloredlogs.install(
         level=log_level,
         fmt=(
@@ -111,8 +121,10 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         logger=log.root,
     )
     if detailed_logs:
-        for handler in logging.getLogger().handlers:
-            handler.addFilter(LoggerContextFilter())
+        # only the handler installed here: another party's handler shows names as it likes
+        for handler in root.handlers:
+            if handler not in before and handler.formatter is not None:
+                handler.setFormatter(ShortLoggerNames(handler.formatter))
     if log_to_file:
         add_file_logger(log_to_file)
 
