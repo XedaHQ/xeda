@@ -885,7 +885,12 @@ link inside the run root leads to, so both names share one lock; without a run r
 component is never resolved -- and a parent, or a link, leading out of the run root or nowhere is
 refused before anything is created) and judges it again once the lock
 is held (`_still_a_run_directory`, by `_is_run_directory`, the one rule that listed it: named for
-the flow, in the same resolved parent, a directory in the run root and, resolved, under that parent).
+the flow, a directory, and resolving to a child of the directory it was listed in -- itself or, for
+a link, a directory beside it, never one below it or above it; `_run_directories_in` lists nothing
+in a directory outside the run root). A candidate that is a link to a directory in the run root is
+locked by that directory (`_lock_path`), which stays one lock when another scrub has removed the
+directory and then the link; a link out of the run root or to nowhere is locked by its own path,
+which the lock refuses before it makes anything.
 **It judges what is at the path then, never whether it is the directory that was listed**: an
 inode number or an inode change time says nothing about a run directory, since every file a launch
 adds or removes moves it, and a launch that writes in its directory while scrub waits for the

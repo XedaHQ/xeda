@@ -374,8 +374,10 @@ All notable changes to this project will be documented in this file.
   judges it again then by what is at the path: a run directory of the flow in the same place is
   removed, whether a launch wrote in it while scrub waited or a newer run took its place. One
   that is gone by then (another scrub, or a purge, removed it) is skipped, logged and left out of
-  `scrubbed`. One that is no longer a directory, or now leads out of the directory it was listed
-  in or out of the run root, is refused (`RunDirectoryError`) and left alone.
+  `scrubbed`. One that is no longer a directory, or a link that no longer leads to a directory
+  beside it, is refused (`RunDirectoryError`) and left alone. A link counts as a run directory only
+  when it leads to a directory beside it, and scrub locks it by that directory, so two scrubs that
+  list the same link both succeed.
 - **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has
   become**: the parent is resolved, and the last component only when it is a link staying inside the
   run root (a launch through the link's name and one through the real name share one lock), so a

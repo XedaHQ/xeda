@@ -31,8 +31,7 @@ from xeda import Design
 from xeda.cli import cli
 from xeda.console import console
 from xeda.flow import registered_flows
-from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner import default_runner
+from xeda.flow_runner import DefaultRunner, default_runner, run_lock
 from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
@@ -420,9 +419,9 @@ def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
     skipped = [
         record.getMessage()
         for record in caplog.records
-        if record.levelno == logging.INFO and str(victim) in record.getMessage()
+        if record.name == default_runner.__name__ and record.levelno == logging.INFO
     ]
-    assert len(skipped) == 1 and "gone" in skipped[0], caplog.text
+    assert skipped == [f"Not removing {victim}: it is gone already"], caplog.text
 
 
 def launch_writes_into(directory: Path) -> None:
@@ -534,6 +533,76 @@ def test_two_scrubs_that_listed_the_same_run_directories_both_succeed(tmp_path, 
     assert tree.present(tree.a) == [False, False]
 
 
+def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, monkeypatch):
+    """The two-scrub case with a candidate that is a link to a directory beside it. A link is
+    locked by the directory it leads to. That stays one lock when the scrub holding it has removed
+    the directory and then the link, so the other, which waited, finds the link gone and goes on
+    instead of failing to lock a link that is no more."""
+    tree = Tree(tmp_path)
+    store = run_dir(tree.design / "x" / "store")
+    link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
+    link.symlink_to(store, target_is_directory=True)
+    both_listed = threading.Barrier(2)
+    both_asking = threading.Barrier(2)
+    real_flock = run_lock.fcntl.flock
+    outcomes: list = []
+
+    def ask(prompt="", *args, **kwargs):
+        both_listed.wait(timeout=30)
+        return "yes"
+
+    def flock_once_both_are_asking(descriptor, mode):
+        if mode == run_lock.fcntl.LOCK_EX:
+            both_asking.wait(timeout=30)  # each has named the lock it asks for, and none holds it
+        return real_flock(descriptor, mode)
+
+    def scrubbing():
+        try:
+            outcomes.append(
+                default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
+            )
+        except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
+            outcomes.append(error)
+
+    monkeypatch.setattr(console, "input", ask)
+    monkeypatch.setattr(run_lock.fcntl, "flock", flock_once_both_are_asking)
+    threads = [threading.Thread(target=scrubbing) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert not any(thread.is_alive() for thread in threads)
+    assert all(isinstance(outcome, default_runner.ScrubResult) for outcome in outcomes), outcomes
+    assert sorted(p for outcome in outcomes for p in outcome.removed) == [link]
+    assert not os.path.lexists(link) and not store.exists()
+
+
+def test_a_link_that_leads_below_its_directory_is_left_alone(tmp_path, confirmations):
+    """A run directory is a child of the directory it is listed in, or a link to a directory beside
+    it. A link named like one that leads below it, into a target's directory, is neither: scrub
+    leaves it, and what it leads to is a candidate in its own directory."""
+    tree = Tree(tmp_path)
+    link = tree.design / f"{FLOW}_cccccccccccccccc"
+    link.symlink_to(tree.a[0], target_is_directory=True)
+    result, document = scrub(tmp_path)
+    assert result.exit_code == 0, result.output
+    assert str(link) not in document["scrubbed"] and str(tree.a[0]) in document["scrubbed"]
+    assert link.is_symlink() and not link.exists(), "left as it was, leading to what is now gone"
+    assert tree.present(tree.everything) == [False] * len(tree.everything)
+
+
+def test_a_design_directory_that_is_a_link_out_of_the_run_root_is_never_searched(
+    tmp_path, confirmations
+):
+    tree = Tree(tmp_path)
+    canary = run_dir(tmp_path / "outside" / FLOW)
+    (tree.root / "linked").symlink_to(canary.parent, target_is_directory=True)
+    result, document = scrub(tmp_path, design="linked")
+    assert result.exit_code == 0, result.output
+    assert document["scrubbed"] == [] and confirmations == []
+    assert canary.exists() and (canary / "out.txt").exists()
+
+
 def newer_run(path: Path, tree: Tree, outside: Path) -> None:
     run_dir(path)
     (path / "out.txt").write_text("a newer run\n")
@@ -555,6 +624,10 @@ def a_file(path: Path, tree: Tree, outside: Path) -> None:
     path.write_text("no directory\n")
 
 
+def link_below_its_directory(path: Path, tree: Tree, outside: Path) -> None:
+    path.symlink_to(run_dir(path.parent / "inner" / "run"), target_is_directory=True)
+
+
 def link_to_nowhere(path: Path, tree: Tree, outside: Path) -> None:
     path.symlink_to(tree.root / "gone", target_is_directory=True)
 
@@ -563,14 +636,14 @@ def renamed_away(path: Path, tree: Tree, outside: Path) -> None:
     """Nothing is at the path any more."""
 
 
-def entries_but_lock_files(base: Path) -> list[tuple[str, str]]:
-    """Every entry under `base` but a lock file, with what it is: a directory, a link (and where
-    it leads) or a file (and its size)."""
+def entries(base: Path, *, locks: bool) -> list[tuple[str, str]]:
+    """Every entry under `base`, with what it is: a directory, a link (and where it leads) or a file
+    (and its size). A lock file is one entry too, if `locks` says so."""
     found = []
     for directory, names, files in os.walk(base, followlinks=False):
         for name in (*names, *files):
             entry = Path(directory) / name
-            if name.endswith(".lock"):
+            if name.endswith(".lock") and not locks:
                 continue
             if entry.is_symlink():
                 what = f"link to {os.readlink(entry)}"
@@ -583,20 +656,21 @@ def entries_but_lock_files(base: Path) -> list[tuple[str, str]]:
 
 
 @pytest.mark.parametrize(
-    "replacement",
+    ("replacement", "outcome"),
     [
-        newer_run,
-        link_to_a_directory_beside_it,
-        link_out_of_the_run_root,
-        link_to_another_targets_run_directory,
-        link_to_nowhere,
-        a_file,
-        renamed_away,
+        (newer_run, "removed"),
+        (link_to_a_directory_beside_it, "removed"),
+        (link_below_its_directory, "refused"),
+        (link_out_of_the_run_root, "refused"),
+        (link_to_another_targets_run_directory, "refused"),
+        (link_to_nowhere, "refused"),
+        (a_file, "refused"),
+        (renamed_away, "gone"),
     ],
-    ids=lambda replacement: replacement.__name__,
+    ids=lambda value: value if isinstance(value, str) else value.__name__,
 )
-def test_a_candidate_is_removed_when_it_would_be_listed_skipped_when_gone_and_refused_otherwise(
-    tmp_path, confirmations, monkeypatch, replacement
+def test_what_scrub_does_with_a_candidate_that_changed_after_it_was_listed(
+    tmp_path, confirmations, monkeypatch, replacement, outcome
 ):
     """One rule for what scrub does with a directory, judged twice: when it lists the directory and
     again when it holds the directory's lock. Whatever is at the first candidate's path -- put
@@ -621,20 +695,18 @@ def test_a_candidate_is_removed_when_it_would_be_listed_skipped_when_gone_and_re
 
     tree, victim, _ = tree_with_the_first_candidate_replaced(tmp_path / "listed", at_once=True)
     result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
-    listed = victim in result.removed
+    assert (victim in result.removed) == (outcome == "removed"), "it is listed if it is removed"
 
     later = tmp_path / "later"
     tree, victim, replace = tree_with_the_first_candidate_replaced(later, at_once=False)
     second = tree.a[1]
     real_lock = default_runner.run_dir_lock
     after_the_swap: list[list[tuple[str, str]]] = []
-    nothing_there: list[bool] = []
 
     def swapping(path, *args, **kwargs):
         if Path(path) == victim and not after_the_swap:
             replace()
-            nothing_there.append(not os.path.lexists(victim))
-            after_the_swap.append(entries_but_lock_files(later))
+            after_the_swap.append(entries(later, locks=False))
         return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
@@ -643,15 +715,42 @@ def test_a_candidate_is_removed_when_it_would_be_listed_skipped_when_gone_and_re
         result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
     except RunDirectoryError as error:
         refusal = error
-    if listed:
+    if outcome == "removed":
         assert refusal is None, refusal
         assert victim in result.removed and not os.path.lexists(victim)
-    elif nothing_there[0]:
+    elif outcome == "gone":
         assert refusal is None, refusal
         assert result.removed == [second] and not os.path.lexists(second)
     else:
         assert refusal is not None
-        assert entries_but_lock_files(later) == after_the_swap[0], "something was removed"
+        assert entries(later, locks=False) == after_the_swap[0], "something was removed"
+
+
+@pytest.mark.parametrize("leads_to", ["outside", "nowhere"])
+def test_a_candidate_that_became_a_link_out_of_the_run_root_or_to_nowhere_makes_nothing(
+    tmp_path, monkeypatch, leads_to
+):
+    """The lock refuses such a link before it creates anything, a lock file included. A scrub that
+    locked the directory a link leads to would make a lock file where the link points, and the
+    directories above it."""
+    tree = Tree(tmp_path)
+    victim = tree.a[0]
+    target = run_dir(tmp_path / "outside" / "other") if leads_to == "outside" else None
+    after_the_swap: list[list[tuple[str, str]]] = []
+
+    def ask(prompt="", *args, **kwargs):  # after the listing: the candidate becomes the link
+        default_runner.RunDirectory.claimed(victim, tree.root).delete()
+        victim.symlink_to(
+            target if target is not None else tree.root / "far" / "away",
+            target_is_directory=True,
+        )
+        after_the_swap.append(entries(tmp_path, locks=True))
+        return "yes"
+
+    monkeypatch.setattr(console, "input", ask)
+    with pytest.raises(RunDirectoryError):
+        default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+    assert entries(tmp_path, locks=True) == after_the_swap[0]
 
 
 def test_a_link_to_a_directory_in_the_run_root_and_the_directory_share_one_lock(tmp_path):

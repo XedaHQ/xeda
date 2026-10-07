@@ -338,25 +338,22 @@ def _name_regex(flow_name: str) -> re.Pattern[str]:
     return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
 
 
-def _is_run_directory(path: Path, flow_name: str, parent: Path, run_root: Path) -> bool:
+def _is_run_directory(path: Path, flow_name: str, parent: Path) -> bool:
     """Whether `path` is one of `flow_name`'s run directories in `parent`, a resolved directory.
 
     It is named `flow_name`, or `flow_name`, an underscore and a `DIR_NAME_HASH_LEN`-char
     `[a-z0-9]` `flowrun_hash` (the unhashed form is what every default run creates; the hashed
-    form only appears with `hashed_run_dirs=True`). Its own parent, resolved, is `parent`. It is a
-    directory, or a link to one, and it lies, resolved, under `parent` and under `run_root`, the
-    real run root.
+    form only appears with `hashed_run_dirs=True`). It is a directory, or a link to one, and it
+    resolves to a child of `parent`: itself, or, for a link, a directory beside it. A link that
+    leads below `parent`, to `parent` or above it, or anywhere else is no run directory in it.
 
     This is the one rule for what scrub removes: it lists the children of a directory by it, and
     judges each again by it once it holds the child's lock. The rule says what `path` is now and
-    keeps nothing of what it was, so a launch that wrote in the directory, or a newer run that
-    took its place, does not change the answer."""
+    keeps nothing of what it was."""
     return (
         _name_regex(flow_name).match(path.name) is not None
-        and Path(os.path.realpath(path.parent)) == parent
         and path.is_dir()
-        and parent in path.resolve().parents
-        and RunDirectory.lies_under(path, run_root)
+        and path.resolve().parent == parent
     )
 
 
@@ -364,21 +361,23 @@ def _run_directories_in(
     flow_name: str, directory: Path, exclude: Sequence[Path], run_root: Path
 ) -> list[Path]:
     """`flow_name`'s run directories among the children of `directory` (`_is_run_directory`),
-    except `exclude`: a launch leaves out its own. They are matched against the children rather
-    than a `f"{flow_name}_*"` glob, so the unhashed directory -- which that glob can never match --
-    is included too. A directory is excluded by where it resolves to, never by whether it exists
-    now or has the same inode: a sibling launch's scrub may remove a launch's own directory while
-    this lists, and it is still not a candidate."""
+    except `exclude`: a launch leaves out its own. Nothing is listed in a directory that is not
+    under `run_root`. The children are matched rather than a `f"{flow_name}_*"` glob, so the
+    unhashed directory -- which that glob can never match -- is included too. A directory is
+    excluded by where it resolves to, never by whether it exists now or has the same inode: a
+    sibling launch's scrub may remove a launch's own directory while this lists, and it is still
+    not a candidate."""
     if not directory.is_dir():
         return []
     xr = directory.resolve()
+    if not xr.is_relative_to(os.path.realpath(run_root)):
+        return []
     excluded = {Path(os.path.realpath(ex)) for ex in exclude}
     return unique(
         [
             p
             for p in sorted(directory.iterdir())
-            if _is_run_directory(p, flow_name, xr, run_root)
-            and Path(os.path.realpath(p)) not in excluded
+            if _is_run_directory(p, flow_name, xr) and Path(os.path.realpath(p)) not in excluded
         ]
     )
 
@@ -417,6 +416,16 @@ def _listed(flow_name: str, path: Path) -> _Listed:
     return _Listed(path, flow_name, Path(os.path.realpath(path.parent)))
 
 
+def _lock_path(path: Path, run_root: Path) -> Path:
+    """What a candidate is locked by. A link to a directory inside the run root is locked by that
+    directory: it stays one lock when another scrub, which held it, has removed the directory and
+    then the link. Anything else is locked by its own path. That includes a link out of the run
+    root or to nowhere: the lock refuses it, before it makes anything."""
+    if path.is_symlink() and path.is_dir() and RunDirectory.lies_under(path, run_root):
+        return Path(os.path.realpath(path))
+    return path
+
+
 def _is_gone(path: Path) -> bool:
     """Whether nothing is at `path`: its name, or a directory above it, does not exist. A link is
     something, wherever it leads. An error that is no `FileNotFoundError` says nothing, so it is
@@ -430,7 +439,7 @@ def _is_gone(path: Path) -> bool:
     return False
 
 
-def _still_a_run_directory(listed: _Listed, run_root: Path) -> bool:
+def _still_a_run_directory(listed: _Listed) -> bool:
     """Whether `listed.path` is a run directory of its flow in the directory it was listed in
     (`_is_run_directory`). Scrub asks once it holds the lock, so no launch is writing in it.
 
@@ -439,7 +448,7 @@ def _still_a_run_directory(listed: _Listed, run_root: Path) -> bool:
     file it adds or removes), and a newer run of the flow may have replaced it: a scrub of the flow
     removes both."""
     try:
-        return _is_run_directory(listed.path, listed.flow_name, listed.parent, run_root)
+        return _is_run_directory(listed.path, listed.flow_name, listed.parent)
     except OSError:
         return False
 
@@ -454,8 +463,8 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     scrub, or a purge, removed it while this one waited) is skipped and logged: the scrub wanted
     it gone. Otherwise `_still_a_run_directory` judges what is at the path. A run directory of
     the flow is removed, however it came there. Anything else -- no directory, or a link that now
-    leads out of the directory it was listed in or out of the run root -- is not removed, and
-    the scrub fails (`RunDirectoryError`). The directories removed, not the skipped."""
+    leads anywhere but to a directory beside it -- is not removed, and the scrub fails
+    (`RunDirectoryError`). The directories removed, not the skipped."""
     if not candidates:
         return []
     console.print(
@@ -471,15 +480,15 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     removed = []
     for c in candidates:
         p = c.path
-        with run_dir_lock(p, run_root):
+        with run_dir_lock(_lock_path(p, run_root), run_root):
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
                 continue
-            if not _still_a_run_directory(c, run_root):
+            if not _still_a_run_directory(c):
                 raise RunDirectoryError(
-                    f"{p} is no longer a run directory of {c.flow_name} in {c.parent} (it is no "
-                    f"directory, or leads out of it or of the run root {run_root}): it was not "
-                    "removed"
+                    f"{p} is no longer a run directory of {c.flow_name} in {c.parent}: it is no "
+                    f"directory, or a link that does not lead to a directory in {c.parent}. It "
+                    "was not removed."
                 )
             RunDirectory.claimed(p, run_root).delete()
             if p.is_symlink():  # a run directory reached through a link in the run root
