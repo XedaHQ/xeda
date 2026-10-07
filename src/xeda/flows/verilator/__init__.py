@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import string
 from glob import escape as glob_escape
 from glob import glob
 from pathlib import Path
@@ -91,6 +92,23 @@ def parse_end_record(path: Path) -> SimEvidence:
 
 #: The oldest Verilator with what xeda's driver and hooks use.
 MIN_VERILATOR_VERSION = (5, 24)
+
+
+def check_verilator_make_directory(flow: str, directory: Path) -> None:
+    """Refuse a directory in which Verilator's GNU Make build cannot work, naming it: `directory`
+    is where the build runs (or the one it makes its own in). The makefile of every model stops
+    with "GNU Make cannot build in directories containing spaces" before it compiles anything:
+    make splits a path at whitespace, and builds in the physical directory, so a link is judged
+    by what it leads to. Every flow that builds a model with that makefile (`verilator`, and
+    `bsc_sim` with its Verilator backend) makes this one check for `Flow.check_run_directory`;
+    `flow` says who cannot build."""
+    physical = os.path.realpath(directory)
+    if any(char in string.whitespace for char in physical):
+        raise FlowSettingsException(
+            f"{flow} cannot build in {physical}: Verilator's GNU Make build cannot work in a "
+            "directory whose path has whitespace. Use a run root (`--run-root`) and a `sim_dir` "
+            "whose paths have none."
+        )
 
 
 class Verilator(SimFlow):
@@ -299,6 +317,13 @@ class Verilator(SimFlow):
         if not top:
             raise FlowSettingsException("no simulation top: set tb.top or rtl.top")
         return top
+
+    @classmethod
+    def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
+        """The model is built in `sim_dir`, a name inside the run directory."""
+        super().check_run_directory(settings, run_path)
+        assert isinstance(settings, cls.Settings)
+        check_verilator_make_directory(cls.name, run_path / settings.sim_dir)
 
     @classmethod
     def runs_without_testbench_top(cls, design: Design) -> bool:

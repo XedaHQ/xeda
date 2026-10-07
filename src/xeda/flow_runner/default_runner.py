@@ -941,7 +941,8 @@ class FlowLauncher:
            run, fails the launch here.
         2. **identity** (`_run_identity`): the design's hash and the settings' `flowrun_hash`;
            the run directory, `<design>[/<target>]/<flow>` (``hashed_run_dirs``:
-           `<flow>_<flowrun_hash>`),
+           `<flow>_<flowrun_hash>`), which the flow must be able to work in
+           (`Flow.check_run_directory`, judged on the path before anything is created),
            locked from here until the run's trace is written (`run_lock`). With ``clean``, the
            directory is emptied now (or backed up, with ``backups``).
         3. **prepare**: construct the flow with its own copy of the input and call its `init()`,
@@ -1487,12 +1488,13 @@ class FlowLauncher:
         design_hash = design.parts_hash(flow_class.design_parts)
         settings_hash = flow_run_hash(flow_name, settings, design.name)
         flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
-        run_path = self.get_flow_run_path(
-            design.name,
-            node.name if node is not None else flow_name,
-            flowrun_hash,
-            target=design.target,
+        name = node.name if node is not None else flow_name
+        # a directory the flow cannot work in is refused on the path alone: nothing is created yet
+        # (`get_flow_run_path` creates the run root)
+        flow_class.check_run_directory(
+            settings, self.run_path_of(design.name, name, flowrun_hash, target=design.target)
         )
+        run_path = self.get_flow_run_path(design.name, name, flowrun_hash, target=design.target)
         return design_hash, flowrun_hash, run_path, settings_hash
 
     def _run_dir_policy(self) -> RunDirPolicy:
@@ -2098,7 +2100,7 @@ class FlowLauncher:
         target: str | None = None,
     ) -> Plan:
         """Plan what run() would execute, refusing side-effecting design loading."""
-        return self._resolve_request(
+        plan = self._resolve_request(
             self._request(
                 flow,
                 design,
@@ -2113,6 +2115,10 @@ class FlowLauncher:
                 _planning=True,
             )
         )
+        # the launch refuses these too, where it decides the directory (`_run_identity`)
+        for node in plan.nodes:
+            node.flow_class.check_run_directory(node.settings, node.run_path)
+        return plan
 
     def _request(
         self,

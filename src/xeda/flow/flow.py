@@ -717,6 +717,13 @@ class Flow(metaclass=ABCMeta):
         """Validate a target/configuration without constructing a flow or probing tools."""
 
     @classmethod
+    def check_run_directory(cls, settings: "Flow.Settings", run_path: Path) -> None:
+        """Refuse a run directory this flow cannot work in: `run_path` is its absolute path, as
+        decided for this run and not yet created. Pure, like `check_settings_supported`. The
+        launcher calls it where it first knows the path, before anything is created for the run
+        (the run root, the directory and its lock), and a plan calls it too."""
+
+    @classmethod
     def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
         """Narrow an input's vocabulary using settings alone, without probes or writes."""
         return declared_inputs(cls)[name].types

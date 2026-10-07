@@ -1165,6 +1165,17 @@ class BscSim(BscFlow, SimFlow):
 
     output_dir_setting = "sim_dir"
 
+    @classmethod
+    def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
+        """The Verilator backend builds its model with Verilator's makefile, as `verilator`
+        does."""
+        super().check_run_directory(settings, run_path)
+        assert isinstance(settings, cls.Settings)
+        if settings.simulator == "verilator":
+            from ..verilator import check_verilator_make_directory
+
+            check_verilator_make_directory(f"{cls.name} with its Verilator backend", run_path)
+
     def has_evidence_adapter(self) -> bool:
         """Every accepted simulator has a family-specific current-run evidence adapter."""
         assert isinstance(self.settings, self.Settings)

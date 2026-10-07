@@ -1326,9 +1326,16 @@ dependency must also share `custom_boards_file`.
   `timing` is off by default: Verilator then ignores `#delay` (a `#100; $finish` ends at time 0),
   and xeda leaves its `STMTDLY` and `INITIALDLY` warnings on, which fail a run only with
   `warnings_fatal`.
-  The hooks header goes into the compiler flags by name (`-include xeda_hooks.h`, the model builds
-  in `sim_dir`): make splits flags at a space. The makefile of Verilator 5.052 still refuses a
-  build directory whose path has a space, so a run root with one fails there.
+  Verilator's makefile stops in a build directory whose path has whitespace ("GNU Make cannot
+  build in directories containing spaces"), so every flow that builds with it (`verilator`, and
+  `bsc_sim` with its Verilator backend, whose link step builds in `obj_dir_*` under the run
+  directory) refuses such a run directory (and `verilator` a `sim_dir`, where it builds) through
+  `Flow.check_run_directory`, one shared `check_verilator_make_directory`, before anything is
+  created: the launcher calls the hook in
+  `_run_identity` for every launch and `plan` calls it too, never the `--remote` runner (the
+  build is the remote's). Another flow that builds with that makefile is a decision, pinned in
+  `tests/test_verilator_run_directory.py`. The hooks header goes into the compiler flags by name
+  (`-include xeda_hooks.h`, the model builds in `sim_dir`): make splits flags at a space.
   `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
   `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a

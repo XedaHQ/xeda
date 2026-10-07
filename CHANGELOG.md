@@ -121,11 +121,18 @@ All notable changes to this project will be documented in this file.
   Not affected: a cocotb testbench, a design with no testbench, `ghdl_sim` with a VHDL testbench
   (it finds the top with `ghdl find-top`), and a design with a C++ driver of its own for
   `verilator` and `yosys_sim`, whatever HDL its testbench also holds.
+- `verilator`, and `bsc_sim` with its Verilator backend, refuse a run directory whose path has
+  whitespace, at once: before the run root, the directory or its lock is created, and when a plan
+  is made (`xeda run --dry-run`). Verilator's GNU Make build cannot work in such a directory (its
+  makefile stops with "GNU Make cannot build in directories containing spaces" before it compiles
+  anything), and the error used to come in the middle of the build. `verilator` refuses a
+  `sim_dir`, the directory it builds in, with whitespace too. The message names the directory and
+  says to use a run root and a `sim_dir` without whitespace (`--run-root`). A link is judged by
+  the directory it leads to, as make builds there. `Flow.check_run_directory` is the hook, and one
+  function makes the check for both flows.
 - `verilator` includes the header of its hooks by name (`-include xeda_hooks.h`, found in the
   directory the model is built in), no longer by the absolute path of the run directory: the C++
-  compiler flags go through make, which splits them at a space. The makefile of Verilator 5.052
-  still refuses to build in a directory whose path has a space, so a run root with one still fails
-  there.
+  compiler flags go through make, which splits them at a space.
 - `verilator` no longer silences Verilator's `STMTDLY` and `INITIALDLY` warnings when `timing` is
   off. Verilator then ignores a `#delay`, so a testbench's `#100; $finish` ended at time 0 and
   passed without a word. Verilator now says so. A warning does not fail the run, unless

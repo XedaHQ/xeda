@@ -780,8 +780,11 @@ Defaults and limits:
   driver, it is an error.
 * ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
   an error, since Xeda's driver runs a C++ model.
-* A run root whose path has a space does not work with the Verilator release checked (5.052): its
-  makefile refuses to build in such a directory.
+* A run directory whose path has whitespace is refused, before anything is created and when
+  planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir``
+  with whitespace, the directory the model is built in. This holds for ``bsc_sim`` with
+  ``simulator: verilator`` too. Use a run root and a ``sim_dir`` without whitespace
+  (``--run-root``).
 * Verilator 5.024 or newer is required.
 
 Writing a new flow
