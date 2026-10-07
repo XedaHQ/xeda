@@ -372,6 +372,7 @@ def test_a_bundled_board_in_capitals_is_programmed_by_the_same_name(tmp_path, fa
         ("xc7a35tcpg236-1", "xc7a35tcpg236"),
         ("xc7k325tffg676-2", "xc7k325tffg676"),
         ("xc7z035ffg676-2L", "xc7z035ffg676"),
+        ("xc7z035ffg676-2l", "xc7z035ffg676"),  # the part keeps its case, its grade is `-2L`
         ("XC7VX485TFFG1761-3", "XC7VX485TFFG1761"),
         ("xc7a35tcpg236", "xc7a35tcpg236"),  # no grade to take away
     ],

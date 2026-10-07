@@ -21,7 +21,8 @@ def _loader_part(fpga: FPGA) -> str:
     flash (`spiOverJtag_<device><package>.bit.gz`), and that name has no speed grade.
     """
     part = fpga.part or ""
-    if fpga.vendor == "xilinx" and fpga.speed and part.endswith(fpga.speed):
+    # the part keeps the case it was written in, and its speed grade is upper case (`-2l` is `-2L`)
+    if fpga.vendor == "xilinx" and fpga.speed and part.upper().endswith(fpga.speed.upper()):
         return part[: -len(fpga.speed)]
     return part
 
