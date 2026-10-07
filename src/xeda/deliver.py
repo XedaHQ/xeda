@@ -18,7 +18,7 @@ own earlier delivery, unchanged, as its record says (`delivery_record`: beside t
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
 the launch runs (`Deliveries.check`: the requested flow makes the check of every flow of the plan
-when the launch starts). A yes
+when the launch starts, after every refusal no answer could change, `Deliveries.refuse`). A yes
 is for the file the user was asked about, as it was then (`ConfirmedReplacements`): a file that
 changed since is asked about again. A record is checked by the trust rule like any other
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
@@ -486,9 +486,9 @@ class ConfirmedReplacements:
 
 
 class Deliveries:
-    """One node's deliveries: checked before any of its tools runs (`check`), noted file by file
-    once it succeeded or was found up to date (`collect`), and made when the launch has finished
-    (`deliver`)."""
+    """One node's deliveries: checked before any of its tools runs (`refuse`, `check`), noted
+    file by file once it succeeded or was found up to date (`collect`), and made when the launch
+    has finished (`deliver`)."""
 
     def __init__(
         self,
@@ -688,30 +688,40 @@ class Deliveries:
         if refusal is not None:
             raise DeliveryError(f"--outputs-to names {destination}, {refusal}", before_run=True)
 
-    def check(self, predicted: Sequence[Delivery] = ()) -> None:
-        """Before any tool of the node runs: refuse a destination that is an input, lies in a run
-        root or in a directory the launch reads, or is a directory where a file goes
-        (`DeliveryError`); unless confirmed, refuse to
-        replace a file that is not xeda's own unchanged earlier delivery (`OutputExistsError`).
-        Each destination is taken as it is when examined, and that is what `deliver` compares
-        with: a file edited while the question was open is not replaced on a yes given for the
-        file as it was. `predicted`: what `--outputs-to` expects to deliver, from the last run's
+    def refuse(self, predicted: Sequence[Delivery] = ()) -> None:
+        """Before any tool of the launch runs: refuse a destination that is an input, lies in a
+        run root or in a directory the launch reads, or is a directory where a file goes
+        (`DeliveryError`). No answer could allow any of them, so a launch makes this check for
+        every flow of its plan before it asks the first question (`check`). It reads no file's
+        content. `predicted`: what `--outputs-to` expects to deliver, from the last run's
         artifacts."""
         refusals: list[str] = []
-        conflicts: list[Conflict] = []
-        states: dict[Path, _State] = {}
         for delivery in [*self.named, *predicted]:
             destination = _located(delivery.destination)
             refusal = self._refusal(destination, delivery)
             if refusal is not None:
                 refusals.append(f"`{delivery.key}` names {destination}, {refusal}")
-                continue
+        if refusals:
+            raise DeliveryError("; ".join(refusals), before_run=True)
+
+    def check(self, predicted: Sequence[Delivery] = ()) -> None:
+        """Before any tool of the node runs: `refuse` what no answer could allow; unless
+        confirmed, refuse to replace a file that is not xeda's own unchanged earlier delivery
+        (`OutputExistsError`).
+
+        Each destination is taken as it is when examined, and that is what `deliver` compares
+        with: a file edited while the question was open is not replaced on a yes given for the
+        file as it was. `predicted`: what `--outputs-to` expects to deliver, from the last run's
+        artifacts."""
+        self.refuse(predicted)
+        conflicts: list[Conflict] = []
+        states: dict[Path, _State] = {}
+        for delivery in [*self.named, *predicted]:
+            destination = _located(delivery.destination)
             why = self._why_not_ours(destination)
             if why is not None:
                 conflicts.append(Conflict(delivery, destination, why))
             states[destination] = _state(destination)
-        if refusals:
-            raise DeliveryError("; ".join(refusals), before_run=True)
         if conflicts and not self._confirmed(conflicts):
             raise OutputExistsError(_refused(conflicts), before_run=True)
         self.checked = states

@@ -4,7 +4,8 @@ runs, and leaves the requested flow's directory as it was.
 The requested flow registers what every flow of the plan reads, and makes the checks every
 producer would make of its own deliveries when its turn comes. So a producer's destination in a
 directory a sibling producer reads, or on a user's file, is refused before the sibling's tool has
-run for minutes.
+run for minutes. What no answer could allow is refused for every flow of the plan before the first
+question is asked.
 """
 
 import json
@@ -33,6 +34,11 @@ class _ReadsDir(Flow):
 
     class Settings(Flow.Settings):
         reads: Optional[Path] = Field(None, description="A directory it reads.")
+        copy: Optional[Path] = Field(
+            None,
+            description="A second file it writes.",
+            json_schema_extra=deliverable("outputs/{design}.a"),
+        )
 
     class Outputs(Flow.Outputs):
         a: Path = Out(SourceType.Data, description="What it writes.")
@@ -42,6 +48,11 @@ class _ReadsDir(Flow):
         path = self.run_path / "a.txt"
         path.write_text("a\n")
         self.outputs.a = path
+        if self.settings.copy is not None:
+            copy = Path(self.settings.copy)
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            copy.write_text("a\n")
+            self.artifacts["copy"] = str(copy)
         for action in DURING_RUN:
             action()
 
@@ -75,12 +86,24 @@ class _Both(Flow):
 
     results_description: ClassVar[dict[str, str]] = {}
 
+    class Settings(Flow.Settings):
+        report: Optional[Path] = Field(
+            None,
+            description="A file it writes.",
+            json_schema_extra=deliverable("outputs/{design}.rpt"),
+        )
+
     class Inputs(Flow.Inputs):
         a: Path = In(SourceType.Data, producer="__reads_dir", output="a", description="A.")
         b: Path = In(SourceType.Data, producer="__delivers", output="b", description="B.")
 
     def run(self) -> None:
         RUNS.append(self.name)
+        if self.settings.report is not None:
+            report = Path(self.settings.report)
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text("report\n")
+            self.artifacts["report"] = str(report)
 
 
 # Test-only flows, found by name while a test runs and out of the registry otherwise, so that no
@@ -119,13 +142,14 @@ def _runner(tmp_path: Path, **settings) -> DefaultRunner:
     return DefaultRunner(tmp_path / "xeda_run", display_results=False, **settings)
 
 
-def _launch(world, runner=None, **sections):
-    """Launch `_Both` with the settings the design says for each producer."""
+def _launch(world, runner=None, own=None, **sections):
+    """Launch `_Both` with `own` as its settings, and the settings the design says for each
+    producer."""
     runner = runner or world.runner
     return runner.launch_flow(
         _Both,
         world.design,
-        {},
+        own or {},
         all_flows_settings={f"__{name}": values for name, values in sections.items()},
     )
 
@@ -236,6 +260,55 @@ def test_a_file_changed_after_the_question_was_answered_is_asked_about_again(wor
         assert destination.read_text() == edited, "not replaced"
         assert RUNS == [_ReadsDir.name], "the producer that would replace it did not run"
     assert asked == [([], "the user's file\n"), ([_ReadsDir.name], edited)]
+
+
+def _asking(runner) -> list[str]:
+    """Answer yes to every question of `runner`; the names of the files asked about."""
+    asked: list[str] = []
+
+    def confirm(conflicts):
+        asked.extend(conflict.destination.name for conflict in conflicts)
+        return True
+
+    runner.confirm_overwrite = confirm
+    return asked
+
+
+def test_a_refused_outputs_to_comes_before_the_question_about_a_producer_s_file(world, tmp_path):
+    (world.user / "n.v").write_text("the user's file\n")
+    (world.user / "out.txt").write_text("a file, not a directory\n")
+    runner = _runner(tmp_path, outputs_to=world.user / "out.txt")
+    asked = _asking(runner)
+    with pytest.raises(DeliveryError, match="--outputs-to") as refused:
+        _launch(world, runner, delivers={"netlist": "$PWD/n.v"})
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert asked == [] and RUNS == []
+    assert (world.user / "n.v").read_text() == "the user's file\n"
+
+
+def test_a_refusal_of_the_requested_flow_comes_before_the_question_about_a_producer_s_file(world):
+    (world.user / "n.v").write_text("the user's file\n")
+    (world.user / "reports").mkdir()
+    asked = _asking(world.runner)
+    with pytest.raises(DeliveryError, match="a directory") as refused:
+        _launch(
+            world,
+            own={"report": str(world.user / "reports")},
+            delivers={"netlist": "$PWD/n.v"},
+        )
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert asked == [] and RUNS == []
+
+
+def test_a_refusal_of_a_later_producer_comes_before_the_question_about_an_earlier_one(world):
+    (world.user / "c.a").write_text("the user's file\n")
+    (world.user / "n").mkdir()
+    asked = _asking(world.runner)
+    with pytest.raises(DeliveryError, match="a directory") as refused:
+        _launch(world, reads_dir={"copy": "$PWD/c.a"}, delivers={"netlist": str(world.user / "n")})
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert asked == [] and RUNS == []
+    assert (world.user / "c.a").read_text() == "the user's file\n"
 
 
 @pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])

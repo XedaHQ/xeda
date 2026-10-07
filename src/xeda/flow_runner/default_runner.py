@@ -34,6 +34,7 @@ from ..deliver import (
     Conflict,
     ConfirmedReplacements,
     Deliveries,
+    Delivery,
     DeliveryError,
     ReadInputs,
     deliverable_setting_names,
@@ -974,12 +975,13 @@ class FlowLauncher:
         entry is a `FlowFatalError`. Every flow launched is appended to `launched` as it
         completes, whether it succeeded, failed or raised.
 
-        Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs
-        (the requested flow checks the deliveries of every flow of the plan, `_launch`), noted
-        when their flow succeeded or was found up to date, and delivered once the whole
-        launch has finished -- only when the requested flow succeeded or was found up to date: a
-        launch that raised, or whose requested flow reports failure, delivers nothing, not even
-        a successful dependency's outputs (`_finish_launch`).
+        Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs.
+        The requested flow checks the deliveries of every flow of the plan when the launch
+        starts (`_check_deliveries_ahead`): first what no answer could allow, then the
+        questions. They are noted when their flow succeeded or was found up to date, and
+        delivered once the whole launch has finished -- only when the requested flow succeeded
+        or was found up to date: a launch that raised, or whose requested flow reports failure,
+        delivers nothing, not even a successful dependency's outputs (`_finish_launch`).
         """
         top_level = self._launch_depth == 0
         if top_level:
@@ -1066,23 +1068,53 @@ class FlowLauncher:
             return False
         return self._confirmed_replacements.confirm(self.confirm_overwrite, conflicts)
 
-    def _refuse_producer_deliveries(self, plan: Plan, requested: PlanNode, design: Design) -> None:
-        """Make now the checks that every producer of the plan makes of its own deliveries when
-        its turn comes (`Deliveries.check`), so that a refusal never follows the run of an
-        earlier producer. The producer makes its check again, which records what it found."""
+    def _check_deliveries_ahead(
+        self,
+        plan: Plan,
+        requested: PlanNode,
+        design: Design,
+        deliveries: Sequence[Delivery],
+        run_path: Path,
+    ) -> None:
+        """Make now the checks that every flow of the plan makes of its deliveries when its turn
+        comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
+        earlier flow. First comes what no answer could allow (`--outputs-to`, and
+        `Deliveries.refuse`), for every flow, the requested flow included; then the questions
+        of the producers, in the order they run, each asked once. The requested flow asks its own
+        at its turn, which comes before any tool runs. A producer makes its check again at its
+        turn, which records what it found."""
+        outputs_to = self.settings.outputs_to
+        own = self._deliveries_of(run_path, deliveries)
+        own.check_outputs_to(outputs_to)
+        predicted = (
+            outputs_to_deliveries(
+                recorded_artifacts(run_path / "results.json"), run_path, outputs_to
+            )
+            if outputs_to is not None
+            else []
+        )
+        own.refuse(predicted)
+        producers: list[Deliveries] = []
         for planned in plan.nodes:
-            if planned.node_key == requested.node_key:
-                continue
-            named = split_deliveries(planned.settings, design.name)
-            if named:
-                Deliveries(
-                    planned.run_path,
-                    self.run_root,
-                    named,
-                    inputs=self._read_inputs,
-                    overwrite=self.settings.overwrite_outputs,
-                    confirm=self._confirm_replacing,
-                ).check()
+            if planned.node_key != requested.node_key:
+                named = split_deliveries(planned.settings, design.name)
+                if named:
+                    producers.append(self._deliveries_of(planned.run_path, named))
+        for producer in producers:
+            producer.refuse()
+        for producer in producers:
+            producer.check()
+
+    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery]) -> Deliveries:
+        """The deliveries `named` of the flow that runs in `run_path`, for this launch."""
+        return Deliveries(
+            run_path,
+            self.run_root,
+            named,
+            inputs=self._read_inputs,  # the launch's
+            overwrite=self.settings.overwrite_outputs,
+            confirm=self._confirm_replacing,
+        )
 
     def _entered(self, run_path: Path) -> bool:
         """Whether this launch built a flow for `run_path`, so that the `results.json` there is
@@ -1155,15 +1187,15 @@ class FlowLauncher:
         # What the flows read -- every file their settings name, and every file under a
         # directory one names, as the trace lists it -- is an input no delivery of the launch
         # may replace, nor land beside in such a directory. The requested flow registers the
-        # reads of the whole plan, and makes the checks of every producer's deliveries, before
-        # any flow is entered: a refusal never comes after the tool of an earlier flow ran.
+        # reads of the whole plan, and makes the checks of every flow's deliveries, before any
+        # flow is entered: a refusal never comes after the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
         if plan_node is None:
             for planned in plan.nodes:
                 register_read_settings(
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
-            self._refuse_producer_deliveries(plan, node, design)
+            self._check_deliveries_ahead(plan, node, design, deliveries, run_path)
         _refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
@@ -1180,14 +1212,7 @@ class FlowLauncher:
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # the deliveries, checked before `--clean` and before any tool of this flow runs
             outputs_to = self.settings.outputs_to if depender is None else None
-            delivery = Deliveries(
-                run_path,
-                self.run_root,
-                deliveries,
-                inputs=self._read_inputs,  # the launch's
-                overwrite=self.settings.overwrite_outputs,
-                confirm=self._confirm_replacing,
-            )
+            delivery = self._deliveries_of(run_path, deliveries)
             # the directory itself, not only a file predicted from the last run's artifacts: a
             # location becomes a concrete `Delivery` only once its tool has run and reported an
             # artifact, so without this a run root or an input named by `--outputs-to` is refused
