@@ -60,15 +60,16 @@ All notable changes to this project will be documented in this file.
   not `cells_bb_ecp5.v`. Every supported release reads the Lattice pair, as the pass does. A test
   now compares the libraries with the pass's own, in both directions, for every target.
   Each library read moves Yosys's name counter, so the generated cell names of a Gowin netlist
-  (and of an ECP5 netlist with Yosys older than 0.69) can differ from before. The cell counts are
-  equal. A Gowin run with a `verilog_lib` entry given as an ordinary path now asks `yosys-config`
-  for Yosys's data directory, as the other targets do.
-- `rtl_json` failed with `ERROR: Module ALU contains processes` whenever a primitive library was
-  in the design. Every `yosys_fpga` target reads one, and so does a `verilog_lib` model that Yosys
-  keeps as a whitebox. `rtl_json` now writes the design's own modules only, as `rtl_verilog` and
-  `rtl_graph` always did. A blackbox module, such as a library cell or a `black_box` module, is no
-  longer listed in it. The `yosys` flow now ends its synthesis with `blackbox =A:whitebox`, as the
-  FPGA passes do, so its netlist JSON no longer fails on such a library either.
+  (and of an ECP5 netlist with Yosys older than 0.69) can differ from before. In the designs
+  checked, the cell counts were equal. A Gowin run with a `verilog_lib` entry given as an ordinary
+  path now asks `yosys-config` for Yosys's data directory, as the other targets do.
+- `rtl_json` failed with `ERROR: Module ALU contains processes` when the design held a primitive
+  library. Every `yosys_fpga` target reads one. A `verilog_lib` file can hold the same models for
+  the `yosys` flow, when Yosys keeps them as whiteboxes. `rtl_json` now writes the design's own
+  modules only, as `rtl_verilog` and `rtl_graph` always did. A blackbox module, such as a library
+  cell or a `black_box` module, is no longer listed in it. With a `verilog_lib`, the `yosys` flow
+  now ends its synthesis with `blackbox =A:whitebox`, as the FPGA passes do, so its netlist JSON
+  no longer fails on such a library either. Its script is unchanged without a `verilog_lib`.
 - `yosys_fpga` with `script_format: tcl` put the command after the RTL outputs on the same line
   as the last one, so Tcl rejected the script ("extra characters after close-quote") whenever
   `rtl_json`, `rtl_verilog` or `rtl_graph` was set.

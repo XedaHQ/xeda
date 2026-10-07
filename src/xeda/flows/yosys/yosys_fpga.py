@@ -329,6 +329,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     PrimitiveLibrary("+/gowin/cells_sim.v"),
                     PrimitiveLibrary(f"+/gowin/cells_xtra_{self._gowin_family()}.v"),
                 ]
+            assert target == "ice40", target
             define = f"ICE40_{self._ice40_device().upper()}"
             return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
 

@@ -87,10 +87,12 @@ rmports
 check {% if settings.check_assert -%} -assert {% endif -%} -mapped
 {%- endif %}
 
-{#- The FPGA passes end with this command, so none leaves a whitebox for `write_json`. `synth`
-    does not, and a library read with `-lib` keeps its `lib_whitebox` models with their `always`
-    blocks, which `write_json` refuses to write. #}
+{#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
+    which `write_json` refuses to write. The FPGA passes end with this command, so none leaves a
+    whitebox behind; `synth` does not. A liberty library holds blackboxes only. #}
+{%- if settings.verilog_lib %}
 blackbox =A:whitebox
+{%- endif %}
 {% include "write_netlist.tcl" %}
 
 log -stdout "***** Synthesis Completed *****"

@@ -11,6 +11,7 @@ the pass cannot honor it.
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -482,6 +483,18 @@ def _named_by_help(path: str) -> str:
     return re.sub(r"(?<=cells_xtra_)gw\w+(?=\.v$)", "<family>", path)
 
 
+def _yosys_data_dir() -> Path:
+    """What `+/` stands for, from the `yosys-config` beside the installed `yosys`: the flow asks
+    that one too, never another `yosys-config` that happens to be on `PATH`."""
+    config = Path(shutil.which("yosys") or "yosys").with_name("yosys-config")
+    assert config.exists(), f"no yosys-config beside {shutil.which('yosys')}"
+    return Path(
+        subprocess.run(
+            [str(config), "--datdir"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    )
+
+
 def _installed_release() -> YosysRelease:
     version = subprocess.run(["yosys", "-V"], capture_output=True, text=True, check=True).stdout
     match = re.search(r"Yosys (\d+)\.(\d+)", version)
@@ -521,11 +534,7 @@ def test_primitive_libraries_are_read_the_way_the_installed_pass_reads_them(targ
         text=True,
         check=True,
     ).stdout
-    datdir = Path(
-        subprocess.run(
-            ["yosys-config", "--datdir"], capture_output=True, text=True, check=True
-        ).stdout.strip()
-    )
+    datdir = _yosys_data_dir()
     files = re.findall(r"^\d+\.\d+\. Executing Verilog-2005 frontend: (.*)$", log, re.MULTILINE)
     read = [Path(f) for f in files if Path(f).name != "top.v"]
     expected = [datdir / library.path.removeprefix("+/") for library in libraries]

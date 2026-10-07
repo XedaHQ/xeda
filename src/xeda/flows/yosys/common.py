@@ -160,7 +160,9 @@ class YosysBase(Flow):
         flatten: Optional[bool] = Field(
             None,
             description="Flatten the design hierarchy. Unset leaves the choice to the flow: "
-            "`yosys` flattens, and `yosys_sim` does not (CXXRTL's `cxxrtl.flatten` still applies).",
+            "`yosys` flattens when it maps to a liberty library (`liberty` or a `platform`) and "
+            "keeps the hierarchy otherwise, and `yosys_sim` flattens only through CXXRTL's own "
+            "`cxxrtl.flatten`.",
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],

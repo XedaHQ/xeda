@@ -320,13 +320,16 @@ def test_the_synthesis_flow_makes_library_whiteboxes_blackboxes_before_its_netli
     script_format, tmp_path: Path
 ) -> None:
     """The FPGA passes end with `blackbox =A:whitebox`, so no whitebox is left to `write_json`;
-    `synth` does not, so the generic flow does it itself, before it writes any netlist."""
+    `synth` does not, so the generic flow does it itself, before it writes any netlist, when a
+    Verilog library (`verilog_lib`) may have left some. Without one the script is as it was."""
+    settings = {"netlist_json": "netlist.json", "script_format": script_format}
     script = _render(
-        Yosys, _asic_settings(netlist_json="netlist.json", script_format=script_format), tmp_path
+        Yosys, _asic_settings(verilog_lib=["+/xilinx/cells_sim.v"], **settings), tmp_path
     )
     box = re.search(r"^(yosys )?blackbox =A:whitebox$", script, re.MULTILINE)
     netlist = re.search(r'^(yosys )?write_json "?netlist\.json"?$', script, re.MULTILINE)
     assert box and netlist and box.start() < netlist.start(), script
+    assert "blackbox" not in _render(Yosys, _asic_settings(**settings), tmp_path)
 
 
 # yosys commands that expand a file name as a glob pattern, so their file arguments go through

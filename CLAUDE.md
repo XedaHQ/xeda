@@ -1506,9 +1506,11 @@ dependency must also share `custom_boards_file`.
   does not. So the RTL stage (`post_rtl`, shared by `yosys`, `yosys_sim` and `yosys_fpga`) writes
   `write_json -selected`, and the default selection holds no box: the RTL outputs describe the
   design's own modules. The FPGA passes end with `blackbox =A:whitebox`, and `yosys_synth` does
-  the same before its netlist, so the netlist JSON never meets a whitebox. A new `write_json`
-  needs one of the two. `post_rtl` blocks end their last command with a newline: an includer's
-  `-%}` would otherwise glue the next command to it (the `.tcl` form failed in Tcl that way).
+  the same before its netlist when `verilog_lib` is set (without it the script is as it was,
+  which `tests/test_tool_input_equivalence.py` pins), so the netlist JSON never meets a
+  whitebox. A new `write_json` needs one of the two. `post_rtl` blocks end their last command
+  with a newline: an includer's `-%}` would otherwise glue the next command to it (the `.tcl`
+  form failed in Tcl that way).
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for). Undeclared flows validate in
