@@ -431,7 +431,7 @@ def test_a_delivery_still_inside_the_racy_window_is_read_at_every_launch(
     for _ in range(2):
         hashed.clear()
         assert [d.state for d in _launch(world, netlist="$PWD/net.v").deliveries] == ["unchanged"]
-        assert _reads(hashed, destination) == 2, "the check's read, and the copy's"
+        assert _reads(hashed, destination) == 3, "each of the two checks reads it, and the copy"
 
 
 def test_an_edit_with_its_mtime_restored_is_found_even_after_the_record_was_anchored(
@@ -489,7 +489,7 @@ def test_a_destination_whose_file_system_clock_cannot_be_read_is_read_at_every_l
     for _ in range(2):
         hashed.clear()
         assert [d.state for d in _launch(world, netlist="$PWD/net.v").deliveries] == ["unchanged"]
-        assert _reads(hashed, destination) == 2
+        assert _reads(hashed, destination) == 3, "each of the two checks reads it, and the copy"
     assert destination.read_text() == "net\n"
 
 

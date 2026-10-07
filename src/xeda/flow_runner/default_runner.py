@@ -1142,7 +1142,9 @@ class FlowLauncher:
         Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs.
         The requested flow checks the deliveries of every flow of the plan when the launch
         starts (`_check_deliveries_ahead`): first what no answer could allow, then the
-        questions. They are noted when their flow succeeded or was found up to date, and
+        questions, the requested flow's own last. All of it comes before the launch scrubs older
+        runs (`scrub_old_runs`) and before it takes the lock of its run directory. Deliveries are
+        noted when their flow succeeded or was found up to date, and
         delivered once the whole launch has finished -- only when the requested flow succeeded
         or was found up to date: a launch that raised, or whose requested flow reports failure,
         delivers nothing, not even a successful dependency's outputs (`_finish_launch`).
@@ -1251,12 +1253,15 @@ class FlowLauncher:
         destination known before the run, which is every named delivery of the launch and the
         files `--outputs-to` is expected to deliver from the requested flow's last run; the
         files that only this run reveals are compared once it has run); then the questions of
-        the producers, in the order they run, each asked once. The requested flow asks its own at its turn: that is the start of
-        its own launch, before it launches its producers, so before any tool runs. A producer
-        keeps the object it checked and checks again with it at its turn: that finds the record
-        this check anchored, so the destination is read once in the launch. At its turn, under
-        its lock, the producer reads the delivery record again if another launch wrote it
-        meanwhile."""
+        the producers, in the order they run, each asked once, and last the requested flow's
+        own, which runs last. So the launch has asked everything before any tool runs, before it
+        scrubs older runs (`--scrub`) and before it takes the lock of its run directory: a launch
+        the user declines has removed nothing, and a question that waits for the user holds up no
+        other launch or scrub of that directory. Each flow keeps the object it checked, and
+        checks again with it at its turn: that finds the record this check anchored, so the
+        destination is read once in the launch, and asks again only about a file that changed
+        meanwhile. At its turn, under its lock, the flow reads the delivery record again if
+        another launch wrote it meanwhile."""
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)
@@ -1285,6 +1290,8 @@ class FlowLauncher:
         refuse_shared_destinations(copies, before_run=True)
         for producer in ahead.values():
             producer.check()
+        own.check(predicted)
+        ahead[requested.node_key] = own
         self._deliveries_ahead = ahead
 
     def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
@@ -1397,9 +1404,11 @@ class FlowLauncher:
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
-            # the deliveries, checked before `--clean`, before this flow's `init()` and before
-            # any producer is launched: the requested flow asks its own question here, so before
-            # any tool of the plan runs
+            # the deliveries, checked again before `--clean`, before this flow's `init()` and
+            # before any producer is launched, so before any tool of the plan runs. Each flow,
+            # the requested one included, was asked about its files before the scrub above and
+            # before this lock was taken (`_check_deliveries_ahead`): a file that changed since
+            # is asked about again
             outputs_to = self.settings.outputs_to if depender is None else None
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:

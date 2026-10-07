@@ -9,6 +9,7 @@ question is asked.
 """
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable, ClassVar, List, Optional
@@ -20,11 +21,14 @@ from click.testing import CliRunner
 import xeda.deliver as deliver
 from xeda import Design
 from xeda.cli import cli
+from xeda.console import console
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.run_lock import lock_file
+from xeda.run_root import ensure_run_root
 
 RUNS: List[str] = []
 #: what a test does while the first producer's tool runs (a user editing a file meanwhile)
@@ -554,3 +558,141 @@ def test_a_refusal_keeps_what_it_says_of_the_run_when_it_crosses_a_process(error
     error = pickle.loads(pickle.dumps(error_class("refused", before_run=before_run)))
     assert type(error) is error_class and error.before_run is before_run
     assert str(error) == "refused"
+
+
+# ---------------------------------------------------------------------------------------------
+# `--scrub`: the question about the requested flow's own file comes before anything is removed,
+# and while no lock is held
+# ---------------------------------------------------------------------------------------------
+
+
+def _lock_is_held(run_path: Path) -> bool:
+    """Whether the lock of `run_path` is held now, by anyone: tried through a descriptor of its
+    own, which `flock` refuses while any other descriptor holds it, this process's included."""
+    if sys.platform == "win32":
+        pytest.skip("no run-directory locks")
+    import fcntl
+
+    lock = lock_file(run_path)
+    if not lock.parent.is_dir():  # no launch has made the directory, so none holds a lock in it
+        return False
+    with open(lock, "a") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+    return False
+
+
+def _an_older_variant(world) -> Path:
+    """A run directory of another variant of the requested flow, as a hashed layout leaves one: a
+    launch with `--scrub` removes it, once it is confirmed."""
+    ensure_run_root(world.root)
+    old = world.root / "d" / "__both_0123456789abcdef"
+    old.mkdir(parents=True)
+    (old / "results.json").write_text("{}\n")
+    return old
+
+
+@pytest.fixture
+def questions(monkeypatch) -> list[str]:
+    """The questions of a launch with `--scrub`, in the order they are asked: "replace" for the
+    replacement of a file (`confirm_overwrite`, which each test installs) and "scrub" for the
+    removal of the older runs (`console.input`, answered yes here)."""
+    asked: list[str] = []
+
+    def confirm_removal(prompt="", *args, **kwargs):
+        asked.append("scrub")
+        return "yes"
+
+    monkeypatch.setattr(console, "input", confirm_removal)
+    return asked
+
+
+def test_a_declined_replacement_scrubs_nothing(world, questions, tmp_path):
+    old = _an_older_variant(world)
+    (world.user / "r.rpt").write_text("the user's report\n")
+    runner = _runner(tmp_path, scrub_old_runs=True)
+    runner.confirm_overwrite = lambda conflicts: questions.append("replace") or False
+
+    with pytest.raises(OutputExistsError, match="r.rpt") as refused:
+        _launch(
+            world,
+            runner,
+            own={"report": str(world.user / "r.rpt")},
+            delivers={"netlist": "$PWD/n.v"},
+        )
+
+    assert refused.value.before_run
+    assert questions == ["replace"], "scrub did not even ask"
+    assert old.is_dir(), "an older run was removed by a launch that was declined"
+    assert (world.user / "r.rpt").read_text() == "the user's report\n"
+    assert RUNS == []
+
+
+def test_the_replacement_is_asked_about_before_the_older_runs_are_removed(
+    world, questions, tmp_path
+):
+    old = _an_older_variant(world)
+    (world.user / "r.rpt").write_text("the user's report\n")
+    runner = _runner(tmp_path, scrub_old_runs=True)
+    runner.confirm_overwrite = lambda conflicts: questions.append("replace") or True
+
+    flow = _launch(
+        world, runner, own={"report": str(world.user / "r.rpt")}, delivers={"netlist": "$PWD/n.v"}
+    )
+
+    assert flow.succeeded
+    assert questions == ["replace", "scrub"]
+    assert not old.exists(), "confirmed, the older run is removed"
+    assert (world.user / "r.rpt").read_text() == "report\n"
+
+
+def test_the_replacement_is_asked_about_while_no_run_directory_lock_is_held(world, tmp_path):
+    """A question that waits for the user must not hold up another launch or a scrub of the same
+    run directory, which waits for its lock. The requested flow's own question used to be asked
+    under its lock."""
+    (world.user / "r.rpt").write_text("the user's report\n")
+    ensure_run_root(world.root)
+    (world.root / "d").mkdir(parents=True)  # where the lock lives: the probe really tries it
+    held: list[bool] = []
+
+    def confirm(conflicts):
+        held.append(_lock_is_held(world.root / "d" / "__both"))
+        return True
+
+    runner = _runner(tmp_path)
+    runner.confirm_overwrite = confirm
+    flow = _launch(
+        world, runner, own={"report": str(world.user / "r.rpt")}, delivers={"netlist": "$PWD/n.v"}
+    )
+
+    assert flow.succeeded
+    assert held == [False]
+
+
+def test_a_file_changed_while_the_scrub_waited_is_asked_about_again(world, tmp_path, monkeypatch):
+    """The yes was for the file as it was. The launch asks again at its turn, once the scrub has
+    removed the older runs, about a file that changed meanwhile, as it does for a producer's."""
+    _an_older_variant(world)
+    destination = world.user / "r.rpt"
+    destination.write_text("the user's report\n")
+    runner = _runner(tmp_path, scrub_old_runs=True)
+    shown: list[str] = []
+
+    def confirm(conflicts):
+        shown.append(destination.read_text())
+        return True
+
+    def edited_while_the_prompt_is_open(prompt="", *args, **kwargs):
+        destination.write_text("the user's report, edited\n")
+        return "yes"
+
+    runner.confirm_overwrite = confirm
+    monkeypatch.setattr(console, "input", edited_while_the_prompt_is_open)
+    flow = _launch(
+        world, runner, own={"report": str(destination)}, delivers={"netlist": "$PWD/n.v"}
+    )
+
+    assert flow.succeeded
+    assert shown == ["the user's report\n", "the user's report, edited\n"]

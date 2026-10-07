@@ -450,7 +450,8 @@ Cleaning up
      - After a run, remove the run directory entirely.
    * - ``--scrub``
      - Before running, remove the flow's other run directories for this design. Asks for
-       confirmation.
+       confirmation. If the launch also has to ask whether to replace a file you named for an
+       output, it asks that first: a launch you decline removes nothing.
 
 Pruning (``--post-cleanup``/``--post-cleanup-purge``) drops the trace first, before anything else
 it removes: a pruned run is not reused, even though its ``settings.json``/``results.json`` remain.
@@ -582,7 +583,9 @@ overwrite a file it should ask about first); anything else needs ``--overwrite-o
 typed at a terminal prompt (under ``--json``, or with no terminal on both ends, only the flag
 works). This is checked before any tool of the launch runs. The requested flow checks the
 deliveries of every flow of the plan when the launch starts: it reports every refusal first, and
-then asks its questions, so neither comes after minutes of tool time. A yes holds for the file you
+then asks its questions, its own last, so neither comes after minutes of tool time. All of them
+come before ``--scrub`` removes anything, and while no other launch or scrub of the run directory
+is made to wait. A yes holds for the file you
 were asked about. If that file changes before the launch reaches the flow that delivers it, Xeda
 asks again. If it changes while Xeda waits for your answer, Xeda does not replace it. The check is
 made once more right before the copy, in case something changed in between: a destination that
@@ -602,7 +605,7 @@ and reads nothing. The record of a file Xeda has just delivered cannot be truste
 timestamps, so the first check after it has settled -- more than two seconds after it was
 written -- reads it once, and that read anchors the record; no later check or copy reads it
 again. A launch still inside those two seconds anchors nothing, so each check and the copy read
-the destination, as every launch did before. Where no marker can be made
+the destination. Where no marker can be made
 (a destination directory that is read only), every check reads the content, as it would without
 a clock to trust. A destination found on another device than the one its record's clock was read
 on is read once more, and anchored afresh by the clock of the file system it is on now.

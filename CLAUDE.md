@@ -1111,12 +1111,15 @@ lies in ignores letter case, which `_ignores_case` finds by looking, never by wr
 of the directory asked for in the other case, else the directory's own name in its parent on the
 same device, else its parent's answer, and "keeps case" when nothing can be asked -- so
 `Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4) -- and only then
-asks the producers' questions; its own question comes at
-its turn, the start of its own launch and before it launches its producers, so still before any
-tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+asks the producers' questions, in the order they run, and its own, last: so a launch has asked
+everything before any tool runs, before it scrubs older runs (`--scrub`, whose `scrub_runs` also
+asks) and before it takes the lock of its run directory. A launch the user declines has removed
+nothing, and a question that waits for the user holds up no other launch or scrub of that
+directory. Each flow, the requested one included, keeps the `Deliveries` it checked
+(`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
 a launch; that second check records what it found (`Deliveries.checked`). The object read its
-delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
+delivery record before the flow's lock was taken, so the turn, once it holds the lock, reads
 the record again if its file changed (`Deliveries.reread_record`, by the file's `_state`):
 another launch of the run directory may have delivered meanwhile, and this one would otherwise
 find its file not xeda's, or write the old record back over the other launch's entry. A yes holds for the
@@ -1165,9 +1168,9 @@ read at a moment that very content was verified, and only when it is really sett
 (`FileRecord.settled_before`). So the delivery xeda just copied, racy by construction, is read
 once, by the first check after it has settled, whose read anchors it (`_copy` then reads
 nothing), and never again by a check or a copy; a launch still inside the racy window anchors
-nothing, and its check and its copy each read the destination, as every launch did before. No
-clock to read (a read-only directory, a file system that refuses): no anchor, and every check
-reads the content, exactly as before. A destination found on another device than its anchor was
+nothing, and each of its checks (the one made when the launch starts and the one at the flow's
+turn) and its copy read the destination. No clock to read (a read-only directory, a file system
+that refuses): no anchor, and every check reads the content. A destination found on another device than its anchor was
 read on has that anchor discarded (`deliver._recorded_anchor`), is read once, and is anchored
 afresh to the clock of the file system it is on now. See `docs/run-directories.rst`'s "Outputs where you
 name them" for the user-facing rules (never onto an input nor into a read directory, never a
