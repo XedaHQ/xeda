@@ -619,7 +619,11 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
    items and empty items are dropped, so `""` is `[]`). A setting that also accepts plain text
-   keeps it whole.
+   keeps it whole. Text spelled `[...]` is refused, naming `key=` (the empty list) and `key=a,b`
+   (`_comma_separated_items`): `-s flags=[]` used to become the one item `"[]"`. Construction
+   reports it as the field's `list_text` error, and an assignment raises the same
+   `ValidationError`, so the two cannot differ (`settings_samples.PROBES` holds `[]` and
+   `[x, y]` for the sweeps).
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
@@ -1688,8 +1692,8 @@ dependency must also share `custom_boards_file`.
   reload; omitting a setting and writing its default are the same) and from settings alone, never
   from the design's sources, so the check stays pure and class-level. The defaults (`-sv`, the
   slang plugin) are Xeda's own and so are refused: the mode needs `read_verilog_flags: []` and
-  `systemverilog: default` written (`-s read_verilog_flags=` on the command line: `=[]` is the one
-  flag `[]`). A `.sv` source is then read with the template's own `read_verilog -sv`, as yosys
+  `systemverilog: default` written (`-s read_verilog_flags=` on the command line: the text `[]`
+  is refused). A `.sv` source is then read with the template's own `read_verilog -sv`, as yosys
   does. `READER_SETTINGS` in `tests/test_yosys_recipe.py` holds a decision for every `settings.*`
   the reader templates render, plus the `defines` and `ghdl_args` variables (a new one fails the
   sweep until decided); `use_slang_plugin` is unreachable under the mode (it only gates loading the

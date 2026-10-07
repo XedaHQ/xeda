@@ -136,6 +136,57 @@ def test_a_list_setting_may_be_given_as_comma_separated_text(flow, extra, settin
     assert getattr(assigned, setting) == expected, "assignment must behave like construction"
 
 
+@pytest.mark.parametrize("given", ["[]", "[a,b]", "[ x ]", " [] "], ids=repr)
+def test_a_list_setting_written_as_a_list_literal_is_refused_naming_the_right_spellings(given):
+    """`-s compile_args=[]` is text, and the text `[]` is not a list: refused, instead of becoming
+    the one-item list `["[]"]`. The message names the spelling of the empty list and of a list."""
+    with pytest.raises(FlowSettingsError) as refused:
+        _flow("verilator").Settings.from_input({"compile_args": given})
+    message = str(refused.value)
+    assert "compile_args" in message and "is text, not a list" in message
+    assert "`compile_args=` for the empty list" in message
+    assert "`compile_args=a,b`" in message
+
+    assigned = _flow("verilator").Settings()
+    with pytest.raises(ValidationError, match="is text, not a list"):
+        assigned.compile_args = given  # type: ignore[assignment]
+    assert assigned.compile_args == [], "a refused assignment changes nothing"
+
+
+def test_every_list_setting_written_as_a_list_literal_is_refused_alike_everywhere():
+    """The rule is the settings' own, so every list setting of every flow has it, wherever it is
+    written: construction and assignment agree (see also `test_model_invariants`)."""
+    from xeda.flow_runner import get_flow_class
+    from xeda.flow.flow import _is_comma_separated_list
+
+    from .settings_samples import flow_classes, minimal_settings
+
+    unrefused = []
+    for cls, _name in flow_classes():
+        for name, info in cls.Settings.model_fields.items():
+            if name.endswith("_") or not _is_comma_separated_list(info.annotation):
+                continue
+            try:
+                cls.Settings.from_input({**minimal_settings(cls), name: "[]"})
+            except FlowSettingsError:
+                continue
+            unrefused.append(f"{cls.name}.{name}")
+    assert not unrefused, unrefused
+    assert get_flow_class("verilator")  # the sweep found list settings to judge
+
+
+def test_a_setting_that_also_accepts_text_keeps_a_list_literal_as_text():
+    """`ghdl_sim.vpi` takes text or a list: the text is its own, whatever it looks like."""
+    assert _flow("ghdl_sim").Settings(vpi="[a]").vpi == "[a]"
+
+
+@pytest.mark.parametrize("given", ["-DX=[1],-y", "a[0],b[1]", "[a", "a]", "x,[]"], ids=repr)
+def test_brackets_inside_a_list_item_are_just_text(given):
+    """Only a text spelled as a whole list literal is refused."""
+    settings = _flow("verilator").Settings(compile_args=given)
+    assert settings.compile_args == [item for item in given.split(",") if item]
+
+
 # ---------------------------------------------------------------------------------------------
 # Path variables
 # ---------------------------------------------------------------------------------------------

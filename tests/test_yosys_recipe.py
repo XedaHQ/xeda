@@ -531,7 +531,8 @@ def test_any_reader_flag_is_refused_under_the_mode_and_none_is_accepted(flags):
 
 
 def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path, toolchain):
-    """`-s read_verilog_flags=` is `[]`; `-s read_verilog_flags=[]` is the one flag `[]`."""
+    """`-s read_verilog_flags=` is `[]`. The text `[]` is no list: it is refused, naming the
+    spelling of the empty list, instead of becoming the one flag `[]`."""
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = [
         f"fpga.part={PARTS['xilinx']}",
@@ -540,7 +541,7 @@ def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path,
         "systemverilog=default",
     ]
     runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags="])
-    with pytest.raises(FlowSettingsError, match="read_verilog_flags"):
+    with pytest.raises(FlowSettingsError, match="`read_verilog_flags=` for the empty list"):
         runner.plan(YosysFpga, _design(tmp_path), flow_settings=[*base, "read_verilog_flags=[]"])
 
 
