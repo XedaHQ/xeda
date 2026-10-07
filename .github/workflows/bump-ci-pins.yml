@@ -1,0 +1,111 @@
+name: Bump CI tool pins
+
+# CI pins the tools that it installs: the OSS CAD Suite and the Bluespec Compiler (bsc) in ci.yml,
+# and the openXC7 toolchain installer in openxc7.yml. Every Monday this workflow looks for newer
+# versions (.github/scripts/bump_ci_pins.py). When it finds one, it changes the pins on the branch
+# ci/bump-tool-pins and opens a pull request, or updates the pull request that is open. The owner
+# of the token is the author of the pull request, and CI runs on it like on any other. A person
+# reads the pull request and merges it when CI passes.
+#
+# The workflow needs the secret CI_PINS_TOKEN: a fine-grained personal access token, or the token
+# of a GitHub App, with write access to Contents, Pull requests and Workflows of this repository.
+# GITHUB_TOKEN cannot do this job. It has no permission to change workflow files, and a pull
+# request that it opens does not start CI by itself.
+#
+# The workflow changes something only when it runs on the default branch of a repository that is
+# not a fork. Anywhere else, and when a manual run sets dry_run, it prints the changes and stops.
+on:
+  schedule:
+    - cron: "23 8 * * 1" # Mondays, after the OSS CAD Suite build (published 06:00 to 07:30 UTC)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the changes and change nothing
+        type: boolean
+        default: false
+
+# The writes use CI_PINS_TOKEN. GITHUB_TOKEN only reads.
+permissions:
+  contents: read
+
+# Two runs would push the same branch.
+concurrency:
+  group: bump-ci-pins
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BRANCH: ci/bump-tool-pins
+    steps:
+      # Asks GitHub about the repository, and does not trust the event for it: a scheduled run
+      # has no webhook payload to read the default branch from.
+      - name: Decide whether to change anything
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          TOKEN: ${{ secrets.CI_PINS_TOKEN }}
+        run: |
+          set -euo pipefail
+          read -r fork default_branch < <(
+            gh api "repos/$GITHUB_REPOSITORY" --jq '[.fork, .default_branch] | @tsv'
+          )
+          dry_run=false
+          if [ "$fork" = "true" ] || [ "$DRY_RUN_INPUT" = "true" ] || [ "$GITHUB_REF_NAME" != "$default_branch" ]; then
+            dry_run=true
+          fi
+          if [ "$dry_run" = "false" ] && [ -z "$TOKEN" ]; then
+            echo "::error::The secret CI_PINS_TOKEN is not set. The comment at the top of this workflow says what it must be."
+            exit 1
+          fi
+          echo "fork=$fork, default branch=$default_branch, ref=$GITHUB_REF_NAME: dry run=$dry_run"
+          {
+            echo "DRY_RUN=$dry_run"
+            echo "BASE=$default_branch"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          token: ${{ secrets.CI_PINS_TOKEN || github.token }}
+
+      - name: Look for newer tool versions
+        id: find
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # for the rate limit of the read-only lookups
+        run: |
+          set -euo pipefail
+          options=()
+          if [ "$DRY_RUN" = "true" ]; then
+            options+=(--dry-run)
+          fi
+          python3 .github/scripts/bump_ci_pins.py "${options[@]}" \
+            --body-file "$RUNNER_TEMP/pull-request.md" --message-file "$RUNNER_TEMP/commit-message.txt"
+
+      - name: Push the branch, and open or update the pull request
+        if: steps.find.outputs.changed == 'true' && env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CI_PINS_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add .github/workflows
+          git commit --quiet --file "$RUNNER_TEMP/commit-message.txt"
+          # The branch may already hold exactly these changes, from the run of an earlier week.
+          # Then the pull request is up to date, and a push would only start CI again.
+          if git fetch --quiet origin "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "The branch $BRANCH already holds these changes."
+          else
+            git push --force origin "HEAD:refs/heads/$BRANCH"
+          fi
+          title="$(head -n 1 "$RUNNER_TEMP/commit-message.txt")"
+          number="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pull-request.md"
+          else
+            gh pr create --base "$BASE" --head "$BRANCH" --title "$title" \
+              --body-file "$RUNNER_TEMP/pull-request.md"
+          fi
