@@ -17,6 +17,7 @@ from copy import deepcopy
 import inspect
 import json
 import logging
+import os
 import re
 import textwrap
 from pathlib import Path
@@ -26,7 +27,13 @@ from importlib_resources import files
 from pydantic import BaseModel
 
 from .dataclass import PydanticUndefined, input_names, written_role
-from .design import DESIGN_NAME, FLAT_RTL_KEYS, TARGET_FORBIDDEN_KEYS, Design
+from .design import (
+    DESIGN_NAME,
+    FLAT_RTL_KEYS,
+    TARGET_FORBIDDEN_KEYS,
+    Design,
+    names_a_design_file,
+)
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
 from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
@@ -42,6 +49,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "all_flow_classes",
     "boards_info",
+    "design_info",
     "design_schema",
     "flow_info",
     "flows_info",
@@ -71,6 +79,29 @@ def json_safe(value: Any) -> Any:
     `--format yaml` renders as well. Keys go through `utils.with_json_keys` first, as they do for
     a file, so no key -- a `Path`, a tuple -- turns a document into an error."""
     return json.loads(json.dumps(with_json_keys(value), default=json_encodable))
+
+
+def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
+    """The `design` and `design_file` keys of a `run` or `dse` document.
+
+    `requested` is the design the command line gave: a design file (a `Path`, or text with a
+    design-file suffix, which is how the launcher reads it) or the name of a design in a project;
+    None when it gave none. `loaded` is the name of the design the launcher loaded, if it got that
+    far.
+
+    `design` is always the design's name: the loaded design's, else the name the request gave. A
+    design file that was not read has no name to report, so it is None. `design_file` is the
+    absolute path of the design file the request named, and None when it named none (a design of
+    a project, or no design): a failure to read the file still says which one it was.
+    """
+    file = None
+    name = loaded
+    if requested is not None:
+        if isinstance(requested, Path) or names_a_design_file(requested):
+            file = os.path.abspath(requested)
+        elif name is None:
+            name = str(requested)
+    return {"design": name, "design_file": file}
 
 
 def request_info(request: Any) -> list[dict[str, Any]]:

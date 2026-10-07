@@ -316,6 +316,7 @@ def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):
     example = re.search(r"    \{\n.*?\n    \}", section, re.S)
     assert example, "the planning example needs a complete JSON document"
     expected = json.loads(textwrap.dedent(example.group()))
+    actual["design_file"] = actual["design_file"].replace(str(tmp_path), "/path/to")
     for node in actual["plan"]["nodes"]:
         node["run_path"] = node["run_path"].replace(str(tmp_path), "/path/to")
         node["flowrun_hash"] = "..."

@@ -192,6 +192,7 @@ run finished:
     {
       "flow": "nextpnr",
       "design": "blinky",
+      "design_file": "/path/to/blinky.yaml",
       "target": null,
       "success": true,
       "results": {"success": true, "Fmax": 212.4, "lut": 45, "...": "..."},
@@ -235,6 +236,13 @@ after the others with ``"state": "not run"``. A malformed chain (an empty elemen
 flow or output, a repeated flow, an edge that does not fit) is a usage error: one error
 document, exit status 2, no ``request``, ``plan`` or ``nodes``. Chains are local requests:
 ``--remote`` and ``dse`` refuse them.
+
+``design`` is always the design's name: the ``name`` in its design file, or the name you gave for
+a design of a project (``--design-name``). ``design_file`` is the absolute path of the design file
+you named, or ``null`` when you named none (a design of a project, or no design at all). A failure
+before the design is read has no name to report for a design file, so its ``design`` is ``null``
+and ``design_file`` still says which file it was. Every ``run`` and ``dse`` document carries both,
+a failure's, a dry run's and a ``--remote`` run's too.
 
 ``target`` is the name of the design's selected target (see :ref:`targets`), or ``null`` for a
 design without targets. Every ``run`` and ``dse`` document carries it, a failure's too, and so
@@ -280,7 +288,8 @@ unknown flow or setting):
 
     {
       "flow": "vivado_synth",
-      "design": "sqrt.yaml",
+      "design": "sqrt",
+      "design_file": "/path/to/sqrt.yaml",
       "target": null,
       "success": false,
       "results": {},
@@ -404,8 +413,8 @@ consumer switching its producer's optional output on:
 .. code-block:: json
 
     {
-      "flow": "nextpnr", "design": "blinky.yaml", "target": null, "success": true,
-      "dry_run": true,
+      "flow": "nextpnr", "design": "blinky", "design_file": "/path/to/blinky.yaml",
+      "target": null, "success": true, "dry_run": true,
       "request": [{"node": "nextpnr", "flow": "nextpnr", "output": null}],
       "plan": {
         "requested": "nextpnr",

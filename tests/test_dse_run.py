@@ -223,6 +223,9 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     assert proc.returncode == 0, proc.stderr[-3000:]
     document = json.loads(proc.stdout)
     assert document["success"] is True
+    # the design's name, and the file it was read from
+    assert document["design"] == "sqrt"
+    assert Path(document["design_file"]).samefile(tmp_path / "sqrt.yaml")
     best = document["best"]
 
     # The best run is a real run directory, holding the results it was chosen for.
@@ -301,6 +304,9 @@ def test_a_search_without_its_bounds_names_them(tmp_path):
     error = document["error"]
     assert error["type"] == "FlowSettingsError"
     assert "init_freq_low" in error["message"] and "init_freq_high" in error["message"]
+    # the optimizer is refused before the design is read: the file is named, the design is not
+    assert document["design"] is None
+    assert Path(document["design_file"]).samefile(tmp_path / "d.toml")
     assert "None" not in error["message"] and "float_type" not in error["message"]
 
 
@@ -310,6 +316,7 @@ def test_a_search_without_a_device_says_so_before_starting_any_run(tmp_path):
     assert proc.returncode != 0 and document["success"] is False
     assert document["error"]["type"] == "FlowSettingsException"
     assert "`fpga`" in document["error"]["message"]
+    assert document["design"] == "sqrt", "the design had loaded"
     assert not list(tmp_path.glob("xeda_run/**/settings.json")), "no run was started"
 
 

@@ -203,6 +203,13 @@ would otherwise corrupt the JSON. Rich output moves with `console.redirect_conso
 normal runs are unaffected). `Design.Generator.run_cmd` and the remote runner's `RemoteLogger`
 both do; a new one that does not will corrupt `--json` output.
 
+In a `run` or `dse` document, `design` is always the design's name and `design_file` the design
+file the request named (absolute; `null` for a project's design or none): `introspect.design_info`
+builds both for every document -- success, failure, dry run, `--remote` -- from the request's
+design argument and the name the launcher recorded as `design_name` (beside `target`, reset at the
+start of each request). A failure before the design loads has no name to give for a file: `design`
+is `null`, and `design_file` still says which file was named.
+
 Every failure path must still emit a JSON document. That includes argument errors:
 `XedaHelpGroup.main` runs click with `standalone_mode=False` when the invocation asked for
 machine-readable output, so a `UsageError` becomes `{"success": false, "error": {...}}` on stdout

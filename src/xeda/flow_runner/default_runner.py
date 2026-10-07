@@ -852,8 +852,10 @@ class FlowLauncher:
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
-        #: the selected target of the design last loaded for a request, for documents to report
+        #: the selected target and the name of the design last loaded for a request, for
+        #: documents to report; None until a request has loaded one
         self.target: str | None = None
+        self.design_name: str | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         self.last_plan: Plan | None = None
@@ -2308,6 +2310,9 @@ class FlowLauncher:
         """
         Flexible API for launching flows.
         """
+        # nothing is loaded yet: a request that fails before its design loads reports none
+        self.target = None
+        self.design_name = None
         # The request is read from the flow alone, before anything is loaded: a design with a git
         # dependency is cloned into the run root as it loads, and the command line parses the
         # request first too.
@@ -2404,6 +2409,7 @@ class FlowLauncher:
 
         settings_instance = isinstance(flow_settings, Flow.Settings)
         self.target = design.target if isinstance(design, Design) else None
+        self.design_name = design.name if isinstance(design, Design) else None
         if isinstance(flow_settings, Flow.Settings):
             explicit_flow_settings = _explicit(flow_settings)
             flow_settings = flow_settings.model_dump()

@@ -888,6 +888,9 @@ class RemoteRunner(FlowLauncher):
         """Execute a design flow remotely and return its results. `target` selects one of the
         design's `targets` here, before anything ships: the remote is sent the design the
         target yields."""
+        # nothing is loaded yet: a request that fails before its design loads reports none
+        self.target = None
+        self.design_name = None
         # A chain, and an input binding of the requested node, are local requests: refused first,
         # as `dse` refuses them, before the design is loaded, which may clone a git dependency
         # into the run root or fail on a design file that is missing.
@@ -953,6 +956,7 @@ class RemoteRunner(FlowLauncher):
                     project_flow_settings = project.flows
         assert isinstance(design, Design)
         self.target = design.target
+        self.design_name = design.name
         # where a project's settings come from, named in messages even when there is none
         project_label = project_path or Path(PROJECT_FILE_NAMES[0])
         flow_class = get_flow_class(flow_name)
