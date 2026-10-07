@@ -1641,21 +1641,25 @@ dependency must also share `custom_boards_file`.
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
-- **A change adds a changelog fragment; nobody edits `CHANGELOG.md`'s `[Unreleased]` section**, so
-  no two pull requests touch the same lines. One file per entry, `changelog.d/<slug>.<type>.md`:
-  `<slug>` is kebab-case (the pull request number is not known yet), `<type>` is `fixed`, `added`,
-  `changed` or `removed`, and the file is one Markdown bullet wrapped at 100 columns, each later
-  line indented by two spaces. The entry says what changed for a user in one or two short
-  sentences (a breaking change says what to do instead); mechanism, evidence and rationale go to
-  the docs, this file or the pull request text. `tools/fold_changelog.py` holds the rule for a
-  fragment and the fold. `tests/test_changelog_fragments.py` fails a fragment that breaks the rule
-  (hidden files are no fragments, so a `.gitkeep` is fine) and a repeated `###` heading in
-  `CHANGELOG.md`. **On release**, run `python tools/fold_changelog.py vX.Y.Z [--date YYYY-MM-DD]`
-  and commit the result. It adds the fragments, sorted by slug, to the end of the matching lists
-  of the `## [Unreleased]` section (or of a new section above the newest release, if the file has
-  no `[Unreleased]` section), renames that section `## [vX.Y.Z] - <date>`, and deletes the files.
-  It does not make a new `[Unreleased]` section: the fragments are the notes of the next release.
-  The entries written before fragments existed stay in `[Unreleased]` and join the first release.
+- **A change that a user can see adds a changelog fragment; nobody edits `CHANGELOG.md`'s
+  `[Unreleased]` section**, so no two pull requests touch the same lines. One file per entry,
+  `changelog.d/<slug>.<type>.md`: `<slug>` is kebab-case (the pull request number is not known
+  yet), `<type>` is `fixed`, `added`, `changed` or `removed`, and the file is one Markdown bullet
+  wrapped at 100 columns, each later line indented by two spaces. The entry says what changed for
+  a user in one or two short sentences (a breaking change says what to do instead); mechanism,
+  evidence and rationale go to the docs, this file or the pull request text.
+  `tools/fold_changelog.py` holds the rule for a fragment and the fold.
+  `tests/test_changelog_fragments.py` fails a fragment that breaks the rule and a `###` heading
+  that a section of `CHANGELOG.md` has twice. Every file in `changelog.d/`, hidden or not, must
+  be a fragment, except `.gitkeep`, which keeps the directory. **On release**, run
+  `python tools/fold_changelog.py vX.Y.Z [--date YYYY-MM-DD]` and commit the result. It adds the
+  fragments, sorted by slug, to the end of the matching lists of the `## [Unreleased]` section
+  (or of a new section above the newest release, if the file has no `[Unreleased]` section),
+  renames that section `## [vX.Y.Z] - <date>`, and deletes the files. It refuses a list of that
+  section that holds a line other than a bullet or the continuation of one (a note, a link
+  reference), so an entry never lands after such a line. It does not make a new `[Unreleased]`
+  section: the fragments are the notes of the next release. The entries written before fragments
+  existed stay in `[Unreleased]` and join the first release.
 - Formatting: `black` (line-length 100) is enforced on `src/`, `tests/` and `tools/` (`tox -e
   black`); the Pyflakes rules and `PLW0133` (a built-in exception built and never raised) of
   `ruff` (`ruff check --select F,PLW0133 src tests tools`, line-length 120,

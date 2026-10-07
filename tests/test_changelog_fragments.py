@@ -33,7 +33,8 @@ tool = _load_tool()
 
 ONE_LINE = "- `xeda scrub` keeps a run that finished after it listed the directories.\n"
 NOT_A_FRAGMENT_NAME = (
-    f"the name must be <slug>.<type>.md, and <type> one of {', '.join(tool.TYPES)}"
+    f"the name must be <slug>.<type>.md, and <type> one of {', '.join(tool.TYPES)} "
+    f"(the only file here that is no fragment is {tool.KEEP_FILE})"
 )
 
 
@@ -51,8 +52,8 @@ def files_of(directory: Path) -> dict[Path, bytes]:
 
 
 def test_every_fragment_in_the_checkout_follows_the_convention():
-    """A file in `changelog.d/` that breaks the convention would vanish at release. Hidden files
-    (`.gitkeep`) are no fragments."""
+    """A file in `changelog.d/` that breaks the convention would vanish at release. Every file
+    there is a fragment, hidden or not, but `.gitkeep`."""
     problems = tool.directory_problems(ROOT / tool.FRAGMENT_DIRECTORY)
     assert not problems, (
         "\n".join(problems)
@@ -72,14 +73,39 @@ def test_a_directory_without_fragments_has_no_problem(tmp_path):
     assert tool.directory_problems(tmp_path / "no-such-directory") == []
 
 
-def test_hidden_files_are_no_fragments_and_the_rest_come_in_the_order_of_their_slugs(tmp_path):
-    for name in ("b.fixed.md", "a-b.fixed.md", "a.added.md", ".gitkeep", ".DS_Store"):
+def test_every_file_but_the_keep_file_must_be_a_fragment_and_they_come_in_the_order_of_slugs(
+    tmp_path,
+):
+    """The walk of the directory skips `.gitkeep` and nothing else: a hidden file is judged, and
+    refused, like any other (`directory_problems` names each of them below)."""
+    names = ["b.fixed.md", "a-b.fixed.md", "a.added.md", ".hidden-slug.added.md", ".fixed.md"]
+    for name in [*names, ".DS_Store", ".gitkeep"]:
         write(tmp_path, name, ONE_LINE)
     assert [path.name for path in tool.fragment_paths(tmp_path)] == [
+        ".DS_Store",
+        ".fixed.md",
+        ".hidden-slug.added.md",
         "a.added.md",
         "a-b.fixed.md",
         "b.fixed.md",
     ]
+
+
+@pytest.mark.parametrize(
+    "name", [".fixed.md", ".hidden-slug.added.md", ".DS_Store", ".gitkeep.md", "README.md"]
+)
+def test_a_hidden_file_is_refused_like_any_file_that_is_no_fragment(tmp_path, name):
+    """Only `.gitkeep` is exempt, so a hidden fragment cannot pass the test and stay unfolded."""
+    write(tmp_path, ".gitkeep", "")
+    write(tmp_path, "good-fragment.fixed.md", ONE_LINE)
+    write(tmp_path, name, ONE_LINE)
+    assert tool.directory_problems(tmp_path) == [f"{name}: {NOT_A_FRAGMENT_NAME}"]
+
+
+def test_the_keep_file_is_exempt_whatever_it_holds(tmp_path):
+    write(tmp_path, ".gitkeep", "anything\n")
+    assert tool.fragment_paths(tmp_path) == []
+    assert tool.directory_problems(tmp_path) == []
 
 
 def test_a_directory_is_no_fragment(tmp_path):
@@ -392,12 +418,96 @@ def test_the_fold_refuses_a_changelog_with_no_release_to_put_a_section_above():
         fold("# Changelog\nThe intro.\n")
 
 
+def changelog_with(body: str) -> str:
+    """A changelog whose `[Unreleased]` section has one list, `### Fixed` (on line 6), and `body`
+    for its lines (from line 7 on). An older release follows."""
+    return (
+        "# Changelog\n\n\n## [Unreleased]\n\n### Fixed\n"
+        + body
+        + "\n\n\n## [v0.4.3] - 2026-09-29\n\n### Fixed\n- Older fix.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "body,number,line",
+    [
+        ("- Old fix.\n\nA note about the fixes.", 3, "A note about the fixes."),
+        (
+            "- Old fix.\n\n[Unreleased]: https://example.org/compare/v0.4.3...HEAD",
+            3,
+            "[Unreleased]: https://example.org/compare/v0.4.3...HEAD",
+        ),
+        ("A word before the first bullet.\n- Old fix.", 1, "A word before the first bullet."),
+        ("- Old fix.\n* A star bullet.", 2, "* A star bullet."),
+        ("- Old fix.\nA line with no indent.", 2, "A line with no indent."),
+        ("- Old fix.\n one space", 2, " one space"),
+        ("  A continuation of no bullet.\n- Old fix.", 1, "  A continuation of no bullet."),
+        ("- Old fix.\n\tA tab.", 2, "\tA tab."),
+        ("- Old fix.\n#### A heading", 2, "#### A heading"),
+        ("- Old fix.\n<!-- a comment -->", 2, "<!-- a comment -->"),
+        ("- Old fix.\n---", 2, "---"),
+    ],
+    ids=[
+        "a note after the last bullet",
+        "a link reference after the last bullet",
+        "text before the first bullet",
+        "a bullet of another kind",
+        "an unindented line",
+        "an indent of one space",
+        "a continuation of no bullet",
+        "a tab",
+        "a heading of another level",
+        "a comment",
+        "a rule",
+    ],
+)
+@pytest.mark.parametrize("kind", ["fixed", "added"], ids=["the list that gets entries", "another"])
+def test_the_fold_refuses_a_list_that_holds_a_line_that_is_no_bullet(body, number, line, kind):
+    """A bullet added after such a line would look like a part of it. The fold refuses the list
+    whether it gets an entry or not, so that a new list never follows the line either."""
+    with pytest.raises(tool.ChangelogError) as refused:
+        fold(changelog_with(body), {kind: ["- New."]})
+    message = str(refused.value)
+    assert f"line {6 + number} of CHANGELOG.md" in message
+    assert repr(line) in message
+    assert "in the list `### Fixed` of the section `[Unreleased]`" in message
+
+
+def test_the_fold_shortens_a_long_line_it_names():
+    body = "- Old fix.\n\n" + "x" * 100
+    with pytest.raises(tool.ChangelogError) as refused:
+        fold(changelog_with(body))
+    assert f"({'x' * 57 + '...'!r})" in str(refused.value)
+
+
+def test_the_fold_accepts_blank_lines_and_continuations_in_a_list():
+    body = (
+        "- Old fix.\n  Its second line.\n\n  A second paragraph of that bullet.\n"
+        "    - A nested bullet.\n- Another fix."
+    )
+    assert body + "\n- New fix.\n" in fold(changelog_with(body), {"fixed": ["- New fix."]})
+
+
+def test_the_fold_does_not_judge_a_list_that_is_not_in_the_section_it_fills():
+    changelog = CHANGELOG.replace("- Older fix.\n", "- Older fix.\n\nA note.\n[Unreleased]: x\n")
+    new = fold(changelog)
+    assert new.endswith("### Fixed\n- Older fix.\n\nA note.\n[Unreleased]: x\n")
+
+
+def test_the_fold_puts_a_new_list_after_text_that_opens_the_section():
+    changelog = "# C\n\n## [Unreleased]\n\nA word about this release.\n\n## [v0.4.3] - 2026-09-29\n"
+    assert fold(changelog, {"added": ["- New."]}) == (
+        "# C\n\n## [v0.5.0] - 2026-10-31\n\nA word about this release.\n\n### Added\n- New.\n\n"
+        "## [v0.4.3] - 2026-09-29\n"
+    )
+
+
 # ---------------------------------------------------------------------------- the script itself
 
 
 @pytest.fixture
 def project(tmp_path):
-    """A changelog, and a `changelog.d/` of three fragments and a hidden file."""
+    """A changelog, and a `changelog.d/` of three fragments and `.gitkeep`."""
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
     directory = tmp_path / "changelog.d"
     directory.mkdir()
@@ -449,6 +559,18 @@ def test_the_script_changes_nothing_if_a_fragment_is_wrong(project, capsys):
     assert "Bad_Name.fixed.md: the slug `Bad_Name` must be kebab-case" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("name", [".hidden-slug.added.md", ".fixed.md", ".DS_Store"])
+def test_the_script_refuses_a_hidden_file_that_is_no_fragment_and_changes_nothing(
+    project, capsys, name
+):
+    """A hidden fragment must not stay unfolded, and a hidden stray file is a stray file."""
+    write(project / "changelog.d", name, ONE_LINE)
+    before = files_of(project)
+    assert tool.main(["v0.5.0", "--date", "2026-10-31"], root=project) == 1
+    assert files_of(project) == before
+    assert f"{name}: the name must be <slug>.<type>.md" in capsys.readouterr().err
+
+
 def test_the_script_changes_nothing_if_the_changelog_cannot_take_the_entries(project, capsys):
     (project / "CHANGELOG.md").write_text(CHANGELOG + "\n## [Unreleased]\n", encoding="utf-8")
     before = files_of(project)
@@ -457,7 +579,19 @@ def test_the_script_changes_nothing_if_the_changelog_cannot_take_the_entries(pro
     assert "error: CHANGELOG.md has more than one" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("directory", [False, True], ids=["no directory", "a hidden file only"])
+def test_the_script_changes_nothing_if_a_list_of_the_changelog_holds_a_note(project, capsys):
+    (project / "CHANGELOG.md").write_text(
+        CHANGELOG.replace("- Old change.\n", "- Old change.\n\nA note.\n"), encoding="utf-8"
+    )
+    before = files_of(project)
+    assert tool.main(["v0.5.0", "--date", "2026-10-31"], root=project) == 1
+    assert files_of(project) == before
+    assert "error: line 14 of CHANGELOG.md ('A note.') is in the list `### Changed`" in (
+        capsys.readouterr().err
+    )
+
+
+@pytest.mark.parametrize("directory", [False, True], ids=["no directory", "only .gitkeep"])
 def test_the_script_refuses_to_fold_nothing(tmp_path, capsys, directory):
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
     if directory:

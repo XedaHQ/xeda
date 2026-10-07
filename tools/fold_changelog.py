@@ -17,11 +17,17 @@ The file holds the entry: one Markdown bullet, wrapped at 100 columns. Each line
 starts with two spaces. The entry says what changed for a user, in one or two short sentences. An
 entry about a breaking change also says what to do instead.
 
+Every file in `changelog.d/` must be a fragment, hidden or not, except `.gitkeep`. That file
+keeps the directory in the repository.
+
 The script checks every fragment first, and it changes nothing if one is wrong. Then it adds the
 entries, sorted by slug, to the end of the matching `### <Type>` lists of the `## [Unreleased]`
 section and renames that section `## [<version>] - <date>`. A changelog with no such section gets
-a new section above its newest release. At the end, the script deletes the fragment files. Hidden
-files in `changelog.d/` (such as `.gitkeep`) are not fragments.
+a new section above its newest release. At the end, the script deletes the fragment files.
+
+The script also refuses a `###` list of that section that holds a line other than a bullet
+(`- `) or the continuation of a bullet (two spaces), such as a note or a link reference. An entry
+added after such a line would look like a part of it.
 
 The script uses only the standard library.
 """
@@ -47,6 +53,8 @@ TYPES = ("fixed", "added", "changed", "removed")
 HEADINGS = {kind: f"### {kind.capitalize()}" for kind in TYPES}
 #: The width that an entry is wrapped at.
 MAX_COLUMNS = 100
+#: The one file of `changelog.d/` that is no fragment. It keeps the directory in the repository.
+KEEP_FILE = ".gitkeep"
 UNRELEASED = "## [Unreleased]"
 
 _FILE_NAME = re.compile(r"(?P<slug>[^.]+)\.(?P<type>[^.]+)\.md")
@@ -66,11 +74,12 @@ class ChangelogError(Exception):
 
 
 def fragment_paths(directory: Path) -> list[Path]:
-    """The entries of `directory` that must be fragments (all but the hidden files), by slug."""
+    """The entries of `directory` that must be fragments, by slug. That is every entry, hidden or
+    not, but `KEEP_FILE`."""
     if not directory.is_dir():
         return []
     return sorted(
-        (path for path in directory.iterdir() if not path.name.startswith(".")),
+        (path for path in directory.iterdir() if path.name != KEEP_FILE),
         key=lambda path: path.name.split("."),
     )
 
@@ -93,7 +102,10 @@ def fragment_problems(path: Path) -> list[str]:
 def _name_problems(name: str) -> list[str]:
     match = _FILE_NAME.fullmatch(name)
     if match is None:
-        return [f"the name must be <slug>.<type>.md, and <type> one of {', '.join(TYPES)}"]
+        return [
+            f"the name must be <slug>.<type>.md, and <type> one of {', '.join(TYPES)} "
+            f"(the only file here that is no fragment is {KEEP_FILE})"
+        ]
     problems = []
     if not _SLUG.fullmatch(match["slug"]):
         problems.append(
@@ -148,7 +160,8 @@ def fold(changelog: str, entries: Mapping[str, Sequence[str]], version: str, dat
     The section is the `## [Unreleased]` one, renamed `## [<version>] - <date>`, or a new one
     above the newest release when the changelog has no such section. Each bullet goes to the end
     of its type's `### <Type>` list, which a section without one gets in the order of `TYPES`.
-    Everything else stays as it was."""
+    Everything else stays as it was. A section with a heading twice, or with a list that holds
+    anything but bullets, is refused."""
     if not _VERSION.fullmatch(version):
         raise ChangelogError(f"`{version}` is not a version as the tags spell it: use v0.5.0")
     if not _DATE.fullmatch(date):
@@ -164,6 +177,7 @@ def fold(changelog: str, entries: Mapping[str, Sequence[str]], version: str, dat
         raise ChangelogError(f"{CHANGELOG} has a section for {version} already")
     start = _section_to_fill(lines)
     _check_headings(lines, start)
+    _check_lists(lines, start)
     for kind in TYPES:
         if entries.get(kind):
             _add_entries(
@@ -207,6 +221,29 @@ def _check_headings(lines: list[str], start: int) -> None:
             f"the section {lines[start][3:]} has these headings more than once: "
             f"{', '.join(repeated)}. Merge each pair into one list first."
         )
+
+
+def _check_lists(lines: list[str], start: int) -> None:
+    """Refuse a list that holds a line other than a bullet or the continuation of a bullet.
+
+    The fold adds an entry after the last line of a list. After a note or a link reference at the
+    end of the list, the entry would look like a part of that line. With this check, the end of a
+    list is always the end of a bullet."""
+    heading, in_bullet = "", False
+    for index in range(start + 1, _section_end(lines, start)):
+        line = lines[index]
+        if line.startswith("### "):
+            heading, in_bullet = line, False
+        elif heading and line.strip():
+            if line.startswith("- "):
+                in_bullet = True
+            elif not (in_bullet and line.startswith("  ")):
+                shown = line if len(line) <= 60 else line[:57] + "..."
+                raise ChangelogError(
+                    f"line {index + 1} of {CHANGELOG} ({shown!r}) is in the list `{heading}` of "
+                    f"the section `{lines[start][3:]}`, but it is not a bullet (`- `) and does "
+                    "not continue one (two spaces). Move it out of the list first."
+                )
 
 
 def _trim_blanks(lines: list[str], first: int, stop: int) -> int:
