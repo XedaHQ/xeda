@@ -115,7 +115,8 @@ target, ``--design-overrides`` and a ``flows`` table.
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain
-text keeps the text as it is.
+text keeps the text as it is. The lists of the ``cocotb`` section (``testcase``, ``gpi_extra``)
+take text the same way.
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
 silently ignored would produce a result that looks fine and is not what you asked for.

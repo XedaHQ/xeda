@@ -62,6 +62,9 @@ __all__ = [
     "annotation_args",
     "asdict",
     "conventional_output",
+    "LIST_TEXT_MESSAGE",
+    "ListLiteralText",
+    "comma_separated_items",
     "deliverable",
     "field_validator",
     "input_names",
@@ -88,6 +91,51 @@ log = logging.getLogger(__name__)
 # Validators should still guard their own inputs and raise `ValueError` with a useful message;
 # the wrappers are the safety net.
 # --------------------------------------------------------------------------------------------
+
+
+#: What is said of a list given as text that is spelled as a list; `key` is the setting as the
+#: command line writes it.
+LIST_TEXT_MESSAGE = (
+    "`{shown}` is text, not a list: write `{key}=` for the empty list and "
+    "`{key}=a,b` for a list of items"
+)
+
+
+class ListLiteralText(ValueError):
+    """A list given as text that is spelled as a list: `[]`, `[a,b]`. `shown` is the text (cut if
+    long), `name` the field it was given to."""
+
+    def __init__(self, name: str, shown: str) -> None:
+        self.name = name
+        self.shown = shown
+        super().__init__(LIST_TEXT_MESSAGE.format(shown=shown, key=name))
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.name, self.shown))
+
+    def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
+        """This refusal as the validation error `list_text` of the field `key` (default: `name`)."""
+        return PydanticCustomError(
+            "list_text", LIST_TEXT_MESSAGE, {"shown": self.shown, "key": key or self.name}
+        )
+
+
+def comma_separated_items(name: str, text: str) -> List[str]:
+    """The items of the list setting `name` given as `text` (`a.xdc,b.xdc`): spaces around an item
+    and empty items are dropped, so `""` is the empty list. Text spelled `[...]` is refused with a
+    `ListLiteralText`: it is text, never a list, and would otherwise become the one item `"[]"`
+    (`-s flags=[]`), which is not the empty list its writer means. The two ways to write the list
+    are named instead.
+
+    This is the one rule for a list given as text, whichever model takes it: every flow setting
+    (`Flow.Settings._normalize_flow_setting`) and the lists of the models nested in them
+    (`CocotbSettings`) go through it. A caller reports the refusal with `validation_error`, and
+    `validation_errors` words it with the key a nested model's field has from the top."""
+    stripped = text.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        shown = stripped if len(stripped) <= 40 else f"{stripped[:37]}..."
+        raise ListLiteralText(name, shown)
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
 def _guarded(fn: Any, copy_input: bool) -> Any:
@@ -480,12 +528,24 @@ def validation_errors(
     return [
         (
             " -> ".join(str(loc) for loc in e.get("loc", [])),
-            _with_yaml_hint(e),
+            _list_text_message(e) or _with_yaml_hint(e),
             "".join(f"; {k}={v}" for k, v in (e.get("ctx") or {}).items()),
             e.get("type"),
         )
         for e in errors
     ]
+
+
+def _list_text_message(error: ErrorDetails) -> Optional[str]:
+    """The message of a list given as text that is spelled as a list (`ListLiteralText`), for a
+    field of a nested model, with the key as the command line writes it from the top
+    (`cocotb.testcase`, not `testcase`): the model that refused it knows only its own field."""
+    loc = error.get("loc", ())
+    context = error.get("ctx") or {}
+    if error.get("type") == "list_text" and len(loc) > 1:
+        key = ".".join(str(part) for part in loc)
+        return LIST_TEXT_MESSAGE.format(shown=context.get("shown", ""), key=key)
+    return None
 
 
 def _with_yaml_hint(error: ErrorDetails) -> str:

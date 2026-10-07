@@ -637,10 +637,15 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
    items and empty items are dropped, so `""` is `[]`). A setting that also accepts plain text
    keeps it whole. Text spelled `[...]` is refused, naming `key=` (the empty list) and `key=a,b`
-   (`_comma_separated_items`): `-s flags=[]` used to become the one item `"[]"`. Construction
-   reports it as the field's `list_text` error, and an assignment raises the same
+   (`dataclass.comma_separated_items`): `-s flags=[]` used to become the one item `"[]"`.
+   Construction reports it as the field's `list_text` error, and an assignment raises the same
    `ValidationError`, so the two cannot differ (`settings_samples.PROBES` holds `[]` and
-   `[x, y]` for the sweeps).
+   `[x, y]` for the sweeps). It is the one rule for a list given as text, so a model nested in a
+   flow's settings that takes text for a list calls it too (`CocotbSettings.testcase` and
+   `gpi_extra` do) and reports the refusal as `ListLiteralText.validation_error`;
+   `validation_errors` words it with the key from the top (`cocotb.testcase=`, the spelling to
+   write after `-s`). `tests/test_settings_input.py` walks every list field of every nested model
+   and fails one that takes text by another rule.
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
