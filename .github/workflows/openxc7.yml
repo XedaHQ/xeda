@@ -3,9 +3,11 @@ name: openXC7
 # The real openXC7 toolchain builds Artix-7 designs, an Arty A7-100T and a Basys 3
 # (tests/test_openxc7_real.py and the cases named in the test step): yosys, nextpnr-himbaechel
 # with the Xilinx backend, and fpga-as. No package has the layout xeda reads, so this job builds
-# the three tools once with openXC7's own installer and caches the installation. A cache miss
-# builds for 16 to 27 minutes, and the job takes 20 to 33. A cache hit restores the tools in
-# seconds, and the job takes 4 to 6 minutes. This is a separate workflow, so it runs beside the
+# the three tools once with openXC7's own installer and caches the installation, with the list of
+# the system packages that the tools load (made from the tools, not by hand). A cache miss installs
+# all the packages the installer needs and builds for 16 to 27 minutes, and the job takes 20 to 33.
+# A cache hit restores the tools in seconds and installs only the listed packages (15 names, about
+# 20 seconds), and the job takes 3 to 5 minutes. This is a separate workflow, so it runs beside the
 # tox legs in ci.yml, and a build delays none of them.
 on:
   push:
@@ -31,7 +33,9 @@ jobs:
       # it in a pull request, which runs this job, and read the installer's diff first.
       INSTALLER_REV: efe9e07330e88434a831f2c52bee72739da0f0a5
       # Change it when this workflow changes what the installation holds.
-      RECIPE: "1"
+      RECIPE: "2"
+      # Where the installation lists the system packages its tools load (inside the cached part).
+      RUNTIME_PACKAGES: share/xeda-ci/runtime-packages.txt
     steps:
       # Full history: xeda's version is derived from the git tags.
       - uses: actions/checkout@v5
@@ -49,16 +53,38 @@ jobs:
           # No restore-keys: an installation made from another installer commit must not stand in.
           key: openxc7-ubuntu-24.04-${{ runner.arch }}-${{ env.INSTALLER_REV }}-r${{ env.RECIPE }}
 
-      - name: Get the installer and install its system packages
-        # Also on a cache hit: the cached tools link against shared libraries (Boost, Tcl) that
-        # the runner image does not have. The package mirror of the runners has stopped answering
-        # for many minutes. apt now retries a failed download and stops waiting for a silent
-        # mirror after 30 s, and the step limit ends what is left.
+      # The package mirror of the runners fails downloads for minutes at a time. apt retries a
+      # failed download and stops waiting for a silent mirror after 30 s. The limit of each step
+      # that installs packages ends what is left.
+      - name: Make apt retry
+        run: |
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' |
+            sudo tee /etc/apt/apt.conf.d/80-xeda-ci > /dev/null
+
+      - name: Install the system packages that the cached tools load
+        # Only these: the packages the build needed (compilers, headers, Java) are 70 packages
+        # and 100 MB, and the mirror fails some of them. The tools need a handful of libraries
+        # (Boost, Tcl). The list was made when they were built.
+        if: steps.toolchain.outputs.cache-hit == 'true'
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' |
-            sudo tee /etc/apt/apt.conf.d/80-xeda-ci > /dev/null
+          list="$HOME/openxc7/$RUNTIME_PACKAGES"
+          if [ ! -s "$list" ]; then
+            echo "::error::$list is missing. The cache entry was made by another recipe: raise RECIPE."
+            exit 1
+          fi
+          cat "$list"
+          sudo apt-get update
+          xargs -a "$list" sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-install-recommends
+
+      - name: Get the installer and install its system packages
+        # Everything the installer lists, to build the tools.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
           git clone --quiet https://github.com/openXC7/toolchain-installer.git "$RUNNER_TEMP/installer"
           git -C "$RUNNER_TEMP/installer" checkout --quiet --detach "$INSTALLER_REV"
           # Sourcing the script defines its functions. It does not build anything.
@@ -80,6 +106,46 @@ jobs:
           rm -f "$HOME/openxc7/bin/bazel"
           rm -rf "$HOME/openxc7/share/nextpnr/prjxray-db"/{kintex7,spartan7,virtex7,zynq7}
           df -h /
+
+      - name: Record the system packages that the installed tools load
+        # Read from the tools just built, so that nobody keeps the list by hand: the shared
+        # libraries of every executable of bin/ (ldd lists those that the libraries load too), and
+        # the Debian package that owns each. The installation's own libraries have no package.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          prefix="$HOME/openxc7"
+          list="$prefix/$RUNTIME_PACKAGES"
+          mkdir -p "$(dirname "$list")"
+          libraries="$RUNNER_TEMP/libraries.txt"
+          : > "$libraries"
+          ls -l "$prefix/bin"
+          for executable in "$prefix"/bin/*; do
+            # A script, or a static executable, has no libraries, and ldd exits with 1.
+            output="$(ldd "$executable" 2>&1)" || continue
+            if grep -q 'not found' <<< "$output"; then
+              echo "::warning::$executable needs a library that ldd does not find: $(grep 'not found' <<< "$output")"
+            fi
+            awk '$2 == "=>" && $3 ~ /^\// { print $3 } $1 ~ /^\// { print $1 }' <<< "$output" >> "$libraries"
+          done
+          if [ ! -s "$libraries" ]; then
+            echo "::error::No executable in $prefix/bin loads a shared library. Is the installation empty?"
+            exit 1
+          fi
+          # The files of the packages are in /usr/lib, and dpkg does not know them by the names
+          # that ldd prints, in /lib, which is a link to it.
+          xargs -a "$libraries" readlink -f | { grep -v "^$prefix/" || true; } | sort -u > "$libraries.system"
+          test -s "$libraries.system"  # the C library at least is the system's
+          if ! xargs -a "$libraries.system" dpkg -S > "$libraries.owners" 2> "$libraries.errors"; then
+            echo "::error::No Debian package owns a library that an installed tool loads:"
+            cat "$libraries.errors"
+            exit 1
+          fi
+          # "zlib1g:amd64: /usr/lib/x86_64-linux-gnu/libz.so.1.3", or "a:amd64, b:amd64: /path"
+          awk -F': ' '$1 !~ /^diversion/ && $2 ~ /^\// { print $1 }' "$libraries.owners" |
+            tr ',' '\n' | sed -E 's/^ +//; s/:.*$//' | sort -u > "$list"
+          test -s "$list"
+          cat "$list"
 
       - name: Save the openXC7 installation
         # Before the tests, so that a failing test does not discard the build.
