@@ -51,8 +51,9 @@ checkout guard still fires (per worker, at its teardown, on whichever test ran l
 `jsonschema` is a test-only dependency (in the `dev` group and in tox), used to check that the
 published design schema agrees with the loader.
 
-`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules plus `PLW0133`, an exception built but never raised (`ruff check --select F,PLW0133 src tests`, the
-`tox -e ruff` env) all pass; keep them that way. The full `ruff check` ruleset reports many
+`mypy src` (with `possibly-undefined` on: a local bound under a condition is not read under a copy of it), `black --check src tests` and the Pyflakes rules plus `PLW0133`, which flags a built-in exception that is built and never raised (`ruff check --select F,PLW0133 src tests`, the
+`tox -e ruff` env) all pass; keep them that way. `PLW0133` does not see the exception classes xeda
+defines (`RunDirectoryError(...)` on a line of its own); `tests/test_exceptions_are_raised.py` does. The full `ruff check` ruleset reports many
 pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF012`) and is not
 enforced. Don't mass-fix those; keep new code clean.
 
@@ -821,10 +822,15 @@ directly), or a run root whose cache cannot be written. A planning load creates,
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
 symbolic link on the way, not even one that stays inside), shared by the chip databases, the
-generator records and the Git dependency clones (`<run root>/.dependencies/<host>/<path>`, named by
-`design.clone_location`, which also refuses a host, path, branch or commit with a `.` or `..`
-component or a backslash; a `local_cache` or `clone_dir` is the user's own directory, so only those
-names are checked there). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+generator records and the Git dependency clones (`<run root>/.dependencies/<host>/<path>`).
+`design.clone_location` makes that name from the repository's host and path, its branch and its
+commit, and refuses a host, path, branch or commit with a `.` or `..` component, a backslash or a
+NUL, and an empty path. The names are checked where they name a directory: at load
+(`GitReference.validate_repo`) and when the clone is located. A `clone_dir` is used as given:
+nothing is named from the URL then, so nothing is checked, and a URL with no host
+(`git@host:path`, `file:///path`, a bare path) loads with it. Under a `local_cache`, the user's own
+directory, only the names xeda makes are checked, lexically (`os.path.abspath`, so a cache that is
+`.` works). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
 **`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
 records what that generation leaves: that is the escape where something xeda cannot see changed
 (a generator's environment is deliberately untracked), since a `touch` no longer forces anything.
@@ -1480,8 +1486,9 @@ dependency must also share `custom_boards_file`.
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
 - Formatting: `black` (line-length 100) is enforced on `src/` and `tests/` (`tox -e black`); the
-  Pyflakes rules and `PLW0133` of `ruff` (`ruff check --select F,PLW0133 src tests`, line-length
-  120, `target-version = "py311"`) are enforced there too, and the rest of `ruff`'s ruleset is not.
+  Pyflakes rules and `PLW0133` (a built-in exception built and never raised) of `ruff`
+  (`ruff check --select F,PLW0133 src tests`, line-length 120, `target-version = "py311"`) are
+  enforced there too, and the rest of `ruff`'s ruleset is not.
 
 YAML is the preferred design/project authoring format; TOML and JSON remain accepted. All YAML
 input goes through `yaml_loader.load_yaml`: YAML 1.2 core scalars, string mapping keys and
