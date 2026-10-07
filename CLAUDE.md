@@ -822,15 +822,7 @@ directly), or a run root whose cache cannot be written. A planning load creates,
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
 symbolic link on the way, not even one that stays inside), shared by the chip databases, the
-generator records and the Git dependency clones (`<run root>/.dependencies/<host>/<path>`).
-`design.clone_location` makes that name from the repository's host and path, its branch and its
-commit, and refuses a host, path, branch or commit with a `.` or `..` component, a backslash or a
-NUL, and an empty path. The names are checked where they name a directory: at load
-(`GitReference.validate_repo`) and when the clone is located. A `clone_dir` is used as given:
-nothing is named from the URL then, so nothing is checked, and a URL with no host
-(`git@host:path`, `file:///path`, a bare path) loads with it. Under a `local_cache`, the user's own
-directory, only the names xeda makes are checked, lexically (`os.path.abspath`, so a cache that is
-`.` works). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
+generator records and the Git dependency clones (see below). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.
 **`--rebuild-all`/`--clean` regenerates**, carried to the load by `LoadContext.rebuild_all`, and
 records what that generation leaves: that is the escape where something xeda cannot see changed
 (a generator's environment is deliberately untracked), since a `touch` no longer forces anything.
@@ -840,6 +832,27 @@ keeps, and it keeps it there. What the *generator* writes in the design's tree i
 generates and nothing else
 (`tests/test_isolation.py::test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generates`:
 the audit hook records no violation of xeda's own, the canary sweep sees only those sources; `tests/test_generator_staleness.py`).
+
+**A Git dependency's clone lies at `<cache>/<host>/<name>`**, the cache being `<run root>/.dependencies`
+(named through `RunDirectory.unlinked`), a `local_cache` the user names, or none when the user gives
+`clone_dir`. `design.clone_name_parts` makes the two names: the host and its port folded into one
+token, and the repository path with the commit (else the branch) folded into one readable token,
+then `_` and a 16-digit digest of the whole identity, the repository URL, the branch and the commit.
+Folding cannot keep `a/b` and `a_b` apart; the digest does, so references that select different
+clones never share a directory, and one reference always has the same. `tests/test_git_dependencies.py`
+pins a name: changing the identity re-clones everything, and moves the `design_hash` of every design
+with a Git dependency (its sources count by path). A clone is one directory below its host's, so
+none lies inside another. A path, branch or commit with a `.` or `..` component, a drive such as
+`C:`, a leading `/`, a backslash or a NUL is refused -- each makes a joined path leave the cache, on
+Windows or POSIX -- and so is a host with any but the drive (`h:8443` is a host and a port) and an
+empty path. `design.clone_location` joins the names below the cache and requires the result to lie
+inside it, for a cache under the run root too (where `RunDirectory.unlinked` alone keeps a name
+inside the run root, not inside the cache), then applies `unlinked` there. The names are checked
+where they name a directory, at load (`GitReference.validate_repo`) and when the clone is located.
+A `clone_dir` is used as given: nothing is named from the URL, so nothing is checked, and a URL with
+no host (`git@host:path`, `file:///path`, a bare path) loads with it. A `local_cache` is the user's
+own directory: only the names and the lexical containment are checked (`os.path.abspath`, so a
+cache that is `.` works), and a link is followed.
 
 Dependencies are brought up to date first, then the depending flow is judged. Within one launch, a
 run directory is entered at most once: two configurations of one flow resolving to the same

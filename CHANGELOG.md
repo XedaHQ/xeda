@@ -30,13 +30,22 @@ All notable changes to this project will be documented in this file.
   repository was built as an error but never raised; it is raised now.
 - A Git dependency whose URL or reference had a `..` component (`https://h/a/../../x.git`, a branch
   `../../x`) was cloned outside the clone cache and could leave the run root. Where xeda names a
-  clone directory from a reference, the host, the path, the branch and the commit must not have a
-  `.` or `..` component, a backslash or a NUL, and the path must not be empty. Xeda checks this
-  when it loads the design, before it clones anything. A `clone_dir` is used as given, so nothing
-  is checked then: a URL with no host (`git@host:org/repo.git`, `file:///srv/lib.git`, a path)
-  works with it. A repository path whose first component starts with a dot used to lose those
-  dots in its clone directory: `/.hidden/x.git` was cloned to `h/hidden/x.git`. It keeps them now
-  (`h/.hidden/x.git`), so such a clone is made again once.
+  clone directory from a reference, the repository path, the branch and the commit must not have a
+  `.` or `..` component, a drive such as `C:`, a leading `/`, a backslash or a NUL. The host must
+  not have those either, but `h:8443` (a host and its port) is not a drive. The path must not be
+  empty. Xeda checks the names when it loads the design, before it clones anything. It also checks
+  that the clone directory lies inside the cache, for a cache under the run root too. A `clone_dir`
+  is used as given, so nothing is checked then: a URL with no host (`git@host:org/repo.git`,
+  `file:///srv/lib.git`, a path) works with it.
+- Two references that select different clones could share one clone directory, and the second then
+  loaded the design the first had cloned. `https://h/u/lib.git_a/b` and
+  `https://h/u/lib.git?branch=a/b` were both `h/u/lib.git_a/b`, `.../lib.git_commit=abc` and
+  `?commit=abc` were alike, and so were `U/Lib.git` and `u/lib.git` on a file system that ignores
+  letter case. A clone directory is now `<host>/<name>`, one directory below its host's. The name
+  is the repository path and the commit, or else the branch, in a readable form, then `_` and a
+  16-digit digest of the repository URL, the branch and the commit. Existing clones are made again
+  once, in their new directories. A design with a Git dependency names the dependency's sources by
+  their path, so its flows run again once too.
 - The clone cache under the run root (`.dependencies`) follows the rule of every other cache
   there: a symbolic link anywhere on the way to a clone, even one that stays inside the run root,
   is refused, and nothing is cloned through it. A `local_cache` or `clone_dir` you name stays yours
