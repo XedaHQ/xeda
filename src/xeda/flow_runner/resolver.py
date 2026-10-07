@@ -17,15 +17,12 @@ import logging
 from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass, field
-from functools import cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from pydantic_core import SchemaValidator
-
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel, input_names
+from ..dataclass import BaseModel
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from ..flow.flow import written_path_problems
@@ -482,7 +479,7 @@ def _normalized_leaves(
     if shared == "clocks":
         clocks = request.raw.values.get("clocks", {})
         if not isinstance(clocks, Mapping):
-            _syntax_settings(request.cls, {"clocks": clocks}, context)
+            settings_in_context(request.cls, {"clocks": clocks}, **context)
         for name, raw_clock in clocks.items():
             if not isinstance(raw_clock, Mapping):
                 raise _error(request.cls, f"clocks.{name}", "a clock must be a mapping")
@@ -500,7 +497,8 @@ def _normalized_leaves(
             return result
         loc = max(given, key=lambda location: rank[location.kind])
         try:
-            key = _platform_key(_leaf_value(request.cls, shared, value, context))
+            model = settings_in_context(request.cls, {shared: value}, **context)
+            key = _platform_key(getattr(model, shared))
         except (ValueError, FlowSettingsError) as error:
             raise _error(request.cls, shared, f"{error} at {loc.label}") from error
         result[(shared,)] = (value, key, loc)
@@ -529,7 +527,8 @@ def _normalized_leaves(
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
             elif shared in ("prjxray_db", "dont_use_cells"):
-                value = _leaf_value(request.cls, shared, value, context)
+                model = settings_in_context(request.cls, {shared: value}, **context)
+                value = getattr(model, shared)
                 if shared == "prjxray_db" and value is not None:
                     value = (context["design_root"] / value).resolve()
             elif shared == "custom_boards_file":
@@ -544,58 +543,6 @@ def _normalized_leaves(
             key = value
         result[target] = (value, key, loc)
     return result
-
-
-def _syntax_settings(
-    cls: type[Flow], values: Mapping[str, Any], context: Mapping[str, Any]
-) -> Flow.Settings | None:
-    """Validate `values` as part of `cls`'s settings, with the flow's own model: the settings
-    they make, or None when they lack a setting the model requires.
-
-    The resolver checks parts of a flow's settings -- one origin's sections, one shared leaf --
-    before every layer is composed, so a part may lack a required setting. That is no error here:
-    the settings are validated whole, and their required values checked, once composed. Every
-    other problem in the part is one, and a model validator that reads a required setting is not
-    run, as it never is on settings that fail validation.
-    """
-    try:
-        return settings_in_context(cls, values, **context)
-    except FlowSettingsError as error:
-        error.errors = [problem for problem in error.errors if problem[3] != "missing"]
-        if error.errors:
-            raise
-        return None
-
-
-@cache
-def _field_validator(settings_cls: type[Flow.Settings], name: str) -> SchemaValidator:
-    """A validator of the one field `name` of `settings_cls`, built from the model's own schema,
-    so that the validators of that field run as they do in the model."""
-    schema: Any = settings_cls.__pydantic_core_schema__
-    definitions = schema["definitions"] if schema["type"] == "definitions" else []
-    while schema["type"] != "model-fields":
-        schema = schema["schema"]
-    return SchemaValidator(
-        {
-            "type": "definitions",
-            "schema": schema["fields"][name]["schema"],
-            "definitions": definitions,
-        }
-    )
-
-
-def _leaf_value(cls: type[Flow], shared: str, value: Any, context: Mapping[str, Any]) -> Any:
-    """`value` as the setting `shared` of `cls` holds it, validated by the flow's own model. A
-    model that requires other settings cannot be built from one leaf; the leaf is then validated
-    by its own field alone, after the conveniences every flow setting has (`$DESIGN_ROOT`,
-    comma-separated lists)."""
-    model = _syntax_settings(cls, {shared: value}, context)
-    if model is not None:
-        return getattr(model, shared)
-    settings_cls = cls.Settings
-    name = input_names(settings_cls).get(shared, shared)
-    value = settings_cls._normalize_flow_setting(name, value, settings_cls._path_roots(context))
-    return _field_validator(settings_cls, name).validate_python(value, context=dict(context))
 
 
 def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, Any]:
@@ -615,7 +562,7 @@ def _shared_locations(
 ) -> dict[tuple[str, ...], _Leaf]:
     """Compare composed mappings with validated models without inventing API overrides."""
     try:
-        _syntax_settings(cls, _nonshared_input(cls, raw.values), context)
+        settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
     except FlowSettingsError as error:
         suggest_dependency_node(cls, error)
         raise
@@ -1038,7 +985,9 @@ def resolve(
     for unused_name, unused_cls in default_flows.items():
         if unused_name not in active:
             unused = compose_flow_settings(unused_cls, [values for _label, values, _kind in layers])
-            _syntax_settings(unused_cls, unused, context)  # syntax only, no launch requirements
+            settings_in_context(
+                unused_cls, unused, **context
+            )  # syntax only, no launch requirements
     agree_targets(requests)
 
     for request in requests:
