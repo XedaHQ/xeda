@@ -223,32 +223,28 @@ def test_openroad_reads_no_producer_state():
 
 
 def _leaf_flow_launch(flow_class, tmp_path, monkeypatch):
-    """Launch `flow_class` as the isolation sweep does, and return the plans the launcher made."""
+    """Launch `flow_class` as the isolation sweep does. The world, and what the resolver was asked
+    and answered for it: `(requested flow, its plan or None, the refusal or None)`."""
     from xeda.flow_runner import DefaultRunner
 
     from .test_isolation import _launch, _world
 
-    plans: list = []
+    outcomes: list = []
     resolve = DefaultRunner.resolve
 
     def spy(self, flow_cls, *args, **kwargs):
-        plans.append(flow_cls)  # asked for, whether or not the request resolves
-        plan = resolve(self, flow_cls, *args, **kwargs)
-        plans[-1] = plan
+        try:
+            plan = resolve(self, flow_cls, *args, **kwargs)
+        except Exception as error:
+            outcomes.append((flow_cls, None, error))
+            raise
+        outcomes.append((flow_cls, plan, None))
         return plan
 
     monkeypatch.setattr(DefaultRunner, "resolve", spy)
     world = _world(tmp_path)
-    reached: list = []
-    _launch(flow_class, world, monkeypatch, "clean", reached)
-    return world, plans
-
-
-#: The flows whose request the resolver refuses in the isolation sweep's world, with why. Reviewed:
-#: a flow joining the list needs a reason, and one that leaves it must be removed.
-PLANNING_REFUSED = {
-    "vivado_power": "its producer vivado_postsynth_sim cannot run the sweep's cocotb testbench",
-}
+    _launch(flow_class, world, monkeypatch, "clean", [])
+    return world, outcomes
 
 
 @pytest.mark.parametrize("flow_class", [cls for cls, _ in FLOWS], ids=[n for _, n in FLOWS])
@@ -266,16 +262,18 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     from xeda.flow_runner.default_runner import DefaultRunner
     from xeda.flow_runner.trace import as_recorded
 
-    from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN
+    from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN, UNPLANNABLE
 
-    world, plans = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
-    asked = [plan for plan in plans if plan is flow_class or plan.requested == flow_class.name]
+    world, outcomes = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
+    asked = [(plan, error) for cls, plan, error in outcomes if cls is flow_class]
     assert len(asked) == 1, f"{flow_class.name} was not launched through the resolver"
-    if asked[0] is flow_class:
-        assert flow_class.name in PLANNING_REFUSED, f"planning refused {flow_class.name}"
+    plan, refusal = asked[0]
+    if refusal is not None:
+        reason = UNPLANNABLE.get(flow_class.name)
+        assert reason is not None, f"planning refused {flow_class.name}: {refusal}"
+        assert reason in str(refusal)
         return
-    assert flow_class.name not in PLANNING_REFUSED, f"{flow_class.name} plans now: unlist it"
-    plan = asked[0]
+    assert flow_class.name not in UNPLANNABLE, f"{flow_class.name} plans now: unlist it"
     node = plan.node(flow_class.name)
     rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
     design = Design(

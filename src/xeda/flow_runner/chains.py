@@ -325,10 +325,11 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
     """Completions of an unfinished request, each the **whole current token**: what was typed
     before the last `+`, exactly as typed, followed by the completed element.
 
-    After a `+` only flows that the validator accepts as the next element are offered (so none
-    repeats, none follows an action, none declares no required input and none lacks a compatible edge); in a
-    qualifier (`nextpnr.`) the producer's outputs that lead to some follower. Static: it reads
-    declarations only, loads no design, constructs no flow and probes no tool.
+    After a `+` only flows that the validator accepts as the next element are offered. A flow
+    is offered only if it does not repeat one, does not follow an action, takes a required input
+    and has a compatible edge from the flow before it. In a qualifier (`nextpnr.`) the producer's
+    outputs that lead to some follower are offered. Static: it reads declarations only, loads no
+    design, constructs no flow and probes no tool.
     """
     head_text, plus, partial = incomplete.rpartition("+")
     head: list[ChainElement] = []
