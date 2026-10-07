@@ -122,7 +122,6 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
         {"name": "constraints", "origin": "none", "producer": None, "output": None, **NOTHING},
         {"name": "sdc", "origin": "none", "producer": None, "output": None, **NOTHING},
     ]
-    assert all(node["declared"] for node in nodes)
     for node in nodes:
         suffix = "_" + node["flowrun_hash"][:16] if hashed else ""
         assert node["run_path"] == str(run_root / "blink" / (node["name"] + suffix))
@@ -322,13 +321,14 @@ def test_an_escaping_run_directory_is_refused_without_writes(tmp_path):
     assert list(outside.iterdir()) == []
 
 
-def test_legacy_dependencies_are_explicitly_unknown(tmp_path, monkeypatch):
+def test_a_flow_that_declares_no_io_plans_as_one_node(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     design = _design_file(tmp_path / "d")
     _forbid_execution(monkeypatch)
-    result = CliRunner().invoke(cli, ["run", "ghdl_sim", str(design), "--dry-run"])
+    result = CliRunner().invoke(cli, ["run", "ghdl_sim", str(design), "--dry-run", "--json"])
     assert result.exit_code == 0, (result.output, result.exception)
-    assert "runtime dependencies are unknown" in result.output
+    (node,) = json.loads(result.stdout)["plan"]["nodes"]
+    assert node["flow"] == "ghdl_sim" and node["inputs"] == [] and node["switched_on"] == []
     assert not (tmp_path / "xeda_run").exists()
 
 

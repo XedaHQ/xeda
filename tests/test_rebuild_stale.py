@@ -1,7 +1,7 @@
 """Make-like launches, the default: a flow re-runs only when what it consumed or produced changed.
 
 Two pure-Python flows stand in for tools: `toy_producer` copies the design's source (plus a
-suffix setting) to an output; `toy_consumer` depends on it and copies that output onward. Each
+suffix setting) to an output; `toy_consumer` reads that output and copies it onward. Each
 records that it ran, so the tests see exactly what executed.
 """
 
@@ -18,17 +18,29 @@ from pydantic import Field
 
 from xeda import Design
 from xeda.console import console
-from xeda.flow import Flow, FlowFatalError, FlowSettingsError, registered_flows
+from xeda.design import SourceType
+from xeda.flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowFatalError,
+    In,
+    Out,
+    registered_flows,
+)
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import scrub_runs
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock
 
-from .tool_utils import require_yosys
+from .tool_utils import producers_of, require_yosys
 
 RUNS: list[str] = []
 #: why the consumer runs after its producer ran again: dependencies are named by flow and run
 #: directory, relative to `xeda_run`
 AGAIN = "toy_producer (toy/toy_producer) ran again"
+#: why it runs when the producer's own settings are not what its last run consumed
+OTHER_SETTINGS = (
+    "toy_producer, which makes produced, has other settings or inputs than in the last run"
+)
 
 
 @pytest.fixture(scope="module")
@@ -41,27 +53,35 @@ def toys():
         class Settings(Flow.Settings):
             suffix: str = Field("", description="Appended to the copied text.")
 
+        class Outputs(Flow.Outputs):
+            produced: Path = Out(SourceType.Data, description="The copied text.")
+
         def run(self) -> None:
             RUNS.append(self.name)
             out = self.run_path / "outputs" / "produced.txt"
             out.parent.mkdir(exist_ok=True)
             out.write_text(self.design.rtl.sources[0].file.read_text() + self.settings.suffix)
             self.artifacts.produced = out
+            self.outputs.produced = out
 
     class ToyConsumer(Flow):
-        """Copies its dependency's output to outputs/consumed.txt."""
+        """Copies its producer's output to outputs/consumed.txt."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyProducer, ToyProducer.Settings())
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The producer's text.",
+            )
 
         def run(self) -> None:
             RUNS.append(self.name)
-            (producer,) = self.completed_dependencies
             out = self.run_path / "outputs" / "consumed.txt"
             out.parent.mkdir(exist_ok=True)
-            out.write_text(Path(producer.artifacts.produced).read_text())
+            out.write_text(self.inputs.produced.read_text())
             self.artifacts.consumed = out
 
     yield ToyProducer, ToyConsumer
@@ -81,6 +101,7 @@ def _run(tmp_path, cls, design, sections=None, settings=None, **launcher):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False, **launcher)
     flow = runner.launch_flow(cls, design, settings or {}, all_flows_settings=sections)
     assert flow.succeeded
+    flow.producers = producers_of(runner, flow)  # type: ignore[attr-defined]
     return flow, list(RUNS)
 
 
@@ -95,13 +116,13 @@ def test_an_unchanged_rerun_runs_nothing(tmp_path, toys, design):
     _run(tmp_path, consumer, design)
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == [] and flow.reused
-    assert flow.completed_dependencies[0].reused
+    assert flow.producers[0].reused
 
 
 def test_dependencies_are_siblings(tmp_path, toys, design):
     producer, consumer = toys
     flow, _ = _run(tmp_path, consumer, design)
-    assert flow.completed_dependencies[0].run_path == flow.run_path.parent / producer.name
+    assert flow.producers[0].run_path == flow.run_path.parent / producer.name
 
 
 def test_a_source_edit_reruns_the_chain_and_says_why(tmp_path, toys, design):
@@ -110,7 +131,7 @@ def test_a_source_edit_reruns_the_chain_and_says_why(tmp_path, toys, design):
     (design.root_path / "a.v").write_text("module b; endmodule\n")
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
-    assert flow.completed_dependencies[0].stale_reason.startswith("input changed:")
+    assert flow.producers[0].stale_reason.startswith("input changed:")
     assert flow.stale_reason == AGAIN
 
 
@@ -119,8 +140,8 @@ def test_a_setting_of_the_dependency_alone_reruns_both(tmp_path, toys, design):
     _run(tmp_path, consumer, design)
     flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"suffix": "!"}})
     assert ran == ["toy_producer", "toy_consumer"]
-    assert flow.completed_dependencies[0].stale_reason == "settings changed: suffix"
-    assert flow.stale_reason == AGAIN
+    assert flow.producers[0].stale_reason == "settings changed: suffix"
+    assert flow.stale_reason == OTHER_SETTINGS
 
 
 def test_a_dependency_that_ran_again_reruns_its_depender_even_with_an_identical_output(
@@ -135,7 +156,7 @@ def test_a_dependency_that_ran_again_reruns_its_depender_even_with_an_identical_
     _run(tmp_path, consumer, design)
     flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"verbose": 1}})
     assert ran == ["toy_producer", "toy_consumer"]
-    assert flow.stale_reason == AGAIN
+    assert flow.stale_reason == OTHER_SETTINGS
 
 
 def test_a_dependency_that_ran_again_since_is_a_change(tmp_path, toys, design):
@@ -146,7 +167,7 @@ def test_a_dependency_that_ran_again_since_is_a_change(tmp_path, toys, design):
     _, ran = _run(tmp_path, producer, design, rebuild_all=True)  # byte-identical output
     assert ran == ["toy_producer"]
     flow, ran = _run(tmp_path, consumer, design)
-    assert flow.completed_dependencies[0].reused
+    assert flow.producers[0].reused
     assert ran == ["toy_consumer"] and flow.stale_reason == AGAIN
 
 
@@ -184,7 +205,7 @@ def test_rebuild_all_always_runs(tmp_path, toys, design):
 def test_clean_empties_every_node_that_runs(tmp_path, toys, design):
     _, consumer = toys
     flow, _ = _run(tmp_path, consumer, design)
-    leftover = flow.completed_dependencies[0].run_path / "leftover.txt"
+    leftover = flow.producers[0].run_path / "leftover.txt"
     leftover.write_text("x")
     _, ran = _run(tmp_path, consumer, design, clean=True)
     assert ran == ["toy_producer", "toy_consumer"] and not leftover.exists()
@@ -195,38 +216,53 @@ def test_post_cleanup_waits_for_the_requested_flow(tmp_path, design):
     completed: until then its depender may read any file it wrote, declared or not."""
 
     class ToyScratcher(Flow):
-        """Writes an output it does not declare."""
+        """Writes an output it does not declare, besides the one it does."""
 
         results_description: ClassVar[dict[str, str]] = {}
+
+        class Outputs(Flow.Outputs):
+            declared: Path = Out(SourceType.Data, description="The declared file.")
 
         def run(self) -> None:
             RUNS.append(self.name)
             (self.run_path / "undeclared.txt").write_text("scratch")
+            (self.run_path / "declared.txt").write_text("declared")
+            self.outputs.declared = self.run_path / "declared.txt"
 
     class ToyScratchReader(Flow):
-        """Reads its dependency's undeclared output."""
+        """Reads its producer's undeclared output."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyScratcher, ToyScratcher.Settings())
+        class Inputs(Flow.Inputs):
+            declared: Path = In(
+                SourceType.Data,
+                producer="toy_scratcher",
+                output="declared",
+                description="The producer's declared file.",
+            )
 
         def run(self) -> None:
             RUNS.append(self.name)
-            (scratcher,) = self.completed_dependencies
-            assert (scratcher.run_path / "undeclared.txt").read_text() == "scratch"
+            scratcher_dir = self.inputs.declared.parent
+            assert (scratcher_dir / "undeclared.txt").read_text() == "scratch"
 
     try:
         flow, ran = _run(tmp_path, ToyScratchReader, design, post_cleanup=True)
-        (scratcher,) = flow.completed_dependencies
+        (scratcher,) = flow.producers
         assert ran == ["toy_scratcher", "toy_scratch_reader"]
-        for run_path in (scratcher.run_path, flow.run_path):  # both cleaned up afterwards
-            assert sorted(p.name for p in run_path.iterdir()) == ["results.json", "settings.json"]
+        # both cleaned up afterwards: the producer keeps only the file it declares
+        assert sorted(p.name for p in scratcher.run_path.iterdir()) == [
+            "declared.txt",
+            "results.json",
+            "settings.json",
+        ]
+        assert sorted(p.name for p in flow.run_path.iterdir()) == ["results.json", "settings.json"]
         # Pruning removed the traces: a pruned directory may lack a file a depender reads (here
         # `undeclared.txt`), so it is never reused -- both run again.
         flow, ran = _run(tmp_path, ToyScratchReader, design, post_cleanup=True)
         assert ran == ["toy_scratcher", "toy_scratch_reader"]
-        assert flow.completed_dependencies[0].stale_reason == "no successful previous run"
+        assert flow.producers[0].stale_reason == "no successful previous run"
         _, ran = _run(
             tmp_path, ToyScratchReader, design, post_cleanup=True, post_cleanup_purge=True
         )
@@ -241,12 +277,17 @@ def test_a_failed_launch_still_cleans_up_what_ran(tmp_path, toys, design):
     producer, _ = toys
 
     class ToyFailingUser(Flow):
-        """Depends on the producer, then fails."""
+        """Reads the producer's output, then fails."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(producer, producer.Settings())
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer=producer.name,
+                output="produced",
+                description="The producer's text.",
+            )
 
         def run(self) -> None:
             raise FlowFatalError("boom")
@@ -323,15 +364,20 @@ def test_an_action_runs_every_time_after_fresh_dependencies(tmp_path, toys, desi
     producer, _ = toys
 
     class ToyAction(Flow):
-        """Pretends to program a board with its dependency's output."""
+        """Pretends to program a board with its producer's output."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer=producer.name,
+                output="produced",
+                description="The producer's text.",
+            )
+
         def always_runs(self):
             return "it programs a device"
-
-        def init(self) -> None:
-            self.add_dependency(producer, producer.Settings())
 
         def run(self) -> None:
             RUNS.append(self.name)
@@ -342,7 +388,7 @@ def test_an_action_runs_every_time_after_fresh_dependencies(tmp_path, toys, desi
         assert not (flow.run_path / "trace.json").exists()
         (flow.run_path / "trace.json").write_text("{}")  # a trace from before it was an action
         flow, ran = _run(tmp_path, ToyAction, design)
-        assert ran == ["toy_action"] and flow.completed_dependencies[0].reused
+        assert ran == ["toy_action"] and flow.producers[0].reused
         assert not flow.reused and flow.stale_reason == "it programs a device"
         assert not (flow.run_path / "trace.json").exists()
     finally:
@@ -398,23 +444,28 @@ def test_launched_lists_a_flow_that_raised_and_its_depender(tmp_path, design):
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Outputs(Flow.Outputs):
+            out: Path = Out(SourceType.Data, description="Never made.")
+
         def run(self) -> None:
             raise FlowFatalError("boom")
 
     class ToyFatalUser(Flow):
-        """Depends on a flow whose run raises."""
+        """Reads the output of a flow whose run raises."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyFatal, ToyFatal.Settings())
+        class Inputs(Flow.Inputs):
+            out: Path = In(
+                SourceType.Data, producer="toy_fatal", output="out", description="Never made."
+            )
 
         def run(self) -> None:
             RUNS.append(self.name)
 
     try:
         runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-        with pytest.raises(FlowFatalError):
+        with pytest.raises(FlowDependencyFailure, match="boom"):
             runner.launch_flow(ToyFatalUser, design, {})
         assert [(f.name, f.succeeded) for f in runner.launched] == [
             ("toy_fatal", False),
@@ -424,95 +475,65 @@ def test_launched_lists_a_flow_that_raised_and_its_depender(tmp_path, design):
         _unregister(ToyFatal, ToyFatalUser)
 
 
-def _two_producers(producer, first: dict, second: dict):
-    class ToyTwoProducers(Flow):
-        """Depends on two runs of one flow."""
-
-        results_description: ClassVar[dict[str, str]] = {}
-
-        def init(self) -> None:
-            self.add_dependency(producer, producer.Settings(**first))
-            self.add_dependency(producer, producer.Settings(**second))
-
-        def run(self) -> None:
-            RUNS.append(self.name)
-
-    return ToyTwoProducers
-
-
-def test_one_directory_one_configuration_per_launch(tmp_path, toys, design):
-    """Two dependencies of one flow with different settings resolve to one stable directory: the
-    second would overwrite what the first produced, so the launch fails, naming both."""
-    producer, _ = toys
-    two = _two_producers(producer, {}, {"suffix": "!"})
-    try:
-        with pytest.raises(FlowSettingsError) as raised:
-            _run(tmp_path, two, design)
-        message = str(raised.value)
-        assert str(tmp_path / "xeda_run" / "toy" / "toy_producer") in message
-        assert "toy_producer would run twice" in message and "(differing in suffix)" in message
-        assert "for toy_two_producers and for toy_two_producers" in message
-    finally:
-        _unregister(two)
-
-
-def test_a_dependency_cannot_take_over_the_requested_flow_s_directory(tmp_path, design):
-    class ToyNested(Flow):
-        """Depends on itself, with other settings."""
-
-        results_description: ClassVar[dict[str, str]] = {}
-
-        class Settings(Flow.Settings):
-            depth: int = Field(0, description="How deep this launch is.")
-
-        def init(self) -> None:
-            if self.settings.depth == 0:
-                self.add_dependency(ToyNested, ToyNested.Settings(depth=1))
-
-        def run(self) -> None:
-            RUNS.append(self.name)
-
-    try:
-        with pytest.raises(FlowSettingsError, match="for the requested flow and for toy_nested"):
-            _run(tmp_path, ToyNested, design)
-        assert RUNS == []
-    finally:
-        _unregister(ToyNested)
+def test_a_launch_enters_a_run_directory_once(tmp_path, toys, design):
+    """A second entry into a directory would run over what the first produced."""
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    run_path = tmp_path / "xeda_run" / "toy" / "toy_producer"
+    runner._claim_run_dir(run_path)
+    with pytest.raises(FlowFatalError, match="entered twice in one launch"):
+        runner._claim_run_dir(run_path)
 
 
 @pytest.mark.parametrize("launcher", [{}, {"rebuild_all": True}, {"clean": True}], ids=str)
-def test_the_same_configuration_twice_in_a_launch_runs_once(tmp_path, toys, design, launcher):
-    """Two dependencies with the same settings share one run, however the launch rebuilds."""
+def test_a_producer_two_inputs_read_runs_once(tmp_path, toys, design, launcher):
+    """A producer feeding two inputs is one node, whatever the launch rebuilds."""
     producer, _ = toys
-    two = _two_producers(producer, {"suffix": "!"}, {"suffix": "!"})
+
+    class ToyTwoInputs(Flow):
+        """Reads the producer's output through two inputs."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(Flow.Inputs):
+            first: Path = In(
+                SourceType.Data,
+                producer=producer.name,
+                output="produced",
+                description="The producer's text.",
+            )
+            second: Path = In(
+                SourceType.Data,
+                producer=producer.name,
+                output="produced",
+                description="The producer's text again.",
+            )
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+
     try:
-        flow, ran = _run(tmp_path, two, design, **launcher)
-        assert ran == ["toy_producer", "toy_two_producers"]
-        first, second = flow.completed_dependencies
-        assert not first.reused and second.reused and first.run_id == second.run_id
+        flow, ran = _run(tmp_path, ToyTwoInputs, design, **launcher)
+        assert ran == ["toy_producer", "toy_two_inputs"]
+        (only,) = flow.producers
+        assert not only.reused and flow.inputs.first == flow.inputs.second
     finally:
-        _unregister(two)
+        _unregister(ToyTwoInputs)
 
 
-def test_two_dependencies_of_one_flow_are_told_apart(tmp_path, toys, design):
-    """In hashed directories two runs of one flow with different settings coexist, and a
-    depender tracks each: the first running again makes it stale, although the second did not
-    and the first's output is byte-identical."""
-    producer, _ = toys
-    two = _two_producers(producer, {}, {"suffix": "!"})
-    try:
-        flow, ran = _run(tmp_path, two, design, hashed_run_dirs=True)
-        first, second = flow.completed_dependencies
-        assert first.run_path != second.run_path
-        runner = DefaultRunner(
-            tmp_path / "xeda_run", display_results=False, hashed_run_dirs=True, rebuild_all=True
-        )
-        runner.launch_flow(producer, design, {})  # the first, again
-        flow, ran = _run(tmp_path, two, design, hashed_run_dirs=True)
-        assert ran == ["toy_two_producers"]
-        assert flow.stale_reason == f"toy_producer (toy/{first.run_path.name}) ran again"
-    finally:
-        _unregister(two)
+def test_a_producer_in_a_hashed_directory_is_told_by_it(tmp_path, toys, design):
+    """The consumer tracks the producer by its run directory: in hashed directories, the name of
+    the one it consumed, so the producer running again makes it stale although the producer's
+    output is byte-identical."""
+    producer, consumer = toys
+    flow, _ = _run(tmp_path, consumer, design, hashed_run_dirs=True)
+    (first,) = flow.producers
+    runner = DefaultRunner(
+        tmp_path / "xeda_run", display_results=False, hashed_run_dirs=True, rebuild_all=True
+    )
+    runner.launch_flow(producer, design, {})  # the producer, again
+    flow, ran = _run(tmp_path, consumer, design, hashed_run_dirs=True)
+    assert ran == ["toy_consumer"]
+    assert flow.stale_reason == f"toy_producer (toy/{first.run_path.name}) ran again"
 
 
 def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monkeypatch, caplog):
@@ -541,12 +562,17 @@ def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monk
     ]
 
     class ToyFailingConsumer(Flow):
-        """Depends on the producer, then fails."""
+        """Reads the producer's output, then fails."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(producer, producer.Settings())
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer=producer.name,
+                output="produced",
+                description="The producer's text.",
+            )
 
         def run(self) -> None:
             raise FlowFatalError("the launch's own error")
@@ -728,4 +754,19 @@ def test_a_change_to_xeda_s_code_reruns_every_flow(tmp_path, toys, design, monke
     monkeypatch.setattr(trace_inputs, "xeda_code_digest", lambda: "e" * 32)
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
-    assert flow.completed_dependencies[0].stale_reason == "xeda's code changed"
+    assert flow.producers[0].stale_reason == "xeda's code changed"
+
+
+def test_what_follows_the_settings_of_a_launch_is_keyword_only():
+    """An older positional call, which put a list of resources where the sections now go, fails
+    loudly instead of being read as sections."""
+    import inspect
+
+    from xeda.flow_runner.dse.dse_runner import Dse
+
+    for method in (DefaultRunner.launch_flow, DefaultRunner.run_flow, Dse.run_flow):
+        parameters = list(inspect.signature(method).parameters.values())
+        names = [p.name for p in parameters]
+        first_keyword_only = next(p for p in parameters if p.kind is inspect.Parameter.KEYWORD_ONLY)
+        assert names.index(first_keyword_only.name) == names.index("flow_settings") + 1, method
+        assert "depender" in {p.name for p in parameters if p.kind is p.KEYWORD_ONLY}, method

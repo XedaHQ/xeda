@@ -174,11 +174,7 @@ files and sections. A command-line leaf (``-s fpga.part=...`` or
 API overrides retain their separate highest-precedence origin. Normal origin-first precedence
 still applies within each node.
 
-Undeclared edges (a flow that still calls ``add_dependency``; no built-in flow does) keep the
-legacy rule: the depending flow's nonempty value, else its dependency's nested value.
-Undeclared flows may launch declared ones.
-
-While a flow reads any completed dependency's outputs, it holds a verified shared lease on that
+While a flow reads any completed producer's outputs, it holds a verified shared lease on that
 run directory until its own launch ends. Another Xeda process cleaning, rebuilding or scrubbing
 the producer waits (POSIX only). Missing or changed completion evidence refuses hand-over.
 
@@ -193,9 +189,8 @@ unsupported targets and shared-setting conflicts fail during planning.
 
 Loading that needs a generator or a Git dependency fetch is refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan``. An undeclared node's runtime dependencies are unknown: its ``init()``
-is not called while planning. Freshness and always-run decisions are not evaluated, and
-``--dry-run --remote`` is refused.
+``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
+decisions are not evaluated, and ``--dry-run --remote`` is refused.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
@@ -230,12 +225,12 @@ checks each neighboring pair and never searches for a missing stage.
   fix it: ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``. Nothing
   searches all flows, so a refusal with no such route carries no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
-* Only flows that declare their file inputs and outputs (``declared`` in ``xeda list-flows
-  --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
+* Only flows that declare their file inputs and outputs (a nonempty ``inputs`` or ``outputs`` in
+  ``xeda list-flows --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
   ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_postsynth_sim`` and
   ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
-  ``vivado_sim``, ...) runs alone and is refused inside a chain, naming it. No stage is ever fed by reading another flow's
-  ``artifacts``.
+  ``vivado_sim``, ...) runs alone. A chain through it is refused: no output fits an input, or the flow after it takes no required input.
+  No stage is ever fed by reading another flow's ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
   come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
   the flows that can follow the chain typed so far.
@@ -376,8 +371,8 @@ ends at ``openfpgaloader`` programs a device. The test suite runs those chains a
 tools, and never starts a real programmer.
 
 Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim`` are **not**
-available yet, and the command below is refused today (``Flow `bsc` has
-no declared I/O and can only be run alone``). They need the remaining flows to declare their
+available yet, and the command below is refused today (``Flow `bsc` cannot
+precede `yosys_fpga`: `yosys_fpga` takes no required input``). They need the remaining flows to declare their
 inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
 example designs and targets that use them:
 
@@ -807,9 +802,10 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
 ``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:
 
 ``init()`` (optional)
-    Runs after construction, once settings and design are known. This is where dependencies are
-    registered with ``self.add_dependency(...)``. It is separate from ``__init__`` so that a flow
-    can decide its dependencies based on its effective settings.
+    Runs after construction, once settings and design are known. It is separate from
+    ``__init__``, so a flow can prepare itself from its effective settings. It adds no producer and
+    reads no input: a flow declares the inputs it reads (``Flow.Inputs``), and the launcher runs
+    their producers before ``run()``.
 
 ``run()``
     Generates scripts (Jinja2 templates in a ``templates/`` directory next to the flow module) and

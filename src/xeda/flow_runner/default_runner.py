@@ -12,10 +12,9 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
-from copy import copy, deepcopy
-from dataclasses import dataclass, replace
+from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-from glob import glob
 from pathlib import Path
 from pprint import PrettyPrinter
 from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Tuple, Type, TypeVar, Union
@@ -33,7 +32,10 @@ from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
+    ConfirmedReplacements,
     Deliveries,
+    Delivery,
+    DeliveryError,
     ReadInputs,
     deliverable_setting_names,
     outputs_to_deliveries,
@@ -57,7 +59,7 @@ from ..flow import (
     FlowSettingsException,
     registered_flows,
 )
-from ..flow.io import declared_inputs, is_declared, selected_types
+from ..flow.io import declared_inputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -70,7 +72,6 @@ from ..utils import (
     backup_existing,
     dump_json,
     json_encodable,
-    replacing_copy,
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
@@ -98,7 +99,6 @@ from .settings_layers import (
     check_not_removed,
     command_line_sections,
     compose_flow_settings,
-    dependency_settings,
     merge_flow_sections,
     settings_in_context,
     split_flow_sections,
@@ -113,7 +113,6 @@ from .trace import (
     locate_program,
     previous_trace,
     remove_trace,
-    settings_difference,
     write_trace,
 )
 from .trace_inputs import (
@@ -775,9 +774,15 @@ class FlowLauncher:
         self._launch_depth = 0
         #: post-run clean-ups waiting for the flow the current launch was asked for to complete
         self._pending_clean_ups: List[Tuple[Flow, Path, Path, RunDirPolicy]] = []
-        #: in the current launch, each run directory's configuration: its `flowrun_hash`, which
-        #: flow asked for it, and its input settings `as_recorded`
-        self._claims: Dict[Path, Tuple[str, str, Any]] = {}
+        #: the run directories the current launch has entered
+        self._claims: set[Path] = set()
+        #: how many flows `launched` held when the current launch began
+        self._launched_before = 0
+        #: the replacements the user confirmed in the current launch, each as the file was then
+        self._confirmed_replacements = ConfirmedReplacements()
+        #: the deliveries of the current launch's producers, checked when it started, by node:
+        #: each producer checks again, at its turn, with its own
+        self._deliveries_ahead: dict[NodeKey, Deliveries] = {}
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -1023,10 +1028,9 @@ class FlowLauncher:
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[Dict[str, Any], Flow.Settings, None],
-        depender: Optional[Flow] = None,
-        copy_resources: List[str] = [],
-        all_flows_settings: Union[Dict, None] = None,
         *,
+        depender: Optional[Flow] = None,
+        all_flows_settings: Union[Dict, None] = None,
         plan: Plan | None = None,
         plan_node: NodeKey | None = None,
     ) -> Flow:
@@ -1044,12 +1048,11 @@ class FlowLauncher:
            (`Flow.check_run_directory`, judged on the path before anything is created),
            locked from here until the run's trace is written (`run_lock`). With ``clean``, the
            directory is emptied now (or backed up, with ``backups``).
-        3. **prepare**: construct the flow with its own copy of the input and call its `init()`,
-           which registers the flow's dependencies. `init()` runs for a flow that turns out to be
-           fresh too, so it must not change a file in the run directory: every file there is an
-           output of the last run.
-        4. **dependencies** (`_run_dependencies`): launch each through this same procedure, in a
-           sibling run directory, with settings composed by `dependency_settings`.
+        3. **prepare**: construct the flow with its own copy of the input and call its `init()`.
+           `init()` runs for a flow that turns out to be fresh too, so it must not change a file
+           in the run directory: every file there is an output of the last run.
+        4. **producers** (`_run_producers`): launch each producer the plan names through this
+           same procedure, in a sibling run directory, with the settings the plan holds for it.
         5. **freshness**: without ``rebuild_all`` or ``clean`` (the default), a flow whose trace
            still matches what it would consume now (`trace.check_trace`) is not run again: its
            recorded results are reused. Otherwise `flow.stale_reason` says why it runs. A flow that can
@@ -1070,23 +1073,29 @@ class FlowLauncher:
            launch was asked for has completed: until then, a flow may still read files its
            dependencies wrote without declaring them.
 
-        Within one launch, a run directory holds one configuration: a second launch into it with
-        other settings is a `FlowSettingsError`, since it would overwrite what the first one
-        produced; with the same settings, the second reuses the first's run. Every flow launched
-        is appended to `launched` as it completes, whether it succeeded, failed or raised.
+        A launch enters each run directory once: the plan has one node per flow, and a second
+        entry is a `FlowFatalError`. Every flow launched is appended to `launched` as it
+        completes, whether it succeeded, failed or raised. A flow that did not run, because the
+        delivery of one of its producers was refused before the producer's tool ran, is not.
 
-        Outputs the user named (`xeda.deliver`) are checked before any tool of their flow
-        runs, noted when it succeeded or was found up to date, and delivered once the whole
-        launch has finished -- only when the requested flow succeeded or was found up to date: a
-        launch that raised, or whose requested flow reports failure, delivers nothing, not even
-        a successful dependency's outputs (`_finish_launch`).
+        Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs.
+        The requested flow checks the deliveries of every flow of the plan when the launch
+        starts (`_check_deliveries_ahead`): first what no answer could allow, then the
+        questions. They are noted when their flow succeeded or was found up to date, and
+        delivered once the whole launch has finished -- only when the requested flow succeeded
+        or was found up to date: a launch that raised, or whose requested flow reports failure,
+        delivers nothing, not even a successful dependency's outputs (`_finish_launch`).
         """
         top_level = self._launch_depth == 0
         if top_level:
-            self._claims = {}
+            self._claims = set()
+            self._launched_before = len(self.launched)
+            self._confirmed_replacements = ConfirmedReplacements()
+            self._deliveries_ahead = {}
             self._planned_completed = {}
             self._completed_runs = {}
-            # every file a flow of this launch reads, registered as each flow is launched
+            # every file the flows of this launch read: the requested flow registers the
+            # settings of the whole plan, and each flow the files it prepares
             self._read_inputs = ReadInputs(self._launch_inputs)
             self._pending_deliveries = []
         self._launch_depth += 1
@@ -1096,7 +1105,6 @@ class FlowLauncher:
                 design,
                 flow_settings,
                 depender,
-                copy_resources,
                 all_flows_settings,
                 plan=plan,
                 plan_node=plan_node,
@@ -1132,7 +1140,8 @@ class FlowLauncher:
         each under its run directory's lock, in completion order; then the deferred clean-ups,
         which may remove a file that is delivered. Each on its own, a failure logged and the next
         going on. The first failure, if any."""
-        self._claims = {}
+        self._claims = set()
+        self._deliveries_ahead = {}
         deliveries, self._pending_deliveries = self._pending_deliveries, []
         first_error: Optional[Exception] = None
         for flow, delivery in deliveries if deliver else []:
@@ -1156,36 +1165,82 @@ class FlowLauncher:
                 first_error = first_error or e
         return first_error
 
-    def _claim_run_dir(
-        self,
-        flow_class: Type[Flow],
-        run_path: Path,
-        flowrun_hash: str,
-        input_settings: Flow.Settings,
-        depender: Optional[Flow],
-    ) -> bool:
-        """Record which configuration `run_path` holds in this launch. True if this launch already
-        claimed it with the same settings, whose run is then reused; a `FlowSettingsError` if it
-        claimed it with other settings."""
-        requester = depender.name if depender is not None else "the requested flow"
-        key = Path(os.path.abspath(run_path))
-        claim = self._claims.get(key)
-        if claim is None:
-            self._claims[key] = (flowrun_hash, requester, as_recorded(input_settings))
+    def _confirm_replacing(self, conflicts: Sequence[Conflict]) -> bool:
+        """Ask `confirm_overwrite` whether to replace the files in the way. A file the user said
+        yes to is asked about once in a launch, while it stays as it was: a producer's deliveries
+        are checked ahead and again at its turn."""
+        if self.confirm_overwrite is None:
             return False
-        claimed_hash, first, first_settings = claim
-        if claimed_hash == flowrun_hash:
-            return True
-        difference = settings_difference(first_settings, as_recorded(input_settings))
-        message = (
-            f"{flow_class.name} would run twice in {run_path}, with different settings "
-            f"(differing in {difference}): for {first} and for {requester}. The second run would "
-            "overwrite what the first produced; --hashed-run-dirs (API hashed_run_dirs=True) "
-            "gives each its own directory"
+        return self._confirmed_replacements.confirm(self.confirm_overwrite, conflicts)
+
+    def _check_deliveries_ahead(
+        self,
+        plan: Plan,
+        requested: PlanNode,
+        design: Design,
+        deliveries: Sequence[Delivery],
+        run_path: Path,
+    ) -> None:
+        """Make now the checks that every flow of the plan makes of its deliveries when its turn
+        comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
+        earlier flow. First comes what no answer could allow (`--outputs-to`, and
+        `Deliveries.refuse`), for every flow, the requested flow included; then the questions
+        of the producers, in the order they run, each asked once. The requested flow asks its own
+        at its turn: that is the start of its own launch, before it launches its producers, so
+        before any tool runs. A producer keeps the object it checked and
+        checks again with it at its turn: that finds the record this check anchored, so the
+        destination is read once in the launch. At its turn, under its lock, the producer reads
+        the delivery record again if another launch wrote it meanwhile."""
+        outputs_to = self.settings.outputs_to
+        own = self._deliveries_of(run_path, deliveries)
+        own.check_outputs_to(outputs_to)
+        predicted = (
+            outputs_to_deliveries(
+                recorded_artifacts(run_path / "results.json"), run_path, outputs_to
+            )
+            if outputs_to is not None
+            else []
         )
-        raise FlowSettingsError(
-            [(str(run_path), message, None, "run_directory_conflict")], flow_class.Settings
+        own.refuse(predicted)
+        ahead: dict[NodeKey, Deliveries] = {}
+        for planned in plan.nodes:
+            if planned.node_key != requested.node_key:
+                named = split_deliveries(planned.settings, design.name)
+                if named:
+                    ahead[planned.node_key] = self._deliveries_of(planned.run_path, named)
+        for producer in ahead.values():
+            producer.refuse()
+        for producer in ahead.values():
+            producer.check()
+        self._deliveries_ahead = ahead
+
+    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery]) -> Deliveries:
+        """The deliveries `named` of the flow that runs in `run_path`, for this launch."""
+        return Deliveries(
+            run_path,
+            self.run_root,
+            named,
+            inputs=self._read_inputs,  # the launch's
+            overwrite=self.settings.overwrite_outputs,
+            confirm=self._confirm_replacing,
         )
+
+    def _entered(self, run_path: Path) -> bool:
+        """Whether this launch built a flow for `run_path`, so that the `results.json` there is
+        its own and not one an earlier launch left."""
+        where = Path(os.path.abspath(run_path))
+        return any(
+            Path(os.path.abspath(f.run_path)) == where
+            for f in self.launched[self._launched_before :]
+        )
+
+    def _claim_run_dir(self, run_path: Path) -> None:
+        """Record that this launch entered `run_path`. The plan has one node per flow, so a
+        directory is entered once; a second entry would run over what the first produced."""
+        key = Path(os.path.abspath(run_path))
+        if key in self._claims:
+            raise FlowFatalError(f"{run_path} is entered twice in one launch")
+        self._claims.add(key)
 
     def _launch(
         self,
@@ -1193,7 +1248,6 @@ class FlowLauncher:
         design: Design,
         flow_settings: Union[Dict[str, Any], Flow.Settings, None],
         depender: Optional[Flow],
-        copy_resources: List[str],
         all_flows_settings: Union[Dict, None],
         *,
         plan: Plan | None = None,
@@ -1205,8 +1259,7 @@ class FlowLauncher:
             flow_class = get_flow_class(flow_class)
         flow_name = flow_class.name
         runner_cwd = Path.cwd()
-        node = None
-        if plan is None and is_declared(flow_class):
+        if plan is None:
             request = self._request_context
             run_flows = {flow_name, *transitive_dependencies(flow_class)}
             plan = self.resolve(
@@ -1227,66 +1280,36 @@ class FlowLauncher:
                 api_overrides=request.api_overrides if request else None,
                 binding_layers=request.binding_layers if request else (),
             )
-        if plan is not None:
-            node = self._validate_plan(
-                plan, flow_class, design, flow_settings, all_flows_settings, plan_node
-            )
-            flow_settings = node.settings
+        node = self._validate_plan(
+            plan, flow_class, design, flow_settings, all_flows_settings, plan_node
+        )
+        flow_settings = node.settings
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
         )
         # a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
-        copy_resources = [res for res in copy_resources if os.path.isfile(res)]
         design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
             flow_class, flow_name, design, input_settings, node
         )
-        # What this flow reads -- the settings of a dependency nested in
-        # its own included, and every file under a directory one names, as its trace lists it --
-        # is an input no delivery of the launch may replace, nor land beside in such a directory:
-        # registered before any of this flow's deliveries, or its dependencies', is checked
+        # What the flows read -- every file their settings name, and every file under a
+        # directory one names, as the trace lists it -- is an input no delivery of the launch
+        # may replace, nor land beside in such a directory. The requested flow registers the
+        # reads of the whole plan, and makes the checks of every flow's deliveries, before any
+        # flow is entered: a refusal never comes after the tool of an earlier flow ran.
         self._read_inputs.add(design_files(design))
-        register_read_settings(self._read_inputs, input_settings, run_path, self.run_root)
+        if plan_node is None:
+            for planned in plan.nodes:
+                register_read_settings(
+                    self._read_inputs, planned.settings, planned.run_path, self.run_root
+                )
+            self._check_deliveries_ahead(plan, node, design, deliveries, run_path)
         _refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
         policy = self._run_dir_policy()
-        revisit = self._claim_run_dir(flow_class, run_path, flowrun_hash, input_settings, depender)
-        if revisit:
-            completed = self._completed_runs.get(run_path.resolve())
-            if completed is not None:
-                producer, _token = completed
-                if producer.design_hash != design_hash or producer.flow_hash != flowrun_hash:
-                    raise FlowDependencyFailure(f"{flow_name} has a conflicting completed run")
-                with self._producer_read_lease(producer):
-                    reused = copy(producer)
-                    reused.settings = producer.settings.model_copy(deep=True)
-                    reused.design = producer.design.model_copy(deep=True)
-                    reused.results = deepcopy(producer.results)
-                    reused.completed_dependencies = list(producer.completed_dependencies)
-                    reused.reused = True
-                    reused.stale_reason = None
-                    outputs_to = self.settings.outputs_to if depender is None else None
-                    delivery = Deliveries(
-                        run_path,
-                        self.run_root,
-                        deliveries,
-                        inputs=self._read_inputs,
-                        overwrite=self.settings.overwrite_outputs,
-                        confirm=self.confirm_overwrite,
-                    )
-                    delivery.check_outputs_to(outputs_to)
-                    delivery.check(
-                        outputs_to_deliveries(
-                            recorded_artifacts(run_path / "results.json"), run_path, outputs_to
-                        )
-                    )
-                    self._defer_delivery(reused, delivery, outputs_to)
-                    self.launched.append(reused)
-                    return reused
-            # already run in this launch, with these settings: reused, not emptied again
-            policy = replace(policy, clean=False, scrub_old_runs=False)
+        self._claim_run_dir(run_path)
         settings_json = run_path / "settings.json"
         results_json = run_path / "results.json"
         # Scrub siblings before taking our own lock: concurrent hashed variants must not
@@ -1296,16 +1319,16 @@ class FlowLauncher:
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
-            # the deliveries, checked before `--clean` and before any tool of this flow runs
+            # the deliveries, checked before `--clean`, before this flow's `init()` and before
+            # any producer is launched: the requested flow asks its own question here, so before
+            # any tool of the plan runs
             outputs_to = self.settings.outputs_to if depender is None else None
-            delivery = Deliveries(
-                run_path,
-                self.run_root,
-                deliveries,
-                inputs=self._read_inputs,  # the launch's, completed as its flows are launched
-                overwrite=self.settings.overwrite_outputs,
-                confirm=self.confirm_overwrite,
-            )
+            delivery = self._deliveries_ahead.pop(node.node_key, None)
+            if delivery is None:
+                delivery = self._deliveries_of(run_path, deliveries)
+            else:
+                # made ready before this lock was taken: the record may have been written since
+                delivery.reread_record()
             # the directory itself, not only a file predicted from the last run's artifacts: a
             # location becomes a concrete `Delivery` only once its tool has run and reported an
             # artifact, so without this a run root or an input named by `--outputs-to` is refused
@@ -1333,6 +1356,7 @@ class FlowLauncher:
                     runner_cwd=runner_cwd,
                     run_directory=run_directory,
                 )
+            untouched = False
             try:
                 flow.design_hash = design_hash
                 flow.flow_hash = flowrun_hash
@@ -1343,17 +1367,10 @@ class FlowLauncher:
                 try:
                     with WorkingDirectory(run_path):
                         flow.init()
-                    if node is not None and node.declared:
-                        if flow.dependencies:
-                            raise FlowFatalError(
-                                f"Declared flow {flow.name} may not add a dependency in init()"
-                            )
-                        assert plan is not None
-                        self._run_producers(
-                            flow, design, node, plan, all_flows_settings, read_leases
-                        )
-                    else:
-                        self._run_dependencies(flow, design, all_flows_settings, read_leases)
+                    assert plan is not None and node is not None
+                    producers = self._run_producers(
+                        flow, design, node, plan, all_flows_settings, read_leases
+                    )
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
                     with recording_programs() as programs:
@@ -1362,6 +1379,13 @@ class FlowLauncher:
                     self._read_inputs.add(prepared)
                     _refuse_inputs_inside(flow.run_path, flow.name, prepared)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
+                    if isinstance(e, DeliveryError) and e.before_run:
+                        # a producer's delivery was refused before its tool ran: this flow's
+                        # directory still describes its last run, and an earlier producer that
+                        # ran meanwhile makes the next launch stale through its new run id. The
+                        # flow did not run, and the launch does not list it as launched
+                        untouched = True
+                        raise
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)
                     run_directory.remove(results_json)
@@ -1371,17 +1395,17 @@ class FlowLauncher:
                     self._report(flow, design, results_json, record=True)
                     raise
 
-                # only now: what the flow consumes includes its dependencies' outputs and runs
+                # only now: what the flow consumes includes its producers' outputs and runs
                 always = flow.always_runs()
                 expected = (
                     None
                     if always is not None
-                    else expectation(flow, design, input_settings, self.run_root)
+                    else expectation(flow, design, input_settings, self.run_root, producers)
                 )
                 if expected is None:
                     flow.stale_reason = always
                     log.info("Running %s: %s", flow.name, always)
-                elif (not self.settings.rebuild_all or revisit) and not policy.clean:
+                elif not self.settings.rebuild_all and not policy.clean:
                     # A second consumer may be acquiring a lease on this same generation.
                     # Reuse must not change its trace or directory through a clock marker.
                     freshness = check_trace(
@@ -1439,13 +1463,6 @@ class FlowLauncher:
                 if self.settings.dump_settings_json:
                     log.info("writing prepared settings to %s", settings_json)
                     dump_json(all_settings, settings_json, backup=self.settings.backups)
-                copied_res_dir = run_path / flow.copied_resources_dir
-                for res in copy_resources:
-                    log.info("Copying %s to %s", str(res), str(copied_res_dir))
-                    copied_res_dir.mkdir(parents=True, exist_ok=True)
-                    # inside the run directory, as a complete file replacing a link at its
-                    # name rather than writing through it
-                    replacing_copy(res, run_directory.writable(copied_res_dir / Path(res).name))
                 # a tool does not make the directory of a file it is told to write: the
                 # conventional names', inside the run directory (relative, never `..`)
                 for d in deliveries:
@@ -1511,7 +1528,8 @@ class FlowLauncher:
                         recorded.outputs_recorded_ns if recorded else None,
                     )
                     self._completed_runs[run_path.resolve()] = (flow, token)
-                self.launched.append(flow)
+                if not untouched:
+                    self.launched.append(flow)
         return flow
 
     def _defer_delivery(self, flow: Flow, delivery: Deliveries, outputs_to: Optional[Path]) -> None:
@@ -1526,11 +1544,6 @@ class FlowLauncher:
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
         if not delivery.pending:
             return
-        run_dir = Path(os.path.abspath(flow.run_path))
-        for earlier_flow, earlier in self._pending_deliveries:
-            if Path(os.path.abspath(earlier_flow.run_path)) == run_dir:
-                earlier.merge(delivery)  # the same run directory, entered again in this launch
-                return
         self._pending_deliveries.append((flow, delivery))
 
     def _input_settings(
@@ -1577,23 +1590,25 @@ class FlowLauncher:
         flow_name: str,
         design: Design,
         settings: Flow.Settings,
-        node: PlanNode | None = None,
+        node: PlanNode,
     ) -> tuple[str, str, Path, str]:
         """Stage 2: `(design_hash, flowrun_hash, run_path, settings_hash)`. The run's hash is
-        its node's identity (`bindings.node_identity`): its settings and, for a planned node,
-        the ordered origins of its inputs; a flow launched without a plan has none. The design
+        its node's identity (`bindings.node_identity`): its settings and the ordered origins of
+        its inputs. The design
         counts by the parts the flow reads (`Flow.design_parts`), so an edit to a testbench the
         flow does not read changes nothing of it."""
         design_hash = design.parts_hash(flow_class.design_parts)
         settings_hash = flow_run_hash(flow_name, settings, design.name)
-        flowrun_hash = node_identity(settings_hash, node.origins if node is not None else ())
-        name = node.name if node is not None else flow_name
+        flowrun_hash = node_identity(settings_hash, node.origins)
         # a directory the flow cannot work in is refused on the path alone: nothing is created yet
         # (`get_flow_run_path` creates the run root)
         flow_class.check_run_directory(
-            settings, self.run_path_of(design.name, name, flowrun_hash, target=design.target)
+            settings,
+            self.run_path_of(design.name, node.name, flowrun_hash, target=design.target),
         )
-        run_path = self.get_flow_run_path(design.name, name, flowrun_hash, target=design.target)
+        run_path = self.get_flow_run_path(
+            design.name, node.name, flowrun_hash, target=design.target
+        )
         return design_hash, flowrun_hash, run_path, settings_hash
 
     def _run_dir_policy(self) -> RunDirPolicy:
@@ -1619,49 +1634,6 @@ class FlowLauncher:
         flow.artifacts = previous.get("artifacts", Box())
         flow.reused = True
         return True
-
-    def _run_dependencies(
-        self,
-        flow: Flow,
-        design: Design,
-        all_flows_settings: Dict | None,
-        read_leases: ExitStack,
-    ) -> None:
-        """Stage 4: launch every dependency `flow.init()` registered, through `launch_flow`, each
-        in its own run directory beside `flow`'s."""
-        for dep_cls, dep_settings, dep_resources in flow.dependencies:
-            if isinstance(dep_cls, str):
-                dep_cls = get_flow_class(dep_cls)
-            dep_settings = dependency_settings(
-                dep_cls, dep_settings, flow.settings, all_flows_settings
-            )
-            log.info(
-                "Running dependency: %s (%s.%s)",
-                dep_cls.name,
-                dep_cls.__module__,
-                dep_cls.__qualname__,
-            )
-            resources: list[str] = []
-            for res in dep_resources:
-                if not os.path.isabs(res):
-                    res_path = os.path.join(flow.run_path.absolute(), res)
-                    resources += glob(res_path)
-            completed_dep = self.launch_flow(
-                dep_cls,
-                design,
-                dep_settings,
-                depender=flow,
-                copy_resources=resources,
-                all_flows_settings=all_flows_settings,
-            )
-            if not completed_dep.succeeded:
-                log.critical("Dependency flow: %s failed!", dep_cls.name)
-                raise FlowDependencyFailure(
-                    f"dependency {dep_cls.name} failed: see "
-                    f"{completed_dep.run_path.absolute() / 'results.json'}"
-                )
-            read_leases.enter_context(self._producer_read_lease(completed_dep))
-            flow.completed_dependencies.append(completed_dep)
 
     @contextmanager
     def _producer_read_lease(self, producer: Flow):
@@ -1691,8 +1663,10 @@ class FlowLauncher:
         plan: Plan,
         sections: dict[str, Any] | None,
         read_leases: ExitStack,
-    ) -> None:
-        """Materialize exactly the planned inputs; never choose another producer here."""
+    ) -> list[Flow]:
+        """Materialize exactly the planned inputs; never choose another producer here. The
+        producers whose files the flow was handed, each once, in the order they completed."""
+        consumed_from: list[Flow] = []
         records = []
         declarations = declared_inputs(type(flow))
         for selected in node.inputs:
@@ -1717,9 +1691,15 @@ class FlowLauncher:
                             plan_node=producer_node.node_key,
                         )
                     except Exception as error:
+                        if isinstance(error, DeliveryError) and error.before_run:
+                            raise  # refused before the producer's tool ran: not its failure
                         raise FlowDependencyFailure(
-                            f"dependency {producer_node.name} failed: {error}; see "
-                            f"{producer_node.run_path / 'results.json'}"
+                            f"dependency {producer_node.name} failed: {error}"
+                            + (
+                                f"; see {producer_node.run_path / 'results.json'}"
+                                if self._entered(producer_node.run_path)
+                                else ""
+                            )
                         ) from error
                     self._planned_completed[key] = producer
                 if not producer.succeeded:
@@ -1727,9 +1707,9 @@ class FlowLauncher:
                         f"dependency {producer.name} failed: {producer.results.get('error', '')}; "
                         f"see {producer.run_path / 'results.json'}"
                     )
-                if producer not in flow.completed_dependencies:
+                if producer not in consumed_from:
                     read_leases.enter_context(self._producer_read_lease(producer))
-                    flow.completed_dependencies.append(producer)
+                    consumed_from.append(producer)
                 accepted = selected_types(type(flow), node.settings, selected.name)
                 produced = selected_types(
                     producer_node.flow_class, producer_node.settings, reference.output, output=True
@@ -1783,6 +1763,7 @@ class FlowLauncher:
         selected_files = declared_input_files(flow)
         self._read_inputs.add(selected_files)
         _refuse_inputs_inside(flow.run_path, flow.name, selected_files)
+        return consumed_from
 
     @staticmethod
     def _record_identity(flow: Flow, run_path: Path) -> None:
@@ -1963,10 +1944,9 @@ class FlowLauncher:
         flow_class: Union[str, Type[Flow]],
         design: Design,
         flow_settings: Union[Dict[str, Any], Flow.Settings, None] = None,
-        depender: Optional[Flow] = None,
-        copy_resources: List[str] = [],
-        all_flows_settings: Union[Dict, None] = None,
         *,
+        depender: Optional[Flow] = None,
+        all_flows_settings: Union[Dict, None] = None,
         plan: Plan | None = None,
     ) -> Optional[Flow]:
         """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
@@ -1986,9 +1966,7 @@ class FlowLauncher:
             all_flows_settings = sections
             if not isinstance(flow_settings, Flow.Settings):
                 flow_settings = own[flow_cls.name]
-            if any(layer.entries or layer.invalid_inputs for layer in layers) and is_declared(
-                flow_cls
-            ):
+            if any(layer.entries or layer.invalid_inputs for layer in layers):
                 plan = self.resolve(
                     flow_cls, design, flow_settings, sections, binding_layers=layers
                 )
@@ -2009,7 +1987,6 @@ class FlowLauncher:
             design,
             flow_settings,
             depender=depender,
-            copy_resources=copy_resources,
             all_flows_settings=all_flows_settings,
             plan=plan,
         )
@@ -2165,13 +2142,13 @@ class FlowLauncher:
             design_remove_fields,
             target=target,
         )
-        plan = self._resolve_request(request) if is_declared(request.flow_class) else None
+        plan = self._resolve_request(request)
         if not self.accepts_bindings and (
             len(request.flow_request.elements) > 1
-            or (plan is not None and any(i.binding_origin for n in plan.nodes for i in n.inputs))
+            or any(i.binding_origin for n in plan.nodes for i in n.inputs)
         ):
             raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
-        #: the plan this run follows, for reporting (None for a flow without declarations)
+        #: the plan this run follows, for reporting
         self.last_plan = plan
         previous, self._request_context = self._request_context, request
         try:
@@ -2394,8 +2371,6 @@ class FlowLauncher:
                 explicit_flow_settings, flow_class, flow_class_for=_get_flow_class_if_known
             )
         origins = [project_sections, design_sections, cli_sections, api_sections]
-        # dependencies read their own merged section (`dependency_settings`), under the
-        # depender's resolved nested value
         all_sections = merge_flow_sections(*origins, flow_class_for=_get_flow_class_if_known)
         # `-s` wins over the design and project files, as documented; see `settings_layers`.
         final_flow_settings = compose_flow_settings(flow_class, origins)

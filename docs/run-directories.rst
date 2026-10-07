@@ -226,9 +226,7 @@ written by this run", decided by the file itself, never by a clock -- so a tool 
 it writes its reports never passes on the previous run's.
 
 Dependencies are always brought up to date before the flow that depends on them is judged, so a
-stale dependency reruns first. Within one launch, a run directory is entered at most once: two
-different configurations of one flow resolving to the same directory in the same launch is an
-error naming both requesters (use ``--hashed-run-dirs`` to give them separate directories).
+stale dependency reruns first. A launch has one run per flow, so it enters each run directory once.
 
 ``trace.json``
 ---------------
@@ -397,7 +395,7 @@ A durable lock file, ``<run dir>.lock`` beside the run directory -- never inside
 serializes writers to the same directory (POSIX only; there is no lock on Windows). A consumer
 holds each completed dependency's lock *shared*, after verifying completion evidence under the
 acquired lease, until its own launch ends, including results and trace writing. This protects
-declared and legacy dependencies, including producers without a trace. A change in the gap
+every producer, including those without a trace. A change in the gap
 between producer completion and shared-lock acquisition refuses hand-over; matching declared
 output bytes alone do not prove the rest of the completed run is unchanged.
 
@@ -562,11 +560,15 @@ match what Xeda wrote, tracked in a delivery record kept beside the run director
 root -- which survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda
 overwrite a file it should ask about first); anything else needs ``--overwrite-outputs``, or a yes
 typed at a terminal prompt (under ``--json``, or with no terminal on both ends, only the flag
-works). This is checked twice: before any tool of the flow runs (so a refusal is reported before
-minutes of tool time are spent) and again right before the copy is made, in case something changed
-in between -- a destination that changed since it was first checked is never replaced, confirmed
-or not. A **fresh** run (one the trace found up to date, so no tool ran) delivers its outputs too:
-delivery follows the run's outcome, not whether a tool executed.
+works). This is checked before any tool of the launch runs. The requested flow checks the
+deliveries of every flow of the plan when the launch starts: it reports every refusal first, and
+then asks its questions, so neither comes after minutes of tool time. A yes holds for the file you
+were asked about. If that file changes before the launch reaches the flow that delivers it, Xeda
+asks again. If it changes while Xeda waits for your answer, Xeda does not replace it. The check is
+made once more right before the copy, in case something changed in between: a destination that
+changed since its last check is never replaced, confirmed or not. A **fresh** run (one the trace
+found up to date, so no tool ran) delivers its outputs too: delivery follows the run's outcome, not
+whether a tool executed.
 
 Reading a delivered file to confirm it is Xeda's own costs a pass over it, which matters for a
 gigabyte-sized output, so it is read only when its record's metadata cannot vouch for it -- the
@@ -579,8 +581,8 @@ an unchanged delivery then recognizes it by its size, mtime, inode change time a
 and reads nothing. The record of a file Xeda has just delivered cannot be trusted by its
 timestamps, so the first check after it has settled -- more than two seconds after it was
 written -- reads it once, and that read anchors the record; no later check or copy reads it
-again. A launch still inside those two seconds anchors nothing and reads the destination twice,
-once in the check and once in the copy, as every launch did before. Where no marker can be made
+again. A launch still inside those two seconds anchors nothing, so each check and the copy read
+the destination, as every launch did before. Where no marker can be made
 (a destination directory that is read only), every check reads the content, as it would without
 a clock to trust. A destination found on another device than the one its record's clock was read
 on is read once more, and anchored afresh by the clock of the file system it is on now.

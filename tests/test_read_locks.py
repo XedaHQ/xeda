@@ -15,36 +15,15 @@ import pytest
 
 from xeda import Design
 from xeda.console import console
-from xeda.flow import Flow
 from xeda.flow_runner import DefaultRunner, default_runner
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 
-from .io_flows import _Maker, _Taker, _Wrapper
+from .io_flows import _Maker, _Taker
+from .tool_utils import producers_of
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="no run-directory locks")
-
-
-class _LegacyMaker(Flow):
-    """A producer with no declared outputs, read through legacy dependency paths."""
-
-    results_description = {}
-
-    def run(self):
-        self.run_directory.writable(self.run_path / "made.txt").write_text("made\n")
-
-
-class _LegacyReader(Flow):
-    """A legacy consumer reads its undeclared producer's file."""
-
-    results_description = {}
-
-    def init(self):
-        self.add_dependency(_LegacyMaker, _LegacyMaker.Settings())
-
-    def run(self):
-        self.results["read"] = (self.completed_dependencies[0].run_path / "made.txt").read_text()
 
 
 def _environment():
@@ -115,32 +94,15 @@ def test_a_consumer_holds_its_producer_for_its_whole_run(tmp_path, monkeypatch):
         self.results["read"] = self.inputs.made.read_text()
 
     monkeypatch.setattr(_Taker, "run", run)
-    taker = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-        _Taker, _design(tmp_path, monkeypatch), {}
-    )
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    taker = runner.launch_flow(_Taker, _design(tmp_path, monkeypatch), {})
     assert taker.succeeded and seen == ["blocked"]
-    (maker,) = taker.completed_dependencies
+    (maker,) = producers_of(runner, taker)
     assert _probe(maker.run_path) == "free", "released when the consumer's launch ended"
 
 
-def test_a_flow_without_declarations_holds_its_dependencies_too(tmp_path, monkeypatch):
-    seen: list[str] = []
-    original = _Wrapper.run
-
-    def run(self):
-        seen.append(_probe(self.completed_dependencies[0].run_path))
-        original(self)
-
-    monkeypatch.setattr(_Wrapper, "run", run)
-    wrapper = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-        _Wrapper, _design(tmp_path, monkeypatch), {}
-    )
-    assert wrapper.succeeded and seen == ["blocked"]
-
-
-@pytest.mark.parametrize("consumer", [_Taker, _LegacyReader])
 def test_reusing_a_producer_in_the_acquisition_gap_keeps_its_completion_evidence(
-    tmp_path, monkeypatch, consumer
+    tmp_path, monkeypatch
 ):
     from contextlib import contextmanager
 
@@ -161,23 +123,14 @@ def test_reusing_a_producer_in_the_acquisition_gap_keeps_its_completion_evidence
             yield producer
 
     monkeypatch.setattr(runner, "_producer_read_lease", gap)
-    outcome = runner.launch_flow(consumer, design, {})
+    outcome = runner.launch_flow(_Taker, design, {})
     assert outcome.succeeded and outcome.results["read"] == "made\n"
     assert len(reused) == 1
 
 
-@pytest.mark.parametrize(
-    "consumer,untraced",
-    [
-        (consumer, untraced)
-        for consumer in (_Taker, _Wrapper, _LegacyReader)
-        for untraced in (False, True)
-    ],
-)
-def test_a_changed_completed_run_is_refused_before_hand_over(
-    tmp_path, monkeypatch, consumer, untraced
-):
-    """Even identical declared bytes do not vouch for other files read by legacy consumers."""
+@pytest.mark.parametrize("untraced", [False, True])
+def test_a_changed_completed_run_is_refused_before_hand_over(tmp_path, monkeypatch, untraced):
+    """Even identical declared bytes do not vouch for a producer's other files."""
     from contextlib import contextmanager
     from xeda.flow import FlowDependencyFailure
 
@@ -188,11 +141,10 @@ def test_a_changed_completed_run_is_refused_before_hand_over(
     if untraced:
         monkeypatch.setattr(_Taker, "always_runs", lambda self: "untraced test producer")
         monkeypatch.setattr(_Maker, "always_runs", lambda self: "untraced test producer")
-        monkeypatch.setattr(_LegacyMaker, "always_runs", lambda self: "untraced test producer")
     original = runner._producer_read_lease
-    target = {_Taker: "__maker", _Wrapper: "__taker", _LegacyReader: "__legacy_maker"}[consumer]
+    target = "__maker"
     ran = []
-    monkeypatch.setattr(consumer, "run", lambda self: ran.append(self.name))
+    monkeypatch.setattr(_Taker, "run", lambda self: ran.append(self.name))
 
     @contextmanager
     def gap(producer):
@@ -220,14 +172,14 @@ with run_dir_lock(p):
 
     monkeypatch.setattr(runner, "_producer_read_lease", gap)
     with pytest.raises(FlowDependencyFailure, match="changed.*read lease"):
-        runner.launch_flow(consumer, design, {})
-    assert consumer.name not in ran
+        runner.launch_flow(_Taker, design, {})
+    assert _Taker.name not in ran
     assert _probe(tmp_path / "xeda_run" / "d" / target) == "free"
 
 
 def test_dependency_leases_release_when_consumer_raises(tmp_path, monkeypatch):
     def fail(self):
-        assert _probe(self.completed_dependencies[0].run_path) == "blocked"
+        assert _probe(self.inputs.made.parent) == "blocked"
         raise RuntimeError("consumer failed")
 
     monkeypatch.setattr(_Taker, "run", fail)
@@ -469,7 +421,7 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
 
     design = _design(tmp_path, monkeypatch)
     ran = []
-    original = _LegacyMaker.run
+    original = _Maker.run
 
     def leave_unreadable(self):
         original(self)
@@ -478,17 +430,15 @@ def test_uncertain_completion_evidence_refuses_a_consumer_before_it_runs(tmp_pat
         (locked / "output.txt").write_text("cannot vouch for this output")
         locked.chmod(0)
 
-    monkeypatch.setattr(_LegacyMaker, "run", leave_unreadable)
-    monkeypatch.setattr(_LegacyReader, "run", lambda self: ran.append(self.name))
+    monkeypatch.setattr(_Maker, "run", leave_unreadable)
+    monkeypatch.setattr(_Taker, "run", lambda self: ran.append(self.name))
     try:
         with pytest.raises(FlowDependencyFailure, match="read lease"):
-            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
-                _LegacyReader, design, {}
-            )
+            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
         assert ran == []
-        assert _probe(tmp_path / "run" / "d" / _LegacyMaker.name) == "free"
+        assert _probe(tmp_path / "run" / "d" / _Maker.name) == "free"
     finally:
-        locked = tmp_path / "run" / "d" / _LegacyMaker.name / "locked"
+        locked = tmp_path / "run" / "d" / _Maker.name / "locked"
         if locked.exists():
             locked.chmod(0o755)
 

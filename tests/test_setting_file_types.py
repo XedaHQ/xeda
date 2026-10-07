@@ -14,7 +14,7 @@ from typing import Annotated, Any, Iterator, List, Tuple, get_args, get_origin
 from pydantic import BaseModel
 
 from xeda.dataclass import written_role
-from xeda.flow import Flow, registered_flows
+from xeda.flow import registered_flows
 from xeda.flow.flow import _annotation_contains_path
 
 #: names that say a setting names a file (matched against the dotted name, nested models too)
@@ -55,10 +55,7 @@ def _str_file_settings(model: type[BaseModel], prefix: str, seen: frozenset) -> 
     if model in seen:
         return
     seen = seen | {model}
-    dependencies = model.dependency_settings if issubclass(model, Flow.Settings) else {}
     for name, field in model.model_fields.items():
-        if name in dependencies:
-            continue  # a dependency's own flow is swept by itself
         dotted = f"{prefix}{name}"
         leaves = list(_leaves(field.annotation))
         if (

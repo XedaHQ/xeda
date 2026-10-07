@@ -347,6 +347,38 @@ All notable changes to this project will be documented in this file.
   `synth_pass_only`, an unset `flatten` is still the pass's own choice, so that mode keeps
   matching a native `yosys` run. The other targets' passes flatten on their own and are
   unchanged. The netlists, and the results of runs that used the default, change.
+- **Every flow runs through the resolver.** A flow that declares no inputs and no outputs (`bsc`,
+  `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
+  of several. Its run directory, its recorded settings and its identity are the ones it had
+  before. `--dry-run`, `xeda dse` and `--remote` take such a flow as they take any other. A
+  chain through such a flow is refused: no output of a producer fits an input of the next flow
+  (`Flow `bsc` has no compatible output for a required input of ...`), or the next flow takes no
+  required input (`Flow `bsc` cannot precede `yosys_fpga`: ...`). A binding for a flow that
+  declares no inputs says so. **Breaking for scripts that read
+  `xeda list-flows --json`: the `declared` key is gone**, and so is `declared` in each node of a
+  `--dry-run --json` plan. Every flow is planned the same way now, so the key could only be
+  constant. A flow that declares nothing is the one with empty `inputs` and `outputs`.
+- **Breaking for flows written outside Xeda: a flow's settings model may not require a field.** A
+  `Flow.Settings` field that has no default (`Optional[X]` without `= None` too) is refused when
+  its class is defined, with a `TypeError` that names the field. A setting a flow cannot run
+  without goes in `Flow.required_settings`: give its field a default (`None`, or an empty value),
+  and name the setting there with how to give it. The launch then checks it. When the value is
+  given nowhere, the error names the flow and the setting, and says how to give it. A design file,
+  a project file, `-s` and the API all give such a setting the same way as any other.
+- A delivery into a directory any flow of the plan reads, or onto a file of yours, is refused
+  before any tool of the plan runs: the requested flow registers what every flow reads, and checks
+  the named deliveries of every flow, when the launch starts. It reports every refusal first (a
+  bad `--outputs-to` included), and then asks whether to replace a file, before the first tool
+  runs. A yes holds for the file as it was when Xeda asked. If that file changes before the launch
+  reaches its flow, Xeda asks again. If it changes while the question is open, Xeda does not
+  replace it. A producer's destination is read once in a launch. A refusal made before a
+  producer's tool ran is raised as it is (`DeliveryError`, `OutputExistsError`), not as the failure
+  of a dependency. The requested flow's directory stays as it was, and `--json` reports that flow
+  as `not run`. A producer's failure message names its `results.json` only when this launch ran
+  the producer.
+- `dc` checks `target_libraries` when a run is launched, as the other flows check their required
+  settings. A run without it is refused, and the message says how to give it. A settings layer
+  that does not hold it (a platform given alone) no longer fails validation by itself.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged
@@ -602,6 +634,19 @@ All notable changes to this project will be documented in this file.
   runs again with its producer. The first launch after upgrading runs each such flow once.
 
 ### Removed
+- **Breaking for flows written outside Xeda: the undeclared dependency mechanism.** A flow can no
+  longer call `self.add_dependency(...)` in `init()`, nest another flow's settings in its own
+  (`Flow.Settings.dependency_settings`, `resolve_dependency`), read `completed_dependencies` or
+  `pop_dependency`, or copy files into a dependency (`copy_resources`, `copied_resources_dir`).
+  Declare what the flow reads as `Flow.Inputs` and what a producer makes as `Flow.Outputs`: the
+  launcher then runs the producers, hands over their files, and records them in the trace. A
+  producer's settings go under its own `flows.<flow>` section. No built-in flow used the
+  mechanism any more. `Flow.dependencies` is gone too, and so are `xeda.flow.io.is_declared` and
+  `PlanNode.declared` (every flow is planned the same way). `FlowLauncher.launch_flow`,
+  `run_flow` and `Dse.run_flow` lose their `copy_resources` parameter, and everything after
+  `flow_settings` (`depender`, `all_flows_settings`, `plan`) is keyword-only now, so an old
+  positional call fails with a `TypeError` instead of passing a list of resources as sections.
+  `xeda list-flows --json` lists `dependencies` from the declared inputs only.
 - **`rtl.generator.run_only_if_sources_modified`**: use `always_runs`. A generator's re-run
   decision is its inputs' and outputs' content, never a modification time, so the old switch had
   nothing left to mean; `run_only_if_sources_modified = false` is `always_runs = true`.
@@ -670,12 +715,10 @@ All notable changes to this project will be documented in this file.
 - `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each variant of a flow its own directory
   (`<design>/<flow>_<16-char run hash>/`, the first 16 characters of `flowrun_hash`: the flow's
   input settings and where its declared inputs come from, so editing a source file never moves
-  it); the default is one directory per flow (`<design>/<flow>/`). A dependency's run directory is always a sibling of the flow that launched
-  it, in the same layout, never nested under it -- so two dependencies of one flow, or the same
-  flow run for two different dependers, each get their own directory. Within one launch, a run
-  directory is entered at most once: two different configurations of one flow resolving to the
-  same directory in the same launch is now an error naming both requesters, instead of the second
-  silently overwriting what the first produced. `xeda run --remote` always mirrors its results in
+  it); the default is one directory per flow (`<design>/<flow>/`). A producer's run directory is
+  always a sibling of the flow that consumes it, in the same layout, never nested under it. A
+  launch has one run for each flow, so it enters each run directory once. `xeda run --remote`
+  always mirrors its results in
   the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
   `--clean` and `--hashed-run-dirs` are refused with `--remote`).
 - `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,

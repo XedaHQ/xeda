@@ -57,6 +57,7 @@ __all__ = [
     "require_docker_image",
     "require_modelsim",
     "check_after_the_racy_window",
+    "producers_of",
     "run_outputs_state",
 ]
 
@@ -988,6 +989,20 @@ def launch_until_fresh(runner: Any, launch: Any) -> Any:
     flow = launch()
     assert flow.reused, flow.stale_reason
     return flow
+
+
+def producers_of(runner: Any, flow: Any) -> list[Any]:
+    """The flows `flow` took its declared inputs from, in input order and each once: the latest
+    launched flows (`runner.launched`) whose run directories its recorded inputs name."""
+    wanted = [
+        reference.producer_path
+        for record in flow.declared_input_records
+        for reference in record.references
+    ]
+    found: list[Any] = []
+    for path in dict.fromkeys(wanted):
+        found.append(next(f for f in reversed(runner.launched) if str(f.run_path) == path))
+    return found
 
 
 def check_after_the_racy_window(monkeypatch: pytest.MonkeyPatch) -> None:

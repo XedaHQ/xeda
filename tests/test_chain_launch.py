@@ -101,7 +101,7 @@ def test_an_alternate_producer_is_launched_once_and_then_reused(tmp_path):
     assert [f.name for f in runner.launched] == ["__input_maker", "__taker"]
     assert not (tmp_path / "run" / "d" / "__maker").exists(), "the default producer never ran"
     again = runner.run(_Taker, design)
-    assert again.reused and again.completed_dependencies[0].reused
+    assert again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert again.inputs.made == first.inputs.made
 
 
@@ -173,11 +173,11 @@ def test_a_bound_producer_s_edited_record_makes_it_run_again(tmp_path, tamper):
     runner = _runner(tmp_path)
     design = _bound(tmp_path)
     first = runner.run(_Taker, design)
-    (producer,) = first.completed_dependencies
+    (producer,) = tool_utils.producers_of(runner, first)
     _tamper(producer.run_path, tmp_path, tamper)
     again = runner.run(_Taker, design)
     assert again.succeeded and again.results["read"] == "bound\n"
-    (rerun,) = again.completed_dependencies
+    (rerun,) = tool_utils.producers_of(runner, again)
     assert not rerun.reused and "results.json" in rerun.stale_reason
     assert again.inputs.made == rerun.run_path / "made.txt"
 

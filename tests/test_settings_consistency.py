@@ -1,8 +1,7 @@
 """Settings that describe one thing must keep agreeing, after construction *and* assignment.
 
 `clock`/`clocks` and the legacy `clock_period` input, `generics` and `parameters`, and a platform's selected corner and
-its supply voltages are each correlated state. (A flow's settings and its dependency's are not:
-they are combined only when the dependency is launched; see `test_dependency_settings.py`.) With
+its supply voltages are each correlated state. With
 `validate_assignment`, pydantic 2 re-runs a `mode="before"` model validator on every assignment:
 the assigned field keeps its raw value, and every *other* field the validator rewrites is written
 back. So a validator has to treat the field being assigned as authoritative, and must not

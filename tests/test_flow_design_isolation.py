@@ -1,7 +1,7 @@
 """A flow gets its own copy of the design, as it gets its own copy of its settings.
 
 The design is hashed before a flow runs, recorded in `settings.json` beside that hash, and
-handed on to the flow's dependencies -- so a flow that edits it (yosys emptied
+handed on to the flow's producers -- so a flow that edits it (yosys emptied
 `rtl.parameters`, GHDL rewrote the VHDL standard, Verilator merged testbench defines into the
 RTL's, cocotb sets `tb.top`) changed what its dependencies were given and what was recorded
 under a hash computed from something else. Each of those was fixed where it was; this is the
@@ -9,12 +9,14 @@ launcher's guarantee that the next one cannot do the same.
 """
 
 import json
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, registered_flows
+from xeda.design import SourceType
+from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 
@@ -24,24 +26,36 @@ def toy_flows():
     seen = {}
 
     class DesignDep(Flow):
-        """A dependency that records the design it was given."""
+        """A producer that records the design it was given."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Outputs(Flow.Outputs):
+            made: Path = Out(SourceType.Data, description="A file it writes.")
+
         def run(self) -> None:
             seen["dependency"] = dict(self.design.rtl.parameters)
+            (self.run_path / "made.txt").write_text("made\n")
+            self.outputs.made = self.run_path / "made.txt"
 
         def parse_reports(self) -> bool:
             return True
 
     class DesignEditor(Flow):
-        """A flow that edits its design before its dependency runs."""
+        """A flow that edits its design before its producer runs."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Inputs(Flow.Inputs):
+            made: Path = In(
+                SourceType.Data,
+                producer="design_dep",
+                output="made",
+                description="The producer's file.",
+            )
+
         def init(self) -> None:
             self.design.rtl.parameters = {}
-            self.add_dependency(DesignDep, DesignDep.Settings())
 
         def run(self) -> None:
             seen["flow"] = dict(self.design.rtl.parameters)
@@ -56,7 +70,7 @@ def toy_flows():
 
 
 def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
-    """A flow's design edits do not change the input or its dependency's copy."""
+    """A flow's design edits do not change the input or its producer's copy."""
     editor, seen = toy_flows
     (tmp_path / "top.vhd").write_text("entity top is generic (W : natural := 1); end;\n")
     design = Design(
@@ -69,7 +83,7 @@ def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(editor, design)
 
     assert flow is not None and flow.succeeded
-    assert seen == {"flow": {}, "dependency": {"W": 5}}, "the dependency got the design as given"
+    assert seen == {"flow": {}, "dependency": {"W": 5}}, "the producer got the design as given"
     assert design.rtl.parameters == {"W": 5} and design.rtl_hash == before
     recorded = json.loads((flow.run_path / "settings.json").read_text())
     assert recorded["design"]["rtl"]["parameters"] == {"W": 5}

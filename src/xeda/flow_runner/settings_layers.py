@@ -3,23 +3,19 @@
 A flow's settings are assembled from these layers, lowest precedence first:
 
 1. the flow's own defaults (supplied by validation, not here)
-2. for a flow that still launches a dependency itself, under the field holding that
-   dependency's settings (``vivado_postsynth_sim.synth``), the dependency's own sections
-   (``flows.vivado_synth``), in the order below (`flow_settings_from_sections`); a declared
-   producer's settings are written under its own ``flows.<flow>`` only
-3. the project file's ``flows.<flow>`` section
-4. the design file's ``flows.<flow>`` section
-5. the selected target's ``flows.<flow>`` section (``--target``), key by key: the target is the
+2. the project file's ``flows.<flow>`` section
+3. the design file's ``flows.<flow>`` section
+4. the selected target's ``flows.<flow>`` section (``--target``), key by key: the target is the
    design's own author saying "for this build, these values", so what it writes wins over the
    design's. The loader merges it into the design before anything else sees the design, so it
    is part of the design's origin and below the command line and the API
-6. the command line (``-s KEY=VALUE``), then overrides given through the API
+5. the command line (``-s KEY=VALUE``), then overrides given through the API
 
 The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
 so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead
 of replacing the whole section. Any other value -- a list included -- is replaced whole by a
-higher layer. Local and remote runs, and the settings a flow hands to a dependency, all go
-through `merge_layers`, so they cannot disagree about precedence.
+higher layer. Local and remote runs, and the settings of every producer, all go through
+`merge_layers`, so they cannot disagree about precedence.
 """
 
 import difflib
@@ -41,12 +37,10 @@ __all__ = [
     "FlowRemovedError",
     "check_not_removed",
     "carry_diagnostics",
-    "dependency_settings",
     "settings_in_context",
     "suggest_dependency_node",
     "registered_flow",
     "compose_flow_settings",
-    "flow_settings_from_sections",
     "merge_flow_sections",
     "merge_layers",
     "check_run_flows",
@@ -284,32 +278,6 @@ def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None
     return merged
 
 
-def flow_settings_from_sections(
-    flow_cls: type[Flow], sections: Mapping[str, Any] | None
-) -> dict[str, Any]:
-    """What merged `flows` sections (`merge_flow_sections`) say for `flow_cls`: its own
-    section, over each of its declared dependencies' own sections.
-
-    A dependency's section (``flows.vivado_synth``) is the base of the field holding that
-    dependency's settings (``vivado_postsynth_sim.synth``), and the depender's section
-    (``flows.vivado_postsynth_sim.synth.*``) refines it -- the precedence the dependency's
-    launch uses (`dependency_settings`). Composed here, before the depender runs, because only
-    then can the depender see it: a setting it shares with the dependency is resolved in its
-    `init()` (`resolve_dependency`), long before the dependency launches. Recursive. Only
-    flows that still launch a dependency themselves have such a field; a declared producer's
-    settings are written under its own ``flows.<flow>``.
-    """
-    sections = sections or {}
-    dependencies: dict[str, Any] = {}
-    for field in flow_cls.Settings.dependency_settings:
-        dependency = _flow_of(flow_cls.Settings._dependency_settings_class(field))
-        if dependency is not None:
-            section = flow_settings_from_sections(dependency, sections)
-            if section:
-                dependencies[field] = section
-    return merge_layers(dependencies, sections.get(flow_cls.name), settings_cls=flow_cls.Settings)
-
-
 def compose_flow_settings(
     flow_cls: type[Flow],
     origins: Sequence[Mapping[str, Any] | None],
@@ -319,15 +287,11 @@ def compose_flow_settings(
     (project, design, command line, API), then `layers` -- the requested flow's own settings
     (the command line's `-s`, then API overrides).
 
-    Each origin is composed on its own first -- a dependency's own section under the depender's
-    nested value for it (`flow_settings_from_sections`) -- and the composed origins are then
-    stacked. So a leaf is decided by where it was given first, and by nesting only within one
-    origin: a design file's ``flows.vivado_synth.fail_timing`` beats a project file's
-    ``flows.vivado_postsynth_sim.synth.fail_timing``, while within the design file the nested
-    value beats ``flows.vivado_synth.fail_timing``. Composing a result again with the
-    merged sections below it changes nothing, so `run()` and `run_flow` may both compose.
+    Each origin contributes its own ``flows.<flow>`` section, and the origins are then stacked,
+    so a leaf is decided by where it was given. Composing a result again with the merged sections
+    below it changes nothing, so `run()` and `run_flow` may both compose.
     """
-    per_origin = [flow_settings_from_sections(flow_cls, sections or {}) for sections in origins]
+    per_origin = [(sections or {}).get(flow_cls.name) for sections in origins]
     return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
 
 
@@ -460,20 +424,16 @@ def registered_flow(name: str) -> type[Flow] | None:
 
 
 def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """Nested settings dependencies and declared default producers, with one traversal state."""
+    """The flows of the declared default producers, transitively, with one traversal state."""
     found: dict[str, type[Flow]] = {}
     visited = {flow_cls.name}
 
     def visit(cls: type[Flow]) -> None:
         dependencies = [
-            _flow_of(cls.Settings._dependency_settings_class(field))
-            for field in cls.Settings.dependency_settings
-        ]
-        dependencies.extend(
             registered_flow(declaration.producer)
             for declaration in declared_inputs(cls).values()
             if declaration.producer is not None
-        )
+        ]
         for dependency in dependencies:
             if dependency is not None and dependency.name not in visited:
                 visited.add(dependency.name)
@@ -482,15 +442,6 @@ def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
 
     visit(flow_cls)
     return found
-
-
-def _flow_of(settings_cls: type[Flow.Settings] | None) -> type[Flow] | None:
-    """The registered flow whose settings class `settings_cls` is."""
-    if settings_cls is None:
-        return None
-    return next(
-        (cls for _module, cls in registered_flows.values() if cls.Settings is settings_cls), None
-    )
 
 
 def merge_flow_sections(
@@ -540,41 +491,10 @@ def merge_flow_sections(
 
 
 def carry_diagnostics(settings: Flow.Settings, depender: Flow.Settings) -> None:
-    """Carry debug and an inherited verbose level into a dependency before hashing."""
+    """Carry debug and an inherited verbose level into a producer before hashing."""
     settings.debug |= depender.debug
     if not settings.verbose and depender.verbose > 1:
         settings.verbose = depender.verbose
-
-
-def dependency_settings(
-    dep_cls: type[Flow],
-    given: Flow.Settings | None,
-    depender_settings: Flow.Settings,
-    all_flows_settings: Mapping[str, Any] | None = None,
-) -> Flow.Settings:
-    """The settings a dependency is launched with -- composed here, and only here.
-
-    `given` is what the depending flow passed to `add_dependency` (for a declared dependency,
-    already `resolve_dependency`-d). Layers, lowest precedence first:
-
-    1. the design's / project's own section for the dependency's flow (``flows.yosys_fpga``),
-       merged deeply like any settings layer (`settings_layers.merge_layers`);
-    2. `given`, which is more specific.
-
-    The depending flow's diagnostics then carry over: `debug` if it is on, and a `verbose` level
-    above 1 when the dependency has none of its own.
-    """
-    section = (all_flows_settings or {}).get(dep_cls.name)
-    if section or given is None or not given.context:
-        own = given.model_dump(exclude_unset=True) if given is not None else {}
-        settings = dep_cls.Settings.from_input(
-            merge_layers(section, own, settings_cls=dep_cls.Settings),
-            **depender_settings.context,
-        )
-    else:
-        settings = given
-    carry_diagnostics(settings, depender_settings)
-    return settings
 
 
 def settings_in_context(

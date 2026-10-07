@@ -116,10 +116,15 @@ LOCATED = {
     "ghdl_synth": {"verilog_output": "sqrt.v"},
     "bsc_sim": {"vcd": "bsc_sim.vcd"},
 }
+#: The flows the resolver refuses in the sweep's world, with what its refusal says: the sweep's
+#: testbench is cocotb's, and `vivado_postsynth_sim`, which `vivado_power` reads, cannot run it.
+UNPLANNABLE = {
+    "vivado_power": "vivado_postsynth_sim cannot run cocotb tests",
+}
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
     "openroad": "the asap7 platform's liberty files are not shipped",
-    "vivado_power": "its vivado_postsynth_sim dependency finds no netlist",
+    **{name: f"its plan is refused ({reason})" for name, reason in UNPLANNABLE.items()},
 }
 
 CANARIES = sorted(
