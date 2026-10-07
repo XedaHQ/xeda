@@ -45,6 +45,9 @@ RUNS: List[str] = []
 DURING_RUN: List[Callable[[], object]] = []
 #: what a test does while the wrapper runs, its dependency completed
 DURING_WRAPPER: List[Callable[["_Wrapper"], object]] = []
+#: what a test does while the wrapper is initialized: after the checks made when the launch
+#: started, before its producers are launched
+DURING_INIT: List[Callable[["_Wrapper"], object]] = []
 _registration_before = registered_flows.copy()
 
 
@@ -128,6 +131,10 @@ class _Wrapper(Flow):
             description="The deliverer's netlist.",
         )
 
+    def init(self) -> None:
+        for action in DURING_INIT:
+            action(self)
+
     def run(self) -> None:
         for action in DURING_WRAPPER:
             action(self)
@@ -166,6 +173,7 @@ def world(tmp_path, monkeypatch):
     RUNS.clear()
     DURING_RUN.clear()
     DURING_WRAPPER.clear()
+    DURING_INIT.clear()
     design = Design(
         name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
     )
@@ -1208,19 +1216,29 @@ def test_a_producer_whose_run_wrote_no_named_output_is_a_failed_dependency(world
     assert RUNS == [_Deliverer.name]
 
 
+def _an_input_made_in_the_producer_s_run_directory_after_the_checks_ahead(world) -> Path:
+    """After a first launch, so that the deliverer's run directory holds that launch's
+    `results.json`: a file the deliverer will read, made in its run directory once the checks made
+    when the launch starts have passed (one made earlier is refused ahead of everything). The
+    deliverer is then refused at its turn, before it is entered."""
+    assert _launch(world, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
+    producer = world.root / "d" / _Deliverer.name
+    assert (producer / "results.json").is_file()
+    late = producer / "late.txt"
+    DURING_INIT.append(lambda wrapper: late.write_text("an input kept where xeda writes\n"))
+    return late
+
+
 def test_a_producer_refused_before_it_is_entered_names_no_results_of_an_earlier_launch(world):
     """The results.json of an earlier launch is not this launch's: a failure message that names
     one would send the reader to the wrong document."""
-    assert _launch(world, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
-    producer = world.root / "d" / _Deliverer.name
-    earlier = producer / "b" / "n.v"
-    assert earlier.is_file() and (producer / "results.json").is_file()
+    late = _an_input_made_in_the_producer_s_run_directory_after_the_checks_ahead(world)
     with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
         _launch(
             world,
             DefaultRunner(world.root, display_results=False),
             flow=_Wrapper,
-            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+            deliverer={"netlist": "b/n.v", "reads": str(late)},
         )
     assert "results.json" not in str(refused.value)
 
@@ -1231,15 +1249,16 @@ def test_a_launcher_that_ran_a_producer_before_names_no_results_of_that_run(worl
     launcher = DefaultRunner(world.root, display_results=False)
     assert _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
     producer = world.root / "d" / _Deliverer.name
-    earlier = producer / "b" / "n.v"
-    assert earlier.is_file() and (producer / "results.json").is_file()
+    assert (producer / "results.json").is_file()
     assert len(launcher.launched) == 2, "the launcher remembers the producer it ran"
+    late = producer / "late.txt"
+    DURING_INIT.append(lambda wrapper: late.write_text("an input kept where xeda writes\n"))
     with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
         _launch(
             world,
             launcher,
             flow=_Wrapper,
-            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+            deliverer={"netlist": "b/n.v", "reads": str(late)},
         )
     assert "results.json" not in str(refused.value)
 

@@ -28,6 +28,7 @@ from xeda.design import SourceType
 from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.run_lock import lock_file
+from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 
 RUNS: List[str] = []
@@ -71,6 +72,7 @@ class _Delivers(Flow):
     results_description: ClassVar[dict[str, str]] = {}
 
     class Settings(Flow.Settings):
+        reads: Optional[Path] = Field(None, description="A file it reads.")
         netlist: Optional[Path] = Field(
             None,
             description="The netlist it writes.",
@@ -696,3 +698,70 @@ def test_a_file_changed_while_the_scrub_waited_is_asked_about_again(world, tmp_p
 
     assert flow.succeeded
     assert shown == ["the user's report\n", "the user's report, edited\n"]
+
+
+# ---------------------------------------------------------------------------------------------
+# What no answer could allow is refused before any question is asked: a file the flow reads that
+# lies in the run directory xeda empties and rewrites (`_refuse_inputs_inside`) is one of them,
+# for every flow of the plan.
+# ---------------------------------------------------------------------------------------------
+
+
+def _in_the_run_directory_of(world, flow: str, name: str = "in.txt") -> Path:
+    """A file in the run directory of `flow` (made, in a marked run root, as xeda would)."""
+    ensure_run_root(world.root)
+    directory = world.root / "d" / flow
+    directory.mkdir(parents=True)
+    file = directory / name
+    file.write_text("an input kept where xeda writes\n")
+    return file
+
+
+def test_a_design_file_in_the_requested_flow_s_run_directory_is_refused_before_any_question(
+    world, tmp_path
+):
+    source = _in_the_run_directory_of(world, "__both", "top.v")
+    design = Design(name="d", design_root=world.root, rtl={"sources": [str(source)], "top": "t"})
+    (world.user / "r.rpt").write_text("the user's report\n")
+    asked = _asking(world.runner)
+
+    with pytest.raises(RunDirectoryError, match=r"lies in .*__both.*own run directory"):
+        world.runner.launch_flow(
+            _Both, design, {"report": str(world.user / "r.rpt")}, all_flows_settings={}
+        )
+
+    assert asked == [], "a launch that will be refused asked a question"
+    assert RUNS == []
+    assert (world.user / "r.rpt").read_text() == "the user's report\n"
+
+
+def test_a_file_a_producer_reads_in_its_run_directory_is_refused_before_any_question_or_tool(
+    world,
+):
+    read = _in_the_run_directory_of(world, "__reads_dir")
+    (world.user / "r.rpt").write_text("the user's report\n")
+    (world.user / "n.v").write_text("the user's netlist\n")
+    asked = _asking(world.runner)
+
+    with pytest.raises(RunDirectoryError, match=r"lies in .*__reads_dir.*own run directory"):
+        _launch(
+            world,
+            own={"report": str(world.user / "r.rpt")},
+            reads_dir={"reads": str(read)},
+            delivers={"netlist": "$PWD/n.v"},
+        )
+
+    assert asked == [], "a launch that will be refused asked a question"
+    assert RUNS == [], "and ran a tool"
+
+
+def test_a_file_a_later_producer_reads_in_its_run_directory_is_refused_before_an_earlier_one_runs(
+    world,
+):
+    """The plan holds the producers in the order they run: `__delivers` after `__reads_dir`. The
+    refusal for the second does not wait for the first to finish."""
+    read = _in_the_run_directory_of(world, "__delivers")
+    with pytest.raises(RunDirectoryError, match=r"lies in .*__delivers.*own run directory"):
+        _launch(world, delivers={"reads": str(read), "netlist": "$PWD/n.v"})
+
+    assert RUNS == []

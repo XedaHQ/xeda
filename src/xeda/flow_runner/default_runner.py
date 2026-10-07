@@ -1247,13 +1247,14 @@ class FlowLauncher:
     ) -> None:
         """Make now the checks that every flow of the plan makes of its deliveries when its turn
         comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
-        earlier flow. First comes what no answer could allow (`--outputs-to`, and
-        `Deliveries.refuse`), for every flow, the requested flow included -- and a destination
-        that two deliveries name, or one inside another (`refuse_shared_destinations`: every
-        destination known before the run, which is every named delivery of the launch and the
-        files `--outputs-to` is expected to deliver from the requested flow's last run; the
-        files that only this run reveals are compared once it has run); then the questions of
-        the producers, in the order they run, each asked once, and last the requested flow's
+        earlier flow. First comes what no answer could allow (a file a flow reads that lies in
+        its own run directory, `--outputs-to`, and `Deliveries.refuse`), for every flow, the
+        requested flow included -- and a destination that two deliveries name, or one inside
+        another (`refuse_shared_destinations`: every destination known before the run, which is
+        every named delivery of the launch and the files `--outputs-to` is expected to deliver
+        from the requested flow's last run; the files that only this run reveals are compared
+        once it has run); then the questions of the producers, in the order they run, each asked
+        once, and last the requested flow's
         own, which runs last. So the launch has asked everything before any tool runs, before it
         scrubs older runs (`--scrub`) and before it takes the lock of its run directory: a launch
         the user declines has removed nothing, and a question that waits for the user holds up no
@@ -1262,6 +1263,15 @@ class FlowLauncher:
         destination is read once in the launch, and asks again only about a file that changed
         meanwhile. At its turn, under its lock, the flow reads the delivery record again if
         another launch wrote it meanwhile."""
+        # What no answer could allow comes first, for every flow of the plan: a file a flow reads
+        # that lies in its own run directory, which xeda empties and rewrites. A flow checks it
+        # again at its turn, for a file made since.
+        for planned in plan.nodes:
+            _refuse_inputs_inside(
+                planned.run_path,
+                planned.name,
+                [*design_files(design), *setting_files(planned.settings)],
+            )
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)

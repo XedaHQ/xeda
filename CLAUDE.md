@@ -1115,8 +1115,10 @@ not (whether a tool reads it cannot be known before the run; `--outputs-to` into
 up front). The requested flow also checks the named deliveries of every flow of the plan when the
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
-allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`) --
-a destination two deliveries name, or one inside another, is one of them
+allow first, for every flow: a file of the design or one a setting reads that lies in the flow's
+own run directory (`_refuse_inputs_inside`, which each flow checks again at its turn for a file
+made since), `--outputs-to` and the deliveries (`Deliveries.refuse`, `check_outputs_to`) -- and a
+destination two deliveries name, or one inside another
 (`deliver.refuse_shared_destinations`: every destination known before the run -- every named
 delivery of the launch and the files `--outputs-to` is expected to deliver, the requested flow's
 last-run artifacts (`predicted`) -- with its flow, in the order the flows run, naming both
@@ -1125,8 +1127,8 @@ file system compares them**, `_compared`: located, and each name casefolded when
 lies in ignores letter case, which `_ignores_case` finds by looking, never by writing -- an entry
 of the directory asked for in the other case, else the directory's own name in its parent on the
 same device, else its parent's answer, and "keeps case" when nothing can be asked -- so
-`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4) -- and only then
-asks the producers' questions, in the order they run, and its own, last: so a launch has asked
+`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4). Only then does it
+ask the producers' questions, in the order they run, and its own, last: so a launch has asked
 everything before any tool runs, before it scrubs older runs (`--scrub`, whose `scrub_runs` also
 asks) and before it takes the lock of its run directory. A launch the user declines has removed
 nothing, and a question that waits for the user holds up no other launch or scrub of that

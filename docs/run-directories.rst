@@ -582,8 +582,10 @@ root -- which survives ``--clean`` and scrubbing, so losing the run directory ne
 overwrite a file it should ask about first); anything else needs ``--overwrite-outputs``, or a yes
 typed at a terminal prompt (under ``--json``, or with no terminal on both ends, only the flag
 works). This is checked before any tool of the launch runs. The requested flow checks the
-deliveries of every flow of the plan when the launch starts: it reports every refusal first, and
-then asks its questions, its own last, so neither comes after minutes of tool time. All of them
+deliveries of every flow of the plan when the launch starts: it reports every refusal first (a
+file of the design, or one a setting reads, that lies in the run directory of the flow that reads
+it is one), and then asks its questions, its own last, so neither comes after minutes of tool
+time. All of them
 come before ``--scrub`` removes anything, and while no other launch or scrub of the run directory
 is made to wait. A yes holds for the file you
 were asked about. If that file changes before the launch reaches the flow that delivers it, Xeda
