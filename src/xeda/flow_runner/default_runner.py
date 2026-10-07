@@ -32,6 +32,7 @@ from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
+    ConfirmedReplacements,
     Deliveries,
     DeliveryError,
     ReadInputs,
@@ -677,8 +678,8 @@ class FlowLauncher:
         self._claims: set[Path] = set()
         #: how many flows `launched` held when the current launch began
         self._launched_before = 0
-        #: the destinations whose replacement was confirmed in the current launch
-        self._confirmed_replacements: set[Path] = set()
+        #: the replacements the user confirmed in the current launch, each as the file was then
+        self._confirmed_replacements = ConfirmedReplacements()
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -984,7 +985,7 @@ class FlowLauncher:
         if top_level:
             self._claims = set()
             self._launched_before = len(self.launched)
-            self._confirmed_replacements = set()
+            self._confirmed_replacements = ConfirmedReplacements()
             self._planned_completed = {}
             self._completed_runs = {}
             # every file the flows of this launch read: the requested flow registers the
@@ -1058,16 +1059,12 @@ class FlowLauncher:
         return first_error
 
     def _confirm_replacing(self, conflicts: Sequence[Conflict]) -> bool:
-        """Ask `confirm_overwrite` whether to replace the files in the way, once for each
-        destination in a launch: the checks of a producer's deliveries are made ahead and again
-        at its turn."""
+        """Ask `confirm_overwrite` whether to replace the files in the way. A file the user said
+        yes to is asked about once in a launch, while it stays as it was: a producer's deliveries
+        are checked ahead and again at its turn."""
         if self.confirm_overwrite is None:
             return False
-        asked = [c for c in conflicts if c.destination not in self._confirmed_replacements]
-        if asked and not self.confirm_overwrite(asked):
-            return False
-        self._confirmed_replacements.update(c.destination for c in asked)
-        return True
+        return self._confirmed_replacements.confirm(self.confirm_overwrite, conflicts)
 
     def _refuse_producer_deliveries(self, plan: Plan, requested: PlanNode, design: Design) -> None:
         """Make now the checks that every producer of the plan makes of its own deliveries when

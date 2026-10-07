@@ -17,8 +17,10 @@ destination's directory, renamed into place). An existing file is replaced only 
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
-the launch runs, once for each destination (`Deliveries.check`: the requested flow makes the
-check of every flow of the plan when the launch starts). A record is checked by the trust rule like any other
+the launch runs (`Deliveries.check`: the requested flow makes the check of every flow of the plan
+when the launch starts). A yes
+is for the file the user was asked about, as it was then (`ConfirmedReplacements`): a file that
+changed since is asked about again. A record is checked by the trust rule like any other
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
 for it, and the check that reads it anchors the record it takes to the clock of the destination's
 own file system, read just before (`_destination_clock`), so the next check of an unchanged
@@ -57,6 +59,7 @@ __all__ = [
     "OUTPUTS_TO",
     "RESERVED_NAMES",
     "Conflict",
+    "ConfirmedReplacements",
     "Deliveries",
     "Delivered",
     "Delivery",
@@ -449,6 +452,39 @@ def _refused(conflicts: Sequence[Conflict]) -> str:
     )
 
 
+class ConfirmedReplacements:
+    """The files a launch was told it may replace, each as it was when the user was asked.
+
+    A node's deliveries are checked ahead, when the launch starts, and again at the node's turn,
+    after the tools of the flows before it. A yes holds for the file the user was asked about:
+    asking again about a file that is still as it was would only repeat the question, but a file
+    whose state changed since (size, times, inode) is another file to the user, and another
+    question."""
+
+    def __init__(self) -> None:
+        self._confirmed: dict[Path, _State] = {}
+
+    def confirm(
+        self, ask: Callable[[Sequence[Conflict]], bool], conflicts: Sequence[Conflict]
+    ) -> bool:
+        """Whether every file of `conflicts` may be replaced. `ask` is asked about the files not
+        confirmed as they are now, each taken as it is when the question is asked, so that an
+        edit made while the answer is awaited is not covered by it. A no is a no for all."""
+        now = {conflict.destination: _state(conflict.destination) for conflict in conflicts}
+        asking = [
+            conflict
+            for conflict in conflicts
+            if conflict.destination not in self._confirmed
+            or self._confirmed[conflict.destination] != now[conflict.destination]
+        ]
+        if asking and not ask(asking):
+            return False
+        self._confirmed.update(
+            {conflict.destination: now[conflict.destination] for conflict in asking}
+        )
+        return True
+
+
 class Deliveries:
     """One node's deliveries: checked before any of its tools runs (`check`), noted file by file
     once it succeeded or was found up to date (`collect`), and made when the launch has finished
@@ -657,10 +693,13 @@ class Deliveries:
         root or in a directory the launch reads, or is a directory where a file goes
         (`DeliveryError`); unless confirmed, refuse to
         replace a file that is not xeda's own unchanged earlier delivery (`OutputExistsError`).
-        `predicted`: what `--outputs-to` expects to deliver, from the last run's artifacts."""
+        Each destination is taken as it is when examined, and that is what `deliver` compares
+        with: a file edited while the question was open is not replaced on a yes given for the
+        file as it was. `predicted`: what `--outputs-to` expects to deliver, from the last run's
+        artifacts."""
         refusals: list[str] = []
         conflicts: list[Conflict] = []
-        destinations: list[Path] = []
+        states: dict[Path, _State] = {}
         for delivery in [*self.named, *predicted]:
             destination = _located(delivery.destination)
             refusal = self._refusal(destination, delivery)
@@ -670,12 +709,12 @@ class Deliveries:
             why = self._why_not_ours(destination)
             if why is not None:
                 conflicts.append(Conflict(delivery, destination, why))
-            destinations.append(destination)
+            states[destination] = _state(destination)
         if refusals:
             raise DeliveryError("; ".join(refusals), before_run=True)
         if conflicts and not self._confirmed(conflicts):
             raise OutputExistsError(_refused(conflicts), before_run=True)
-        self.checked = {destination: _state(destination) for destination in destinations}
+        self.checked = states
 
     def collect(self, source_root: Path, extra: Sequence[Delivery] = ()) -> None:
         """When the node's run is over, under its run directory's lock: note each file it

@@ -519,6 +519,48 @@ def test_a_no_at_the_prompt_keeps_the_file(world):
     assert (world.user / "net.v").read_text() == "mine\n"
 
 
+def test_a_yes_is_remembered_for_the_file_as_it_was_and_only_for_that(tmp_path):
+    first, second = tmp_path / "first.v", tmp_path / "second.v"
+    first.write_text("one\n")
+    second.write_text("two\n")
+    conflicts = [
+        Conflict(Delivery("k", PurePath(file.name), file), file, "yours")
+        for file in (first, second)
+    ]
+    asked: List[List[str]] = []
+    answers = iter([True, False, True])
+
+    def ask(asking):
+        asked.append([c.destination.name for c in asking])
+        return next(answers)
+
+    confirmed = deliver.ConfirmedReplacements()
+    assert confirmed.confirm(ask, conflicts) and asked == [["first.v", "second.v"]]
+    assert confirmed.confirm(ask, conflicts) and len(asked) == 1, "as they were: asked once"
+    second.write_text("two, edited\n")
+    assert not confirmed.confirm(ask, conflicts), "a no for one is a no for all"
+    assert asked[1:] == [["second.v"]], "only the file that changed is asked about again"
+    assert confirmed.confirm(ask, conflicts) and asked[2:] == [["second.v"]], "no was no yes"
+
+
+def test_a_file_edited_while_the_question_is_open_is_not_replaced(world):
+    """A yes is for the file the user was asked about, as it was when the question was asked: a
+    file edited while the answer is awaited is not delivered over."""
+    destination = world.user / "net.v"
+    destination.write_text("mine\n")
+    edited = "mine, edited while xeda waited for the answer\n"
+
+    def yes_after_an_edit(conflicts):
+        destination.write_text(edited)
+        return True
+
+    launcher = DefaultRunner(world.root, display_results=False)
+    launcher.confirm_overwrite = yes_after_an_edit
+    with pytest.raises(DeliveryError, match="changed while the run went on"):
+        _launch(world, launcher, netlist="$PWD/net.v")
+    assert destination.read_text() == edited
+
+
 @pytest.mark.parametrize("spelling", ["the source", "a hard link", "a symbolic link", "a case"])
 def test_an_input_is_never_a_destination_even_with_overwrite_outputs(world, spelling):
     source = world.design.root_path / "top.v"

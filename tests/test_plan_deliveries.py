@@ -10,7 +10,7 @@ run for minutes.
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import ClassVar, List, Optional
+from typing import Callable, ClassVar, List, Optional
 
 import pytest
 
@@ -22,6 +22,8 @@ from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 RUNS: List[str] = []
+#: what a test does while the first producer's tool runs (a user editing a file meanwhile)
+DURING_RUN: List[Callable[[], object]] = []
 
 
 class _ReadsDir(Flow):
@@ -40,6 +42,8 @@ class _ReadsDir(Flow):
         path = self.run_path / "a.txt"
         path.write_text("a\n")
         self.outputs.a = path
+        for action in DURING_RUN:
+            action()
 
 
 class _Delivers(Flow):
@@ -101,6 +105,7 @@ def world(tmp_path, monkeypatch):
     (lib / "cells.v").write_text("module cell; endmodule\n")
     monkeypatch.chdir(user)
     RUNS.clear()
+    DURING_RUN.clear()
     registered_flows.update(_REGISTERED)
     design = Design(name="d", design_root=tmp_path / "design", rtl={"sources": [], "top": "t"})
     yield SimpleNamespace(
@@ -204,6 +209,33 @@ def test_a_refusal_a_producer_makes_at_its_turn_is_its_own_and_the_requested_flo
     assert len(seen) == 2
     now = {p.name: p.read_bytes() for p in _directory(world).iterdir() if p.is_file()}
     assert now == kept, "the requested flow's trace and results are as the last launch left them"
+
+
+@pytest.mark.parametrize("second_answer", [False, True])
+def test_a_file_changed_after_the_question_was_answered_is_asked_about_again(world, second_answer):
+    """A yes is for the file the user was asked about. The checks made ahead are made again at
+    the producer's turn, after the tools of the producers before it: a file edited meanwhile is
+    another question."""
+    destination = world.user / "n.v"
+    destination.write_text("the user's file\n")
+    edited = "the user's file, edited while the first tool ran\n"
+    DURING_RUN.append(lambda: destination.write_text(edited))
+    asked: list[tuple[list[str], str]] = []
+
+    def confirm(conflicts):
+        asked.append((list(RUNS), destination.read_text()))
+        return len(asked) == 1 or second_answer
+
+    world.runner.confirm_overwrite = confirm
+    if second_answer:
+        assert _launch(world, delivers={"netlist": "$PWD/n.v"}).succeeded
+        assert destination.read_text() == "net\n"
+    else:
+        with pytest.raises(OutputExistsError):
+            _launch(world, delivers={"netlist": "$PWD/n.v"})
+        assert destination.read_text() == edited, "not replaced"
+        assert RUNS == [_ReadsDir.name], "the producer that would replace it did not run"
+    assert asked == [([], "the user's file\n"), ([_ReadsDir.name], edited)]
 
 
 @pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])
