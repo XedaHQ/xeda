@@ -528,6 +528,19 @@ either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2`
 is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
 both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9 mapping is enabled.
 
+The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
+as the delay target of the LUT mapping (the ``-D`` option of ABC's ``&if`` command). The Yosys log
+shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a target only when
+the mapped logic can meet it. If the target is lower than the least delay that ABC9 can reach,
+ABC9 maps for that least delay, as it does with no target, and the netlist does not change. If the
+target is higher, ABC9 uses the slack to save area: the netlist gets smaller and deeper. So the
+netlist changes with ``clock.period`` only when the clock is slow for the design. With Yosys
+0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps to one netlist for every
+period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns the mapping has two more
+logic levels and 24 fewer LUTs than that netlist. A small design with two levels of logic (a
+block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10 ns. A netlist that
+does not change with the clock period is therefore expected.
+
 .. code-block:: bash
 
     xeda run yosys_fpga blinky.yaml -s synth_pass_only=true read_verilog_flags= \

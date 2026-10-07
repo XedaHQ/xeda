@@ -1776,6 +1776,22 @@ dependency must also share `custom_boards_file`.
   and `flow3`; do not treat `flow3` as a pass-only stage conflict. The one `Settings.abc9_scratchpad()`
   emits these choices, while `synth_command()` emits the target pass's version-specific flags.
 
+  **The clock-derived delay reaches ABC9, and ABC9 often ignores it.** The full recipe writes
+  `scratchpad -set abc9.D <period_ps / 1.5>` before the pass. `abc9_exe` reads `abc9.D` (in
+  picoseconds) and puts `-D <value>` where the script has `{D}`: the four `&if` calls of `flow3`,
+  and the `&if` of the default scripts. The Yosys log shows it (`ABC: + &if -W 300 -D 6666.67`),
+  on Xilinx, ECP5, iCE40, Nexus and Gowin. ABC takes the value as the required time of its LUT
+  mapping, not as a goal it must reach: a target below the least delay it can reach is replaced
+  by that delay, which is also what it uses with no target. The netlist is then the one written
+  with the `abc9.D` line deleted. Only a target the logic can meet changes the mapping, and it
+  trades depth for area. Measured with Yosys 0.69+156 on picosoc: every period from 2.5 to 8.5 ns
+  writes one netlist, equal to the no-delay one (ABC's least delay is 5.7 ns, so it can meet the
+  target from a period of 8.6 ns); 9 and 10 ns map with 1 and 2 more levels and 27 and 24 fewer
+  LUTs (3,094 and 3,097 against 3,121). A design with nothing to trade (macram, whose logic is
+  two levels deep) writes one netlist for every period. So a netlist that does not move with
+  `clock.period` is not a lost setting: look for `-D` in the log. Add no workaround that scales
+  the delay.
+
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The
   target pass's `primitive_libraries()` still describes the libraries it reads internally. It is
