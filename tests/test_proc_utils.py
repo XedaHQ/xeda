@@ -19,12 +19,14 @@ the no-terminal half.
 import os
 import pty
 import select
+import signal
 import stat
 import subprocess
 import sys
 import termios
 from pathlib import Path
 
+import psutil
 import pytest
 
 from xeda import utils as xeda_utils
@@ -384,6 +386,12 @@ import time  # noqa: E402
 
 from xeda.proc_utils import ProcessTimeout  # noqa: E402
 
+#: Time limits, in seconds, for a test whose tool must get somewhere (print a line, start a
+#: child) before the limit expires. The limit starts when the tool starts, so the test cannot wait
+#: for the tool first. The first limit is enough on an idle machine. A busy machine gets the next
+#: one when the tool was too slow.
+TIME_LIMITS = (0.5, 2, 8, 32)
+
 
 def test_a_process_past_its_time_limit_is_stopped_and_reported():
     started = time.monotonic()
@@ -477,8 +485,11 @@ def test_a_tool_that_is_stopped_leaves_the_log_it_had_written(tmp_path, route):
     """The partial log of a tool that ran out of time is its diagnostic."""
     log = tmp_path / "sim.log"
     child = "import time; print('so far', flush=True); time.sleep(60)"
-    with pytest.raises(ProcessTimeout):
-        run_process(sys.executable, ["-c", child], timeout=1.5, **{route: log})
+    for limit in TIME_LIMITS:
+        with pytest.raises(ProcessTimeout):
+            run_process(sys.executable, ["-c", child], timeout=limit, **{route: log})
+        if log.read_text():  # the tool wrote its line before the limit expired
+            break
     assert log.read_text().splitlines() == ["so far"]
 
 
@@ -615,18 +626,102 @@ def test_a_tool_is_not_started_when_its_log_cannot_be_created(
     )
 
 
+# ---- a process tree to stop ----------------------------------------------------------------
+#: Starts a program with SIGINT at its default. A process inherits a SIGINT that its starter
+#: ignores, and a non-interactive shell starts every background job that way (`pytest &`). Without
+#: this line, a tool would sleep through the interrupt that a test sends it.
+DEFAULT_SIGINT = "import signal; signal.signal(signal.SIGINT, signal.SIG_DFL)\n"
+
+
+def _tree(started: Path) -> str:
+    """A program for a tool that starts a tool: a leader that runs one child and waits for it.
+    The child writes its process id to `started` when it runs, and then sleeps. Both stop at
+    SIGINT."""
+    child = (
+        f"{DEFAULT_SIGINT}"
+        "import os, pathlib, time\n"
+        f"pathlib.Path({str(started)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n"
+    )
+    leader = f"import subprocess, sys\nsubprocess.run([sys.executable, '-c', {child!r}])\n"
+    return DEFAULT_SIGINT + leader
+
+
+def _inheriting_sigint(disposition: str, argv: list[str]) -> list[str]:
+    """The command line that starts `argv` with SIGINT set to `disposition` ("SIG_DFL" or
+    "SIG_IGN"), as a starter that set it before would. A non-interactive shell does the second for
+    a background job."""
+    return [
+        sys.executable,
+        "-c",
+        "import os, signal, sys\n"
+        "signal.signal(signal.SIGINT, getattr(signal, sys.argv[1]))\n"
+        "os.execv(sys.argv[2], sys.argv[2:])\n",
+        disposition,
+        *argv,
+    ]
+
+
+def _read_pid(path: Path) -> int | None:
+    """The process id that a tree's child wrote to `path`, or None before it did."""
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    return int(text) if text.isdigit() else None
+
+
+def _is_running(pid: int) -> bool:
+    """Whether the process runs. One that ended and waits for its parent to reap it does not: the
+    parent can be init, which may reap late, or never (a container without an init process)."""
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:  # the zombie was reaped meanwhile
+        return False
+
+
+def _kill(pid: int | None) -> None:
+    """Clean up after a test that failed: stop the process if it still runs."""
+    if pid is None:
+        return
+    try:
+        psutil.Process(pid).kill()
+    except psutil.NoSuchProcess:
+        pass
+
+
+def _wait_until(condition, what: str, deadline: float = 30.0):
+    """Poll until `condition()` is true, and return what it returned. The deadline only ends a
+    hang: a condition that is going to hold is seen within a few polls, however busy the machine."""
+    end = time.monotonic() + deadline
+    while True:
+        value = condition()
+        if value:
+            return value
+        if time.monotonic() >= end:
+            pytest.fail(f"gave up waiting for {what} after {deadline} s")
+        time.sleep(0.01)
+
+
 @pytest.mark.skipif(
     os.name != "posix", reason="POSIX stops the whole process group; Windows only the process"
 )
 def test_the_time_limit_stops_the_process_tree(tmp_path):
     """A simulator started through a script: the child is stopped with it."""
-    marker = tmp_path / "late"
-    child = f"import time; time.sleep(3); open({str(marker)!r}, 'w').close()"
-    parent = f"import subprocess, sys; subprocess.run([sys.executable, '-c', {child!r}])"
-    with pytest.raises(ProcessTimeout):
-        run_process(sys.executable, ["-c", parent], timeout=0.5)
-    time.sleep(4)
-    assert not marker.exists()
+    child = None
+    try:
+        for attempt, limit in enumerate(TIME_LIMITS):
+            started = tmp_path / f"started-{attempt}"
+            with pytest.raises(ProcessTimeout):
+                run_process(sys.executable, ["-c", _tree(started)], timeout=limit)
+            child = _read_pid(started)
+            if child is not None:  # the child ran when the limit expired
+                break
+        assert child is not None, f"the child did not run within {limit} s"
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child)  # a failed test leaves no sleeping process behind
+        raise
 
 
 # ---- the watchdog's lifecycle ---------------------------------------------------
@@ -660,7 +755,10 @@ def test_a_process_that_ended_by_itself_is_not_a_timeout(monkeypatch):
     proc = _Finished()
     monkeypatch.setattr("os.killpg", lambda *a: setattr(proc, "killed", True))
     with _Deadline(proc, 0.05, group=True) as deadline:  # type: ignore[arg-type]
-        time.sleep(0.3)
+        timer = deadline._timer
+        assert timer is not None
+        timer.join(30)  # the timer fires, finds the process ended, and returns
+        assert not timer.is_alive()
     assert not deadline.expired
     assert not proc.killed
 
@@ -669,7 +767,9 @@ def test_a_cancelled_deadline_never_signals(monkeypatch):
     proc = _Finished()
     with _Deadline(proc, 0.2) as deadline:  # type: ignore[arg-type]
         deadline.cancel()
-        time.sleep(0.4)
+        timer = deadline._timer
+        assert timer is not None
+        assert not timer.is_alive()  # `cancel` joins the timer thread: nothing signals later
     assert not deadline.expired and not proc.killed
 
 
@@ -679,18 +779,30 @@ def test_a_process_that_exits_within_its_limit_is_never_a_timeout():
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
-def test_an_interrupt_stops_the_whole_process_tree(tmp_path):
-    marker = tmp_path / "late"
-    child = f"import time; time.sleep(3); open({str(marker)!r}, 'w').close()"
-    parent = f"import subprocess, sys; subprocess.run([sys.executable, '-c', {child!r}])"
-    proc = subprocess.Popen([sys.executable, "-c", parent], start_new_session=True)
-    time.sleep(0.5)
-    with pytest.raises(KeyboardInterrupt):
-        with _Deadline(proc, 60, group=True):
-            raise KeyboardInterrupt
-    assert proc.poll() is not None
-    time.sleep(4)
-    assert not marker.exists()
+@pytest.mark.parametrize("inherited", ["SIG_DFL", "SIG_IGN"], ids=["default", "ignored"])
+def test_an_interrupt_stops_the_whole_process_tree(tmp_path, inherited):
+    """An interrupt stops the leader and its child. Their starter leaves SIGINT at its default, or
+    ignores it, as a test run started with `pytest &` does. Both programs set it to default."""
+    started = tmp_path / "started"
+    leader = [sys.executable, "-c", _tree(started)]
+    proc = subprocess.Popen(_inheriting_sigint(inherited, leader), start_new_session=True)
+    child = None
+    try:
+        child = _wait_until(lambda: _read_pid(started), "the child to run")
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True):
+                raise KeyboardInterrupt
+        # The leader died of the SIGINT. One that ignored it would live until the grace period
+        # ended, and die of SIGKILL.
+        assert proc.returncode == -signal.SIGINT
+        _wait_until(lambda: not _is_running(child), "the child to stop")
+    except BaseException:
+        _kill(child)  # a failed test leaves no sleeping process behind
+        raise
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -703,7 +815,7 @@ def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         run_process(
             sys.executable,
-            ["-c", "import time; print('x', flush=True); time.sleep(60)"],
+            ["-c", f"{DEFAULT_SIGINT}import time; print('x', flush=True); time.sleep(60)"],
             highlight_rules={"x": ""},
             timeout=60,
         )
@@ -778,8 +890,9 @@ def test_non_group_cleanup_needs_no_sigkill(monkeypatch, stop):
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
 def test_interruption_signals_the_group_before_reaping_the_leader(monkeypatch):
     """The recycled-group hazard applies to interruption cleanup as well as a timeout."""
+    script = f"{DEFAULT_SIGINT}import time; print('ready', flush=True); time.sleep(60)"
     proc = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+        [sys.executable, "-c", script], stdout=subprocess.PIPE, start_new_session=True
     )
     real_killpg = os.killpg
     signals = []
@@ -788,12 +901,19 @@ def test_interruption_signals_the_group_before_reaping_the_leader(monkeypatch):
         signals.append((sig, proc.returncode))
         real_killpg(pid, sig)
 
-    monkeypatch.setattr(os, "killpg", killpg)
-    with pytest.raises(KeyboardInterrupt):
-        with _Deadline(proc, 60, group=True):
-            raise KeyboardInterrupt
-    assert signals and all(returncode is None for _, returncode in signals), signals
-    assert proc.returncode is not None
+    try:
+        assert proc.stdout.readline() == b"ready\n"
+        monkeypatch.setattr(os, "killpg", killpg)
+        with pytest.raises(KeyboardInterrupt):
+            with _Deadline(proc, 60, group=True):
+                raise KeyboardInterrupt
+        assert signals and all(returncode is None for _, returncode in signals), signals
+        assert proc.returncode is not None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait()
+        proc.stdout.close()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -805,7 +925,8 @@ def test_exception_cleanup_allows_a_graceful_exit(tmp_path, monkeypatch, error):
 
     import xeda.proc_utils as pu
 
-    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 1.0)
+    # A bound, not a wait: the cleanup returns when the tool exits, which takes about 0.15 s
+    monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", 30.0)
     # CPython on macOS lacks os.waitid before 3.13: the grace period must not depend on it
     monkeypatch.delattr(os, "waitid", raising=False)
     marker = tmp_path / "graceful"
@@ -846,7 +967,7 @@ def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, erro
 
     import xeda.proc_utils as pu
 
-    grace = 0.25
+    default, grace = pu.PROCESS_STOP_GRACE, 0.25
     monkeypatch.setattr(pu, "PROCESS_STOP_GRACE", grace)
     script = (
         "import signal, time\n"
@@ -865,7 +986,7 @@ def test_exception_cleanup_kills_a_tool_after_the_grace_period(monkeypatch, erro
             with _Deadline(proc, 60, group=True):
                 raise error
         elapsed = time.monotonic() - started
-        assert grace <= elapsed < 3
+        assert grace <= elapsed < default  # the cleanup waited for the shortened grace, no more
         assert proc.returncode == -signal.SIGKILL
     finally:
         if proc.poll() is None:

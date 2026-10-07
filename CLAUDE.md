@@ -35,6 +35,13 @@ tests skip) on the test files whose code differs by operating system: file locks
 groups, pseudo-terminals, file copying, file-system clocks, links. Its file list says why each
 file is there; a new test of such code goes into that list.
 
+**A test run started as a background job of a non-interactive shell (`pytest ... &` in a script
+or a loop) ignores SIGINT, and so does every process it starts.** A tool that a test interrupts
+therefore sets SIGINT to its default itself (`DEFAULT_SIGINT` in `tests/test_proc_utils.py`), and
+the tree test there runs with the inherited SIGINT both default and ignored. Such a test waits
+for a ready signal from the tool and polls with a generous deadline; it never sleeps for a
+guessed time (a limit that must outlast the tool's start uses `TIME_LIMITS`).
+
 **The suite is safe to run in parallel** (`pytest-xdist`, in the `dev` group; tox and CI use
 `-n auto`), with outcomes identical to a serial run (checked on the full suite with the real
 tools; about 8000 tests, which `-n auto` runs in about 9 minutes on 10 cores). Each test works under
