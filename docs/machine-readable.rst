@@ -466,9 +466,10 @@ node's wired inputs, and none of the paths and hashes):
 
 Here the chain replaced both bindings the file saved (``overridden`` names them and their
 sections). A request of a single flow has a one-element ``request``. After a failure the nodes
-that were planned but never entered are listed with ``"state": "not run"``, and
-``request`` and ``nodes`` are absent from the document of a chain that was refused before it was
-planned (a usage error).
+that were planned but never entered are listed with ``"state": "not run"``. A delivery that
+Xeda refuses before the tool of a producer runs leaves the requested flow in that state too. The
+``request`` and ``nodes`` keys are absent from the document of a chain that was refused before it
+was planned (a usage error).
 
 Using Xeda as a library
 =======================

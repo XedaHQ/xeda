@@ -914,13 +914,21 @@ the requested flow when the launch starts) and every directory such a setting na
 the trace's own listing (`trace_inputs.register_read_settings`, local and remote alike) -- so a
 destination can be none of those files, nor lie in one of those directories, a file there yet or
 not (whether a tool reads it cannot be known before the run; `--outputs-to` into one is refused
-up front). The requested flow also makes the pre-run check of every producer's named deliveries
-(`DefaultRunner._refuse_producer_deliveries`), so a refusal, or the question whether to replace a
-file, never comes after the tool of an earlier flow ran; a producer makes its own check again at
-its turn, which records what it found (`Deliveries.checked`), and `confirm_overwrite` is asked
-once for each destination (`_confirm_replacing`). A refusal made before a flow's tool ran is a
-`DeliveryError` with `before_run` true (`check_outputs_to`, `check`): the launch raises it as it
-is, never as a `FlowDependencyFailure`, and leaves the requested flow's directory untouched.
+up front). The requested flow also checks the named deliveries of every flow of the plan when the
+launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
+replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
+allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`), and
+only then asks the producers' questions; its own question comes at its turn, still before any
+tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+at its turn, which finds the record the first check anchored, so its destination is read once in
+a launch; that second check records what it found (`Deliveries.checked`). A yes holds for the
+file as it was when asked (`ConfirmedReplacements`, keyed on the file's `_state`): the second
+check asks again about a file that changed meanwhile, and `checked` is taken before the question,
+so a file edited while the question is open is not replaced. A refusal made before a flow's tool
+ran is a `DeliveryError` with `before_run` true (`check_outputs_to`, `refuse`, `check`): the
+launch raises it as it is, never as a `FlowDependencyFailure`, leaves the requested flow's
+directory untouched and does not list that flow in `launched`, so `--json` reports it
+`"not run"`.
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
 directory's lock); the copies themselves are made in `_finish_launch`, before the deferred

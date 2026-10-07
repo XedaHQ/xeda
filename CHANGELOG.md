@@ -296,11 +296,15 @@ All notable changes to this project will be documented in this file.
   a project file, `-s` and the API all give such a setting the same way as any other.
 - A delivery into a directory any flow of the plan reads, or onto a file of yours, is refused
   before any tool of the plan runs: the requested flow registers what every flow reads, and checks
-  every producer's named deliveries, when the launch starts. The question whether to replace a file
-  is asked once for each destination, before the first tool runs. A refusal made before a
+  the named deliveries of every flow, when the launch starts. It reports every refusal first (a
+  bad `--outputs-to` included), and then asks whether to replace a file, before the first tool
+  runs. A yes holds for the file as it was when Xeda asked. If that file changes before the launch
+  reaches its flow, Xeda asks again. If it changes while the question is open, Xeda does not
+  replace it. A producer's destination is read once in a launch. A refusal made before a
   producer's tool ran is raised as it is (`DeliveryError`, `OutputExistsError`), not as the failure
-  of a dependency, and the requested flow's directory stays as it was. A producer's failure message
-  names its `results.json` only when this launch ran the producer.
+  of a dependency. The requested flow's directory stays as it was, and `--json` reports that flow
+  as `not run`. A producer's failure message names its `results.json` only when this launch ran
+  the producer.
 - `dc` checks `target_libraries` when a run is launched, as the other flows check their required
   settings. A run without it is refused, and the message says how to give it. A settings layer
   that does not hold it (a platform given alone) no longer fails validation by itself.
