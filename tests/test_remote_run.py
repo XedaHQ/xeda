@@ -1993,3 +1993,33 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     else:
         netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
     assert "_X1 " in netlist or "_X2 " in netlist
+
+
+def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was_sent(
+    tmp_path, remote_host
+):
+    """`dc` has no declared inputs or outputs, and a bundled platform: the remote resolves the
+    same one-node plan, so its `flow_hash` is the one this side computed."""
+    design_root = tmp_path / "design"
+    design_root.mkdir()
+    shutil.copy(SQRT / "sqrt.vhdl", design_root)
+    (design_root / "cells.db").write_text("")
+    (design_root / "sqrt.yaml").write_text(
+        "name: sqrt\nrtl:\n  sources: [sqrt.vhdl]\n  top: sqrt\n  clock: {port: clk}\n"
+    )
+    local_run_dir = ensure_run_root(tmp_path / "local" / "xeda_run")
+    assert local_run_dir is not None
+
+    results = RemoteRunner(local_run_dir).run_remote(
+        design_root / "sqrt.yaml",
+        "dc",
+        host="somewhere",
+        flow_settings=["target_libraries=cells.db", "platform=nangate45", "clock.period=5.0"],
+    )
+
+    # the fake `dc_shell` writes no timing report, so the run itself reports failure: what is
+    # compared is the identity each side recorded for it
+    assert results, "the remote answered"
+    local_settings = json.loads((Path(results["run_path"]) / "settings.json").read_text())
+    remote_settings = json.loads((_remote_run_dir(remote_host, "dc") / "settings.json").read_text())
+    assert local_settings["flowrun_hash"] == remote_settings["flowrun_hash"] == results["flow_hash"]

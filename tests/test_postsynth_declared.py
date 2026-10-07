@@ -1,11 +1,8 @@
 """Activity switches, explicit wiring and the removed synthesis settings."""
 
-import ast
-import inspect
 import json
 import subprocess
 import sys
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -46,18 +43,9 @@ def test_a_consumer_can_enable_activity_without_giving_a_filename(name):
     assert settings.timing_sim is (name == "timing_saif")
 
 
-def test_postsynth_has_only_declared_dependencies():
-    assert VivadoPostsynthSim.Settings.dependency_settings == {}
+def test_postsynth_has_only_declared_producers():
     assert "synth" not in VivadoPostsynthSim.Settings.model_fields
     assert set(declared_inputs(VivadoPostsynthSim)) == {"netlist", "netlist_timing", "sdf"}
-    for cls in VivadoPostsynthSim.__mro__:
-        if "init" in vars(cls):
-            tree = ast.parse(textwrap.dedent(inspect.getsource(cls.init)))
-            assert not [
-                node
-                for node in ast.walk(tree)
-                if isinstance(node, ast.Attribute) and node.attr == "add_dependency"
-            ]
 
 
 @pytest.mark.parametrize("all_three", [False, True])

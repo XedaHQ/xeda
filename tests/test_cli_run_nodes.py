@@ -2,13 +2,15 @@
 directory once."""
 
 import json
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
-from xeda.flow import Flow, FlowFatalError, registered_flows
+from xeda.design import SourceType
+from xeda.flow import Flow, FlowFatalError, In, Out, registered_flows
 
 
 @pytest.fixture(scope="module")
@@ -18,29 +20,47 @@ def toys():
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Outputs(Flow.Outputs):
+            out: Path = Out(SourceType.Data, description="The file it writes.")
+
         def run(self) -> None:
             (self.run_path / "out.txt").write_text("out\n")
-            self.artifacts.out = self.run_path / "out.txt"
+            self.outputs.out = self.run_path / "out.txt"
 
     class ToyNodeFailing(Flow):
-        """Depends on the producer, then fails."""
+        """Reads the producer's file, then fails."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyNodeProducer, ToyNodeProducer.Settings())
+        class Inputs(Flow.Inputs):
+            out: Path = In(
+                SourceType.Data,
+                producer="toy_node_producer",
+                output="out",
+                description="The producer's file.",
+            )
 
         def run(self) -> None:
             raise FlowFatalError("boom")
 
     class ToyNodeTwice(Flow):
-        """Depends on the producer twice, with the same settings."""
+        """Reads the producer's file through two inputs."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyNodeProducer, ToyNodeProducer.Settings())
-            self.add_dependency(ToyNodeProducer, ToyNodeProducer.Settings())
+        class Inputs(Flow.Inputs):
+            first: Path = In(
+                SourceType.Data,
+                producer="toy_node_producer",
+                output="out",
+                description="The producer's file.",
+            )
+            second: Path = In(
+                SourceType.Data,
+                producer="toy_node_producer",
+                output="out",
+                description="The producer's file again.",
+            )
 
         def run(self) -> None:
             pass
@@ -80,7 +100,7 @@ def test_a_failed_launch_reports_the_nodes_that_ran(toys, design):
     assert _states(document) == [("toy_node_producer", "fresh"), ("toy_node_failing", "failed")]
 
 
-def test_a_directory_revisited_within_a_launch_is_one_node(toys, design):
+def test_a_producer_reached_twice_within_a_launch_is_one_node(toys, design):
     _, document = _run("toy_node_twice", str(design))
     assert document["success"] is True
     assert _states(document) == [("toy_node_producer", "ran"), ("toy_node_twice", "ran")]

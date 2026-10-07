@@ -495,7 +495,7 @@ def test_a_launch_places_a_7_series_design_and_the_next_reuses_it(tmp_path, monk
     assert first.results["lut"] == 1 and first.results["ff"] == 1
     assert first.results["fabric"] == "xc7a100t"
     again = runner.run("nextpnr", design, flow_settings={"fpga": A100T})
-    assert again is not None and again.reused and again.completed_dependencies[0].reused
+    assert again is not None and again.reused and tool_utils.producers_of(runner, again)[0].reused
     assert len(_calls(first.run_path)) == 1
 
 

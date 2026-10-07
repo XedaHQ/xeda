@@ -20,14 +20,13 @@ from xeda.flow.io import (
     OutputDeclaration,
     declared_inputs,
     declared_outputs,
-    is_declared,
     output_enabled,
     selected_types,
     switch_on,
 )
 from xeda.introspect import flow_info
 
-from .io_flows import _Maker, _Place, _Taker, _Wrapper
+from .io_flows import _ChainUndeclared, _Maker, _Place, _Taker
 
 
 @pytest.fixture(autouse=True)
@@ -78,9 +77,9 @@ def test_the_declarations_are_read_from_the_nested_models():
     assert declared_inputs(_Place)["netlist"].producer == "__synth"
 
 
-def test_a_flow_with_no_declaration_is_undeclared():
-    assert is_declared(_Maker) and is_declared(_Taker) and is_declared(_Place)
-    assert not is_declared(_Wrapper)
+def test_a_flow_with_no_declaration_declares_nothing():
+    assert declared_outputs(_Maker) and declared_inputs(_Taker) and declared_inputs(_Place)
+    assert not declared_inputs(_ChainUndeclared) and not declared_outputs(_ChainUndeclared)
 
 
 def test_default_pure_hooks_preserve_the_declared_types_and_enablement():
@@ -210,7 +209,6 @@ def test_a_declaration_names_at_least_one_source_type():
 
 def test_list_flows_publishes_the_declarations():
     info = flow_info(_Taker)
-    assert info["declared"] is True
     assert info["inputs"] == [
         {
             "name": "made",
@@ -233,7 +231,6 @@ def test_list_flows_publishes_the_declarations():
             "description": "The file.",
         }
     ]
-    assert flow_info(_Wrapper)["declared"] is False
 
 
 @pytest.mark.parametrize(
@@ -324,7 +321,6 @@ def test_list_flows_json_publishes_the_declarations():
     assert flows["__taker"]["inputs"] == flow_info(_Taker)["inputs"]
     assert flows["__maker"]["outputs"] == flow_info(_Maker)["outputs"]
     assert flows["__taker"]["dependencies"] == ["__maker"]
-    assert flows["__wrapper"]["declared"] is False
 
 
 def test_staged_models_validate_scalar_and_list_assignments_and_are_private(tmp_path):

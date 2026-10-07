@@ -1,4 +1,4 @@
-"""What a setting accepts: exactly its declared type, plus three documented flow conveniences.
+"""What a setting accepts: exactly its declared type, plus two documented flow conveniences.
 
 There is no implicit conversion between types -- a number is not text, text is not a list, `True`
 is not a name -- so the type a setting declares is the whole truth about what it takes, and a
@@ -8,8 +8,7 @@ so and its consumer renders each kind explicitly.
 
 On top of that, every *flow* setting gets the conveniences of `Flow.Settings._normalize_flow_setting`:
 a list setting may be written as a comma-separated string (`-s xdc_files=a.xdc,b.xdc`), and
-`$DESIGN_ROOT`/`$DESIGN_DIR`/`$PWD` are expanded at each path. Dependency settings are covered by
-`test_dependency_settings.py`.
+`$DESIGN_ROOT`/`$DESIGN_DIR`/`$PWD` are expanded at each path.
 """
 
 import copy
@@ -146,10 +145,10 @@ def test_path_placeholders_expand_recursively_without_rewriting_non_path_strings
     """Path expansion follows the annotation through lists, mappings, tuples, and unions."""
 
     class PathSettings(Flow.Settings):
-        scalar: Path
-        paths: list[Path]
-        hooks: dict[str, Path | None]
-        libraries: list[tuple[str, str | Path]]
+        scalar: Path = Path()
+        paths: list[Path] = []
+        hooks: dict[str, Path | None] = {}
+        libraries: list[tuple[str, str | Path]] = []
 
     payload = {
         "scalar": "$DESIGN_ROOT/scalar.sdc",
@@ -260,30 +259,6 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
         tmp_path / "lib/a.lib",
         tmp_path / "lib/b.lib",
     ]
-
-
-def test_default_dependency_inherits_context_for_later_assignment(tmp_path):
-    from .test_custom_boards import _LegacyParent
-
-    settings = _LegacyParent.from_input(
-        {"nextpnr": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
-    )
-
-    assert settings.nextpnr.context == settings.context
-    settings.nextpnr.sdc = "$DESIGN_ROOT/pins.sdc"
-    assert settings.nextpnr.sdc == tmp_path / "pins.sdc"
-
-
-def test_dependency_mapping_assignment_uses_parent_context(tmp_path):
-    from .test_custom_boards import _LegacyParent
-
-    settings = _LegacyParent.from_input(
-        {"nextpnr": {"fpga": "xc7a100t"}}, design_root=tmp_path, runner_cwd=tmp_path / "start"
-    )
-    settings.nextpnr = {"fpga": "xc7a100t", "sdc": "$DESIGN_ROOT/pins.sdc"}
-
-    assert settings.nextpnr.context == settings.context
-    assert settings.nextpnr.sdc == tmp_path / "pins.sdc"
 
 
 def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):

@@ -6,23 +6,19 @@ import pytest
 
 import xeda.board
 from xeda import Design, introspect
-from xeda.board import WithFpgaBoardSettings
-from xeda.dataclass import Field, ValidationError
+from xeda.dataclass import ValidationError
 from xeda.flow import FlowSettingsError
-from xeda.flows import Nextpnr, Openfpgaloader
+from xeda.flow_runner import DefaultRunner
+from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
 from xeda.flows.nextpnr import NextpnrTool
 
 from .test_nextpnr import write_nextpnr_config
 
 
-class _LegacyParent(WithFpgaBoardSettings):
-    """Settings holding a board-aware dependency's, as an undeclared flow's do: no built-in
-    flow nests one any more, and `resolve_dependency` still serves such flows."""
-
-    nextpnr: Nextpnr.Settings = Field(
-        default_factory=Nextpnr.Settings, description="The dependency's settings."
-    )
-    dependency_settings = {"nextpnr": ("fpga", "board", "custom_boards_file", "clocks")}
+def _plan(tmp_path: Path, settings: dict, sections: dict | None = None):
+    """The plan of `fpga_pack` and its producer `nextpnr`, which share the board and its database."""
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    return DefaultRunner(tmp_path / "run").resolve(FpgaPack, design, settings, sections or {})
 
 
 def board_file(tmp_path: Path) -> Path:
@@ -103,52 +99,42 @@ def test_changing_board_database_refreshes_only_a_board_derived_fpga():
     assert explicit.fpga.part == "LFE5U-85F-6BG381C"
 
 
-def test_dependency_resolves_parent_board_and_database_together(tmp_path):
-    parent_file = tmp_path / "parent.toml"
-    parent_file.write_text('[PARENT]\nfpga.part = "LFE5U-25F-6BG381C"\n')
-    child_file = tmp_path / "child.toml"
-    child_file.write_text('[CHILD]\nfpga.part = "LFE5U-45F-6BG381C"\n')
-    settings = _LegacyParent.from_input(
-        {
-            "board": "PARENT",
-            "custom_boards_file": "parent.toml",
-            "nextpnr": {"board": "CHILD", "custom_boards_file": "child.toml"},
-        },
-        design_root=tmp_path,
-    )
+def test_a_board_and_its_database_given_for_the_consumer_reach_its_producer_together(tmp_path):
+    (tmp_path / "parent.toml").write_text('[PARENT]\nfpga.part = "LFE5U-25F-6BG381C"\n')
+    plan = _plan(tmp_path, {"board": "PARENT", "custom_boards_file": "parent.toml"})
 
-    dependency = settings.resolve_dependency("nextpnr")
-
-    assert dependency.board == "PARENT"
-    assert dependency.custom_boards_file == parent_file
-    assert dependency.fpga.part == "LFE5U-25F-6BG381C"
+    assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    for name in ("nextpnr", "fpga_pack"):
+        settings = plan.node(name).settings
+        assert settings.board == "PARENT"
+        assert settings.custom_boards_file == tmp_path / "parent.toml"
+        assert settings.fpga.part == "LFE5U-25F-6BG381C"
 
 
-def test_dependency_adopts_a_custom_board_pair_without_changing_the_given_settings(tmp_path):
+def test_a_custom_board_pair_given_for_the_producer_is_adopted_by_the_consumer(tmp_path):
     boards = board_file(tmp_path)
-    settings = _LegacyParent.from_input(
-        {"nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
-        design_root=tmp_path,
-    )
-    given = settings.nextpnr.model_dump()
-    dependency = settings.resolve_dependency("nextpnr")
-    assert settings.board == dependency.board == "MY_BOARD"
-    assert settings.custom_boards_file == dependency.custom_boards_file == boards
-    assert settings.fpga == dependency.fpga
-    assert settings.nextpnr.model_dump() == given
-    assert dependency is not settings.nextpnr
+    sections = {"nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}}
+    given = {"nextpnr": dict(sections["nextpnr"])}
+
+    plan = _plan(tmp_path, {}, sections)
+
+    assert sections == given, "the sections stay as written"
+    for name in ("nextpnr", "fpga_pack"):
+        settings = plan.node(name).settings
+        assert settings.board == "MY_BOARD"
+        assert settings.custom_boards_file == boards
+        assert settings.fpga.part == "LFE5U-25F-6BG381C"
 
 
-def test_invalid_combined_board_pair_leaves_dependency_settings_unchanged(tmp_path):
+def test_a_board_unknown_in_the_producer_s_database_is_refused_naming_it(tmp_path):
+    """The consumer's board and the producer's database are checked together, once they agree."""
     boards = board_file(tmp_path)
-    settings = _LegacyParent.from_input(
-        {"board": "ulx3s_85f", "nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
-        design_root=tmp_path,
-    )
-    before = settings.model_dump()
-    with pytest.raises(FlowSettingsError, match="Unknown board"):
-        settings.resolve_dependency("nextpnr")
-    assert settings.model_dump() == before
+    sections = {"nextpnr": {"custom_boards_file": str(boards)}}
+
+    with pytest.raises(FlowSettingsError, match="Unknown board 'ulx3s_85f'") as refused:
+        _plan(tmp_path, {"board": "ulx3s_85f"}, sections)
+
+    assert str(boards) in str(refused.value)
 
 
 def test_custom_board_path_variable_and_missing_file(tmp_path):
@@ -383,15 +369,13 @@ def test_nextpnr_uses_the_lpf_beside_a_database_in_either_format(tmp_path, monke
 
 
 @SUFFIXES
-def test_a_legacy_dependency_resolution_carries_a_database_in_either_format(tmp_path, filename):
-    """A flow sharing the board with an undeclared dependency shares its database too."""
+def test_a_producer_shares_the_consumer_s_database_in_either_format(tmp_path, filename):
+    """A flow sharing the board with the flow it reads from shares its database too."""
     path = write_database(tmp_path, filename)
-    settings = _LegacyParent.from_input(
-        {"board": "MY_BOARD", "custom_boards_file": filename}, design_root=tmp_path
-    )
-    dependency = settings.resolve_dependency("nextpnr")
-    assert dependency.custom_boards_file == path
-    assert dependency.fpga.part == "LFE5U-25F-6BG381C"
+    plan = _plan(tmp_path, {"board": "MY_BOARD", "custom_boards_file": filename})
+    producer = plan.node("nextpnr").settings
+    assert producer.custom_boards_file == path
+    assert producer.fpga.part == "LFE5U-25F-6BG381C"
 
 
 def database_error(tmp_path: Path, filename: str, content: str, **extra) -> str:

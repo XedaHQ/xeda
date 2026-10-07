@@ -99,7 +99,7 @@ def _models(annotation) -> list:
 
 def path_fields():
     """(flow, owner qualname, model, field) of every path field of every flow, nested models
-    too; a dependency's settings are its own flow's."""
+    too."""
     for flow_cls, flow in flow_classes():
         seen: set = set()
 
@@ -107,10 +107,7 @@ def path_fields():
             if model in seen:
                 return
             seen.add(model)
-            dependencies = getattr(model, "dependency_settings", {})
             for field, info in model.model_fields.items():
-                if field in dependencies:
-                    continue
                 if _annotation_contains_path(info.annotation):
                     owner = next(
                         c for c in model.__mro__ if field in getattr(c, "__annotations__", {})
@@ -133,14 +130,10 @@ def test_every_role_names_a_path_field():
 
 
 def _dotted_fields(model, prefix: str = "", seen: frozenset = frozenset()):
-    """(dotted name, model, field) of every path field of `model`, nested models too, but a
-    dependency's settings."""
+    """(dotted name, model, field) of every path field of `model`, nested models too."""
     if model in seen:
         return
-    dependencies = getattr(model, "dependency_settings", {})
     for field, info in model.model_fields.items():
-        if field in dependencies:
-            continue
         if _annotation_contains_path(info.annotation):
             yield prefix + field, model, field
         for nested in _models(info.annotation):

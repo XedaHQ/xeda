@@ -17,6 +17,7 @@ from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
 from .io_flows import _ChainConsumer, _Join, _Left, _Taker
+from .tool_utils import producers_of
 
 
 @pytest.fixture(autouse=True)
@@ -171,7 +172,7 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
         assert results["flow_hash"] == trace["flowrun_hash"] == node.flowrun_hash
         assert settings["flowrun_hash"] == flow.flow_hash == node.flowrun_hash
         assert results["settings_hash"] == trace["settings_hash"] == node.settings_hash
-        (producer,) = flow.completed_dependencies
+        (producer,) = producers_of(runner, flow)
         (record,) = trace["declared_inputs"]
         assert record["references"] == [
             {
@@ -233,7 +234,7 @@ def test_a_changed_producer_is_the_named_reason_and_the_same_wiring_given_otherw
     assert rebound.stale_reason == "made now from __input_maker.made (was __maker.made)"
     # the same wiring from a chain instead of the file: nothing runs
     chained = runner.run(parse_request("__input_maker+__taker"), _design(tmp_path, flows=maker))
-    assert chained.reused and chained.completed_dependencies[0].reused
+    assert chained.reused and producers_of(runner, chained)[0].reused
     # and back to the default producer
     back = runner.run(_Taker, _design(tmp_path))
     assert back.stale_reason == "made now from __maker.made (was __input_maker.made)"

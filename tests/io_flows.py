@@ -92,19 +92,6 @@ class _Reader(Flow):
         self.results["read"] = self.inputs.data.read_text()
 
 
-class _Wrapper(Flow):
-    """Declares nothing: registers `_Taker` in its `init()`, as flows without declarations do."""
-
-    results_description: ClassVar[dict[str, str]] = {}
-
-    def init(self) -> None:
-        self.add_dependency(_Taker, _Taker.Settings())
-
-    def run(self) -> None:
-        (taker,) = self.completed_dependencies
-        self.results["read"] = taker.results["read"]
-
-
 class _Synth(FpgaSynthFlow):
     """Writes a netlist, its declared output."""
 

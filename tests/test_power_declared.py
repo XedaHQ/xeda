@@ -4,12 +4,9 @@ Power no longer belongs to the simulation-evidence sweep: its producer must succ
 before the launcher hands over activity. The reporter checks only its own power report.
 """
 
-import ast
-import inspect
 import json
 import subprocess
 import sys
-import textwrap
 
 import pytest
 
@@ -35,10 +32,9 @@ REMOVED = {
 }
 
 
-def test_power_is_a_reporter_with_only_declared_dependencies():
+def test_power_is_a_reporter_with_only_declared_producers():
     assert not issubclass(VivadoPower, SimFlow)
     assert not any(key.startswith("sim.") for key in VivadoPower.results_description)
-    assert VivadoPower.Settings.dependency_settings == {}
     declarations = declared_inputs(VivadoPower)
     assert set(declarations) == {"activity", "checkpoint"}
     assert declarations["activity"].producer == "vivado_postsynth_sim"
@@ -47,13 +43,6 @@ def test_power_is_a_reporter_with_only_declared_dependencies():
     assert declarations["checkpoint"].output == "checkpoint_route"
     assert all(declaration.required for declaration in declarations.values())
     assert not set(REMOVED) & VivadoPower.Settings.model_fields.keys()
-    for cls in VivadoPower.__mro__:
-        if "init" in vars(cls):
-            tree = ast.parse(textwrap.dedent(inspect.getsource(cls.init)))
-            assert not any(
-                isinstance(node, ast.Attribute) and node.attr == "add_dependency"
-                for node in ast.walk(tree)
-            )
 
 
 def test_power_demands_timing_activity_without_configuring_the_producer(tmp_path):

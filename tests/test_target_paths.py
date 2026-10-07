@@ -206,17 +206,6 @@ def test_no_target_keeps_the_pre_target_path(tmp_path):
     )
 
 
-def test_a_dependency_of_an_undeclared_flow_is_a_sibling_within_the_target(tmp_path):
-    """`_Wrapper` registers its declared dependency in `init()`: the legacy mechanism."""
-    from .io_flows import _Wrapper
-
-    design = Design.from_file(write_design(tmp_path, {"a": {}, "b": {}}), target="a")
-    launcher = runner(tmp_path)
-    assert launcher.run(_Wrapper, design).succeeded
-    assert {f.run_path.parent for f in launcher.launched} == {tmp_path / "xeda_run" / "d" / "a"}
-    assert [f.name for f in launcher.launched] == ["__maker", "__taker", "__wrapper"]
-
-
 def test_a_diamond_runs_each_node_once_in_the_target_in_plan_order(tmp_path):
     """`__join` takes a fork's outputs through two branches: one node per producer, all in the
     target's directory, entered exactly as planned."""

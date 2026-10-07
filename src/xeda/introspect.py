@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from .dataclass import PydanticUndefined, input_names, written_role
 from .design import DESIGN_NAME, FLAT_RTL_KEYS, TARGET_FORBIDDEN_KEYS, Design
 from .flow import AsicSynthFlow, Flow, FpgaSynthFlow, SimFlow, SynthFlow, registered_flows
-from .flow.io import declared_inputs, declared_outputs, is_declared, selected_types
+from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
@@ -102,8 +102,7 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
 
 def plan_info(plan: Plan) -> dict[str, Any]:
     """A resolved plan as plain data: the design's selected target (or None), producers
-    first, directories, input origins, and outputs switched on because a consumer reads them. Undeclared nodes have unknown
-    runtime dependencies, indicated by ``declared: false``.
+    first, directories, input origins, and outputs switched on because a consumer reads them.
     """
     return json_safe(
         {
@@ -113,7 +112,6 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                 {
                     "name": node.name,
                     "flow": node.flow_class.name,
-                    "declared": node.declared,
                     "run_path": str(node.run_path),
                     "flowrun_hash": node.flowrun_hash,
                     "settings_hash": node.settings_hash,
@@ -180,42 +178,6 @@ def _category(cls: Type[Flow]) -> str:
 # --------------------------------------------------------------------------------------------
 
 
-def _declared_dependencies(cls: Type[Flow]) -> List[str]:
-    """Flow names passed to `self.add_dependency(...)` in any `init()` along the MRO.
-
-    Statically detected: dependencies are registered at run time and may be conditional, so
-    this is a reliable *superset* hint rather than a guarantee.
-    """
-    found: List[str] = []
-    for klass in cls.__mro__:
-        init = klass.__dict__.get("init")
-        if init is None:
-            continue
-        try:
-            tree = ast.parse(textwrap.dedent(inspect.getsource(init)))
-        except (OSError, TypeError, SyntaxError):  # pragma: no cover - source not available
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or not node.args:
-                continue
-            func = node.func
-            if not (isinstance(func, ast.Attribute) and func.attr == "add_dependency"):
-                continue
-            target = node.args[0]
-            name = (
-                target.id
-                if isinstance(target, ast.Name)
-                else target.attr if isinstance(target, ast.Attribute) else None
-            )
-            if not name:
-                continue
-            try:
-                found.append(get_flow_class(name).name)
-            except Exception:  # noqa: BLE001 - a non-flow argument is simply not a dependency
-                log.debug("add_dependency argument %s in %s is not a known flow", name, cls.name)
-    return unique(found)
-
-
 def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     """One follow relation as plain data, seen from the other end: `other` is the flow it
     names, `output` the producer output a request qualifies when the unqualified one is
@@ -250,10 +212,8 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "category": _category(cls),
         "supports_cocotb": bool(getattr(cls, "cocotb_sim_name", None)),
         "dependencies": unique(
-            _declared_dependencies(cls)
-            + [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
+            [d.producer for d in declared_inputs(cls).values() if d.producer is not None]
         ),
-        "declared": is_declared(cls),
         "action_reason": cls.action_reason,
         "inputs": [
             {
@@ -286,9 +246,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
 
 def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
     """The `list-flows` table's chain columns for one `flow_info` document: what it takes, what
-    it makes, and what can follow it. An undeclared flow shows its boundary instead."""
-    if not info["declared"]:
-        return "undeclared: runs alone", "-", "-"
+    it makes, and what can follow it."""
 
     def kinds(item: dict[str, Any]) -> str:
         return "/".join(item["types"])
