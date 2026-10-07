@@ -1604,8 +1604,9 @@ class DesignReference(XedaBaseModel):
     uri: str
     rtl: RtlDep = RtlDep()
     tb: TbDep = TbDep()
-    #: where a git dependency is cloned (`<local_cache>/<host>/<path>`) when it names no
-    #: `clone_dir`; unset, a launcher clones into its run root (`loading_in_run_root`).
+    #: where a git dependency is cloned (`<local_cache>/<host>/<name>`, see `clone_name_parts`)
+    #: when it names no `clone_dir`; unset, a launcher clones into its run root
+    #: (`loading_in_run_root`).
     #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
     local_cache: Optional[Path] = None
 
@@ -1644,39 +1645,79 @@ class DesignReference(XedaBaseModel):
         return Design.from_file(design_path)
 
 
-def _clone_name_text(what: str, text: str) -> str:
-    """Refuse text that would name a directory outside the place it is joined onto."""
+#: The hexadecimal digits of the digest of what is cloned that end its directory's name.
+CLONE_DIGEST_LENGTH = 16
+#: The most characters of a readable part of a clone directory's name (a host, or a repository's
+#: path with its branch or commit) that its name keeps.
+CLONE_NAME_LIMIT = 80
+#: A drive (`C:`) at the start of a path component: on Windows it replaces the path before it.
+_DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
+
+
+def _clone_name_text(what: str, text: str, *, drive: bool = True) -> str:
+    """Refuse text that names a place outside the directory it is joined onto: a `.` or `..`
+    component, a drive such as `C:` at the start of a component, a leading `/`, a backslash or
+    a NUL. A path that is absolute, or drive-qualified, replaces the one it is joined onto.
+    `drive=False` leaves out the drive: a host and its port (`h:8443`) are one component."""
     if not isinstance(text, str):
         raise ValueError(f"the Git {what} must be a string, not {text!r}")
-    if "\\" in text or "\0" in text or any(part in (".", "..") for part in text.split("/")):
+    parts = text.split("/")
+    if (
+        text.startswith("/")
+        or "\\" in text
+        or "\0" in text
+        or any(part in (".", "..") or (drive and _DRIVE_PREFIX.match(part)) for part in parts)
+    ):
         raise ValueError(
-            f"the Git {what} {text!r} has a `.` or `..` component, a backslash or a NUL: "
-            "it would name a directory outside the clone cache"
+            f"the Git {what} {text!r} has a `.` or `..` component, a drive such as `C:`, a "
+            "leading `/`, a backslash or a NUL: it would name a directory outside the clone cache"
         )
     return text
+
+
+def _clone_token(text: str) -> str:
+    """`text` as one readable, filename-safe part of a directory name: each run of characters
+    other than ASCII letters, digits, `.` and `-` becomes one `_`, nothing starts or ends with
+    `.` or `_`, and no more than `CLONE_NAME_LIMIT` characters are kept."""
+    folded = re.sub(r"[^A-Za-z0-9.-]+", "_", text).strip("._")
+    return folded[:CLONE_NAME_LIMIT].rstrip("._")
 
 
 def clone_name_parts(
     repo_url: str, commit: Optional[str], branch: Optional[str]
 ) -> tuple[str, str]:
-    """The host and the relative path (below the host) a Git reference is cloned into.
+    """The names of the two directories a Git reference is cloned into, `<host>/<name>`.
 
-    The repository's host, path, commit and branch name directories in the clone cache, so none
-    may carry a `.` or `..` component or a backslash, and the host and the path may not be empty.
-    A branch may hold `/` (`release/1.0`): it then names nested directories, all inside the cache.
+    `<name>` is the repository's path and the commit, or else the branch, folded into one
+    readable token, then `_` and a digest of what is cloned: the repository URL, the branch and
+    the commit. Folding cannot keep two paths apart (`a/b` and `a_b` read alike), so the digest
+    does: a reference gets its own directory, as every other reference does, and the same
+    reference always gets the same one. The directory is one level below its host's, so no clone
+    lies inside another.
+
+    The host, the path, the commit and the branch are refused if they name a place outside the
+    cache (`_clone_name_text`), and the path may not be empty, whatever they are folded into.
+    The host and its port (`h:8443`) fold into one token, so a host that reads as a drive is not
+    refused.
     """
     uri = urlparse(repo_url)
     if not uri.netloc:
         raise ValueError(f"invalid URL: {uri}")
-    host = _clone_name_text("host", uri.netloc)
+    host = _clone_name_text("host", uri.netloc, drive=False)
     path = _clone_name_text("repository path", uri.path.lstrip("/"))
     if not path:
         raise ValueError(f"the Git URL {repo_url!r} names no repository path")
     if commit:
-        path += "_commit=" + _clone_name_text("commit", commit)
+        reference = "commit=" + _clone_name_text("commit", commit)
     elif branch:
-        path += "_" + _clone_name_text("branch", branch)
-    return host, path
+        reference = _clone_name_text("branch", branch)
+    else:
+        reference = ""
+    identity = json.dumps([repo_url, branch or None, commit or None])
+    digest = hashlib.sha256(identity.encode()).hexdigest()[:CLONE_DIGEST_LENGTH]
+    readable = _clone_token(f"{path}_{reference}")
+    name = f"{readable}_{digest}" if readable else digest
+    return _clone_token(host) or "host", name
 
 
 def clone_location(
@@ -1687,25 +1728,27 @@ def clone_location(
     *,
     owner: Optional[RunDirectory] = None,
 ) -> Path:
-    """Where a Git reference is cloned: `<cache>/<host>/<path>`, inside `cache`.
+    """Where a Git reference is cloned: `<cache>/<host>/<name>` (`clone_name_parts`).
 
-    A cache under a run root is named through its `owner` (the run root as a `RunDirectory`) by
+    The location lies inside `cache` -- a name that would leave it is refused -- and a cache
+    under a run root is named through its `owner` (the run root as a `RunDirectory`) by
     `RunDirectory.unlinked`, the one rule every cache there follows: inside the run root, and
-    reached through no symbolic link. The names themselves (`clone_name_parts`) cannot leave the
-    cache. A cache the user named (`local_cache`) is theirs to direct, so only the names are
-    checked against it.
+    reached through no symbolic link. A cache the user named (`local_cache`) is theirs to direct,
+    so only the names are checked against it.
     """
-    host, path = clone_name_parts(repo_url, commit, branch)
-    location = Path(cache) / host / path
-    if owner is not None:
-        return owner.unlinked(location)
+    host, name = clone_name_parts(repo_url, commit, branch)
+    location = Path(cache) / host / name
     base = os.path.abspath(cache)
     inside = os.path.abspath(location)
-    if inside == base or os.path.commonpath([base, inside]) != base:
+    try:
+        contained = inside != base and os.path.commonpath([base, inside]) == base
+    except ValueError:  # another drive, as on Windows
+        contained = False
+    if not contained:
         raise ValueError(
             f"{repo_url} would be cloned to {location}, outside the clone cache {cache}"
         )
-    return location
+    return owner.unlinked(location) if owner is not None else location
 
 
 class GitReference(DesignReference):
