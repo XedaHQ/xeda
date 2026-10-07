@@ -176,7 +176,13 @@ REVIEWED_DELTAS: dict[str, dict[tuple[str, ...] | str, str]] = {
 #: Where a conversion moved a file without changing it: in what is observed, each name is
 #: replaced by the one the golden recorded, per request, so the file's digest and every command
 #: that names it are still compared.
-REVIEWED_RENAMES: dict[str, dict[str, str]] = {}
+REVIEWED_RENAMES: dict[str, dict[str, str]] = {
+    # the activity a consumer (or a timing request) asks of the simulation is written under the
+    # conventional name of a deliverable, `outputs/<design>.saif`, as a located one is; the file
+    # and the commands that name it are the golden's, bar the name
+    name: {"outputs/sim.saif": "activity.saif"}
+    for name in ("vivado_postsynth_sim_timing", "vivado_power")
+}
 
 # `yosys` is configured by its own `platform`, which
 # `openroad` now hands it with the settings the two share, instead of by `openroad` building its
@@ -684,7 +690,7 @@ VIVADO_OUTPUTS = {
     "timesim.max.sdf": "vivado_synth",
     "post_synth.dcp": "vivado_synth",
     "post_route.dcp": "vivado_synth",
-    "activity.saif": "vivado_postsynth_sim",
+    "outputs/sim.saif": "vivado_postsynth_sim",
 }
 
 
@@ -717,7 +723,7 @@ def test_the_activity_file_follows_what_was_simulated(captured, tmp_path, monkey
     run = next(run for run in functional["nodes"] if run.endswith("vivado_postsynth_sim"))
     timing_run = next(run for run in timing["nodes"] if run.endswith("vivado_postsynth_sim"))
     assert only(digests(functional, run, "activity.saif")) != only(
-        digests(timing, timing_run, "activity.saif")
+        digests(timing, timing_run, "outputs/sim.saif")
     )
 
 

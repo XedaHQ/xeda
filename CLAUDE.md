@@ -382,8 +382,10 @@ nonempty default or an explicit value. A deliverable switch (`vivado_synth`'s `b
 its conventional name, `outputs/<design>.<ext>`, the name the run writes when the setting names a
 location: `Flow.enable_output(settings, name, design_name=...)` takes the design's name for it,
 so one output has one name however it is asked for
-(`test_one_dependency_mechanism.py::naming_problems`; `vivado_postsynth_sim.saif`, still
-`activity.saif` in the reviewed tool-input goldens, is its one listed exception). The flow chooses
+(`test_one_dependency_mechanism.py::naming_problems`, which lists no exception:
+`vivado_postsynth_sim`'s `saif`, which a consumer or a timing request asks for, is
+`outputs/<design>.saif` too, and `VivadoSim.run` makes the directory; the reviewed tool-input
+goldens still say `activity.saif`, which `REVIEWED_RENAMES` maps). The flow chooses
 its output paths inside its run directory.
 
 - **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input

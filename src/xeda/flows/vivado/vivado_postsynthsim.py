@@ -63,14 +63,23 @@ class VivadoPostsynthSim(VivadoSim):
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """An activity demand supplies the fixed filename; timing activity also enables timing."""
+        """An activity demand names the file: `saif` has no default to switch on, so a consumer's
+        demand gives it its conventional name (`outputs/<design>.saif`), the one the run writes
+        when the setting names a location. Timing activity also enables timing."""
         if name not in ("saif", "timing_saif"):
             return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
         if settings.saif is None:
-            settings.saif = Path("activity.saif")
+            settings.saif = cls.conventional_activity(settings, design_name)
         if name == "timing_saif":
             super().enable_output(settings, name, design_name=design_name)
+
+    @staticmethod
+    def conventional_activity(settings: Flow.Settings, design_name: str) -> Path:
+        """The name the activity file is written under when nothing names it."""
+        conventional = settings.conventional_output("saif", design_name)
+        assert conventional is not None  # `saif` is a deliverable with a conventional name
+        return Path(conventional)
 
     def run(self) -> None:
         ss = self.settings
@@ -116,7 +125,9 @@ class VivadoPostsynthSim(VivadoSim):
         # A direct timing request enables timing_saif without enabling the separate saif
         # output. Supply the recorder's filename during simulation, preserving its switch.
         requested_saif = ss.saif
-        recording_saif = requested_saif or (Path("activity.saif") if ss.timing_sim else None)
+        recording_saif = requested_saif or (
+            self.conventional_activity(ss, self.design.name) if ss.timing_sim else None
+        )
         try:
             ss.saif = recording_saif
             super().run()

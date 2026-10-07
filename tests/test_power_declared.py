@@ -8,6 +8,8 @@ import json
 import subprocess
 import sys
 
+from pathlib import Path
+
 import pytest
 
 from xeda.flow import FlowSettingsError, SimFlow
@@ -57,7 +59,7 @@ def test_power_demands_timing_activity_without_configuring_the_producer(tmp_path
     ]
     simulation = plan.node("vivado_postsynth_sim")
     assert simulation.settings.timing_sim is True
-    assert simulation.settings.saif.name == "activity.saif"
+    assert simulation.settings.saif == Path("outputs/sim.saif")
     assert "timing_saif" in simulation.switched_on
     synth = plan.node("vivado_synth")
     assert {"netlist", "netlist_timing", "sdf", "checkpoint_route"} <= {
