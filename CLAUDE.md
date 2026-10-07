@@ -1678,8 +1678,11 @@ dependency must also share `custom_boards_file`.
   installer, pinned to one commit (`INSTALLER_REV`), builds yosys, nextpnr-himbaechel and
   `fpga-as` into `~/openxc7`, and `actions/cache` keeps that installation under a key of the
   commit, a `RECIPE` counter and the runner image. The chip database is generated on every run.
-  Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading the installer's
-  diff: a new yosys or nextpnr can move the counts `tests/test_openxc7_real.py` pins.
+  The job runs the Artix-7 cases only (the cache holds that family's Project X-Ray data), and
+  it fails when any of them skips: a renamed opt-in variable would otherwise leave it green
+  with nothing run. Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading
+  the installer's diff: a new yosys or nextpnr can move the counts `tests/test_openxc7_real.py`
+  pins.
   `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
   package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
   yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for

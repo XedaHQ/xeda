@@ -1,11 +1,12 @@
 name: openXC7
 
-# The real openXC7 toolchain builds an Arty A7-100T design (tests/test_openxc7_real.py): yosys,
-# nextpnr-himbaechel with the Xilinx backend, and fpga-as. No package has the layout xeda reads,
-# so this job builds the three tools once with openXC7's own installer and caches the
-# installation. A cache miss builds for about 16 minutes, and the job takes about 20. A cache hit
-# restores the tools in seconds, and the job takes 5 to 8 minutes. This is a separate workflow,
-# so it runs beside the tox legs in ci.yml, and a build delays none of them.
+# The real openXC7 toolchain builds Artix-7 designs, an Arty A7-100T and a Basys 3
+# (tests/test_openxc7_real.py and the cases named in the test step): yosys, nextpnr-himbaechel
+# with the Xilinx backend, and fpga-as. No package has the layout xeda reads, so this job builds
+# the three tools once with openXC7's own installer and caches the installation. A cache miss
+# builds for 16 to 27 minutes, and the job takes 20 to 33. A cache hit restores the tools in
+# seconds, and the job takes 4 to 6 minutes. This is a separate workflow, so it runs beside the
+# tox legs in ci.yml, and a build delays none of them.
 on:
   push:
     branches: ["main", "release/*"]
@@ -50,11 +51,14 @@ jobs:
 
       - name: Get the installer and install its system packages
         # Also on a cache hit: the cached tools link against shared libraries (Boost, Tcl) that
-        # the runner image does not have. The limit is for the package mirror of the runners,
-        # which has stopped answering for many minutes.
+        # the runner image does not have. The package mirror of the runners has stopped answering
+        # for many minutes. apt now retries a failed download and stops waiting for a silent
+        # mirror after 30 s, and the step limit ends what is left.
         timeout-minutes: 10
         run: |
           set -euo pipefail
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' |
+            sudo tee /etc/apt/apt.conf.d/80-xeda-ci > /dev/null
           git clone --quiet https://github.com/openXC7/toolchain-installer.git "$RUNNER_TEMP/installer"
           git -C "$RUNNER_TEMP/installer" checkout --quiet --detach "$INSTALLER_REV"
           # Sourcing the script defines its functions. It does not build anything.
@@ -117,7 +121,26 @@ jobs:
         env:
           XEDA_TESTS_OPENXC7: "1"
         run: |
+          set -euo pipefail
           python -VV
           python -m pip install --upgrade pip
           python -m pip install --editable . pytest
-          python -m pytest tests/test_openxc7_real.py -v --durations=10
+          # Artix-7 builds only: the cache holds the Project X-Ray data of that family alone. The
+          # STLV7325 case of the board test needs Kintex-7 data, so it is left out.
+          python -m pytest -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openxc7-tests.xml" \
+            tests/test_openxc7_real.py \
+            tests/test_fpga_chains.py::test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7 \
+            "tests/test_board_basys3_stlv7325.py::test_the_board_builds_a_bitstream_with_openxc7[basys_3]"
+          # A skipped test builds nothing. Without this check, a renamed opt-in variable or a
+          # changed probe in tests/tool_utils.py would leave the job green with no build.
+          python - "$RUNNER_TEMP/openxc7-tests.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suites = list(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          tests = sum(int(suite.get("tests")) for suite in suites)
+          skipped = sum(int(suite.get("skipped")) for suite in suites)
+          print(f"{tests} tests, {skipped} skipped")
+          if tests == 0 or skipped:
+              sys.exit("Every openXC7 test must run: none may be skipped.")
+          PY
