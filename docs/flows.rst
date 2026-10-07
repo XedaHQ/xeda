@@ -154,6 +154,7 @@ chain leading to it. To name the stages yourself, see :ref:`flow-chains`.
 .. code-block:: text
 
     openfpgaloader  ->  fpga_pack  ->  nextpnr  ->  yosys_fpga
+    vivado_impl     ->  yosys_fpga
     vivado_power    ->  vivado_postsynth_sim  ->  vivado_synth
     openroad        ->  yosys
 
@@ -179,7 +180,8 @@ requires exactly one matching source. A default producer that a source or a bind
 or ``flows.<flow>.inputs``) displaces is not part of the run: its settings are unused, and
 planning logs each such section. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by
 ``netlist_json``) and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or
-Nexus/Xilinx ``fasm``).
+Nexus/Xilinx ``fasm``). ``yosys_fpga`` also declares ``netlist_edif``, which ``vivado_impl``
+reads (see :ref:`vivado-impl`).
 ``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
 into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
 ``Bitstream`` source, and declares no output.
@@ -252,8 +254,8 @@ checks each neighboring pair and never searches for a missing stage.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs (a nonempty ``inputs`` or ``outputs`` in
   ``xeda list-flows --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
-  ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_postsynth_sim`` and
-  ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
+  ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl``,
+  ``vivado_postsynth_sim`` and ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
   ``vivado_sim``, ...) runs alone. A chain through it is refused: no output fits an input, or the flow after it takes no required input.
   No stage is ever fed by reading another flow's ``artifacts``.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
@@ -812,6 +814,71 @@ settings to ``flows.yosys_fpga``, and pin files into ``rtl.sources``. ``openfpga
 former ``nextpnr``, ``packer_args`` and ``bitstream_file`` settings are removed the same way:
 use the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
 ``xeda scrub open_xc7 <design>`` still removes the run directories the removed flow left.
+
+.. _vivado-impl:
+
+Vivado place and route of a yosys netlist
+-----------------------------------------
+
+``vivado_impl`` implements a netlist in Vivado, in non-project mode. It reads the constraints and
+an EDIF netlist, links the design for the part, and runs ``opt_design``, ``place_design`` and
+``route_design``. It does no synthesis. Its ``netlist`` input is an ``Edif`` design source or, by
+default, the EDIF netlist that ``yosys_fpga`` writes for a Xilinx device. So Vivado can place and
+route the open-source synthesis, and you can compare it with ``vivado_synth`` and
+``vivado_alt_synth`` on one design. The design needs ``rtl.top``, a Xilinx part, a clock, and
+pin constraints as ``Xdc`` sources (or ``xdc_files``):
+
+.. code-block:: yaml
+
+    # vivado_demo.yaml
+    name: blinky
+    rtl:
+      sources:
+        - blinky.v
+        - blinky.xdc        # pins: an Xdc source, typed by its suffix
+      top: blinky
+      clock: {port: clk}
+    flows:
+      vivado_impl:
+        fpga: {part: xc7a35tcpg236-1}
+        clock: {period: 10.0}
+
+.. code-block:: bash
+
+    xeda run yosys_fpga+vivado_impl blinky.yaml                              # reports and results
+    xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit # and a bitstream
+    xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
+
+``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows and one
+clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is the only output.
+It is written when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
+``openfpgaloader``. A bitstream needs every port to be constrained; without ``bitstream``, Vivado
+stops after routing and the flow reports timing and utilization only. The results are those of
+``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp``, ...), read from Vivado's reports of
+the routed design. ``impl.strategy`` and ``impl.steps`` choose the implementation options as for
+``vivado_alt_synth``. Only 7-series parts were tested.
+
+**The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
+-pvector bra``, whenever the synthesis is flat: a Xilinx target with ``flatten`` unset or true, no
+``keep_hierarchy``, and no ``stop_after``. Nothing asks for it, so ``yosys_fpga+nextpnr`` and
+``yosys_fpga+vivado_impl`` share one synthesis run. ``netlist_edif`` names the file, or a location
+it is delivered to. Vivado reads a flat netlist only: for a hierarchical one it finds the modules
+undefined and treats them as black boxes. So with ``flatten: false`` the synthesis writes no EDIF
+netlist, and ``yosys_fpga+vivado_impl`` is refused while planning, with ``flatten`` named. The
+synthesis itself is not refused, and ``netlist_edif`` is an error where none is written.
+
+Pin constraints name the ports as the netlist does. yosys writes a one-bit bus (``input [0:0] a``)
+as the scalar port ``a``, so its constraint is ``get_ports a``, and ``get_ports {a[0]}`` matches
+nothing. A port that no constraint matches stops ``write_bitstream``.
+
+**A netlist from elsewhere.** List it in ``rtl.sources``; the ``.edf`` and ``.edif`` suffixes are
+typed ``Edif``, and ``xeda run vivado_impl blinky.yaml`` then runs no synthesis. Whatever the file
+is called, the flow copies it to ``<top>.edif`` in its run directory, because Vivado finds the top
+module of an EDIF netlist by the name of its file. The netlist has to be flat, and written with its
+buses' ranges: in yosys, ``synth_xilinx -flatten -top <top>``, then ``write_edif -pvector bra
+<top>.edif``. Vivado reads a bus written without its range with its bits reversed, and says
+nothing about it. A Verilog netlist is not an input: Vivado drops the contents of a block RAM
+that has undefined bits when it reads one, and says nothing about that either.
 
 Bluespec
 ========

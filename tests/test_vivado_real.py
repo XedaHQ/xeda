@@ -8,6 +8,7 @@ file names with spaces, brackets and ``$``, constraint files, the project a flow
 """
 
 import shutil
+import subprocess
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -15,9 +16,9 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSim, VivadoSynth
+from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSim, VivadoSynth, YosysFpga
 
-from .tool_utils import checkout_work_dir, require_vivado
+from .tool_utils import checkout_work_dir, require_iverilog, require_vivado, require_yosys
 
 PART = "xc7a12tcsg325-1"
 INVERTER_V = "module inv(input a, output y); assign y = ~a; endmodule\n"
@@ -375,3 +376,154 @@ def test_xsim_native_partial_line_finish_during_prerun(work_dir):
         0,
         0,
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# vivado_impl: the netlist yosys writes, implemented by Vivado (needs the real yosys too)
+# ---------------------------------------------------------------------------------------------
+
+IMPL_RESOURCES = Path(__file__).parent / "resources" / "vivado_impl"
+BASYS3 = "xc7a35tcpg236-1"
+IMPL_SETTINGS = {"fpga": BASYS3, "clock": {"period": 10.0}}
+
+
+def _impl_design(root: Path, name: str, netlist: str | None = None) -> Design:
+    """One of the Basys 3 designs of `resources/vivado_impl`, with its pin constraints, copied
+    into `root`; its netlist is the synthesis's, or the EDIF file `netlist` (a name that is not
+    the top's)."""
+    root.mkdir(parents=True, exist_ok=True)
+    for file in (f"{name}.v", f"{name}.xdc"):
+        shutil.copy(IMPL_RESOURCES / file, root / file)
+    sources = [f"{name}.xdc"] if netlist else [f"{name}.v", f"{name}.xdc"]
+    if netlist:
+        sources.insert(0, {"file": netlist, "type": "Edif"})  # type: ignore[arg-type]
+    return Design(
+        name=name,
+        design_root=root,
+        rtl={"sources": sources, "top": name, "clock": {"port": "clk"}},
+    )
+
+
+def test_vivado_impl_builds_the_bitstream_of_a_yosys_netlist(work_dir) -> None:
+    """`xeda run yosys_fpga+vivado_impl`, on the real tools: a 27-bit counter driving four LEDs.
+    A netlist read with its buses reversed kept 7 of its 27 registers, met timing and got a
+    bitstream all the same: the register count is what shows the buses came through."""
+    require_yosys()
+    design = _impl_design(work_dir / "design", "blinky")
+    bitstream = "outputs/blinky.bit"
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoImpl, design, {**IMPL_SETTINGS, "bitstream": bitstream}
+    )
+    assert flow is not None and flow.succeeded
+    assert flow.results["ff"] == 27 and flow.results["lut"] == 1
+    assert flow.results["wns"] > 0 and flow.results["Fmax"] > 100
+    assert (flow.run_path / bitstream).stat().st_size > 100_000
+    assert _logged(flow.run_path, "Parsing EDIF File [./blinky.edif]")
+    assert _logged(flow.run_path, "link_design completed successfully")
+
+
+def test_vivado_impl_implements_an_edif_netlist_it_is_given(work_dir) -> None:
+    """A listed netlist named other than its top: Vivado looks the top up by the name of the
+    file, so the flow reads a copy named for it."""
+    require_yosys()
+    synthesis = DefaultRunner(work_dir / "synthesis").run_flow(
+        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": BASYS3}
+    )
+    assert synthesis is not None and synthesis.succeeded
+    shutil.copy(synthesis.run_path / "netlist.edif", work_dir / "design" / "given.edf")
+    runner = DefaultRunner(work_dir / "run")
+    flow = runner.run_flow(
+        VivadoImpl,
+        _impl_design(work_dir / "design", "blinky", netlist="given.edf"),
+        {**IMPL_SETTINGS, "bitstream": "outputs/blinky.bit"},
+    )
+    assert flow is not None and flow.succeeded
+    assert [f.name for f in runner.launched] == ["vivado_impl"], "no synthesis ran"
+    assert flow.results["ff"] == 27
+    assert _logged(flow.run_path, "Parsing EDIF File [./blinky.edif]")
+
+
+def test_vivado_finds_the_top_of_an_edif_netlist_by_the_name_of_its_file(work_dir) -> None:
+    """The behavior the staged copy answers: a netlist not named for its top is not found."""
+    require_yosys()
+    synthesis = DefaultRunner(work_dir / "synthesis").run_flow(
+        YosysFpga, _impl_design(work_dir / "design", "blinky"), {"fpga": BASYS3}
+    )
+    assert synthesis is not None and synthesis.succeeded
+    shutil.copy(synthesis.run_path / "netlist.edif", work_dir / "given.edf")
+    (work_dir / "link.tcl").write_text(
+        "read_edif given.edf\nlink_design -part " + BASYS3 + " -top blinky\n"
+    )
+    result = subprocess.run(
+        ["vivado", "-mode", "batch", "-nojournal", "-nolog", "-source", "link.tcl"],
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert result.returncode != 0
+    assert "No files found to match top module 'blinky'" in result.stdout + result.stderr
+
+
+def _simulate(directory: Path, files: list[str], tops: list[str], libraries=()) -> str:
+    """The output of an Icarus Verilog simulation of `files` in `directory`."""
+    command = ["iverilog", "-g2012", "-o", "sim.vvp"]
+    for top in tops:
+        command += ["-s", top]
+    for library in libraries:
+        command += ["-y", library]
+    subprocess.run([*command, "-Y", ".v", *files], cwd=directory, check=True, capture_output=True)
+    return subprocess.run(
+        ["vvp", "sim.vvp"], cwd=directory, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def test_vivado_impl_implements_block_ram_dsp_and_carry_chains_and_the_result_works(
+    work_dir,
+) -> None:
+    """A 1K x 16 block RAM with initial contents and a 16 x 16 multiply-accumulate, mapped by
+    yosys and implemented by Vivado. The routed design is simulated and compared with the RTL:
+    the flow's own script, with a functional netlist written where it writes the bitstream, and
+    Vivado's own models of the primitives (copied out of its installation)."""
+    require_yosys()
+    require_iverilog()
+    design = _impl_design(work_dir / "design", "macram")
+    bitstream = "outputs/macram.bit"
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoImpl, design, {**IMPL_SETTINGS, "bitstream": bitstream}
+    )
+    assert flow is not None and flow.succeeded
+    assert (flow.results["bram_RAMB18"], flow.results["dsp"], flow.results["ff"]) == (1, 1, 36)
+    assert (flow.run_path / bitstream).stat().st_size > 100_000
+
+    sim = work_dir / "sim"
+    sim.mkdir()
+    for name in ("clock.xdc", "macram.edif", "vivado_impl.tcl"):
+        shutil.copy(flow.run_path / name, sim / name)
+    for name in ("macram.v", "tb_macram.v"):
+        shutil.copy(IMPL_RESOURCES / name, sim / name)
+    script = (sim / "vivado_impl.tcl").read_text()
+    write = f'write_bitstream -force "{bitstream}"'
+    assert script.count(write) == 1
+    unisims = "[file join $::env(XILINX_VIVADO) data verilog src %s]"
+    (sim / "netlist.tcl").write_text(
+        script.replace(
+            write,
+            "write_verilog -mode funcsim -force post_route.v\n"
+            f"file copy -force {unisims % 'unisims'} unisims\n"
+            f"file copy -force {unisims % 'glbl.v'} glbl.v",
+        )
+    )
+    subprocess.run(
+        ["vivado", "-mode", "batch", "-nojournal", "-nolog", "-source", "netlist.tcl"],
+        cwd=sim,
+        check=True,
+        capture_output=True,
+        timeout=1800,
+    )
+    expected = _simulate(sim, ["tb_macram.v", "macram.v"], ["tb_macram"])
+    routed = _simulate(
+        sim, ["tb_macram.v", "post_route.v", "glbl.v"], ["tb_macram", "glbl"], libraries=["unisims"]
+    )
+    assert len(expected.splitlines()) > 1900
+    assert routed == expected

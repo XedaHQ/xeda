@@ -554,6 +554,29 @@ proc write_bitstream {args} {
     __vivado_text [lindex $args end] "fake Vivado bitstream of [__vivado_top_name]\n"
     return $result
 }
+# `read_edif <files>` reads EDIF netlists, which `link_design` then looks the top module up in BY THE
+# NAME OF THE FILE: `[Project 1-68] No files found to match top module` when none is named for it,
+# whatever the netlist holds. `-top` is what `write_bitstream` and the other writers then name.
+set __vivado_edifs {}
+proc read_edif {args} {
+    set result [__call read_edif {*}$args]
+    foreach file [lindex $args end] {
+        if {![file isfile $file]} { error "read_edif: no file $file" }
+        lappend ::__vivado_edifs $file
+    }
+    return $result
+}
+proc link_design {args} {
+    set result [__call link_design {*}$args]
+    set top [__option $args -top]
+    set named 0
+    foreach file $::__vivado_edifs { if {[file rootname [file tail $file]] eq $top} { set named 1 } }
+    if {!$named} {
+        error "\[Project 1-68\] No files found to match top module '$top'. Please verify your EDIF file is named after its top module"
+    }
+    set ::__vivado_top $top
+    return $result
+}
 # What a power estimate was made of: the checkpoint opened and the activity read, as they say
 # they are (`__head`).
 set __vivado_checkpoint {}

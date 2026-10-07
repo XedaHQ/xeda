@@ -974,8 +974,17 @@ def test_the_deviations_the_plan_enumerates_are_the_ones_the_default_script_rend
     the mode: a new pre- or post-pass added later fails here until it is classified."""
     default = set(_commands(_launch(tmp_path, PARTS["xilinx"]), "ys"))
     mode = set(_commands(_launch(tmp_path, PARTS["xilinx"], synth_pass_only=True), "ys"))
-    # `flatten`: xeda's recipe flattens for Xilinx by default, the pass alone does not
-    assert default - mode == {"hierarchy", "check", "proc", "flatten", "opt_clean", "scratchpad"}
+    # `flatten`: xeda's recipe flattens for Xilinx by default, the pass alone does not -- and
+    # Vivado reads a flat EDIF netlist only, which only a flattened Xilinx synthesis writes
+    assert default - mode == {
+        "hierarchy",
+        "check",
+        "proc",
+        "flatten",
+        "opt_clean",
+        "scratchpad",
+        "write_edif",
+    }
     assert mode - default == set()
     assert not mode & DEVIATIONS
 

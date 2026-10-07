@@ -466,10 +466,11 @@ its output paths inside its run directory.
   design, original request and run-root policy, then executes producers first without resolving
   inputs again. External supplied plans are not a supported API. Declared `init()` adds no
   dependencies, reads no inputs and writes no files; pure `check_settings_supported` validates
-  targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
-  `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus/Xilinx fasm);
-  `fpga_pack` declares input `config` and output `bitstream`; `openfpgaloader` declares input
-  `bitstream` and no output. No flow of this graph nests a producer's settings.
+  targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`) and `netlist_edif` (a flat
+  Xilinx synthesis only); `nextpnr` declares input `netlist` and optional output `config` (ECP5
+  textcfg, iCE40 asc or Nexus/Xilinx fasm); `fpga_pack` declares input `config` and output
+  `bitstream`; `openfpgaloader` declares input `bitstream` and no output. No flow of this graph
+  nests a producer's settings.
 - **Binding > design source > default producer.** An explicit binding -- a chain adjacency
   (`chains.parse_request`, `a+b`), or `flows.<consumer>.inputs.<input>: producer[.output]` in
   a design or project file, on the command line or through the API -- supplies the input first
@@ -630,6 +631,28 @@ none of it shows in timing or utilization. `docs/flows.rst` and the skill's
 troubleshooting say what to use. No code checks the build: raise the floor once an openXC7 release
 has all of them. `nextpnr` also ignores `set_property PULLUP true` without a warning and reads
 `PULLTYPE PULLUP`; the bundled pin files use neither.
+
+**Vivado implements the netlist `yosys_fpga` writes** (`xeda run yosys_fpga+vivado_impl`;
+`flows/vivado/vivado_impl.py`). `yosys_fpga` declares `netlist_edif` (`Edif`, no `enabled_by`, as
+`nextpnr.config`: a consumer switches nothing on, so `yosys_fpga+nextpnr` and
+`yosys_fpga+vivado_impl` are one yosys identity and one run) and writes it, `write_edif -pvector
+bra`, exactly when `YosysFpga.Settings.edif_problem()` is None: a Xilinx target, flat
+(`effective_flatten`, no `keep_hierarchy`), not `stop_after: rtl`. Otherwise `output_types` is
+`()` and `enable_output` raises the problem's text, so planning refuses the consumer naming
+`flatten`; a non-default `netlist_edif` where none is written is refused too. The four hazards of
+a yosys netlist in Vivado (two of them silent) are each excluded by construction
+(`tests/test_vivado_impl.py`):
+the `-pvector bra` in `write_netlist.{ys,tcl}`; no EDIF unless flat; the netlist staged as
+`<rtl.top>.edif` whatever it was called (Vivado finds the top by the file's name; the fake
+`link_design` has the same rule); `netlist` takes `Edif` only, since a Verilog netlist drops block
+RAM contents with `x` bits. The script is `vivado_impl.tcl` (non-project: `read_xdc`, `read_edif`,
+`link_design`, `opt_design`) plus `implementation.tcl`, the tail it shares with
+`vivado_alt_synth.tcl`: its `write_checkpoint`/`write_netlist`/`write_timing_netlist` blocks are
+`is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`, until
+stage-typed checkpoint and netlist types exist). `VivadoImplementation` (`vivado_synth.py`) holds
+what `vivado_synth`, `vivado_alt_synth` and `vivado_impl` share: the implementation settings, the
+bitstream's `enable_output` and the timing and utilization parsing. Real Vivado:
+`tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

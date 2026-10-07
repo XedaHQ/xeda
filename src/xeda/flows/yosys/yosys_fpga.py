@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import List, Literal, NamedTuple, Optional, Tuple
 
-from ...dataclass import Field, field_validator, model_validator
+from ...dataclass import Field, deliverable, field_validator, model_validator
 from ...design import SourceType
 from ...flow import (
     Flow,
@@ -167,6 +167,15 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             "(JSON, Verilog and BLIF). On by default: nextpnr's reports cite them as source "
             "locations when it places this netlist.",
         )
+        netlist_edif: Path = Field(
+            Path("netlist.edif"),
+            description="The EDIF netlist for Vivado (`vivado_impl`), written with `write_edif "
+            "-pvector bra` so that Vivado reads every bus in the right order: a name in the run "
+            "directory, or a location it is delivered to. It is always written for a Xilinx "
+            "target whose synthesis is flattened (`flatten`), and never otherwise, since Vivado "
+            "reads a flat netlist only.",
+            json_schema_extra=deliverable(),
+        )
         synth_pass_only: bool = Field(
             False,
             description="Omit xeda's preparation and cleanup around the target's "
@@ -284,6 +293,48 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         ice40_device: Optional[Literal["hx", "lp", "u"]] = Field(
             None, description="iCE40 timing model; inferred from fpga.device/type when unset."
         )
+
+        @field_validator("netlist_edif", mode="before")
+        @classmethod
+        def _the_edif_is_always_written(cls, value):
+            """There is no switch: the EDIF netlist is a declared output (`netlist_edif`) whenever
+            the synthesis is flat, the same whoever asks for it, so one run serves every
+            consumer. The setting only names (or delivers) the file."""
+            if value is None or (isinstance(value, (str, Path)) and not str(value).strip()):
+                raise ValueError(
+                    "yosys_fpga always writes its EDIF netlist for a flattened Xilinx synthesis; "
+                    "give a file name or leave the default"
+                )
+            return value
+
+        def edif_problem(self) -> Optional[str]:
+            """Why the synthesis writes no EDIF netlist, or None when it writes one.
+
+            Pure and lenient, so planning can ask it of any settings: it reads `fpga.vendor`
+            rather than `synthesis_target()`, which raises for a target yosys cannot synthesize.
+            """
+            if self.fpga is None:
+                return "no `fpga` target is given"
+            vendor = (self.fpga.vendor or "").lower()
+            if vendor != "xilinx":
+                return f"the target is not a Xilinx device (fpga.vendor is {vendor or None!r})"
+            if self.stop_after == "rtl":
+                return "`stop_after: rtl` stops the flow before the synthesis"
+            if not self.effective_flatten():
+                cause = (
+                    "`flatten` is false"
+                    if self.flatten is False
+                    else "`synth_pass_only` leaves `flatten` to the synthesis pass, which keeps "
+                    "the hierarchy"
+                )
+                return f"{cause}, and Vivado reads a flat netlist only; set `flatten: true`"
+            if self.keep_hierarchy:
+                return (
+                    "`keep_hierarchy` keeps "
+                    + ", ".join(self.keep_hierarchy)
+                    + " unflattened, and Vivado reads a flat netlist only"
+                )
+            return None
 
         def synthesis_target(self) -> str:
             """The yosys FPGA synthesis target: xilinx, gowin, ecp5, ice40 or nexus."""
@@ -744,12 +795,38 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             enabled_by="netlist_json",
             description="The synthesized JSON netlist, written at `netlist_json`, for nextpnr.",
         )
+        netlist_edif: Path | None = Out(
+            SourceType.Edif,
+            description="The synthesized netlist as EDIF, with bus ranges, written at "
+            "`netlist_edif`, for Vivado (`vivado_impl`). Written whenever a Xilinx synthesis is "
+            "flattened, and absent otherwise.",
+        )
+
+    @classmethod
+    def output_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
+        if name == "netlist_edif":
+            assert isinstance(settings, cls.Settings)
+            return () if settings.edif_problem() else (SourceType.Edif,)
+        return super().output_types(settings, name)
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        if name != "netlist_edif":
+            return super().enable_output(settings, name, design_name=design_name)
+        assert isinstance(settings, cls.Settings)
+        if settings.fpga is None:
+            return  # no target yet: the required-settings check names what is missing
+        problem = settings.edif_problem()
+        if problem:
+            raise ValueError(f"no EDIF netlist is written: {problem}")
+        # nothing to switch on: a flat Xilinx synthesis always writes it
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Reject a `synth_pass_only` run that asks for a step the mode does not run, and a run
-        that stops after the RTL (`stop_after`) and asks for a result of a later stage
-        (`stop_after_conflicts`).
+        """Reject a `synth_pass_only` run that asks for a step the mode does not run, a run that
+        stops after the RTL (`stop_after`) and asks for a result of a later stage
+        (`stop_after_conflicts`), and an EDIF file name for a synthesis that writes no EDIF
+        netlist.
 
         Class-level and pure, so the refusal arrives at planning time -- before any producer
         runs, and under `xeda run --dry-run`. `run()` checks the pass-only conflicts again once
@@ -757,6 +834,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         """
         assert isinstance(settings, cls.Settings)
         cls._refuse(settings.synth_pass_only_conflicts() + stop_after_conflicts(settings))
+        # judged by value, as every setting is: a file name other than the default asks for one
+        if settings.netlist_edif != cls.Settings.model_fields["netlist_edif"].get_default():
+            problem = settings.edif_problem()
+            if problem:
+                raise FlowSettingsException(
+                    f"netlist_edif names a file for the EDIF netlist, but none is written: {problem}"
+                )
 
     @classmethod
     def _refuse_synth_pass_only_conflicts(cls, settings: "YosysFpga.Settings") -> None:
@@ -804,6 +888,20 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
         return [entry for entry in ss.verilog_lib if not is_pass_library(entry)]
 
+    def init(self) -> None:
+        super().init()
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.edif_problem() is None:
+            self.artifacts.netlist_edif = self.settings.netlist_edif
+
+    def prepare_output_parents(self) -> None:
+        super().prepare_output_parents()
+        assert isinstance(self.settings, self.Settings)
+        if self.artifacts.get("netlist_edif"):
+            self.run_directory.inside(self.settings.netlist_edif).parent.mkdir(
+                parents=True, exist_ok=True
+            )
+
     def run(self) -> None:
         """Synthesize the design for the selected FPGA target."""
         assert isinstance(self.settings, self.Settings)
@@ -814,6 +912,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         assert isinstance(declared, self.Outputs)
         if ss.netlist_json:
             declared.netlist = self.run_path / ss.netlist_json
+        if self.artifacts.get("netlist_edif"):
+            declared.netlist_edif = self.run_path / ss.netlist_edif
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None
         # written by the stage `stop_after: rtl` stops before: a stopped run has no report, and

@@ -22,7 +22,7 @@ from xeda.flow_runner import DefaultRunner
 from .tool_utils import fake_calls, use_fake_tools
 
 TEMPLATES = Path(__file__).parent.parent / "src" / "xeda" / "flows" / "vivado" / "templates"
-INCLUDE_UTIL = re.compile(r"\{%-?\s*include\s+['\"]util\.tcl['\"]\s*-?%\}")
+INCLUDE = re.compile(r"\{%-?\s*include\s+['\"]([\w.]+)['\"]\s*-?%\}")
 PROC = re.compile(r"^\s*proc\s+(\w+)", re.M)
 
 
@@ -32,21 +32,27 @@ def _code(template: Path) -> str:
     return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
-def test_every_vivado_template_includes_the_procs_it_calls() -> None:
-    """A proc a template calls is its own or `util.tcl`'s, and then the template includes
-    `util.tcl`. The procs of every template are the candidates, so a proc one template defines
-    for itself cannot be called from another."""
+def _script(template: Path) -> str:
+    """The template's TCL with each template it includes in its place: the code of the script as
+    it is rendered."""
+    return INCLUDE.sub(lambda found: _script(TEMPLATES / found[1]), _code(template))
+
+
+def test_every_vivado_script_defines_the_procs_it_calls() -> None:
+    """A proc a script calls is its own or `util.tcl`'s, and then the script includes `util.tcl`,
+    itself or in a template it includes (`implementation.tcl` is part of two scripts). The procs
+    of every template are the candidates, so a proc one script defines for itself cannot be
+    called from another."""
     templates = sorted(TEMPLATES.glob("*.tcl"))
-    defined = {template.name: set(PROC.findall(_code(template))) for template in templates}
-    shared = defined["util.tcl"]
-    every_proc = set().union(*defined.values())
-    assert "errorExit" in shared
+    fragments = {name for template in templates for name in INCLUDE.findall(template.read_text())}
+    every_proc = set().union(*(set(PROC.findall(_code(template))) for template in templates))
+    assert "errorExit" in set(PROC.findall(_code(TEMPLATES / "util.tcl")))
     for template in templates:
-        code = _code(template)
-        called = {p for p in every_proc - defined[template.name] if re.search(rf"\b{p}\b", code)}
-        assert called <= shared, (template.name, called - shared)
-        if called and template.name != "util.tcl":
-            assert INCLUDE_UTIL.search(template.read_text()), (template.name, called)
+        if template.name in fragments:  # judged in the scripts that include it
+            continue
+        code = _script(template)
+        called = {p for p in every_proc - set(PROC.findall(code)) if re.search(rf"\b{p}\b", code)}
+        assert not called, (template.name, called)
 
 
 def _design(root: Path) -> Design:

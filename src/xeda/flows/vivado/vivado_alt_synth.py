@@ -327,6 +327,45 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
 }
 
 
+#: The steps of each run of the non-project TCL scripts, in the order the script runs them. A step
+#: a strategy or the user does not give is `None`: the script leaves it out.
+RUN_STEPS = {
+    "synth": ["synth", "opt", "power_opt"],
+    "impl": [
+        "place",
+        "power_opt",
+        "place_opt",
+        "place_opt2",
+        "phys_opt",  # post-placement
+        "route",
+        "post_route_phys_opt",
+    ],
+}
+
+
+def expand_run_options(run: str, value: RunOptions) -> RunOptions:
+    """The options of the `run` (`synth` or `impl`) of a non-project TCL script, with the steps of
+    its strategy under the ones the user gave, and every step of the run named.
+
+    A copy: this runs in a `mode="after"` validator, so `value` may be the caller's own
+    `RunOptions` instance, and expanding the strategy in place would grow the caller's `steps`
+    mapping.
+    """
+    value = value.model_copy(deep=True)
+    if value.strategy:
+        strategy_steps = strategies[run].get(value.strategy)
+        if strategy_steps is None:
+            raise ValueError(f"Unknown strategy: {value.strategy}")
+        value.steps = {
+            **strategy_steps,
+            **value.steps,
+        }
+    for step in RUN_STEPS[run]:
+        if step not in value.steps:
+            value.steps[step] = None
+    return value
+
+
 def flatten_options(d) -> str:
     if d is None:
         return ""
@@ -406,34 +445,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         @field_validator("synth", "impl")
         @classmethod
         def validate_synth(cls, value, info):
-            # Copy: this is a `mode="after"` validator, so `value` may be the caller's own
-            # `RunOptions` instance. Expanding the strategy in place would grow the caller's
-            # `steps` mapping.
-            value = value.model_copy(deep=True)
-            if value.strategy:
-                strategy_steps = strategies[info.field_name].get(value.strategy)
-                if strategy_steps is None:
-                    raise ValueError(f"Unknown strategy: {value.strategy}")
-                value.steps = {
-                    **strategy_steps,
-                    **value.steps,
-                }
-            if info.field_name == "synth":
-                steps = ["synth", "opt", "power_opt"]
-            else:
-                steps = [
-                    "place",
-                    "power_opt",
-                    "place_opt",
-                    "place_opt2",
-                    "phys_opt",  # post-placement
-                    "route",
-                    "post_route_phys_opt",
-                ]
-            for step in steps:
-                if step not in value.steps:
-                    value.steps[step] = None
-            return value
+            return expand_run_options(info.field_name, value)
 
         suppress_msgs: List[str] = Field(
             [

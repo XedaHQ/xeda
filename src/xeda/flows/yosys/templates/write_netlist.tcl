@@ -22,7 +22,7 @@ yosys echo on
 
 {#- Remove the attributes once, before any netlist is written, from every module's objects
     and from the modules themselves; `=*` selects the library boxes too. -#}
-{% if artifacts.get("netlist_json") or artifacts.get("netlist_verilog") or settings.write_blif -%}
+{% if artifacts.get("netlist_json") or artifacts.get("netlist_verilog") or artifacts.get("netlist_edif") or settings.write_blif -%}
 {% for attr in settings.attributes_to_unset() -%}
 yosys setattr -unset {{attr}} =*
 yosys setattr -mod -unset {{attr}} =*
@@ -32,6 +32,14 @@ yosys setattr -mod -unset {{attr}} =*
 {% if artifacts.get("netlist_json") -%}
 yosys log -stdout "Writing netlist {{artifacts.netlist_json|tcl_quote}}"
 yosys write_json {{artifacts.netlist_json|path}}
+{% endif -%}
+
+{#- `-pvector bra` writes every bus with its range. Without it a bus is written as plain bits, and
+    Vivado reads member i as bit i, so a yosys bus (member 0 is the most significant bit) comes out
+    reversed -- with no message. -#}
+{% if artifacts.get("netlist_edif") -%}
+yosys log -stdout "Writing netlist {{artifacts.netlist_edif|tcl_quote}}"
+yosys write_edif -pvector bra {{artifacts.netlist_edif|path}}
 {% endif -%}
 
 {% if artifacts.get("netlist_verilog") -%}

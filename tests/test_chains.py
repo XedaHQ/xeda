@@ -302,10 +302,14 @@ def _pairs(edges, attribute):
 
 def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     from xeda.flow_runner.chains import followers, predecessors
-    from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
+    from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, VivadoImpl, YosysFpga
 
     classes = [c for c in _classes() if c.__module__.startswith("xeda.flows")]
-    assert _pairs(followers(YosysFpga, classes), "consumer") == [("nextpnr", None, False)]
+    # the JSON netlist feeds nextpnr, and the EDIF netlist Vivado: each by its own output
+    assert _pairs(followers(YosysFpga, classes), "consumer") == [
+        ("nextpnr", None, False),
+        ("vivado_impl", None, False),
+    ]
     # nextpnr makes a configuration of whichever family the target selects: a hint that
     # depends on the target
     assert _pairs(followers(Nextpnr, classes), "consumer") == [("fpga_pack", None, True)]
@@ -315,9 +319,12 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     assert _pairs(predecessors(Openfpgaloader, classes), "producer") == [
         ("fpga_pack", None, False),
         ("vivado_alt_synth", None, False),
+        ("vivado_impl", None, False),
         ("vivado_synth", None, False),
     ]
     assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
+    assert _pairs(predecessors(VivadoImpl, classes), "producer") == [("yosys_fpga", None, False)]
+    assert _pairs(followers(VivadoImpl, classes), "consumer") == [("openfpgaloader", None, False)]
     assert predecessors(YosysFpga, classes) == []
 
 
@@ -393,7 +400,8 @@ def test_a_follow_relation_is_exactly_what_the_chain_validator_accepts():
         ("__chain_simple_producer+__chain_action+", []),
         # a qualifier completes to the outputs that lead somewhere
         ("nextpnr.", ["nextpnr.config"]),
-        ("yosys_fpga.n", ["yosys_fpga.netlist"]),
+        ("yosys_fpga.n", ["yosys_fpga.netlist", "yosys_fpga.netlist_edif"]),
+        ("yosys_fpga.netlist_e", ["yosys_fpga.netlist_edif"]),
         ("yosys_fpga+nextpnr.c", ["yosys_fpga+nextpnr.config"]),
         ("openfpgaloader.", []),
         ("__chain_producer.j", ["__chain_producer.json_a", "__chain_producer.json_b"]),

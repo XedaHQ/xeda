@@ -52,7 +52,7 @@ GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 PACKAGE = Path(xeda.__file__).parent
 
 #: FPGA flows use process fakes, including an opt-in fake synthesis executable.
-FPGA_FAKED = {"yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"}
+FPGA_FAKED = {"yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader", "vivado_impl"}
 #: The flows whose tools have a fake in tests/fake_tools.
 FAKED = {
     "vivado_synth",
@@ -109,7 +109,8 @@ LOCATED = {
     "ghdl_sim": {"vcd": "dump.vcd"},
     "nvc": {"wave": "dump.fst"},
     "verilator": {"vcd": "dump.vcd"},
-    "yosys_fpga": {"netlist_json": "net.json"},
+    "yosys_fpga": {"netlist_json": "net.json", "netlist_edif": "net.edif"},
+    "vivado_impl": {"bitstream": "top.bit"},
     "yosys": {"netlist_verilog": "net.v"},
     "nextpnr": {"textcfg": "cfg.txt"},
     "fpga_pack": {"bitstream": "top.bit"},
@@ -964,11 +965,11 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "write_checkpoint -force ${checkpoints_dir}/post_synth",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_checkpoint -force ${checkpoints_dir}/post_place",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_checkpoint -force ${checkpoints_dir}/post_route",
     ): (1, _REPORT, None),
     (
@@ -976,32 +977,32 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarchical_utilization.rpt",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "report_utilization -hierarchical -force -file ${reports_dir}/post_place/hierarchical_utilization.rpt",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_verilog -mode funcsim -force ${settings.outputs_dir}/impl_funcsim.v",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_sdf -mode timesim -process_corner slow -force -file ${settings.outputs_dir}/impl_timesim.sdf",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_verilog -mode timesim -sdf_anno false -force -file ${settings.outputs_dir}/impl_timesim.v",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "##    write_vhdl    -mode funcsim -include_xilinx_libs -write_all_overrides -force -file "
         "${settings.outputs_dir}/impl_funcsim_xlib.vhd",
     ): (1, "a comment", None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_xdc -no_fixed_only -force ${settings.outputs_dir}/impl.xdc",
     ): (1, _REPORT, None),
     (
-        "flows/vivado/templates/vivado_alt_synth.tcl",
+        "flows/vivado/templates/implementation.tcl",
         "write_bitstream -force {{settings.bitstream|tcl_word}}",
     ): (1, _BITSTREAM, None),
     (

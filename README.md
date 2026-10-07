@@ -145,6 +145,8 @@ route. Results, generated scripts, reports, and effective settings are kept unde
   - `vivado_synth`: FPGA synthesis and implementation in project mode, run in batch
   - `vivado_alt_synth`: the same in non-project mode, driving `synth_design` through
     `route_design` from a generated TCL script
+  - `vivado_impl`: place and route of an EDIF netlist in non-project mode, with no synthesis: the
+    netlist `yosys_fpga` writes for a Xilinx device (`yosys_fpga+vivado_impl`), or an EDIF source
   - `vivado_project`: creates a Vivado project for the design, to work on in Vivado (`gui: true`
     opens it)
   - `vivado_sim`: functional simulation of an RTL design with the Vivado simulator (`xsim`)
@@ -201,7 +203,8 @@ route. Results, generated scripts, reports, and effective settings are kept unde
     cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing
 - [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite
   - `yosys`: ASIC and generic gate/LUT synthesis
-  - `yosys_fpga`: FPGA synthesis; the first stage of `nextpnr`, `fpga_pack` and `openfpgaloader`
+  - `yosys_fpga`: FPGA synthesis; the first stage of `nextpnr`, `fpga_pack`, `openfpgaloader` and
+    `vivado_impl`
   - `yosys_sim`: simulation with CXXRTL
 
 Run `xeda list-flows` for the complete list in the installed version; use

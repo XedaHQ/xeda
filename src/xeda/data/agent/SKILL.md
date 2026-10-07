@@ -133,6 +133,7 @@ Run the flow you want, not the chain leading to it - dependencies run automatica
 
 ```
 openfpgaloader -> fpga_pack -> nextpnr -> yosys_fpga
+vivado_impl    -> yosys_fpga
 vivado_power   -> vivado_postsynth_sim -> vivado_synth
 openroad       -> yosys
 ```
@@ -206,6 +207,21 @@ file; the combined timing file reaches `--sdc` once. A clock must have one timin
 across pin files, SDC files and settings: duplicates name the original files/lines and
 clock setting/period. File-only clocks suppress generated frequency hints. A clock port
 without a period is a declaration; it does not supply a physical timing constraint.
+
+`vivado_impl` places and routes an EDIF netlist in Vivado (non-project mode, no synthesis), so
+Vivado implements the open-source synthesis: `xeda run yosys_fpga+vivado_impl blinky.yaml -s
+bitstream=$PWD/blinky.bit`. Its `netlist` is `yosys_fpga`'s `netlist_edif` output or one
+`{file: "top.edf", type: Edif}` in `rtl.sources` (which skips synthesis); `bitstream` is its only
+output, written when set or when `openfpgaloader` follows. `yosys_fpga` writes the EDIF
+(`write_edif -pvector bra`, beside the JSON netlist, so `nextpnr` and `vivado_impl` share one
+synthesis run) whenever a Xilinx synthesis is flat; with `flatten: false`, `keep_hierarchy` or
+`synth_pass_only` and no `flatten: true`, it writes none and the chain is refused naming the cause.
+The flow copies the netlist to `<top>.edif`, since Vivado finds the top by the file's name, so it
+needs `rtl.top`, a Xilinx `fpga`, a clock and `Xdc` pin sources (a bitstream needs every port
+constrained; a one-bit bus, `input [0:0] a`, is the scalar port `a` in the netlist, so constrain
+`a`, not `a[0]`). Its results are `vivado_synth`'s (`Fmax`, `wns`, `lut`, `ff`, ...). An EDIF from
+elsewhere has to be flat and written with `-pvector bra`: Vivado reads a bus written without its
+range reversed, and says nothing. A Verilog netlist is not accepted.
 
 `custom_boards_file` is your own board database, used instead of the bundled one (which stays
 TOML): TOML or YAML by suffix (`.toml`, `.yaml`, `.yml`; any other suffix is an error), read as

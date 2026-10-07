@@ -173,6 +173,7 @@ def test_the_naming_sweep_covers_the_vivado_bitstream_and_the_simulation_s_activ
     assert {
         ("vivado_synth", "bitstream"),
         ("vivado_alt_synth", "bitstream"),
+        ("vivado_impl", "bitstream"),
         ("vivado_postsynth_sim", "saif"),
     } <= swept
 
@@ -236,11 +237,13 @@ def test_an_edge_to_a_flow_without_the_output_is_found() -> None:
 
 
 def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
-    """`bitstream` has no default to switch on: without `VivadoSynth.enable_output`, a consumer's
-    demand would fail at resolve time, which is what this oracle exists to catch."""
+    """`bitstream` has no default to switch on: without `VivadoImplementation.enable_output`, a
+    consumer's demand would fail at resolve time, which is what this oracle exists to catch."""
+    from xeda.flows.vivado.vivado_synth import VivadoImplementation
+
     inherited = Flow.__dict__["enable_output"]
-    assert VivadoSynth.__dict__.get("enable_output") is not None
-    monkeypatch.setattr(VivadoSynth, "enable_output", inherited)
+    assert VivadoImplementation.__dict__.get("enable_output") is not None
+    monkeypatch.setattr(VivadoImplementation, "enable_output", inherited)
     problems = switch_problems(VivadoSynth)
     assert any(
         "bitstream" in p and "give `bitstream` a value" in p and "minimal settings" in p

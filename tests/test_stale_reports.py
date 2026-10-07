@@ -56,6 +56,7 @@ READERS = {
     "openfpgaloader",
     "quartus",
     "vivado_alt_synth",
+    "vivado_impl",
     "vivado_project",
     "vivado_synth",
     "yosys_fpga",

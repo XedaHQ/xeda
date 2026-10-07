@@ -2,6 +2,7 @@ import gzip
 import json
 import re
 import shutil
+import subprocess
 from functools import cache
 from pathlib import Path
 from typing import get_args
@@ -260,6 +261,75 @@ def test_yosys_fpga_json_netlist_follows_netlist_src_attrs(keep_src, script_form
         assert "modules/top" in holders
     else:
         assert holders == []
+
+
+#: a bus on each port, and a module under the top that flattening absorbs
+EDIF_DESIGN = """module core(input clk, input [3:0] d, output reg [3:0] q);
+  always @(posedge clk) q <= d + 1;
+endmodule
+module top(input clk, input [3:0] sw, output [3:0] led);
+  core u_core(.clk(clk), .d(sw), .q(led));
+endmodule
+"""
+
+
+def _synthesize_for_vivado(tmp_path, **settings):
+    """Synthesize `EDIF_DESIGN` for a Xilinx device with real yosys."""
+    require_yosys()
+    root = tmp_path / "edif"
+    _write(root / "top.v", EDIF_DESIGN)
+    design = Design(name="edif", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+    flow = DefaultRunner(tmp_path / "run").run_flow(
+        YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}, **settings}
+    )
+    assert flow is not None and flow.succeeded
+    return flow
+
+
+def _modules_of_the_design(edif: str) -> int:
+    """The cells the netlist defines in its own library, `DESIGN`: one for a flat design. The
+    library cells it only declares, in `LIB`, come before it."""
+    return edif[edif.index("(library DESIGN") : edif.index("\n  (design ")].count("\n    (cell ")
+
+
+def test_yosys_fpga_writes_the_flat_edif_netlist_vivado_reads(tmp_path):
+    """The netlist is one cell, flat, and every bus keeps its range: `led` is `led[3:0]`, which
+    without `-pvector bra` is written `led` and read back by Vivado with its bits reversed."""
+    flow = _synthesize_for_vivado(tmp_path)
+    edif = flow.run_path / "netlist.edif"
+    text = edif.read_text()
+    assert flow.results["outputs"]["netlist_edif"]["path"] == str(edif)
+    assert text.startswith("(edif top\n") and "(design top\n" in text
+    assert _modules_of_the_design(text) == 1, "a hierarchical netlist is no one design to Vivado"
+    assert '(rename sw "sw[3:0]")' in text and '(rename led "led[3:0]")' in text
+    assert "u_core" not in text.split("(library DESIGN")[1]  # flattened into the top
+
+
+def test_yosys_fpga_writes_no_edif_netlist_for_a_hierarchical_synthesis(tmp_path):
+    flow = _synthesize_for_vivado(tmp_path, flatten=False)
+    assert not (flow.run_path / "netlist.edif").exists()
+    assert "netlist_edif" not in flow.results["outputs"] and "netlist" in flow.results["outputs"]
+
+
+def test_a_hierarchical_yosys_netlist_would_define_two_cells(tmp_path):
+    """Why a flat netlist is the only one: yosys writes each module of the design as a cell of
+    the library `DESIGN`, and Vivado resolves the instance of one as an undefined black box."""
+    require_yosys()
+    _write(tmp_path / "top.v", EDIF_DESIGN)
+    run = subprocess.run(
+        [
+            "yosys",
+            "-q",
+            "-p",
+            "read_verilog top.v; synth_xilinx -top top; write_edif -pvector bra x.edif",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert run.returncode == 0, run.stderr
+    assert _modules_of_the_design((tmp_path / "x.edif").read_text()) == 2
 
 
 @pytest.mark.parametrize("flags", [[], ["-sv"], ["-noautowire"], ["-noautowire", "-sv"]])

@@ -137,9 +137,10 @@ case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type: VerilogNe
 otherwise its inferred type is `Verilog`.
 
 A source of a later stage's type stands in for the flows that would build it: a `JsonNetlist`
-skips synthesis for `nextpnr`, a `Fasm`, `EcpConfig` or `IceAsc` configuration is packed by
-`fpga_pack` without placing, and a `Bitstream` (`{file: build/top.bit, type: Bitstream}`, or
-just the `.bit` file) is what `openfpgaloader` programs, with nothing built.
+skips synthesis for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig`
+or `IceAsc` configuration is packed by `fpga_pack` without placing, and a `Bitstream`
+(`{file: build/top.bit, type: Bitstream}`, or just the `.bit` file) is what `openfpgaloader`
+programs, with nothing built.
 
 Source-consumption contracts apply to `vivado_synth`, `vivado_alt_synth`, `vivado_project`,
 `quartus`, `diamond_synth`, `ise_synth`, `dc` and `yosys_fpga`: other non-language types are

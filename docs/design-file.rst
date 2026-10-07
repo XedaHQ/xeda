@@ -217,9 +217,9 @@ A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
 ``{file: net.v, type: VerilogNetlist}``.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
-skips synthesis for ``nextpnr``, a ``Fasm``, ``EcpConfig`` or ``IceAsc`` configuration is packed
-by ``fpga_pack`` without placing, and a ``Bitstream`` is what ``openfpgaloader`` programs, with
-nothing built:
+skips synthesis for ``nextpnr``, an ``Edif`` netlist skips it for ``vivado_impl``, a ``Fasm``,
+``EcpConfig`` or ``IceAsc`` configuration is packed by ``fpga_pack`` without placing, and a
+``Bitstream`` is what ``openfpgaloader`` programs, with nothing built:
 
 .. code-block:: yaml
 
