@@ -1333,6 +1333,13 @@ dependency must also share `custom_boards_file`.
 - **Two parameters must never share a destination.** click >= 8.5 warns on every invocation when
   they do, and one silently overwrites the other. `xeda run` hit this with the positional
   `DESIGN` argument and `--design-file`; the option now uses `design_file_opt`.
+- **A hidden option is never suggested.** click suggests the close matches of a mistyped option
+  from every option a command has, the hidden ones that only say what replaced a removed option
+  (`--xeda-run-dir`, `--cwd`, ...) included. `XedaCommand` (the default `command_class` of
+  `XedaHelpGroup`, so `@cli.command` takes it) and `XedaHelpGroup` re-raise click's
+  `NoSuchOption` with the matches taken from the visible long options
+  (`cli_utils.reraise_suggesting_visible`). A command built with another class loses the rule:
+  `tests/test_hidden_options.py` sweeps the whole command tree for both.
 - **cocotb integration sets `GPI_USERS` itself.** Xeda builds the simulator environment by hand
   rather than going through `cocotb_tools.runner`, so anything the runner sets has to be mirrored
   in `Cocotb.env()`. From cocotb 2.1 the GPI library no longer finds its Python entry point on its
