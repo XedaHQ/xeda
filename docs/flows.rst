@@ -678,6 +678,27 @@ the device. Programming the flash needs the device, so ``write_flash`` is refuse
 runs when neither ``fpga`` nor a board gives it. What the loader printed is in
 ``openfpgaloader.log`` in its run directory.
 
+The run fails when the loader exits with a nonzero status. It also fails when the log shows that
+the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
+failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of
+the log that show it. Xeda looks for these signs:
+
+* DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1
+  isc_done 0 isc_ena 0 init 1 done 0`` and then the status register of the FPGA. If the register
+  reports an ID error, the bitstream is for another device than the one on the cable: check the
+  board. If it reports a CRC error, the bitstream is damaged or incomplete. Loaders before
+  version 0.13.0 do not print this state.
+* A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
+* An error message that the loader prints before it ends with status 0: a line that starts with
+  ``Error:``, or ``Read ID failed``, ``wait: Error`` or ``write en: Error`` (a flash that does
+  not answer or does not accept the data).
+
+Xeda requires no sign of success, because the other families and versions print other words or
+nothing. A load that fails in another way, with status 0 and none of these signs, passes: read the
+log. A run without a log of its own fails, because it leaves no evidence that the device was
+programmed. A Lattice load needs no sign in the log, because the loader exits with a nonzero
+status when it fails.
+
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
 from its own installation are not inputs; ``--rebuild-all`` runs everything). A new directory

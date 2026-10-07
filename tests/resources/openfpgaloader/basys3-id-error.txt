@@ -1,0 +1,36 @@
+empty
+Jtag frequency : requested 6.00MHz    -> real 6.00MHz
+Open file DONE
+Parse file DONE
+load program
+
+Load SRAM: [================                                  ] 32.00%
+
+Load SRAM: [=================================                 ] 66.00%
+
+Load SRAM: [==================================================] 100.00%
+
+Done
+Shift IR 11
+ir: 1 isc_done 0 isc_ena 0 init 1 done 0
+Register raw value: 0x5000890c
+CRC Error       No CRC error
+Part Secured    0x0
+MMCM lock       0x1
+DCI match       0x1
+EOS             0x0
+GTS CFG B       0x0
+GWE             0x0
+GHIGH B         0x0
+MODE            0x1
+INIT Complete   0x1
+INIT B          0x0
+Release Done    0x0
+Done            0x0
+ID Error        ID error
+DEC Error       0x0
+XADC Over temp  0x0
+STARTUP State   0x0
+Reserved        0x0
+BUS Width       x1
+Reserved        0xa

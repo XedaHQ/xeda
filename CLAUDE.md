@@ -310,7 +310,8 @@ fresh `trace.json`, on success, once `_report` has returned).
 failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
 the dependency and its `results.json`). A flow that fails with no exception and no tool exit
 status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "ReportedFailure"`
-and a message from `_execute` (never overwriting a real error), so a depender quotes something.
+and a message from `_execute` (a flow may set its own message first, as `openfpgaloader` does; a
+real error is never overwritten), so a depender quotes something.
 The two names are two roles, not one thing spelled twice (neither is an exception class; both are
 strings in JSON documents): `FlowFailed` is the *verdict* at the top of the `--json` document of
 `xeda run` when the requested flow itself ran without raising and did not succeed (a raised
@@ -1878,6 +1879,24 @@ dependency must also share `custom_boards_file`.
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
+- **A programmer run passes only if the loader's output shows no failure.** openFPGALoader (read
+  at v1.1.1) exits 0 after most failures: Xilinx `program_mem` prints the readback `ir: ... done 0`
+  and a status-register dump and returns, an unreadable bitstream prints `FAIL` and returns, a flash
+  write ignores `SPIInterface::write`'s result; Lattice throws (status 1); Gowin and iCE40 print
+  `FAIL`/`Fail` and return. So `Openfpgaloader.parse_reports` judges this run's `openfpgaloader.log`
+  (`report_file`: a log this run did not write, or none, fails) with the pure
+  `loader_failure(text, target)`, after `_output_lines` drops escape codes and carriage returns: DONE
+  low (the register's ID and CRC error fields give the cause), a line ending `FAIL`/`Fail`, a line
+  starting `Error: `, `Read ID failed`, `wait: Error`, `write en: Error`. It requires **no success
+  marker** (the readback exists since 0.13.0; other families print other words, and a required
+  marker would fail good runs), so a failure without one of these signs passes; a nonzero exit keeps
+  its `NonZeroExitCode`. The failure is the node's `ReportedFailure` with the flow's own message in
+  plain sentences and the quoted lines. The file:line citations are in the module's comment: add a
+  sign there with its citation and a log in `tests/test_openfpgaloader_verdict.py`. The fake loader
+  prints `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`;
+  `tests/resources/openfpgaloader/*.txt` are real v1.1.1 logs (a failed Basys 3 load, a good Arty
+  load; `.log` is git-ignored). That file also sweeps that every flow with an `action_reason`
+  judges its tool's output (`unjudged_actions`).
 - **A change that a user can see adds a changelog fragment; nobody edits `CHANGELOG.md`'s
   `[Unreleased]` section**, so no two pull requests touch the same lines. One file per entry,
   `changelog.d/<slug>.<type>.md`: `<slug>` is kebab-case (the pull request number is not known

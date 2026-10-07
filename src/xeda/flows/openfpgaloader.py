@@ -1,6 +1,7 @@
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Union
 
@@ -37,6 +38,162 @@ def _loader_part(fpga: FPGA) -> str:
     if fpga.vendor == "xilinx" and fpga.speed and part.upper().endswith(fpga.speed.upper()):
         return part[: -len(fpga.speed)]
     return part
+
+
+# The verdict on a run. openFPGALoader exits with status 0 after several failures, so the flow
+# reads what the loader printed as well. What the loader does, from its source at the tag v1.1.1
+# (commit 85be4fa; the lines below are at that tag):
+#
+# * `main` returns status 1 when `program()` throws (main.cpp:583-590). A `program()` that returns
+#   ends the program with status 0, since `main` has no `return` at its end (main.cpp:651-653).
+# * Xilinx (xilinx.cpp). `program_mem` loads the SRAM and returns nothing. When the startup
+#   sequence has run, it reads the state of the FPGA and always prints `ir: <n> isc_done <d>
+#   isc_ena <e> init <i> done <d>` (lines 987-989). With `done 0` it also prints the status
+#   register, one `<field> <value>` line for each field (lines 991-993, 1043-1067, 1195-1225). It
+#   throws nothing, so the exit status is 0. For a file that it cannot read or parse, `program`
+#   prints `FAIL` and returns (lines 628-643). `program_spi`, which writes a flash, ignores the
+#   result of `SPIInterface::write` (line 849). So a flash that does not answer (`Read ID failed`,
+#   spiFlash.cpp:628 and spiInterface.cpp:222) or is write-protected (`Error: block protection is
+#   set`, spiFlash.cpp:454) ends with status 0 too.
+# * Lattice (ECP5, lattice.cpp). `program` throws when a step failed (lines 1073-1082): status 1.
+# * Gowin and iCE40 print `FAIL` or `Fail` for a failed step and return (gowin.cpp:385-426,
+#   ice40.cpp:104-149): status 0.
+# * `printError` writes to stderr. `printInfo`, `printWarn`, `printSuccess`, `printf` and
+#   `std::cout` write to stdout (display.cpp:23-65). The flow merges the two into one log.
+#
+# The verdict looks for signs of failure and requires no sign of success. The readback of the DONE
+# signal exists only since v0.13.0, and the other families print other words or nothing, so a
+# required marker would fail good runs of other versions and families. A load that fails without
+# one of the signs below passes. Its whole output is in the log in the run directory.
+
+#: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
+_DONE_READBACK = re.compile(
+    r"ir: [0-9a-f]+ isc_done [0-9a-f]+ isc_ena [0-9a-f]+ init [0-9a-f]+ done ([0-9a-f]+)"
+)
+#: Fields of the status register that the loader prints after the readback (xilinx.cpp:1043-1067).
+_REGISTER_DONE = re.compile(r"Done\s+0x[0-9a-f]+")
+_REGISTER_ID_ERROR = re.compile(r"ID Error\s+ID error")
+_REGISTER_CRC_ERROR = re.compile(r"CRC Error\s+CRC error")
+#: The warning for a `.bit` file whose header declares less data than the file holds: the loader
+#: sends only what the header declares (bitparser.cpp:115).
+_SHORT_HEADER = re.compile(
+    r"File is longer than bitstream length declared in the header: (\d+) vs (\d+)"
+)
+#: A step that failed: its label, if any, and then the word that `printError` writes.
+_FAILED_STEP = re.compile(r"(?:^|\s)(?:FAIL|Fail)$")
+#: The prefix of the error messages that the loader prints on a line of their own.
+_ERROR_PREFIX = "Error: "
+#: The messages of a flash that is not written, on the paths that end with status 0 (see above).
+_FLASH_FAILURES = ("Read ID failed", "wait: Error", "write en: Error")
+_ESCAPE_CODES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+#: The most lines that a message quotes for the failures that the loader reports as a step.
+MAX_REPORTED_LINES = 6
+
+
+@dataclass(frozen=True)
+class LoaderFailure:
+    """A failure that the output of the loader shows and its exit status does not.
+
+    `summary` holds the sentences that say what happened, one for each line of the message.
+    `evidence` holds the lines of the output that show it, as the loader printed them."""
+
+    summary: tuple[str, ...]
+    evidence: tuple[str, ...] = ()
+
+    def message(self, log_file: Optional[Path] = None) -> str:
+        """The text for a person: what happened, then the lines that show it."""
+        text = list(self.summary)
+        if self.evidence:
+            text.append("The loader printed:")
+            text.extend(f"    {line}" for line in self.evidence)
+        if log_file is not None:
+            text.append(f"Its whole output is in {log_file}.")
+        return "\n".join(text)
+
+
+def _output_lines(text: str) -> list[str]:
+    """The lines of the output as a person reads them: without the escape codes of a terminal's
+    colors, with a carriage return (the redrawn progress bar) as the end of a line, and without
+    blank lines or the space around a line."""
+    plain = _ESCAPE_CODES.sub("", text).replace("\r", "\n")
+    return [line for line in (raw.strip() for raw in plain.split("\n")) if line]
+
+
+def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str], list[str]]:
+    """The sentences and the lines that tell that a Xilinx FPGA did not finish its configuration:
+    the readback of its state shows DONE low. Nothing if they do not."""
+    for index, line in enumerate(lines):
+        found = _DONE_READBACK.fullmatch(line)
+        if found and found.group(1) == "0":
+            break
+    else:
+        return [], []
+    sentences = [
+        "openFPGALoader exited with status 0, but the FPGA did not finish configuration: "
+        "its DONE signal stayed low."
+    ]
+    evidence = [line]
+    # what the loader warned about before it loaded, and printed after the readback
+    warned = [found for found in map(_SHORT_HEADER.search, lines) if found]
+    if warned:
+        held, declared = warned[0].groups()
+        sentences.append(
+            f"The loader sent {declared} bytes, the length that the header of the bitstream "
+            f"declares, but the file holds {held} bytes of data."
+        )
+        sentences.append("The program that wrote the bitstream wrote a wrong header.")
+        evidence.insert(0, warned[0].string)
+    after = lines[index + 1 :]
+    done_row = next((row for row in after if _REGISTER_DONE.fullmatch(row)), None)
+    id_error = next((row for row in after if _REGISTER_ID_ERROR.fullmatch(row)), None)
+    crc_error = next((row for row in after if _REGISTER_CRC_ERROR.fullmatch(row)), None)
+    evidence.extend(row for row in (done_row, id_error, crc_error) if row)
+    if id_error:
+        sentences.append(
+            "The configuration logic reports an ID error: the ID code in the bitstream is not "
+            "the ID code of the FPGA on the cable."
+        )
+        which = (
+            f"the one this flow is set up to program ({target})"
+            if target
+            else "the one the bitstream is for"
+        )
+        sentences.append(f"Check that the board on the cable is {which}.")
+    if crc_error:
+        sentences.append(
+            "The configuration logic reports a CRC error: the bitstream is damaged or incomplete."
+        )
+    return sentences, evidence
+
+
+def _reported_failures(lines: list[str]) -> list[str]:
+    """The lines where the loader reports a failure itself, in the order it printed them: a step
+    that failed (with the line before a bare `FAIL`, which says which step), an error message,
+    a flash that does not answer."""
+    reported: list[str] = []
+    for index, line in enumerate(lines):
+        if (
+            _FAILED_STEP.search(line)
+            or line.startswith(_ERROR_PREFIX)
+            or line.endswith(_FLASH_FAILURES)
+        ):
+            if index and re.fullmatch(r"FAIL|Fail", line):
+                reported.append(lines[index - 1])
+            reported.append(line)
+    return list(dict.fromkeys(reported))
+
+
+def loader_failure(text: str, target: Optional[str] = None) -> Optional[LoaderFailure]:
+    """The failure that the output `text` of the loader shows (see above), or None if it shows
+    none. `target`, when known, names the board or part that the flow is set up to program."""
+    lines = _output_lines(text)
+    sentences, evidence = _unfinished_load(lines, target)
+    reported = [line for line in _reported_failures(lines) if line not in evidence]
+    if not sentences and not reported:
+        return None
+    if not sentences:
+        sentences = ["openFPGALoader exited with status 0, but it reported a failure."]
+    return LoaderFailure(tuple(sentences), tuple(evidence + reported[:MAX_REPORTED_LINES]))
 
 
 class OpenfpgaloaderTool(Tool):
@@ -82,9 +239,11 @@ class Openfpgaloader(FpgaSynthFlow):
     database), when it has one. The FPGA part is given when the board is not named and the part is
     known: a Xilinx part without its speed grade, any other as it is. Without a part,
     openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The
-    loader's output is kept in `openfpgaloader.log` in the run directory. The flow always runs,
-    since it changes a device rather than a file, and it is the only flow here that touches
-    hardware.
+    loader's output is kept in `openfpgaloader.log` in the run directory. The run fails when the
+    loader exits with a nonzero status, and also when its output shows that the device was not
+    programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error
+    the FPGA reports), a step that printed FAIL, or an error message. The flow always runs, since
+    it changes a device rather than a file, and it is the only flow here that touches hardware.
     """
 
     #: the device only to program the flash (`required_settings_for`)
@@ -186,6 +345,44 @@ class Openfpgaloader(FpgaSynthFlow):
 
     def always_runs(self) -> Optional[str]:
         return super().always_runs() or self.action_reason
+
+    def _target(self) -> Optional[str]:
+        """The board and part that the flow is set up to program, as words for a message."""
+        assert isinstance(self.settings, self.Settings)
+        part = self.settings.fpga.part if self.settings.fpga is not None else None
+        named = [
+            f"{kind} {value}"
+            for kind, value in (("board", self.settings.board), ("part", part))
+            if value
+        ]
+        return ", ".join(named) or None
+
+    def parse_reports(self) -> bool:
+        """The verdict: a nonzero exit status failed the run already (`run()` raised it). A run
+        also fails when this run's log shows a failure (`loader_failure`), or when there is no log
+        of this run, which leaves no evidence that the device was programmed. The failure is the
+        error of the run, in the words of a person, with the lines that show it."""
+        if self.results.get("error"):
+            return False
+        log_file = self.run_path / LOADER_LOG
+        report = self.report_file(log_file)
+        if report is None:
+            failure: Optional[LoaderFailure] = LoaderFailure(
+                (
+                    "openFPGALoader exited with status 0, but it left no log of this run "
+                    f"({LOADER_LOG}).",
+                    "There is no evidence that it programmed the FPGA.",
+                )
+            )
+        else:
+            text = report.read_text(encoding="utf-8", errors="replace")
+            failure = loader_failure(text, target=self._target())
+        if failure is None:
+            return True
+        message = failure.message(log_file)
+        log.error("%s", message)
+        self.results["error"] = {"type": "ReportedFailure", "message": message}
+        return False
 
     def run(self) -> None:
         """Program exactly the bitstream handed over as the input `bitstream`."""

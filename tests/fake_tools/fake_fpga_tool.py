@@ -7,6 +7,10 @@ partial, no-output, malformed-report, fail, or signal; DELAY is seconds before o
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
+When it programs, openFPGALoader prints XEDA_FAKE_FPGA_LOADER_STDOUT on stdout and
+XEDA_FAKE_FPGA_LOADER_STDERR on stderr (nothing, by default) and exits with the status in
+XEDA_FAKE_FPGA_LOADER_STATUS (0, by default): the real one exits with status 0 after several
+failures and tells them in its output.
 """
 
 import argparse
@@ -264,6 +268,14 @@ def strict_getopt(args):
     return flags, []
 
 
+def loader_output():
+    """What the loader prints once it has read its bitstream, and the status it exits with."""
+    for stream, name in ((sys.stdout, "STDOUT"), (sys.stderr, "STDERR")):
+        stream.write(os.environ.get(f"XEDA_FAKE_FPGA_LOADER_{name}", ""))
+        stream.flush()
+    return int(os.environ.get("XEDA_FAKE_FPGA_LOADER_STATUS", "0"))
+
+
 def pack_or_load(tool, args):
     opts, positional = options(args)
     if tool == "icepack":
@@ -295,7 +307,9 @@ def pack_or_load(tool, args):
                 "No such file or directory"
             )
     mode = record(tool, args, paths, contents)
-    if mode == "no-output" or tool == "openFPGALoader":
+    if tool == "openFPGALoader":
+        return loader_output()
+    if mode == "no-output":
         return 0
     output = b"\x00\xffpartial" if mode == "partial" else BITSTREAM
     if tool == "fpga-as":
