@@ -9,7 +9,13 @@ import attrs
 
 from .dataclass import model_with_allow_extra
 from .design import DESIGN_FILE_FORMATS, Design
-from .utils import WorkingDirectory, XedaException, hierarchical_merge, tomllib
+from .utils import (
+    WorkingDirectory,
+    XedaException,
+    flows_table_problems,
+    hierarchical_merge,
+    tomllib,
+)
 from .yaml_loader import load_yaml
 
 log = logging.getLogger(__name__)
@@ -114,9 +120,13 @@ class XedaProject:
 
         if "flow" in data and "flows" in data:
             raise ValueError("Specify project flow settings once, as `flows` (or `flow`), not both")
-        flows = data.get("flow", data.get("flows", {}))
-        if not isinstance(flows, dict):
-            raise ValueError(f"Project `flows` must be a mapping, got {type(flows).__name__}")
+        flows = data.get("flow", data.get("flows"))
+        problems = flows_table_problems(flows)
+        if problems:
+            raise ValueError(
+                "Project " + "; ".join(f"`{path}` {problem}" for path, problem in problems)
+            )
+        flows = flows or {}
 
         design_cls = Design
         if designs is not None:

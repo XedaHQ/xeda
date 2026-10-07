@@ -215,7 +215,7 @@ def test_aliases_are_canonicalized_and_duplicate_sections_still_fail():
     )
     assert settings == {_Taker.name: {}}
     assert NodeKey(_Taker.name) in effective_bindings([bindings], default_nodes([_Taker]))
-    with pytest.raises(ValueError, match="twice"):
+    with pytest.raises(FlowSettingsError, match="design.yaml.*twice"):
         split_bindings({"chain_source": {}, "_ChainProducer": {}}, location="design.yaml")
 
 

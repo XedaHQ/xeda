@@ -242,11 +242,66 @@ def test_flow_aliases_are_one_section_across_precedence_layers():
 
 
 def test_two_names_for_one_flow_in_one_section_are_an_error():
-    with pytest.raises(ValueError, match="given twice"):
+    """A reported error, like every other mistake in a `flows` table: the command line shows it
+    without a traceback."""
+    with pytest.raises(FlowSettingsError, match="given twice") as raised:
         merge_flow_sections(
             {"ghdl": {}, "ghdl_sim": {}},
             flow_class_for=lambda name: GhdlSim if name in {"ghdl", "ghdl_sim"} else None,
+            location="the design file d.yaml",
         )
+    assert raised.value.errors == [
+        (
+            "flows.ghdl_sim",
+            "the design file d.yaml: `flows.ghdl_sim` is given twice in one `flows` section, as "
+            "'ghdl' and 'ghdl_sim': keep one",
+            None,
+            "duplicate_flow",
+        )
+    ]
+
+
+def test_a_flows_table_that_is_no_mapping_is_an_error_naming_it_and_its_origin():
+    with pytest.raises(FlowSettingsError) as raised:
+        merge_flow_sections({"verilator": {}}, [1], location="the project file p.yaml")
+    assert raised.value.errors == [
+        (
+            "flows",
+            "the project file p.yaml: `flows` must be a mapping of flow names to their "
+            "settings, not [1]",
+            None,
+            "dict_type",
+        )
+    ]
+
+
+def test_every_flow_section_that_is_no_mapping_is_reported_at_once():
+    with pytest.raises(FlowSettingsError) as raised:
+        merge_flow_sections({"verilator": 3, "ghdl_sim": {}, "nvc": "x", "yosys": None})
+    assert [(path, kind) for path, _message, _context, kind in raised.value.errors] == [
+        ("flows.verilator", "dict_type"),
+        ("flows.nvc", "dict_type"),
+    ]
+    assert all("must be a mapping of settings" in error[1] for error in raised.value.errors)
+
+
+def test_an_absent_table_or_section_is_empty():
+    assert merge_flow_sections(None, {"verilator": None}) == {"verilator": {}}
+
+
+def test_a_section_may_be_key_value_text_as_a_layer_is():
+    """Code gives a layer of settings as `KEY=VALUE` text, a list or a tuple of it, empty too."""
+    merged = merge_flow_sections(
+        {"verilator": ["timing=true", "compile_args=-O3"], "ghdl": (), "nvc": []}
+    )
+
+    assert merged == {"verilator": {"timing": "true", "compile_args": "-O3"}, "ghdl": {}, "nvc": {}}
+
+
+@pytest.mark.parametrize("section", ["x", 3, True, [1], ["x"], [{"a": 1}], ["a=1", 2]], ids=repr)
+def test_no_other_section_is_a_layer(section):
+    with pytest.raises(FlowSettingsError, match="`flows.verilator` must be a mapping"):
+        merge_flow_sections({"verilator": section})
 
 
 # ---------------------------------------------------------------------------------------------

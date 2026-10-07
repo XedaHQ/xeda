@@ -79,6 +79,7 @@ __all__ = [
     "first_value",
     "first_key",
     "settings_to_dict",
+    "flows_table_problems",
     "XedaException",
     "ToolException",
     "NonZeroExitCode",
@@ -965,6 +966,42 @@ def settings_to_dict(
             return settings
         return expand_hierarchy(settings)
     raise TypeError(f"Unsupported type: {type(settings)}")
+
+
+def flows_table_problems(table: Any, *, layers: bool = False) -> List[Tuple[str, str]]:
+    """What is wrong with the shape of a `flows` table, as `(key path, problem)` pairs.
+
+    A `flows` table maps flow names to mappings of that flow's settings. The table and each of its
+    sections are mappings, and an absent one (`None`) is empty. Nothing else is read as one: text,
+    numbers and lists are refused, empty ones included. So a mistake such as `flows: []` or
+    `-s flows.verilator=3` is reported where it was made, by every origin that writes a table (a
+    design, a target, a project, the command line, the API), instead of being ignored or ending
+    in a traceback deeper in a merge. This is the one rule they all use.
+
+    With `layers`, a section may also be a list or tuple of `KEY=VALUE` text (empty ones too),
+    which is how code gives a layer of settings (`settings_to_dict`, and the command line's `-s`).
+    The merge of every origin's table (`settings_layers.merge_flow_sections`) takes it, since
+    code reaches it that way; a file never does.
+    """
+    if table is None:
+        return []
+    if not isinstance(table, Mapping):
+        return [("flows", f"must be a mapping of flow names to their settings, not {table!r:.60}")]
+
+    def acceptable(section: Any) -> bool:
+        if section is None or isinstance(section, Mapping):
+            return True
+        return (
+            layers
+            and isinstance(section, (list, tuple))
+            and all(isinstance(item, str) and "=" in item for item in section)
+        )
+
+    return [
+        (f"flows.{name}", f"must be a mapping of settings, not {section!r:.60}")
+        for name, section in table.items()
+        if not acceptable(section)
+    ]
 
 
 _xeda_varprog = None

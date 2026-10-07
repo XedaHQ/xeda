@@ -393,7 +393,15 @@ round-trip used to make it and `yosys_sim` unrunnable. A removed flow's names ar
 "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"), and so is its
 section in any `flows` table -- a design's, a project's, `-s flows.open_xc7.*`, the API's --
 by `merge_flow_sections`, the one place they are all merged; a section for a flow that is merely
-unknown (a plugin that is not installed) is still left alone. `xeda scrub` alone takes a removed flow's name
+unknown (a plugin that is not installed) is still left alone. That function also judges the
+shape of every table by one rule (`utils.flows_table_problems`, which the design validator and the
+project loader apply as well): the table and each flow's section are mappings, an absent one
+(`None`) is empty, and text, a number or a list is a `FlowSettingsError` naming the key and the
+origin, an empty list or text included (`-s flows=3`, `flows: []`); only code may give a section
+as a list of `KEY=VALUE` text, as `-s` takes it. Naming one flow twice in a table (`ghdl` and
+`ghdl_sim`) is a `FlowSettingsError` too. The malformed-input sweep feeds every structural kind
+of value to a table and a section from the command line, the API, a design file, a target and a
+project file. `xeda scrub` alone takes a removed flow's name
 (`FlowChoice(removed=True)`): it only removes directories. `get_flow_class` normalizes dashes, retries
 case-insensitively, and raises `FlowNotFoundError` with close-match suggestions. `flows/__init__.py` `walk_packages()`s the subpackages to populate `__builtin_flows__`,
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and

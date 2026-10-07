@@ -93,6 +93,13 @@ of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are 
 when ``nextpnr`` is the requested flow; giving both different values is an error. A flow that is
 not part of the run is an error too, with the close matches suggested.
 
+A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
+file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
+and so is each ``flows.<flow>``. Text, a number or a list in either place is an error that names
+the key and where it was written (``-s flows=3`` and ``-s flows.nextpnr=3`` are errors, and so is
+``flows: []`` in a file), even when it is empty. Only the API also takes a flow's settings as a
+list of ``KEY=VALUE`` text, as ``-s`` does.
+
 ``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first
 token that is not ``KEY=VALUE``, so it never takes the design file for a setting; ``--`` ends the
 options.

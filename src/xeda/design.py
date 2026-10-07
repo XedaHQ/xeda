@@ -63,6 +63,7 @@ from .utils import (
     XedaException,
     expand_env_vars,
     expand_hierarchy,
+    flows_table_problems,
     hierarchical_merge,
     location_free,
     removesuffix,
@@ -2110,12 +2111,12 @@ class Design(XedaBaseModel):
     @field_validator("flow", mode="before")
     @classmethod
     def _flow_settings(cls, value):
-        if value:
-            value = settings_to_dict(value)
-            value = {k: v for k, v in value.items() if v is not None}
-        else:
-            value = {}
-        return value
+        if isinstance(value, Mapping):
+            value = settings_to_dict(value)  # a dotted key is a section's setting
+        problems = flows_table_problems(value)
+        if problems:
+            raise ValueError("; ".join(f"`{path}` {problem}" for path, problem in problems))
+        return {k: v for k, v in (value or {}).items() if v is not None}
 
     @field_validator("dependencies", mode="before")
     @classmethod

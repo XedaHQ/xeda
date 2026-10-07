@@ -11,19 +11,25 @@ The sweep below feeds a spread of wrong-typed values into every field of every f
 of a design, so a new field or validator cannot reintroduce the leak unnoticed.
 """
 
+import json
 from pathlib import Path
+from typing import Any
 
 import click
 import pytest
 from click.testing import CliRunner
 
+from xeda.cli import cli
 from xeda.cli_utils import OptionEatAll
 from xeda.dataclass import ValidationError
 from xeda.design import Design, DesignValidationError
 from xeda.flow import FPGA, FlowSettingsError
+from xeda.flow_runner import DefaultRunner
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 from xeda.platforms.asics import AsicsPlatform
+from xeda.utils import XedaException
 
+from .project_files import PROJECT_FILE
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
 #: What a malformed value may raise: the validation errors of settings (`FlowSettingsError`),
@@ -172,3 +178,167 @@ def test_the_examples_still_load():
     design = Design.from_file(Path(__file__).parent.parent / "examples/vhdl/sqrt/sqrt.yaml")
 
     assert design.rtl.sources
+
+
+# ---------------------------------------------------------------------------------------------
+# A `flows` table of the wrong shape, from every origin that can write one: a table maps flow
+# names to mappings of settings. Any other shape is reported where it was written, never a
+# traceback and never silently ignored.
+# ---------------------------------------------------------------------------------------------
+
+ORIGINS = ["command line", "API", "design file", "target", "project file"]
+
+#: What `-s` hands over for a table or a section: text, whatever it looks like.
+COMMAND_LINE_TEXTS = ["3", "[]", "x", "", "a,b", "true", "null", "{}", "[1, 2]", "a=1"]
+
+
+def _writable_in_a_file(value: Any) -> bool:
+    try:
+        json.dumps(value)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _write_design(directory: Path, **keys: Any) -> Path:
+    """A design file (JSON text is YAML) with `keys` added, and the one source it names."""
+    directory.mkdir(exist_ok=True)
+    (directory / "top.v").write_text("module top; endmodule\n")
+    path = directory / "design.yaml"
+    document = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top"}, **keys}
+    path.write_text(json.dumps(document))
+    return path
+
+
+def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
+    """Plan `verilator` with `value` as the whole `flows` table (`shape` "table") or as the
+    `verilator` section of one ("section"), written by `origin`."""
+    runner = DefaultRunner(directory / "xeda_run", display_results=False)
+    flows = value if shape == "table" else {"verilator": value}
+    if origin == "command line":
+        key = "flows" if shape == "table" else "flows.verilator"
+        return runner.plan("verilator", _write_design(directory), flow_settings=[f"{key}={value}"])
+    if origin == "API":
+        return runner.plan("verilator", _write_design(directory), flow_settings={"flows": flows})
+    if origin == "design file":
+        return runner.plan("verilator", _write_design(directory, flows=flows))
+    if origin == "target":
+        design = _write_design(directory, targets={"t": {"flows": flows}})
+        return runner.plan("verilator", design, target="t")
+    assert origin == "project file"
+    design = _write_design(directory)
+    project = directory / PROJECT_FILE
+    project.write_text(json.dumps({"flows": flows}))
+    return runner.plan("verilator", design, xedaproject=str(project))
+
+
+@pytest.mark.parametrize("shape", ["table", "section"])
+@pytest.mark.parametrize("origin", ORIGINS)
+def test_a_flows_table_of_the_wrong_shape_is_reported_never_a_traceback(tmp_path, origin, shape):
+    if origin == "command line":
+        values: list[Any] = COMMAND_LINE_TEXTS
+    elif origin == "API":
+        values = MALFORMED
+    else:
+        values = [value for value in MALFORMED if _writable_in_a_file(value)]
+    leaks = []
+    for number, value in enumerate(values):
+        try:
+            _plan_with_flows(tmp_path / str(number), origin, shape, value)
+        except XedaException:
+            pass
+        except Exception as e:  # reporting exactly these is the point
+            leaks.append(f"{value!r}: {type(e).__name__}: {e}")
+
+    assert not leaks, f"{origin}, {shape}:\n  " + "\n  ".join(leaks)
+
+
+#: shapes that are no mapping, for the table and for a section, as each origin writes them
+NOT_MAPPINGS = {"command line": "3", "API": 3, "design file": 3, "target": 3, "project file": 3}
+
+
+@pytest.mark.parametrize("origin", ORIGINS)
+def test_a_flows_table_that_is_no_mapping_is_refused_naming_the_table(tmp_path, origin):
+    with pytest.raises(XedaException, match=r"`flows` must be a mapping of flow names"):
+        _plan_with_flows(tmp_path, origin, "table", NOT_MAPPINGS[origin])
+
+
+@pytest.mark.parametrize("origin", ORIGINS)
+def test_a_flow_section_that_is_no_mapping_is_refused_naming_the_section(tmp_path, origin):
+    with pytest.raises(XedaException, match=r"`flows.verilator` must be a mapping of settings"):
+        _plan_with_flows(tmp_path, origin, "section", NOT_MAPPINGS[origin])
+
+
+#: What no origin takes as a table or a section, an empty list included. Code may give a flow's
+#: section as `KEY=VALUE` text (see below), so the API's section is left out for the two lists of
+#: such text.
+REFUSED_EVEN_WHEN_EMPTY = [
+    (origin, shape, value)
+    for origin in ("API", "design file", "target", "project file")
+    for shape in ("table", "section")
+    for value in ([], [1], ["verilator.x=1"], "")
+    if not (origin == "API" and shape == "section" and value in ([], ["verilator.x=1"]))
+]
+
+
+@pytest.mark.parametrize(
+    ("origin", "shape", "value"),
+    REFUSED_EVEN_WHEN_EMPTY,
+    ids=[f"{origin}-{shape}-{value!r}" for origin, shape, value in REFUSED_EVEN_WHEN_EMPTY],
+)
+def test_a_flows_table_or_section_that_is_a_list_or_text_is_refused_even_when_empty(
+    tmp_path, origin, shape, value
+):
+    """No origin treats an empty list or text as "no settings", and none reads a list of items as
+    a table: that is how a mistake such as `flows: []` went unnoticed. Code may give a flow's
+    section as `KEY=VALUE` text, and only code."""
+    with pytest.raises(XedaException, match="must be a mapping"):
+        _plan_with_flows(tmp_path, origin, shape, value)
+
+
+@pytest.mark.parametrize("value", [[1], [{}], ["x", "y"], [1, "a=1"], ["a=1", None]], ids=repr)
+def test_a_section_given_by_code_is_key_value_text_or_it_is_refused(tmp_path, value):
+    with pytest.raises(XedaException, match="`flows.verilator` must be a mapping"):
+        _plan_with_flows(tmp_path, "API", "section", value)
+
+
+def test_code_may_give_a_flow_s_section_as_key_value_text(tmp_path):
+    """The API takes a flow's settings as `KEY=VALUE` text, as the command line does."""
+    plan = _plan_with_flows(tmp_path, "API", "section", ["timing=true"])
+
+    assert plan.nodes[0].settings.timing is True
+
+
+@pytest.mark.parametrize("value", [{}, None], ids=repr)
+@pytest.mark.parametrize("shape", ["table", "section"])
+@pytest.mark.parametrize("origin", ["API", "design file", "target", "project file"])
+def test_an_empty_or_absent_flows_table_or_section_is_still_accepted(
+    tmp_path, origin, shape, value
+):
+    """The sweep above must not have been satisfied by rejecting everything."""
+    plan = _plan_with_flows(tmp_path, origin, shape, value)
+
+    assert [node.name for node in plan.nodes] == ["verilator"]
+
+
+def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    plan = runner.plan(
+        "verilator", _write_design(tmp_path), flow_settings=["flows.verilator.timing=true"]
+    )
+
+    assert [node.name for node in plan.nodes] == ["verilator"]
+    assert plan.nodes[0].settings.timing is True
+
+
+def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(tmp_path):
+    design = _write_design(tmp_path)
+    result = CliRunner().invoke(
+        cli, ["run", "verilator", str(design), "--dry-run", "--json", "-s", "flows=3"]
+    )
+    document = json.loads(result.stdout)
+
+    assert result.exit_code == 1, result.output
+    assert document["success"] is False
+    assert document["error"]["type"] == "FlowSettingsError"
+    assert "`flows` must be a mapping" in document["error"]["message"]

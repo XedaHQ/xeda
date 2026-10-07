@@ -29,7 +29,7 @@ from typing import Annotated, Any, Union, get_args, get_origin
 from ..dataclass import XedaBaseModel, input_names
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
-from ..utils import XedaException, hierarchical_merge, settings_to_dict
+from ..utils import XedaException, flows_table_problems, hierarchical_merge, settings_to_dict
 
 __all__ = [
     "REMOVED_FLOWS",
@@ -328,7 +328,9 @@ def split_flow_sections(
     setting is that setting): the same value twice is accepted, two different values are an
     error naming both spellings."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
-    sections = merge_flow_sections(own.pop("flows", None) or {}, flow_class_for=flow_class_for)
+    sections = merge_flow_sections(
+        own.pop("flows", None), flow_class_for=flow_class_for, location="the command line"
+    )
     flow_cls = flow_class_for(requested) if flow_class_for is not None else None
     settings_cls = flow_cls.Settings if flow_cls is not None else None
     own_inputs = own.get("inputs")
@@ -444,9 +446,21 @@ def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
     return found
 
 
+def _flows_error(
+    problems: Sequence[tuple[str, str]], location: str | None, kind: str
+) -> FlowSettingsError:
+    """The error for `problems` found in one origin's `flows` table, a `(key path, problem)` for
+    each, all reported at once. `location` names the origin; `kind` is the error's type."""
+    where = f"{location}: " if location else ""
+    return FlowSettingsError(
+        [(path, f"{where}`{path}` {problem}", None, kind) for path, problem in problems], "flows"
+    )
+
+
 def merge_flow_sections(
     *sections: Mapping[str, Any] | None,
     flow_class_for: Callable[[str], Any | None] | None = None,
+    location: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Merge `flows` sections (flow name -> settings) flow by flow, later sections winning.
 
@@ -455,10 +469,18 @@ def merge_flow_sections(
     the canonical flow name; spelling the same flow twice in one section is an error. So is a
     section for a removed flow (`check_not_removed`), wherever it was written: every `flows`
     table -- a design's, a project's, the command line's, the API's -- is merged here.
+
+    Every table is also judged for its shape here (`flows_table_problems`): the table and each
+    flow's section are mappings, or a section is `KEY=VALUE` text, which is how code gives a
+    layer. A table that is not is a `FlowSettingsError` naming it, and `location` the origin it
+    came from. Nothing in a table is read before it passes.
     """
     normalized_sections: list[dict[str, dict[str, Any]]] = []
     classes: dict[str, Any] = {}
     for section in sections:
+        problems = flows_table_problems(section, layers=True)
+        if problems:
+            raise _flows_error(problems, location, "dict_type")
         normalized: dict[str, dict[str, Any]] = {}
         original_names: dict[str, str] = {}
         for name, values in (section or {}).items():
@@ -466,9 +488,16 @@ def merge_flow_sections(
             flow_cls = flow_class_for(name) if flow_class_for is not None else None
             canonical_name = flow_cls.name if flow_cls is not None else name
             if canonical_name in normalized:
-                raise ValueError(
-                    f"Flow settings for {canonical_name!r} are given twice in one `flows` "
-                    f"section, as {original_names[canonical_name]!r} and {name!r}. Keep one."
+                raise _flows_error(
+                    [
+                        (
+                            f"flows.{canonical_name}",
+                            f"is given twice in one `flows` section, as "
+                            f"{original_names[canonical_name]!r} and {name!r}: keep one",
+                        )
+                    ],
+                    location,
+                    "duplicate_flow",
                 )
             # Keep this section as one distinct precedence layer. Canonicalizing it here would
             # erase the fact that `clock_period`/`clock` was a single-clock shorthand before it
