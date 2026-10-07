@@ -613,15 +613,22 @@ producer runs. Known limit: an in-place change of the installed Project X-Ray da
 directory for the exact part (a tool's own installed files are never flow inputs; `--rebuild-all`
 packs again). A `prjxray_db` the user sets is tracked as a setting's directory, as before.
 
-**openXC7 `nextpnr` builds before commit `18362b3` write wrong bits with no error** (the 1.0
-release and `3e5c2cdd`, the installer's pin when this was written, included): an inferred
-`DSP48E1` multiply ignores its A operand (issue 39, fixed by PR 66), and `pack_dram.cc` read
-`INITA` where the primitives have `INIT_A`, so an initialized `RAM32M`/`RAM64M` is all zeros
-(`dc85665`, PR 70). Both hit `yosys_fpga+nextpnr+fpga_pack`, and neither shows in timing or
-utilization. `docs/flows.rst` and the skill's troubleshooting say what to use. No code checks the
-build: raise the floor once an openXC7 release has both fixes. `nextpnr` also ignores
-`set_property PULLUP true` without a warning and reads `PULLTYPE PULLUP`; the bundled pin files use
-neither.
+**openXC7 `nextpnr` builds before `26f5e17a5` (main, 2026-10-07) can write wrong bits with no
+error.** The 1.0 release and `3e5c2cdd` (the installer's pin when this was written) have none of
+the fixes, all merged between 2026-10-05 and 2026-10-07, each checked only against Vivado's
+bitstream ("Not validated: silicon"). By openXC7/nextpnr pull request: 66 an inferred `DSP48E1`
+multiply ignores its A operand (issue 39); 70 an initialized `RAM32M`/`RAM64M` is all zeros
+(`pack_dram.cc` read `INITA` for `INIT_A`), and a falling-edge `SRL16E`/`SRLC32E` shifts on the
+rising edge; 69 `INIT_A/B` and `SRVAL_A/B` of a block RAM are ignored; 72 an `ODDR` on a
+tri-state T input is unregistered, and a missing `ODDR` `INIT` starts high; 68 MMCM/PLL registers;
+71 a `TMDS_33` input is programmed as `LVDS_25`, `LVCMOS33` `DRIVE 16` as 12 mA, and the `IDDR`
+Q3/Q4 starts are wrong; 67 cascaded `RAMB36E1` pairs (64K x 1 and deeper); 78 high-performance
+bank pads driven by an `ODDR`/`OSERDESE2`. `26f5e17a5` contains all of them and `3e5c2cdd` none
+(`gh api repos/openXC7/nextpnr/compare/<a>...<b>`). `yosys_fpga+nextpnr+fpga_pack` is hit, and
+none of it shows in timing or utilization. `docs/flows.rst` and the skill's
+troubleshooting say what to use. No code checks the build: raise the floor once an openXC7 release
+has all of them. `nextpnr` also ignores `set_property PULLUP true` without a warning and reads
+`PULLTYPE PULLUP`; the bundled pin files use neither.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

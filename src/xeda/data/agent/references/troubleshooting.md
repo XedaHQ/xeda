@@ -231,13 +231,19 @@ settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin f
 
 ### A 7-series bitstream builds but computes the wrong result
 
-Some openXC7 `nextpnr-himbaechel` builds write wrong bits with no error and with timing met. Known:
-an inferred multiplier (Yosys maps it to a `DSP48E1`) that ignores its A operand (openXC7/nextpnr
-issue 39), and the lost initial contents of a `RAM32M`/`RAM64M` (a memory with initial values that
-Yosys maps to LUT RAM; every LUT reads 0). A timing or utilization report cannot show either. The
-openXC7 1.0 release and every build before commit `18362b3` of openXC7/nextpnr (pull request 66)
-are affected, `1.0.0-41-g3e5c2cdd` included. `nextpnr-himbaechel --version` names the build: use
-`main` at `18362b3` or later (`1.0.0-75-g26f5e17a` has both fixes). Xeda does not check the build.
+Some openXC7 `nextpnr-himbaechel` builds write wrong bits with no error and with timing met. The
+openXC7 1.0 release and `1.0.0-41-g3e5c2cdd` have none of the fixes. At least these defects are
+known (openXC7/nextpnr pull request in brackets): an inferred multiplier (`DSP48E1`) that ignores
+its A operand (66, issue 39); an initialized `RAM32M`/`RAM64M`, whose LUTs read 0 (70); a
+falling-edge shift register that shifts on the rising edge (70); a block RAM with an initial or
+reset value on its output register (69); an `ODDR` on the T input of a tri-state (72); an `MMCME2`
+or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR` (71); a memory of 64K x 1 or
+deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad that an `ODDR` or an
+`OSERDESE2` drives (78). A timing or utilization report cannot show them; only a test of the
+bitstream itself can. Use a build of `main` from 2026-10-07 or later: `26f5e17a5`
+(`1.0.0-75-g26f5e17a`, from `nextpnr-himbaechel --version`) and every later commit have all of
+them. Xeda does not check the build. The authors compared bitstreams with Vivado's and tested none
+on a board.
 
 Also, nextpnr ignores `set_property PULLUP true` without a warning. Write `set_property PULLTYPE
 PULLUP` for a pull-up. The bundled pin files use neither.

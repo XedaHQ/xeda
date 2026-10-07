@@ -598,26 +598,40 @@ The part is given once: ``fpga`` is shared along the declared edges.
 .. warning::
 
    Some builds of openXC7's ``nextpnr-himbaechel`` write wrong bits and print no error: the
-   build succeeds, the timing is met, and the bitstream computes a wrong result. Two defects are
-   known. The openXC7 1.0 release has both, and so has ``1.0.0-41-g3e5c2cdd`` (2026-10-06), which
-   the openXC7 toolchain installer pinned. Every build before commit ``18362b3`` of
-   openXC7/nextpnr (pull request 66, merged on 2026-10-07) has at least one of them:
+   build succeeds, the timing is met, and the bitstream can behave differently from the design.
+   The openXC7 1.0 release and ``1.0.0-41-g3e5c2cdd`` (2026-10-05), which the openXC7 toolchain
+   installer pinned, have none of the fixes below. At least these defects are known. Each item
+   says what the design contains, and what goes wrong:
 
-   * An inferred multiplier is wrong. When Yosys maps a multiplication to a ``DSP48E1``, the
-     packer leaves eight control pins of the DSP untied, and the DSP ignores its A operand
-     (openXC7/nextpnr issue 39, fixed by pull request 66).
-   * The initial contents of a LUT RAM are lost. When a memory has initial contents and Yosys
-     maps it to ``RAM32M`` or ``RAM64M``, every LUT of the memory is 0. The packer read the
-     parameters ``INITA`` to ``INITD``, but the primitives have ``INIT_A`` to ``INIT_D``
-     (commit ``dc85665``, pull request 70).
+   * A multiplication that Yosys maps to a ``DSP48E1``: the DSP ignores its A operand (issue 39,
+     pull request 66).
+   * A memory with initial contents that Yosys maps to ``RAM32M`` or ``RAM64M``: every LUT of the
+     memory is 0 (pull request 70).
+   * A shift register on the falling clock edge: it shifts on the rising edge (pull request 70).
+   * A block RAM with an initial value or a reset value on its output register: the register
+     starts at 0, and a reset loads 0. A simple dual-port memory that is 64 bits wide, in one
+     ``RAMB36E1``, gets the wrong write width (pull request 69).
+   * An ``ODDR`` that drives the T input of an ``OBUFT`` or ``IOBUF``: the tri-state is not
+     registered. An ``ODDR`` with no ``INIT`` starts high instead of low (pull request 72).
+   * An ``MMCME2`` or ``PLLE2``: the loop filter, power and fractional-divide registers, the duty
+     cycle and a negative phase differ from Vivado's (pull request 68).
+   * The differential and drive settings of a pad: a ``TMDS_33`` input is programmed as
+     ``LVDS_25``, an ``LVDS_25`` or ``TMDS_33`` output on a high-range bank gets a bit that
+     Vivado does not set, ``LVCMOS33`` with ``DRIVE 16`` gets 12 mA, and the internal stages of an
+     ``IDDR`` start with the wrong values (pull request 71).
+   * A memory of 64K words by 1 bit or deeper, which Yosys maps to cascaded ``RAMB36E1`` pairs:
+     the router usually fails, and a pair that does route has the wrong address bit and is not
+     marked as the lower block (pull request 67).
+   * An output of a high-performance bank that an ``ODDR`` or an ``OSERDESE2`` drives: the pad is
+     driven around the register (pull request 78).
 
    The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization
-   report cannot show these defects. Only a functional test of the bitstream can. Use a
-   ``nextpnr-himbaechel`` built from the ``main`` branch of openXC7/nextpnr at commit
-   ``18362b3`` or later, which has both fixes. ``nextpnr-himbaechel --version`` names the build:
-   ``1.0.0-41-g3e5c2cdd`` is affected, and ``1.0.0-75-g26f5e17a`` has both fixes. Xeda does not
-   check the build. The authors of the fixes compared the bitstreams with Vivado's; they did not
-   test them on a device.
+   report cannot show these defects. Only a test of the bitstream itself can. Use a build of the
+   ``main`` branch of openXC7/nextpnr from 2026-10-07 or later. Commit ``26f5e17a5``
+   (``1.0.0-75-g26f5e17a``) has every fix in this list, and so has every later commit of
+   ``main``. ``nextpnr-himbaechel --version`` names the build. Xeda does not check the build. The
+   authors of the fixes compared the bitstreams with Vivado's for the same netlist; none of the
+   pull requests reports a test on a board.
 
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
