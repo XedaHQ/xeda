@@ -253,7 +253,11 @@ Four orthogonal abstractions, deliberately decoupled:
   needs no selection; several without one, an unknown one, a name that is a flow's, and a
   written `target` key are `DesignValidationError`s at `targets...`. The oracle
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
-  field, hash and dump but `target`. `design_schema()` adds `targets` to the input syntax only
+  field, hash and dump but `target`. The design's own `flows` table is judged before a target is merged into it, and every
+  target's overlay is judged at `targets.<name>.flows` whether it is selected or not
+  (`design._flows_table`, the design validator's own function): the merge replaces a value that
+  is no mapping by the overlay's mapping, and would otherwise hide a mistake in the table for
+  that target alone. `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
   carry it as `PlanContext.target`, which names where every node runs: a run directory is
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as

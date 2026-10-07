@@ -186,7 +186,17 @@ def test_the_examples_still_load():
 # traceback and never silently ignored.
 # ---------------------------------------------------------------------------------------------
 
-ORIGINS = ["command line", "API", "design file", "target", "project file"]
+#: Where a `flows` table is written. "design with a target" is a design file whose own table is
+#: the one under test, with a target that writes a good `flows` mapping of its own and is
+#: selected: the merge of that mapping must not hide the design's table.
+ORIGINS = [
+    "command line",
+    "API",
+    "design file",
+    "design with a target",
+    "target",
+    "project file",
+]
 
 #: What `-s` hands over for a table or a section: text, whatever it looks like.
 COMMAND_LINE_TEXTS = ["3", "[]", "x", "", "a,b", "true", "null", "{}", "[1, 2]", "a=1"]
@@ -210,6 +220,10 @@ def _write_design(directory: Path, **keys: Any) -> Path:
     return path
 
 
+#: Two targets: `a` writes a good `flows` mapping, `b` writes none.
+TARGETS_WITH_FLOWS = {"a": {"flows": {"verilator": {"timing": True}}}, "b": {}}
+
+
 def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
     """Plan `verilator` with `value` as the whole `flows` table (`shape` "table") or as the
     `verilator` section of one ("section"), written by `origin`."""
@@ -222,6 +236,9 @@ def _plan_with_flows(directory: Path, origin: str, shape: str, value: Any):
         return runner.plan("verilator", _write_design(directory), flow_settings={"flows": flows})
     if origin == "design file":
         return runner.plan("verilator", _write_design(directory, flows=flows))
+    if origin == "design with a target":
+        design = _write_design(directory, flows=flows, targets=TARGETS_WITH_FLOWS)
+        return runner.plan("verilator", design, target="a")
     if origin == "target":
         design = _write_design(directory, targets={"t": {"flows": flows}})
         return runner.plan("verilator", design, target="t")
@@ -254,7 +271,14 @@ def test_a_flows_table_of_the_wrong_shape_is_reported_never_a_traceback(tmp_path
 
 
 #: shapes that are no mapping, for the table and for a section, as each origin writes them
-NOT_MAPPINGS = {"command line": "3", "API": 3, "design file": 3, "target": 3, "project file": 3}
+NOT_MAPPINGS = {
+    "command line": "3",
+    "API": 3,
+    "design file": 3,
+    "design with a target": 3,
+    "target": 3,
+    "project file": 3,
+}
 
 
 @pytest.mark.parametrize("origin", ORIGINS)
@@ -274,7 +298,7 @@ def test_a_flow_section_that_is_no_mapping_is_refused_naming_the_section(tmp_pat
 #: such text.
 REFUSED_EVEN_WHEN_EMPTY = [
     (origin, shape, value)
-    for origin in ("API", "design file", "target", "project file")
+    for origin in ("API", "design file", "design with a target", "target", "project file")
     for shape in ("table", "section")
     for value in ([], [1], ["verilator.x=1"], "")
     if not (origin == "API" and shape == "section" and value in ([], ["verilator.x=1"]))
@@ -311,7 +335,9 @@ def test_code_may_give_a_flow_s_section_as_key_value_text(tmp_path):
 
 @pytest.mark.parametrize("value", [{}, None], ids=repr)
 @pytest.mark.parametrize("shape", ["table", "section"])
-@pytest.mark.parametrize("origin", ["API", "design file", "target", "project file"])
+@pytest.mark.parametrize(
+    "origin", ["API", "design file", "design with a target", "target", "project file"]
+)
 def test_an_empty_or_absent_flows_table_or_section_is_still_accepted(
     tmp_path, origin, shape, value
 ):
@@ -319,6 +345,47 @@ def test_an_empty_or_absent_flows_table_or_section_is_still_accepted(
     plan = _plan_with_flows(tmp_path, origin, shape, value)
 
     assert [node.name for node in plan.nodes] == ["verilator"]
+
+
+@pytest.mark.parametrize("shape", ["table", "section"])
+def test_the_design_s_own_table_is_judged_whichever_target_is_selected(tmp_path, shape):
+    """A target that writes a `flows` mapping merges it over the design's table, and the merge
+    replaces whatever is not a mapping: a design's mistake was hidden for that target alone, and
+    reported for another. The design is as valid as the table it holds, whatever is selected."""
+    disagreements = []
+    for number, value in enumerate(v for v in MALFORMED if _writable_in_a_file(v)):
+        flows = value if shape == "table" else {"verilator": value}
+        outcomes = {}
+        for target in TARGETS_WITH_FLOWS:
+            directory = tmp_path / f"{number}-{target}"
+            design = _write_design(directory, flows=flows, targets=TARGETS_WITH_FLOWS)
+            runner = DefaultRunner(directory / "xeda_run", display_results=False)
+            try:
+                runner.plan("verilator", design, target=target)
+                outcomes[target] = "accepted"
+            except XedaException as e:
+                outcomes[target] = type(e).__name__
+        if outcomes["a"] != outcomes["b"]:
+            disagreements.append(f"{value!r}: {outcomes}")
+
+    assert not disagreements, "\n  ".join(disagreements)
+
+
+@pytest.mark.parametrize("selected", ["a", "b"])
+@pytest.mark.parametrize("key", ["flows", "flow"])
+def test_a_malformed_table_of_a_target_is_refused_at_the_target_whichever_is_selected(
+    tmp_path, selected, key
+):
+    """Every target's overlay is checked, selected or not, and the mistake is located in the
+    target that wrote it, not in the merged design."""
+    design = _write_design(tmp_path, targets={"a": {key: {"verilator": 3}}, "b": {}})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    with pytest.raises(DesignValidationError) as refused:
+        runner.plan("verilator", design, target=selected)
+
+    assert [location for location, *_ in refused.value.errors] == [f"targets.a.{key}"]
+    assert "`flows.verilator` must be a mapping of settings" in str(refused.value)
 
 
 def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
