@@ -662,7 +662,7 @@ def _unreached(
     assert request.settings is not None
     nodes = {other.cls.name for other in requests}
     found: dict[str, str] = {}
-    for name in request.cls.required_settings:
+    for name in request.cls.required_settings_for(request.settings):
         if not is_unset(getattr(request.settings, name, None)):
             continue
         reached = {request.cls.name}

@@ -1172,3 +1172,31 @@ def test_the_open_chain_starts_the_programmer_as_the_vivado_chain_does(
     runs = root / "xeda_run" / demo.design
     bitstream = runs / "fpga_pack" / "outputs" / f"{demo.design}.bit"
     assert len(_programmed_with(runs / "openfpgaloader", demo, bitstream)) == 1
+
+
+@pytest.mark.parametrize(
+    "request_, producer",
+    [
+        ("vivado_synth+openfpgaloader", "vivado_synth"),
+        ("vivado_alt_synth+openfpgaloader", "vivado_alt_synth"),
+        (CHAIN, "fpga_pack"),
+        ("openfpgaloader", "fpga_pack"),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True], ids=["launch", "dry-run"])
+def test_outputs_to_a_programmer_is_refused_naming_the_setting_that_delivers_its_bitstream(
+    tmp_path, toolchain, monkeypatch, request_, producer, dry_run
+):
+    """The programmer writes no outputs, so `--outputs-to` has nothing to deliver: refused
+    before anything runs, a dry run alike, naming the setting of the flow that makes the
+    bitstream in this plan, whose location would deliver it."""
+    root, design = _demo(tmp_path, DEMOS["arty"])
+    monkeypatch.chdir(root)
+    options = ["--outputs-to", "out", *(["--dry-run"] if dry_run else [])]
+    result, document = _xeda("run", request_, design, *options)
+    assert result.exit_code != 0, result.output
+    assert document["error"]["type"] == "DeliveryError", document
+    message = document["error"]["message"]
+    assert "openfpgaloader writes no outputs" in message, message
+    assert f"-s flows.{producer}.bitstream=<path>" in message, message
+    assert not (root / "xeda_run").exists() and not (root / "out").exists()

@@ -665,7 +665,8 @@ class Flow(metaclass=ABCMeta):
     #: as one section of a design file, holds only some of them, and a model that insisted on all
     #: of them could not validate it. So the model never requires them: `Flow.Settings` refuses a
     #: field without a default when its class is defined. Give the field a default (`None`, or an
-    #: empty value), and name the setting here.
+    #: empty value), and name the setting here. A flow that needs a setting only for what its
+    #: other settings ask of it says so in `required_settings_for`, which is checked instead.
     required_settings: Dict[str, str] = {}
 
     #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
@@ -687,6 +688,13 @@ class Flow(metaclass=ABCMeta):
     action_reason: ClassVar[str | None] = None
 
     @classmethod
+    def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
+        """The settings this flow cannot run without, given `settings`: `required_settings`,
+        unless a flow needs a setting only for what its other settings ask of it
+        (`openfpgaloader` needs its device only to program the flash)."""
+        return cls.required_settings
+
+    @classmethod
     def check_required_settings(
         cls, settings: "Flow.Settings", unreached: Mapping[str, str] | None = None
     ) -> None:
@@ -697,7 +705,7 @@ class Flow(metaclass=ABCMeta):
         adds it, so a value the user did write is not left unexplained."""
         missing = []
         notes = []
-        for name, how in cls.required_settings.items():
+        for name, how in cls.required_settings_for(settings).items():
             if is_unset(getattr(settings, name, None)):
                 missing.append(f"`{name}`, {how.format(flow=cls.name)}")
                 if unreached and unreached.get(name):

@@ -97,6 +97,8 @@ All notable changes to this project will be documented in this file.
 - A bitstream that a chain asks `vivado_synth` or `vivado_alt_synth` for is now
   `outputs/<design>.bit`, the name `fpga_pack` and a located bitstream use. It was
   `outputs/bitstream.bit`.
+- A failed `openfpgaloader` run keeps the loader's output in `openfpgaloader.log` in its run
+  directory.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -377,6 +379,10 @@ All notable changes to this project will be documented in this file.
   `synth_pass_only`, an unset `flatten` is still the pass's own choice, so that mode keeps
   matching a native `yosys` run. The other targets' passes flatten on their own and are
   unchanged. The netlists, and the results of runs that used the default, change.
+- `openfpgaloader` needs the FPGA device only for `write_flash`. Without one it gives no
+  `--fpga-part`, and openFPGALoader detects the device.
+- `--outputs-to` with a programmer as the requested flow is refused before anything runs. The
+  error names the setting, or under `--remote` the request, that delivers the bitstream.
 - **Every flow runs through the resolver.** A flow that declares no inputs and no outputs (`bsc`,
   `ghdl_sim`, `quartus`, `dc`, ...) is now a plan of one node, as a flow with producers is a plan
   of several. Its run directory, its recorded settings and its identity are the ones it had

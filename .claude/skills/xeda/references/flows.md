@@ -143,9 +143,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 *runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_synth` | programs a device and can only end a chain*
 
-Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board database), when it has one. The FPGA part is given when the board is not named: a Xilinx part without its speed grade, any other as it is. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
-
-Required settings: `fpga`
+Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board database), when it has one. The FPGA part is given when the board is not named and the part is known: a Xilinx part without its speed grade, any other as it is. Without a part, openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The loader's output is kept in `openfpgaloader.log` in the run directory. The flow always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
 21 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 

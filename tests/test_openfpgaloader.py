@@ -463,6 +463,79 @@ def test_two_bitstreams_to_program_are_an_error(tmp_path, fake_loader):
         _runner(tmp_path).plan(Openfpgaloader, design, flow_settings={"fpga": ECP5})
 
 
+def test_a_prebuilt_bitstream_is_programmed_without_a_device_for_the_loader_to_detect(
+    tmp_path, fake_loader
+):
+    """Loading SRAM needs no part: with none known the loader is started without `--fpga-part`
+    and detects the device itself."""
+    design = _prebuilt(tmp_path)
+    plan = _runner(tmp_path).plan(Openfpgaloader, design)
+    assert plan.node("openfpgaloader").settings.fpga is None
+    flow = _program(tmp_path, design)
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit")]
+
+
+def test_programming_the_flash_needs_the_device(tmp_path, fake_loader):
+    """openFPGALoader programs a Xilinx flash through a bridge made for the part, so
+    `write_flash` needs the device: refused before anything runs, saying why."""
+    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
+        _runner(tmp_path).plan(
+            Openfpgaloader, _prebuilt(tmp_path), flow_settings={"write_flash": True}
+        )
+    assert "write_flash" in str(raised.value)
+    assert not _calls(tmp_path, "openfpgaloader")
+
+
+def test_a_device_a_board_gives_reaches_the_loader_when_it_programs_the_flash(
+    tmp_path, fake_loader
+):
+    flow = _program(tmp_path, _prebuilt(tmp_path), {"board": "ULX3S_85F", "write_flash": True})
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"][2:] == [
+        "--board",
+        "ulx3s",
+        "--fpga-part",
+        "LFE5U-85F-6BG381C",
+        "--write-flash",
+    ]
+
+
+def test_the_loader_s_output_is_kept_in_its_run_directory(tmp_path, fake_loader, monkeypatch):
+    """What the loader printed is in `openfpgaloader.log` in its run directory, a failed run's
+    too: openFPGALoader's own error is all there is to read when programming fails."""
+    log = tmp_path / "run/top/openfpgaloader/openfpgaloader.log"
+    assert _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}).succeeded
+    assert log.is_file()
+    monkeypatch.setenv("XEDA_FAKE_FPGA_TOOL", "openFPGALoader")
+    monkeypatch.setenv("XEDA_FAKE_FPGA_MODE", "fail")
+    try:
+        flow = _runner(tmp_path).run(
+            "openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5}
+        )
+    except Exception as error:  # reported or raised, it is a failure
+        assert type(error).__name__ == "NonZeroExitCode"
+    else:
+        assert flow is None or not flow.succeeded
+    assert "requested failure in openFPGALoader" in log.read_text()
+
+
+def test_outputs_to_a_programmer_of_a_design_source_is_refused_before_it_runs(
+    tmp_path, fake_loader
+):
+    """The loader writes no outputs, and what it programs here is the design's own file:
+    `--outputs-to` has nothing to deliver, and says so before anything runs."""
+    from xeda.deliver import DeliveryError
+
+    with pytest.raises(DeliveryError, match="openfpgaloader writes no outputs") as raised:
+        _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}, outputs_to=tmp_path / "out")
+    assert str(tmp_path / "design/given.bit") in str(raised.value)
+    assert not _calls(tmp_path, "openfpgaloader")
+    assert not (tmp_path / "run").exists() and not (tmp_path / "out").exists()
+
+
 # ---------------------------------------------------------------------------- the default graph
 
 

@@ -147,8 +147,8 @@ only along the edges of the run's own graph. A chain replaces default producers:
 and `yosys_fpga` are not part of the run, and a part written only under `flows.yosys_fpga`
 reaches neither node. Planning logs "yosys_fpga is not part of this run: its settings are
 unused", and the error names the section that does not count: the `fpga` in `flows.yosys_fpga`
-of the design file does not reach openfpgaloader, since yosys_fpga is not part of this run.
-Write the part for a flow of the run
+of the design file does not reach vivado_synth, since yosys_fpga is not part of this run (the
+programmer needs a device only to program the flash). Write the part for a flow of the run
 (`flows.vivado_synth.fpga.part`, or a `board` for `openfpgaloader`; it reaches the other node
 along their `fpga` edge), or give `-s fpga.part=<part>`. Only `nextpnr`, `fpga_pack` and
 `openfpgaloader` take a `board`; `yosys_fpga` and the Vivado flows take `fpga.part`.

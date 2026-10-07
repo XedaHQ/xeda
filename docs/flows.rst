@@ -644,6 +644,10 @@ bridge bitstream it needs to write a flash (``spiOverJtag_<device><package>.bit.
 no speed grade. So the flow gives a Xilinx part without it (``xc7a35tcpg236``), and any other
 part as it is. Every bundled board has an ``openfpgaloader_board``, taken from openFPGALoader's
 own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``).
+Without a board name or a part, the flow gives no ``--fpga-part`` and openFPGALoader detects the
+device. Programming the flash needs the part, so ``write_flash`` without one, or a board that has
+one, is refused before anything runs. What the loader printed is in ``openfpgaloader.log`` in its
+run directory.
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads

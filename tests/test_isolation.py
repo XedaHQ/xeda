@@ -402,7 +402,10 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
     elif scenario == "purge":
         launcher.update(post_cleanup=True, post_cleanup_purge=True)
     elif scenario == "delivered":
-        launcher["outputs_to"] = world.delivered
+        if flow_class.action_reason is None:
+            # a programmer writes no outputs: `--outputs-to` is refused before it runs
+            # (`test_fpga_chains.py`), so it delivers only what it names
+            launcher["outputs_to"] = world.delivered
         for key, name in LOCATED.get(flow_class.name, {}).items():
             settings[key] = str(world.delivered / name)
     outcomes = []

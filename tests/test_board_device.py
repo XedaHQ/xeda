@@ -259,15 +259,16 @@ def test_a_board_on_the_loader_gives_a_vivado_chain_its_device(tmp_path, monkeyp
 
 def test_a_device_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_path, monkeypatch):
     """The chain displaces the loader's default producers, `yosys_fpga` among them: the device
-    written for it reaches neither node of the run, and the error says so."""
+    written for it reaches neither node of the run, and the error of the node that needs one
+    (Vivado: the loader needs it only to program the flash) says so."""
     monkeypatch.chdir(tmp_path)
     flows = {"yosys_fpga": {"fpga": {"part": "xc7a35tcpg236-1"}}}
     design = _write_design(tmp_path / "d", flows)
-    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
+    with pytest.raises(FlowSettingsException, match="vivado_synth needs `fpga`") as raised:
         _plan(tmp_path, "vivado_synth+openfpgaloader", design)
     message = str(raised.value)
     assert (
-        f"The `fpga` in [flows.yosys_fpga] in {design} does not reach openfpgaloader: "
+        f"The `fpga` in [flows.yosys_fpga] in {design} does not reach vivado_synth: "
         "yosys_fpga is not part of this run" in message
     ), message
 
@@ -287,7 +288,7 @@ def test_a_board_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_pa
 def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     design = _write_design(tmp_path / "d", {})
-    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
+    with pytest.raises(FlowSettingsException, match="vivado_synth needs `fpga`") as raised:
         _plan(
             tmp_path,
             "vivado_synth+openfpgaloader",
@@ -295,7 +296,7 @@ def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_
             flow_settings=["flows.yosys_fpga.fpga.part=xc7a35tcpg236-1"],
         )
     assert (
-        "The `fpga` in [flows.yosys_fpga] in the command line does not reach openfpgaloader"
+        "The `fpga` in [flows.yosys_fpga] in the command line does not reach vivado_synth"
         in str(raised.value)
     )
 

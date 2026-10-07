@@ -1,17 +1,29 @@
 import logging
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, List, Literal, Optional, Union
 
-from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
+from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
-from ..flow import FPGA, FpgaSynthFlow, In
+from ..flow import FPGA, Flow, FpgaSynthFlow, In
 from ..tool import Tool
 
 __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
+
+#: What the loader printed, in its run directory: all there is to read when programming fails.
+LOADER_LOG = "openfpgaloader.log"
+
+#: How to give the loader its device, which programming the flash needs.
+FLASH_NEEDS_THE_DEVICE = (
+    "the target FPGA device, since `write_flash` programs the flash through a bridge made for "
+    "the part: give its part number with `-s fpga.part=<part>`, or a board that has one with "
+    "`-s board=<name>` (see `xeda list-boards`); in the design file, as `fpga.part` or `board` "
+    "in its `[flows.{flow}]` section"
+)
 
 
 def _loader_part(fpga: FPGA) -> str:
@@ -67,12 +79,16 @@ class Openfpgaloader(FpgaSynthFlow):
     `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those
     stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted
     by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board
-    database), when it has one. The FPGA part is given when the board is not named: a Xilinx part
-    without its speed grade, any other as it is. It always runs, since
-    it changes a device rather than a file, and it is the only flow here that touches hardware.
+    database), when it has one. The FPGA part is given when the board is not named and the part is
+    known: a Xilinx part without its speed grade, any other as it is. Without a part,
+    openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The
+    loader's output is kept in `openfpgaloader.log` in the run directory. The flow always runs,
+    since it changes a device rather than a file, and it is the only flow here that touches
+    hardware.
     """
 
-    required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
+    #: the device only to program the flash (`required_settings_for`)
+    required_settings: dict[str, str] = {}
 
     #: Static, so a chain can refuse this flow anywhere but last without constructing it.
     action_reason = "it programs a device"
@@ -155,6 +171,14 @@ class Openfpgaloader(FpgaSynthFlow):
             description="The bitstream to program: a design source or fpga_pack's.",
         )
 
+    @classmethod
+    def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
+        """The device, to program the flash: openFPGALoader programs it through a bridge made for
+        the part. Loading SRAM needs none: the loader detects the device."""
+        if getattr(settings, "write_flash", False):
+            return {"fpga": FLASH_NEEDS_THE_DEVICE}
+        return {}
+
     def always_runs(self) -> Optional[str]:
         return super().always_runs() or self.action_reason
 
@@ -168,14 +192,14 @@ class Openfpgaloader(FpgaSynthFlow):
             board_data = ss.board_data()
             if board_data:
                 board_name = board_data.get("openfpgaloader_board")
-        assert ss.fpga is not None
         args = ["--bitstream", self.inputs.bitstream]
         if ss.cable:
             args.extend(["--cable", ss.cable])
         elif board_name:
             args.extend(["--board", board_name])
-        # `--board` gives openFPGALoader the board's own part, and `--fpga-part` would replace it
-        if ss.fpga.part and (ss.cable or not board_name):
+        # `--board` gives openFPGALoader the board's own part, and `--fpga-part` would replace
+        # it; with no part known, openFPGALoader detects the device (`required_settings_for`)
+        if ss.fpga is not None and ss.fpga.part and (ss.cable or not board_name):
             args.extend(["--fpga-part", _loader_part(ss.fpga)])
         for enabled, flag in (
             (ss.reset, "--reset"),
@@ -203,5 +227,7 @@ class Openfpgaloader(FpgaSynthFlow):
         args.extend(ss.extra_args)
         # made here, in the flow, so it takes the flow's settings and is listed in the results,
         # with the version it reports: the loader is started twice, once to ask for its version
-        # and once to program
-        OpenfpgaloaderTool().run(*args)
+        # and once to program. Its output goes to the log, made anew before the loader starts.
+        OpenfpgaloaderTool().run(
+            *args, tee=self.run_directory.writable(LOADER_LOG), merge_stderr=True
+        )

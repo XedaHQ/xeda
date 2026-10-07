@@ -61,6 +61,7 @@ from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
     _get_flow_class_if_known,
+    _refuse_outputs_to_a_programmer,
     get_flow_class,
     print_results,
 )
@@ -1037,6 +1038,9 @@ class RemoteRunner(FlowLauncher):
         # as a local run counts the design: by the parts the flow reads
         design_hash = design.parts_hash(flow_class.design_parts)
         outputs_to = self.settings.outputs_to
+        if outputs_to is not None:
+            # before the mirror, the run root or a connection, as a local launch refuses it
+            _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to)
         # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
         # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's
         run_path = self.get_flow_run_path(

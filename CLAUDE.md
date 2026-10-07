@@ -604,7 +604,13 @@ field takes a default (`None`, or an empty value) that its validators handle, as
 makes them. `FpgaSynthFlow` requires `fpga`; `tests/test_required_settings.py` sweeps every FPGA
 flow and every registered flow's model, and `tests/test_required_model_fields.py` shows each way
 of giving a required setting (file, project, `-s`, API mapping, instance, section) and the error
-when it is given nowhere.
+when it is given nowhere. What the given settings need is
+`Flow.required_settings_for(settings)`, by default `required_settings`, which the launch check and
+the resolver's unreached-section note both read. It narrows the declared requirement by the other
+settings and is still never the model: `openfpgaloader`'s `required_settings` is empty, and its
+hook adds `fpga` only with `write_flash` (openFPGALoader programs a flash through a bridge made for
+the part; loading SRAM it detects the device, and the flow passes `--fpga-part` only when the part
+is known).
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow
@@ -1024,6 +1030,12 @@ ran is a `DeliveryError` with `before_run` true (`check_outputs_to`, `refuse`, `
 launch raises it as it is, never as a `FlowDependencyFailure`, leaves the requested flow's
 directory untouched and does not list that flow in `launched`, so `--json` reports it
 `"not run"`.
+`--outputs-to` with a requested flow that writes no outputs -- one with an `action_reason`, the
+programmer -- is refused before anything runs, in `_launch` (before the run root and
+`_check_deliveries_ahead`), `plan` (dry runs) and the remote runner alike, a `DeliveryError` with
+`before_run` true naming the setting whose location delivers the file it reads
+(`default_runner._refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
+deliverable of the output's own name) or the design source it is.
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
 directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
@@ -1658,7 +1670,8 @@ dependency must also share `custom_boards_file`.
   assert on the fake's call record. Never run a real `openFPGALoader` from a test or a probe.
   The flow starts the loader twice, once for its version (`-V`, capital V: it has no `--version`,
   and the fake rejects that spelling as the real one does, so a flow asking the wrong way records
-  an empty version) and once to program. The guard keys on identity, never on a count: the fake
+  an empty version) and once to program, its output kept in `openfpgaloader.log` in the run
+  directory (`tee`, an earlier run's removed first). The guard keys on identity, never on a count: the fake
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).

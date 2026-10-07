@@ -997,6 +997,7 @@ def run(
                 hashed_run_dirs=hashed_run_dirs,
                 clean=clean,
                 debug=debug,
+                outputs_to=outputs_to,
             )
             plan = launcher.plan(
                 chain,
