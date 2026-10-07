@@ -24,7 +24,7 @@ from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_ghdl_log
 from ...tool import Docker, Tool
 from ...units import convert_unit
-from ...utils import SDF, common_root, replacing_file, setting_flag
+from ...utils import LOCATION_FORMS, SDF, common_root, replacing_file, setting_flag
 
 log = logging.getLogger(__name__)
 
@@ -543,7 +543,8 @@ class GhdlSim(Ghdl, SimFlow):
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms. The file name can be an absolute path or a name. If the name is used, the file will be created in flow's run_dir.",
+            description="Write the waveforms: a name in the run directory, or a location it is "
+            f"delivered to ({LOCATION_FORMS}).",
             json_schema_extra=deliverable("outputs/{design}.ghw"),
         )
         read_wave_opt: Optional[Path] = Field(

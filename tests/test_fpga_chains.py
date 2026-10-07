@@ -28,9 +28,10 @@ from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.trace import as_recorded
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
 from xeda.introspect import plan_info
-from xeda.utils import replacing_file
+from xeda.utils import LOCATION_FORMS, replacing_file
 
 from . import tool_utils
+from .project_files import PROJECT_FILE
 from .test_openfpgaloader import assert_fake_loader
 
 ECP5 = "LFE5U-25F-6BG381C"
@@ -1028,3 +1029,177 @@ def test_optional_postsynth_inputs_are_never_bound_by_chain_adjacency(producer):
     with pytest.raises(FlowSettingsException) as exc:
         parse_request(f"{producer}+vivado_postsynth_sim")
     assert "no declared I/O" not in str(exc.value)
+
+
+# -------------------------------------------------- the Vivado chain into the programmer, launched
+
+#: The project file of the demo repositories: the yosys recipe their Makefiles run.
+DEMO_PROJECT = {
+    "flows": {
+        "yosys_fpga": {
+            "flatten": True,
+            "flow3": False,
+            "check_assert": False,
+            "read_verilog_flags": [],
+            "systemverilog": "default",
+            "synth_pass_only": True,
+        }
+    }
+}
+BLINKY = "module blinky(input clk, output led); assign led = clk; endmodule\n"
+
+
+class Demo(NamedTuple):
+    """A blinky design of the demo repositories, as a stand-in."""
+
+    design: str
+    part: str
+    flows: dict
+    pins: str
+    settings: tuple[str, ...]  # `-s` for every request
+    board: str | None  # what the programmer is started with as `--board`
+
+
+DEMOS = {
+    # the device for each flow, and the board for the programmer
+    "arty": Demo(
+        "blinky-digilent-arty",
+        A100T,
+        {
+            "vivado_synth": {"fpga.part": A100T},
+            "yosys_fpga": {"fpga.part": A100T},
+            "openfpgaloader": {"board": "arty_a7_100t"},
+        },
+        "set_property LOC E3 [get_ports clk]\nset_property LOC H5 [get_ports led]\n",
+        (),
+        "arty_a7_100t",
+    ),
+    # the board alone, for the programmer: no device written anywhere
+    "arty-board": Demo(
+        "blinky-digilent-arty-board",
+        A100T,
+        {"openfpgaloader": {"board": "arty_a7_100t"}},
+        "set_property LOC E3 [get_ports clk]\nset_property LOC H5 [get_ports led]\n",
+        (),
+        "arty_a7_100t",
+    ),
+    # the device for yosys_fpga only: a Vivado request gives it on the command line
+    "basys": Demo(
+        "blinky-digilent-basys-3",
+        "xc7a35tcpg236-1",
+        {"yosys_fpga": {"fpga": {"part": "xc7a35tcpg236-1"}}},
+        "set_property LOC W5 [get_ports clk]\nset_property LOC U16 [get_ports led]\n",
+        ("-s", "fpga.part=xc7a35tcpg236-1"),
+        None,
+    ),
+}
+BY_DEMO = pytest.mark.parametrize("demo", DEMOS.values(), ids=list(DEMOS))
+
+
+def _demo(tmp_path: Path, demo: Demo) -> tuple[Path, Path]:
+    """The demo repository's root, with its project file, and the design file in it."""
+    root = tmp_path / "demo"
+    (root / demo.design).mkdir(parents=True)
+    (root / PROJECT_FILE).write_text(yaml.safe_dump(DEMO_PROJECT))
+    (root / demo.design / "blinky.v").write_text(BLINKY)
+    (root / demo.design / "blinky.xdc").write_text(demo.pins)
+    design = root / demo.design / f"{demo.design}.yaml"
+    sources = ["blinky.v", "blinky.xdc"]
+    document = {"name": demo.design, "rtl": {"top": "blinky", "sources": sources}}
+    design.write_text(yaml.safe_dump({**document, "flows": demo.flows}, sort_keys=False))
+    return root, design
+
+
+def _programmed_with(run: Path, demo: Demo, bitstream: Path) -> list[dict]:
+    """The fake programmer's calls in `run`, each checked to be the fake and to have been handed
+    `bitstream` and the demo's device: its board's name in openFPGALoader, which knows the
+    board's part; with no board, the part, a Xilinx part without its speed grade."""
+    calls = [json.loads(line) for line in (run / "fake_fpga.calls.jsonl").read_text().splitlines()]
+    device = ["--board", demo.board] if demo.board else ["--fpga-part", demo.part.rsplit("-", 1)[0]]
+    for call in calls:
+        assert Path(call["executable"]).read_bytes() == DISPATCHER.read_bytes()
+        assert call["argv"] == ["--bitstream", str(bitstream), *device]
+        assert call["input_bytes"] == [bitstream.stat().st_size]
+    return calls
+
+
+@BY_DEMO
+def test_the_vivado_chain_programs_the_bitstream_vivado_wrote(
+    tmp_path, toolchain, monkeypatch, demo
+):
+    """`vivado_synth+openfpgaloader` from a demo design, on the fake Vivado and the fake
+    programmer: the plan is what runs, the bitstream has its conventional name, the programmer is
+    started with it and the demo's board and part, and a relaunch only programs."""
+    root, design = _demo(tmp_path, demo)
+    monkeypatch.chdir(root)
+    request = ("run", "vivado_synth+openfpgaloader", design, *demo.settings)
+    result, planned = _xeda(*request, "--dry-run")
+    assert result.exit_code == 0, result.output
+    identities = {node["name"]: node["flowrun_hash"] for node in planned["plan"]["nodes"]}
+    assert list(identities) == ["vivado_synth", "openfpgaloader"]
+
+    result, document = _xeda(*request)
+    assert result.exit_code == 0, result.output
+    assert _states(document) == {"vivado_synth": "ran", "openfpgaloader": "ran"}
+    runs = root / "xeda_run" / demo.design
+    for node, identity in identities.items():
+        assert json.loads((runs / node / "results.json").read_text())["flow_hash"] == identity
+    bitstream = runs / "vivado_synth" / "outputs" / f"{demo.design}.bit"
+    assert bitstream.read_text() == "fake Vivado bitstream of blinky\n"
+    (project,) = [
+        c for c in tool_utils.fake_calls(runs / "vivado_synth") if c[0] == "create_project"
+    ]
+    assert project[project.index("-part") + 1] == demo.part
+    assert len(_programmed_with(runs / "openfpgaloader", demo, bitstream)) == 1
+
+    result, document = _xeda(*request)
+    assert result.exit_code == 0, result.output
+    assert _states(document) == {"vivado_synth": "fresh", "openfpgaloader": "ran"}
+    assert len(_programmed_with(runs / "openfpgaloader", demo, bitstream)) == 2
+
+
+@BY_DEMO
+def test_the_open_chain_starts_the_programmer_as_the_vivado_chain_does(
+    tmp_path, toolchain, monkeypatch, demo
+):
+    """Built by `yosys_fpga+nextpnr+fpga_pack` instead, the bitstream has the same conventional
+    name, in the packer's run directory, and the programmer is started with the same board and
+    part."""
+    root, design = _demo(tmp_path, demo)
+    monkeypatch.chdir(root)
+    result, document = _xeda("run", CHAIN, design, *demo.settings)
+    assert result.exit_code == 0, result.output
+    assert set(_states(document).values()) == {"ran"}
+    runs = root / "xeda_run" / demo.design
+    bitstream = runs / "fpga_pack" / "outputs" / f"{demo.design}.bit"
+    assert len(_programmed_with(runs / "openfpgaloader", demo, bitstream)) == 1
+
+
+@pytest.mark.parametrize(
+    "request_, producer",
+    [
+        ("vivado_synth+openfpgaloader", "vivado_synth"),
+        ("vivado_alt_synth+openfpgaloader", "vivado_alt_synth"),
+        (CHAIN, "fpga_pack"),
+        ("openfpgaloader", "fpga_pack"),
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True], ids=["launch", "dry-run"])
+def test_outputs_to_a_programmer_is_refused_naming_the_setting_that_delivers_its_bitstream(
+    tmp_path, toolchain, monkeypatch, request_, producer, dry_run
+):
+    """The programmer writes no outputs, so `--outputs-to` has nothing to deliver: refused
+    before anything runs, a dry run alike, naming the setting of the flow that makes the
+    bitstream in this plan, whose location would deliver it."""
+    root, design = _demo(tmp_path, DEMOS["arty"])
+    monkeypatch.chdir(root)
+    options = ["--outputs-to", "out", *(["--dry-run"] if dry_run else [])]
+    result, document = _xeda("run", request_, design, *options)
+    assert result.exit_code != 0, result.output
+    assert document["error"]["type"] == "DeliveryError", document
+    message = document["error"]["message"]
+    assert "openfpgaloader writes no outputs" in message, message
+    # a bare name stays in the run directory: the message says every way to give a location
+    assert f"-s flows.{producer}.bitstream=$PWD/<file>" in message, message
+    assert f"a location ({LOCATION_FORMS})" in message, message
+    assert not (root / "xeda_run").exists() and not (root / "out").exists()

@@ -139,6 +139,20 @@ command-line or API binding of the same input is an error even when they are equ
 one place. A saved binding is a reference to a flow's output (`yosys_fpga.netlist`), never a file
 path; give a file as a typed source.
 
+### "`<flow>` needs `fpga`" although the design gives a part
+
+A flow's settings are its own `flows.<flow>` section, and a shared leaf such as `fpga` travels
+only along the edges of the run's own graph. A chain replaces default producers: in
+`vivado_synth+openfpgaloader` the bitstream comes from `vivado_synth`, so `fpga_pack`, `nextpnr`
+and `yosys_fpga` are not part of the run, and a part written only under `flows.yosys_fpga`
+reaches neither node. Planning logs "yosys_fpga is not part of this run: its settings are
+unused", and the error names the section that does not count: the `fpga` in `flows.yosys_fpga`
+of the design file does not reach vivado_synth, since yosys_fpga is not part of this run (the
+programmer needs a device only to program the flash). Write the part for a flow of the run
+(`flows.vivado_synth.fpga.part`, or a `board` for `openfpgaloader`; it reaches the other node
+along their `fpga` edge), or give `-s fpga.part=<part>`. Only `nextpnr`, `fpga_pack` and
+`openfpgaloader` take a `board`; `yosys_fpga` and the Vivado flows take `fpga.part`.
+
 ### `NoSuccessfulRun`
 
 A design-space exploration completed without a successful candidate. Inspect the attempted run
@@ -163,8 +177,8 @@ dependency's, or the design's own), a directory where a file was expected, or a 
 root. The role -- *working* or *deliverable* -- belongs to the setting itself, not to the value you
 gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a *working* setting
 always stays a bare name inside the run directory, whatever it is given, and is never delivered
-anywhere; only a *deliverable* setting given a location -- an absolute path, or one anchored with
-`$PWD`/`$DESIGN_ROOT` -- is copied out.
+anywhere; only a *deliverable* setting given a location -- a path under `$PWD`, `$DESIGN_ROOT`
+or `$DESIGN_DIR`, or an absolute path -- is copied out.
 
 ### `OutputExistsError`
 

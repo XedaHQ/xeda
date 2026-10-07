@@ -378,7 +378,13 @@ cardinality: `Path` one, `Path | None` optional, `list[Path]` an ordered nonempt
 list with `In(optional=True)` may be empty). `In` names accepted `SourceType`s and optionally a
 canonical default `producer` and its `output`; `Out(enabled_by=...)` names a setting that enables
 an optional output. A consumer switches a Boolean setting on; other settings need a valid
-nonempty default or an explicit value. The flow chooses its output paths inside its run directory.
+nonempty default or an explicit value. A deliverable switch (`vivado_synth`'s `bitstream`) gets
+its conventional name, `outputs/<design>.<ext>`, the name the run writes when the setting names a
+location: `Flow.enable_output(settings, name, design_name=...)` takes the design's name for it,
+so one output has one name however it is asked for
+(`test_one_dependency_mechanism.py::naming_problems`; `vivado_postsynth_sim.saif`, still
+`activity.saif` in the reviewed tool-input goldens, is its one listed exception). The flow chooses
+its output paths inside its run directory.
 
 - **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input
   origins, switched-on outputs, identities and paths before constructing flows. Settings access gives
@@ -397,8 +403,10 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   takes an ordered list. Otherwise an accepted type in `rtl.sources` supplies it, in source
   order (a `JsonNetlist` skips `yosys_fpga` for `nextpnr`); otherwise the declared default
   producer. Cardinality is checked. A bound input is never pruned by a matching source, and a
-  displaced default producer leaves the graph: its settings are unused (logged at info level)
-  and take no part in shared agreement. `inputs` is reserved wiring split out per origin
+  displaced default producer leaves the graph: its settings are unused and take no part in
+  shared agreement. Planning logs each configured section of a default producer the run does not
+  include, once, whether a source or a binding displaced it (`resolve`'s loop over the unused
+  default producers, which also checks their syntax). `inputs` is reserved wiring split out per origin
   before settings composition (`bindings.split_bindings`), never a `Flow.Settings` field or
   part of the design hash. A chain is command-line data: it overrides a file's binding of the
   same input (the plan reports it as `overridden`) and is an error, even when equal, against a
@@ -461,7 +469,15 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
-  leaves; API contributions remain a separate highest-precedence origin.
+  leaves; API contributions remain a separate highest-precedence origin. A board-aware node's
+  `fpga` is derived from its agreed board before `fpga` is agreed (`agree_targets`; the derived
+  leaves rank as the node's own board does and are located where the winning board was written,
+  `_agree` returning each agreed leaf's origin), so a bundled board alone is the device of every
+  node that shares `fpga` with it: `tests/test_board_device.py` sweeps every flow that declares
+  `board`, every origin and every position in a chain or default graph. A device written for a
+  flow that is not part of the run reaches no node -- a design-wide device is not a feature yet
+  -- and the error that a node lacks a required setting names each section that gives it without
+  reaching the node (`resolver._unreached`, passed to `check_required_settings`).
 - **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
   `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
   containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
@@ -559,6 +575,15 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
 
+**The variables and the forms of a location are defined once**, in `utils.py`: `PATH_VARIABLES`
+maps each variable xeda gives a setting's path to the validation-context entry holding its value
+(`path_variables(context)` is what `Flow.Settings._path_roots`, `Flow.process_path` and
+`custom_boards_file` expand with; any other variable comes from the environment), and
+`LOCATION_FORMS` (`$PWD/..., $DESIGN_ROOT/..., $DESIGN_DIR/... or an absolute path`) is what every
+message that says how to give a location names. A new variable goes into the table, never into a
+message. `tests/test_written_paths.py` checks each named form is absolute once expanded, and
+`tests/test_delivery.py` delivers a deliverable given each form.
+
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
 rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
@@ -588,7 +613,13 @@ field takes a default (`None`, or an empty value) that its validators handle, as
 makes them. `FpgaSynthFlow` requires `fpga`; `tests/test_required_settings.py` sweeps every FPGA
 flow and every registered flow's model, and `tests/test_required_model_fields.py` shows each way
 of giving a required setting (file, project, `-s`, API mapping, instance, section) and the error
-when it is given nowhere.
+when it is given nowhere. What the given settings need is
+`Flow.required_settings_for(settings)`, by default `required_settings`, which the launch check and
+the resolver's unreached-section note both read. It decides the requirement from the other
+settings and is still never the model: `openfpgaloader`'s `required_settings` is empty, and its
+hook adds `fpga` only with `write_flash` (openFPGALoader programs a flash through a bridge made for
+the part; loading SRAM it detects the device, and the flow passes `--fpga-part` only when the part
+is known).
 
 **Every settings field must have a `description=`.** `tests/test_documentation.py` fails otherwise
 (its allowlist is empty - all ~520 visible fields are documented). The same test requires each flow
@@ -977,7 +1008,7 @@ marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) ex
 `xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
-nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT` too, once,
+nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,
 when the flow's settings are built or a field of theirs is assigned -- `cocotb.results_xml` and
 `yosys_sim.cxxrtl.filename` are the settings this covers; a value assigned straight onto the
 nested model afterwards is not expanded, and `written_path_problems` reports it as such.
@@ -1008,6 +1039,15 @@ ran is a `DeliveryError` with `before_run` true (`check_outputs_to`, `refuse`, `
 launch raises it as it is, never as a `FlowDependencyFailure`, leaves the requested flow's
 directory untouched and does not list that flow in `launched`, so `--json` reports it
 `"not run"`.
+`--outputs-to` with a requested flow that writes no outputs -- one with an `action_reason`, the
+programmer -- is refused before anything runs, in `_launch` (before the run root and
+`_check_deliveries_ahead`), `plan` (dry runs) and the remote runner alike, a `DeliveryError` with
+`before_run` true naming the setting whose location delivers the file it reads, written
+`=$PWD/<file>`, and every form of a location (`utils.LOCATION_FORMS`)
+(`default_runner._refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
+deliverable of the output's own name), or the design source it is. Under `--remote` that setting
+would deliver on the remote host, so the error names the producer's own request instead
+(`xeda run --remote fpga_pack ... --outputs-to DIR`).
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
 directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
@@ -1161,12 +1201,14 @@ setting, one run identity and one plan. The resolver compares two nodes' `board`
 ignoring case unless a node of the group names a custom database (`resolver._agree`). A custom
 database and every file name are case-sensitive, as written. A board entry's optional
 `openfpgaloader_board` is the board's name in openFPGALoader (`--board`, from its `src/board.hpp`;
-text when given, and every bundled board has one); `openfpgaloader` passes it whenever `board` is
-set, a `cable` first, and a board without one adds no `--board`. With `--board` it gives no
-`--fpga-part`: the loader knows the board's part, the option would replace it, and the loader
-names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`) by the option as
-written, so a part given without a board name drops a Xilinx speed grade (`_loader_part`). The
-former key `name` is an error naming it (`WithFpgaBoardSettings._fpga_validate`).
+text when given, and every bundled board has one); `openfpgaloader` passes it as `--board` when
+`board` is set and no `cable` is. A `cable` takes precedence: `--cable`, `--fpga-part` when the
+part is known, and no board name. A board without an `openfpgaloader_board` adds no `--board`.
+With `--board` it gives no `--fpga-part`: the loader knows the board's part, the option would
+replace it, and the loader names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`)
+by the option as written, so a part given without a board name drops a Xilinx speed grade
+(`_loader_part`). The former key `name` is an error naming it
+(`WithFpgaBoardSettings._fpga_validate`).
 
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
 `custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to
@@ -1279,6 +1321,12 @@ dependency must also share `custom_boards_file`.
   one that *transforms* drifts each time (ISE's option quoting turned `"High"` into `""High""`).
   Format for a tool at render time in the template instead. `tests/test_model_invariants.py`
   re-assigns every field of every flow's settings to itself and fails on any change.
+- **A validator logs nothing above DEBUG.** It runs on every validation -- of the section of a
+  flow the run leaves out (the resolver checks their syntax), on every assignment and reload --
+  so INFO from it is noise, and for an unused section a report about settings that do not apply
+  ("Detected FPGA family" printed just before "openfpgaloader needs `fpga`"). Report a derived
+  fact where it is used. `tests/test_model_invariants.py::test_no_validator_logs_above_debug`
+  scans every validator in the package.
 - **Nested models serialize by their *annotated* type.** A field holding a subclass needs
   `SerializeAsAny[...]` (see `Design.dependencies`, which holds `GitReference`s) or the subclass's
   own fields are silently dropped from `model_dump()`. `model_dump(serialize_as_any=True)` is not
@@ -1636,7 +1684,8 @@ dependency must also share `custom_boards_file`.
   assert on the fake's call record. Never run a real `openFPGALoader` from a test or a probe.
   The flow starts the loader twice, once for its version (`-V`, capital V: it has no `--version`,
   and the fake rejects that spelling as the real one does, so a flow asking the wrong way records
-  an empty version) and once to program. The guard keys on identity, never on a count: the fake
+  an empty version) and once to program, its output kept in `openfpgaloader.log` in the run
+  directory (`tee`: each run makes the log anew before the loader starts). The guard keys on identity, never on a count: the fake
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).

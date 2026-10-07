@@ -119,7 +119,7 @@ def switch_problems(cls: type[Flow]) -> list[str]:
                 f"{cls.name}.{name} with {setting}={probe!r}" if setting else f"{cls.name}.{name}"
             )
             try:
-                cls.enable_output(settings, name)
+                cls.enable_output(settings, name, design_name="design")
             except ValueError as error:
                 if not setting:
                     problems.append(
@@ -132,6 +132,67 @@ def switch_problems(cls: type[Flow]) -> list[str]:
             if not output_enabled(settings, declaration):
                 problems.append(f"{where}: enable_output returned but it is not enabled")
     return problems
+
+
+#: deliverable switches a consumer sets to another name than their conventional one, and why
+NAMED_OTHERWISE = {
+    ("vivado_postsynth_sim", "saif"): "the reviewed tool-input goldens record `activity.saif`, "
+    "the name a timing-only request also records its activity under",
+}
+
+
+def naming_problems(cls: type[Flow], design_name: str = "design") -> list[str]:
+    """What a consumer's switch names otherwise than the output's conventional name, for each
+    output whose `enabled_by` is a deliverable: switched on from the minimal settings, the
+    setting must name what the run writes when it is given a location (`outputs/<design>.<ext>`),
+    so one output has one name however it is asked for."""
+    from xeda.dataclass import DELIVERABLE_ROLE, written_role
+
+    problems: list[str] = []
+    for name, declaration in declared_outputs(cls).items():
+        field = declaration.enabled_by
+        if field is None or written_role(cls.Settings, field) != DELIVERABLE_ROLE:
+            continue
+        if (cls.name, name) in NAMED_OTHERWISE:
+            continue
+        settings = cls.Settings.from_input(minimal_settings(cls))
+        cls.enable_output(settings, name, design_name=design_name)
+        conventional = settings.conventional_output(field, design_name)
+        value = getattr(settings, field)
+        if conventional is None or value is None or Path(value) != Path(conventional):
+            problems.append(f"{cls.name}.{name}: switched on as {value}, not {conventional}")
+    return problems
+
+
+@pytest.mark.parametrize("cls", [cls for cls, _ in DECLARED], ids=DECLARED_IDS)
+def test_a_deliverable_a_consumer_switches_on_has_its_conventional_name(cls) -> None:
+    assert naming_problems(cls) == []
+
+
+def test_the_naming_sweep_covers_the_vivado_bitstream_and_its_exception() -> None:
+    from xeda.dataclass import DELIVERABLE_ROLE, written_role
+
+    swept = {
+        (cls.name, name)
+        for cls, _ in DECLARED
+        for name, declaration in declared_outputs(cls).items()
+        if declaration.enabled_by is not None
+        and written_role(cls.Settings, declaration.enabled_by) == DELIVERABLE_ROLE
+    }
+    assert {("vivado_synth", "bitstream"), ("vivado_alt_synth", "bitstream")} <= swept
+    assert set(NAMED_OTHERWISE) <= swept, "an exception the sweep no longer meets"
+
+
+def test_a_fixed_bitstream_name_is_found(monkeypatch) -> None:
+    """A consumer's switch that names the bitstream otherwise than its conventional name, as
+    `outputs/bitstream.bit` once did, is what the naming sweep exists to catch."""
+
+    def fixed(cls, settings, name, *, design_name):
+        settings.bitstream = Path("outputs/bitstream.bit")
+
+    monkeypatch.setattr(VivadoSynth, "enable_output", classmethod(fixed))
+    (problem,) = naming_problems(VivadoSynth)
+    assert "outputs/bitstream.bit" in problem and "outputs/design.bit" in problem
 
 
 @pytest.mark.parametrize("cls", [cls for cls, _ in DECLARED], ids=DECLARED_IDS)

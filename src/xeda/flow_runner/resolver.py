@@ -24,7 +24,7 @@ from typing import Any, Literal
 from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
 from ..design import DESIGN_PARTS, Design
-from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
+from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, selected_types
@@ -190,14 +190,20 @@ class Plan:
         return next(node for node in self.nodes if name in (node.name, node.node_key))
 
 
-def check_launchable(flow_cls: type[Flow], settings: Flow.Settings, design: Design) -> None:
-    """Check final settings and source support without constructing a flow or probing tools."""
+def check_launchable(
+    flow_cls: type[Flow],
+    settings: Flow.Settings,
+    design: Design,
+    unreached: Mapping[str, str] | None = None,
+) -> None:
+    """Check final settings and source support without constructing a flow or probing tools.
+    `unreached` explains a missing required setting (`Flow.check_required_settings`)."""
     problems = written_path_problems(settings)
     if problems:
         raise FlowSettingsError(
             [(key, message, None, "value_error") for key, message in problems], flow_cls.Settings
         )
-    flow_cls.check_required_settings(settings)
+    flow_cls.check_required_settings(settings, unreached)
     flow_cls.check_design_supported(design)
     flow_cls.check_settings_supported(settings)
 
@@ -412,6 +418,11 @@ def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
     return FlowSettingsError([(leaf, message, None, "shared_setting_conflict")], cls.Settings)
 
 
+def _given_at(location: _Location | None) -> str:
+    """` at <where it was given>`, or nothing for a value that has no recorded origin."""
+    return f" at {location.label}" if location else ""
+
+
 def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
     """Components include only edges whose endpoints both expose this shared field."""
     neighbors: dict[int, list[_Request]] = {id(r): [] for r in requests}
@@ -574,9 +585,16 @@ def _shared_locations(
     return result
 
 
+#: where each agreed leaf of each node was given, by the node's `id`: every node of a group holds
+#: the winning contribution's value, so the winner's location is that value's origin
+_Given = dict[int, dict[tuple[str, ...], "_Location"]]
+
+
 def _agree(
     requests: list[_Request], shared: str, context: dict[str, Any], *, provisional: bool = False
-) -> None:
+) -> _Given:
+    """Agree `shared` along the edges of `requests`, and say where each agreed leaf was given."""
+    given: _Given = {}
     for group in _components(requests, shared):
         candidates: dict[tuple[str, ...], list[tuple[_Request, Any, Any, _Location]]] = {}
         for request in group:
@@ -592,6 +610,7 @@ def _agree(
                 for path, items in candidates.items()
             }
         agreed: dict[str, Any] = {}
+        winning: dict[tuple[str, ...], _Location] = {}
         for path, contributions in candidates.items():
             rank = {"file": 0, "cli": 1, "api": 2}
             highest = max(rank[loc.kind] for _r, _v, _k, loc in contributions)
@@ -608,6 +627,7 @@ def _agree(
                         f"{other.cls.name} {leaf}={alternative!r} at {other_location.label}",
                     )
             _put(agreed, path[1:], value) if len(path) > 1 else agreed.update({shared: value})
+            winning[path] = location
         if not agreed:
             continue
         value = agreed[shared] if shared in agreed else agreed
@@ -626,6 +646,50 @@ def _agree(
                         clock["name"] = inherited_name
         for request in group:
             request.raw.values[shared] = deepcopy(value)
+            given.setdefault(id(request), {}).update(winning)
+    return given
+
+
+def _unreached(
+    request: _Request,
+    requests: list[_Request],
+    layers: Sequence[tuple[str, Mapping[str, Any], str]],
+) -> dict[str, str]:
+    """For each required setting `request` lacks, the sections that give it without reaching
+    `request`: a section of a flow that is not part of this run, or of a flow that shares no
+    edge with `request` along which the setting is shared. A board gives `fpga` too: a
+    board-aware flow derives its device from it."""
+    assert request.settings is not None
+    nodes = {other.cls.name for other in requests}
+    found: dict[str, str] = {}
+    for name in request.cls.required_settings_for(request.settings):
+        if not is_unset(getattr(request.settings, name, None)):
+            continue
+        reached = {request.cls.name}
+        if name in SHARED_SETTINGS:
+            for group in _components(requests, name):
+                if any(member is request for member in group):
+                    reached = {member.cls.name for member in group}
+        notes = []
+        for label, sections, _kind in layers:
+            for flow, values in sections.items():
+                if flow in reached or not isinstance(values, Mapping):
+                    continue
+                for key in (name, "board") if name == "fpga" else (name,):
+                    if is_unset(values.get(key)):
+                        continue
+                    why = (
+                        f"{flow} is not part of this run"
+                        if flow not in nodes
+                        else f"no edge of this run carries `{name}` from {flow} to it"
+                    )
+                    notes.append(
+                        f"The `{key}` in [flows.{flow}] in {label} does not reach "
+                        f"{request.cls.name}: {why}"
+                    )
+        if notes:
+            found[name] = ". ".join(notes)
+    return found
 
 
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -829,12 +893,6 @@ def resolve(
                         + ", ".join(map(str, sources))
                     )
                 request.inputs.append(ResolvedInput(declaration.name, "source", sources=sources))
-                if declaration.producer:
-                    log.info(
-                        "%s uses design sources; settings for displaced producer %s are unused",
-                        where,
-                        declaration.producer,
-                    )
                 continue
             if declaration.producer is None:
                 if declaration.required and not specialized:
@@ -913,10 +971,18 @@ def resolve(
 
     demands()
 
-    def agree_targets(candidates: list[_Request], *, provisional: bool = False) -> None:
+    def agree_targets(candidates: list[_Request], *, provisional: bool = False) -> _Given:
+        given: _Given = {}
+
+        def agree(shared: str) -> None:
+            for node, leaves in _agree(
+                candidates, shared, context, provisional=provisional
+            ).items():
+                given.setdefault(node, {}).update(leaves)
+
         # Board/database agreement precedes expansion into explicit FPGA contributions.
         for shared in ("board", "custom_boards_file"):
-            _agree(candidates, shared, context, provisional=provisional)
+            agree(shared)
         for request in candidates:
             if issubclass(request.cls.Settings, WithFpgaBoardSettings) and request.raw.values.get(
                 "board"
@@ -928,7 +994,15 @@ def resolve(
                 }
                 board = WithFpgaBoardSettings.from_input(raw_board, **context)
                 if board.fpga:
-                    location = request.raw.locations.get(("board",), _Location("the shared board"))
+                    # The device leaves rank as the node's own board does (one it received
+                    # along an edge ranks as a file's), and are located where the board that
+                    # won was written.
+                    own = request.raw.locations.get(("board",))
+                    written = given.get(id(request), {}).get(("board",), own)
+                    location = _Location(
+                        written.label if written else "the shared board",
+                        own.kind if own else "file",
+                    )
                     fpga = _explicit(board.fpga)
                     request.raw.values["fpga"] = merge_layers(fpga, request.raw.values.get("fpga"))
                     for path in _leaves(fpga, ("fpga",)):
@@ -937,7 +1011,8 @@ def resolve(
             if shared not in ("board", "custom_boards_file") and (
                 not provisional or shared == "fpga"
             ):
-                _agree(candidates, shared, context, provisional=provisional)
+                agree(shared)
+        return given
 
     if any(
         getattr(r.cls.input_types, "__func__") is not getattr(Flow.input_types, "__func__")
@@ -968,13 +1043,7 @@ def resolve(
                     selected_inputs.append(
                         ResolvedInput(declaration.name, "source", sources=sources)
                     )
-                    for child, _output in request.producers.pop(declaration.name, []):
-                        log.info(
-                            "%s.%s uses design sources; settings for displaced producer %s are unused",
-                            request.cls.name,
-                            declaration.name,
-                            child.cls.name,
-                        )
+                    request.producers.pop(declaration.name, None)
                 else:
                     selected_inputs.append(
                         old if old.origin == "producer" else ResolvedInput(declaration.name, "none")
@@ -997,7 +1066,10 @@ def resolve(
             settings_in_context(
                 unused_cls, unused, **context
             )  # syntax only, no launch requirements
-    agree_targets(requests)
+            if unused:
+                # a default producer a source or a binding displaced, or one of its producers
+                log.info("%s is not part of this run: its settings are unused", unused_name)
+    given = agree_targets(requests)
 
     for request in requests:
         try:
@@ -1010,7 +1082,7 @@ def resolve(
             if name in request.needed:
                 before = request.settings.model_dump()
                 try:
-                    request.cls.enable_output(request.settings, name)
+                    request.cls.enable_output(request.settings, name, design_name=design.name)
                 except ValueError as error:
                     raise FlowSettingsException(
                         f"{request.cls.name}.{name} is required by a consumer: {error}"
@@ -1036,15 +1108,25 @@ def resolve(
             board_fpga = request.settings._board_fpga(request.settings.board_data())
             if board_fpga and request.settings.fpga:
                 for key, value in _explicit(board_fpga).items():
-                    if value is not None and getattr(request.settings.fpga, key) != value:
+                    actual = getattr(request.settings.fpga, key)
+                    if value is not None and actual != value:
+                        written = given.get(id(request), {})
+                        board_at = written.get(("board",), request.raw.locations.get(("board",)))
+                        fpga_at = written.get(
+                            ("fpga", key), request.raw.locations.get(("fpga", key))
+                        )
                         raise _error(
                             request.cls,
                             f"fpga.{key}",
-                            f"board {request.settings.board!r} and fpga.{key} disagree",
+                            f"board {request.settings.board!r}{_given_at(board_at)} and "
+                            f"fpga.{key}={actual!r}{_given_at(fpga_at)} disagree: the board's "
+                            f"fpga.{key} is {value!r}",
                         )
     for request in requests:
         assert request.settings is not None
-        check_launchable(request.cls, request.settings, design)
+        check_launchable(
+            request.cls, request.settings, design, _unreached(request, requests, layers)
+        )
 
     # The final settings select the very same sources and producer formats as discovery.
     for request in requests:

@@ -273,7 +273,7 @@ records:
   its own report can never leave a previous run's report to be read as if it were this run's;
 - each file above as a **file record**: ``(size, mtime, inode change time, inode, content hash)``;
 - where each path-typed setting points, by its name (``lib_paths[0][1]``): an absolute path (a
-  ``$PWD`` or ``$DESIGN_ROOT`` path once expanded) as itself, a relative one as each existing
+  path under ``$PWD``, ``$DESIGN_ROOT`` or ``$DESIGN_DIR``, once expanded) as itself, a relative one as each existing
   path it is found at under the design root and the start directory. A run's identity counts
   ``$PWD/libs`` as written, so launched from another start directory -- or for another design
   tree whose design file reads the same -- it has the same identity; a setting that names a
@@ -540,14 +540,23 @@ Outputs where you name them
 
 A flow's tools write only inside its run directory, under a fixed **conventional name** per
 deliverable setting (the convention is ``outputs/<design>.<ext>``; a setting without one keeps
-its own default name). Give such a setting a location -- an absolute path, or one anchored with
-``$PWD``/``$DESIGN_ROOT`` -- and Xeda still writes the run's copy under its conventional name in
-the run directory (what the tools do and what the run is identified by never depend on where you
-asked for the copy); once the whole launch has finished, that file is **delivered**: copied to the
-location you named. The same is true of ``--outputs-to DIR``, which delivers the requested flow's
+its own default name). A value of such a setting is a **location** when it is an absolute path
+once its variables are expanded: a path under ``$PWD``, ``$DESIGN_ROOT`` or ``$DESIGN_DIR``, or
+an absolute path. A bare name stays in the run directory. Give such a setting a location, and
+Xeda still writes the run's copy under its conventional name in the run directory (what the tools
+do and what the run is identified by never depend on where you asked for the copy); once the
+whole launch has finished, that file is **delivered**: copied to the location you named. The same is true of ``--outputs-to DIR``, which delivers the requested flow's
 artifacts, each at its path relative to the run directory. Renaming or moving a delivery's
 destination therefore never re-runs the flow, and never changes what the tools do -- only where
 the copy lands.
+
+A requested flow that writes no outputs -- a programmer, as in
+``xeda run vivado_synth+openfpgaloader`` -- has nothing to deliver. ``--outputs-to`` is then
+refused before anything runs. The error names the setting whose location delivers the file the
+programmer reads, here ``-s flows.vivado_synth.bitstream=$PWD/<file>``, and every form of a
+location given above. On a ``--remote``
+run, that setting would deliver on the remote host, so the error names the request that brings the
+file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
 
 A delivery never replaces a directory, and never lands on a file any flow of the launch reads (a
 dependency's input, a later sibling's), inside a directory a setting of any of them reads (a
@@ -590,7 +599,7 @@ on is read once more, and anchored afresh by the clock of the file system it is 
 Every **working** location -- a setting naming where a flow keeps its intermediate files, such as
 ``sim_dir``, ``bobj_dir``, ``impl_folder`` or a log path -- is a bare name inside the run
 directory, never a location: what a working-location setting is given is always used as a name
-there, whatever it looks like. ``$PWD`` (and ``$DESIGN_ROOT``) still expand inside a nested
+there, whatever it looks like. ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR`` still expand inside a nested
 setting given as a mapping or an instance, such as ``cocotb.results_xml`` or
 ``yosys_sim.cxxrtl.filename`` -- expansion happens once, when the flow's settings are built or a
 field of theirs is assigned, not later.

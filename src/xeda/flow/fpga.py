@@ -193,9 +193,9 @@ class FPGA(XedaBaseModel):
                 fam = match_xc7.group("f")
                 family = set_xc_family(fam, "-7")
                 if family:
-                    log.info("Detected FPGA family: %s", family)
+                    log.debug("Detected FPGA family: %s", family)
                 else:
-                    log.warning("Could not determine the FPGA family for device %s", part)
+                    log.debug("Could not determine the FPGA family for device %s", part)
                 lc = match_xc7.group("lc")
                 set_if_not_exist(
                     "device",

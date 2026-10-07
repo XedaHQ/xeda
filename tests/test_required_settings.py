@@ -49,6 +49,10 @@ def test_the_sweep_covers_the_fpga_flows():
     }
 
 
+#: what an FPGA flow that needs its device only for some of its work is asked to do here
+NEEDS_THE_DEVICE_FOR = {"openfpgaloader": {"write_flash": True}}
+
+
 @pytest.mark.parametrize("flow_class", FPGA_FLOWS, ids=lambda cls: cls.name)
 def test_an_fpga_flow_launched_without_a_device_names_the_setting(
     flow_class, design, tmp_path, monkeypatch
@@ -57,11 +61,10 @@ def test_an_fpga_flow_launched_without_a_device_names_the_setting(
     monkeypatch.setenv("PATH", "")  # a tool that ran would be `ExecutableNotFound`, not this
     monkeypatch.chdir(tmp_path)
     run_dir = tmp_path / "xeda_run"
+    settings = {"clock": {"period": 10.0}, **NEEDS_THE_DEVICE_FOR.get(flow_class.name, {})}
 
     with pytest.raises(FlowSettingsException) as raised:
-        DefaultRunner(run_dir, display_results=False).run_flow(
-            flow_class, design, {"clock": {"period": 10.0}}
-        )
+        DefaultRunner(run_dir, display_results=False).run_flow(flow_class, design, settings)
 
     message = str(raised.value)
     assert flow_class.name in message and "`fpga`" in message, message

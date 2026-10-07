@@ -11,7 +11,7 @@ from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
-from .utils import expand_env_vars, toml_load, toml_loads
+from .utils import expand_env_vars, path_variables, toml_load, toml_loads
 from .yaml_loader import load_yaml, yaml_error_position
 
 __all__ = [
@@ -141,7 +141,7 @@ def get_board_data(
         name = board.lower() if isinstance(board, str) else board
         database = "the bundled board database xeda/data/boards.toml"
         if name in boards_data:
-            log.info("Retrieved board data for %s", name)
+            log.debug("Retrieved board data for %s", name)
     if name not in boards_data:
         suggestions = get_close_matches(name, boards_data) if isinstance(name, str) else []
         hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
@@ -197,14 +197,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         if not isinstance(value, (str, os.PathLike)) or not value:
             return value
         root = context.get("design_root")
-        path = expand_env_vars(
-            Path(value),
-            {
-                "DESIGN_ROOT": root,
-                "DESIGN_DIR": root,
-                "PWD": context.get("runner_cwd"),
-            },
-        )
+        path = expand_env_vars(Path(value), path_variables(context))
         return Path(root) / path if root is not None and not path.is_absolute() else path
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -268,7 +261,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 return values
             if board_data:
                 board_fpga = cls._board_fpga(board_data)
-                log.info("FPGA info for board %s: %s", values["board"], str(board_fpga))
+                log.debug("FPGA info for board %s: %s", values["board"], board_fpga)
                 if board_fpga:
                     values["fpga"] = board_fpga
         return values

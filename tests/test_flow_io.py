@@ -86,7 +86,7 @@ def test_default_pure_hooks_preserve_the_declared_types_and_enablement():
     settings = _Maker.Settings(write=False)
     assert _Maker.output_types(settings, "made") == (SourceType.Data,)
     assert _Taker.input_types(_Taker.Settings(), "made") == (SourceType.Data,)
-    _Maker.enable_output(settings, "made")
+    _Maker.enable_output(settings, "made", design_name="d")
     assert settings.write is True
     assert selected_types(_Maker, settings, "made", output=True) == (SourceType.Data,)
 
@@ -94,7 +94,7 @@ def test_default_pure_hooks_preserve_the_declared_types_and_enablement():
 def test_default_hook_refuses_an_optional_output_without_a_switch():
     flow_cls = _flow_with_model("Outputs", Path | None, Out(SourceType.Data, description="File."))
     with pytest.raises(ValueError, match="cannot be switched on"):
-        flow_cls.enable_output(flow_cls.Settings(), "file")
+        flow_cls.enable_output(flow_cls.Settings(), "file", design_name="d")
 
 
 def test_a_specialization_cannot_expand_the_declared_vocabulary():

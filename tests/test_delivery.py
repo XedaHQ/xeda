@@ -33,6 +33,7 @@ from xeda.digest import RACY_NS
 from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
+from xeda.utils import PATH_VARIABLES
 
 from .tool_utils import producers_of
 
@@ -182,6 +183,24 @@ def _launch(world, launcher=None, flow=_Deliverer, deliverer=None, **settings):
     flow = runner.launch_flow(flow, world.design, settings, all_flows_settings=sections)
     flow.producers = producers_of(runner, flow) if flow.declared_input_records else []
     return flow
+
+
+@pytest.mark.parametrize("variable", [*PATH_VARIABLES, None], ids=[*PATH_VARIABLES, "absolute"])
+def test_each_form_of_a_location_is_delivered_where_it_names(world, variable):
+    """Every form the messages name (`LOCATION_FORMS`) is a location: a deliverable given a path
+    under one of `PATH_VARIABLES`, or an absolute path, is delivered there, and the run writes
+    its conventional name."""
+    places = {"runner_cwd": world.user, "design_root": world.design.root_path}
+    if variable is None:
+        given, destination = str(world.user.parent / "elsewhere" / "net.v"), None
+    else:
+        given = f"${variable}/out/net.v"
+        destination = places[PATH_VARIABLES[variable]] / "out" / "net.v"
+    destination = destination or Path(given)
+    flow = _launch(world, netlist=given)
+    assert flow.succeeded and (flow.run_path / "outputs" / "d.v").read_text() == "net\n"
+    assert destination.read_text() == "net\n"
+    assert [(d.destination, d.state) for d in flow.deliveries] == [(destination, "delivered")]
 
 
 def test_a_location_is_delivered_and_the_run_writes_the_conventional_name(world):

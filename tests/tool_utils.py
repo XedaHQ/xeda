@@ -739,6 +739,7 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
         "prjxray-db/artix7/mapping/parts.yaml": (
             "xc7a100tcsg324-1:\n  device: xc7a100t\n  package: csg324\n  speedgrade: '1'\n"
             "xc7a35tcsg324-1:\n  device: xc7a35t\n  package: csg324\n  speedgrade: '1'\n"
+            "xc7a35tcpg236-1:\n  device: xc7a35t\n  package: cpg236\n  speedgrade: '1'\n"
         ),
         "prjxray-db/artix7/mapping/devices.yaml": (
             "xc7a100t:\n  fabric: xc7a100t\nxc7a35t:\n  fabric: xc7a50t\n"
@@ -748,7 +749,7 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
         # the directory `fpga-as` finds the data of each part in
         **{
             f"prjxray-db/artix7/{part}/{name}": "{}\n"
-            for part in ("xc7a100tcsg324-1", "xc7a35tcsg324-1")
+            for part in ("xc7a100tcsg324-1", "xc7a35tcsg324-1", "xc7a35tcpg236-1")
             for name in ("part.json", "part.yaml", "package_pins.csv")
         },
     }

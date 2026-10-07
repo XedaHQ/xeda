@@ -28,7 +28,7 @@ from rich.text import Text
 
 from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
 from ..console import console
-from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
+from ..dataclass import DELIVERABLE_ROLE, WORKING_ROLE, XedaBaseModel, model_validator, written_role
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -59,7 +59,7 @@ from ..flow import (
     FlowSettingsException,
     registered_flows,
 )
-from ..flow.io import declared_inputs, selected_types
+from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -67,6 +67,7 @@ from ..run_dir import OutputState, RunDirectory, RunDirectoryError, record_outpu
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..tool import NonZeroExitCode
 from ..utils import (
+    LOCATION_FORMS,
     WorkingDirectory,
     XedaException,
     backup_existing,
@@ -667,11 +668,64 @@ def _warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
     which = ", ".join(names) if names else "none"
     log.warning(
         "--outputs-to %s: %s delivered nothing there -- its deliverable settings (%s) are what "
-        "--outputs-to copies; give one a location for something to deliver",
+        "--outputs-to copies; give one a location (%s) for something to deliver",
         outputs_to,
         flow.name,
         which,
+        LOCATION_FORMS,
     )
+
+
+def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
+    """The deliverable setting of `flow_class` that names its output `output`: the one that
+    switches it on (`enabled_by`), else a setting of the output's own name."""
+    declaration = declared_outputs(flow_class).get(output)
+    for name in (declaration.enabled_by if declaration else None, output):
+        if name and written_role(flow_class.Settings, name) == DELIVERABLE_ROLE:
+            return name
+    return None
+
+
+def _refuse_outputs_to_a_programmer(
+    plan: Plan, node: PlanNode, outputs_to: Path, *, remote: bool = False
+) -> None:
+    """`--outputs-to` copies what the requested flow writes. A flow that programs a device
+    (`Flow.action_reason`) writes no outputs, so there is nothing to deliver: a `DeliveryError`
+    before anything runs, a dry run alike, naming what would deliver the file it reads -- the
+    setting of the flow that writes it in this plan, given a location (`LOCATION_FORMS`); on a
+    `remote` run, where that setting would deliver on the
+    remote host, the request of that flow, whose own outputs come back -- or the design source it
+    is."""
+    flow_class = node.flow_class
+    if flow_class.action_reason is None:
+        return
+    producers, settings, sources = [], [], []
+    for selected in node.inputs:
+        sources += [str(path) for path in selected.sources]
+        for reference in selected.references:
+            producer = plan.node(reference.node)
+            producers.append(producer.name)
+            setting = _setting_naming(producer.flow_class, reference.output)
+            if setting is not None:
+                settings.append(f"-s flows.{producer.name}.{setting}=$PWD/<file>")
+    message = (
+        f"--outputs-to {outputs_to}: {flow_class.name} writes no outputs "
+        f"({flow_class.action_reason}), so there is nothing to deliver"
+    )
+    if remote and producers:
+        message += ". To receive the file it reads, request the flow that writes it instead: " + (
+            ", ".join(
+                f"xeda run --remote {name} ... --outputs-to {outputs_to}" for name in producers
+            )
+        )
+    elif settings:
+        message += (
+            ". To receive the file it reads, give the setting that writes it a location "
+            f"({LOCATION_FORMS}) instead: " + ", ".join(settings)
+        )
+    if sources:
+        message += ". The file it reads is a design source: " + ", ".join(sources)
+    raise DeliveryError(message, before_run=True)
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
@@ -1285,6 +1339,9 @@ class FlowLauncher:
         node = self._validate_plan(
             plan, flow_class, design, flow_settings, all_flows_settings, plan_node
         )
+        if depender is None and self.settings.outputs_to is not None:
+            # before the run root, a lock or a producer
+            _refuse_outputs_to_a_programmer(plan, node, self.settings.outputs_to)
         flow_settings = node.settings
         input_settings = self._input_settings(
             flow_class, flow_settings, design, runner_cwd, depender
@@ -2177,7 +2234,9 @@ class FlowLauncher:
         design_remove_fields: list[str] = [],
         target: str | None = None,
     ) -> Plan:
-        """Plan what run() would execute, refusing side-effecting design loading."""
+        """Plan what run() would execute, refusing side-effecting design loading, and what
+        run() would refuse before anything runs (a run directory a flow refuses, `--outputs-to`
+        a programmer)."""
         plan = self._resolve_request(
             self._request(
                 flow,
@@ -2196,6 +2255,10 @@ class FlowLauncher:
         # the launch refuses these too, where it decides the directory (`_run_identity`)
         for node in plan.nodes:
             node.flow_class.check_run_directory(node.settings, node.run_path)
+        if self.settings.outputs_to is not None:
+            _refuse_outputs_to_a_programmer(
+                plan, plan.node(plan.requested), self.settings.outputs_to
+            )
         return plan
 
     def _request(

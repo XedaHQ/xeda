@@ -310,7 +310,9 @@ itself ran to its end without raising and did not succeed (its own cause is in i
   root, or a write inside it would go through a symbolic link Xeda does not control.
 * ``DeliveryError`` -- an output named by a setting or ``--outputs-to`` could not be delivered:
   the run did not write the file the setting expected, the destination is an input of the launch,
-  a directory, or inside a run root, or it changed after it was checked.
+  a directory, or inside a run root, or it changed after it was checked. It is also the refusal
+  of ``--outputs-to`` for a requested flow that writes no outputs (a programmer), made before
+  anything runs and naming what delivers the file it reads.
 * ``OutputExistsError`` -- a subclass of ``DeliveryError``: the destination holds a file that is
   not Xeda's own unchanged earlier delivery, and replacing it was not confirmed. Rerun with
   ``--overwrite-outputs``, or answer the prompt at an interactive terminal.

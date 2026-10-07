@@ -56,12 +56,15 @@ from ..dataclass import (
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..utils import (
+    LOCATION_FORMS,
+    PATH_VARIABLES,
     XedaException,
     camelcase_to_snakecase,
     expand_env_vars,
     location_free,
     location_roots,
     parse_patterns_in_file,
+    path_variables,
     rebuild_like,
     regex_match,
     replacing_file,
@@ -310,17 +313,18 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
         if "$" in text:
             variable = re.search(r"\$\{?(\w+)", text)
             name = variable.group(1) if variable else "$"
-            if name in ("PWD", "DESIGN_ROOT", "DESIGN_DIR"):
+            if name in PATH_VARIABLES:
                 message = (
                     f"`{key}` = {text}: ${name} was not expanded here -- a value assigned to a "
                     "nested model after the settings were made: give an absolute path, or give "
                     "it with the settings (-s, the design file, the API's flow settings)"
                 )
             else:
+                names = [f"${variable}" for variable in PATH_VARIABLES]
                 hint = (
                     "use $PWD, the directory xeda was started from"
                     if name == "CWD"
-                    else "the variables are $PWD and $DESIGN_ROOT"
+                    else f"the variables are {', '.join(names[:-1])} and {names[-1]}"
                 )
                 message = f"`{key}` = {text}: ${name} is not a variable xeda knows: {hint}"
             problems.append((key, message))
@@ -339,7 +343,7 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
                 (
                     key,
                     f"`{key}` = {text}: `~` is not expanded: give a name in the run directory, "
-                    "or a location ($PWD/..., $DESIGN_ROOT/..., an absolute path)",
+                    f"or a location ({LOCATION_FORMS})",
                 )
             )
         elif not path.is_absolute() and ".." in path.parts:
@@ -347,8 +351,7 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
                 (
                     key,
                     f"`{key}` = {text} leaves the run directory: give a name inside it; to put "
-                    "it elsewhere, name a location ($PWD/..., $DESIGN_ROOT/...) or use "
-                    "--outputs-to",
+                    f"it elsewhere, name a location ({LOCATION_FORMS}) or use --outputs-to",
                 )
             )
         return leaf
@@ -665,7 +668,8 @@ class Flow(metaclass=ABCMeta):
     #: as one section of a design file, holds only some of them, and a model that insisted on all
     #: of them could not validate it. So the model never requires them: `Flow.Settings` refuses a
     #: field without a default when its class is defined. Give the field a default (`None`, or an
-    #: empty value), and name the setting here.
+    #: empty value), and name the setting here. A flow that needs a setting only for what its
+    #: other settings ask of it says so in `required_settings_for`, which is checked instead.
     required_settings: Dict[str, str] = {}
 
     #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
@@ -687,15 +691,32 @@ class Flow(metaclass=ABCMeta):
     action_reason: ClassVar[str | None] = None
 
     @classmethod
-    def check_required_settings(cls, settings: "Flow.Settings") -> None:
+    def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
+        """The settings this flow cannot run without, given `settings`: `required_settings`,
+        unless a flow needs a setting only for what its other settings ask of it
+        (`openfpgaloader` needs its device only to program the flash)."""
+        return cls.required_settings
+
+    @classmethod
+    def check_required_settings(
+        cls, settings: "Flow.Settings", unreached: Mapping[str, str] | None = None
+    ) -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
-        before anything is set up for the run. The settings are the final, agreed values."""
+        before anything is set up for the run. The settings are the final, agreed values.
+        `unreached` says, for a setting, where it is given without reaching this flow (the
+        resolver knows: in the section of a flow that is not part of the run); the message
+        adds it, so a value the user did write is not left unexplained."""
         missing = []
-        for name, how in cls.required_settings.items():
+        notes = []
+        for name, how in cls.required_settings_for(settings).items():
             if is_unset(getattr(settings, name, None)):
                 missing.append(f"`{name}`, {how.format(flow=cls.name)}")
+                if unreached and unreached.get(name):
+                    notes.append(unreached[name])
         if missing:
-            raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))
+            raise FlowSettingsException(
+                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes)
+            )
 
     @classmethod
     def check_settings_supported(cls, settings: "Flow.Settings") -> None:
@@ -719,8 +740,10 @@ class Flow(metaclass=ABCMeta):
         return declared_outputs(cls)[name].types
 
     @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str) -> None:
-        """Enable a demanded output on the resolver's mutable settings proposal."""
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """Enable a demanded output on the resolver's mutable settings proposal. `design_name`
+        is the design's name, which a deliverable's conventional name holds
+        (`Flow.Settings.conventional_output`)."""
         declaration = declared_outputs(cls)[name]
         if declaration.cardinality == "optional" and declaration.enabled_by is None:
             raise ValueError(f"{cls.name}.{name} cannot be switched on")
@@ -911,13 +934,7 @@ class Flow(metaclass=ABCMeta):
 
         @staticmethod
         def _path_roots(context: Mapping[str, Any] | None) -> dict[str, Any]:
-            context = context or {}
-            design_root = context.get("design_root")
-            return {
-                "PWD": context.get("runner_cwd"),
-                "DESIGN_ROOT": design_root,
-                "DESIGN_DIR": design_root,
-            }
+            return path_variables(context or {})
 
         def model_post_init(self, context: Any, /) -> None:
             super().model_post_init(context)
@@ -1415,11 +1432,9 @@ class Flow(metaclass=ABCMeta):
         if subs_vars and isinstance(path, (str, Path)):
             path = expand_env_vars(
                 path,
-                overrides={
-                    "DESIGN_ROOT": self.design.design_root,
-                    "DESIGN_DIR": self.design.design_root,
-                    "PWD": self.runner_cwd,
-                },
+                overrides=path_variables(
+                    {"design_root": self.design.design_root, "runner_cwd": self.runner_cwd}
+                ),
             )
         if not isinstance(path, Path):
             path = Path(path)

@@ -16,6 +16,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Modelsim
 from xeda.flows.modelsim import ModelsimTool
+from xeda.utils import LOCATION_FORMS
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -94,6 +95,7 @@ def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monke
     assert flow is not None and flow.succeeded and flow.deliveries == []
     assert not (tmp_path / "got").exists()
     assert "modelsim" in caplog.text and "vcd" in caplog.text and "delivered nothing" in caplog.text
+    assert f"give one a location ({LOCATION_FORMS})" in caplog.text
 
 
 def test_an_hdl_testbench_without_a_top_is_rejected_when_planned(tmp_path, monkeypatch) -> None:

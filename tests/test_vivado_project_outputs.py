@@ -564,11 +564,12 @@ def test_an_output_whose_switch_is_off_is_not_recorded(tmp_path, monkeypatch) ->
 
 @pytest.mark.parametrize("flow_class", SWITCHED_OUTPUTS, ids=FLOW_IDS.get)
 def test_a_consumer_can_switch_the_bitstream_on(flow_class) -> None:
-    """`bitstream` has no default, so a consumer's demand needs `enable_output` to name one."""
+    """`bitstream` has no default, so a consumer's demand needs `enable_output` to name one: its
+    conventional name, the one the run writes when the setting names a location."""
     settings = flow_class.Settings(fpga=FPGA(part=PART))  # type: ignore
     assert settings.bitstream is None
-    flow_class.enable_output(settings, "bitstream")
-    assert settings.bitstream is not None
+    flow_class.enable_output(settings, "bitstream", design_name="sqrt")
+    assert settings.bitstream == Path("outputs/sqrt.bit")
     assert settings.write_netlist is False and settings.write_timing_netlist is False
 
 

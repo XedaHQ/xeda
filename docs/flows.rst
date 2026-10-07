@@ -158,9 +158,11 @@ in ``rtl.sources`` supplies that input instead and skips synthesis:
       top: top
 
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
-requires exactly one matching source. Settings for a producer displaced by sources are unused
-and logged. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
-and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus/Xilinx ``fasm``).
+requires exactly one matching source. A default producer that a source or a binding (a chain,
+or ``flows.<flow>.inputs``) displaces is not part of the run: its settings are unused, and
+planning logs each such section. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by
+``netlist_json``) and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or
+Nexus/Xilinx ``fasm``).
 ``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
 into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
 ``Bitstream`` source, and declares no output.
@@ -260,13 +262,20 @@ whether it runs because you named it or because it is somebody's default produce
 
 Shared leaves (``fpga``, ``board``, ``clocks``, ...) given at any one node apply to every node
 along the chain's edges. Two different values in files are a conflict that names both nodes and
-their files; a command-line value wins for the whole group.
+their files; a command-line value wins for the whole group. A flow that is not part of the run
+gives no shared leaf: ``vivado_synth+openfpgaloader`` replaces the programmer's default
+producers, so a device written only in ``flows.yosys_fpga`` reaches neither node. Write it for a
+flow of the chain (``flows.vivado_synth.fpga.part``, or a ``board`` for ``openfpgaloader``), or
+give ``-s fpga.part=<part>``. The error that a flow needs ``fpga`` names each section that gives
+it without reaching the flow.
 
 **Results.** ``flow``, ``results``, ``--help-settings`` and the exit status are the last flow's.
 ``--json`` adds ``request`` (the chain, element by element) and, for every flow of the plan, its
 ``node`` name and resolved ``inputs``; a flow that was planned but never entered after a failure
 is listed as ``"state": "not run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the
-last flow's outputs, only after the whole chain succeeded. ``--dry-run`` shows the graph and runs
+last flow's outputs, only after the whole chain succeeded. A chain that ends at ``openfpgaloader``
+has none: ``--outputs-to`` is refused before anything runs, and the error names the setting that
+delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the graph and runs
 no tools.
 
 Input sources and saved bindings
@@ -628,15 +637,21 @@ at any speed grade, it fails before any tool runs. The message names the part, t
 searched and the packages of the same device that the database has, with their speed grades.
 
 ``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
-``verify`` is accepted only with it. When ``board`` is set, it passes the board's
-``openfpgaloader_board`` to openFPGALoader as ``--board``, and no ``--fpga-part``: openFPGALoader
-knows the board's part, and the option would replace it. A ``cable`` takes precedence over the
-board. A board that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow
-gives the part and the cable alone. openFPGALoader uses ``--fpga-part`` as written to name the
+``verify`` is accepted only with it. A ``cable`` takes precedence over the board. With a
+``cable``, the flow passes ``--cable``, and ``--fpga-part`` when the part is known. It passes no
+board name, even when ``board`` is set. Without a ``cable``, when ``board`` is set, the flow
+passes the board's ``openfpgaloader_board`` to openFPGALoader as ``--board``, and no
+``--fpga-part``: openFPGALoader knows the board's part, and the option would replace it. A board
+that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow gives the
+board's part as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name the
 bridge bitstream it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has
 no speed grade. So the flow gives a Xilinx part without it (``xc7a35tcpg236``), and any other
 part as it is. Every bundled board has an ``openfpgaloader_board``, taken from openFPGALoader's
-own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``).
+own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is known,
+from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader detects
+the device. Programming the flash needs the device, so ``write_flash`` is refused before anything
+runs when neither ``fpga`` nor a board gives it. What the loader printed is in
+``openfpgaloader.log`` in its run directory.
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads

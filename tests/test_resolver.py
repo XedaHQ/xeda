@@ -434,6 +434,64 @@ def _board_edge():
     return _BoardTaker, _BoardMaker
 
 
+def _device_relay():
+    """A producer with a device, a relay that declares none, and a consumer that needs one: no
+    edge of the graph shares `fpga` between the producer and the consumer."""
+    from xeda.design import SourceType
+    from xeda.flow import FpgaSynthFlow, In, Out
+
+    class _DeviceMaker(FpgaSynthFlow):
+        """Makes the file the relay passes on; its device is its own."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Outputs(FpgaSynthFlow.Outputs):
+            made: Path = Out(SourceType.JsonNetlist, description="The produced file.")
+
+        def run(self):
+            pass
+
+    class _DeviceRelay(Flow):
+        """Passes the file on; it has no device."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(Flow.Inputs):
+            made: Path = In(
+                SourceType.JsonNetlist, producer="__device_maker", description="The file."
+            )
+
+        class Outputs(Flow.Outputs):
+            passed: Path = Out(SourceType.Data, description="The file, passed on.")
+
+        def run(self):
+            pass
+
+    class _DeviceTaker(FpgaSynthFlow):
+        """Reads the relay's file, and needs a device."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(FpgaSynthFlow.Inputs):
+            passed: Path = In(SourceType.Data, producer="__device_relay", description="The file.")
+
+        def run(self):
+            pass
+
+    return _DeviceTaker, _DeviceMaker
+
+
+def test_a_required_setting_given_where_no_edge_carries_it_is_named(tmp_path):
+    taker, maker = _device_relay()
+    with pytest.raises(FlowSettingsException, match=f"{taker.name} needs `fpga`") as raised:
+        _plan(tmp_path, taker, {}, {maker.name: {"fpga": PART}})
+    assert (
+        f"The `fpga` in [flows.{maker.name}] in the supplied flow sections does not reach "
+        f"{taker.name}: no edge of this run carries `fpga` from {maker.name} to it"
+        in str(raised.value)
+    )
+
+
 @pytest.mark.parametrize("placement", ["consumer", "producer", "split", "reverse_split"])
 def test_custom_board_and_database_agree_before_lookup(tmp_path, placement):
     taker, maker = _board_edge()
@@ -513,9 +571,10 @@ def test_displaced_producer_skips_launch_checks_but_checks_syntax(tmp_path, capl
 
     sources = [{"file": "net.json", "type": "JsonNetlist"}]
     caplog.set_level(logging.INFO)
-    plan = _plan(tmp_path, _Place, {"fpga": PART}, sections={"__synth": {}}, sources=sources)
+    sections = {"__synth": {"quiet": True}}
+    plan = _plan(tmp_path, _Place, {"fpga": PART}, sections=sections, sources=sources)
     assert [n.name for n in plan.nodes] == ["__place"]
-    assert "unused" in caplog.text
+    assert "__synth is not part of this run: its settings are unused" in caplog.text
     with pytest.raises(FlowSettingsError, match="unknown_setting"):
         _plan(
             tmp_path,

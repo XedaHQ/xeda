@@ -1,11 +1,12 @@
 """Outputs delivered where the user named them.
 
 A flow's tools write only in its run directory. An output the user names by a location -- a
-deliverable setting (`xeda.dataclass.deliverable`) whose value is absolute once `$PWD` and
-`$DESIGN_ROOT` are expanded, or `--outputs-to DIR` for the requested flow's artifacts -- is
-**delivered**: copied there, under the name the user chose, once the launch has finished, for a
-flow that succeeded or was found up to date. The setting itself then names the file in the run directory by its fixed conventional
-name (`split_deliveries`: `outputs/<design>.<ext>`, or the setting's default name), and
+deliverable setting (`xeda.dataclass.deliverable`) whose value is absolute once its variables
+are expanded (`utils.LOCATION_FORMS`), or `--outputs-to DIR` for the requested flow's
+artifacts -- is **delivered**: copied there, under the name the user chose, once the launch has
+finished, for a flow that succeeded or was found up to date. The setting itself then names the
+file in the run directory by its fixed conventional name (`split_deliveries`:
+`outputs/<design>.<ext>`, or the setting's default name), and
 the run's identity sees only that name (`flow.identity_settings`): where an output goes, and what
 it is called there, never changes what the tools do or what the run is.
 
