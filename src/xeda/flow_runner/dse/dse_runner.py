@@ -17,7 +17,7 @@ from pydantic import ValidationError
 from ...dataclass import Field, XedaBaseModel, validation_errors
 from ...deliver import deliverable_locations
 from ...design import Design
-from ...flow import Flow, FlowFatalError, FlowSettingsError
+from ...flow import Flow, FlowFatalError, FlowSettingsError, flowrun_hash
 from ...run_dir import RunDirectory
 from ...tool import NonZeroExitCode
 from ...utils import (
@@ -359,6 +359,16 @@ class Dse(FlowLauncher):
         # successful run".
         flow_class.check_required_settings(base_settings)
         flow_class.check_design_supported(design)
+        # every candidate runs in a sibling of this directory, under the same run root
+        flow_class.check_run_directory(
+            base_settings,
+            self.run_path_of(
+                design.name,
+                flow_class.name,
+                flowrun_hash(flow_class.name, base_settings, design.name),
+                target=design.target,
+            ),
+        )
         # many variants would deliver to one path, so an exploration delivers nothing
         located = deliverable_locations(base_settings)
         if located or self.settings.outputs_to is not None:

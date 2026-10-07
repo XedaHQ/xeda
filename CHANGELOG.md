@@ -121,18 +121,22 @@ All notable changes to this project will be documented in this file.
   Not affected: a cocotb testbench, a design with no testbench, `ghdl_sim` with a VHDL testbench
   (it finds the top with `ghdl find-top`), and a design with a C++ driver of its own for
   `verilator` and `yosys_sim`, whatever HDL its testbench also holds.
-- `verilator`, and `bsc_sim` with its Verilator backend, refuse a run directory whose path has
-  whitespace, at once: before the run root, the directory or its lock is created, and when a plan
-  is made (`xeda run --dry-run`). Verilator's GNU Make build cannot work in such a directory (its
-  makefile stops with "GNU Make cannot build in directories containing spaces" before it compiles
-  anything), and the error used to come in the middle of the build. `verilator` refuses a
-  `sim_dir`, the directory it builds in, with whitespace too. The message names the directory and
-  says to use a run root and a `sim_dir` without whitespace (`--run-root`). A link is judged by
-  the directory it leads to, as make builds there. `Flow.check_run_directory` is the hook, and one
-  function makes the check for both flows.
+- A run directory a flow cannot work in is refused at once: before the run root, the directory
+  or its lock is created, when a plan is made (`xeda run --dry-run`), and once at the start of
+  `xeda dse`. `Flow.check_run_directory` is the hook. Two flows have such a limit, for a path with
+  whitespace. `verilator`: Verilator's GNU Make build cannot work there (its makefile stops with
+  "GNU Make cannot build in directories containing spaces" before it compiles anything, and the
+  error used to come in the middle of the build). It refuses a `sim_dir`, the directory it builds
+  in, with whitespace too. A link in the run root is judged by the directory it leads to, as make
+  builds there; `sim_dir` by its name, since the launcher removes a link left at it. `bsc_sim`,
+  with every simulator: bsc's link step runs its tools through a shell without quoting, and it
+  used to fail after the compilation, with the run root already created. Each message names the
+  directory and says to use a run root without whitespace (`--run-root`).
 - `verilator` includes the header of its hooks by name (`-include xeda_hooks.h`, found in the
-  directory the model is built in), no longer by the absolute path of the run directory: the C++
-  compiler flags go through make, which splits them at a space.
+  directory the model is built in), no longer by the absolute path of the run directory. The C++
+  compiler flags go through make and a shell, which split them at a space, read a `#` as a
+  comment and a `$` as a variable, and take quotes, `;`, `&`, parentheses and backslashes as
+  syntax: a run root with one of those in its path failed every build.
 - `verilator` no longer silences Verilator's `STMTDLY` and `INITIALDLY` warnings when `timing` is
   off. Verilator then ignores a `#delay`, so a testbench's `#100; $finish` ended at time 0 and
   passed without a word. Verilator now says so. A warning does not fail the run, unless

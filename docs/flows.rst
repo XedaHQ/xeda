@@ -647,7 +647,10 @@ bsc supports. Every accepted backend (listed below) requires an observed ``$fini
 requested limit, with no runtime event reaching ``fail_severity`` (default ``error``).
 ``$finish(n)``'s argument is a verbosity level, not an exit status. A requested Bluesim
 ``max_cycles`` passes only with the measured cycle count and final simulated time; an early
-explicit finish remains valid. A silent exit 0 and a drained event queue fail.
+explicit finish remains valid. A silent exit 0 and a drained event queue fail. ``bsc_sim`` refuses
+a run directory whose path has whitespace, with every simulator, before anything is created and
+when planning: bsc's link step runs its tools through a shell without quoting. Use a run root
+without whitespace (``--run-root``).
 
 .. code-block:: bash
 
@@ -781,10 +784,9 @@ Defaults and limits:
 * ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
   an error, since Xeda's driver runs a C++ model.
 * A run directory whose path has whitespace is refused, before anything is created and when
-  planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir``
-  with whitespace, the directory the model is built in. This holds for ``bsc_sim`` with
-  ``simulator: verilator`` too. Use a run root and a ``sim_dir`` without whitespace
-  (``--run-root``).
+  planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
+  whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
+  whitespace (``--run-root``).
 * Verilator 5.024 or newer is required.
 
 Writing a new flow

@@ -94,23 +94,6 @@ def parse_end_record(path: Path) -> SimEvidence:
 MIN_VERILATOR_VERSION = (5, 24)
 
 
-def check_verilator_make_directory(flow: str, directory: Path) -> None:
-    """Refuse a directory in which Verilator's GNU Make build cannot work, naming it: `directory`
-    is where the build runs (or the one it makes its own in). The makefile of every model stops
-    with "GNU Make cannot build in directories containing spaces" before it compiles anything:
-    make splits a path at whitespace, and builds in the physical directory, so a link is judged
-    by what it leads to. Every flow that builds a model with that makefile (`verilator`, and
-    `bsc_sim` with its Verilator backend) makes this one check for `Flow.check_run_directory`;
-    `flow` says who cannot build."""
-    physical = os.path.realpath(directory)
-    if any(char in string.whitespace for char in physical):
-        raise FlowSettingsException(
-            f"{flow} cannot build in {physical}: Verilator's GNU Make build cannot work in a "
-            "directory whose path has whitespace. Use a run root (`--run-root`) and a `sim_dir` "
-            "whose paths have none."
-        )
-
-
 class Verilator(SimFlow):
     """Simulate a Verilog or SystemVerilog design with Verilator.
 
@@ -320,10 +303,21 @@ class Verilator(SimFlow):
 
     @classmethod
     def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
-        """The model is built in `sim_dir`, a name inside the run directory."""
+        """Refuse a build directory whose path has whitespace: Verilator's makefile stops with
+        "GNU Make cannot build in directories containing spaces" before it compiles anything,
+        because make splits a path at whitespace. The model is built in `sim_dir`, a name inside
+        the run directory. Make builds in the physical directory, so the run directory is judged
+        by what it leads to, but `sim_dir` by its name: the launcher removes a link left at it
+        before the run, and never follows it."""
         super().check_run_directory(settings, run_path)
         assert isinstance(settings, cls.Settings)
-        check_verilator_make_directory(cls.name, run_path / settings.sim_dir)
+        build = os.path.normpath(os.path.join(os.path.realpath(run_path), settings.sim_dir))
+        if any(char in string.whitespace for char in build):
+            raise FlowSettingsException(
+                f"{cls.name} cannot build in {build}: Verilator's GNU Make build cannot work in "
+                "a directory whose path has whitespace. Use a run root (`--run-root`) and a "
+                "`sim_dir` whose paths have none."
+            )
 
     @classmethod
     def runs_without_testbench_top(cls, design: Design) -> bool:

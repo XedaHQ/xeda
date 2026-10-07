@@ -1327,15 +1327,17 @@ dependency must also share `custom_boards_file`.
   and xeda leaves its `STMTDLY` and `INITIALDLY` warnings on, which fail a run only with
   `warnings_fatal`.
   Verilator's makefile stops in a build directory whose path has whitespace ("GNU Make cannot
-  build in directories containing spaces"), so every flow that builds with it (`verilator`, and
-  `bsc_sim` with its Verilator backend, whose link step builds in `obj_dir_*` under the run
-  directory) refuses such a run directory (and `verilator` a `sim_dir`, where it builds) through
-  `Flow.check_run_directory`, one shared `check_verilator_make_directory`, before anything is
-  created: the launcher calls the hook in
-  `_run_identity` for every launch and `plan` calls it too, never the `--remote` runner (the
-  build is the remote's). Another flow that builds with that makefile is a decision, pinned in
-  `tests/test_verilator_run_directory.py`. The hooks header goes into the compiler flags by name
-  (`-include xeda_hooks.h`, the model builds in `sim_dir`): make splits flags at a space.
+  build in directories containing spaces"), so `verilator` refuses such a run directory, and a
+  `sim_dir`, where it builds; `bsc_sim` refuses it for every simulator, since bsc's link step runs
+  its tools through a shell without quoting (`_check_link_paths` stays as the backstop for the
+  design's own paths). Both go through `Flow.check_run_directory`, which is pure and judges the
+  path alone, before anything is created: the launcher calls it in `_run_identity` for every
+  launch, `plan` calls it, and `Dse` calls it once before the search; the `--remote` runner never
+  does (the build is the remote's). The run directory is judged by what it leads to (make builds
+  in the physical directory), `sim_dir` by its name (the launcher removes a link left at it).
+  Another flow with such a limit is a decision, pinned in `tests/test_verilator_run_directory.py`.
+  The hooks header goes into the compiler flags by name (`-include xeda_hooks.h`, the model builds
+  in `sim_dir`): make splits flags at a space, and reads `#` and `$` in them.
   `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
   `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
