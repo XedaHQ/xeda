@@ -1651,8 +1651,9 @@ dependency must also share `custom_boards_file`.
   `tools/fold_changelog.py` holds the rule for a fragment and the fold.
   `tests/test_changelog_fragments.py` fails a fragment that breaks the rule and a `###` heading
   that a section of `CHANGELOG.md` has twice. Every file in `changelog.d/`, hidden or not, must
-  be a fragment, except `.gitkeep`, which keeps the directory. **On release**, run
-  `python tools/fold_changelog.py vX.Y.Z [--date YYYY-MM-DD]` and commit the result. It adds the
+  be a fragment, except `.gitkeep` (it keeps the directory) and `.DS_Store` (macOS Finder writes
+  it into any folder it shows): those two are `NON_FRAGMENT_FILES` in the tool. **On release**,
+  run `python tools/fold_changelog.py vX.Y.Z [--date YYYY-MM-DD]` and commit the result. It adds the
   fragments, sorted by slug, to the end of the matching lists of the `## [Unreleased]` section
   (or of a new section above the newest release, if the file has no `[Unreleased]` section),
   renames that section `## [vX.Y.Z] - <date>`, and deletes the files. It refuses a list of that

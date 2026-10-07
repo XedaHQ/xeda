@@ -34,8 +34,10 @@ tool = _load_tool()
 ONE_LINE = "- `xeda scrub` keeps a run that finished after it listed the directories.\n"
 NOT_A_FRAGMENT_NAME = (
     f"the name must be <slug>.<type>.md, and <type> one of {', '.join(tool.TYPES)} "
-    f"(the only file here that is no fragment is {tool.KEEP_FILE})"
+    "(the only files here that are not fragments are .gitkeep and .DS_Store)"
 )
+#: The files of `changelog.d/` that are no fragments. The tests that name them run once for each.
+NON_FRAGMENT_FILES = [".gitkeep", ".DS_Store"]
 
 
 def write(directory: Path, name: str, content: str | bytes) -> Path:
@@ -53,7 +55,7 @@ def files_of(directory: Path) -> dict[Path, bytes]:
 
 def test_every_fragment_in_the_checkout_follows_the_convention():
     """A file in `changelog.d/` that breaks the convention would vanish at release. Every file
-    there is a fragment, hidden or not, but `.gitkeep`."""
+    there is a fragment, hidden or not, but `.gitkeep` and `.DS_Store`."""
     problems = tool.directory_problems(ROOT / tool.FRAGMENT_DIRECTORY)
     assert not problems, (
         "\n".join(problems)
@@ -73,39 +75,83 @@ def test_a_directory_without_fragments_has_no_problem(tmp_path):
     assert tool.directory_problems(tmp_path / "no-such-directory") == []
 
 
-def test_every_file_but_the_keep_file_must_be_a_fragment_and_they_come_in_the_order_of_slugs(
-    tmp_path,
-):
-    """The walk of the directory skips `.gitkeep` and nothing else: a hidden file is judged, and
-    refused, like any other (`directory_problems` names each of them below)."""
+def test_the_files_that_are_no_fragments_are_exactly_gitkeep_and_ds_store():
+    """The one constant of the script. Every other file must be a fragment, so a third name is a
+    decision: it needs its own tests below, and a line in the script's text and in CLAUDE.md."""
+    assert list(tool.NON_FRAGMENT_FILES) == NON_FRAGMENT_FILES
+
+
+def test_the_script_and_claude_md_name_the_files_that_are_no_fragments():
+    """The names are one constant in the script. The text of the script and the rule in CLAUDE.md
+    say them too, so a name is not added in one place and forgotten in the other."""
+    claude = ROOT / "CLAUDE.md"
+    if not claude.is_file():
+        pytest.skip("CLAUDE.md is not part of this installation")
+    texts = {
+        "the text of the script": tool.__doc__,
+        "CLAUDE.md": claude.read_text(encoding="utf-8"),
+    }
+    for name in tool.NON_FRAGMENT_FILES:
+        for where, text in texts.items():
+            assert f"`{name}`" in text, f"{where} does not name `{name}`"
+
+
+def test_the_walk_of_the_directory_skips_those_two_files_and_no_other(tmp_path):
+    """A hidden file is judged, and refused, like any other. The rest come in the order of their
+    slugs."""
     names = ["b.fixed.md", "a-b.fixed.md", "a.added.md", ".hidden-slug.added.md", ".fixed.md"]
-    for name in [*names, ".DS_Store", ".gitkeep"]:
+    for name in [*names, ".keep", *NON_FRAGMENT_FILES]:
         write(tmp_path, name, ONE_LINE)
     assert [path.name for path in tool.fragment_paths(tmp_path)] == [
-        ".DS_Store",
         ".fixed.md",
         ".hidden-slug.added.md",
+        ".keep",
         "a.added.md",
         "a-b.fixed.md",
         "b.fixed.md",
     ]
 
 
+@pytest.mark.parametrize("name", NON_FRAGMENT_FILES)
 @pytest.mark.parametrize(
-    "name", [".fixed.md", ".hidden-slug.added.md", ".DS_Store", ".gitkeep.md", "README.md"]
+    "content",
+    [b"", b"anything\n", b"\x00\x01\xff not text"],
+    ids=["empty", "text", "binary"],
 )
-def test_a_hidden_file_is_refused_like_any_file_that_is_no_fragment(tmp_path, name):
-    """Only `.gitkeep` is exempt, so a hidden fragment cannot pass the test and stay unfolded."""
-    write(tmp_path, ".gitkeep", "")
+def test_a_file_that_is_no_fragment_is_skipped_whatever_it_holds(tmp_path, name, content):
+    write(tmp_path, name, content)
+    assert tool.fragment_paths(tmp_path) == []
+    assert tool.directory_problems(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        ".fixed.md",
+        ".hidden-slug.added.md",
+        ".keep",
+        ".gitkeep.md",
+        ".DS_Store.md",
+        "Thumbs.db",
+        "README.md",
+    ],
+)
+def test_any_other_file_is_refused_hidden_or_not(tmp_path, name):
+    """A hidden fragment must not pass the test and stay unfolded at release."""
+    for exempt in NON_FRAGMENT_FILES:
+        write(tmp_path, exempt, "")
     write(tmp_path, "good-fragment.fixed.md", ONE_LINE)
     write(tmp_path, name, ONE_LINE)
     assert tool.directory_problems(tmp_path) == [f"{name}: {NOT_A_FRAGMENT_NAME}"]
 
 
-def test_the_keep_file_is_exempt_whatever_it_holds(tmp_path):
-    write(tmp_path, ".gitkeep", "anything\n")
-    assert tool.fragment_paths(tmp_path) == []
-    assert tool.directory_problems(tmp_path) == []
+@pytest.mark.parametrize("name", [".GITKEEP", ".ds_store", ".Gitkeep", ".Ds_Store"])
+def test_the_two_names_are_exact_in_every_letter_case(tmp_path, name):
+    """The file system may ignore the letter case of a name, but the walk reads the name as the
+    file system gives it. (Alone in the directory, so a case-blind file system cannot merge it
+    with an exempt file.)"""
+    write(tmp_path, name, ONE_LINE)
+    assert tool.directory_problems(tmp_path) == [f"{name}: {NOT_A_FRAGMENT_NAME}"]
 
 
 def test_a_directory_is_no_fragment(tmp_path):
@@ -559,7 +605,7 @@ def test_the_script_changes_nothing_if_a_fragment_is_wrong(project, capsys):
     assert "Bad_Name.fixed.md: the slug `Bad_Name` must be kebab-case" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("name", [".hidden-slug.added.md", ".fixed.md", ".DS_Store"])
+@pytest.mark.parametrize("name", [".hidden-slug.added.md", ".fixed.md", ".keep"])
 def test_the_script_refuses_a_hidden_file_that_is_no_fragment_and_changes_nothing(
     project, capsys, name
 ):
@@ -569,6 +615,21 @@ def test_the_script_refuses_a_hidden_file_that_is_no_fragment_and_changes_nothin
     assert tool.main(["v0.5.0", "--date", "2026-10-31"], root=project) == 1
     assert files_of(project) == before
     assert f"{name}: the name must be <slug>.<type>.md" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("name", NON_FRAGMENT_FILES)
+def test_the_script_skips_a_file_that_is_no_fragment_and_leaves_it(tmp_path, name):
+    (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
+    directory = tmp_path / "changelog.d"
+    directory.mkdir()
+    write(directory, "boards.added.md", "- A board.\n")
+    write(directory, name, b"\x00\x01 not a fragment")
+    assert tool.main(["v0.5.0", "--date", "2026-10-31"], root=tmp_path) == 0
+    assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == fold(
+        entries={"added": ["- A board."]}
+    )
+    assert [path.name for path in directory.iterdir()] == [name]
+    assert (directory / name).read_bytes() == b"\x00\x01 not a fragment"
 
 
 def test_the_script_changes_nothing_if_the_changelog_cannot_take_the_entries(project, capsys):
@@ -591,12 +652,16 @@ def test_the_script_changes_nothing_if_a_list_of_the_changelog_holds_a_note(proj
     )
 
 
-@pytest.mark.parametrize("directory", [False, True], ids=["no directory", "only .gitkeep"])
-def test_the_script_refuses_to_fold_nothing(tmp_path, capsys, directory):
+@pytest.mark.parametrize(
+    "only",
+    [None, *NON_FRAGMENT_FILES],
+    ids=["no directory", *(f"only {name}" for name in NON_FRAGMENT_FILES)],
+)
+def test_the_script_refuses_to_fold_nothing(tmp_path, capsys, only):
     (tmp_path / "CHANGELOG.md").write_text(CHANGELOG, encoding="utf-8")
-    if directory:
+    if only:
         (tmp_path / "changelog.d").mkdir()
-        write(tmp_path / "changelog.d", ".gitkeep", "")
+        write(tmp_path / "changelog.d", only, "")
     assert tool.main(["v0.5.0"], root=tmp_path) == 1
     assert "error: there is no fragment in changelog.d/ to fold" in capsys.readouterr().err
     assert (tmp_path / "CHANGELOG.md").read_text(encoding="utf-8") == CHANGELOG

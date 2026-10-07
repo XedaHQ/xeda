@@ -17,8 +17,9 @@ The file holds the entry: one Markdown bullet, wrapped at 100 columns. Each line
 starts with two spaces. The entry says what changed for a user, in one or two short sentences. An
 entry about a breaking change also says what to do instead.
 
-Every file in `changelog.d/` must be a fragment, hidden or not, except `.gitkeep`. That file
-keeps the directory in the repository.
+Every file in `changelog.d/` must be a fragment, hidden or not, except `.gitkeep` and
+`.DS_Store`. The first keeps the directory in the repository. macOS Finder writes the second into
+any folder that it shows.
 
 The script checks every fragment first, and it changes nothing if one is wrong. Then it adds the
 entries, sorted by slug, to the end of the matching `### <Type>` lists of the `## [Unreleased]`
@@ -53,8 +54,10 @@ TYPES = ("fixed", "added", "changed", "removed")
 HEADINGS = {kind: f"### {kind.capitalize()}" for kind in TYPES}
 #: The width that an entry is wrapped at.
 MAX_COLUMNS = 100
-#: The one file of `changelog.d/` that is no fragment. It keeps the directory in the repository.
-KEEP_FILE = ".gitkeep"
+#: The files of `changelog.d/` that are not fragments: `.gitkeep` keeps the directory in the
+#: repository, and macOS Finder writes `.DS_Store` into any folder that it shows. Every other
+#: file there, hidden or not, must be a fragment.
+NON_FRAGMENT_FILES = (".gitkeep", ".DS_Store")
 UNRELEASED = "## [Unreleased]"
 
 _FILE_NAME = re.compile(r"(?P<slug>[^.]+)\.(?P<type>[^.]+)\.md")
@@ -75,11 +78,11 @@ class ChangelogError(Exception):
 
 def fragment_paths(directory: Path) -> list[Path]:
     """The entries of `directory` that must be fragments, by slug. That is every entry, hidden or
-    not, but `KEEP_FILE`."""
+    not, but the `NON_FRAGMENT_FILES`."""
     if not directory.is_dir():
         return []
     return sorted(
-        (path for path in directory.iterdir() if path.name != KEEP_FILE),
+        (path for path in directory.iterdir() if path.name not in NON_FRAGMENT_FILES),
         key=lambda path: path.name.split("."),
     )
 
@@ -103,8 +106,8 @@ def _name_problems(name: str) -> list[str]:
     match = _FILE_NAME.fullmatch(name)
     if match is None:
         return [
-            f"the name must be <slug>.<type>.md, and <type> one of {', '.join(TYPES)} "
-            f"(the only file here that is no fragment is {KEEP_FILE})"
+            f"the name must be <slug>.<type>.md, and <type> one of {', '.join(TYPES)} (the only "
+            f"files here that are not fragments are {' and '.join(NON_FRAGMENT_FILES)})"
         ]
     problems = []
     if not _SLUG.fullmatch(match["slug"]):
