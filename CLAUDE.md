@@ -889,12 +889,16 @@ the flow, in the same resolved parent, a directory in the run root and, resolved
 **It judges what is at the path then, never whether it is the directory that was listed**: an
 inode number or an inode change time says nothing about a run directory, since every file a launch
 adds or removes moves it, and a launch that writes in its directory while scrub waits for the
-lock, or a newer run of the flow in its place, is removed as scrub is asked to; one that is gone,
-no directory, or a link now leading out of the parent or the run root is refused with a
-`RunDirectoryError`. A link out of the run root is never followed. A launch's `--scrub` leaves out
-its own run directory by where it resolves to (`_run_directories_in`), never by whether it
-exists: a sibling's scrub may remove it while this one lists. `--json` reports `target`, the
-`scanned` directories and the `scrubbed` run directories. Consumers hold verified
+lock, or a newer run of the flow in its place, is removed as scrub is asked to. **One that is
+gone is skipped** (`_is_gone`: `lstat` says `FileNotFoundError` and nothing else, so a link, a file
+and an error that cannot tell are something): another scrub or a purge removed it while this one
+waited, and the scrub wanted it gone. It is logged at info level and is not in `scrubbed`; two
+scrubs that listed the same directory both succeed. One that holds something else -- no directory,
+or a link now leading out of the parent or the run root -- is refused with a `RunDirectoryError`.
+A link out of the run root is never followed. A launch's `--scrub` leaves out its own run
+directory by where it resolves to (`_run_directories_in`), never by whether it exists: a sibling's
+scrub may remove it while this one lists. `--json` reports `target`, the `scanned` directories
+and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry

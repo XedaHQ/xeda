@@ -519,14 +519,17 @@ print("done", flush=True)
 """
 
 
-def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_path):
+def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], timeout: float):
+    """Make one hashed variant of `_Maker` for each of `texts`, then launch every variant again,
+    each as its own process with `--scrub`, all released together: each one removes the others'
+    run directories and then makes its own. Every launch must succeed."""
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)
-    for text in ("one", "two"):
+    for text in texts:
         assert runner.launch_flow(_Maker, design, {"text": text}).succeeded
     children = []
     try:
-        for text in ("one", "two"):
+        for text in texts:
             child = subprocess.Popen(
                 [sys.executable, "-c", SCRUB_VARIANT, str(tmp_path), text],
                 cwd=tmp_path,
@@ -543,7 +546,7 @@ def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_pa
             child.stdin.flush()
         for child in children:
             try:
-                stdout, stderr = child.communicate(timeout=20)
+                stdout, stderr = child.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 pytest.fail("concurrent variants deadlocked while scrubbing each other")
             assert child.returncode == 0, stderr
@@ -553,6 +556,16 @@ def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_pa
             if child.poll() is None:
                 child.kill()
             child.communicate(timeout=10)
+
+
+def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_path):
+    _launch_variants_scrubbing_at_once(tmp_path, ("one", "two"), timeout=20)
+
+
+def test_hashed_launches_that_scrub_the_same_variants_at_once_all_succeed(tmp_path):
+    """With three variants, each directory is listed by two of the launches. One of them removes
+    it. The other finds it gone when its turn comes, which is what it wanted, and goes on."""
+    _launch_variants_scrubbing_at_once(tmp_path, ("one", "two", "three"), timeout=60)
 
 
 def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path, monkeypatch):

@@ -464,7 +464,8 @@ disk, so a target the design file no longer names is found too, and no design fi
 other target's. The directories to be removed are listed first and confirmed once. Scrub removes
 each one under its own lock, so a launch that is running in it finishes first. It then removes
 what is at the listed path, if that is still one of the flow's run directories there: a newer run
-of the flow counts. If the path is gone, is no longer a directory, or now leads out of its
+of the flow counts. If nothing is at the path any more, because another scrub or a purge removed
+it, scrub skips it and goes on. If the path is no longer a directory, or now leads out of its
 directory or out of the run root, scrub stops with an error and leaves it alone. A run
 directory of another flow is never searched, and a link that leads out of the run root is never
 followed. ``--scrub`` on a launch removes the flow's other run directories in the launch's own

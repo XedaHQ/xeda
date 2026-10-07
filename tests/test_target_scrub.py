@@ -16,6 +16,7 @@ never goes into a run directory. The oracles:
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -394,6 +395,36 @@ def test_a_candidate_replaced_by_a_link_to_a_directory_inside_the_root_is_not_re
     assert (other / "out.txt").exists() and victim.is_symlink()
 
 
+def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
+    tmp_path, confirmations, monkeypatch, caplog
+):
+    """Another scrub, or a launch that purged it, removed the run directory while this scrub waited
+    for its turn. The scrub wanted it gone: it logs that, does not count the directory as removed,
+    and goes on with the others."""
+    tree = Tree(tmp_path)
+    victim, other = tree.a
+    real_lock = default_runner.run_dir_lock
+
+    def removing(path, *args, **kwargs):
+        if Path(path) == victim and victim.exists():
+            default_runner.RunDirectory.claimed(victim, tree.root).delete()
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", removing)
+    with caplog.at_level(logging.INFO, logger="xeda.flow_runner.default_runner"):
+        result, document = scrub(tmp_path, "--target", "a")
+    assert result.exit_code == 0, result.output
+    assert document["success"] is True
+    assert document["scrubbed"] == [str(other)]
+    assert tree.present(tree.a) == [False, False]
+    skipped = [
+        record.getMessage()
+        for record in caplog.records
+        if record.levelno == logging.INFO and str(victim) in record.getMessage()
+    ]
+    assert len(skipped) == 1 and "gone" in skipped[0], caplog.text
+
+
 def launch_writes_into(directory: Path) -> None:
     """What a launch does in its own run directory while it holds the lock: files come and go in
     it, so its inode change time moves. Repeated until it has moved, since a file system with a
@@ -444,6 +475,65 @@ def test_a_launch_writing_into_a_candidate_while_scrub_waits_for_its_lock_does_n
     assert tree.present(tree.a) == [False, False]
 
 
+def test_only_a_missing_name_is_gone(tmp_path):
+    """Gone means nothing is there. A file is something, and so is a link, wherever it leads. A
+    path that cannot be told -- a file where a directory should be, a directory that cannot be
+    searched -- is not gone either: scrub judges it, and refuses it."""
+    is_gone = default_runner._is_gone
+    (tmp_path / "file").write_text("x\n")
+    (tmp_path / "dir").mkdir()
+    (tmp_path / "dangling").symlink_to(tmp_path / "nowhere", target_is_directory=True)
+    assert is_gone(tmp_path / "missing")
+    assert is_gone(tmp_path / "dir" / "missing")
+    assert is_gone(tmp_path / "no" / "such" / "directory")
+    assert not is_gone(tmp_path / "file")
+    assert not is_gone(tmp_path / "dir")
+    assert not is_gone(tmp_path / "dangling")
+    assert not is_gone(tmp_path / "file" / "below")
+    if os.geteuid() != 0:
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        (locked / "inside").write_text("x\n")
+        locked.chmod(0)
+        try:
+            assert not is_gone(locked / "inside")
+        finally:
+            locked.chmod(0o755)
+
+
+def test_two_scrubs_that_listed_the_same_run_directories_both_succeed(tmp_path, monkeypatch):
+    """`xeda scrub` twice at once, or a launch with `--scrub` beside another scrub, list the same
+    run directories. Each one goes to the scrub that locks it first. The other finds it gone,
+    which is what it wanted, and goes on: neither scrub fails, and each directory is removed once.
+    """
+    tree = Tree(tmp_path)
+    both_listed = threading.Barrier(2)
+    outcomes: list = []
+
+    def ask(prompt="", *args, **kwargs):
+        both_listed.wait(timeout=30)  # neither scrub removes a directory before both have listed
+        return "yes"
+
+    def scrubbing():
+        try:
+            outcomes.append(
+                default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+            )
+        except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
+            outcomes.append(error)
+
+    monkeypatch.setattr(console, "input", ask)
+    threads = [threading.Thread(target=scrubbing) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert not any(thread.is_alive() for thread in threads)
+    assert all(isinstance(outcome, default_runner.ScrubResult) for outcome in outcomes), outcomes
+    assert sorted(p for outcome in outcomes for p in outcome.removed) == sorted(tree.a)
+    assert tree.present(tree.a) == [False, False]
+
+
 def newer_run(path: Path, tree: Tree, outside: Path) -> None:
     run_dir(path)
     (path / "out.txt").write_text("a newer run\n")
@@ -463,6 +553,10 @@ def link_to_another_targets_run_directory(path: Path, tree: Tree, outside: Path)
 
 def a_file(path: Path, tree: Tree, outside: Path) -> None:
     path.write_text("no directory\n")
+
+
+def link_to_nowhere(path: Path, tree: Tree, outside: Path) -> None:
+    path.symlink_to(tree.root / "gone", target_is_directory=True)
 
 
 def renamed_away(path: Path, tree: Tree, outside: Path) -> None:
@@ -495,18 +589,20 @@ def entries_but_lock_files(base: Path) -> list[tuple[str, str]]:
         link_to_a_directory_beside_it,
         link_out_of_the_run_root,
         link_to_another_targets_run_directory,
+        link_to_nowhere,
         a_file,
         renamed_away,
     ],
     ids=lambda replacement: replacement.__name__,
 )
-def test_a_candidate_is_removed_under_its_lock_exactly_when_it_would_have_been_listed(
+def test_a_candidate_is_removed_when_it_would_be_listed_skipped_when_gone_and_refused_otherwise(
     tmp_path, confirmations, monkeypatch, replacement
 ):
-    """One rule for what scrub removes, judged twice: when it lists a directory and again when it
-    holds the directory's lock. Whatever is at the first candidate's path -- put there before the
-    listing, or only after it -- is removed if it would have been listed, and if not, refused with
-    nothing else removed."""
+    """One rule for what scrub does with a directory, judged twice: when it lists the directory and
+    again when it holds the directory's lock. Whatever is at the first candidate's path -- put
+    there before the listing, or only after it -- is removed if it would have been listed. If
+    nothing is there, scrub skips it and goes on. If something else is there, scrub refuses it
+    with an error and removes nothing more."""
 
     def tree_with_the_first_candidate_replaced(base: Path, *, at_once: bool):
         base.mkdir()
@@ -529,22 +625,32 @@ def test_a_candidate_is_removed_under_its_lock_exactly_when_it_would_have_been_l
 
     later = tmp_path / "later"
     tree, victim, replace = tree_with_the_first_candidate_replaced(later, at_once=False)
+    second = tree.a[1]
     real_lock = default_runner.run_dir_lock
     after_the_swap: list[list[tuple[str, str]]] = []
+    nothing_there: list[bool] = []
 
     def swapping(path, *args, **kwargs):
         if Path(path) == victim and not after_the_swap:
             replace()
+            nothing_there.append(not os.path.lexists(victim))
             after_the_swap.append(entries_but_lock_files(later))
         return real_lock(path, *args, **kwargs)
 
     monkeypatch.setattr(default_runner, "run_dir_lock", swapping)
-    if listed:
+    refusal = None
+    try:
         result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+    except RunDirectoryError as error:
+        refusal = error
+    if listed:
+        assert refusal is None, refusal
         assert victim in result.removed and not os.path.lexists(victim)
+    elif nothing_there[0]:
+        assert refusal is None, refusal
+        assert result.removed == [second] and not os.path.lexists(second)
     else:
-        with pytest.raises(RunDirectoryError):
-            default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+        assert refusal is not None
         assert entries_but_lock_files(later) == after_the_swap[0], "something was removed"
 
 
@@ -701,11 +807,11 @@ def test_scrub_runs_keeps_its_one_directory_contract(tmp_path, confirmations):
 
 
 def test_a_launch_never_lists_its_own_run_directory_when_a_sibling_removes_it_meanwhile(
-    tmp_path, confirmations, monkeypatch
+    tmp_path, monkeypatch
 ):
     """Two launches of variants of one flow, each with `--scrub`, remove each other's run
     directory. A launch's own can go while it lists: seen as a directory, then gone. It is still
-    its own, and no candidate: the launch makes it again once the scrub is done."""
+    its own, and no candidate: the listing leaves it out whether or not it exists."""
     tree = Tree(tmp_path)
     own, sibling = tree.direct
     real_judgment = default_runner._is_run_directory
@@ -717,8 +823,8 @@ def test_a_launch_never_lists_its_own_run_directory_when_a_sibling_removes_it_me
         return found
 
     monkeypatch.setattr(default_runner, "_is_run_directory", seen_then_removed)
-    assert default_runner.scrub_runs(FLOW, tree.design, [own], run_root=tree.root) is True
-    assert tree.present([own, sibling]) == [False, False]
+    listed = default_runner._run_directories_in(FLOW, tree.design, [own], tree.root)
+    assert listed == [sibling]
 
 
 def test_a_directory_is_excluded_by_any_path_that_resolves_to_it(tmp_path, confirmations):

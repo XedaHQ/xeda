@@ -318,7 +318,8 @@ LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json")
 
 class ScrubResult(NamedTuple):
     """What `scrub_design` did: the directories it searched, and the run directories it
-    removed (none if it found none or the removal was not confirmed)."""
+    removed (none if it found none or the removal was not confirmed). A directory that was gone
+    by its turn was skipped, and is not among them."""
 
     scanned: list[Path]
     removed: list[Path]
@@ -416,6 +417,19 @@ def _listed(flow_name: str, path: Path) -> _Listed:
     return _Listed(path, flow_name, Path(os.path.realpath(path.parent)))
 
 
+def _is_gone(path: Path) -> bool:
+    """Whether nothing is at `path`: its name, or a directory above it, does not exist. A link is
+    something, wherever it leads. An error that is no `FileNotFoundError` says nothing, so it is
+    not "gone"."""
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        pass  # it cannot be told: the judgment that follows refuses it
+    return False
+
+
 def _still_a_run_directory(listed: _Listed, run_root: Path) -> bool:
     """Whether `listed.path` is a run directory of its flow in the directory it was listed in
     (`_is_run_directory`). Scrub asks once it holds the lock, so no launch is writing in it.
@@ -434,12 +448,14 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     """List `candidates`, ask once, and remove them if confirmed: each as a run directory
     claimed under `run_root`, the real run root, under its own lock (so a launch running in it,
     or a producer a consumer holds a read lease on, is waited for; the lock itself is refused for
-    a directory reached through a link out of the run root) and judged again once the lock is
-    held (`_still_a_run_directory`). What is at the path then is removed if it is a run directory
-    of the flow, as the listing took it to be, however it came there. One that is not -- gone,
-    no directory, or a link that now leads out of the directory it was listed in or out of the
-    run root -- is not removed, and the scrub fails (`RunDirectoryError`). The directories
-    removed."""
+    a directory reached through a link out of the run root).
+
+    Once the lock is held, a candidate with nothing at its path any more (`_is_gone`: another
+    scrub, or a purge, removed it while this one waited) is skipped and logged: the scrub wanted
+    it gone. Otherwise `_still_a_run_directory` judges what is at the path. A run directory of
+    the flow is removed, however it came there. Anything else -- no directory, or a link that now
+    leads out of the directory it was listed in or out of the run root -- is not removed, and
+    the scrub fails (`RunDirectoryError`). The directories removed, not the skipped."""
     if not candidates:
         return []
     console.print(
@@ -456,11 +472,14 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> list[Pat
     for c in candidates:
         p = c.path
         with run_dir_lock(p, run_root):
+            if _is_gone(p):
+                log.info("Not removing %s: it is gone already", p)
+                continue
             if not _still_a_run_directory(c, run_root):
                 raise RunDirectoryError(
-                    f"{p} is no longer a run directory of {c.flow_name} in {c.parent} (it is "
-                    f"gone, or no directory, or leads out of it or of the run root {run_root}): "
-                    "it was not removed"
+                    f"{p} is no longer a run directory of {c.flow_name} in {c.parent} (it is no "
+                    f"directory, or leads out of it or of the run root {run_root}): it was not "
+                    "removed"
                 )
             RunDirectory.claimed(p, run_root).delete()
             if p.is_symlink():  # a run directory reached through a link in the run root
