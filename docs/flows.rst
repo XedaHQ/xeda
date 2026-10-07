@@ -683,7 +683,8 @@ placement occupies -- a location whose two outputs are both used counts once, an
 distributed RAM or shift registers are included -- while ``yosys_fpga`` estimates it from the
 mapped primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two differ for
 one design, and neither is certified comparable with Vivado's utilization report: compare a
-design against itself across settings or seeds with one toolchain, not across toolchains.
+design against itself across settings or seeds with one toolchain, not across toolchains. The same
+holds for ``Fmax``: nextpnr's timing model is not Vivado's (see :ref:`flow-results`).
 
 **Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
 database and the part, into a scratch file in its run directory, and publishes the bitstream
@@ -784,6 +785,8 @@ See ``examples/bluespec/`` for self-checking designs in both BSV and BH, includi
 multi-package design, one sized by macros, one importing Verilog with ``import "BVI"``, and one
 mixing BSV and BH.
 
+.. _flow-results:
+
 Results
 =======
 
@@ -815,6 +818,14 @@ The original keys are kept, so nothing that already reads ``results.json`` break
 .. note::
    ``clock_frequency`` is deliberately *not* aliased to ``Fmax``. It is the frequency that was
    *constrained*, not the maximum that was *achieved*.
+
+.. note::
+   Every tool times a design with its own model, so compare ``Fmax`` only between runs of the
+   same place-and-route tool. For one Artix-7 design with a block RAM and a multiply-accumulate,
+   ``nextpnr`` reported 453 MHz for the netlist from Yosys and 429 MHz for the netlist from
+   Vivado. Vivado placed and routed the same two netlists and reported 241 MHz and 232 MHz. On a
+   counter that drives LEDs, Vivado timed ``nextpnr``'s own placement and routing, and its result
+   differed from the report of ``nextpnr`` by 0.14 ns.
 
 Simulation results
 ==================

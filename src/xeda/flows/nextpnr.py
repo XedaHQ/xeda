@@ -273,7 +273,8 @@ class Nextpnr(FpgaSynthFlow):
     names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series;
     other families report raw bel-type counts. `lut` is counted at this stage by the method
     `LUT:METHOD` names -- for 7-series, the physical LUTs occupied, from the placement dump --
-    and is not certified comparable with another toolchain's.
+    and is not certified comparable with another toolchain's. `Fmax` is nextpnr's own timing:
+    compare it only with other nextpnr runs.
     A target without a tested device/constraint/output mapping is rejected before synthesis.
     """
 

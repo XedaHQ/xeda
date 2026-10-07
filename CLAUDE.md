@@ -745,7 +745,9 @@ After `parse_reports` and `check_results`, the runner calls
 names per `Flow.results_canonical_aliases` (`Fmax` <- `f_max`/`maximum_frequency`, `lut` <- `LUT`,
 `ff` <- `FF`). Nothing is renamed or removed.
 Note `clock_frequency` is deliberately *not* aliased to `Fmax` - it is the constrained frequency,
-not the achieved one.
+not the achieved one. `Fmax` is also per tool: nextpnr's and Vivado's timing models differ (one
+design with block RAM and DSP paths: nextpnr 429 to 453 MHz, Vivado 232 to 241 MHz, for the same
+netlists), so document and compare it only within one place-and-route tool.
 
 Declared output records are bookkeeping, like `artifacts`, not `COMMON_RESULT_DESCRIPTIONS`
 keys; they are omitted from the printed result table. See `docs/machine-readable.rst`.

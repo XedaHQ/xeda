@@ -552,7 +552,9 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
 COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     # timing
     "Fmax": "Maximum achievable clock frequency in MHz, derived from the constrained period and "
-    "the worst negative slack. This is the achieved result, unlike `clock_frequency`.",
+    "the worst negative slack. This is the achieved result, unlike `clock_frequency`. Each tool "
+    "times a design with its own model: compare `Fmax` only between runs of the same "
+    "place-and-route tool.",
     "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
     "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
     "given to the tool, not the achieved maximum -- see `Fmax`.",
