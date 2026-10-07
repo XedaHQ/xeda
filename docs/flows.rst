@@ -410,8 +410,8 @@ the default mapper everywhere: opt-in ``-abc9`` for Xilinx before 0.69, built in
 ``abc9 = false`` maps with classic ABC and ``retime`` enables ``-retime``;
 Yosys 0.69 removed both choices, so there they are errors. On iCE40, ``noabc`` maps LUTs without
 ABC altogether. ``flatten`` left unset on a Xilinx target is ``true``: ``synth_xilinx`` alone
-keeps the hierarchy, and flattening was never worse in the measured designs and gave about 8
-percent higher Fmax. As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and
+keeps the hierarchy, and flattening was never worse in 18 measured designs: Fmax rose by a
+factor of 1.08 (1.03 to 1.13). As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and
 ``rtl_json``, so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice,
 iCE40 and Gowin passes flatten on their own, so for them an unset ``flatten`` adds nothing, and
 the RTL outputs keep the hierarchy. Under ``synth_pass_only`` an unset ``flatten`` is the pass's
