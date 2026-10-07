@@ -575,6 +575,15 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
 
+**The variables and the forms of a location are defined once**, in `utils.py`: `PATH_VARIABLES`
+maps each variable xeda gives a setting's path to the validation-context entry holding its value
+(`path_variables(context)` is what `Flow.Settings._path_roots`, `Flow.process_path` and
+`custom_boards_file` expand with; any other variable comes from the environment), and
+`LOCATION_FORMS` (`$PWD/..., $DESIGN_ROOT/..., $DESIGN_DIR/... or an absolute path`) is what every
+message that says how to give a location names. A new variable goes into the table, never into a
+message. `tests/test_written_paths.py` checks each named form is absolute once expanded, and
+`tests/test_delivery.py` delivers a deliverable given each form.
+
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
 rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
@@ -999,7 +1008,7 @@ marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) ex
 `xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
-nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT` too, once,
+nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,
 when the flow's settings are built or a field of theirs is assigned -- `cocotb.results_xml` and
 `yosys_sim.cxxrtl.filename` are the settings this covers; a value assigned straight onto the
 nested model afterwards is not expanded, and `written_path_problems` reports it as such.
@@ -1034,7 +1043,7 @@ directory untouched and does not list that flow in `launched`, so `--json` repor
 programmer -- is refused before anything runs, in `_launch` (before the run root and
 `_check_deliveries_ahead`), `plan` (dry runs) and the remote runner alike, a `DeliveryError` with
 `before_run` true naming the setting whose location delivers the file it reads, written
-`=$PWD/<file>` since only an absolute or `$PWD`-anchored value is a location
+`=$PWD/<file>`, and every form of a location (`utils.LOCATION_FORMS`)
 (`default_runner._refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
 deliverable of the output's own name), or the design source it is. Under `--remote` that setting
 would deliver on the remote host, so the error names the producer's own request instead

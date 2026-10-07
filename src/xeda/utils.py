@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from functools import cached_property, reduce
 from pathlib import Path, PurePath
-from types import TracebackType
+from types import MappingProxyType, TracebackType
 from typing import (
     IO,
     Any,
@@ -1048,6 +1048,26 @@ _ENV_BLACKLIST = frozenset(
         "GIT_ASKPASS",
     }
 )
+
+#: The variables xeda itself gives a path in a setting, each by the entry of the settings'
+#: validation context that holds its value: the directory xeda was started from, and the design
+#: root under its two names. Any other variable in such a path is read from the environment
+#: (`expand_env_vars`). Every message that says how to give a setting a location derives the
+#: forms it names from this table (`LOCATION_FORMS`).
+PATH_VARIABLES: Mapping[str, str] = MappingProxyType(
+    {"PWD": "runner_cwd", "DESIGN_ROOT": "design_root", "DESIGN_DIR": "design_root"}
+)
+
+#: How a setting is given a location, as a message says it: a path under each of
+#: `PATH_VARIABLES`, or an absolute path.
+LOCATION_FORMS = ", ".join(f"${name}/..." for name in PATH_VARIABLES) + " or an absolute path"
+
+
+def path_variables(context: Mapping[str, Any]) -> dict[str, Any]:
+    """The value of each of `PATH_VARIABLES` in `context` (its `runner_cwd` and `design_root`),
+    as `expand_env_vars` takes its overrides: None where `context` has none, which leaves that
+    variable as written."""
+    return {name: context.get(key) for name, key in PATH_VARIABLES.items()}
 
 
 def expand_env_vars(

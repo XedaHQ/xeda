@@ -17,11 +17,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from xeda import Design
 from xeda.board import get_board_data
 from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import ChainElement, parse_request, predecessors, request_text
 from xeda.flow_runner.settings_layers import transitive_dependencies
+from xeda.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
 from .project_files import PROJECT_FILE
@@ -321,6 +323,42 @@ def test_a_device_the_loader_needs_for_the_flash_is_named_where_it_does_not_reac
         f"The `fpga` in [flows.yosys_fpga] in {design} does not reach openfpgaloader: "
         "yosys_fpga is not part of this run" in str(raised.value)
     )
+
+
+@pytest.mark.parametrize("origin", ["design file", "command line", "API"])
+def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
+    tmp_path, monkeypatch, origin
+):
+    """`fpga.part` written as one dotted key is the `fpga` it names, in each origin: the note on
+    a section that does not reach the flow finds it there as it finds `fpga: {part: ...}`."""
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "given.bit").write_bytes(b"bits")
+    dotted = {"yosys_fpga": {"fpga.part": "xc7a35tcpg236-1"}}
+    design = _write_design(root, dotted if origin == "design file" else {})
+    data = yaml.safe_load(design.read_text())
+    data["rtl"]["sources"].append({"file": "given.bit", "type": "Bitstream"})
+    design.write_text(yaml.safe_dump(data, sort_keys=False))
+    with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
+        if origin == "API":
+            DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+                Openfpgaloader,
+                Design.from_file(design),
+                {"write_flash": True},
+                all_flows_settings=dotted,
+            )
+        else:
+            given = ["write_flash=true"]
+            if origin == "command line":
+                given.append("flows.yosys_fpga.fpga.part=xc7a35tcpg236-1")
+            _plan(tmp_path, "openfpgaloader", design, flow_settings=given)
+    message = str(raised.value)
+    assert "The `fpga` in [flows.yosys_fpga] in " in message, message
+    assert "does not reach openfpgaloader: yosys_fpga is not part of this run" in message, message
+    if origin != "API":
+        label = str(design) if origin == "design file" else "the command line"
+        assert f"The `fpga` in [flows.yosys_fpga] in {label} does not reach" in message, message
 
 
 def test_planning_reports_an_unused_section_and_no_device_for_it(tmp_path, monkeypatch, caplog):

@@ -177,8 +177,8 @@ dependency's, or the design's own), a directory where a file was expected, or a 
 root. The role -- *working* or *deliverable* -- belongs to the setting itself, not to the value you
 gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a *working* setting
 always stays a bare name inside the run directory, whatever it is given, and is never delivered
-anywhere; only a *deliverable* setting given a location -- an absolute path, or one anchored with
-`$PWD`/`$DESIGN_ROOT` -- is copied out.
+anywhere; only a *deliverable* setting given a location -- a path under `$PWD`, `$DESIGN_ROOT`
+or `$DESIGN_DIR`, or an absolute path -- is copied out.
 
 ### `OutputExistsError`
 

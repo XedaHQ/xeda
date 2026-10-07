@@ -353,8 +353,8 @@ scripts, the tool logs, `reports/`, `outputs/`, `checkpoints/`, plus:
 
 ## Getting a named output out of the run directory
 
-A setting that names an output (`bitstream`, `vcd`, ...) can be given a location -- an
-absolute path, or one anchored with `$PWD`/`$DESIGN_ROOT`: the run still writes its own copy
+A setting that names an output (`bitstream`, `vcd`, ...) can be given a location -- a path
+under `$PWD`, `$DESIGN_ROOT` or `$DESIGN_DIR`, or an absolute path: the run still writes its own copy
 inside the run directory, and once the whole run has finished xeda copies it to the location you
 named. Moving or renaming that destination later never re-runs the flow. `--outputs-to DIR`
 delivers the requested flow's artifacts the same way, each at its path inside the run directory:

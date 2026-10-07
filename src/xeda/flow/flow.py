@@ -56,12 +56,15 @@ from ..dataclass import (
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
 from ..utils import (
+    LOCATION_FORMS,
+    PATH_VARIABLES,
     XedaException,
     camelcase_to_snakecase,
     expand_env_vars,
     location_free,
     location_roots,
     parse_patterns_in_file,
+    path_variables,
     rebuild_like,
     regex_match,
     replacing_file,
@@ -310,17 +313,18 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
         if "$" in text:
             variable = re.search(r"\$\{?(\w+)", text)
             name = variable.group(1) if variable else "$"
-            if name in ("PWD", "DESIGN_ROOT", "DESIGN_DIR"):
+            if name in PATH_VARIABLES:
                 message = (
                     f"`{key}` = {text}: ${name} was not expanded here -- a value assigned to a "
                     "nested model after the settings were made: give an absolute path, or give "
                     "it with the settings (-s, the design file, the API's flow settings)"
                 )
             else:
+                names = [f"${variable}" for variable in PATH_VARIABLES]
                 hint = (
                     "use $PWD, the directory xeda was started from"
                     if name == "CWD"
-                    else "the variables are $PWD and $DESIGN_ROOT"
+                    else f"the variables are {', '.join(names[:-1])} and {names[-1]}"
                 )
                 message = f"`{key}` = {text}: ${name} is not a variable xeda knows: {hint}"
             problems.append((key, message))
@@ -339,7 +343,7 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
                 (
                     key,
                     f"`{key}` = {text}: `~` is not expanded: give a name in the run directory, "
-                    "or a location ($PWD/..., $DESIGN_ROOT/..., an absolute path)",
+                    f"or a location ({LOCATION_FORMS})",
                 )
             )
         elif not path.is_absolute() and ".." in path.parts:
@@ -347,8 +351,7 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
                 (
                     key,
                     f"`{key}` = {text} leaves the run directory: give a name inside it; to put "
-                    "it elsewhere, name a location ($PWD/..., $DESIGN_ROOT/...) or use "
-                    "--outputs-to",
+                    f"it elsewhere, name a location ({LOCATION_FORMS}) or use --outputs-to",
                 )
             )
         return leaf
@@ -931,13 +934,7 @@ class Flow(metaclass=ABCMeta):
 
         @staticmethod
         def _path_roots(context: Mapping[str, Any] | None) -> dict[str, Any]:
-            context = context or {}
-            design_root = context.get("design_root")
-            return {
-                "PWD": context.get("runner_cwd"),
-                "DESIGN_ROOT": design_root,
-                "DESIGN_DIR": design_root,
-            }
+            return path_variables(context or {})
 
         def model_post_init(self, context: Any, /) -> None:
             super().model_post_init(context)
@@ -1435,11 +1432,9 @@ class Flow(metaclass=ABCMeta):
         if subs_vars and isinstance(path, (str, Path)):
             path = expand_env_vars(
                 path,
-                overrides={
-                    "DESIGN_ROOT": self.design.design_root,
-                    "DESIGN_DIR": self.design.design_root,
-                    "PWD": self.runner_cwd,
-                },
+                overrides=path_variables(
+                    {"design_root": self.design.design_root, "runner_cwd": self.runner_cwd}
+                ),
             )
         if not isinstance(path, Path):
             path = Path(path)

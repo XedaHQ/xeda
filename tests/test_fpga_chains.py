@@ -28,7 +28,7 @@ from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.trace import as_recorded
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
 from xeda.introspect import plan_info
-from xeda.utils import replacing_file
+from xeda.utils import LOCATION_FORMS, replacing_file
 
 from . import tool_utils
 from .project_files import PROJECT_FILE
@@ -1199,6 +1199,7 @@ def test_outputs_to_a_programmer_is_refused_naming_the_setting_that_delivers_its
     assert document["error"]["type"] == "DeliveryError", document
     message = document["error"]["message"]
     assert "openfpgaloader writes no outputs" in message, message
-    # only an absolute or `$PWD`-anchored value is a location: a bare name stays in the run
+    # a bare name stays in the run directory: the message says every way to give a location
     assert f"-s flows.{producer}.bitstream=$PWD/<file>" in message, message
+    assert f"a location ({LOCATION_FORMS})" in message, message
     assert not (root / "xeda_run").exists() and not (root / "out").exists()

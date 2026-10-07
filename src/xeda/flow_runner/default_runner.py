@@ -67,6 +67,7 @@ from ..run_dir import OutputState, RunDirectory, RunDirectoryError, record_outpu
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..tool import NonZeroExitCode
 from ..utils import (
+    LOCATION_FORMS,
     WorkingDirectory,
     XedaException,
     backup_existing,
@@ -667,10 +668,11 @@ def _warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
     which = ", ".join(names) if names else "none"
     log.warning(
         "--outputs-to %s: %s delivered nothing there -- its deliverable settings (%s) are what "
-        "--outputs-to copies; give one a location for something to deliver",
+        "--outputs-to copies; give one a location (%s) for something to deliver",
         outputs_to,
         flow.name,
         which,
+        LOCATION_FORMS,
     )
 
 
@@ -690,8 +692,8 @@ def _refuse_outputs_to_a_programmer(
     """`--outputs-to` copies what the requested flow writes. A flow that programs a device
     (`Flow.action_reason`) writes no outputs, so there is nothing to deliver: a `DeliveryError`
     before anything runs, a dry run alike, naming what would deliver the file it reads -- the
-    setting of the flow that writes it in this plan, given a location (only an absolute or
-    `$PWD`-anchored value is one); on a `remote` run, where that setting would deliver on the
+    setting of the flow that writes it in this plan, given a location (`LOCATION_FORMS`); on a
+    `remote` run, where that setting would deliver on the
     remote host, the request of that flow, whose own outputs come back -- or the design source it
     is."""
     flow_class = node.flow_class
@@ -718,8 +720,8 @@ def _refuse_outputs_to_a_programmer(
         )
     elif settings:
         message += (
-            ". To receive the file it reads, give the setting that writes it a location (an "
-            "absolute path, or one under $PWD) instead: " + ", ".join(settings)
+            ". To receive the file it reads, give the setting that writes it a location "
+            f"({LOCATION_FORMS}) instead: " + ", ".join(settings)
         )
     if sources:
         message += ". The file it reads is a design source: " + ", ".join(sources)

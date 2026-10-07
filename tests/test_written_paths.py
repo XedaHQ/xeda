@@ -1,6 +1,7 @@
 """Every path a flow writes is declared, by a role: a working location is a name inside
 the run directory; a deliverable is a name there or a location, which is delivered."""
 
+import re
 import typing
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow.flow import _annotation_contains_path, written_path_problems
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import setting_files, setting_path_leaves
+from xeda.utils import LOCATION_FORMS, PATH_VARIABLES
 
 from .settings_samples import flow_classes, minimal_settings
 
@@ -190,6 +192,45 @@ def test_a_deliverable_may_be_a_location_but_not_escape_as_a_name(tmp_path):
 
     assert problems("top.bit") == {} and problems("$PWD/top.bit") == {}
     assert "leaves the run directory" in problems("../top.bit")["bitstream"]
+
+
+def test_the_forms_of_a_location_are_the_variables_a_setting_expands(tmp_path):
+    """One definition (`LOCATION_FORMS`) of how a setting is given a location: a path under each
+    variable a path-typed setting expands (`PATH_VARIABLES`), or an absolute path. Each form it
+    names is a location: an absolute path once the settings are made."""
+    names = re.findall(r"\$(\w+)/\.\.\.", LOCATION_FORMS)
+    assert names == list(PATH_VARIABLES) and LOCATION_FORMS.endswith(" or an absolute path")
+    cls = _settings_of("vivado_synth")
+    for name in names:
+        settings = cls.Settings.from_input(
+            {**minimal_settings(cls), "bitstream": f"${name}/top.bit"},
+            design_root=tmp_path / "design",
+            runner_cwd=tmp_path / "start",
+        )
+        assert Path(settings.bitstream).is_absolute(), name
+        assert written_path_problems(settings) == [], name
+
+
+@pytest.mark.parametrize("value", ["../top.bit", "~/top.bit"])
+def test_a_message_on_how_to_give_a_location_names_every_form(tmp_path, value):
+    cls = _settings_of("vivado_synth")
+    settings = cls.Settings.from_input(
+        {**minimal_settings(cls), "bitstream": value}, design_root=tmp_path, runner_cwd=tmp_path
+    )
+    message = dict(written_path_problems(settings))["bitstream"]
+    assert f"a location ({LOCATION_FORMS})" in message, message
+
+
+def test_a_variable_xeda_does_not_know_is_told_every_one_it_expands(tmp_path):
+    cls = _settings_of("vivado_synth")
+    settings = cls.Settings.from_input(
+        {**minimal_settings(cls), "bitstream": "$NO_SUCH_XEDA_VARIABLE/top.bit"},
+        design_root=tmp_path,
+        runner_cwd=tmp_path,
+    )
+    message = dict(written_path_problems(settings))["bitstream"]
+    assert "not a variable xeda knows" in message, message
+    assert all(f"${name}" in message for name in PATH_VARIABLES), message
 
 
 def test_cwd_is_no_variable_and_names_pwd(tmp_path):
