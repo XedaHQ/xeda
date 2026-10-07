@@ -679,6 +679,30 @@ def test_the_text_names_only_the_tools_that_changed():
     assert "bsc" not in body and "installer" not in body and "SHA-256" not in body
 
 
+# ------------------------------------------------------------------------ the warnings
+
+
+def test_a_warning_is_a_workflow_command_in_github_actions(monkeypatch, capsys):
+    """`::warning::` puts it on the page of the run, not only in the log."""
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    pins.warn_in_the_log("main (1234567) is behind the pinned commit (efe9e07)")
+    assert capsys.readouterr().out == (
+        "::warning title=Tool pins::main (1234567) is behind the pinned commit (efe9e07)\n"
+    )
+
+
+@pytest.mark.parametrize("value", [None, "", "false", "1", "True"])
+def test_a_warning_is_a_plain_line_anywhere_else(monkeypatch, capsys, value):
+    """Only the exact value that GitHub Actions sets makes a workflow command: a person who
+    reads the log of a local run sees no `::`."""
+    if value is None:
+        monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    else:
+        monkeypatch.setenv("GITHUB_ACTIONS", value)
+    pins.warn_in_the_log("the pin stays")
+    assert capsys.readouterr().out == "warning: the pin stays\n"
+
+
 # ------------------------------------------------------------------------ the command
 
 
@@ -752,35 +776,162 @@ def test_the_command_fails_with_a_message_when_github_cannot_be_reached(
 WORKFLOW_FILE = ROOT / ".github" / "workflows" / pins.WORKFLOW
 
 
+def workflow() -> dict[str, Any]:
+    return load_yaml(WORKFLOW_FILE)
+
+
 def steps() -> list[dict[str, Any]]:
-    return load_yaml(WORKFLOW_FILE)["jobs"]["bump"]["steps"]
+    return workflow()["jobs"]["bump"]["steps"]
 
 
-def test_the_checkout_keeps_no_credential_in_the_repository():
-    """The checkout would write the token into `.git/config`, where every later step reads it,
-    the script that processes what upstream answers included."""
-    checkout = next(s for s in steps() if str(s.get("uses", "")).startswith("actions/checkout@"))
-    options = checkout.get("with", {})
-    assert options.get("persist-credentials") is False
-    assert "token" not in options
+TOKEN = "CI_PINS_TOKEN"
 
 
-def test_the_step_that_runs_the_script_never_sees_the_token():
-    script_steps = [s for s in steps() if "bump_ci_pins.py" in s.get("run", "")]
-    assert len(script_steps) == 1
-    assert "CI_PINS_TOKEN" not in json.dumps(script_steps[0])
+def token_problems(document: dict[str, Any]) -> list[str]:
+    """Everything wrong with where the workflow puts the token, in words (none: all is right).
+
+    The token can push to this repository. It reaches two steps and no other: the step that
+    decides whether to change anything reads that it is set, and the step that pushes uses it.
+    So it is in no `env` of the workflow or of the job, which every step would see, nor in the
+    step that runs the script on what upstream answers. The checkout keeps no credential, and a
+    git command gets the token through its environment, never on its command line, where `ps`
+    shows it.
+    """
+    problems = []
+    job = document["jobs"]["bump"]
+    for where, env in (("the workflow", document.get("env")), ("the job", job.get("env"))):
+        if TOKEN in json.dumps(env):
+            problems.append(f"{where} gives the token to every step through its env")
+    all_steps = job["steps"]
+    needs = [
+        index
+        for index, step in enumerate(all_steps)
+        if "git push" in step.get("run", "") or '[ -z "$TOKEN" ]' in step.get("run", "")
+    ]
+    holders = [index for index, step in enumerate(all_steps) if TOKEN in json.dumps(step)]
+    if len(needs) != 2 or holders != needs:
+        problems.append(
+            f"steps {holders} hold the token, and exactly the steps that push and that check "
+            f"it is set ({needs}) are to"
+        )
+    for step in all_steps:
+        if "bump_ci_pins.py" in step.get("run", "") and TOKEN in json.dumps(step):
+            problems.append("the step that runs the script sees the token")
+        if str(step.get("uses", "")).startswith("actions/checkout@"):
+            if step.get("with", {}).get("persist-credentials") is not False:
+                problems.append("the checkout keeps its credential in .git/config")
+        run = step.get("run", "").replace("\\\n", " ")  # a command that spans lines
+        if re.search(r"\bgit\b[^\n]*\s-c\s[^\n]*(extraheader|AUTHORIZATION|token)", run, re.I):
+            problems.append("a git command line carries the credential (git -c ...)")
+        if re.search(r"\bgit\b[^\n]*\bhttps?://[^\s/]*@", run):
+            problems.append("a git command line carries the credential in a URL")
+        if "git push" in run:
+            if "GIT_CONFIG_KEY_0" not in run or "extraheader" not in run:
+                problems.append("the push does not give git the credential through its environment")
+            if "::add-mask::" not in run:
+                problems.append("the encoded credential is not masked in the log")
+            else:
+                first_use = re.search(r"\$\{?basic\b", run)
+                if first_use and first_use.start() < run.index("::add-mask::"):
+                    problems.append("the encoded credential is used before it is masked")
+            if "set -x" in run or "xtrace" in run:
+                problems.append("the push step would echo the credential")
+    return problems
 
 
-def test_the_token_is_given_to_a_git_command_through_its_environment_only():
-    """It is not written to a file of the runner, and not on the command line, where `ps` shows
-    it."""
-    push = next(s for s in steps() if "git push" in s.get("run", ""))
-    run = push["run"]
-    assert "GIT_CONFIG_KEY_0" in run and "extraheader" in run
-    assert "git config" in run  # the identity of the commit...
-    assert not re.search(r"git config[^\n]*(token|extraheader|credential)", run, re.I)
-    assert "::add-mask::" in run
-    assert "set -x" not in run and "xtrace" not in run
+def test_the_workflow_hands_the_token_only_to_the_steps_that_need_it():
+    assert token_problems(workflow()) == []
+
+
+def _drop_persist_credentials(document):
+    checkout = next(s for s in document["jobs"]["bump"]["steps"] if "uses" in s)
+    checkout["with"].pop("persist-credentials")
+
+
+def _step_with(document, text):
+    return next(s for s in document["jobs"]["bump"]["steps"] if text in s.get("run", ""))
+
+
+MUTATIONS = {
+    "the token in the env of the workflow": (
+        lambda d: d.update(env={"GH_TOKEN": "${{ secrets.CI_PINS_TOKEN }}"}),
+        "the workflow gives the token",
+    ),
+    "the token in the env of the job": (
+        lambda d: d["jobs"]["bump"].setdefault("env", {}).update(T="${{ secrets.CI_PINS_TOKEN }}"),
+        "the job gives the token",
+    ),
+    "the token for the step that runs the script": (
+        lambda d: _step_with(d, "bump_ci_pins.py")
+        .setdefault("env", {})
+        .update(T="${{ secrets.CI_PINS_TOKEN }}"),
+        "the step that runs the script sees the token",
+    ),
+    "the token for the checkout": (
+        lambda d: _drop_persist_credentials(d),
+        "the checkout keeps its credential",
+    ),
+    "no token for the step that pushes": (
+        lambda d: _step_with(d, "git push").update(env={}),
+        "hold the token",
+    ),
+    "the credential on a git command line": (
+        lambda d: _step_with(d, "git push").update(
+            run=_step_with(d, "git push")["run"].replace(
+                "git push",
+                'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push',
+            )
+        ),
+        "carries the credential",
+    ),
+    "the credential on a git command line that spans lines": (
+        lambda d: _step_with(d, "git push").update(
+            run=_step_with(d, "git push")["run"].replace(
+                "git push", 'git \\\n -c "http.https://github.com/.extraheader=$basic" push'
+            )
+        ),
+        "carries the credential",
+    ),
+    "the credential in the URL of the push": (
+        lambda d: _step_with(d, "git push").update(
+            run=_step_with(d, "git push")["run"].replace(
+                "git push --force origin", "git push --force https://x:$GH_TOKEN@github.com/o/r.git"
+            )
+        ),
+        "in a URL",
+    ),
+    "the encoded credential shown before it is masked": (
+        lambda d: _step_with(d, "git push").update(
+            run=_step_with(d, "git push")["run"].replace(
+                'echo "::add-mask::$basic"', 'echo "$basic"\n  echo "::add-mask::$basic"'
+            )
+        ),
+        "used before it is masked",
+    ),
+    "the log showing the credential": (
+        lambda d: _step_with(d, "git push").update(
+            run="set -x\n" + _step_with(d, "git push")["run"]
+        ),
+        "would echo the credential",
+    ),
+    "the encoded credential not masked": (
+        lambda d: _step_with(d, "git push").update(
+            run=_step_with(d, "git push")["run"].replace("::add-mask::", "::notice::")
+        ),
+        "not masked",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", MUTATIONS)
+def test_the_token_oracle_sees_each_way_to_hand_the_token_out(name):
+    """The oracle has teeth: it reports every change here to the real workflow."""
+    mutate, expected = MUTATIONS[name]
+    document = workflow()
+    mutate(document)
+    assert any(expected in problem for problem in token_problems(document)), token_problems(
+        document
+    )
 
 
 @pytest.mark.skipif(shutil.which("jq") is None, reason="the lookup is a jq expression")
