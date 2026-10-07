@@ -1674,7 +1674,7 @@ dependency must also share `custom_boards_file`.
   The flow starts the loader twice, once for its version (`-V`, capital V: it has no `--version`,
   and the fake rejects that spelling as the real one does, so a flow asking the wrong way records
   an empty version) and once to program, its output kept in `openfpgaloader.log` in the run
-  directory (`tee`, an earlier run's removed first). The guard keys on identity, never on a count: the fake
+  directory (`tee`: each run makes the log anew before the loader starts). The guard keys on identity, never on a count: the fake
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).

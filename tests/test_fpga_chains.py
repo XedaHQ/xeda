@@ -235,7 +235,7 @@ def _boards(plan) -> dict[str, str]:
 
 
 def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path):
-    flows = {"fpga_pack": {"board": "ULX3S_85F"}, "nextpnr": {"board": "ulx3s_85f"}}
+    flows = {"fpga_pack": {"board": "ulx3s_85f"}, "nextpnr": {"board": "ulx3s_85f"}}
     plan = _runner(tmp_path).plan(
         parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows)
     )
@@ -245,7 +245,7 @@ def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path)
 def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path):
     """The same board is the same run: settings, identities and run directories alike."""
     graphs = []
-    for spelling in ("ulx3s_85f", "ULX3S_85F", "Ulx3s_85F"):
+    for spelling in ("ulx3s_85f", "ulx3s_85f", "Ulx3s_85F"):
         plan = _runner(tmp_path).plan(
             parse_request("yosys_fpga+nextpnr+fpga_pack"),
             _design(tmp_path, flows={"nextpnr": {"board": spelling}}),
@@ -256,7 +256,7 @@ def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path
     plan = _runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr+fpga_pack"),
         _design(tmp_path),
-        flow_settings={"board": "ULX3S_85F"},
+        flow_settings={"board": "ulx3s_85f"},
     )
     assert _graph(plan) == graphs[0]
 
@@ -1068,7 +1068,7 @@ DEMOS = {
         {
             "vivado_synth": {"fpga.part": A100T},
             "yosys_fpga": {"fpga.part": A100T},
-            "openfpgaloader": {"board": "ARTY_A7_100T"},
+            "openfpgaloader": {"board": "arty_a7_100t"},
         },
         "set_property LOC E3 [get_ports clk]\nset_property LOC H5 [get_ports led]\n",
         (),
@@ -1078,7 +1078,7 @@ DEMOS = {
     "arty-board": Demo(
         "blinky-digilent-arty-board",
         A100T,
-        {"openfpgaloader": {"board": "ARTY_A7_100T"}},
+        {"openfpgaloader": {"board": "arty_a7_100t"}},
         "set_property LOC E3 [get_ports clk]\nset_property LOC H5 [get_ports led]\n",
         (),
         "arty_a7_100t",
@@ -1112,12 +1112,13 @@ def _demo(tmp_path: Path, demo: Demo) -> tuple[Path, Path]:
 
 def _programmed_with(run: Path, demo: Demo, bitstream: Path) -> list[dict]:
     """The fake programmer's calls in `run`, each checked to be the fake and to have been handed
-    `bitstream`, with the demo's board and part."""
+    `bitstream` and the demo's device: its board's name in openFPGALoader, which knows the
+    board's part; with no board, the part, a Xilinx part without its speed grade."""
     calls = [json.loads(line) for line in (run / "fake_fpga.calls.jsonl").read_text().splitlines()]
-    board = ["--board", demo.board] if demo.board else []
+    device = ["--board", demo.board] if demo.board else ["--fpga-part", demo.part.rsplit("-", 1)[0]]
     for call in calls:
         assert Path(call["executable"]).read_bytes() == DISPATCHER.read_bytes()
-        assert call["argv"] == ["--bitstream", str(bitstream), *board, "--fpga-part", demo.part]
+        assert call["argv"] == ["--bitstream", str(bitstream), *device]
         assert call["input_bytes"] == [bitstream.stat().st_size]
     return calls
 

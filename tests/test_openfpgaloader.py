@@ -488,19 +488,13 @@ def test_programming_the_flash_needs_the_device(tmp_path, fake_loader):
     assert not _calls(tmp_path, "openfpgaloader")
 
 
-def test_a_device_a_board_gives_reaches_the_loader_when_it_programs_the_flash(
-    tmp_path, fake_loader
-):
-    flow = _program(tmp_path, _prebuilt(tmp_path), {"board": "ULX3S_85F", "write_flash": True})
+def test_a_board_gives_the_device_the_flash_needs(tmp_path, fake_loader):
+    """A board with a part is the device `write_flash` needs; the loader is given the board's
+    name, which carries its part."""
+    flow = _program(tmp_path, _prebuilt(tmp_path), {"board": "ulx3s_85f", "write_flash": True})
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
-    assert call["argv"][2:] == [
-        "--board",
-        "ulx3s",
-        "--fpga-part",
-        "LFE5U-85F-6BG381C",
-        "--write-flash",
-    ]
+    assert call["argv"][2:] == ["--board", "ulx3s", "--write-flash"]
 
 
 def test_the_loader_s_output_is_kept_in_its_run_directory(tmp_path, fake_loader, monkeypatch):

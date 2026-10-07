@@ -122,7 +122,7 @@ def _cases():
 
 def test_the_sweep_covers_every_board_aware_flow_and_the_vivado_chains():
     assert {"nextpnr", "fpga_pack", "openfpgaloader"} <= {cls.name for cls in BOARD_FLOWS}
-    assert {"ULX3S_85F", "ARTY_A7_100T", "ARTY_A7_35T"} <= set(BUNDLED_BOARDS)
+    assert {"ulx3s_85f", "arty_a7_100t", "arty_a7_35t"} <= set(BUNDLED_BOARDS)
     requests = [request for request, _nodes in REQUESTS]
     assert {"vivado_synth+openfpgaloader", "vivado_alt_synth+openfpgaloader"} <= set(requests)
     for cls in BOARD_FLOWS:
@@ -136,7 +136,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
 ):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "d"
-    board, part = "ARTY_A7_35T", _part("ARTY_A7_35T")
+    board, part = "arty_a7_35t", _part("arty_a7_35t")
     flows: dict = {}
     targets = None
     kwargs: dict = {}
@@ -161,7 +161,7 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
     else:  # a board of a custom database, beside the design
         root.mkdir()
         (root / "boards.yaml").write_text(
-            f"MY_BOARD:\n  name: mine\n  fpga:\n    part: {CUSTOM_PART}\n"
+            f"MY_BOARD:\n  openfpgaloader_board: mine\n  fpga:\n    part: {CUSTOM_PART}\n"
         )
         board, part = "MY_BOARD", CUSTOM_PART
         flows = {node: {"board": board, "custom_boards_file": "boards.yaml"}}
@@ -197,8 +197,8 @@ def test_every_bundled_board_alone_is_the_device_of_every_board_aware_flow(
 
 def test_a_board_and_the_same_part_written_for_another_node_agree(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    part = _part("ARTY_A7_100T")
-    flows = {"openfpgaloader": {"board": "ARTY_A7_100T"}, "vivado_synth": {"fpga": {"part": part}}}
+    part = _part("arty_a7_100t")
+    flows = {"openfpgaloader": {"board": "arty_a7_100t"}, "vivado_synth": {"fpga": {"part": part}}}
     plan = _plan(tmp_path, "vivado_synth+openfpgaloader", _write_design(tmp_path / "d", flows))
     assert {n.name: n.settings.fpga.part for n in plan.nodes} == {
         "vivado_synth": part,
@@ -210,7 +210,7 @@ def test_a_board_and_another_part_conflict_naming_where_the_board_is_written(tmp
     """The board reaches the loader and the packer by agreement along their edges: the conflict
     names the section the board is written in, not a board without an origin."""
     monkeypatch.chdir(tmp_path)
-    flows = {"nextpnr": {"board": "ULX3S_85F"}, "yosys_fpga": {"fpga": {"part": CUSTOM_PART}}}
+    flows = {"nextpnr": {"board": "ulx3s_85f"}, "yosys_fpga": {"fpga": {"part": CUSTOM_PART}}}
     design = _write_design(tmp_path / "d", flows)
     with pytest.raises(FlowSettingsError, match="disagrees") as raised:
         _plan(tmp_path, "openfpgaloader", design)
@@ -223,8 +223,8 @@ def test_a_board_and_another_part_conflict_naming_where_the_board_is_written(tmp
 def test_a_board_and_another_part_on_one_node_name_both_values_and_origins(tmp_path, monkeypatch):
     """A board and a device written together for the loader, naming different parts."""
     monkeypatch.chdir(tmp_path)
-    board, other = _part("ARTY_A7_100T"), _part("ARTY_A7_35T")
-    flows = {"openfpgaloader": {"board": "ARTY_A7_100T", "fpga": {"part": other}}}
+    board, other = _part("arty_a7_100t"), _part("arty_a7_35t")
+    flows = {"openfpgaloader": {"board": "arty_a7_100t", "fpga": {"part": other}}}
     design = _write_design(tmp_path / "d", flows)
     with pytest.raises(FlowSettingsError, match="disagree") as raised:
         _plan(tmp_path, "vivado_synth+openfpgaloader", design)
@@ -241,20 +241,20 @@ def test_a_board_on_the_loader_gives_a_vivado_chain_its_device(tmp_path, monkeyp
     """`vivado_synth+openfpgaloader` with `board` written for the loader only, or with the same
     part also written for vivado_synth: the board's part is both nodes' device."""
     monkeypatch.chdir(tmp_path)
-    part = _part("ARTY_A7_100T")
+    part = _part("arty_a7_100t")
     for flows in (
-        {"yosys_fpga": {"fpga.part": part}, "openfpgaloader": {"board": "ARTY_A7_100T"}},
+        {"yosys_fpga": {"fpga.part": part}, "openfpgaloader": {"board": "arty_a7_100t"}},
         {
             "vivado_synth": {"fpga.part": part},
             "yosys_fpga": {"fpga.part": part},
-            "openfpgaloader": {"board": "ARTY_A7_100T"},
+            "openfpgaloader": {"board": "arty_a7_100t"},
         },
     ):
         design = _write_design(tmp_path / "d", flows)
         plan = _plan(tmp_path, "vivado_synth+openfpgaloader", design)
         assert [n.name for n in plan.nodes] == ["vivado_synth", "openfpgaloader"]
         assert {n.settings.fpga.part for n in plan.nodes} == {part}
-        assert plan.node("openfpgaloader").settings.board == "ARTY_A7_100T"
+        assert plan.node("openfpgaloader").settings.board == "arty_a7_100t"
 
 
 def test_a_device_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_path, monkeypatch):
@@ -275,7 +275,7 @@ def test_a_device_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_p
 
 def test_a_board_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = _write_design(tmp_path / "d", {"openfpgaloader": {"board": "ARTY_A7_35T"}})
+    design = _write_design(tmp_path / "d", {"openfpgaloader": {"board": "arty_a7_35t"}})
     with pytest.raises(FlowSettingsException, match="fpga_pack needs `fpga`") as raised:
         _plan(tmp_path, "fpga_pack", design)
     message = str(raised.value)
@@ -328,10 +328,10 @@ def test_planning_reports_an_unused_section_and_no_device_for_it(tmp_path, monke
     unused section, and nothing else about their settings -- no device "detected" for a flow
     that does not run, and no board looked up for one."""
     monkeypatch.chdir(tmp_path)
-    part = _part("ARTY_A7_100T")
+    part = _part("arty_a7_100t")
     flows = {
         "yosys_fpga": {"fpga": {"part": "xc7a35tcpg236-1"}},
-        "nextpnr": {"board": "ARTY_A7_35T", "seed": 3},
+        "nextpnr": {"board": "arty_a7_35t", "seed": 3},
         "vivado_synth": {"fpga": {"part": part}},
     }
     design = _write_design(tmp_path / "d", flows)
