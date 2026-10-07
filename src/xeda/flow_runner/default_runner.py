@@ -681,6 +681,9 @@ class FlowLauncher:
         self._launched_before = 0
         #: the replacements the user confirmed in the current launch, each as the file was then
         self._confirmed_replacements = ConfirmedReplacements()
+        #: the deliveries of the current launch's producers, checked when it started, by node:
+        #: each producer checks again, at its turn, with its own
+        self._deliveries_ahead: dict[NodeKey, Deliveries] = {}
         #: asked, at an interactive terminal, whether to replace files in the way of named
         #: outputs (`xeda.deliver.Deliveries.check`); None: only `overwrite_outputs` counts
         self.confirm_overwrite: Optional[Callable[[Sequence[Conflict]], bool]] = None
@@ -988,6 +991,7 @@ class FlowLauncher:
             self._claims = set()
             self._launched_before = len(self.launched)
             self._confirmed_replacements = ConfirmedReplacements()
+            self._deliveries_ahead = {}
             self._planned_completed = {}
             self._completed_runs = {}
             # every file the flows of this launch read: the requested flow registers the
@@ -1037,6 +1041,7 @@ class FlowLauncher:
         which may remove a file that is delivered. Each on its own, a failure logged and the next
         going on. The first failure, if any."""
         self._claims = set()
+        self._deliveries_ahead = {}
         deliveries, self._pending_deliveries = self._pending_deliveries, []
         first_error: Optional[Exception] = None
         for flow, delivery in deliveries if deliver else []:
@@ -1081,8 +1086,9 @@ class FlowLauncher:
         earlier flow. First comes what no answer could allow (`--outputs-to`, and
         `Deliveries.refuse`), for every flow, the requested flow included; then the questions
         of the producers, in the order they run, each asked once. The requested flow asks its own
-        at its turn, which comes before any tool runs. A producer makes its check again at its
-        turn, which records what it found."""
+        at its turn, which comes before any tool runs. A producer keeps the object it checked and
+        checks again with it at its turn: that finds the record this check anchored, so the
+        destination is read once in the launch."""
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries)
         own.check_outputs_to(outputs_to)
@@ -1094,16 +1100,17 @@ class FlowLauncher:
             else []
         )
         own.refuse(predicted)
-        producers: list[Deliveries] = []
+        ahead: dict[NodeKey, Deliveries] = {}
         for planned in plan.nodes:
             if planned.node_key != requested.node_key:
                 named = split_deliveries(planned.settings, design.name)
                 if named:
-                    producers.append(self._deliveries_of(planned.run_path, named))
-        for producer in producers:
+                    ahead[planned.node_key] = self._deliveries_of(planned.run_path, named)
+        for producer in ahead.values():
             producer.refuse()
-        for producer in producers:
+        for producer in ahead.values():
             producer.check()
+        self._deliveries_ahead = ahead
 
     def _deliveries_of(self, run_path: Path, named: Sequence[Delivery]) -> Deliveries:
         """The deliveries `named` of the flow that runs in `run_path`, for this launch."""
@@ -1212,7 +1219,9 @@ class FlowLauncher:
             run_directory = RunDirectory.claimed(run_path, self.run_root)
             # the deliveries, checked before `--clean` and before any tool of this flow runs
             outputs_to = self.settings.outputs_to if depender is None else None
-            delivery = self._deliveries_of(run_path, deliveries)
+            delivery = self._deliveries_ahead.pop(node.node_key, None)
+            if delivery is None:
+                delivery = self._deliveries_of(run_path, deliveries)
             # the directory itself, not only a file predicted from the last run's artifacts: a
             # location becomes a concrete `Delivery` only once its tool has run and reported an
             # artifact, so without this a run root or an input named by `--outputs-to` is refused

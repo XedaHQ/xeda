@@ -707,7 +707,9 @@ class Deliveries:
     def check(self, predicted: Sequence[Delivery] = ()) -> None:
         """Before any tool of the node runs: `refuse` what no answer could allow; unless
         confirmed, refuse to replace a file that is not xeda's own unchanged earlier delivery
-        (`OutputExistsError`).
+        (`OutputExistsError`). A launch checks a producer's deliveries ahead and again at its
+        turn with the same object: the second check finds the record the first anchored, so a
+        destination is read once for the launch.
 
         Each destination is taken as it is when examined, and that is what `deliver` compares
         with: a file edited while the question was open is not replaced on a yes given for the

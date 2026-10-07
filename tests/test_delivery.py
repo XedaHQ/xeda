@@ -329,6 +329,34 @@ def test_an_unchanged_delivery_reads_the_destination_once_not_at_every_launch(
     assert destination.read_text() == "net\n"
 
 
+def test_an_unchanged_delivery_of_a_producer_reads_the_destination_once_a_launch(
+    world, hashed, later_clock, monkeypatch
+):
+    """A producer's deliveries are checked ahead, and again at its turn. The two checks are one
+    pass over the destination: the first anchors the record it takes, and the second finds it
+    anchored. The clock of the destination's file system is read, and its marker made, once."""
+    markers: List[Path] = []
+    original = deliver._destination_clock
+    monkeypatch.setattr(deliver, "_destination_clock", lambda d: markers.append(d) or original(d))
+    destination = world.user / "net.v"
+    sections = {"netlist": "$PWD/net.v"}
+    _launch(world, flow=_Wrapper, deliverer=sections)
+    assert _reads(hashed, destination) == 0 and markers == [], "nothing was there to read"
+
+    hashed.clear()
+    second = _launch(world, flow=_Wrapper, deliverer=sections)
+    assert [d.state for d in second.producers[0].deliveries] == ["unchanged"]
+    assert _reads(hashed, destination) == 1, "read once, to anchor its record"
+    assert len(markers) == 1, "its file system's clock was read once"
+
+    for _ in range(2):
+        hashed.clear()
+        markers.clear()
+        again = _launch(world, flow=_Wrapper, deliverer=sections)
+        assert [d.state for d in again.producers[0].deliveries] == ["unchanged"]
+        assert _reads(hashed, destination) == 0 and markers == [], "its metadata vouches for it"
+
+
 def test_the_anchor_is_the_clock_of_the_destination_read_before_its_content(world, monkeypatch):
     """What anchors a record is a time the destination's own file system reported, read just
     before that content was, and nothing else. Arithmetic on the record already held -- its own
