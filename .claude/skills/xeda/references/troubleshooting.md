@@ -174,8 +174,8 @@ from.
 A setting or `--outputs-to` named a location xeda could not deliver the output to: the run did not
 write the file the setting expects, or the destination is an input the launch reads (a
 dependency's, or the design's own), a directory where a file was expected, a path inside a run
-root, or a destination that two outputs of the launch name (the message names both settings: give
-each its own path). The role -- *working* or *deliverable* -- belongs to the setting itself, not to
+root, or a destination that two outputs of the launch name, or one inside another (the message
+names both settings: give each its own path). The role -- *working* or *deliverable* -- belongs to the setting itself, not to
 the value you gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a
 *working* setting always stays a bare name inside the run directory, whatever it is given, and is
 never delivered anywhere; only a *deliverable* setting given a location -- a path under `$PWD`,

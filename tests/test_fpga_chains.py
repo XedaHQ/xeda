@@ -506,6 +506,52 @@ def test_two_stages_of_a_chain_naming_one_destination_are_refused_before_any_too
     assert {node["state"] for node in document["nodes"]} == {"not run"}
 
 
+def _refused_before_any_tool(tmp_path, toolchain, first, second) -> dict:
+    """`yosys_fpga+nextpnr` with the synthesis netlist and the placed design given the
+    destinations `first` and `second`: the document of the refusal, with no tool started."""
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    result, document = _xeda(
+        "run",
+        "yosys_fpga+nextpnr",
+        design,
+        "-s",
+        f"flows.yosys_fpga.netlist_verilog={first}",
+        f"flows.nextpnr.write={second}",
+    )
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "DeliveryError"
+    assert not _every_call(tmp_path), "a tool ran before the refusal"
+    assert {node["state"] for node in document["nodes"]} == {"not run"}
+    return document["error"]
+
+
+def test_two_stages_naming_one_file_in_other_letters_are_refused_before_any_tool(
+    tmp_path, toolchain, monkeypatch
+):
+    """On a file system that ignores letter case the two are one file: the first would be
+    delivered and the second refused after both tools ran, as a change nobody made."""
+    monkeypatch.setattr("xeda.deliver._ignores_case", lambda directory: True)
+    error = _refused_before_any_tool(
+        tmp_path, toolchain, tmp_path / "Same.out", tmp_path / "same.out"
+    )
+    assert (
+        "`flows.yosys_fpga.netlist_verilog` and `flows.nextpnr.write` both name" in error["message"]
+    )
+    assert not list(tmp_path.glob("*.out"))
+
+
+def test_a_stage_whose_destination_lies_inside_another_s_is_refused_before_any_tool(
+    tmp_path, toolchain
+):
+    """`x` would be a file and a directory: delivery ended in a `FileExistsError` after the tools
+    ran."""
+    error = _refused_before_any_tool(tmp_path, toolchain, tmp_path / "x", tmp_path / "x" / "y")
+    message = error["message"]
+    assert "`flows.nextpnr.write` names" in message and "lies inside" in message
+    assert "`flows.yosys_fpga.netlist_verilog`" in message
+    assert not (tmp_path / "x").exists()
+
+
 def _chipdb_generator(tmp_path: Path) -> dict:
     """The one call that generated the chip database nextpnr was handed, under the run root."""
     (record,) = (tmp_path / "xeda_run/.cache/xilinx-chipdb").glob("*/fake_fpga.calls.jsonl")

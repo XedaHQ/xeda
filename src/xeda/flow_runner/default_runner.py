@@ -33,6 +33,7 @@ from ..deliver import (
     OUTPUTS_TO,
     Conflict,
     ConfirmedReplacements,
+    DeliveredFiles,
     Deliveries,
     Delivery,
     DeliveryError,
@@ -847,6 +848,7 @@ class FlowLauncher:
         self._launch_inputs: List[Path] = []
         #: every file the flows of the current launch read (`xeda.deliver.ReadInputs`)
         self._read_inputs = ReadInputs()
+        self._delivered_files = DeliveredFiles()
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
@@ -1154,6 +1156,7 @@ class FlowLauncher:
             # every file the flows of this launch read: the requested flow registers the
             # settings of the whole plan, and each flow the files it prepares
             self._read_inputs = ReadInputs(self._launch_inputs)
+            self._delivered_files = DeliveredFiles()
             self._pending_deliveries = []
         self._launch_depth += 1
         try:
@@ -1251,7 +1254,7 @@ class FlowLauncher:
         its lock, the producer reads the delivery record again if another launch wrote it
         meanwhile."""
         outputs_to = self.settings.outputs_to
-        own = self._deliveries_of(run_path, deliveries)
+        own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)
         predicted = (
             outputs_to_deliveries(
@@ -1269,7 +1272,9 @@ class FlowLauncher:
             else:
                 named = split_deliveries(planned.settings, design.name)
                 if named:
-                    ahead[planned.node_key] = self._deliveries_of(planned.run_path, named)
+                    ahead[planned.node_key] = self._deliveries_of(
+                        planned.run_path, named, planned.name
+                    )
             copies += [(planned.name, d, d.destination) for d in named]
         for producer in ahead.values():
             producer.refuse()
@@ -1278,8 +1283,8 @@ class FlowLauncher:
             producer.check()
         self._deliveries_ahead = ahead
 
-    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery]) -> Deliveries:
-        """The deliveries `named` of the flow that runs in `run_path`, for this launch."""
+    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
+        """The deliveries `named` of the flow `owner` that runs in `run_path`, for this launch."""
         return Deliveries(
             run_path,
             self.run_root,
@@ -1287,6 +1292,8 @@ class FlowLauncher:
             inputs=self._read_inputs,  # the launch's
             overwrite=self.settings.overwrite_outputs,
             confirm=self._confirm_replacing,
+            owner=owner,
+            files=self._delivered_files,  # the launch's
         )
 
     def _entered(self, run_path: Path) -> bool:
@@ -1392,7 +1399,7 @@ class FlowLauncher:
             outputs_to = self.settings.outputs_to if depender is None else None
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:
-                delivery = self._deliveries_of(run_path, deliveries)
+                delivery = self._deliveries_of(run_path, deliveries, flow_name)
             else:
                 # made ready before this lock was taken: the record may have been written since
                 delivery.reread_record()

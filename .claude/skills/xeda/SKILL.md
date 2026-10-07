@@ -366,7 +366,8 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 A delivery never replaces a directory, a design source, or a file the run itself reads. Two
 outputs never go to one destination: a request that names one file twice (two settings, or a
-setting and `--outputs-to`) is refused, naming both. An existing file at the destination is
+setting and `--outputs-to`; in other letters where the file system ignores case; or one inside
+the other) is refused, naming both. An existing file at the destination is
 replaced without asking only if it is xeda's own earlier, unchanged delivery; otherwise rerun with
 `--overwrite-outputs`, or answer the interactive prompt.
 

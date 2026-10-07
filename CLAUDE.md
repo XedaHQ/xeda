@@ -1042,9 +1042,15 @@ up front). The requested flow also checks the named deliveries of every flow of 
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
 allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`) --
-a destination two deliveries name is one of them (`deliver.refuse_shared_destinations`: every
-named delivery of the launch, with its flow, in the order the flows run, naming both settings as
-`flows.<flow>.<key>`) -- and only then asks the producers' questions; its own question comes at
+a destination two deliveries name, or one inside another, is one of them
+(`deliver.refuse_shared_destinations`: every named delivery of the launch, with its flow, in the
+order the flows run, naming both settings as `flows.<flow>.<key>`; **names are compared as their
+file system compares them**, `_compared`: located, and each name casefolded when the directory it
+lies in ignores letter case, which `_ignores_case` finds by looking, never by writing -- an entry
+of the directory asked for in the other case, else the directory's own name in its parent on the
+same device, else its parent's answer, and "keeps case" when nothing can be asked -- so
+`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4) -- and only then
+asks the producers' questions; its own question comes at
 its turn, the start of its own launch and before it launches its producers, so still before any
 tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
@@ -1074,8 +1080,13 @@ delivers, with every file's digest, as its own run completes (`Deliveries.collec
 directory's lock), and compares what it noted with every copy noted before it
 (`refuse_shared_destinations` again, in `_defer_delivery`): `--outputs-to`'s artifacts and a
 directory output's files are known only now, and a destination two of them share is refused
-before the first copy, a `DeliveryError` that is no `before_run` one, since the tools ran; the
-copies themselves are made in `_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
+before the first copy, a `DeliveryError` that is no `before_run` one, since the tools ran. What no
+comparison of names sees (a file system that takes two Unicode forms for one name, a link made
+during the run) is found by the file: `DeliveredFiles` holds, by inode, what the launch's
+deliveries made, and a delivery whose destination is one of them reports that two deliveries name
+it (the first stays), never "changed while the run went on". The copies themselves are made in
+`_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its
+reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
 has even run. An existing file at a destination is replaced without asking only when it is xeda's
 own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode

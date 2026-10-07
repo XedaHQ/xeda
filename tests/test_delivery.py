@@ -778,6 +778,180 @@ def test_a_destination_named_through_a_link_is_the_destination_it_leads_to(world
     assert RUNS == [] and not (world.user / "real" / "same.out").exists()
 
 
+def _file_system_ignores_case(directory: Path) -> bool:
+    """What the file system does, found by writing a file and asking for it in other letters:
+    the oracle for what `deliver._ignores_case` finds by looking."""
+    (directory / "Probe-Case").write_text("x")
+    found = (directory / "pROBE-cASE").exists()
+    (directory / "Probe-Case").unlink()
+    return found
+
+
+def test_a_directory_that_ignores_letter_case_is_told_by_looking_and_nothing_is_written(tmp_path):
+    ignores = _file_system_ignores_case(tmp_path)
+    (tmp_path / "Empty").mkdir()
+    (tmp_path / "1234").mkdir()
+    (tmp_path / "Full").mkdir()
+    (tmp_path / "Full" / "File.txt").write_text("x")
+    before = sorted(str(p) for p in tmp_path.rglob("*"))
+    assert deliver._ignores_case(tmp_path / "Full") is ignores, "by an entry in it"
+    assert deliver._ignores_case(tmp_path / "Empty") is ignores, "by its own name"
+    assert (
+        deliver._ignores_case(tmp_path / "1234") is ignores
+    ), "a name with no letters: its parent's"
+    assert sorted(str(p) for p in tmp_path.rglob("*")) == before, "nothing was written"
+
+
+def _copies(tmp_path: Path, *names: str) -> list:
+    return [
+        (f"flow{n}", Delivery(f"key{n}", PurePath(f"out{n}"), tmp_path / name))
+        for n, name in enumerate(names)
+    ]
+
+
+def _refuse(tmp_path: Path, *names: str) -> None:
+    deliver.refuse_shared_destinations(
+        [(owner, d, d.destination) for owner, d in _copies(tmp_path, *names)], before_run=True
+    )
+
+
+@pytest.mark.parametrize("ignores", [True, False])
+@pytest.mark.parametrize(
+    "names",
+    [("Same.out", "same.out"), ("new/Same.out", "new/same.out"), ("Dir/a", "dIR/a")],
+    ids=["a-name", "below-a-new-directory", "a-directory-that-exists"],
+)
+def test_destinations_that_differ_in_letter_case_are_one_where_the_file_system_ignores_it(
+    tmp_path, monkeypatch, ignores, names
+):
+    """As the file system compares names: on one that ignores letter case, `Same.out` and
+    `same.out` are one file, and the second delivery would find the first's as a change nobody
+    made. On one that keeps it they are two."""
+    monkeypatch.setattr(deliver, "_ignores_case", lambda directory: ignores)
+    (tmp_path / "Dir").mkdir()
+    if ignores:
+        with pytest.raises(DeliveryError, match="both name") as refused:
+            _refuse(tmp_path, *names)
+        assert refused.value.before_run
+    else:
+        _refuse(tmp_path, *names)
+
+
+def test_only_the_names_below_a_directory_that_ignores_case_are_compared_without_it(
+    tmp_path, monkeypatch
+):
+    """A directory of one kind inside one of another: each name is compared as the directory it
+    lies in compares it."""
+    (tmp_path / "Mixed").mkdir()
+    insensitive = {tmp_path / "Mixed"}
+    monkeypatch.setattr(deliver, "_ignores_case", lambda directory: directory in insensitive)
+    _refuse(tmp_path, "Mixed/Inside.out", "Mixed/x/y")  # no relation
+    with pytest.raises(DeliveryError, match="both name"):
+        _refuse(tmp_path, "Mixed/Inside.out", "Mixed/inside.out")
+    _refuse(tmp_path, "Outside.out", "outside.out")  # their directory keeps the case
+
+
+def test_two_settings_naming_one_file_in_other_letters_are_refused_before_the_tool_runs(
+    world, monkeypatch
+):
+    monkeypatch.setattr(deliver, "_ignores_case", lambda directory: True)
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, netlist="$PWD/Same.out", report="$PWD/same.out")
+    message = str(refused.value)
+    assert f"`flows.{_Deliverer.name}.netlist` and `flows.{_Deliverer.name}.report`" in message
+    assert refused.value.before_run and RUNS == []
+    assert not any(world.user.iterdir())
+
+
+def test_the_file_system_itself_refuses_a_name_in_other_letters_before_the_tool_runs(world):
+    """On a file system that ignores letter case (macOS's and Windows's default), with no help from
+    a stand-in."""
+    if not _file_system_ignores_case(world.user):
+        pytest.skip("this file system keeps letter case: there is nothing to refuse")
+    with pytest.raises(DeliveryError, match="both name") as refused:
+        _launch(world, netlist="$PWD/Same.out", report="$PWD/same.out")
+    assert refused.value.before_run and RUNS == []
+
+
+def test_a_file_two_deliveries_name_is_refused_before_a_replacement_is_asked_about(tmp_path):
+    """A refusal comes before a question: no yes is asked for a file found in the way, in a
+    launch that fails anyway on a file two deliveries name."""
+    root, run_path = tmp_path / "root", tmp_path / "root" / "d" / "f"
+    run_path.mkdir(parents=True)
+    out = tmp_path / "out"
+    out.mkdir()
+    (run_path / "a.txt").write_text("A")
+    (run_path / "b.txt").write_text("B")
+    shared, in_the_way = out / "shared.out", out / "in_the_way.out"
+    shared.write_text("what the other delivery made")
+    in_the_way.write_text("mine")
+    files = deliver.DeliveredFiles()
+    files.add(shared, "`flows.other.key`")
+    asked: list = []
+    deliveries = deliver.Deliveries(
+        run_path,
+        root,
+        inputs=deliver.ReadInputs(),
+        confirm=lambda conflicts: asked.append(conflicts) or True,
+        owner="f",
+        files=files,
+    )
+    deliveries.pending = [
+        (Delivery(name, PurePath(f"{name}.txt"), destination), source, destination, sha)
+        for name, destination in (("a", shared), ("b", in_the_way))
+        for source in [run_path / f"{name}.txt"]
+        for sha in [digest.content_digest(source)]
+    ]
+    with pytest.raises(DeliveryError, match="which `flows.other.key` delivered"):
+        deliveries.deliver()
+    assert asked == [], "nobody was asked about a file in the way"
+    assert in_the_way.read_text() == "mine" and shared.read_text() == "what the other delivery made"
+
+
+def test_names_that_differ_in_letter_case_are_two_destinations_on_a_file_system_that_keeps_it(
+    world,
+):
+    """The comparison follows the file system, not a rule of its own: where `Same.out` and
+    `same.out` are two files, both are delivered."""
+    if _file_system_ignores_case(world.user):
+        pytest.skip("this file system ignores letter case: the two names are one file")
+    flow = _launch(world, netlist="$PWD/Same.out", report="$PWD/same.out")
+    assert flow.succeeded
+    assert sorted(d.destination.name for d in flow.deliveries) == ["Same.out", "same.out"]
+    assert sorted(p.name for p in world.user.iterdir()) == ["Same.out", "same.out"]
+
+
+def test_the_file_system_tells_two_unicode_forms_of_a_name_for_one_file_and_delivery_says_so(world):
+    """APFS takes the composed and the decomposed form of a name for one name, which a comparison
+    by letter case does not know: the second delivery finds the file the first made."""
+    composed, decomposed = "caf\u00e9.out", "cafe\u0301.out"
+    (world.user / composed).write_text("probe")
+    unified = (world.user / decomposed).exists()
+    (world.user / composed).unlink()
+    if not unified:
+        pytest.skip("this file system tells the two forms apart: they are two files")
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, netlist=str(world.user / composed), report=str(world.user / decomposed))
+    message = str(refused.value)
+    assert f"`flows.{_Deliverer.name}.report` names" in message
+    assert f"which `flows.{_Deliverer.name}.netlist` delivered" in message
+    assert "changed while the run went on" not in message
+
+
+@pytest.mark.parametrize("order", ["the outer first", "the inner first"])
+def test_a_destination_inside_another_is_refused_before_the_tool_runs(world, order):
+    """`x` is a file the second delivery would need to be a directory (`FileExistsError` after
+    the tool ran), or a directory the first delivery already made."""
+    outer, inner = "$PWD/x", "$PWD/x/y"
+    netlist, report = (outer, inner) if order == "the outer first" else (inner, outer)
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, netlist=netlist, report=report)
+    message = str(refused.value)
+    assert f"`flows.{_Deliverer.name}.netlist`" in message and "report`" in message
+    assert "lies inside" in message and refused.value.before_run
+    assert RUNS == [] and not any(world.user.iterdir())
+
+
 def test_two_outputs_for_two_destinations_are_both_delivered(world):
     flow = _launch(world, netlist="$PWD/a.out", report="$PWD/b.out")
     assert flow.succeeded

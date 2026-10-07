@@ -22,7 +22,7 @@ from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
 from xeda.design import SourceType
-from xeda.flow import Flow, In, Out, registered_flows
+from xeda.flow import Flow, FlowDependencyFailure, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 
 RUNS: List[str] = []
@@ -406,6 +406,57 @@ def test_a_destination_two_flows_of_the_plan_name_is_refused_before_any_tool(wor
     assert type(refused.value) is DeliveryError and refused.value.before_run
     assert RUNS == [] and not same.exists()
     assert not _directory(world).exists(), "the requested flow's directory was not even made"
+
+
+def _two_directories_one_a_link_later(world):
+    a, b = world.user / "a", world.user / "b"
+    a.mkdir()
+    b.mkdir()
+
+    def link() -> None:
+        b.rmdir()
+        b.symlink_to(a, target_is_directory=True)
+
+    return a, b, link
+
+
+def test_a_directory_that_becomes_a_link_during_the_run_is_caught_before_anything_is_copied(world):
+    """The names of two deliveries are compared again when the flow that makes them has run
+    (`refuse_shared_destinations`), as they are then: the directory `b` is `a` by now, so the
+    second producer's destination is the first's, and no file is copied."""
+    a, b, link = _two_directories_one_a_link_later(world)
+    DURING_RUN.append(link)
+    with pytest.raises(FlowDependencyFailure, match="both name") as refused:
+        _launch(world, reads_dir={"copy": str(a / "x.out")}, delivers={"netlist": str(b / "x.out")})
+    assert "`flows.__reads_dir.copy` and `flows.__delivers.netlist`" in str(refused.value)
+    assert not (a / "x.out").exists(), "nothing was delivered"
+
+
+def test_two_names_of_one_file_that_only_delivery_can_tell_are_reported_as_two_deliveries(
+    world, monkeypatch
+):
+    """What no comparison of names sees -- here a link made between two deliveries, as a file
+    system that takes two Unicode forms for one name would do -- delivery finds in the file: the
+    one the other delivery made. It says that two deliveries name it, never that something
+    changed it while the run went on."""
+    a, b, link = _two_directories_one_a_link_later(world)
+    deliver = Deliveries.deliver
+
+    def deliver_then_link(self):
+        made = deliver(self)
+        if self.run_path.name == "__reads_dir":
+            link()
+        return made
+
+    monkeypatch.setattr(Deliveries, "deliver", deliver_then_link)
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, reads_dir={"copy": str(a / "x.out")}, delivers={"netlist": str(b / "x.out")})
+    message = str(refused.value)
+    assert "`flows.__delivers.netlist` names" in message
+    assert "which `flows.__reads_dir.copy` delivered" in message
+    assert "changed while the run went on" not in message
+    assert not refused.value.before_run, "only delivery could tell"
+    assert (a / "x.out").read_text() == "a\n", "what the first delivered stays"
 
 
 def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_file_in_the_way(world):

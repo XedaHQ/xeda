@@ -15,9 +15,11 @@ identity and resolved path) -- nor into a directory a read setting names (every 
 input of the run, one delivered there too), into a run root, or over a directory; it never
 deletes anything and never writes through a symbolic link (a temporary file in the
 destination's directory, renamed into place). Two deliveries of one launch never go to one
-destination (`refuse_shared_destinations`): the launch refuses it, naming both, before any tool
-runs for the destinations the settings name, and before the first copy for those a run reveals.
-An existing file is replaced only when it is xeda's own earlier delivery, unchanged, as its record
+destination, nor one inside another (`refuse_shared_destinations`, which compares names as their
+file system does, letter case included where a directory ignores it): the launch refuses it,
+naming both, before any tool runs for the destinations the settings name, and before the first
+copy for those a run reveals. Two names that still reach one file are found by the file itself
+when the second delivery meets the first's (`DeliveredFiles`). An existing file is replaced only when it is xeda's own earlier delivery, unchanged, as its record
 says (`delivery_record`: beside the run directory, in the run root); anything else needs the
 user's confirmation -- `overwrite_outputs`, or a yes from the launcher's `confirm_overwrite` (the
 command line's prompt) -- asked before any tool of
@@ -36,6 +38,7 @@ after it was checked, or an output that changed after its run, is never delivere
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -66,6 +69,7 @@ __all__ = [
     "ConfirmedReplacements",
     "Deliveries",
     "Delivered",
+    "DeliveredFiles",
     "Delivery",
     "DeliveryError",
     "OutputExistsError",
@@ -262,40 +266,123 @@ def outputs_to_deliveries(
 
 def _written_as(owner: str, delivery: Delivery) -> str:
     """How the user asked for `delivery`: `--outputs-to`, or the setting as it is written under
-    `flows.<flow>`."""
+    `flows.<flow>` (by its key alone when its flow is not known)."""
     if delivery.key == OUTPUTS_TO:
         return f"`{OUTPUTS_TO}` ({delivery.name})"
-    return f"`flows.{owner}.{delivery.key}`"
+    return f"`flows.{owner}.{delivery.key}`" if owner else f"`{delivery.key}`"
+
+
+#: How many entries of a directory are looked at for a name with letters in it, when the directory
+#: is asked whether it ignores their case.
+_PROBE_ENTRIES = 64
+
+
+def _one_entry(first: Path, second: Path) -> bool:
+    """Whether two names are one directory entry: the same file, a link not followed."""
+    try:
+        return os.path.samestat(os.lstat(first), os.lstat(second))
+    except OSError:
+        return False
+
+
+def _ignores_case(directory: Path) -> bool:
+    """Whether the names in `directory` are compared without regard to letter case, as the default
+    file systems of macOS and Windows compare them. Found by looking, never by writing: an entry
+    of the directory whose name has ASCII letters, asked for in the other case, is that very
+    entry or it is not. A directory with no such entry is asked by its own name in its parent,
+    when the two are one file system (`st_dev`), and by its parent's answer when its name has no
+    letters either. The top of a file system, and a mount point with nothing to look at, are
+    taken to keep case: a wrong "no" is caught when the second delivery finds the file the first
+    made (`DeliveredFiles`), where a wrong "yes" would refuse two files that are two."""
+    try:
+        with os.scandir(directory) as entries:
+            for entry in itertools.islice(entries, _PROBE_ENTRIES):
+                swapped = entry.name.swapcase()
+                if entry.name.isascii() and swapped != entry.name:
+                    return _one_entry(directory / entry.name, directory / swapped)
+    except OSError:
+        return False
+    parent = directory.parent
+    if parent == directory:
+        return False
+    try:
+        if os.stat(parent).st_dev != os.stat(directory).st_dev:
+            return False  # a mount point: its parent says nothing about it
+    except OSError:
+        return False
+    name = directory.name
+    if name.isascii() and name.swapcase() != name:
+        return _one_entry(directory, parent / name.swapcase())
+    return _ignores_case(parent)
+
+
+def _compared(path: Path, ignoring: dict[Path, Optional[bool]]) -> tuple[str, ...]:
+    """`path`, located, as its file system compares it: its names, each folded to one case when
+    the directory it lies in ignores letter case (`_ignores_case`). A directory that does not
+    exist yet is taken to compare as the nearest one that does, which it will be made in.
+    `ignoring` keeps what each directory looked at said, for the calls that follow."""
+    parts = path.parts
+    folded = [parts[0].casefold() if os.name == "nt" else parts[0]]
+    ignore, here = False, Path(parts[0])
+    for name in parts[1:]:
+        if here not in ignoring:
+            ignoring[here] = _ignores_case(here) if here.is_dir() else None
+        known = ignoring[here]
+        if known is not None:
+            ignore = known
+        folded.append(name.casefold() if ignore else name)
+        here = here / name
+    return tuple(folded)
+
+
+def _listed(names: Sequence[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def refuse_shared_destinations(
     copies: Iterable[tuple[str, Delivery, Path]], *, before_run: bool
 ) -> None:
-    """A `DeliveryError` when two copies of one launch go to one destination (located, as
-    `Deliveries` locates every destination), naming everything that asked for it. A destination
-    takes one output: delivering the first and refusing the second as a change nobody made,
-    after the tools ran, gave a false reason and a partial delivery.
+    """A `DeliveryError` when two copies of one launch go to one destination, or one lies inside
+    another (its parent would have to be a file and a directory), naming everything that asked
+    for them. A destination takes one output: delivering the first and refusing the second as a
+    change nobody made, after the tools ran, gave a false reason and a partial delivery.
+
+    Destinations are compared as their file system compares them (`_compared`): located, as
+    `Deliveries` locates every destination, and in letter case only where the directory they lie
+    in keeps it. What the comparison still cannot tell -- Unicode forms that a file system takes
+    for one name, a link made during the run -- delivery finds in the file itself
+    (`DeliveredFiles`).
 
     `copies`: the name of a flow, one of its deliveries, and where that copy goes, in the order
     the flows run. A named delivery goes to the destination it names, and is known from the plan,
     before any tool runs (`before_run`). A copy of `--outputs-to`, or of a file of a directory
     output, is known only when its flow has run, so the launch asks again then, before the first
     copy is made."""
-    asked: dict[Path, list[str]] = {}
+    ignoring: dict[Path, Optional[bool]] = {}
+    asked: dict[tuple[str, ...], list[str]] = {}
+    at: dict[tuple[str, ...], Path] = {}
     for owner, delivery, destination in copies:
-        asked.setdefault(_located(destination), []).append(_written_as(owner, delivery))
-    shared = [(destination, names) for destination, names in asked.items() if len(names) > 1]
-    if not shared:
-        return
-    listed = "; ".join(
-        f"{', '.join(names[:-1]) + ' and ' + names[-1]} {'both' if len(names) == 2 else 'all'} "
-        f"name {destination}"
-        for destination, names in shared
-    )
-    raise DeliveryError(
-        f"{listed}: a destination takes one output; name them apart",
-        before_run=before_run,
-    )
+        located = _located(destination)
+        key = _compared(located, ignoring)
+        asked.setdefault(key, []).append(_written_as(owner, delivery))
+        at.setdefault(key, located)
+    problems = [
+        f"{_listed(names)} {'both' if len(names) == 2 else 'all'} name {at[key]}"
+        for key, names in asked.items()
+        if len(names) > 1
+    ]
+    for key, names in asked.items():
+        outer = next((key[:n] for n in range(len(key) - 1, 0, -1) if key[:n] in asked), None)
+        if outer is not None:
+            problems.append(
+                f"{_listed(names)} {'name' if len(names) > 1 else 'names'} {at[key]}, which lies "
+                f"inside {at[outer]}, named by {_listed(asked[outer])}"
+            )
+    if problems:
+        raise DeliveryError(
+            f"{'; '.join(problems)}: a destination takes one output; name them apart",
+            before_run=before_run,
+        )
 
 
 def recorded_artifacts(results_json: Path) -> Any:
@@ -384,6 +471,26 @@ class ReadInputs:
                 if candidate in self._directories:
                     return self._directories[candidate]
         return None
+
+
+class DeliveredFiles:
+    """The files the deliveries of one launch have made, by file identity (`st_dev`, `st_ino`),
+    and how each was asked for. A destination that is one of them was named by two deliveries,
+    whatever the names say: this is what tells it when the comparison made before the run
+    (`refuse_shared_destinations`) could not. One is shared by a launch's `Deliveries`."""
+
+    def __init__(self) -> None:
+        self._by_identity: dict[tuple[int, int], str] = {}
+
+    def add(self, destination: Path, written_as: str) -> None:
+        identity = _identity(destination, follow=False)
+        if identity is not None and identity[1]:  # a file system with no inode numbers tells none
+            self._by_identity.setdefault(identity, written_as)
+
+    def delivered_as(self, destination: Path) -> Optional[str]:
+        """How the delivery that made the file at `destination` asked for it, if one did."""
+        identity = _identity(destination, follow=False)
+        return None if identity is None else self._by_identity.get(identity)
 
 
 def _state(path: Path) -> _State:
@@ -542,12 +649,18 @@ class Deliveries:
         inputs: ReadInputs,
         overwrite: bool = False,
         confirm: Optional[Callable[[Sequence[Conflict]], bool]] = None,
+        owner: str = "",
+        files: Optional[DeliveredFiles] = None,
     ) -> None:
         self.run_path = Path(run_path)
         self.run_root = Path(os.path.realpath(run_root))
         self.named = list(named)
         #: every file the launch's flows read: shared by the launch (`ReadInputs`)
         self.inputs = inputs
+        #: the name of the flow whose deliveries these are, which says how a setting was asked for
+        self.owner = owner
+        #: the files the launch's deliveries have made, shared by the launch (`DeliveredFiles`)
+        self.launch_files = files if files is not None else DeliveredFiles()
         self.overwrite = overwrite
         self.confirm = confirm
         self.record_path = delivery_record(self.run_path)
@@ -825,10 +938,20 @@ class Deliveries:
         under-report what actually reached disk before the error."""
         self.delivered = []
         changed: list[str] = []
+        shared: list[str] = []
         late: list[tuple[Conflict, Path, _State, str]] = []
         try:
             for delivery, src, dest, sha in self.pending:
                 destination = _located(dest)
+                earlier = self.launch_files.delivered_as(destination)
+                if earlier is not None:
+                    # a file another delivery of this launch made: two deliveries name it, which
+                    # the names did not say when they were compared
+                    shared.append(
+                        f"{_written_as(self.owner, delivery)} names {destination}, which "
+                        f"{earlier} delivered"
+                    )
+                    continue
                 refusal = self._refusal(destination, delivery)
                 if refusal is None and destination.is_dir() and not destination.is_symlink():
                     refusal = "a directory"
@@ -850,7 +973,9 @@ class Deliveries:
                     changed.append(str(destination))
                 else:
                     self.delivered.append(made)
-            if late and self._confirmed([conflict for conflict, *_rest in late]):
+            # a refusal comes before a question: a file two deliveries name fails the launch
+            # whatever the user would say about a file found in the way
+            if late and not shared and self._confirmed([conflict for conflict, *_rest in late]):
                 for conflict, src, expected, sha in late:
                     made = self._copy(conflict.delivery, src, conflict.destination, expected, sha)
                     if made is None:
@@ -861,6 +986,10 @@ class Deliveries:
         finally:
             self._write_record()
         self.pending = []
+        if shared:
+            raise DeliveryError(
+                f"{'; '.join(shared)}: a destination takes one output; name them apart"
+            )
         if late:
             raise OutputExistsError(_refused([conflict for conflict, *_rest in late]))
         if changed:
@@ -957,6 +1086,7 @@ class Deliveries:
             entry["anchor_ns"] = anchored_at.ns
             entry["anchor_device"] = anchored_at.device
         self.record["files"][str(destination)] = entry
+        self.launch_files.add(destination, _written_as(self.owner, delivery))
 
     def _write_record(self) -> None:
         """Atomically, beside the run directory (the run directory's lock serializes it)."""
