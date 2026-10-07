@@ -1,8 +1,10 @@
 """Git dependencies are cloned into the run root, never into the start directory."""
 
+import ast
 import hashlib
 import itertools
 import json
+import logging
 import os
 import re
 import subprocess
@@ -13,6 +15,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+import xeda.design
 from xeda import Design
 from xeda.design import (
     DEPENDENCY_CLONES,
@@ -21,6 +24,7 @@ from xeda.design import (
     clone_location,
     clone_name_parts,
     loading_in_run_root,
+    redacted_url,
 )
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectory, RunDirectoryError
@@ -520,3 +524,140 @@ def test_a_clone_directory_outside_a_cache_under_the_run_root_is_refused_too(tmp
     monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
     with pytest.raises(ValueError, match="outside the clone cache"):
         clone_location(root / DEPENDENCY_CLONES, URI, None, None, owner=owner)
+
+
+# ---------------------------------------------------------------- credentials in a URL
+
+SECRET = "s3cret-token"
+#: A URL with credentials in each of the ways they are written, and the same URL without them.
+CREDENTIALED = [
+    pytest.param(f"https://user:{SECRET}@example.com/u/lib.git", id="user-and-password"),
+    pytest.param(f"https://{SECRET}@example.com/u/lib.git", id="a-token-as-the-user"),
+    pytest.param(f"https://user:{SECRET}@example.com:8443/u/lib.git", id="with-a-port"),
+    pytest.param(f"https://us%40er:{SECRET}@example.com/u/lib.git", id="an-encoded-at-sign"),
+    pytest.param(f"https://user:p@{SECRET}@example.com/u/lib.git", id="a-raw-at-sign"),
+]
+
+
+def _without_credentials(url: str) -> str:
+    return url.replace(url[url.index("//") + 2 : url.rindex("@") + 1], "")
+
+
+@pytest.mark.parametrize("url", CREDENTIALED)
+def test_the_credentials_of_a_url_are_no_part_of_a_clone_directory_name(url):
+    """They would show in every path and log that names the clone."""
+    host, name = clone_name_parts(url, None, None)
+    plain_host, plain_name = clone_name_parts(_without_credentials(url), None, None)
+    assert SECRET not in host + name and "user" not in host + name
+    assert host == plain_host, "the host and its port, as for the URL without credentials"
+    # the readable part is the same too; only the digest of what is cloned tells them apart
+    assert name.rpartition("_")[0] == plain_name.rpartition("_")[0]
+    assert name != plain_name
+
+
+def test_urls_that_differ_only_in_their_credentials_are_cloned_apart():
+    one = clone_name_parts("https://one:pw@h/u/lib.git", None, None)
+    other = clone_name_parts("https://other:pw@h/u/lib.git", None, None)
+    assert one != other and one[0] == other[0]
+    assert clone_name_parts("https://h/u/lib.git", None, None) not in (one, other)
+
+
+def _credentialed_design(root: Path, url: str) -> Path:
+    (root / "top.v").write_text("module top; endmodule\n")
+    (root / "d.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top"},
+                "dependencies": [f"git+{url}#lib.toml"],
+            }
+        )
+    )
+    return root / "d.yaml"
+
+
+@pytest.mark.parametrize("url", CREDENTIALED[:3])
+def test_a_clone_is_given_its_credentials_and_none_is_shown(
+    tmp_path, monkeypatch, clones, caplog, url
+):
+    """Git is handed the URL as written, since the clone needs it; no path, log line (down to
+    the debug dump of the design) or message holds the secret."""
+    import git.repo
+
+    handed = []
+    clone = git.repo.Repo.clone_from
+
+    def clone_from(url, to_path, **kwargs):
+        handed.append(url)
+        return clone(url, to_path, **kwargs)
+
+    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with caplog.at_level(logging.DEBUG), loading_in_run_root(runner.load_run_root):
+        Design.from_file(_credentialed_design(tmp_path, url))
+    assert handed == [url]
+    assert "Cloning git repository" in caplog.text and "Design data" in caplog.text
+    assert SECRET not in caplog.text
+    assert [p for p in (tmp_path / "xeda_run").rglob("*") if SECRET in str(p)] == []
+    assert [str(p) for p in clones if SECRET in str(p)] == []
+
+
+def test_an_error_does_not_show_the_credentials_of_the_url_it_names(tmp_path, monkeypatch):
+    url = f"https://user:{SECRET}@example.com/u/lib.git"
+    ref = GitReference(repo_url=url, design_file="lib.toml")
+    with pytest.raises(ValueError, match="needs a directory") as no_directory:
+        ref.fetch_design()
+    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
+    with pytest.raises(ValueError, match="outside the clone cache") as outside:
+        clone_location(tmp_path, url, None, None)
+    with pytest.raises(ValueError, match="no repository path") as no_path:
+        clone_name_parts(f"https://user:{SECRET}@example.com/", None, None)
+    for error in (no_directory, outside, no_path):
+        assert SECRET not in str(error.value) and "example.com" in str(error.value)
+
+
+def test_a_url_is_shown_without_its_credentials():
+    assert redacted_url(f"https://user:{SECRET}@h:8443/u/lib.git?branch=a#f.toml") == (
+        "https://***@h:8443/u/lib.git?branch=a#f.toml"
+    )
+    assert redacted_url(f"https://us@er:{SECRET}@h/u/lib.git") == "https://***@h/u/lib.git"
+    for plain in (
+        "https://h/u/lib.git",
+        "https://h/u@x/lib.git",
+        "git@h:org/lib.git",
+        "/srv/x.git",
+    ):
+        assert redacted_url(plain) == plain
+
+
+#: The names a Git URL, or a design that holds one, goes by in `design.py`.
+URL_NAMES = {"repo_url", "uri", "uri_str"}
+
+
+def _names_a_url(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Name)
+        and node.id in URL_NAMES
+        or (isinstance(node, ast.Attribute) and node.attr in URL_NAMES)
+    )
+
+
+def test_no_message_in_design_py_shows_a_git_url_as_it_is():
+    """An f-string or a log call that formats a URL says so through `redacted_url`: the sweep that
+    keeps a message added later from showing credentials a clone directory name no longer does."""
+    source = Path(xeda.design.__file__)
+    shown: list[str] = []
+    for node in ast.walk(ast.parse(source.read_text())):
+        values: list[ast.AST] = []
+        if isinstance(node, ast.JoinedStr):
+            values = [part.value for part in node.values if isinstance(part, ast.FormattedValue)]
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "log"
+        ):
+            values = list(node.args[1:])  # the arguments a message is formatted with
+        shown += [f"line {value.lineno}" for value in values if _names_a_url(value)]
+    assert shown == [], f"{source.name} shows a URL without `redacted_url`: {shown}"

@@ -885,7 +885,15 @@ the audit hook records no violation of xeda's own, the canary sweep sees only th
 token, and the repository path with the commit (else the branch) folded into one readable token,
 then `_` and a 16-digit digest of the whole identity, the repository URL, the branch and the commit.
 Folding cannot keep `a/b` and `a_b` apart; the digest does, so references that select different
-clones never share a directory, and one reference always has the same. `tests/test_git_dependencies.py`
+clones never share a directory, and one reference always has the same. **The user name and password
+of a URL (`https://user:token@host/...`) are no part of a name** (the host token is what follows the
+last `@` of the authority), since a name shows in paths and logs; the digest still covers the whole
+URL, so URLs that differ only in their credentials are cloned apart. Every log line and error
+message that prints a URL goes through `design.redacted_url` (`***` for the credentials; the
+debug dump of the design masks its dependencies' URLs the same way), and
+`tests/test_git_dependencies.py` scans `design.py` for a URL formatted into a message without it.
+Git is still handed the URL as written, so the clone itself keeps it in its own `.git/config`, and
+the design file and the recorded settings are the user's own copies. `tests/test_git_dependencies.py`
 pins a name: changing the identity re-clones everything, and moves the `design_hash` of every design
 with a Git dependency (its sources count by path). A clone is one directory below its host's, so
 none lies inside another. A path, branch or commit with a `.` or `..` component, a drive such as
