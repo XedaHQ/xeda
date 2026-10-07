@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project will be documented in this file.
 
+<!--
+Do not add entries to this file. Add one file per change to changelog.d/ (see README.md): at
+release, tools/fold_changelog.py folds the files into the section of the new release.
+-->
+
 
 ## [Unreleased]
 
@@ -358,6 +363,42 @@ All notable changes to this project will be documented in this file.
   Traces record ordered declared input bindings.
 - `run_process` and `Tool.run` take `timeout` (the process group, or a named Docker container, is
   stopped; `ProcessTimeout`) and `tee`.
+- **`xeda run` is make-like by default.** A flow re-runs only when something it consumed or produced
+  changed since its last successful run; `--rebuild-all` (API `rebuild_all=True`) runs every flow,
+  as every run did before. A flow that runs logs why (`Running <flow>: <reason>`); a
+  flow left alone logs that it is up to date and shows its previously recorded results. Staleness
+  covers: no successful previous run; changed settings (named in the reason); a changed xeda
+  version or flow code/templates; a changed program (path, size or mtime; a container image's
+  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
+  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
+  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
+  date before the flow depending on them is judged. Each run directory records this in a new
+  `trace.json`, written last and atomically after a successful run and removed before the next
+  run executes, so its mere presence certifies the last run there succeeded. A file counts as
+  unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
+  timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
+  re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
+  (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
+  world.
+- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each variant of a flow its own directory
+  (`<design>/<flow>_<16-char run hash>/`, the first 16 characters of `flowrun_hash`: the flow's
+  input settings and where its declared inputs come from, so editing a source file never moves
+  it); the default is one directory per flow (`<design>/<flow>/`). A producer's run directory is
+  always a sibling of the flow that consumes it, in the same layout, never nested under it. A
+  launch has one run for each flow, so it enters each run directory once. `xeda run --remote`
+  always mirrors its results in
+  the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
+  `--clean` and `--hashed-run-dirs` are refused with `--remote`).
+- `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
+  then make"; it implies `--rebuild-all`).
+- A POSIX lock file (`<run dir>.lock`, beside the run directory; none on Windows) serializes
+  concurrent launches of the same run directory, so two overlapping invocations sharing a
+  dependency take turns with it instead of one clobbering the other's output. `xeda scrub` removes
+  the lock file along with the directory.
+- `xeda run --json`'s document gains `nodes`: one entry per flow the run touched (dependencies
+  included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
+  "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
+  for an error before anything ran.
 
 ### Changed
 - **`yosys_fpga` flattens Xilinx designs by default.** An unset `flatten` on a Xilinx target is
@@ -729,44 +770,6 @@ All notable changes to this project will be documented in this file.
   `Design.from_file` (same arguments); `Design.from_toml` is gone and raises `AttributeError`.
   Bundled platform databases are TOML only, and `Platform.from_toml`, which does parse TOML,
   stays.
-
-### Added
-- **`xeda run` is make-like by default.** A flow re-runs only when something it consumed or produced
-  changed since its last successful run; `--rebuild-all` (API `rebuild_all=True`) runs every flow,
-  as every run did before. A flow that runs logs why (`Running <flow>: <reason>`); a
-  flow left alone logs that it is up to date and shows its previously recorded results. Staleness
-  covers: no successful previous run; changed settings (named in the reason); a changed xeda
-  version or flow code/templates; a changed program (path, size or mtime; a container image's
-  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
-  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
-  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
-  date before the flow depending on them is judged. Each run directory records this in a new
-  `trace.json`, written last and atomically after a successful run and removed before the next
-  run executes, so its mere presence certifies the last run there succeeded. A file counts as
-  unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
-  timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
-  re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
-  (`Flow.is_action`) always run and keep no trace, since programming a device changes the outside
-  world.
-- `--hashed-run-dirs` (API `hashed_run_dirs=True`) gives each variant of a flow its own directory
-  (`<design>/<flow>_<16-char run hash>/`, the first 16 characters of `flowrun_hash`: the flow's
-  input settings and where its declared inputs come from, so editing a source file never moves
-  it); the default is one directory per flow (`<design>/<flow>/`). A producer's run directory is
-  always a sibling of the flow that consumes it, in the same layout, never nested under it. A
-  launch has one run for each flow, so it enters each run directory once. `xeda run --remote`
-  always mirrors its results in
-  the hashed layout, so remote runs of different settings never share a directory (`--rebuild-all`,
-  `--clean` and `--hashed-run-dirs` are refused with `--remote`).
-- `--clean` empties each flow's run directory before it runs and runs every flow ("make clean,
-  then make"; it implies `--rebuild-all`).
-- A POSIX lock file (`<run dir>.lock`, beside the run directory; none on Windows) serializes
-  concurrent launches of the same run directory, so two overlapping invocations sharing a
-  dependency take turns with it instead of one clobbering the other's output. `xeda scrub` removes
-  the lock file along with the directory.
-- `xeda run --json`'s document gains `nodes`: one entry per flow the run touched (dependencies
-  included), in completion order, as `{"flow", "run_path", "state": "fresh"|"ran"|"failed",
-  "reason"}`. A fully fresh run is `"success": true` with every node `"fresh"`; `nodes` is `[]`
-  for an error before anything ran.
 
 
 ## [v0.4.3] - 2026-09-29
