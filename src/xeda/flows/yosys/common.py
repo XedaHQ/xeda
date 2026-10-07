@@ -29,6 +29,54 @@ MINIMUM_YOSYS: YosysRelease = (0, 63)
 NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
 
 
+#: What the stages after the RTL ones write, by the setting that asks for it. `stop_after: rtl`
+#: runs none of those stages, so none of these exists when it ends.
+AFTER_RTL = {
+    "netlist_json": "a JSON netlist",
+    "netlist_verilog": "a Verilog netlist",
+    "netlist_graph": "a netlist graph",
+    "write_blif": "a BLIF netlist",
+    "sta": "a timing report",
+    "ltp": "a longest-path report",
+}
+
+#: The description of `stop_after`, which `yosys` and `yosys_fpga` have and `yosys_sim` has not.
+STOP_AFTER_DESCRIPTION = (
+    'Stop the flow after this stage. "rtl" elaborates the design and writes the RTL outputs '
+    "without synthesizing, so it writes no netlist and no report. A setting that asks for one is "
+    "refused: `netlist_json`, `netlist_verilog`, `netlist_graph`, `write_blif`, `sta` and `ltp` "
+    "must be null or false."
+)
+
+
+def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """Each setting that asks for a result of a stage the run stops before, with why it is
+    refused and how to turn it off: `(setting, message)`. A stop that the user asked for succeeds
+    with the outputs it wrote (the RTL outputs), so what it cannot write is refused when the
+    settings are checked, before anything runs, instead of failing the run or being listed as a
+    result that does not exist. Both flows that stop (`yosys`, `yosys_fpga`) refuse by one rule:
+    by the setting's value, whether or not it was written, as a default is a request too."""
+    if getattr(settings, "stop_after", None) != "rtl":  # `yosys_sim` has no `stop_after`
+        return []
+    problems = []
+    for name, what in AFTER_RTL.items():
+        value = getattr(settings, name)
+        if value:
+            off = (
+                ("false", f"-s {name}=false")
+                if isinstance(value, bool)
+                else ("null", f"-s {name}=")
+            )
+            problems.append(
+                (
+                    name,
+                    f"`stop_after: rtl` stops before synthesis, which writes {what}, and `{name}` "
+                    f"asks for it: set `{name}` to {off[0]} (`{off[1]}`)",
+                )
+            )
+    return problems
+
+
 def yosys_release(yosys: Tool) -> YosysRelease:
     """The release of `yosys`, e.g. (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
     parts = [re.match(r"\d+", part) for part in yosys.version[:2]]

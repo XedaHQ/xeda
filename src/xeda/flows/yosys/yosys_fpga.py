@@ -20,10 +20,12 @@ from ...flows.ghdl import GhdlSynth
 from ...utils import ToolException, replacing_file
 from .common import (
     MINIMUM_YOSYS,
+    STOP_AFTER_DESCRIPTION,
     YosysBase,
     YosysRelease,
     process_parameters,
     same_file,
+    stop_after_conflicts,
     yosys_data_dir,
     yosys_release,
 )
@@ -264,11 +266,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             False,
             description="run additional optimization steps after synthesis if complete",
         )
-        stop_after: Optional[Literal["rtl"]] = Field(
-            None,
-            description='Stop the flow after this stage. "rtl" elaborates the design and writes '
-            "the RTL outputs without synthesizing.",
-        )
+        stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
         black_box: List[str] = Field(
             [],
             description="Modules to treat as black boxes: their contents are discarded and only "
@@ -749,19 +747,24 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Reject a `synth_pass_only` run that asks for a step the mode does not run.
+        """Reject a `synth_pass_only` run that asks for a step the mode does not run, and a run
+        that stops after the RTL (`stop_after`) and asks for a result of a later stage
+        (`stop_after_conflicts`).
 
         Class-level and pure, so the refusal arrives at planning time -- before any producer
-        runs, and under `xeda run --dry-run`. `run()` checks again once `init()` has merged the
-        design's own attributes in, which this cannot see.
+        runs, and under `xeda run --dry-run`. `run()` checks the pass-only conflicts again once
+        `init()` has merged the design's own attributes in, which this cannot see.
         """
         assert isinstance(settings, cls.Settings)
-        cls._refuse_synth_pass_only_conflicts(settings)
+        cls._refuse(settings.synth_pass_only_conflicts() + stop_after_conflicts(settings))
 
     @classmethod
     def _refuse_synth_pass_only_conflicts(cls, settings: "YosysFpga.Settings") -> None:
         """Raise one error listing every setting `synth_pass_only` cannot honor, naming both."""
-        conflicts = settings.synth_pass_only_conflicts()
+        cls._refuse(settings.synth_pass_only_conflicts())
+
+    @classmethod
+    def _refuse(cls, conflicts: list[tuple[str, str]]) -> None:
         if conflicts:
             raise FlowSettingsError(
                 [(key, message, None, "value_error") for key, message in conflicts],
@@ -813,7 +816,11 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             declared.netlist = self.run_path / ss.netlist_json
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None
-        self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
+        # written by the stage `stop_after: rtl` stops before: a stopped run has no report, and
+        # lists none
+        self.artifacts.utilization_report = (
+            ss.reports_dir / "utilization.json" if ss.stop_after != "rtl" else None
+        )
         release = yosys_release(self.yosys)
         synth_command = ss.synth_command(release)
         libraries = ss.primitive_libraries()

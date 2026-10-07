@@ -97,12 +97,17 @@ def test_yosys_declares_its_verilog_netlist():
 
 def test_stop_after_rtl_with_a_netlist_is_refused_before_anything_runs(tmp_path):
     """`stop_after: rtl` writes no netlist, so a request that also asks for one (the default)
-    cannot succeed: it is refused when planned, saying what to write instead."""
+    cannot succeed: it is refused when planned, saying what to write instead. The Verilog
+    netlist is the declared output and the JSON netlist a plain artifact, and both are refused
+    (`tests/test_yosys_stop_after.py` has the rule for every flow that stops)."""
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with pytest.raises(FlowSettingsError, match="netlist_verilog"):
+    with pytest.raises(FlowSettingsError, match="netlist_verilog") as refused:
         runner.plan(Yosys, _design(tmp_path / "design"), flow_settings=["stop_after=rtl"])
+    assert "netlist_json" in str(refused.value)
     assert runner.plan(
-        Yosys, _design(tmp_path / "other"), flow_settings=["stop_after=rtl", "netlist_verilog="]
+        Yosys,
+        _design(tmp_path / "other"),
+        flow_settings=["stop_after=rtl", "netlist_verilog=", "netlist_json="],
     )
 
 

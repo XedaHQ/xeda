@@ -1661,6 +1661,18 @@ dependency must also share `custom_boards_file`.
   renders the three flows' scripts over every combination of RTL outputs and `stop_after`,
   checks each command is a line of its own, and runs the `.tcl` ones under `tclsh` with stub
   commands (`require_tclsh`); each glue fix has a revert that fails it.
+
+  **`stop_after: rtl` is a stop the user asked for, so the run succeeds with the RTL outputs.**
+  The two flows that have it (`yosys`, `yosys_fpga`; a flow that gains `stop_after` needs a recipe
+  in `FLOWS` of `tests/test_yosys_stop_after.py`) leave every stage after the RTL one out of the
+  script, the `.ys` and the `.tcl` template alike (no `exit`: the including template renders
+  nothing after `post_rtl`), so the run writes no netlist and no report, and `utilization_report`
+  is not registered as an artifact: an artifact listed on a success must exist. What asks for a
+  result of those stages is refused when the settings are checked, before anything runs, by the
+  setting's value (`common.stop_after_conflicts`, from each flow's `check_settings_supported`):
+  `netlist_json` and `netlist_verilog` (both on by default, so the stop needs `-s netlist_json=
+  netlist_verilog=`), `netlist_graph`, `write_blif`, `sta` and `ltp`. One rule for the declared
+  output (`netlist`, which would fail as a missing output) and the plain artifacts alike.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).

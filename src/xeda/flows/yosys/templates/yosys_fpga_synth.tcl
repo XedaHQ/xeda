@@ -19,7 +19,11 @@ yosys flatten
 {% endif -%}
 
 {% include "post_rtl.tcl" -%}
+{% endif -%}
+{#- as in the `.ys` script, `stop_after == "rtl"` simply omits the rest -#}
+{% if settings.stop_after != "rtl" -%}
 
+{% if not pass_only -%}
 {% if settings.pre_synth_opt -%}
 yosys log -stdout "** Pre-synthesis optimization **"
 yosys opt -undriven -purge -keepdc -noff
@@ -53,3 +57,4 @@ yosys splitnets
 {% endif -%}
 
 {% include "write_netlist.tcl" -%}
+{% endif -%}

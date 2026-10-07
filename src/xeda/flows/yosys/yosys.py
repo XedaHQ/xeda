@@ -14,7 +14,13 @@ from ...platforms import AsicsPlatform
 from ...run_dir import RunDirectory
 from ...utils import replacing_file, unique
 from ..ghdl import GhdlSynth
-from .common import YosysBase, append_flag, process_parameters
+from .common import (
+    STOP_AFTER_DESCRIPTION,
+    YosysBase,
+    append_flag,
+    process_parameters,
+    stop_after_conflicts,
+)
 
 log = logging.getLogger(__name__)
 
@@ -273,11 +279,7 @@ class Yosys(YosysBase, SynthFlow):
             description='Map to LUTs of this size instead of standard cells, e.g. "4" or a '
             '"<width>:<cost>" pair.',
         )
-        stop_after: Optional[Literal["rtl"]] = Field(
-            None,
-            description='Stop the flow after this stage. "rtl" elaborates the design and writes '
-            "the RTL outputs without synthesizing.",
-        )
+        stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
         adder_map: Optional[Path] = Field(
             None, description="Verilog file with technology-specific adder cell mappings."
         )
@@ -363,18 +365,11 @@ class Yosys(YosysBase, SynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse settings the run cannot honor, before anything runs: a netlist asked of a run
-        that stops before writing one, and abc's cell settings where nothing maps to cells."""
+        """Refuse settings the run cannot honor, before anything runs: a result asked of a run
+        that stops before writing it (`stop_after_conflicts`), and abc's cell settings where
+        nothing maps to cells."""
         assert isinstance(settings, cls.Settings)
-        problems = []
-        if settings.stop_after == "rtl" and settings.netlist_verilog:
-            problems.append(
-                (
-                    "stop_after",
-                    "`stop_after: rtl` writes no netlist, and `netlist_verilog` asks for one: "
-                    "set `netlist_verilog` to null (`-s netlist_verilog=`)",
-                )
-            )
+        problems = stop_after_conflicts(settings)
         if not settings.maps_to_liberty():
             for name in ("abc_driver_cell", "abc_load_in_ff"):
                 if getattr(settings, name) is not None:
@@ -467,10 +462,13 @@ class Yosys(YosysBase, SynthFlow):
         # a timing report only where `sta` writes one, as `yosys_fpga` lists it: an artifact this
         # run never writes is one a remote run is asked for and cannot send
         timing_report = ss.reports_dir / "timing.rpt"
+        utilization_report = ss.reports_dir / "utilization.json"
         self.artifacts.timing_report = timing_report if ss.sta else None
-        self.artifacts.utilization_report = ss.reports_dir / "utilization.json"
+        # written by the stage `stop_after: rtl` stops before: a stopped run has no report, and
+        # lists none
+        self.artifacts.utilization_report = utilization_report if ss.stop_after != "rtl" else None
         # a previous run's reports must not pass for this run's
-        self.run_directory.remove(self.artifacts.utilization_report, timing_report)
+        self.run_directory.remove(utilization_report, timing_report)
         if ss.gates:
             append_flag(ss.abc_flags, f"-g {','.join(ss.gates)}")
         elif ss.lut:
