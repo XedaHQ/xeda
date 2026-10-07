@@ -8,6 +8,9 @@ starts with a dot) and the scripts of `tools/`. A test module that loads such a 
 bytecode there as it is imported, and nothing else tells.
 """
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -97,3 +100,133 @@ def test_a_directory_that_a_checkout_lacks_is_no_error(tmp_path, monkeypatch):
     (tmp_path / "examples").mkdir()
     monkeypatch.setattr(guard, "CHECKOUT", tmp_path)
     assert guard._entries(guard._watched()) == {"examples", "tests"}
+
+
+# ------------------------------------------------------- the guard, in a session of its own
+#
+# The tests above call the guard's functions. Whether the guard runs them at the right time is a
+# matter of the session: pytest imports `conftest.py`, then the test modules, then runs the
+# session fixtures. Each case below is a pytest session on a small tree in `tmp_path`, with the
+# conftest of the suite, a stub of its helper module, and one test module.
+
+STUB_TOOL_UTILS = """
+from pathlib import Path
+
+FAKE_TOOLS_DIR = Path(__file__).parent / "fake_tools"
+
+
+def _opted_in(variable):
+    return False
+"""
+
+#: The guard as it was: the same functions, but the snapshot is taken by the session fixture,
+#: after the test modules are imported.
+LATE_SNAPSHOT_CONFTEST = """
+import pytest
+
+from .the_suites_conftest import _entries, _watched
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _nothing_is_written_into_the_checkout():
+    directories = _watched()
+    before = _entries(directories)
+    yield
+    new = _entries(directories) - before
+    assert not new, f"tests wrote into the checkout: {sorted(new)}"
+"""
+
+WRITES_AS_IT_IS_IMPORTED = """
+from pathlib import Path
+
+(Path(__file__).parent.parent / ".github" / "scripts" / "script.cpython-311.pyc").write_bytes(b"")
+
+
+def test_nothing_else_happens():
+    pass
+"""
+
+WRITES_IN_A_TEST = """
+from pathlib import Path
+
+
+def test_a_test_writes():
+    (Path(__file__).parent.parent / "tools" / "new.py").write_text("")
+"""
+
+WRITES_NOTHING = """
+def test_nothing_happens():
+    pass
+"""
+
+
+def pytest_session(tmp_path: Path, conftest: str, module: str) -> subprocess.CompletedProcess:
+    """Run pytest on a checkout whose `tests/` hold `conftest` and `module`."""
+    tree = tmp_path / "checkout"
+    for directory in (
+        "tests/fake_tools",
+        ".github/scripts",
+        ".github/workflows",
+        "tools",
+        "examples",
+    ):
+        (tree / directory).mkdir(parents=True)
+    (tree / "pytest.ini").write_text("[pytest]\n")
+    (tree / "tests" / "__init__.py").write_text("")
+    (tree / "tests" / "tool_utils.py").write_text(STUB_TOOL_UTILS)
+    (tree / "tests" / "fake_tools" / "fake_fpga_tool.py").write_text("")
+    (tree / "tests" / "the_suites_conftest.py").write_text(Path(guard.__file__).read_text())
+    (tree / "tests" / "conftest.py").write_text(conftest)
+    (tree / "tests" / "test_module.py").write_text(module)
+    environment = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+    return subprocess.run(
+        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", "tests"],
+        cwd=tree,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+SUITES_CONFTEST = Path(guard.__file__).read_text()
+
+
+@pytest.mark.parametrize(
+    "conftest, module, reported",
+    [
+        pytest.param(
+            SUITES_CONFTEST,
+            WRITES_AS_IT_IS_IMPORTED,
+            ".github/scripts/script.cpython-311.pyc",
+            id="a module writes as it is imported",
+        ),
+        pytest.param(SUITES_CONFTEST, WRITES_IN_A_TEST, "tools/new.py", id="a test writes"),
+        pytest.param(SUITES_CONFTEST, WRITES_NOTHING, None, id="nothing is written"),
+        pytest.param(
+            LATE_SNAPSHOT_CONFTEST,
+            WRITES_AS_IT_IS_IMPORTED,
+            None,
+            id="a snapshot taken by the fixture misses a write at import",
+        ),
+        pytest.param(
+            LATE_SNAPSHOT_CONFTEST,
+            WRITES_IN_A_TEST,
+            "tools/new.py",
+            id="a snapshot taken by the fixture sees a write by a test",
+        ),
+    ],
+)
+def test_the_session_reports_what_was_written_into_the_checkout(
+    tmp_path, conftest, module, reported
+):
+    """The snapshot is taken when `conftest.py` is imported. The case that takes it in the fixture
+    shows what that is for: it passes a run whose module wrote as it was imported."""
+    outcome = pytest_session(tmp_path, conftest, module)
+    report = outcome.stdout + outcome.stderr
+    if reported is None:
+        assert outcome.returncode == 0, report
+        assert "wrote into the checkout" not in report
+    else:
+        assert outcome.returncode != 0, report
+        assert "tests wrote into the checkout" in report and reported in report, report
