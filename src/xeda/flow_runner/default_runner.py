@@ -1569,7 +1569,9 @@ class FlowLauncher:
                     # Recorded once the run has written everything, `results.json` included, and
                     # before the clean-up, which may remove files the trace names (a depfile).
                     # The clean-up only removes files: the trace is the last thing a run writes.
-                    trace = build_trace(expected, flow, programs, snapshot, input_settings)
+                    trace = build_trace(
+                        expected, flow, programs, snapshot, input_settings, previous
+                    )
                     write_trace(run_path, trace)
                     flow.run_id = trace.run_id
                 else:

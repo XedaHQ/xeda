@@ -241,7 +241,8 @@ records:
   own modules when it is defined outside Xeda;
 - the programs it started, each as a file record (below) of the resolved executable -- size,
   mtime, inode change time, inode and content hash -- so a program replaced during the run is
-  caught the same way any other input is; a container image is recorded by its ID alone;
+  caught the same way any other input is; a program whose record from the previous run still
+  vouches for it (see below) is not read again; a container image is recorded by its ID alone;
 - its **inputs**, recorded *as the run found them when it started*: every file the design's
   ``rtl`` and ``tb`` name (sources, and a parameter or define given as a file, such as
   ``$readmemh`` data), every existing file a path-typed setting names (a relative path under both

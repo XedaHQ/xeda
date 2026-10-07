@@ -752,8 +752,10 @@ atomically after a successful run (`write_trace`) and removed before the next ru
 (`xeda_code_digest`, once per process: an editable install keeps its version across edits) and of a
 plugin flow's own modules (`flow_code_digest`), the programs it started as `FileRecord`s of the
 resolved executable (`ProgramRecord.file`: size, mtime, inode change time, inode, content hash --
-a program is checked exactly as any other input; a container image is recorded by its ID alone,
-`ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
+a program is checked exactly as any other input, and a successful run keeps the previous
+trace's record of an unchanged program (`trace_inputs._programs`: `FileRecord.trusted` against that
+trace's `outputs_recorded_ns`, never an `unknown` record) instead of hashing the binary again; a
+container image is recorded by its ID alone, `ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
 `digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over the
 parts the flow reads, `rtl` and, for `design_parts` with `tb`, `tb`, so a file-valued parameter
 counts), every existing file a path-typed setting names

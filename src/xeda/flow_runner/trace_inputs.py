@@ -7,7 +7,9 @@ depfiles named -- is recorded just before the run starts (`snapshot_inputs`), an
 that record: a file edited while a long run is still going no longer matches it, so the next
 launch runs again. Files known only after the run (what a depfile names for the first time, what
 a flow reads on its own, the programs it started) are recorded afterwards; one written while the
-run was going on is recorded as unknown (`digest.unknown_record`), which never matches.
+run was going on is recorded as unknown (`digest.unknown_record`), which never matches. A program
+keeps the previous trace's record while its metadata vouches for it, so the executable of a tool is
+read when it is first recorded or changed, not at every run.
 
 **Whose a file is.** Every run directory is xeda's: a file inside the run's own directory
 is the run's; anywhere else, a file the run's settings, depfiles or design name stays an input,
@@ -614,12 +616,20 @@ def snapshot_inputs(
     )
 
 
-def _programs(names: Sequence[str]) -> Dict[str, Optional[ProgramRecord]]:
+def _programs(
+    names: Sequence[str], previous: Optional[Trace] = None
+) -> Dict[str, Optional[ProgramRecord]]:
     """Each program as it is after the run, its file recorded (`record_file`, after the run's
     output clock was read); one whose file changed since it was started -- its identity or
     metadata differs from what `proc_utils.note_program` recorded then (`StartedPrograms.before`),
     never a clock -- is recorded unknown, which never matches. A container image by its ID
-    alone."""
+    alone.
+
+    The record of the same file in the `previous` trace is kept while its metadata vouches for
+    it (`FileRecord.trusted`, against the time that trace took its records: the one a check
+    trusts it by too), as `snapshot_inputs` keeps an input's: a program such as yosys or nextpnr
+    is read when it is first recorded or changed, not at every successful run. A record that
+    stands for a file that changed during a run (`unknown`) is never kept."""
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
@@ -633,11 +643,25 @@ def _programs(names: Sequence[str]) -> Dict[str, Optional[ProgramRecord]]:
             if prior is None or program_state(where) != prior:
                 file = unknown_record(path)  # not there when started, or changed since
             else:
-                file = record_file(path)
+                file = record_file(
+                    path,
+                    _kept_record(previous, name, where),
+                    None if previous is None else previous.outputs_recorded_ns,
+                )
         except OSError:
             file = unknown_record(path)  # gone since it was found
         programs[name] = ProgramRecord(path=where, file=file)
     return programs
+
+
+def _kept_record(previous: Optional[Trace], name: str, where: str) -> Optional[FileRecord]:
+    """The `previous` trace's record of the program `name`, found at `where`, that a new record
+    may be taken over from: none if there is none, if the program was found elsewhere, or if the
+    record is of a file that changed during its run."""
+    recorded = None if previous is None else previous.programs.get(name)
+    if recorded is None or recorded.path != where or recorded.file is None:
+        return None
+    return None if recorded.file.unknown else recorded.file
 
 
 def _as_recorded(path: Path) -> Optional[Tuple[int, int, int, int]]:
@@ -684,12 +708,14 @@ def build_trace(
     programs: Sequence[str],
     snapshot: InputSnapshot,
     input_settings: Flow.Settings,
+    previous: Optional[Trace] = None,
 ) -> Trace:
     """The trace of `flow`'s just-completed, successful run, under a new `run_id`: its inputs
     as `snapshot` recorded them; its outputs (`output_files`), recorded now, after the file-system
     clock is read (`outputs_recorded_ns`); and each file its settings or depfiles name that the
     snapshot did not record: the run's own inside its run directory, an input anywhere
-    else -- unknown if it was written during the run (see the module docstring)."""
+    else -- unknown if it was written during the run (see the module docstring). The programs
+    keep the `previous` trace's records where their files are unchanged (`_programs`)."""
     started_ns = snapshot.started_ns
     run_dir = flow.run_path.resolve()
     run_device = run_dir.stat().st_dev
@@ -788,7 +814,7 @@ def build_trace(
         xeda_version=expected.xeda_version,
         xeda_code=expected.xeda_code,
         flow_code=expected.flow_code,
-        programs=_programs(programs),
+        programs=_programs(programs, previous),
         dependency_runs=dict(expected.dependency_runs),
         setting_locations={key: list(value) for key, value in expected.setting_locations.items()},
         inputs_recorded_ns=snapshot.inputs_recorded_ns,
