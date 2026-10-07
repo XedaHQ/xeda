@@ -204,8 +204,11 @@ All notable changes to this project will be documented in this file.
   installed data alone, with `fpga-as` unchanged, was not noticed. The first launch hashes about
   80 MB in 290 files (0.2 s of processor time); later launches compare metadata (0.04 s).
 - The bundled boards `BASYS_3` (Digilent Basys 3, `xc7a35tcpg236-1`, loader name `basys3`) and
-  `STLV7325_V2` (`xc7k325tffg676-2`, loader name `stlv7325`), each with a minimal pin file for its
-  clock and one LED. The files name their sources and license, and have no `create_clock`.
+  `STLV7325_V2` (`xc7k325tffg676-2`, loader name `stlv7325`). Each has a pin file for its clock,
+  every user LED, the user buttons and the USB-UART. `BASYS_3` uses Digilent's port names (`clk`,
+  `led[15:0]`, `btnC` as the reset button, `RsRx`, `RsTx`); `STLV7325_V2` uses `clk_p`, `clk_n`,
+  `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx` and `uart_tx`. The files name
+  their sources, license, LED and button polarity, and have no `create_clock`.
 - **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
   every file of its `sources` (a directory counts as every file in it, outside the design root

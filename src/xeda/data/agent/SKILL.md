@@ -176,6 +176,12 @@ build under a run root generates the die's chip database into `<run root>/.cache
 there, reuses it. `chipdb` names an existing database file instead; `prjxray_db` another
 Project X-Ray root. `board: ARTY_A7_100T` (or `ARTY_A7_35T`) gives the part and, with no `Xdc`
 source, Digilent's pin names (`CLK100MHZ`, `led[0]`, ...), which the design's ports must then use.
+`BASYS_3` (`xc7a35tcpg236-1`) and `STLV7325_V2` (`xc7k325tffg676-2`) do the same, for the clock,
+every user LED, the user buttons and the UART only. `BASYS_3`: `clk`, `led[15:0]`, `btnC` (the reset
+button), `btnU`, `btnL`, `btnR`, `btnD`, `RsRx`, `RsTx`; LEDs and buttons are active high.
+`STLV7325_V2`: `clk_p` and `clk_n` (a differential clock: the design needs an `IBUFDS` and a
+`BUFG`), `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx`, `uart_tx`; LEDs and
+buttons are active low. Neither file has a `create_clock`: give the clock in the flow settings.
 `openfpgaloader` loads SRAM by default; `write_flash` programs flash and `verify` needs it.
 A `flows.open_xc7` section fails as the removed flow's own name does, naming the replacement.
 

@@ -545,13 +545,7 @@ The part is given once: ``fpga`` is shared along the declared edges.
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
 before synthesis. ``board: ARTY_A7_100T`` or ``ARTY_A7_35T`` fills it in (``xeda list-boards``).
-So do ``BASYS_3`` (``xc7a35tcpg236-1``) and ``STLV7325_V2`` (``xc7k325tffg676-2``). Their bundled
-pin files are minimal and name the ports they constrain. ``BASYS_3`` constrains ``clk`` on pin W5
-and ``led`` on pin U16, both LVCMOS33. ``STLV7325_V2`` constrains the differential clock with
-``clk_p`` on pin AB11 and ``clk_n`` on pin AC11, both DIFF_SSTL15, and ``led`` on pin AA2, LVCMOS15.
-The design must then buffer the clock with an ``IBUFDS`` and a ``BUFG``. The STLV7325 LED is
-active low in LiteX-Boards. The pins come from the openXC7 demo projects and are not checked on
-hardware. The files have no ``create_clock``: set the clock in the flow settings.
+So do ``BASYS_3`` (``xc7a35tcpg236-1``) and ``STLV7325_V2`` (``xc7k325tffg676-2``).
 
 **Constraints.** ``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN``/``LOC``
 and ``IOSTANDARD``) and may carry ``create_clock``; with no ``Xdc`` source and a ``board``, the
@@ -562,6 +556,20 @@ ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...).
 clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
 one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
 and Xeda says so.
+
+The bundled ``BASYS_3`` and ``STLV7325_V2`` files constrain the clock, every user LED, the user
+buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
+follows. Each file gives the source of every group of pins, and none of the pins is checked on
+hardware.
+
+* ``BASYS_3`` uses Digilent's names, all LVCMOS33: ``clk``, ``led[15:0]``, the buttons ``btnC``,
+  ``btnU``, ``btnL``, ``btnR`` and ``btnD``, and the UART's ``RsRx`` (an input of the FPGA) and
+  ``RsTx`` (an output). The LEDs and buttons are active high, and ``btnC`` is the reset button.
+* ``STLV7325_V2`` has no vendor names. Its ports are ``clk_p`` and ``clk_n`` (the differential
+  clock, DIFF_SSTL15: the design needs an ``IBUFDS`` and a ``BUFG``), ``led[7:0]`` and ``btn[1:0]``
+  (``btn[0]`` is the reset button), and the UART's ``uart_rx`` (an input) and ``uart_tx`` (an
+  output). The LEDs and buttons are active low. ``btn[1]`` and the UART are in a bank whose
+  voltage the board's jumper J4 sets; their standard, LVCMOS33, is right with J4 at 3.3 V.
 
 **The chip database.** nextpnr needs a database for the die, which openXC7 generates from the
 Project X-Ray data. Xeda generates it on first use and keeps it under the run root, in
