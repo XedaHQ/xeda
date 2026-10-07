@@ -159,9 +159,10 @@ class YosysBase(Flow):
         )
         flatten: Optional[bool] = Field(
             None,
-            description="Flatten the design hierarchy. Unset leaves it to the synthesis command: "
-            "`synth` and `synth_xilinx` keep the hierarchy, while the Lattice, iCE40 and Gowin "
-            "passes flatten it.",
+            description="Flatten the design hierarchy. Unset leaves the choice to the flow: "
+            "`yosys` flattens when it maps to a liberty library (`liberty` or a `platform`) and "
+            "keeps the hierarchy otherwise, and `yosys_sim` flattens only through CXXRTL's own "
+            "`cxxrtl.flatten`.",
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
@@ -184,7 +185,9 @@ class YosysBase(Flow):
         )
         rtl_json: Optional[Path] = Field(
             None,
-            description="Write the elaborated (pre-synthesis) design to this JSON file.",
+            description="Write the elaborated (pre-synthesis) design to this JSON file. Only the "
+            "design's own modules are written, as for `rtl_verilog`: blackboxes and library cells "
+            "are not.",
             json_schema_extra=deliverable("outputs/{design}_rtl.json"),
         )
         rtl_graph: Optional[Path] = Field(
