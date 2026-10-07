@@ -15,13 +15,14 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsError
-from xeda.flow.io import declared_inputs, is_declared
+from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, YosysFpga
 from xeda.flows.nextpnr import NextpnrTool
 
 from .project_files import PROJECT_FILE
 from .settings_samples import flow_classes, minimal_settings
+from .tool_utils import producers_of
 
 PART = "LFE5U-25F-6BG381C"
 OTHER_PART = "LFE5U-85F-6BG381C"
@@ -99,7 +100,9 @@ DECLARED = [YosysFpga, Nextpnr, FpgaPack, Openfpgaloader]
 def test_the_declared_flows():
     """The FPGA graph, the Vivado synthesis flows, `yosys`, whose gate-level netlist
     is a declared output, and `openroad`, which consumes it."""
-    assert {cls.name for cls, _ in flow_classes() if is_declared(cls)} == {
+    assert {
+        cls.name for cls, _ in flow_classes() if declared_inputs(cls) or declared_outputs(cls)
+    } == {
         "fpga_pack",
         "nextpnr",
         "openfpgaloader",
@@ -146,7 +149,7 @@ def test_nextpnr_places_the_netlist_yosys_fpga_hands_over(tmp_path, monkeypatch,
     runner = _runner(tmp_path, monkeypatch)
     nextpnr = runner.run_flow(Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}})
     assert nextpnr is not None and nextpnr.succeeded
-    (yosys,) = nextpnr.completed_dependencies
+    (yosys,) = producers_of(runner, nextpnr)
     netlist = Path(yosys.results["outputs"]["netlist"]["path"])
     assert nextpnr.inputs.netlist == netlist
     (args,) = tools
@@ -160,10 +163,9 @@ def test_a_second_launch_reuses_both_and_hands_over_the_recorded_netlist(
     first = _runner(tmp_path, monkeypatch).run_flow(
         Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}}
     )
-    again = _runner(tmp_path, monkeypatch).run_flow(
-        Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}}
-    )
-    assert again.reused and again.completed_dependencies[0].reused
+    runner = _runner(tmp_path, monkeypatch)
+    again = runner.run_flow(Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}})
+    assert again.reused and producers_of(runner, again)[0].reused
     assert again.inputs.netlist == first.inputs.netlist
     assert len(tools) == 1, "nextpnr ran once"
 
@@ -175,7 +177,7 @@ def test_a_json_netlist_among_the_design_s_sources_skips_synthesis(tmp_path, mon
     design = _design(root, sources=("blink.v", {"file": "top.json", "type": "JsonNetlist"}))
     runner = _runner(tmp_path, monkeypatch)
     nextpnr = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}})
-    assert nextpnr.succeeded and not nextpnr.completed_dependencies
+    assert nextpnr.succeeded and not producers_of(runner, nextpnr)
     assert [flow.name for flow in runner.launched] == ["nextpnr"]
     assert f"--json={root / 'top.json'}" in tools[0]
 
@@ -187,7 +189,7 @@ def test_nextpnr_switches_on_the_netlist_it_reads(tmp_path, monkeypatch, tools):
     assert plan.node("yosys_fpga").switched_on == ("netlist",)
     nextpnr = runner.run("nextpnr", _design(tmp_path / "d"), flow_settings=cli)
     assert nextpnr is not None and nextpnr.succeeded
-    assert nextpnr.completed_dependencies[0].settings.netlist_json == Path("netlist.json")
+    assert producers_of(runner, nextpnr)[0].settings.netlist_json == Path("netlist.json")
 
 
 def _files(tmp_path: Path, nextpnr_part: str, yosys_part: str) -> Path:
@@ -219,12 +221,11 @@ def test_devices_that_differ_in_two_files_are_an_error_naming_both(tmp_path, mon
 
 def test_a_device_given_on_the_command_line_is_the_whole_run_s(tmp_path, monkeypatch, tools):
     design_file = _files(tmp_path, OTHER_PART, PART)
-    nextpnr = _runner(tmp_path, monkeypatch).run(
-        "nextpnr", str(design_file), flow_settings=[f"fpga.part={PART}"]
-    )
+    runner = _runner(tmp_path, monkeypatch)
+    nextpnr = runner.run("nextpnr", str(design_file), flow_settings=[f"fpga.part={PART}"])
     assert nextpnr is not None and nextpnr.succeeded
     assert nextpnr.settings.fpga.part == PART
-    assert nextpnr.completed_dependencies[0].settings.fpga.part == PART
+    assert producers_of(runner, nextpnr)[0].settings.fpga.part == PART
 
 
 def test_nextpnr_reads_nothing_of_yosys_fpga_s_but_its_netlist(tmp_path, monkeypatch, tools):
@@ -240,11 +241,10 @@ def test_nextpnr_reads_nothing_of_yosys_fpga_s_but_its_netlist(tmp_path, monkeyp
                 return _original(self)
 
         monkeypatch.setattr(Nextpnr, method, watched)
-    nextpnr = _runner(tmp_path, monkeypatch).run_flow(
-        Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}}
-    )
+    runner = _runner(tmp_path, monkeypatch)
+    nextpnr = runner.run_flow(Nextpnr, _design(tmp_path / "d"), {"fpga": {"part": PART}})
     assert nextpnr.succeeded
-    producer_dir = nextpnr.completed_dependencies[0].run_path.resolve()
+    producer_dir = producers_of(runner, nextpnr)[0].run_path.resolve()
     declared = {nextpnr.inputs.netlist.resolve()}
     read = {Path(p).resolve() for p in opened if Path(p).resolve().is_relative_to(producer_dir)}
     handed = {
@@ -351,7 +351,7 @@ def test_cli_device_leaf_preserves_section_origins(tmp_path, monkeypatch, tools,
     plan = runner.plan("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
     flow = runner.run("nextpnr", design_file, flow_settings=[f"{cli_leaf}={PART}"])
     assert flow.succeeded
-    (producer,) = flow.completed_dependencies
+    (producer,) = producers_of(runner, flow)
     assert flow.settings.fpga.part == producer.settings.fpga.part == PART
     assert producer.settings.flatten is False and producer.settings.netlist_src_attrs is False
     assert producer.settings.main_clock.period == flow.settings.main_clock.period == 10
@@ -397,7 +397,7 @@ def test_reused_yosys_initialization_makes_no_directory_calls(tmp_path, monkeypa
 
     monkeypatch.setattr(YosysFpga, "init", init)
     again = runner.run_flow(Nextpnr, design, {"fpga": PART})
-    assert again.reused and again.completed_dependencies[0].reused
+    assert again.reused and producers_of(runner, again)[0].reused
 
 
 def test_successful_declared_launch_and_delivery_preserve_outside_tree(
@@ -470,12 +470,12 @@ def test_nextpnr_subprocess_reads_only_the_selected_netlist(
     again = runner.run_flow(Nextpnr, design, {"fpga": PART})
     assert again.reused
     if not source_supplied:
-        assert again.completed_dependencies[0].reused
+        assert producers_of(runner, again)[0].reused
     assert again.inputs.netlist == flow.inputs.netlist
     changed = runner.run_flow(Nextpnr, design, {"fpga": PART, "seed": 1})
     assert changed.succeeded and not changed.reused
     if not source_supplied:
-        assert changed.completed_dependencies[0].reused
+        assert producers_of(runner, changed)[0].reused
     opened = {Path(p).resolve() for p in json.loads((changed.run_path / "opened.json").read_text())}
     assert {p for p in opened if p.is_relative_to(producer)} == {changed.inputs.netlist}
 

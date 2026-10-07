@@ -18,7 +18,7 @@ from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.resolver import resolve
 from xeda.flow_runner.settings_layers import compose_flow_settings, transitive_dependencies
 
-from .io_flows import _Maker, _Place, _Reader, _Taker, _Wrapper
+from .io_flows import _ChainUndeclared, _Maker, _Place, _Reader, _Taker
 
 PART = "LFE5U-25F-6BG256C"
 OTHER = "LFE5U-85F-6BG381C"
@@ -52,7 +52,6 @@ def test_the_default_producer_is_planned_before_its_consumer(tmp_path):
     (made,) = plan.node("__taker").inputs
     assert (made.origin, made.producer, made.output) == ("producer", "__maker", "made")
     assert made.describe() == "made <- __maker.made"
-    assert plan.node("__taker").declared
 
 
 def test_a_design_source_of_an_accepted_type_replaces_the_default_producer(tmp_path):
@@ -80,10 +79,10 @@ def test_an_output_a_consumer_needs_is_switched_on(tmp_path):
     assert maker.settings.write is True and maker.switched_on == ("made",)
 
 
-def test_an_undeclared_flow_is_one_node(tmp_path):
-    plan = _plan(tmp_path, _Wrapper)
+def test_a_flow_that_declares_nothing_is_one_node(tmp_path):
+    plan = _plan(tmp_path, _ChainUndeclared)
     (node,) = plan.nodes
-    assert node.name == "__wrapper" and not node.declared and node.inputs == ()
+    assert node.name == "__chain_undeclared" and node.inputs == ()
 
 
 def test_each_node_s_identity_is_what_the_launcher_hashes(tmp_path):

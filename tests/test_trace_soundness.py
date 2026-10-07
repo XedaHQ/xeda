@@ -22,9 +22,12 @@ import pytest
 from pydantic import Field
 
 from xeda import Design
-from xeda.flow import Flow, registered_flows
+from xeda.design import SourceType
+from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.proc_utils import note_program
+
+from .tool_utils import producers_of
 
 #: what the next toy run() does to simulate a concurrent edit: {kind: (path, new text, backdate)}
 EDIT: dict = {}
@@ -162,23 +165,32 @@ def probes():
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Outputs(Flow.Outputs):
+            out: Path = Out(SourceType.Data, description="The one file it declares.")
+
         def run(self) -> None:
             (self.run_path / "scratch.txt").write_text("scratch\n")
             (self.run_path / "sub").mkdir(exist_ok=True)
             (self.run_path / "sub" / "deep.txt").write_text("deep\n")
             _copy_to_output(self, "declared\n")
+            self.outputs.out = self.run_path / "outputs" / "out.txt"
 
     class ProbeScratchReader(Flow):
-        """Reads its dependency's undeclared files by path, and copies them to an output."""
+        """Reads its producer's undeclared files by path, and copies them to an output."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ProbeScratcher, ProbeScratcher.Settings())
+        class Inputs(Flow.Inputs):
+            out: Path = In(
+                SourceType.Data,
+                producer="probe_scratcher",
+                output="out",
+                description="The producer's declared file.",
+            )
 
         def run(self) -> None:
-            (scratcher,) = self.completed_dependencies
-            texts = [(scratcher.run_path / n).read_text() for n in ("scratch.txt", "sub/deep.txt")]
+            scratcher_dir = self.inputs.out.parent.parent
+            texts = [(scratcher_dir / n).read_text() for n in ("scratch.txt", "sub/deep.txt")]
             _copy_to_output(self, "".join(texts))
 
     classes = (
@@ -216,10 +228,16 @@ def _design(root: Path, **rtl) -> Design:
 
 
 def _launch(root: Path, cls, settings=None, design=None, **launcher):
+    flow, out, _producers = _launch_graph(root, cls, settings, design, **launcher)
+    return flow, out
+
+
+def _launch_graph(root: Path, cls, settings=None, design=None, **launcher):
+    """The flow, its output, and the flows it took its inputs from."""
     runner = DefaultRunner(root.parent / "xeda_run", display_results=False, **launcher)
     flow = runner.launch_flow(cls, design or _design(root), settings or {})
     assert flow.succeeded
-    return flow, Path(flow.artifacts.out).read_text()
+    return flow, Path(flow.artifacts.out).read_text(), producers_of(runner, flow)
 
 
 @pytest.mark.parametrize("backdate", [False, True], ids=["mtime now", "mtime backdated"])
@@ -547,29 +565,28 @@ def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depend
     vivado_power the routed checkpoint -- no longer reuses a result built from a file edited or
     deleted by hand since. The dependency is stale, re-runs, and its depender follows."""
     cls = probes["ProbeScratchReader"]
-    first, out = _launch(root, cls)
+    _, out, (producer,) = _launch_graph(root, cls)
     assert out == "scratch\ndeep\n"
-    changed = (first.completed_dependencies[0].run_path / name).resolve()
+    changed = (producer.run_path / name).resolve()
     if change == "edit":
         changed.write_text("hand-edited\n")
     else:
         changed.unlink()
-    flow, out = _launch(root, cls)
-    (dependency,) = flow.completed_dependencies
+    flow, out, (dependency,) = _launch_graph(root, cls)
     assert not dependency.reused, "a hand-changed file of the dependency went unnoticed"
     why = "changed" if change == "edit" else "missing"
     assert dependency.stale_reason == f"output {why}: {changed}"
     assert not flow.reused and flow.stale_reason == SCRATCHER_AGAIN
     assert out == "scratch\ndeep\n"  # rebuilt from what the dependency writes
-    flow, _ = _launch(root, cls)
-    assert flow.reused and flow.completed_dependencies[0].reused
+    flow, _, (dependency,) = _launch_graph(root, cls)
+    assert flow.reused and dependency.reused
 
 
 def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
     """Every entry under the directory, recursively -- not only the artifacts, and its
     subdirectories too -- but neither the trace itself nor xeda's temporary files."""
-    first, _ = _launch(root, probes["ProbeScratchReader"])
-    run_dir = first.completed_dependencies[0].run_path.resolve()
+    _, _, (producer,) = _launch_graph(root, probes["ProbeScratchReader"])
+    run_dir = producer.run_path.resolve()
     trace = json.loads((run_dir / "trace.json").read_text())
     names = (
         *("scratch.txt", "sub", "sub/deep.txt", "outputs", "outputs/out.txt"),
@@ -584,30 +601,29 @@ def test_a_file_added_to_a_managed_run_directory_makes_it_stale(probes, root, na
     change -- a depender reading the directory may find it. The run is stale, and
     its depender follows; once the file is recorded, both are fresh again."""
     cls = probes["ProbeScratchReader"]
-    first, _ = _launch(root, cls)
-    added = (first.completed_dependencies[0].run_path / name).resolve()
+    _, _, (producer,) = _launch_graph(root, cls)
+    added = (producer.run_path / name).resolve()
     added.parent.mkdir(exist_ok=True)
     added.write_text("mine\n")
-    flow, _ = _launch(root, cls)
-    (dependency,) = flow.completed_dependencies
+    flow, _, (dependency,) = _launch_graph(root, cls)
     assert not dependency.reused
     assert dependency.stale_reason == f"new file in the run directory: {added}"
     assert not flow.reused and flow.stale_reason == SCRATCHER_AGAIN
-    flow, _ = _launch(root, cls)
-    assert flow.reused and flow.completed_dependencies[0].reused
+    flow, _, (dependency,) = _launch_graph(root, cls)
+    assert flow.reused and dependency.reused
 
 
 def test_pruning_still_drops_the_trace(probes, root):
     """Pruning keeps only what the run reports, so it cannot keep a trace that records every
     file of the directory: a pruned run is never reused."""
     cls = probes["ProbeScratchReader"]
-    first, _ = _launch(root, cls, post_cleanup=True)
-    for run_dir in (first.run_path, first.completed_dependencies[0].run_path):
+    first, _, (producer,) = _launch_graph(root, cls, post_cleanup=True)
+    for run_dir in (first.run_path, producer.run_path):
         assert not (run_dir / "trace.json").exists()
         assert not (run_dir / "scratch.txt").exists()
-    flow, out = _launch(root, cls, post_cleanup=True)
+    flow, out, (producer,) = _launch_graph(root, cls, post_cleanup=True)
     assert not flow.reused and flow.stale_reason == "no successful previous run"
-    assert flow.completed_dependencies[0].stale_reason == "no successful previous run"
+    assert producer.stale_reason == "no successful previous run"
     assert out == "scratch\ndeep\n"
 
 

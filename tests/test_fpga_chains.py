@@ -9,6 +9,7 @@ carries the file that ran, rather than trusting PATH order. `conftest.programmer
 behind both."""
 
 import json
+import re
 import os
 import shutil
 from pathlib import Path
@@ -817,6 +818,8 @@ def test_a_prebuilt_netlist_bypasses_synthesis_until_its_producer_is_bound(
 # the missing declaration -- before any tool runs.
 
 UNDECLARED = ["bsc", "bsc_sim", "vivado_project"]
+#: how a pair that is no edge is refused: no output fits, or the consumer takes no required input
+NO_EDGE = r"has no compatible output for a required input of|takes no required input"
 
 
 def _nothing_started(tmp_path: Path) -> None:
@@ -831,11 +834,11 @@ def _nothing_started(tmp_path: Path) -> None:
         ("bsc+vivado_synth", "bsc"),
         ("bsc_sim+openfpgaloader", "bsc_sim"),
         ("vivado_project+openfpgaloader", "vivado_project"),
-        ("yosys_fpga+vivado_project", "vivado_project"),
-        ("yosys_fpga+nextpnr+vivado_project", "vivado_project"),
+        ("yosys_fpga+vivado_project", "yosys_fpga"),
+        ("yosys_fpga+nextpnr+vivado_project", "nextpnr"),
     ],
 )
-def test_a_chain_through_an_undeclared_flow_is_refused_before_any_tool_runs(
+def test_a_chain_through_a_flow_without_declared_io_is_refused_before_any_tool_runs(
     tmp_path, monkeypatch, chain, flow
 ):
     tool_utils.use_fake_tools(monkeypatch)
@@ -844,12 +847,12 @@ def test_a_chain_through_an_undeclared_flow_is_refused_before_any_tool_runs(
     result, document = _xeda("run", chain, design)
     assert result.exit_code == 2 and document["success"] is False
     message = document["error"]["message"]
-    assert f"Flow `{flow}` has no declared I/O and can only be run alone." in message
+    assert f"Flow `{flow}` " in message and re.search(NO_EDGE, message)
     assert not {"plan", "nodes", "request"} & set(document)
     _nothing_started(tmp_path)
     dry, refused = _xeda("run", chain, design, "--dry-run")
     assert dry.exit_code == 2 and refused["error"]["message"] == message
-    with pytest.raises(FlowSettingsException, match="can only be run alone"):
+    with pytest.raises(FlowSettingsException, match=NO_EDGE):
         parse_request(chain)
 
 
@@ -886,7 +889,7 @@ def _unbound_design(tmp_path: Path, flow: str, bound: bool) -> Path:
 
 @pytest.mark.parametrize("flow", UNDECLARED)
 @pytest.mark.parametrize("origin", ["design file", "command line", "command line, qualified"])
-def test_a_design_binding_for_an_undeclared_flow_is_refused_for_the_missing_declaration(
+def test_a_design_binding_for_a_flow_without_declared_inputs_is_refused_for_the_missing_declaration(
     tmp_path, monkeypatch, flow, origin
 ):
     """`inputs.design: bsc` is a binding in every origin -- not erased, not a setting -- and the
@@ -906,7 +909,8 @@ def test_a_design_binding_for_an_undeclared_flow_is_refused_for_the_missing_decl
     assert error["type"] == "FlowSettingsException", error
     message = error["message"]
     assert f"flows.{flow}.inputs.design" in message
-    assert f"`{flow}` declares no inputs" in message and "can only be run alone" in message
+    assert f"`{flow}` declares no inputs" in message
+    assert "only a flow's declared inputs can be bound" in message
     assert "not permitted" not in message and "extra_forbidden" not in message
     assert document["nodes"] == []
     _nothing_started(tmp_path)

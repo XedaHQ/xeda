@@ -11,7 +11,7 @@ import stat
 from dataclasses import replace
 from pathlib import Path, PurePath
 from types import SimpleNamespace
-from typing import Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Callable, ClassVar, List, Optional
 
 import pytest
 from click.testing import CliRunner
@@ -21,6 +21,7 @@ import xeda.digest as digest
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
+from xeda.design import SourceType
 from xeda.deliver import (
     Conflict,
     Delivery,
@@ -29,9 +30,11 @@ from xeda.deliver import (
     delivery_record,
 )
 from xeda.digest import RACY_NS
-from xeda.flow import Flow, FlowSettingsError, registered_flows
+from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
+
+from .tool_utils import producers_of
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
@@ -84,6 +87,9 @@ class _Deliverer(Flow):
         fail: bool = Field(False, description="Whether its reports say it failed.")
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
 
+    class Outputs(Flow.Outputs):
+        netlist: Path = Out(SourceType.Data, description="The netlist it writes.")
+
     def run(self) -> None:
         RUNS.append(self.name)
         assert self.settings.netlist is not None
@@ -91,6 +97,7 @@ class _Deliverer(Flow):
         netlist.parent.mkdir(parents=True, exist_ok=True)
         netlist.write_text(self.settings.text)
         self.artifacts["netlist"] = str(netlist)
+        self.outputs.netlist = netlist
         if self.settings.report is not None:
             report = Path(self.settings.report)
             report.parent.mkdir(parents=True, exist_ok=True)
@@ -104,20 +111,21 @@ class _Deliverer(Flow):
 
 
 class _Wrapper(Flow):
-    """Launches the deliverer with the settings it holds for it."""
+    """Reads the deliverer's netlist: the deliverer is its producer."""
 
     results_description: ClassVar[dict[str, str]] = {}
 
     class Settings(Flow.Settings):
-        dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {"inner": ()}
-        inner: _Deliverer.Settings = Field(
-            default_factory=_Deliverer.Settings, description="The deliverer's settings."
-        )
         reads: Optional[Path] = Field(None, description="A file it reads: an input.")
         fail: bool = Field(False, description="Whether its reports say it failed.")
 
-    def init(self) -> None:
-        self.add_dependency(_Deliverer, self.settings.resolve_dependency("inner"))
+    class Inputs(Flow.Inputs):
+        netlist: Path = In(
+            SourceType.Data,
+            producer="__deliverer",
+            output="netlist",
+            description="The deliverer's netlist.",
+        )
 
     def run(self) -> None:
         for action in DURING_WRAPPER:
@@ -129,33 +137,16 @@ class _Wrapper(Flow):
         return not self.settings.fail
 
 
-class _Twice(Flow):
-    """Launches the deliverer twice, with the settings it holds for each: one configuration,
-    whatever the locations, so one run directory entered twice in a launch."""
-
-    results_description: ClassVar[dict[str, str]] = {}
-
-    class Settings(Flow.Settings):
-        dependency_settings: ClassVar[Dict[str, Tuple[str, ...]]] = {"first": (), "second": ()}
-        first: _Deliverer.Settings = Field(
-            default_factory=_Deliverer.Settings, description="The first deliverer's settings."
-        )
-        second: _Deliverer.Settings = Field(
-            default_factory=_Deliverer.Settings, description="The second deliverer's settings."
-        )
-
-    def init(self) -> None:
-        self.add_dependency(_Deliverer, self.settings.resolve_dependency("first"))
-        self.add_dependency(_Deliverer, self.settings.resolve_dependency("second"))
-
-    def run(self) -> None:
-        pass
-
-
 # Test-only flows, launched by class: out of the registry at once, so that no sweep over every
 # registered flow (`test_documentation`, `test_flow_registry`) collected after this module finds
 # them.
-for _cls in (_Deliverer, _Wrapper, _Twice):
+_REGISTERED = {
+    _name: registered_flows[_name]
+    for _cls in (_Deliverer, _Wrapper)
+    for _name in (_cls.name, _cls.__name__)
+    if _name in registered_flows
+}
+for _cls in (_Deliverer, _Wrapper):
     for _name in (_cls.name, _cls.__name__):
         if _name in _registration_before:
             registered_flows[_name] = _registration_before[_name]
@@ -177,12 +168,20 @@ def world(tmp_path, monkeypatch):
     design = Design(
         name="d", design_root=tmp_path / "design", rtl={"sources": ["top.v"], "top": "top"}
     )
-    return SimpleNamespace(user=user, design=design, root=tmp_path / "xeda_run")
+    # the wrapper's producer is found by name
+    registered_flows.update(_REGISTERED)
+    yield SimpleNamespace(user=user, design=design, root=tmp_path / "xeda_run")
+    for name in _REGISTERED:
+        registered_flows.pop(name, None)
 
 
-def _launch(world, launcher=None, flow=_Deliverer, **settings):
+def _launch(world, launcher=None, flow=_Deliverer, deliverer=None, **settings):
+    """Launch `flow`; `deliverer` is what the design says of the deliverer's own settings."""
     runner = launcher or DefaultRunner(world.root, display_results=False)
-    return runner.launch_flow(flow, world.design, settings)
+    sections = {_Deliverer.name: deliverer} if deliverer else None
+    flow = runner.launch_flow(flow, world.design, settings, all_flows_settings=sections)
+    flow.producers = producers_of(runner, flow) if flow.declared_input_records else []
+    return flow
 
 
 def test_a_location_is_delivered_and_the_run_writes_the_conventional_name(world):
@@ -208,9 +207,9 @@ def test_renaming_or_moving_a_destination_never_re_runs(world):
 
 
 def test_a_dependency_delivers_its_output_and_where_is_no_one_s_identity(world):
-    _launch(world, flow=_Wrapper, inner={"netlist": "$PWD/a/net.v"})
-    second = _launch(world, flow=_Wrapper, inner={"netlist": "$PWD/b/other.v"})
-    assert second.reused and second.completed_dependencies[0].reused
+    _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/a/net.v"})
+    second = _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/b/other.v"})
+    assert second.reused and second.producers[0].reused
     assert (world.user / "a" / "net.v").is_file() and (world.user / "b" / "other.v").is_file()
 
 
@@ -328,6 +327,34 @@ def test_an_unchanged_delivery_reads_the_destination_once_not_at_every_launch(
         assert [d.state for d in again.deliveries] == ["unchanged"]
         assert _reads(hashed, destination) == 0, "its metadata vouches for it"
     assert destination.read_text() == "net\n"
+
+
+def test_an_unchanged_delivery_of_a_producer_reads_the_destination_once_a_launch(
+    world, hashed, later_clock, monkeypatch
+):
+    """A producer's deliveries are checked ahead, and again at its turn. The two checks are one
+    pass over the destination: the first anchors the record it takes, and the second finds it
+    anchored. The clock of the destination's file system is read, and its marker made, once."""
+    markers: List[Path] = []
+    original = deliver._destination_clock
+    monkeypatch.setattr(deliver, "_destination_clock", lambda d: markers.append(d) or original(d))
+    destination = world.user / "net.v"
+    sections = {"netlist": "$PWD/net.v"}
+    _launch(world, flow=_Wrapper, deliverer=sections)
+    assert _reads(hashed, destination) == 0 and markers == [], "nothing was there to read"
+
+    hashed.clear()
+    second = _launch(world, flow=_Wrapper, deliverer=sections)
+    assert [d.state for d in second.producers[0].deliveries] == ["unchanged"]
+    assert _reads(hashed, destination) == 1, "read once, to anchor its record"
+    assert len(markers) == 1, "its file system's clock was read once"
+
+    for _ in range(2):
+        hashed.clear()
+        markers.clear()
+        again = _launch(world, flow=_Wrapper, deliverer=sections)
+        assert [d.state for d in again.producers[0].deliveries] == ["unchanged"]
+        assert _reads(hashed, destination) == 0 and markers == [], "its metadata vouches for it"
 
 
 def test_the_anchor_is_the_clock_of_the_destination_read_before_its_content(world, monkeypatch):
@@ -476,35 +503,6 @@ def test_an_anchored_destination_is_still_replaced_when_the_output_changes(world
     assert [d.state for d in flow.deliveries] == ["delivered"]
 
 
-def test_a_run_directory_entered_twice_keeps_the_later_anchored_check_of_a_touched_file(
-    world, hashed, later_clock
-):
-    """One run directory entered twice in a launch is two `Deliveries` that read the one record
-    beside it before either checks anything. The second one's check of `b.v` found it touched
-    since (same inode, same bytes, new times), read it and anchored the record it then took; the
-    first still holds the older, unanchored entry of the record file. That later check is what
-    the merged delivery keeps: the copy then reads nothing more of `b.v`. Keeping the older entry
-    only when the two records are equal would read the file a second time, and never make a
-    foreign file pass -- the entry is replaced whole, and an anchor only vouches for a file whose
-    metadata is exactly that of the record it was taken with."""
-    destination = world.user / "b.v"
-    launch = dict(flow=_Twice, first={"netlist": "$PWD/a.v"}, second={"netlist": "$PWD/b.v"})
-    _launch(world, **launch)
-    os.utime(destination, None)  # touched: same file, same bytes, new mtime and inode change time
-
-    hashed.clear()
-    flow = _launch(world, **launch)
-    assert flow.succeeded and destination.read_text() == "net\n"
-    assert _reads(hashed, destination) == 1, "read once, by the check that anchored its record"
-    record = delivery_record(flow.completed_dependencies[0].run_path)
-    entry = json.loads(record.read_text())["files"][str(destination)]
-    assert "anchor_ns" in entry and entry["anchor_ns"] > entry["recorded_ns"]
-
-    hashed.clear()
-    _launch(world, **launch)
-    assert _reads(hashed, destination) == 0, "its metadata vouches for it"
-
-
 @pytest.mark.parametrize("theirs", ["edited", "foreign", "a link"])
 def test_a_file_that_is_not_xeda_s_unchanged_copy_is_refused_before_the_tool_runs(
     world, tmp_path, theirs
@@ -547,6 +545,65 @@ def test_a_no_at_the_prompt_keeps_the_file(world):
     with pytest.raises(OutputExistsError):
         _launch(world, launcher, netlist="$PWD/net.v")
     assert (world.user / "net.v").read_text() == "mine\n"
+
+
+def test_a_yes_is_remembered_for_the_file_as_it_was_and_only_for_that(tmp_path):
+    first, second = tmp_path / "first.v", tmp_path / "second.v"
+    first.write_text("one\n")
+    second.write_text("two\n")
+    conflicts = [
+        Conflict(Delivery("k", PurePath(file.name), file), file, "yours")
+        for file in (first, second)
+    ]
+    asked: List[List[str]] = []
+    answers = iter([True, False, True])
+
+    def ask(asking):
+        asked.append([c.destination.name for c in asking])
+        return next(answers)
+
+    confirmed = deliver.ConfirmedReplacements()
+    assert confirmed.confirm(ask, conflicts) and asked == [["first.v", "second.v"]]
+    assert confirmed.confirm(ask, conflicts) and len(asked) == 1, "as they were: asked once"
+    second.write_text("two, edited\n")
+    assert not confirmed.confirm(ask, conflicts), "a no for one is a no for all"
+    assert asked[1:] == [["second.v"]], "only the file that changed is asked about again"
+    assert confirmed.confirm(ask, conflicts) and asked[2:] == [["second.v"]], "no was no yes"
+
+
+def test_a_record_is_read_again_only_when_its_file_changed(tmp_path):
+    run_path, run_root = tmp_path / "run" / "d" / "flow", tmp_path / "run"
+    mine = deliver.Deliveries(run_path, run_root, inputs=deliver.ReadInputs())
+    mine.record["files"]["held"] = {"anchored": "in memory"}
+    mine.reread_record()
+    assert "held" in mine.record["files"], "its file did not change: what it holds still stands"
+
+    theirs = deliver.Deliveries(run_path, run_root, inputs=deliver.ReadInputs())
+    theirs.record["files"]["written"] = {"by": "another launch"}
+    theirs._write_record()
+    mine.reread_record()
+    assert list(mine.record["files"]) == ["written"], "its file changed: what is there is read"
+    mine.record["files"]["held"] = {"anchored": "in memory"}
+    mine.reread_record()
+    assert "held" in mine.record["files"], "and again, nothing changed since"
+
+
+def test_a_file_edited_while_the_question_is_open_is_not_replaced(world):
+    """A yes is for the file the user was asked about, as it was when the question was asked: a
+    file edited while the answer is awaited is not delivered over."""
+    destination = world.user / "net.v"
+    destination.write_text("mine\n")
+    edited = "mine, edited while xeda waited for the answer\n"
+
+    def yes_after_an_edit(conflicts):
+        destination.write_text(edited)
+        return True
+
+    launcher = DefaultRunner(world.root, display_results=False)
+    launcher.confirm_overwrite = yes_after_an_edit
+    with pytest.raises(DeliveryError, match="changed while the run went on"):
+        _launch(world, launcher, netlist="$PWD/net.v")
+    assert destination.read_text() == edited
 
 
 @pytest.mark.parametrize("spelling", ["the source", "a hard link", "a symbolic link", "a case"])
@@ -599,14 +656,14 @@ def test_a_destination_inside_a_directory_a_setting_reads_is_refused_before_the_
     lib.mkdir()
     (lib / "cells.v").write_text("module cell; endmodule\n")
     if where == "a dependency's":
-        launch = dict(flow=_Wrapper, inner={"reads": "$PWD/lib", "netlist": "$PWD/lib/net.v"})
-        key = "inner.reads"
+        launch = dict(flow=_Wrapper, deliverer={"reads": "$PWD/lib", "netlist": "$PWD/lib/net.v"})
+        refusal = DeliveryError  # the producer's own refusal, as it is
     else:
         name = "net.v" if where == "a new file" else "sub/net.v"
         launch = dict(reads="$PWD/lib", netlist=f"$PWD/lib/{name}")
-        key = "reads"
+        refusal = DeliveryError
     launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
-    with pytest.raises(DeliveryError, match=f"`{key}` names {lib.resolve()}") as refused:
+    with pytest.raises(refusal, match=f"`reads` names {lib.resolve()}") as refused:
         _launch(world, launcher, **launch)
     assert "an input of the run" in str(refused.value)
     assert RUNS == [] and sorted(p.name for p in lib.iterdir()) == ["cells.v"]
@@ -629,10 +686,12 @@ def test_a_file_a_read_directory_reaches_through_a_link_is_never_a_destination(w
     assert not (elsewhere / "new.v").exists() and RUNS == []
 
 
+@pytest.mark.parametrize("owner", ["the requested flow", "a producer"])
 @pytest.mark.parametrize("named", ["the directory", "inside it", "a link to it"])
 def test_outputs_to_into_a_directory_a_setting_reads_is_refused_before_the_first_tool_runs(
-    world, named
+    world, named, owner
 ):
+    """Every flow of the plan registers its reads before any delivery is checked."""
     lib = world.user / "lib"
     lib.mkdir()
     (lib / "cells.v").write_text("module cell; endmodule\n")
@@ -642,8 +701,12 @@ def test_outputs_to_into_a_directory_a_setting_reads_is_refused_before_the_first
     launcher = DefaultRunner(
         world.root, display_results=False, outputs_to=outputs_to[named], overwrite_outputs=True
     )
-    with pytest.raises(DeliveryError, match=r"--outputs-to names .*`inner\.reads` names"):
-        _launch(world, launcher, flow=_Wrapper, inner={"netlist": "build/n.v", "reads": str(lib)})
+    if owner == "the requested flow":
+        launch = dict(reads=str(lib), deliverer={"netlist": "b/n.v"})
+    else:
+        launch = dict(deliverer={"netlist": "b/n.v", "reads": str(lib)})
+    with pytest.raises(DeliveryError, match=r"--outputs-to names .*`reads` names"):
+        _launch(world, launcher, flow=_Wrapper, **launch)
     assert RUNS == [] and sorted(p.name for p in lib.iterdir()) == ["cells.v"]
 
 
@@ -687,12 +750,12 @@ def test_a_failed_requested_flow_delivers_nothing_not_even_its_dependency_s(worl
     launcher = DefaultRunner(
         world.root, display_results=False, overwrite_outputs=True, outputs_to=world.user / "got"
     )
-    flow = _launch(world, launcher, flow=_Wrapper, fail=True, inner={"netlist": "$PWD/net.v"})
-    assert not flow.succeeded and flow.completed_dependencies[0].succeeded
+    flow = _launch(world, launcher, flow=_Wrapper, fail=True, deliverer={"netlist": "$PWD/net.v"})
+    assert not flow.succeeded and flow.producers[0].succeeded
     assert RUNS == [_Deliverer.name], "the dependency ran, and wrote its output in its run dir"
     assert (world.user / "net.v").read_text() == "mine\n"
     assert not (world.user / "got").exists()
-    assert flow.deliveries == [] and flow.completed_dependencies[0].deliveries == []
+    assert flow.deliveries == [] and flow.producers[0].deliveries == []
 
 
 def test_a_destination_changed_while_the_run_went_on_is_not_replaced(world):
@@ -823,7 +886,7 @@ def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):
 
 def test_outputs_to_copies_the_requested_flow_s_artifacts_only(world):
     launcher = DefaultRunner(world.root, display_results=False, outputs_to=world.user / "got")
-    flow = _launch(world, launcher, flow=_Wrapper, inner={"netlist": "build/net.v"})
+    flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "build/net.v"})
     assert (world.user / "got" / "summary.txt").read_text() == "ok\n"
     assert not (world.user / "got" / "build").exists(), "a dependency's artifacts stay put"
     assert [d.key for d in flow.deliveries] == ["--outputs-to"]
@@ -836,7 +899,7 @@ def test_outputs_to_into_the_run_root_is_refused_before_the_first_tool_runs(worl
     depending flow's tools had already run."""
     launcher = DefaultRunner(world.root, display_results=False, outputs_to=world.root / "grab")
     with pytest.raises(DeliveryError, match="run root"):
-        _launch(world, launcher, flow=_Wrapper, inner={"netlist": "build/net.v"})
+        _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "build/net.v"})
     assert RUNS == []
 
 
@@ -850,7 +913,10 @@ def test_a_dependency_s_read_input_is_never_a_destination(world):
     )
     with pytest.raises(DeliveryError, match="an input of the run"):
         _launch(
-            world, launcher, flow=_Wrapper, inner={"netlist": "build/net.v", "reads": str(kept)}
+            world,
+            launcher,
+            flow=_Wrapper,
+            deliverer={"netlist": "build/net.v", "reads": str(kept)},
         )
     assert kept.read_text() == "the dependency reads this\n"
 
@@ -860,33 +926,75 @@ def test_a_dependency_never_delivers_onto_what_its_depender_reads(world):
     (world.user / "in.v").write_text("the wrapper reads this\n")
     launcher = DefaultRunner(world.root, display_results=False, overwrite_outputs=True)
     with pytest.raises(DeliveryError, match="an input of the run"):
-        _launch(world, launcher, flow=_Wrapper, reads="$PWD/in.v", inner={"netlist": "$PWD/in.v"})
+        _launch(
+            world, launcher, flow=_Wrapper, reads="$PWD/in.v", deliverer={"netlist": "$PWD/in.v"}
+        )
     assert (world.user / "in.v").read_text() == "the wrapper reads this\n" and RUNS == []
 
 
 def test_a_dependency_s_output_is_delivered_once_the_launch_has_finished(world):
     seen: List[bool] = []
     DURING_WRAPPER.append(lambda wrapper: seen.append((world.user / "net.v").exists()))
-    _launch(world, flow=_Wrapper, inner={"netlist": "$PWD/net.v"})
+    _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
     assert seen == [False] and (world.user / "net.v").read_text() == "net\n"
 
 
-@pytest.mark.parametrize("second", ["$PWD/b.v", "$PWD/a.v"])
-def test_a_run_directory_entered_twice_delivers_once_to_every_destination(world, second):
-    """One configuration asked for twice in a launch (locations are no part of it) runs once, and
-    delivers to each destination either asked for -- one record of both, so neither is a
-    stranger's file at the next launch."""
-    _launch(world, flow=_Twice, first={"netlist": "$PWD/a.v"}, second={"netlist": second})
+def test_a_producer_s_refused_destination_is_the_launch_s_own_error(world):
+    """A refusal made before the producer's tool runs is not a failed dependency."""
+    (world.user / "net.v").write_text("the user's file\n")
+    with pytest.raises(OutputExistsError, match="net.v"):
+        _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
+    assert RUNS == []
+
+
+def test_a_producer_whose_run_wrote_no_named_output_is_a_failed_dependency(world):
+    """`collect` refuses once the producer's tool ran: the producer failed, and the launch says so
+    as it does of any failed producer, naming its results.json."""
+    DURING_RUN.append(lambda: next(world.root.rglob("outputs/d.rpt")).unlink())
+    with pytest.raises(
+        FlowDependencyFailure, match=r"dependency __deliverer failed: .*results.json"
+    ) as failed:
+        _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v", "report": "$PWD/r.rpt"})
+    cause = failed.value.__cause__
+    assert type(cause) is DeliveryError and not cause.before_run
+    assert "wrote no outputs/d.rpt" in str(cause)
     assert RUNS == [_Deliverer.name]
-    for name in {"a.v", Path(second).name}:
-        assert (world.user / name).read_text() == "net\n"
-    again = _launch(
-        world,
-        flow=_Twice,
-        first={"netlist": "$PWD/a.v", "text": "b\n"},
-        second={"netlist": second, "text": "b\n"},
-    )
-    assert again.succeeded and (world.user / "a.v").read_text() == "b\n"
+
+
+def test_a_producer_refused_before_it_is_entered_names_no_results_of_an_earlier_launch(world):
+    """The results.json of an earlier launch is not this launch's: a failure message that names
+    one would send the reader to the wrong document."""
+    assert _launch(world, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
+    producer = world.root / "d" / _Deliverer.name
+    earlier = producer / "b" / "n.v"
+    assert earlier.is_file() and (producer / "results.json").is_file()
+    with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
+        _launch(
+            world,
+            DefaultRunner(world.root, display_results=False),
+            flow=_Wrapper,
+            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+        )
+    assert "results.json" not in str(refused.value)
+
+
+def test_a_launcher_that_ran_a_producer_before_names_no_results_of_that_run(world):
+    """The same launcher launches twice. What its first launch left of the producer is not what
+    the second launch's failure may point to: only a flow this launch built counts."""
+    launcher = DefaultRunner(world.root, display_results=False)
+    assert _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
+    producer = world.root / "d" / _Deliverer.name
+    earlier = producer / "b" / "n.v"
+    assert earlier.is_file() and (producer / "results.json").is_file()
+    assert len(launcher.launched) == 2, "the launcher remembers the producer it ran"
+    with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
+        _launch(
+            world,
+            launcher,
+            flow=_Wrapper,
+            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+        )
+    assert "results.json" not in str(refused.value)
 
 
 def test_an_output_changed_after_its_run_is_not_delivered(world):
@@ -894,11 +1002,11 @@ def test_an_output_changed_after_its_run_is_not_delivered(world):
     file written into that run directory since -- as another launch there would."""
 
     def rewrite(wrapper):
-        (wrapper.completed_dependencies[0].run_path / "outputs" / "d.v").write_text("other\n")
+        wrapper.inputs.netlist.write_text("other\n")
 
     DURING_WRAPPER.append(rewrite)
     with pytest.raises(DeliveryError, match="changed after its run"):
-        _launch(world, flow=_Wrapper, inner={"netlist": "$PWD/net.v"})
+        _launch(world, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
     assert not (world.user / "net.v").exists()
 
 

@@ -132,18 +132,15 @@ def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Pa
 
 
 def setting_path_leaves(
-    settings: Flow.Settings, *, written: Optional[bool] = None, dependencies: bool = False
+    settings: Flow.Settings, *, written: Optional[bool] = None
 ) -> list[tuple[str, Any]]:
     """Every path-typed leaf of `settings`, by its key path (`lib_paths[0][1]`, `platform.
     tech_lef`).
 
-    Nested models are walked too (an ASIC `platform`, the ghdl plugin's settings inside yosys's),
-    except the fields holding a dependency's settings (`dependency_settings`): that
-    dependency's own run records them -- walked too with `dependencies`, by their key path
-    (`synth.xdc_files[0]`). Each field is walked by `map_keyed_path_leaves`, the
-    traversal path expansion uses, so a container is read according to its *declared* shape
-    rather than by value alone: in `lib_paths`, only the path half of each tuple is ever
-    visited, never the library name. With `written`, only the leaves of fields the flow writes
+    Nested models are walked too (an ASIC `platform`, the ghdl plugin's settings inside yosys's).
+    Each field is walked by `map_keyed_path_leaves`, the traversal path expansion uses, so a
+    container is read according to its *declared* shape rather than by value alone: in
+    `lib_paths`, only the path half of each tuple is ever visited, never the library name. With `written`, only the leaves of fields the flow writes
     (True: a role, `xeda.dataclass.written_role`) or reads (False).
     """
     leaves: list[tuple[str, Any]] = []
@@ -154,14 +151,7 @@ def setting_path_leaves(
         return leaf
 
     def walk(model: BaseModel, prefix: str) -> None:
-        skipped = (
-            model.dependency_settings
-            if isinstance(model, Flow.Settings) and not dependencies
-            else {}
-        )
         for name, field in type(model).model_fields.items():
-            if name in skipped:
-                continue  # a dependency's settings: its own run records them
             value = getattr(model, name)
             role = written_role(type(model), name)
             if _annotation_contains_path(field.annotation) and (
@@ -199,28 +189,24 @@ def _candidates(leaf: Any, roots: Sequence[Path]) -> list[Path]:
     return [path] if path.is_absolute() else [root / path for root in roots]
 
 
-def setting_file_keys(
-    settings: Flow.Settings, *, dependencies: bool = False
-) -> dict[Path, set[str]]:
+def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
     """Every existing file named by a path-typed setting the flow reads (`setting_path_leaves`),
     resolved, with the key path of each setting naming it. A relative path is looked up under
     the design root and under the start directory; each that exists counts. A setting naming
-    what the flow writes (a role, `xeda.dataclass.written_role`) names no input. With
-    `dependencies`, the read settings of the dependencies' settings nested in `settings` too,
-    their relative paths looked up under the same roots (they are their depender's)."""
+    what the flow writes (a role, `xeda.dataclass.written_role`) names no input."""
     roots = _setting_roots(settings)
     found: dict[Path, set[str]] = {}
-    for key, leaf in setting_path_leaves(settings, written=False, dependencies=dependencies):
+    for key, leaf in setting_path_leaves(settings, written=False):
         for candidate in _candidates(leaf, roots):
             if candidate.is_file():
                 found.setdefault(candidate.resolve(), set()).add(key)
     return found
 
 
-def setting_files(settings: Flow.Settings, *, dependencies: bool = False) -> List[Path]:
+def setting_files(settings: Flow.Settings) -> List[Path]:
     """Every existing file named by a path-typed setting the flow reads (`setting_file_keys`),
-    resolved; with `dependencies`, those of the dependencies' settings nested in it too."""
-    return list(setting_file_keys(settings, dependencies=dependencies))
+    resolved."""
+    return list(setting_file_keys(settings))
 
 
 #: A directory a setting names whose listing holds more files than this, or takes longer than
@@ -231,20 +217,17 @@ LARGE_LISTING_FILES = 10_000
 SLOW_LISTING_S = 2.0
 
 
-def setting_directories(
-    settings: Flow.Settings, run_path: Path, *, dependencies: bool = False
-) -> list[tuple[str, Path]]:
+def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[str, Path]]:
     """Every existing directory a path-typed setting the flow reads names (`setting_path_leaves`),
     with the key path of the first setting naming it, resolved: an absolute path as itself, a
     relative one under the design root and under the start directory (as `setting_files`) --
     but the run directory and every directory in it, whose files are outputs of the run already.
     A directory the flow writes (`reports_dir`, `sim_dir`: a role,
-    `xeda.dataclass.written_role`) is no input. With `dependencies`, those the dependencies'
-    settings nested in `settings` name too (as `setting_file_keys`)."""
+    `xeda.dataclass.written_role`) is no input."""
     roots = _setting_roots(settings)
     run_dir = run_path.resolve()
     found: dict[Path, str] = {}
-    for key, leaf in setting_path_leaves(settings, written=False, dependencies=dependencies):
+    for key, leaf in setting_path_leaves(settings, written=False):
         for candidate in _candidates(leaf, roots):
             if candidate.is_dir():
                 resolved = candidate.resolve()
@@ -255,11 +238,7 @@ def setting_directories(
 
 
 def setting_directory_listings(
-    settings: Flow.Settings,
-    run_path: Path,
-    run_root: Path | None = None,
-    *,
-    dependencies: bool = False,
+    settings: Flow.Settings, run_path: Path, run_root: Path | None = None
 ) -> list[tuple[str, Path, list[Path]]]:
     """Each directory a setting names (`setting_directories`), with the key path of the setting
     naming it and every entry under it: its recursive listing (`listing.directory_files`: a
@@ -272,7 +251,7 @@ def setting_directory_listings(
     delivery guard never delivers into it (`register_read_settings`)."""
     prune = [run_path] + ([run_root] if run_root is not None else [])
     listings: list[tuple[str, Path, list[Path]]] = []
-    for key, directory in setting_directories(settings, run_path, dependencies=dependencies):
+    for key, directory in setting_directories(settings, run_path):
         started = time.monotonic()
         listed = directory_files(directory, prune, VCS_METADATA, follow_links=True)
         elapsed = time.monotonic() - started
@@ -306,14 +285,11 @@ def register_read_settings(
     inputs: ReadInputs, settings: Flow.Settings, run_path: Path, run_root: Path
 ) -> None:
     """Register with a launch's delivery guard (`xeda.deliver.ReadInputs`) everything the read
-    settings of `settings` -- a dependency's settings nested in them included -- make an input,
-    as the trace records it: every file one names (`setting_files`), and every directory one
+    settings of `settings` make an input, as the trace records it: every file one names (`setting_files`), and every directory one
     names with each entry under it (`setting_directory_listings`, the trace's own listing), so
     that no delivery lands on a file the launch read, nor anywhere in a directory it reads."""
-    inputs.add(setting_files(settings, dependencies=True))
-    for key, directory, listed in setting_directory_listings(
-        settings, run_path, run_root, dependencies=True
-    ):
+    inputs.add(setting_files(settings))
+    for key, directory, listed in setting_directory_listings(settings, run_path, run_root):
         inputs.add_directory(key, directory, listed)
 
 
@@ -379,11 +355,11 @@ def output_files(flow: Flow) -> list[Path]:
     return sorted({*run_directory_files(flow.run_path), *outside})
 
 
-def dependency_outputs(flow: Flow) -> List[Path]:
-    """The declared outputs of `flow`'s dependencies, which it consumes as inputs. A file of
-    theirs it reads by path is covered by their own traces: a change to it makes the dependency
-    run again, and `flow` with it (`dependency_runs`)."""
-    return sorted({p for dep in flow.completed_dependencies for p in artifact_files(dep)})
+def dependency_outputs(producers: Sequence[Flow]) -> List[Path]:
+    """The outputs of the `producers` the flow consumed. A file of theirs the flow reads by path
+    is covered by their own traces: a change to it makes the producer run again, and the flow
+    with it (`dependency_runs`)."""
+    return sorted({p for producer in producers for p in artifact_files(producer)})
 
 
 def run_dir_key(run_path: Path, run_root: Path) -> str:
@@ -393,14 +369,13 @@ def run_dir_key(run_path: Path, run_root: Path) -> str:
     return (path.relative_to(root) if path.is_relative_to(root) else path).as_posix()
 
 
-def dependency_runs(flow: Flow, run_root: Path) -> Dict[str, str]:
-    """The run of each of `flow`'s completed dependencies (`Flow.run_id`, which the launcher
-    sets on every flow it completes), by its run directory: two dependencies of one flow, in two
-    directories, are two entries."""
+def dependency_runs(producers: Sequence[Flow], run_root: Path) -> Dict[str, str]:
+    """The run of each of the `producers` a flow consumed (`Flow.run_id`, which the launcher
+    sets on every flow it completes), by its run directory."""
     runs: Dict[str, str] = {}
-    for dep in flow.completed_dependencies:
-        assert dep.run_id is not None, f"{dep.name} was not completed by a launcher"
-        runs[run_dir_key(dep.run_path, run_root)] = dep.run_id
+    for producer in producers:
+        assert producer.run_id is not None, f"{producer.name} was not completed by a launcher"
+        runs[run_dir_key(producer.run_path, run_root)] = producer.run_id
     return runs
 
 
@@ -516,11 +491,15 @@ def flow_code_digest(flow_class: Type[Flow]) -> str:
 
 
 def candidate_inputs(
-    flow: Flow, design: Design, input_settings: Flow.Settings, run_root: Optional[Path] = None
+    flow: Flow,
+    design: Design,
+    input_settings: Flow.Settings,
+    producers: Sequence[Flow],
+    run_root: Optional[Path] = None,
 ) -> List[Path]:
     """Every existing file the run would consume that can be named before it runs: the
     design's files, the files its settings name and every file under a directory they name
-    (`setting_directory_files`), its dependencies' outputs, and the files the flow registered in
+    (`setting_directory_files`), its producers' outputs, and the files the flow registered in
     `init()` or `prepare_inputs()` (`registered_input_files`) -- xeda's own bookkeeping files in its run directory
     excepted."""
     bookkeeping = bookkeeping_files(flow.run_path)
@@ -529,7 +508,7 @@ def candidate_inputs(
         *design_files(design, type(flow).design_parts),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
-        *dependency_outputs(flow),
+        *dependency_outputs(producers),
         *registered_input_files(flow),
         *declared_input_files(flow),
     }
@@ -546,15 +525,19 @@ def declared_input_files(flow: Flow) -> list[Path]:
 
 
 def expectation(
-    flow: Flow, design: Design, input_settings: Flow.Settings, run_root: Path
+    flow: Flow,
+    design: Design,
+    input_settings: Flow.Settings,
+    run_root: Path,
+    producers: Sequence[Flow],
 ) -> Expectation:
     """What `flow` would consume now. `design` and `input_settings` are the launcher's own
     (never modified by the flow), so the same inputs are found before and after the run;
-    `run_root` is the launcher's run directory root, which dependency runs are named under.
+    `run_root` is the launcher's run directory root, which producer runs are named under, and
+    `producers` are the completed producers the launcher handed the flow's inputs from.
 
-    Includes `dependency_outputs(flow)` and `dependency_runs(flow)`, so the result is only
-    stable once `flow`'s dependencies have completed (`flow.completed_dependencies` populated)
-    -- call this after they have run, as the launcher does -- and the files `flow` registered
+    Includes `dependency_outputs(producers)` and `dependency_runs(producers, run_root)`, so call
+    this after the producers have run, as the launcher does. It includes the files `flow` registered
     (`registered_input_files`), so call it before `flow` runs, while those are what its `init()`
     registered, including those resolved by `prepare_inputs` after hand-over.
     """
@@ -566,12 +549,12 @@ def expectation(
         xeda_version=__version__,
         xeda_code=xeda_code_digest(),
         flow_code=flow_code_digest(type(flow)),
-        inputs=tuple(candidate_inputs(flow, design, input_settings, run_root)),
+        inputs=tuple(candidate_inputs(flow, design, input_settings, producers, run_root)),
         settings=as_recorded(input_settings),
         setting_locations=setting_locations(input_settings, flow.run_path),
-        dependency_runs=dependency_runs(flow, run_root),
+        dependency_runs=dependency_runs(producers, run_root),
         dependency_flows={
-            run_dir_key(dep.run_path, run_root): dep.name for dep in flow.completed_dependencies
+            run_dir_key(producer.run_path, run_root): producer.name for producer in producers
         },
         declared_inputs=getattr(flow, "declared_input_records", ()),
         settings_hash=flow.settings_hash or "",

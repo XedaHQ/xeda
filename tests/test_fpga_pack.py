@@ -93,7 +93,6 @@ def test_fpga_pack_declares_one_configuration_in_and_one_bitstream_out():
     assert bitstream.name == "bitstream" and bitstream.cardinality == "one"
     assert [t.name for t in bitstream.types] == ["Bitstream"]
     # its settings are its own section's: no producer's settings nested in them
-    assert not FpgaPack.Settings.dependency_settings
     assert not {"nextpnr", "yosys"} & set(FpgaPack.Settings.model_fields)
 
 

@@ -17,7 +17,10 @@ destination's directory, renamed into place). An existing file is replaced only 
 own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
 in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
 from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
-the flow runs (`Deliveries.check`). A record is checked by the trust rule like any other
+the launch runs (`Deliveries.check`: the requested flow makes the check of every flow of the plan
+when the launch starts, after every refusal no answer could change, `Deliveries.refuse`). A yes
+is for the file the user was asked about, as it was then (`ConfirmedReplacements`): a file that
+changed since is asked about again. A record is checked by the trust rule like any other
 (`digest.FileRecord`): the content of a destination is read only when its metadata cannot vouch
 for it, and the check that reads it anchors the record it takes to the clock of the destination's
 own file system, read just before (`_destination_clock`), so the next check of an unchanged
@@ -56,6 +59,7 @@ __all__ = [
     "OUTPUTS_TO",
     "RESERVED_NAMES",
     "Conflict",
+    "ConfirmedReplacements",
     "Deliveries",
     "Delivered",
     "Delivery",
@@ -81,7 +85,15 @@ _State = Optional[tuple[int, int, int, int]]
 
 
 class DeliveryError(XedaException):
-    """An output cannot be delivered where it was named."""
+    """An output cannot be delivered where it was named.
+
+    `before_run` is true for a refusal made before any tool of the output's flow ran
+    (`Deliveries.check_outputs_to` and `check`): nothing of that flow has changed, so the launch
+    reports it as its own error, not as the failure of a flow."""
+
+    def __init__(self, *args: object, before_run: bool = False) -> None:
+        super().__init__(*args)
+        self.before_run = before_run
 
 
 class OutputExistsError(DeliveryError):
@@ -136,7 +148,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
     """In place: each of the flow's own deliverable settings given as a location becomes its
     conventional name for the design `design` (`flow.output_name`), which the run writes in its
     run directory whatever the location says, and a `Delivery` of that file to the location. A
-    dependency's settings are its own launch's. A `FlowSettingsError` when two outputs would be
+    producer's settings are its own launch's. A `FlowSettingsError` when two outputs would be
     written under one name, or one under a name xeda keeps for itself."""
     deliveries: list[Delivery] = []
     names: dict[PurePath, str] = {}
@@ -194,8 +206,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
 
 
 def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
-    """Every deliverable of `settings` given as a location, a dependency's settings included, by
-    key path; nothing is changed."""
+    """Every deliverable of `settings` given as a location, by key path; nothing is changed."""
     found: list[tuple[str, Path]] = []
 
     def note(written: WrittenLeaf) -> Any:
@@ -205,13 +216,13 @@ def deliverable_locations(settings: Flow.Settings) -> list[tuple[str, Path]]:
                 found.append((written.key, Path(leaf)))
         return leaf
 
-    map_written_leaves(settings, note, dependencies=True)
+    map_written_leaves(settings, note)
     return found
 
 
 def deliverable_setting_names(settings_cls: "type[Flow.Settings]") -> list[str]:
     """The name of every field `settings_cls` itself declares deliverable (`DELIVERABLE_ROLE`),
-    whatever its current value -- a dependency's are its own launch's, so not included. Named in
+    whatever its current value -- a producer's are its own launch's, so not included. Named in
     the warning `--outputs-to` gives when a flow delivered nothing, so an unset `vcd` is not
     mistaken for xeda silently dropping a file it wrote."""
     return [
@@ -271,13 +282,13 @@ def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
 class ReadInputs:
     """Every file the flows of a launch read: the design's files, the design
     and project file the launch was given, the file each read setting of any of its flows names
-    -- a dependency's settings nested in its depender's included -- and every entry under a
-    directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
+    and every entry under a directory one names, as the trace lists it (`trace_inputs.register_read_settings`), by file
     identity (`st_dev`, `st_ino`) and by resolved path; and those directories themselves, each
     with the setting naming it (`directory_of`). No delivery ever replaces one of those files, or
     lands anywhere in one of those directories, `--overwrite-outputs` or not. One is shared by a
-    launch's `Deliveries` and completed as each flow is launched, so a delivery -- made when the
-    launch has finished -- is checked against all of them."""
+    launch's `Deliveries`. The requested flow registers the settings of every flow of the plan
+    when the launch starts, and each flow adds the files it prepares as it is launched, so a
+    delivery -- made when the launch has finished -- is checked against all of them."""
 
     def __init__(self, paths: Iterable[Path] = ()) -> None:
         self._by_identity: dict[tuple[int, int], Path] = {}
@@ -441,10 +452,43 @@ def _refused(conflicts: Sequence[Conflict]) -> str:
     )
 
 
+class ConfirmedReplacements:
+    """The files a launch was told it may replace, each as it was when the user was asked.
+
+    A node's deliveries are checked ahead, when the launch starts, and again at the node's turn,
+    after the tools of the flows before it. A yes holds for the file the user was asked about:
+    asking again about a file that is still as it was would only repeat the question, but a file
+    whose state changed since (size, times, inode) is another file to the user, and another
+    question."""
+
+    def __init__(self) -> None:
+        self._confirmed: dict[Path, _State] = {}
+
+    def confirm(
+        self, ask: Callable[[Sequence[Conflict]], bool], conflicts: Sequence[Conflict]
+    ) -> bool:
+        """Whether every file of `conflicts` may be replaced. `ask` is asked about the files not
+        confirmed as they are now, each taken as it is when the question is asked, so that an
+        edit made while the answer is awaited is not covered by it. A no is a no for all."""
+        now = {conflict.destination: _state(conflict.destination) for conflict in conflicts}
+        asking = [
+            conflict
+            for conflict in conflicts
+            if conflict.destination not in self._confirmed
+            or self._confirmed[conflict.destination] != now[conflict.destination]
+        ]
+        if asking and not ask(asking):
+            return False
+        self._confirmed.update(
+            {conflict.destination: now[conflict.destination] for conflict in asking}
+        )
+        return True
+
+
 class Deliveries:
-    """One node's deliveries: checked before any of its tools runs (`check`), noted file by file
-    once it succeeded or was found up to date (`collect`), and made when the launch has finished
-    (`deliver`)."""
+    """One node's deliveries: checked before any of its tools runs (`refuse`, `check`), noted
+    file by file once it succeeded or was found up to date (`collect`), and made when the launch
+    has finished (`deliver`)."""
 
     def __init__(
         self,
@@ -459,11 +503,13 @@ class Deliveries:
         self.run_path = Path(run_path)
         self.run_root = Path(os.path.realpath(run_root))
         self.named = list(named)
-        #: every file the launch's flows read: shared, and completed as they are launched
+        #: every file the launch's flows read: shared by the launch (`ReadInputs`)
         self.inputs = inputs
         self.overwrite = overwrite
         self.confirm = confirm
         self.record_path = delivery_record(self.run_path)
+        #: the record file as it was just before it was read (`reread_record`)
+        self._record_state: _State = _state(self.record_path)
         self.record = _read_record(self.record_path)
         #: every destination checked before the run, as it was then
         self.checked: dict[Path, _State] = {}
@@ -473,6 +519,19 @@ class Deliveries:
         #: what `deliver` has copied so far this call, even one it goes on to raise out of: an
         #: `OSError` partway through must not make the copies already made unreported
         self.delivered: list[Delivered] = []
+
+    def reread_record(self) -> None:
+        """Read the delivery record again if its file changed since it was read. The run
+        directory's lock is what keeps the file from changing during a node's turn, so a node
+        whose deliveries were made ready before its turn (`FlowLauncher._check_deliveries_ahead`)
+        calls this once it holds the lock: another launch of the run directory may have delivered
+        and written the record meanwhile, and what this object read then is no longer true. The
+        record is kept as it is when its file did not change: the entries a check anchored in it
+        still vouch for their destinations, so nothing is read twice."""
+        state = _state(self.record_path)
+        if state != self._record_state:
+            self._record_state = state
+            self.record = _read_record(self.record_path)
 
     def _refusal(self, destination: Path, delivery: Delivery) -> Optional[str]:
         """Why nothing may ever be delivered to `destination` (located), whatever the options."""
@@ -642,32 +701,48 @@ class Deliveries:
                 "an existing file: --outputs-to copies outputs into a directory, not onto a file"
             )
         if refusal is not None:
-            raise DeliveryError(f"--outputs-to names {destination}, {refusal}")
+            raise DeliveryError(f"--outputs-to names {destination}, {refusal}", before_run=True)
 
-    def check(self, predicted: Sequence[Delivery] = ()) -> None:
-        """Before any tool of the node runs: refuse a destination that is an input, lies in a run
-        root or in a directory the launch reads, or is a directory where a file goes
-        (`DeliveryError`); unless confirmed, refuse to
-        replace a file that is not xeda's own unchanged earlier delivery (`OutputExistsError`).
-        `predicted`: what `--outputs-to` expects to deliver, from the last run's artifacts."""
+    def refuse(self, predicted: Sequence[Delivery] = ()) -> None:
+        """Before any tool of the launch runs: refuse a destination that is an input, lies in a
+        run root or in a directory the launch reads, or is a directory where a file goes
+        (`DeliveryError`). No answer could allow any of them, so a launch makes this check for
+        every flow of its plan before it asks the first question (`check`). It reads no file's
+        content. `predicted`: what `--outputs-to` expects to deliver, from the last run's
+        artifacts."""
         refusals: list[str] = []
-        conflicts: list[Conflict] = []
-        destinations: list[Path] = []
         for delivery in [*self.named, *predicted]:
             destination = _located(delivery.destination)
             refusal = self._refusal(destination, delivery)
             if refusal is not None:
                 refusals.append(f"`{delivery.key}` names {destination}, {refusal}")
-                continue
+        if refusals:
+            raise DeliveryError("; ".join(refusals), before_run=True)
+
+    def check(self, predicted: Sequence[Delivery] = ()) -> None:
+        """Before any tool of the node runs: `refuse` what no answer could allow; unless
+        confirmed, refuse to replace a file that is not xeda's own unchanged earlier delivery
+        (`OutputExistsError`). A launch checks a producer's deliveries ahead and again at its
+        turn with the same object: the second check finds the record the first anchored, so a
+        destination is read once for the launch. The turn first reads the record again if its
+        file changed meanwhile (`reread_record`).
+
+        Each destination is taken as it is when examined, and that is what `deliver` compares
+        with: a file edited while the question was open is not replaced on a yes given for the
+        file as it was. `predicted`: what `--outputs-to` expects to deliver, from the last run's
+        artifacts."""
+        self.refuse(predicted)
+        conflicts: list[Conflict] = []
+        states: dict[Path, _State] = {}
+        for delivery in [*self.named, *predicted]:
+            destination = _located(delivery.destination)
             why = self._why_not_ours(destination)
             if why is not None:
                 conflicts.append(Conflict(delivery, destination, why))
-            destinations.append(destination)
-        if refusals:
-            raise DeliveryError("; ".join(refusals))
+            states[destination] = _state(destination)
         if conflicts and not self._confirmed(conflicts):
-            raise OutputExistsError(_refused(conflicts))
-        self.checked = {destination: _state(destination) for destination in destinations}
+            raise OutputExistsError(_refused(conflicts), before_run=True)
+        self.checked = states
 
     def collect(self, source_root: Path, extra: Sequence[Delivery] = ()) -> None:
         """When the node's run is over, under its run directory's lock: note each file it
@@ -695,31 +770,6 @@ class Deliveries:
             else:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
-
-    def merge(self, other: Deliveries) -> None:
-        """Take on what `other` noted for the same run directory -- entered again in the launch,
-        the same configuration asked for twice, maybe for other destinations (a location is no
-        part of a configuration): one delivery, to every destination either names, under one
-        record. An entry `other` anchored (its check read that destination, in this very launch)
-        is taken over an unanchored one of the same destination, whole: both started from the one
-        record beside the run directory and `other` was checked later, so its entry is the later
-        look at the same file -- its record may differ from this one's by times the file was
-        touched since (never what makes it xeda's: `_why_not_ours` refreshes an entry only after
-        the inode and content matched), and keeping the older entry would only read the file
-        again."""
-        known = {dest for _delivery, _src, dest, _sha in self.pending}
-        self.pending += [item for item in other.pending if item[2] not in known]
-        for destination, state in other.checked.items():
-            self.checked.setdefault(destination, state)
-        for name, entry in other.record["files"].items():
-            mine = self.record["files"].get(name)
-            if (
-                isinstance(entry, dict)
-                and "anchor_ns" in entry
-                and isinstance(mine, dict)
-                and "anchor_ns" not in mine
-            ):
-                self.record["files"][name] = entry
 
     def deliver(self) -> list[Delivered]:
         """Copy each file `collect` noted to where it was named. A destination that is an input

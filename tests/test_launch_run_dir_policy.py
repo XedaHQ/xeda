@@ -9,43 +9,57 @@ on every dependency launch -- which switched off the depender's own `--post-clea
 `--post-cleanup-purge` and left a reused launcher changed for every later launch.
 """
 
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
 
 from xeda import Design
-from xeda.flow import Flow, registered_flows
+from xeda.design import SourceType
+from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectoryError
+
+from .tool_utils import producers_of
 
 EXAMPLE = "examples/vhdl/sqrt/sqrt.yaml"
 
 
 @pytest.fixture(scope="module")
 def toy_flows():
-    """A flow with one dependency, both of which leave a file behind in their run directory.
+    """A flow with one producer, both of which leave a file behind in their run directory.
 
     Defining a `Flow` subclass registers it; the registration is undone afterwards, so the
     flow-wide sweeps of other tests never see these."""
 
     class ToyDep(Flow):
-        """A dependency that writes one scratch file."""
+        """A producer that writes one scratch file, and one file it declares."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
+        class Outputs(Flow.Outputs):
+            kept: Path = Out(SourceType.Data, description="The file it declares.")
+
         def run(self) -> None:
             (self.run_path / "dep_scratch.txt").write_text("scratch\n")
+            (self.run_path / "dep_out.txt").write_text("out\n")
+            self.outputs.kept = self.run_path / "dep_out.txt"
 
         def parse_reports(self) -> bool:
             return True
 
     class ToyTop(Flow):
-        """A flow with one dependency that writes one scratch file."""
+        """A flow with one producer that writes one scratch file."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        def init(self) -> None:
-            self.add_dependency(ToyDep, ToyDep.Settings())
+        class Inputs(Flow.Inputs):
+            kept: Path = In(
+                SourceType.Data,
+                producer="toy_dep",
+                output="kept",
+                description="The producer's file.",
+            )
 
         def run(self) -> None:
             (self.run_path / "top_scratch.txt").write_text("scratch\n")
@@ -91,12 +105,15 @@ def test_post_cleanup_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, d
     launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
     flow = launcher.launch_flow(top, design, {})
     assert flow.succeeded
-    (dep,) = flow.completed_dependencies
+    (dep,) = producers_of(launcher, flow)
     # each flow's scratch file is cleaned up, in its own run directory -- and its trace: a pruned
     # directory may lack a file a depender reads, so it is never reused
-    for run_path in (flow.run_path, dep.run_path):
-        kept = sorted(p.name for p in run_path.iterdir())
-        assert kept == ["results.json", "settings.json"], kept
+    assert sorted(p.name for p in flow.run_path.iterdir()) == ["results.json", "settings.json"]
+    assert sorted(p.name for p in dep.run_path.iterdir()) == [
+        "dep_out.txt",
+        "results.json",
+        "settings.json",
+    ]
 
 
 def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_flows, design):
@@ -107,7 +124,7 @@ def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_fl
     )
     flow = launcher.launch_flow(top, design, {})
     assert flow.succeeded
-    (dep,) = flow.completed_dependencies
+    (dep,) = producers_of(launcher, flow)
     assert not flow.run_path.exists() and not dep.run_path.exists()
 
 
@@ -265,7 +282,7 @@ def test_a_dependency_runs_in_a_sibling_directory(tmp_path, toy_flows, design):
     dep, top = toy_flows
     launcher = DefaultRunner(tmp_path / "run", display_results=False)
     flow = launcher.launch_flow(top, design, {})
-    (completed,) = flow.completed_dependencies
+    (completed,) = producers_of(launcher, flow)
     assert isinstance(completed, dep)
     assert completed.run_path == flow.run_path.parent / dep.name
     assert (completed.run_path / "dep_scratch.txt").exists()

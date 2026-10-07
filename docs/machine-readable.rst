@@ -56,17 +56,17 @@ Discovering what to run
       "category": "simulation",
       "supports_cocotb": false,
       "dependencies": ["vivado_synth"],
-      "declared": true, "action_reason": null,
+      "action_reason": null,
       "inputs": ["..."], "outputs": ["..."],
       "can_follow": [], "can_precede": ["..."],
       "settings_class": "xeda.flows.vivado.vivado_postsynthsim.VivadoPostsynthSim.Settings"
     }
 
-``name`` is the canonical name; ``aliases`` are the other accepted names. ``dependencies`` are
-detected statically, so treat them as a reliable hint rather than a guarantee - a flow written
-outside Xeda may still add dependencies conditionally at run time.
+``name`` is the canonical name; ``aliases`` are the other accepted names. ``dependencies`` are the
+default producers of the flow's declared inputs. A design source or a binding can replace one, so
+use the resolved plan for the producers a request needs.
 
-``declared`` distinguishes flows with explicit file I/O. Their ``inputs`` and ``outputs`` list
+A flow's ``inputs`` and ``outputs`` list its declared file I/O: their
 names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;
 inputs also say whether they are ``required`` (the flow cannot run without one) and whether they are
 ``optional`` (an optional list, which may be empty), and name their default ``producer`` and
@@ -82,7 +82,7 @@ refused chain is never advertised. Each entry has ``flow``, ``output`` (the prod
 request must name, ``null`` when the unqualified request is valid), ``binds`` (the ``input`` and
 ``output`` pairs the adjacency binds) and ``target_dependent``: true when a produced or accepted
 kind is a union that the target selects from (``nextpnr`` makes the configuration of the target's
-family), so the resolved plan is authoritative. A flow with no declared I/O has no relations, and
+family), so the resolved plan is authoritative. A flow that declares no I/O has no relations, and
 ``action_reason`` (static, ``null`` for most flows) says why a flow, such as a programmer, can
 only end a chain.
 
@@ -335,8 +335,8 @@ A missing enabled output can also be caught earlier, by the flow itself: ``nextp
 ``FlowFatalError`` naming the configuration setting/path its tool did not write, which is a raised
 error and not a ``MissingOutput``.
 
-A chain that is malformed or does not fit (an empty element, an unknown or repeated flow, a flow
-with no declared I/O, a programmer before the end, a pair with no compatible output) is a ``UsageError`` with exit status 2
+A chain that is malformed or does not fit (an empty element, an unknown or repeated flow,
+a programmer before the end, a pair with no compatible output) is a ``UsageError`` with exit status 2
 and no ``request``; a binding that cannot be applied (an unknown input or producer, a binding for
 a flow that declares no inputs, a chain and a command-line or API binding of the same input) is a
 settings error naming the input and where the binding was written.
@@ -368,12 +368,12 @@ consumer switching its producer's optional output on:
         "requested": "nextpnr",
         "target": null,
         "nodes": [
-          {"name": "yosys_fpga", "flow": "yosys_fpga", "declared": true,
+          {"name": "yosys_fpga", "flow": "yosys_fpga",
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
            "settings_hash": "...",
            "inputs": [], "switched_on": ["netlist"], "action_reason": null,
            "input_types": {}, "output_types": {"netlist": ["JsonNetlist"]}},
-          {"name": "nextpnr", "flow": "nextpnr", "declared": true,
+          {"name": "nextpnr", "flow": "nextpnr",
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "settings_hash": "...",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
@@ -413,8 +413,7 @@ consumer needs them, not every output already enabled by its settings. ``input_t
 iCE40 selects ``Pcf`` pin constraints and ``IceAsc`` configuration. The static flow catalog
 reports the full declared type vocabulary.
 
-An undeclared flow appears as a node with ``declared: false`` and unknown runtime dependencies:
-planning does not call its ``init()``. Freshness and always-run decisions are not evaluated.
+Planning does not call a flow's ``init()``. Freshness and always-run decisions are not evaluated.
 Invalid settings, shared-setting conflicts, missing required inputs and impossible targets
 produce the usual ``success: false`` / ``error`` document.
 
@@ -467,9 +466,10 @@ node's wired inputs, and none of the paths and hashes):
 
 Here the chain replaced both bindings the file saved (``overridden`` names them and their
 sections). A request of a single flow has a one-element ``request``. After a failure the nodes
-that were planned but never entered are listed with ``"state": "not run"``, and
-``request`` and ``nodes`` are absent from the document of a chain that was refused before it was
-planned (a usage error).
+that were planned but never entered are listed with ``"state": "not run"``. A delivery that
+Xeda refuses before the tool of a producer runs leaves the requested flow in that state too. The
+``request`` and ``nodes`` keys are absent from the document of a chain that was refused before it
+was planned (a usage error).
 
 Using Xeda as a library
 =======================

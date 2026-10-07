@@ -15,7 +15,6 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.default_runner import dependency_settings
 from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
 from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
@@ -441,11 +440,11 @@ def test_a_remote_run_lets_the_command_line_win_over_the_design_file(tmp_path, m
     )
     composed = {}
 
-    def capture(flow_name, settings, design_name=None):
+    def capture(settings):
         composed.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "vivado_synth", "host", flow_settings=["out_of_context=true"]
@@ -472,17 +471,17 @@ def test_a_remote_run_canonicalizes_the_flow_name_and_does_not_mutate_the_design
     before = deepcopy(design.flow)
     captured = {}
 
-    def capture(flow_name, settings, design_name=None):
-        captured.update(flow_name=flow_name, settings=settings)
+    def capture(settings):
+        captured.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "ghdl", "host", flow_settings=["warn_error=false"]
         )
 
-    assert captured["flow_name"] == "ghdl_sim"
+    assert type(captured["settings"]).__qualname__ == "GhdlSim.Settings"
     assert captured["settings"].werror is False
     assert design.flow == before
 
@@ -511,11 +510,11 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
     )
     captured = {}
 
-    def capture(flow_name, settings, design_name=None):
-        captured.update(flow_name=flow_name, settings=settings)
+    def capture(settings):
+        captured.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             "d",
@@ -526,24 +525,10 @@ def test_a_remote_run_layers_project_design_and_command_line(tmp_path, monkeypat
         )
 
     settings = captured["settings"]
-    assert captured["flow_name"] == "vivado_synth"
+    assert type(settings).__qualname__ == "VivadoSynth.Settings"
     assert settings.nthreads == 2
     assert settings.fail_timing is False
     assert settings.out_of_context is False
-
-
-def test_a_dependency_refines_the_design_section_for_its_flow():
-    """`[flows.yosys_fpga]` is the base; what `nextpnr` hands its yosys dependency wins."""
-    given = YosysFpga.Settings(flatten=False, fpga="LFE5U-25F-6BG381C")
-    depender = Nextpnr.Settings(verbose=2, debug=True)
-
-    settings = dependency_settings(
-        YosysFpga, given, depender, {"yosys_fpga": {"flatten": True, "abc9": True}}
-    )
-
-    assert (settings.flatten, settings.abc9) == (False, True)
-    assert settings.fpga is not None and settings.fpga.part == "LFE5U-25F-6BG381C"
-    assert (settings.debug, settings.verbose) == (True, 2)
 
 
 def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
@@ -773,11 +758,11 @@ def test_a_remote_run_composes_a_dependency_s_own_section_too(tmp_path, monkeypa
     )
     composed = {}
 
-    def capture(flow_name, settings, design_name=None):
+    def capture(settings):
         composed.update(settings=settings)
         raise _Launched
 
-    monkeypatch.setattr(remote, "flow_run_hash", capture)
+    monkeypatch.setattr(remote, "written_path_problems", capture)
     with pytest.raises(_Launched):
         remote.RemoteRunner(tmp_path / "xeda_run").run_remote(
             design, "vivado_postsynth_sim", "host"

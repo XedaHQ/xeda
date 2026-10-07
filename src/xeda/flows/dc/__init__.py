@@ -50,6 +50,12 @@ class Dc(AsicSynthFlow):
         "num_cells_sequential": ("num_cells_sequential", "num_cells_sequentual"),
     }
 
+    required_settings = {
+        "target_libraries": "one or more target libraries (liberty `.db` files): "
+        "`-s target_libraries=<file.db>`; in the design file, as `target_libraries` in its "
+        "`[flows.{flow}]` section"
+    }
+
     results_description = describe_results(
         "Fmax",
         "clock_name",
@@ -176,7 +182,11 @@ class Dc(AsicSynthFlow):
             },
             description="Set compile_<key> variables. See the DC documentation for details.",
         )
-        target_libraries: List[Path] = Field(description="Target library or libraries")
+        target_libraries: List[Path] = Field(
+            [],
+            description="Target library or libraries (liberty `.db` files). Required: the flow "
+            "refuses to launch without one.",
+        )
         extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
         mw_ref_lib: Optional[Path] = Field(
             None, description="Milkyway reference library, for flows that write a Milkyway design."
