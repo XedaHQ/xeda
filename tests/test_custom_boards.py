@@ -1,4 +1,4 @@
-"""A custom board database supplies the device, constraints and programmer board name."""
+"""A custom board database supplies the device, constraints and openFPGALoader board name."""
 
 from pathlib import Path
 
@@ -31,7 +31,7 @@ def board_file(tmp_path: Path) -> Path:
     (config / "pins.lpf").write_text('LOCATE COMP "clk" SITE "P3";\n')
     boards = config / "boards.toml"
     boards.write_text(
-        '[MY_BOARD]\nname = "programmer_board"\n'
+        '[MY_BOARD]\nopenfpgaloader_board = "programmer_board"\n'
         'fpga.part = "LFE5U-25F-6BG381C"\nlpf = "pins.lpf"\n'
     )
     return boards
@@ -44,7 +44,7 @@ def test_custom_board_resolves_from_design_and_survives_reload(tmp_path):
     assert settings.fpga is not None
     assert settings.fpga.part == "LFE5U-25F-6BG381C"
     assert settings.custom_boards_file == boards
-    assert settings.board_data()["name"] == "programmer_board"
+    assert settings.board_data()["openfpgaloader_board"] == "programmer_board"
 
     reloaded = Nextpnr.Settings.from_input(
         settings.model_dump(mode="json"), design_root=tmp_path, runner_cwd=tmp_path.parent
@@ -142,7 +142,7 @@ def test_dependency_adopts_a_custom_board_pair_without_changing_the_given_settin
 def test_invalid_combined_board_pair_leaves_dependency_settings_unchanged(tmp_path):
     boards = board_file(tmp_path)
     settings = _LegacyParent.from_input(
-        {"board": "ULX3S_85F", "nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
+        {"board": "ulx3s_85f", "nextpnr": {"board": "MY_BOARD", "custom_boards_file": str(boards)}},
         design_root=tmp_path,
     )
     before = settings.model_dump()
@@ -208,7 +208,7 @@ def test_unreadable_bundled_database_is_named(monkeypatch):
 
     monkeypatch.setattr(xeda.board, "toml_loads", unreadable)
     with pytest.raises(FlowSettingsError, match="Cannot read the bundled board database"):
-        Nextpnr.Settings.from_input({"board": "ULX3S_85F"})
+        Nextpnr.Settings.from_input({"board": "ulx3s_85f"})
 
 
 def nextpnr_args(tmp_path: Path, settings: Nextpnr.Settings, monkeypatch) -> list[str]:
@@ -281,18 +281,18 @@ def test_nextpnr_resolves_bundled_board_lpf_against_bundled_database(tmp_path, m
 # --- A custom database may be TOML or YAML: the same boards, the same behavior ---
 
 BOARD_TOML = (
-    '[MY_BOARD]\nname = "programmer_board"\n'
+    '[MY_BOARD]\nopenfpgaloader_board = "programmer_board"\n'
     'fpga.part = "LFE5U-25F-6BG381C"\nlpf = "pins.lpf"\n'
-    '[OTHER_BOARD]\nname = "other"\nfpga.part = "LFE5U-45F-6BG381C"\nlpf = "pins.lpf"\n'
+    '[OTHER_BOARD]\nopenfpgaloader_board = "other"\nfpga.part = "LFE5U-45F-6BG381C"\nlpf = "pins.lpf"\n'
 )
 BOARD_YAML = """\
 MY_BOARD:
-  name: programmer_board
+  openfpgaloader_board: programmer_board
   fpga:
     part: LFE5U-25F-6BG381C
   lpf: pins.lpf
 OTHER_BOARD:
-  name: other
+  openfpgaloader_board: other
   fpga:
     part: LFE5U-45F-6BG381C
   lpf: pins.lpf
@@ -324,7 +324,7 @@ def test_the_same_database_in_toml_and_yaml_is_the_same_board(tmp_path):
         )
     assert data["boards.toml"] == data["boards.yaml"] == data["boards.yml"]
     assert data["boards.toml"][0] == {
-        "name": "programmer_board",
+        "openfpgaloader_board": "programmer_board",
         "fpga": {"part": "LFE5U-25F-6BG381C"},
         "lpf": "pins.lpf",
     }
@@ -438,9 +438,9 @@ def test_a_yaml_database_goes_through_the_strict_loader(tmp_path):
     assert '`10` is a number in xeda YAML (YAML 1.2): write `"10"` for text' in message
     # Where text fits, it stays the text that was written.
     path = tmp_path / "text.yaml"
-    path.write_text(prefix + "    package: on\n  name: no\n")
+    path.write_text(prefix + "    package: on\n  openfpgaloader_board: no\n")
     board = xeda.board.get_board_data("MY_BOARD", path)
-    assert board["name"] == "no"
+    assert board["openfpgaloader_board"] == "no"
     assert board["fpga"]["package"] == "on"
 
 
@@ -450,7 +450,7 @@ def test_the_yaml_reader_is_the_shared_strict_loader(tmp_path, monkeypatch):
     seen = []
     load_yaml = xeda.board.load_yaml
     monkeypatch.setattr(xeda.board, "load_yaml", lambda p: seen.append(p) or load_yaml(p))
-    assert xeda.board.get_board_data("MY_BOARD", path)["name"] == "programmer_board"
+    assert xeda.board.get_board_data("MY_BOARD", path)["openfpgaloader_board"] == "programmer_board"
     assert seen == [path]
 
 
@@ -546,9 +546,9 @@ def test_a_missing_yaml_database_is_named(tmp_path):
 
 
 def test_the_bundled_database_is_still_toml_and_loads():
-    assert xeda.board.get_board_data("ULX3S_85F")["fpga"] == {"part": "LFE5U-85F-6BG381C"}
+    assert xeda.board.get_board_data("ulx3s_85f")["fpga"] == {"part": "LFE5U-85F-6BG381C"}
     names = [row["board"] for row in introspect.boards_info()]
-    assert "ULX3S_85F" in names
+    assert "ulx3s_85f" in names
     assert names == sorted(names)
     assert xeda.board.read_board_database(
         Path(xeda.board.__file__).parent / "data" / "boards.toml"

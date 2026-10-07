@@ -174,12 +174,14 @@ flows:
 build under a run root generates the die's chip database into `<run root>/.cache/xilinx-chipdb/`
 (about a minute and 3.5 GB of memory for an `xc7a100t`); every later launch, of any design
 there, reuses it. `chipdb` names an existing database file instead; `prjxray_db` another
-Project X-Ray root. `board: ARTY_A7_100T` (or `ARTY_A7_35T`) gives the part and, with no `Xdc`
+Project X-Ray root. A bundled board has a lower-case name and is found by it in any letter case
+(`ARTY_A7_100T` is `arty_a7_100t`); `xeda list-boards` lists them with their name in openFPGALoader.
+`board: arty_a7_100t` (or `arty_a7_35t`) gives the part and, with no `Xdc`
 source, Digilent's pin names (`CLK100MHZ`, `led[0]`, ...), which the design's ports must then use.
-`BASYS_3` (`xc7a35tcpg236-1`) and `STLV7325_V2` (`xc7k325tffg676-2`) do the same, for the clock,
-every user LED, the user buttons and the UART only. `BASYS_3`: `clk`, `led[15:0]`, `btnC` (the reset
+`basys_3` (`xc7a35tcpg236-1`) and `stlv7325_v2` (`xc7k325tffg676-2`) do the same, for the clock,
+every user LED, the user buttons and the UART only. `basys_3`: `clk`, `led[15:0]`, `btnC` (the reset
 button), `btnU`, `btnL`, `btnR`, `btnD`, `RsRx`, `RsTx`; LEDs and buttons are active high.
-`STLV7325_V2`: `clk_p` and `clk_n` (a differential clock: the design needs an `IBUFDS` and a
+`stlv7325_v2`: `clk_p` and `clk_n` (a differential clock: the design needs an `IBUFDS` and a
 `BUFG`), `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx`, `uart_tx`; LEDs and
 buttons are active low. Neither file has a `create_clock`: give the clock in the flow settings.
 `openfpgaloader` loads SRAM by default; `write_flash` programs flash and `verify` needs it.
@@ -197,7 +199,11 @@ without a period is a declaration; it does not supply a physical timing constrai
 `custom_boards_file` is your own board database, used instead of the bundled one (which stays
 TOML): TOML or YAML by suffix (`.toml`, `.yaml`, `.yml`; any other suffix is an error), read as
 YAML 1.2 like every YAML file xeda reads. A relative path resolves against the design directory,
-and a board's local `lpf` against the database file's directory.
+and a board's local `lpf` against the database file's directory. Its board names are
+case-sensitive, as written. A board's entry has `fpga`, `lpf` or `xdc`, and optionally
+`openfpgaloader_board`, the board's name in openFPGALoader (the former `name` key is an error that
+says so). `openfpgaloader` passes it as `--board` whenever `board` is set; a `cable` takes
+precedence, and a board without one adds no `--board`.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
 `platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree: disjoint leaves combine; different values for one leaf fail,

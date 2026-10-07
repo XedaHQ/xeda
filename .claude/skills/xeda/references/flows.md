@@ -143,7 +143,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 *runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_synth` | programs a device and can only end a chain*
 
-Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
+Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board database), when it has one, plus the FPGA part. It always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
 Required settings: `fpga`
 

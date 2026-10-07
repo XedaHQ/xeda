@@ -57,7 +57,7 @@ class Board:
 
 
 BASYS3 = Board(
-    "BASYS_3",
+    "basys_3",
     "xc7a35tcpg236-1",
     "basys3",
     "boards/basys3/board.xdc",
@@ -77,7 +77,7 @@ BASYS3 = Board(
     level="high",
 )
 STLV7325 = Board(
-    "STLV7325_V2",
+    "stlv7325_v2",
     "xc7k325tffg676-2",
     "stlv7325",
     "boards/stlv7325_v2/board.xdc",
@@ -114,11 +114,11 @@ def _pins(text: str) -> dict[str, dict[str, str]]:
 @BY_BOARD
 def test_the_board_is_in_the_bundled_database(board):
     data = get_board_data(board.id)
-    assert data["name"] == board.loader
+    assert data["openfpgaloader_board"] == board.loader
     assert data["fpga"] == {"part": board.part}
     assert data["xdc"] == board.xdc
     (row,) = [row for row in boards_info() if row["board"] == board.id]
-    assert row["name"] == board.loader and row["xdc"] == board.xdc
+    assert row["openfpgaloader_board"] == board.loader and row["xdc"] == board.xdc
     assert row["fpga"] == {"part": board.part}
 
 
@@ -135,8 +135,8 @@ def test_the_board_gives_a_complete_xilinx_part(board):
 
 def test_the_database_has_no_alias_and_no_unversioned_stlv_entry():
     names = {row["board"] for row in boards_info()}
-    assert {"BASYS_3", "STLV7325_V2"} <= names
-    assert not {"BASYS3", "STLV7325", "STLV7325_V1"} & names
+    assert {"basys_3", "stlv7325_v2"} <= names
+    assert not {"basys3", "stlv7325", "stlv7325_v1"} & names
     with pytest.raises(FlowSettingsError, match="Unknown board"):
         WithFpgaBoardSettings.from_input({"board": "STLV7325"})
 
@@ -192,8 +192,8 @@ def test_the_pin_file_has_one_group_per_kind_of_port_in_order(board):
 def test_the_vocabulary_has_every_led_and_button_and_the_uart(board):
     leds = [port for port in board.ports if port.startswith("led[")]
     assert leds == [f"led[{index}]" for index in range(len(leds))]
-    assert len(leds) == {"BASYS_3": 16, "STLV7325_V2": 8}[board.id]
-    assert len(board.groups["Buttons"]) == {"BASYS_3": 5, "STLV7325_V2": 2}[board.id]
+    assert len(leds) == {"basys_3": 16, "stlv7325_v2": 8}[board.id]
+    assert len(board.groups["Buttons"]) == {"basys_3": 5, "stlv7325_v2": 2}[board.id]
     assert len(board.groups["UART"]) == 2
     assert board.reset in board.groups["Buttons"]
 

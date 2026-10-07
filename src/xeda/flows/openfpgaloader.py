@@ -53,7 +53,8 @@ class Openfpgaloader(FpgaSynthFlow):
     any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` ->
     `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those
     stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted
-    by `cable`, else by the `board`'s programmer name, plus the FPGA part. It always runs, since
+    by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board
+    database), when it has one, plus the FPGA part. It always runs, since
     it changes a device rather than a file, and it is the only flow here that touches hardware.
     """
 
@@ -152,7 +153,7 @@ class Openfpgaloader(FpgaSynthFlow):
         if ss.board:
             board_data = ss.board_data()
             if board_data:
-                board_name = board_data.get("name")
+                board_name = board_data.get("openfpgaloader_board")
         assert ss.fpga is not None
         args = ["--bitstream", self.inputs.bitstream]
         if ss.cable:

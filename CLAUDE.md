@@ -1096,6 +1096,21 @@ and `test_nvc.py` simulate the examples in place.
 - `platforms/` - ASIC PDK descriptions (asap7, nangate45, sky130hd/hs) for OpenROAD/DC;
   `board.py` + `data/boards.toml` for FPGA boards.
 
+**Board names: bundled ones are lower case and found in any letter case; custom ones are exact.**
+`data/boards.toml` names every board in lower case (`ulx3s_85f`, `arty_a7_100t`, `basys_3`, ...),
+and `board.bundled_boards` refuses a database with any other name, so two names that differ only
+in case cannot exist (`tests/test_boards.py`). `get_board_data` lowers the name for a lookup in
+the bundled database and looks it up as written in a custom one, and `canonical_board_name` is
+what a validated `board` is stored as -- in the validator and in `__setattr__`, since a
+`before` validator's write to the assigned field does not stick -- so every spelling is one
+setting, one run identity and one plan. The resolver compares two nodes' `board` leaves
+ignoring case unless a node of the group names a custom database (`resolver._agree`). A custom
+database and every file name are case-sensitive, as written. A board entry's optional
+`openfpgaloader_board` is the board's name in openFPGALoader (`--board`, from its `src/board.hpp`;
+text when given, and every bundled board has one); `openfpgaloader` passes it whenever `board` is
+set, a `cable` first, and a board without one adds no `--board`. The former key `name` is an error
+naming it (`WithFpgaBoardSettings._fpga_validate`).
+
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
 `custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to
 the design root. It is TOML or YAML, chosen by its suffix (`board.read_board_database`,

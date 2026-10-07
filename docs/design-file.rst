@@ -456,12 +456,12 @@ One design file can describe the design for several boards. Each entry of ``targ
         sources: [arty.xdc]
         defines: {CLK_HZ: 100000000}
         flows:
-          nextpnr: {board: ARTY_A7_100T}
+          nextpnr: {board: arty_a7_100t}
       ulx3s:
         sources: [ulx3s.lpf]
         defines: {CLK_HZ: 25000000}
         flows:
-          nextpnr: {board: ULX3S_85F}
+          nextpnr: {board: ulx3s_85f}
 
 .. code-block:: bash
 

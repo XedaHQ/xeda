@@ -1604,7 +1604,7 @@ def test_a_remote_run_programs_a_prebuilt_bitstream_with_the_worker_s_fake_loade
         rtl={"sources": ["top.v", {"file": "built.bit", "type": "Bitstream"}], "top": "top"},
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    settings = ["board=ULX3S_85F"]
+    settings = ["board=ulx3s_85f"]
     expected = runner.resolve(get_flow_class("openfpgaloader"), design, settings)
     assert [node.name for node in expected.nodes] == ["openfpgaloader"]
     results = runner.run_remote(design, "openfpgaloader", "fake", flow_settings=settings)

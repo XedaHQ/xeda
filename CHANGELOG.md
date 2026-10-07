@@ -203,12 +203,12 @@ All notable changes to this project will be documented in this file.
   change of the installed database runs it again. This closes a known limit: a change of the
   installed data alone, with `fpga-as` unchanged, was not noticed. The first launch hashes about
   80 MB in 290 files (0.2 s of processor time); later launches compare metadata (0.04 s).
-- The bundled boards `BASYS_3` (Digilent Basys 3, `xc7a35tcpg236-1`, loader name `basys3`) and
-  `STLV7325_V2` (`xc7k325tffg676-2`, loader name `stlv7325`). Each has a pin file for its clock,
-  every user LED, the user buttons and the USB-UART. `BASYS_3` uses Digilent's port names (`clk`,
-  `led[15:0]`, `btnC` as the reset button, `RsRx`, `RsTx`); `STLV7325_V2` uses `clk_p`, `clk_n`,
-  `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx` and `uart_tx`. The files name
-  their sources, license, LED and button polarity, and have no `create_clock`.
+- The bundled boards `basys_3` (Digilent Basys 3, `xc7a35tcpg236-1`, openFPGALoader name
+  `basys3`) and `stlv7325_v2` (`xc7k325tffg676-2`, openFPGALoader name `stlv7325`). Each has a pin
+  file for its clock, every user LED, the user buttons and the USB-UART. `basys_3` uses Digilent's
+  port names (`clk`, `led[15:0]`, `btnC` as the reset button, `RsRx`, `RsTx`); `stlv7325_v2` uses
+  `clk_p`, `clk_n`, `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx` and `uart_tx`.
+  The files name their sources, license, LED and button polarity, and have no `create_clock`.
 - **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
   every file of its `sources` (a directory counts as every file in it, outside the design root
@@ -327,6 +327,21 @@ All notable changes to this project will be documented in this file.
   stopped; `ProcessTimeout`) and `tee`.
 
 ### Changed
+- **Bundled boards have lower-case names and are found in any letter case.** `xeda list-boards`
+  shows `ulx3s_85f`, `arty_a7_100t`, `arty_a7_35t`, `basys_3` and `stlv7325_v2`, and
+  `board: ARTY_A7_100T`, `arty_a7_100t` and `Arty_A7_100T` select the same board, which the
+  settings store as `arty_a7_100t`: every spelling is one setting and one run identity (a design
+  that named a bundled board in capitals runs once more, under the new identity). Two nodes of a
+  chain that name a bundled board in different letter case agree. The board names in a custom
+  database (`custom_boards_file`) and file names stay case-sensitive, exactly as written. The
+  bundled database is refused if a board name in it is not lower case, so two names that differ
+  only in case cannot exist. **Breaking: a board entry's `name` was renamed
+  `openfpgaloader_board`**, the board's name in openFPGALoader (`--board`), in the database and in
+  `xeda list-boards --json`. It is optional, and an entry that still has `name` fails with
+  `` `name` was removed: use `openfpgaloader_board` ``. Every bundled board has the name that
+  openFPGALoader's own board list gives it (`basys_3` is `basys3`, `ulx3s_85f` is `ulx3s`), and
+  `openfpgaloader` passes it as `--board` whenever `board` is set. A `cable` takes precedence, and a
+  board without the field adds no `--board`.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

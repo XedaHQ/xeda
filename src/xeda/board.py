@@ -18,6 +18,8 @@ __all__ = [
     "BOARD_DATABASE_FORMATS",
     "WithFpgaBoardSettings",
     "board_database_format",
+    "bundled_boards",
+    "canonical_board_name",
     "get_board_data",
     "read_board_database",
 ]
@@ -87,38 +89,64 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
     return data
 
 
+def bundled_boards() -> Dict[str, Any]:
+    """The boards xeda bundles (`xeda/data/boards.toml`), by name.
+
+    A bundled board is stored under a lower-case name and found by its name in any letter case
+    (`get_board_data`). A name that is not lower case would make that lookup ambiguous, so such a
+    database is refused: two names that differ only in case cannot both be in it.
+    """
+    boards = toml_loads(files("xeda.data").joinpath("boards.toml").read_text())
+    odd = [name for name in boards if name != name.lower()]
+    if odd:
+        raise ValueError(
+            "The bundled board database xeda/data/boards.toml must name its boards in lower case: "
+            + ", ".join(map(repr, odd))
+        )
+    return boards
+
+
+def canonical_board_name(
+    board: Any, custom_boards_file: Union[None, str, os.PathLike] = None
+) -> Any:
+    """The name a selected board is stored under, so that every spelling is one setting.
+
+    A bundled board answers to its name in any letter case and is stored in lower case. A board of
+    a custom database is stored as written: its names are case-sensitive. A name no board answers
+    to is returned as written, so the error that names it shows what was given.
+    """
+    if custom_boards_file or not isinstance(board, str):
+        return board
+    return board.lower() if board.lower() in bundled_boards() else board
+
+
 def get_board_data(
     board: Optional[str], custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Optional[Dict[str, Any]]:
     """The entry for `board`: from `custom_boards_file` (TOML or YAML), else from the bundled
-    (TOML) database."""
+    (TOML) database.
+
+    A bundled board is found by its name in any letter case. The names in a custom database are
+    case-sensitive: `board` must be written exactly as the database writes it.
+    """
     if not board:
         return None
-    boards_data = {}
     if custom_boards_file:
         log.debug("Retrieving board data for %s from %s", board, custom_boards_file)
         boards_data = read_board_database(custom_boards_file)
+        name = board
+        database = str(custom_boards_file)
     else:
-        res = files("xeda.data").joinpath("boards.toml")
-        boards_data = toml_loads(res.read_text())
-        if boards_data and board in boards_data:
-            log.info("Retrieved board data for %s", board)
-        # else:
-        #     log.error(
-        #         "Unable to get resource %s.%s. Please check xeda installation.",
-        #         "xeda.data",
-        #         "boards.toml",
-        #     )
-    if board not in boards_data:
-        database = (
-            str(custom_boards_file)
-            if custom_boards_file
-            else "the bundled board database xeda/data/boards.toml"
-        )
-        suggestions = get_close_matches(board, boards_data)
+        boards_data = bundled_boards()
+        name = board.lower() if isinstance(board, str) else board
+        database = "the bundled board database xeda/data/boards.toml"
+        if name in boards_data:
+            log.info("Retrieved board data for %s", name)
+    if name not in boards_data:
+        suggestions = get_close_matches(name, boards_data) if isinstance(name, str) else []
         hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
         raise ValueError(f"Unknown board {board!r} in {database}{hint}")
-    return boards_data[board]
+    return boards_data[name]
 
 
 #: How to give a flow whose settings take a `board` its device, for `Flow.required_settings`.
@@ -133,13 +161,15 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     board: Optional[str] = Field(
         None,
         description="Target development board. Fills in `fpga` (and board-specific constraint "
-        "files) from the board database. See `xeda list-boards`.",
+        "files) from the board database. See `xeda list-boards`. A bundled board is found by its "
+        "name in any letter case; a name in a custom database is case-sensitive.",
     )
     custom_boards_file: Path | None = Field(
         None,
         description="Path to a board database, in TOML or YAML (by the file's suffix: `.toml`, "
         "`.yaml` or `.yml`), used instead of the bundled database. Relative paths are resolved "
-        "against the design directory; a board's local `lpf` resolves relative to this file.",
+        "against the design directory; a board's local `lpf` resolves relative to this file. "
+        "The board names in it are case-sensitive.",
     )
 
     def board_data(self) -> dict[str, Any] | None:
@@ -183,6 +213,8 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
             board_derived_fpga = self.fpga == self._board_fpga(self.board_data())
         if name == "custom_boards_file":
             value = self._resolve_boards_path(value, self.context)
+        elif name == "board":
+            value = canonical_board_name(value, self.custom_boards_file)
         super().__setattr__(name, value)
         if board_derived_fpga:
             # A board or database change invalidates the device obtained from the old board.
@@ -219,11 +251,24 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 )
             if not isinstance(board_data, dict):
                 raise ValueError(f"Board {board_name!r} must be a table in {database}")
+            if "name" in board_data:
+                raise ValueError(
+                    f"Board {board_name!r} in {database}: `name` was removed: use "
+                    "`openfpgaloader_board`, the board's name in openFPGALoader"
+                )
+            loader = board_data.get("openfpgaloader_board")
+            if loader is not None and not (isinstance(loader, str) and loader.strip()):
+                raise ValueError(
+                    f"Board {board_name!r} in {database}: `openfpgaloader_board` is the board's "
+                    f"name in openFPGALoader, as text, not {loader!r}; leave it out for a board "
+                    "openFPGALoader does not know"
+                )
+            values["board"] = canonical_board_name(board_name, custom)
             if fpga:
                 return values
             if board_data:
                 board_fpga = cls._board_fpga(board_data)
-                log.info("FPGA info for board %s: %s", board_name, str(board_fpga))
+                log.info("FPGA info for board %s: %s", values["board"], str(board_fpga))
                 if board_fpga:
                     values["fpga"] = board_fpga
         return values

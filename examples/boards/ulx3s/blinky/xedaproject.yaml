@@ -25,11 +25,11 @@ design:
         port: 'clk_25mhz'
 flows:
   openfpgaloader:
-    board: 'ULX3S_85F'
+    board: 'ulx3s_85f'
     clock:
       period: 40 # 25 MHz
   nextpnr:
-    board: 'ULX3S_85F'
+    board: 'ulx3s_85f'
     clock:
       period: 40 # 25 MHz
     detailed_timing_report: false

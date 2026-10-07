@@ -22,7 +22,7 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_args
 
-from importlib_resources import as_file, files
+from importlib_resources import files
 from pydantic import BaseModel
 
 from .dataclass import PydanticUndefined, input_names, written_role
@@ -895,11 +895,11 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
 
 
 def boards_info() -> List[Dict[str, Any]]:
-    """FPGA boards shipped with xeda (`xeda/data/boards.toml`)."""
+    """FPGA boards shipped with xeda (`xeda/data/boards.toml`), by their lower-case names."""
+    from .board import bundled_boards
+
     try:
-        res = files("xeda.data").joinpath("boards.toml")
-        with as_file(res) as path:
-            data = toml_load(path)
+        data = bundled_boards()
     except (FileNotFoundError, ModuleNotFoundError) as e:  # pragma: no cover
         log.warning("Could not load bundled boards.toml: %s", e)
         return []

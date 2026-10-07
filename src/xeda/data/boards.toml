@@ -1,25 +1,28 @@
-## board name _ variant _ version (no dots or otherwise surround with double quotes)
-[ULX3S_85F]
-name = 'ulx3s'
+## Board names are lower case: a bundled board is found by its name in any letter case.
+## A name is <board>_<variant>_<version> (no dots, or surround the name with double quotes).
+## `openfpgaloader_board` is the board's name in openFPGALoader (its `--board` option), from the
+## board list in openFPGALoader's src/board.hpp. A board it does not know has none.
+[ulx3s_85f]
+openfpgaloader_board = 'ulx3s'
 fpga.part = 'LFE5U-85F-6BG381C'
 lpf = 'boards/ulx3s/board.lpf'
 
-[ARTY_A7_100T]
-name = 'arty_a7_100t'
+[arty_a7_100t]
+openfpgaloader_board = 'arty_a7_100t'
 fpga.part = 'xc7a100tcsg324-1'
 xdc = 'boards/arty/arty_a7_100t.xdc'
 
-[ARTY_A7_35T]
-name = 'arty_a7_35t'
+[arty_a7_35t]
+openfpgaloader_board = 'arty_a7_35t'
 fpga.part = 'xc7a35tcsg324-1'
 xdc = 'boards/arty/arty_a7_35t.xdc'
 
-[BASYS_3]
-name = 'basys3'
+[basys_3]
+openfpgaloader_board = 'basys3'
 fpga.part = 'xc7a35tcpg236-1'
 xdc = 'boards/basys3/board.xdc'
 
-[STLV7325_V2]
-name = 'stlv7325'
+[stlv7325_v2]
+openfpgaloader_board = 'stlv7325'
 fpga.part = 'xc7k325tffg676-2'
 xdc = 'boards/stlv7325_v2/board.xdc'
