@@ -17,6 +17,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
+import xeda.deliver as deliver
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
@@ -457,6 +458,46 @@ def test_two_names_of_one_file_that_only_delivery_can_tell_are_reported_as_two_d
     assert "changed while the run went on" not in message
     assert not refused.value.before_run, "only delivery could tell"
     assert (a / "x.out").read_text() == "a\n", "what the first delivered stays"
+
+
+@pytest.mark.parametrize("how", ["the same file", "another case of it", "a file inside it"])
+def test_an_outputs_to_file_the_last_run_predicts_is_compared_before_any_question(
+    world, tmp_path, monkeypatch, how
+):
+    """Before the run, `--outputs-to` is expected to deliver the files the requested flow's last
+    run made. One that a producer's destination equals (as the file system compares names) or
+    contains is refused with the other refusals, before the producers' questions: a user asked
+    whether to replace a file would be refused for it after the run."""
+    first = _launch(
+        world, own={"report": str(world.user / "first.rpt")}, delivers={"netlist": "$PWD/n.v"}
+    )
+    assert first.succeeded
+    out = world.user / "got"
+    (out / "outputs").mkdir(parents=True)
+    predicted = out / "outputs" / "d.rpt"  # `--outputs-to`'s copy of the report
+    predicted.write_text("the user's file\n")
+    destination = {
+        "the same file": predicted,
+        "another case of it": predicted.with_name("D.RPT"),
+        "a file inside it": predicted / "inside",
+    }[how]
+    if how == "another case of it":
+        monkeypatch.setattr(deliver, "_ignores_case", lambda directory: True)
+    RUNS.clear()
+    runner = _runner(tmp_path, outputs_to=out)
+    asked = _asking(runner)
+    with pytest.raises(DeliveryError) as refused:
+        _launch(
+            world,
+            runner,
+            own={"report": str(world.user / "first.rpt")},
+            delivers={"netlist": str(destination)},
+        )
+    message = str(refused.value)
+    assert "`flows.__delivers.netlist`" in message and "`--outputs-to` (outputs/d.rpt)" in message
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert asked == [] and RUNS == [], "a question was asked, or a tool ran, before the refusal"
+    assert predicted.read_text() == "the user's file\n"
 
 
 def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_file_in_the_way(world):

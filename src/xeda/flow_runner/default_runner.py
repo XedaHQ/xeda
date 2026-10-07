@@ -1245,9 +1245,11 @@ class FlowLauncher:
         comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
         earlier flow. First comes what no answer could allow (`--outputs-to`, and
         `Deliveries.refuse`), for every flow, the requested flow included -- and a destination
-        that two deliveries name (`refuse_shared_destinations`: every named delivery of the
-        launch is known from the plan); then the questions of the producers, in the order they
-        run, each asked once. The requested flow asks its own at its turn: that is the start of
+        that two deliveries name, or one inside another (`refuse_shared_destinations`: every
+        destination known before the run, which is every named delivery of the launch and the
+        files `--outputs-to` is expected to deliver from the requested flow's last run; the
+        files that only this run reveals are compared once it has run); then the questions of
+        the producers, in the order they run, each asked once. The requested flow asks its own at its turn: that is the start of
         its own launch, before it launches its producers, so before any tool runs. A producer
         keeps the object it checked and checks again with it at its turn: that finds the record
         this check anchored, so the destination is read once in the launch. At its turn, under
@@ -1268,14 +1270,14 @@ class FlowLauncher:
         copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         for planned in plan.nodes:
             if planned.node_key == requested.node_key:
-                named = deliveries
+                known = [*deliveries, *predicted]
             else:
-                named = split_deliveries(planned.settings, design.name)
-                if named:
+                known = split_deliveries(planned.settings, design.name)
+                if known:
                     ahead[planned.node_key] = self._deliveries_of(
-                        planned.run_path, named, planned.name
+                        planned.run_path, known, planned.name
                     )
-            copies += [(planned.name, d, d.destination) for d in named]
+            copies += [(planned.name, d, d.destination) for d in known]
         for producer in ahead.values():
             producer.refuse()
         refuse_shared_destinations(copies, before_run=True)

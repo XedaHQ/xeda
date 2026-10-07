@@ -552,6 +552,39 @@ def test_a_stage_whose_destination_lies_inside_another_s_is_refused_before_any_t
     assert not (tmp_path / "x").exists()
 
 
+def test_an_outputs_to_file_the_last_run_predicts_is_refused_before_any_tool_or_question(
+    tmp_path, toolchain
+):
+    """`--outputs-to out` is expected to deliver nextpnr's configuration as `out/config.txt`, as
+    its last run made it. The synthesis netlist is given that very destination, where the user has
+    a file: the refusal names both, rather than the question whether to replace the file, which
+    the collision would refuse after both tools ran."""
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    first, _ = _xeda("run", "yosys_fpga+nextpnr", design)
+    assert first.exit_code == 0, first.output
+    started = [(call, call.read_text()) for call in _every_call(tmp_path)]
+    assert started, "the first launch ran the tools"
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "config.txt").write_text("the user's file\n")
+    result, document = _xeda(
+        "run",
+        "yosys_fpga+nextpnr",
+        design,
+        "--outputs-to",
+        out,
+        "-s",
+        f"flows.yosys_fpga.netlist_verilog={out / 'config.txt'}",
+    )
+    assert result.exit_code != 0 and document["success"] is False
+    error = document["error"]
+    assert error["type"] == "DeliveryError", error
+    assert "`flows.yosys_fpga.netlist_verilog` and `--outputs-to` (config.txt)" in error["message"]
+    assert [(call, call.read_text()) for call in _every_call(tmp_path)] == started, "a tool ran"
+    assert (out / "config.txt").read_text() == "the user's file\n"
+    assert {node["state"] for node in document["nodes"]} == {"not run"}
+
+
 def _chipdb_generator(tmp_path: Path) -> dict:
     """The one call that generated the chip database nextpnr was handed, under the run root."""
     (record,) = (tmp_path / "xeda_run/.cache/xilinx-chipdb").glob("*/fake_fpga.calls.jsonl")

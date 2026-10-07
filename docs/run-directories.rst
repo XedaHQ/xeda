@@ -566,10 +566,11 @@ destination there is refused -- ``--outputs-to`` naming one up front -- even whe
 or inside any run root -- a bare name would otherwise put an output back into its own run
 directory. Two outputs never go to one destination. When two deliverable settings name the same
 file -- two settings of one flow, or of two flows of the launch -- Xeda refuses the launch before
-any tool runs, and the message names both settings. ``--outputs-to`` follows the same rule, but
-the artifacts it delivers are known only after the run: if one of them would land on a
-destination another output names, Xeda refuses the launch once the requested flow has run, before
-it copies anything. Names are compared as the file system compares them: ``Out.v`` and ``out.v``
+any tool runs, and the message names both settings. ``--outputs-to`` follows the same rule.
+Before the run, Xeda expects it to deliver the files that the requested flow's last run made, and
+refuses the launch then if one of them would land on a destination another output names. A file
+that only this run reveals is compared once the requested flow has run, before Xeda copies
+anything. Names are compared as the file system compares them: ``Out.v`` and ``out.v``
 are one destination in a directory that ignores letter case (the default on macOS and Windows),
 and a destination inside another (``x`` and ``x/y``) is refused too. If two names still reach one
 file, Xeda finds it when it delivers the second: it says that two settings name the file, and the

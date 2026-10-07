@@ -17,11 +17,13 @@ deletes anything and never writes through a symbolic link (a temporary file in t
 destination's directory, renamed into place). Two deliveries of one launch never go to one
 destination, nor one inside another (`refuse_shared_destinations`, which compares names as their
 file system does, letter case included where a directory ignores it): the launch refuses it,
-naming both, before any tool runs for the destinations the settings name, and before the first
-copy for those a run reveals. Two names that still reach one file are found by the file itself
-when the second delivery meets the first's (`DeliveredFiles`). An existing file is replaced only when it is xeda's own earlier delivery, unchanged, as its record
-says (`delivery_record`: beside the run directory, in the run root); anything else needs the
-user's confirmation -- `overwrite_outputs`, or a yes from the launcher's `confirm_overwrite` (the
+naming both, before any tool runs for every destination known then -- the settings' and the files
+`--outputs-to` is expected to deliver from the requested flow's last run -- and before the first
+copy for those only a run reveals. Two names that still reach one file are found by the file
+itself when the second delivery meets the first's (`DeliveredFiles`). An existing file is
+replaced only when it is xeda's own earlier delivery, unchanged, as its record says
+(`delivery_record`: beside the run directory, in the run root); anything else needs the user's
+confirmation -- `overwrite_outputs`, or a yes from the launcher's `confirm_overwrite` (the
 command line's prompt) -- asked before any tool of
 the launch runs (`Deliveries.check`: the requested flow makes the check of every flow of the plan
 when the launch starts, after every refusal no answer could change, `Deliveries.refuse`). A yes
