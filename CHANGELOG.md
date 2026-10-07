@@ -5,11 +5,14 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- A tool's log (`sim.log` and every other log a flow tees) is now written at its own name while
-  the run goes on, so `tail -f` shows a long simulation as it runs. It was complete only when
-  the run ended. Whatever is at the log's name is removed first (a symbolic link as itself, a hard
-  link without touching the file it shares), and the log is created as a new file, so a log is
-  never written through a link; every other file xeda writes is still complete, then renamed.
+- A tool's log is now written while the run goes on, so `tail -F` shows a long run as it
+  happens. This covers `sim.log` and every other log a flow copies a tool's output to, and the
+  file a tool's output is sent to (Vivado's `<flow>_stdout.log`, for example). A log used to be
+  complete only when the run ended. Xeda now makes the log as a new file, puts it at its name
+  before the tool starts, and writes it line by line. A symbolic link or a hard link that a tool
+  left at the name is replaced and never written through, and a log that cannot be made starts no
+  tool. Each run replaces the log, so use `tail -F`: a `tail -f` keeps following the file of the
+  earlier run. Every other file that Xeda writes is still complete, then renamed.
 - A dockerized run no longer relabels the design directory and the configured mounts for SELinux
   (`:z`), which changed the attributes of your own files. The container now runs with
   `--security-opt label=disable` and every mount as given.

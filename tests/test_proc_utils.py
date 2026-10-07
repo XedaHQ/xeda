@@ -435,8 +435,15 @@ def test_tee_keeps_the_output_of_a_failed_process(tmp_path):
     assert log.read_text().splitlines() == ["why"]
 
 
-def test_a_tee_log_grows_while_the_process_runs(tmp_path):
-    """`tail -f` on a log shows a long run as it goes: the log has its own name from the start."""
+#: The two ways to ask `run_process` for a tool's log: copy the output to a file while showing it
+#: (`tee`), or send it to a file alone (`stdout` given a path, `Tool.redirect_stdout`). One rule
+#: holds for both.
+LOG_ROUTES = pytest.mark.parametrize("route", ["tee", "stdout"])
+
+
+@LOG_ROUTES
+def test_a_tool_log_grows_while_the_process_runs(tmp_path, route):
+    """`tail -F` on a log shows a long run as it goes: the log has its own name from the start."""
     log = tmp_path / "sim.log"
     go = tmp_path / "go"
     child = (
@@ -449,7 +456,7 @@ def test_a_tee_log_grows_while_the_process_runs(tmp_path):
         "print('last', flush=True)\n"
     )
     done = threading.Thread(
-        target=run_process, args=(sys.executable, ["-c", child]), kwargs={"tee": log}
+        target=run_process, args=(sys.executable, ["-c", child]), kwargs={route: log}
     )
     done.start()
     try:
@@ -465,9 +472,20 @@ def test_a_tee_log_grows_while_the_process_runs(tmp_path):
     assert [p.name for p in tmp_path.iterdir() if p.name not in ("sim.log", "go")] == []
 
 
+@LOG_ROUTES
+def test_a_tool_that_is_stopped_leaves_the_log_it_had_written(tmp_path, route):
+    """The partial log of a tool that ran out of time is its diagnostic."""
+    log = tmp_path / "sim.log"
+    child = "import time; print('so far', flush=True); time.sleep(60)"
+    with pytest.raises(ProcessTimeout):
+        run_process(sys.executable, ["-c", child], timeout=1.5, **{route: log})
+    assert log.read_text().splitlines() == ["so far"]
+
+
+@LOG_ROUTES
 @pytest.mark.skipif(os.name != "posix", reason="needs symbolic links")
 @pytest.mark.parametrize("dangling", [False, True], ids=["to a file", "to nothing"])
-def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path, dangling):
+def test_a_link_at_the_name_of_a_tool_log_is_never_followed(tmp_path, route, dangling):
     """A tool may leave a symbolic link at the log's name. The link is replaced as itself by the
     new log: the file it names is not written, and a name it leads to is not created."""
     run, outside = tmp_path / "run", tmp_path / "outside"
@@ -478,7 +496,7 @@ def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path, dangling):
         target.write_text("keep\n")
     log = run / "sim.log"
     log.symlink_to(target)
-    run_process(sys.executable, ["-c", "print('out')"], tee=log)
+    run_process(sys.executable, ["-c", "print('out')"], **{route: log})
     if dangling:
         assert not target.exists()
     else:
@@ -487,9 +505,10 @@ def test_a_link_at_the_name_of_a_tee_log_is_never_followed(tmp_path, dangling):
     assert log.read_text().splitlines() == ["out"]
 
 
+@LOG_ROUTES
 @pytest.mark.skipif(os.name != "posix", reason="needs hard links")
 @pytest.mark.parametrize("fails", [False, True], ids=["passing tool", "failing tool"])
-def test_a_hard_link_at_the_name_of_a_tee_log_is_never_written_through(tmp_path, fails):
+def test_a_hard_link_at_the_name_of_a_tool_log_is_never_written_through(tmp_path, route, fails):
     """A hard link shares its inode with a file that may lie outside the run directory, such as
     the user's own. The log is a new file at that name: writing to it, or to a failed tool's
     partial log, leaves the other file as it was."""
@@ -504,57 +523,96 @@ def test_a_hard_link_at_the_name_of_a_tee_log_is_never_written_through(tmp_path,
     code = "print('out'); raise SystemExit(3)" if fails else "print('out')"
     if fails:
         with pytest.raises(NonZeroExitCode):
-            run_process(sys.executable, ["-c", code], tee=log)
+            run_process(sys.executable, ["-c", code], **{route: log})
     else:
-        run_process(sys.executable, ["-c", code], tee=log)
+        run_process(sys.executable, ["-c", code], **{route: log})
     assert precious.read_text() == "keep\n"
     assert precious.stat().st_nlink == 1
     assert log.read_text().splitlines() == ["out"]
     assert not os.path.samestat(log.stat(), precious.stat())
 
 
-def test_a_second_run_replaces_the_tee_log_of_the_first(tmp_path):
-    log = tmp_path / "sim.log"
-    run_process(sys.executable, ["-c", "print('first run'); print('more')"], tee=log)
-    run_process(sys.executable, ["-c", "print('second run')"], tee=log)
-    assert log.read_text().splitlines() == ["second run"]
-
-
-@pytest.mark.skipif(os.name != "posix", reason="needs symbolic links")
-@pytest.mark.parametrize("dangling", [False, True], ids=["to a file", "to nothing"])
-def test_a_link_made_after_the_log_was_cleared_is_refused_not_followed(
-    tmp_path, monkeypatch, dangling
+@pytest.mark.skipif(os.name != "posix", reason="needs links")
+@pytest.mark.parametrize("planted", ["symbolic link", "dangling symbolic link", "hard link"])
+def test_a_link_made_while_the_log_is_created_is_replaced_not_followed(
+    tmp_path, monkeypatch, planted
 ):
-    """The log's name is cleared, then the file is created exclusively. An entry that appears at
-    the name in between, which xeda did not make, is refused and never written through."""
+    """The log is a new file put at its name by one rename. Whatever appears at the name just
+    before that rename is replaced as a name, and nothing xeda writes reaches what it led to."""
     outside = tmp_path / "outside"
     outside.mkdir()
     target = outside / "precious"
-    if not dangling:
+    if planted != "dangling symbolic link":
         target.write_text("keep\n")
     log = tmp_path / "sim.log"
-    real_open = os.open
+    real_replace = os.replace
+    made = []
 
-    def open_after_a_link_appears(path, *args, **kwargs):
-        if Path(path) == log:
-            log.symlink_to(target)
-        return real_open(path, *args, **kwargs)
+    def replace_after_a_link_appears(source, destination, *args, **kwargs):
+        if Path(destination) == log:
+            if planted == "hard link":
+                os.link(target, log)
+            else:
+                log.symlink_to(target)
+            made.append(planted)
+        return real_replace(source, destination, *args, **kwargs)
 
-    monkeypatch.setattr(os, "open", open_after_a_link_appears)
-    with pytest.raises(FileExistsError):
-        with live_log(log) as f:
-            f.write("out\n")
-    if dangling:
+    monkeypatch.setattr(os, "replace", replace_after_a_link_appears)
+    with live_log(log) as f:
+        f.write("out\n")
+    assert made == [planted]
+    if planted == "dangling symbolic link":
         assert not target.exists()
     else:
         assert target.read_text() == "keep\n"
-    assert log.is_symlink()
+    assert not log.is_symlink()
+    assert log.read_text() == "out\n"
+    assert [p.name for p in tmp_path.iterdir()] == ["outside", "sim.log"]
 
 
-def test_a_tee_log_has_the_permissions_of_a_file_opened_for_writing(tmp_path):
+@LOG_ROUTES
+def test_a_second_run_replaces_the_log_of_the_first(tmp_path, route):
     log = tmp_path / "sim.log"
-    run_process(sys.executable, ["-c", "print('out')"], tee=log)
+    run_process(sys.executable, ["-c", "print('first run'); print('more')"], **{route: log})
+    run_process(sys.executable, ["-c", "print('second run')"], **{route: log})
+    assert log.read_text().splitlines() == ["second run"]
+    assert [p.name for p in tmp_path.iterdir()] == ["sim.log"]
+
+
+@LOG_ROUTES
+def test_a_tool_log_has_the_permissions_of_a_file_opened_for_writing(tmp_path, route):
+    log = tmp_path / "sim.log"
+    run_process(sys.executable, ["-c", "print('out')"], **{route: log})
     assert stat.S_IMODE(log.stat().st_mode) == xeda_utils._CREATE_MODE
+
+
+@LOG_ROUTES
+@pytest.mark.parametrize("obstacle", ["no directory", "a directory at the name"])
+def test_a_tool_is_not_started_when_its_log_cannot_be_created(
+    tmp_path, monkeypatch, route, obstacle
+):
+    """A log that cannot be created stops the run before the tool starts, and leaves nothing of
+    its own behind."""
+    started = []
+    real_popen = subprocess.Popen
+
+    class RecordingPopen(real_popen):  # type: ignore[type-arg, misc]
+        def __init__(self, *args, **kwargs):
+            started.append(args)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", RecordingPopen)
+    if obstacle == "no directory":
+        log = tmp_path / "missing" / "sim.log"
+    else:
+        log = tmp_path / "sim.log"
+        log.mkdir()
+    with pytest.raises(OSError):
+        run_process(sys.executable, ["-c", "print('out')"], **{route: log})
+    assert started == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == (
+        [] if obstacle == "no directory" else ["sim.log"]
+    )
 
 
 @pytest.mark.skipif(

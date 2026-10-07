@@ -21,7 +21,7 @@ from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 import colorama
 import psutil
 
-from .utils import ExecutableNotFound, NonZeroExitCode, live_log, replacing_file
+from .utils import ExecutableNotFound, NonZeroExitCode, live_log
 
 log = logging.getLogger(__name__)
 
@@ -346,10 +346,12 @@ def run_process(
     """Run `executable`; return its captured stdout when `stdout` is True.
 
     `timeout`: stop the process, and those it started, after this many seconds, raising
-    `ProcessTimeout`. `tee`: also write every line of the output to this file, as the
-    line arrives (`utils.live_log`: a new file at the given name, which replaces whatever was
-    there, a link or a hard link included, and is never written through it); the output is then
-    not captured, so `tee` with a `stdout` other than `None` is a `ValueError`.
+    `ProcessTimeout`. `tee`: also write every line of the output to this file; the
+    output is then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`.
+    A `stdout` that is a path sends the output to that file alone. Either file is a tool's log,
+    made as a new file at the given name before the tool starts and written as the output
+    arrives (`utils.live_log`): it replaces whatever was there, a link or a hard link included,
+    and is never written through it, and a log that cannot be made starts no tool.
 
     `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
     called at most once, and only when xeda stopped the process: its time limit expired, or an
@@ -391,28 +393,26 @@ def run_process(
         for pattern, subs in (highlight_rules or {}).items():
             highlight_rules_re[re.compile(pattern)] = subs
 
-        with subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT if merge_stderr else None,
-            env=env,
-            cwd=cwd,
-            universal_newlines=True,
-            bufsize=1,
-            start_new_session=new_session,
-        ) as proc:
+        # The log is made before the tool starts: a log that cannot be made must not start it.
+        with (
+            (
+                live_log(tee, encoding="utf-8") if tee is not None else contextlib.nullcontext()
+            ) as tee_file,
+            subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT if merge_stderr else None,
+                env=env,
+                cwd=cwd,
+                universal_newlines=True,
+                bufsize=1,
+                start_new_session=new_session,
+            ) as proc,
+        ):
             assert proc.stdout is not None, f"Popen for '{cmd_str}' failed: stdout is None!"
             terminal_fd = _stdout_terminal_fd()
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
-                with contextlib.ExitStack() as stack:
-                    tee_file = (
-                        stack.enter_context(live_log(tee, encoding="utf-8"))
-                        if tee is not None
-                        else None
-                    )
-                    proc_stdout = stack.enter_context(
-                        open(proc.stdout.fileno(), errors="ignore", closefd=False)
-                    )
+                with open(proc.stdout.fileno(), errors="ignore", closefd=False) as proc_stdout:
                     for line in proc_stdout:
                         if tee_file is not None:
                             tee_file.write(line)
@@ -443,9 +443,9 @@ def run_process(
 
         def cm_call():
             assert stdout
-            # a link at the name is replaced by the file, not written through; a failed tool's
-            # output is kept, since it says why it failed
-            return replacing_file(stdout, encoding="utf-8", keep_on_error=True)
+            # the tool's log, as with `tee`: a new file at the name, made before the tool starts
+            # and written as it runs; a failed tool's output stays, since it says why it failed
+            return live_log(stdout, encoding="utf-8")
 
         cm = cm_call
     else:
