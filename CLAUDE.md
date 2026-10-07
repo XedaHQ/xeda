@@ -126,7 +126,9 @@ such a link is refused, naming it (`default_runner._free_working_locations`,
 `RunDirectory.inside`); a delivery never expands a link to a directory outside the run directory,
 nor copies from a link that leads nowhere (`deliver._check_link`). xeda never writes through a
 link: a file goes through `utils.replacing_file`/`replacing_copy` (complete, then renamed over the
-target) at the path `RunDirectory.writable` located.
+target) at the path `RunDirectory.writable` located; a tool's log goes through `utils.live_log`
+(renamed onto the name at once, then written as the tool runs), the one exception to
+complete-then-rename (see "Tool execution").
 
 ### Machine-readable CLI (for agents and scripts)
 
@@ -622,6 +624,19 @@ or they won't ship in the wheel.
 `run_process` and `Tool.run` take `timeout` (seconds; on expiry the process -- on POSIX its whole
 process group -- is stopped and `ProcessTimeout` raised; a Docker container is named and
 `docker kill`ed) and `tee` (a file the output is also copied to).
+
+**Every tool log goes through `utils.live_log`**: `tee`, and `stdout=<path>` (`Tool.redirect_stdout`:
+Vivado's `<flow>_stdout.log`, DSE). It makes a temporary file beside the name, `os.replace`s it onto
+the name at once, **before the tool starts** (a log that cannot be made starts nothing), and writes
+every line to that file's own descriptor, line-buffered, so `tail -F` follows a long run. The atomic
+replace is what keeps a link at the name -- symbolic or hard, whose inode may be a file outside the
+run directory -- from ever being written through: it is replaced as a name, never opened by name for
+writing. A failed or timed-out tool leaves the part of its log it wrote. It is the one write that is
+not complete-then-rename, since a log is meant to be watched; add no other.
+
+A dockerized tool runs with `--security-opt label=disable` and every mount exactly as given (never
+`:z`), so xeda never relabels the user's files; a mount that wants relabeling says so in its own
+`Docker.mounts` value.
 
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
@@ -1234,11 +1249,12 @@ dependency must also share `custom_boards_file`.
   a link at that name first, so the write always makes a regular file, and raises in an
   `unlaunched` directory rather than silently deleting through someone else's link. The file
   itself is then written complete-then-renamed (`utils.replacing_file` / `replacing_copy`: a
-  temporary beside the target, `os.replace`d over it only once whole, `keep_on_error` for a failed
-  tool's log, `copy_mode_from` before the commit), so an interrupted write leaves the earlier
-  file. A path that leads out of the run directory -- by `..`, or through a symbolic link a tool
-  may have made -- is refused by `inside` with a `RunDirectoryError` naming the link; a link at a
-  path's own name is removed as itself, never followed. `remove(*paths)`
+  temporary beside the target, `os.replace`d over it only once whole, `copy_mode_from` before the
+  commit), so an interrupted write leaves the earlier file; a tool's log alone is renamed onto its
+  name first and written after (`utils.live_log`, see "Tool execution"). A path that leads out of
+  the run directory -- by `..`, or through a symbolic link a tool may have made -- is refused by
+  `inside` with a `RunDirectoryError` naming the link; a link at a path's own name is removed as
+  itself, never followed. `remove(*paths)`
   deletes each -- file, link (as itself) or directory tree -- inside the directory only, nothing in
   an `unlaunched` one; `clear()` empties the whole directory; `delete()` also removes the directory
   itself. A tool is free to replace a project or a directory by its own name inside the run

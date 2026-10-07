@@ -485,8 +485,15 @@ through a link at its name. A few of Xeda's own writes bypass it directly, becau
 their names for it to protect: ``trace.json`` and the marker touched to read the run directory's
 file-system clock are Xeda's reserved files (the trace and digest modules write and remove them
 directly), and a dockerized tool's own environment file (``.<tool>_docker.env``, written by
-``Tool.execute`` right before the container starts) is written the same way. A tool is free to
-replace a project or
+``Tool.execute`` right before the container starts) is written the same way. A tool's log is the
+exception: Xeda does not write it whole first, because you can read it while the tool runs. This covers
+``sim.log`` and every other log a flow copies a tool's output to, and the file a tool's output is
+sent to (Vivado's ``<flow>_stdout.log``, for example). Before the tool starts, Xeda makes the log
+as a new file and renames it onto the log's name. It then writes each line as it arrives. A
+symbolic link or a hard link at that name, left by a tool, is replaced and never written through,
+and a log that cannot be made starts no tool. A tool that fails or runs out of time leaves the
+part of its log that it wrote. Each run replaces the log, so follow it with ``tail -F``: a
+``tail -f`` keeps following the file it opened. A tool is free to replace a project or
 a directory by its own name inside the run directory (Vivado's ``create_project -force``,
 Quartus's ``project_new -overwrite``, DC's ``write_icc2_files -force``, Diamond's and ISE's new
 project) -- the whole directory is Xeda's, so there is nothing of yours there to lose.

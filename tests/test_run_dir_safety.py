@@ -896,34 +896,6 @@ def test_replacing_file_never_commits_a_partly_written_file(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["settings.json"]
 
 
-def test_replacing_file_keeps_the_original_error_if_the_diagnostic_cannot_be_saved(
-    tmp_path, monkeypatch
-):
-    """`keep_on_error` commits the temporary as a best-effort diagnostic when the body raises;
-    if that commit itself fails (its `os.replace`), the body's own exception must still be what
-    propagates, not the secondary failure -- and the target is left untouched, with no temporary
-    file behind."""
-    from xeda import utils
-
-    class ToolFailed(Exception):
-        pass
-
-    target = tmp_path / "tool.log"
-
-    def _failing_replace(_src: Any, _dst: Any) -> None:
-        raise OSError("disk full")
-
-    monkeypatch.setattr(utils.os, "replace", _failing_replace)
-
-    with pytest.raises(ToolFailed):
-        with utils.replacing_file(target, keep_on_error=True) as f:
-            f.write("why it failed\n")
-            raise ToolFailed("the tool itself failed")
-
-    assert not target.exists()
-    assert sorted(p.name for p in tmp_path.iterdir()) == [], "no temporary left"
-
-
 def test_dump_json_never_commits_a_partly_serialized_document(tmp_path):
     """`settings.json` is written a second time, without a backup, after a run: a value that
     fails to serialize half-way leaves the first document whole."""

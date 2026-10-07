@@ -165,22 +165,23 @@ os.umask(_UMASK)
 _CREATE_MODE = 0o666 & ~_UMASK
 
 
+def _discard(temporary: str) -> None:
+    """Remove a temporary file xeda made beside a name and did not put there."""
+    Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
+
+
 @contextmanager
 def replacing_file(
     path: Union[str, os.PathLike],
     mode: str = "w",
     encoding: Optional[str] = None,
     *,
-    keep_on_error: bool = False,
     copy_mode_from: Optional[Union[str, os.PathLike]] = None,
 ) -> Iterator[IO[Any]]:
     """`open(path, mode)` for writing, except that whatever is at `path` -- a symbolic link
     included -- is replaced, never written through, and only by a complete file: the content goes
     to a temporary file beside `path`, which is renamed over it (`os.replace`) once the body has
-    completed. If the body raises, the temporary file is removed and `path` is left as it was --
-    unless `keep_on_error`, for a failed tool's redirected output, which is its diagnostic; that
-    save is best-effort (an `OSError` while saving it is logged and the original exception
-    propagates).
+    completed. If the body raises, the temporary file is removed and `path` is left as it was.
     `copy_mode_from`, when given, sets the temporary file's permission bits to that path's
     (`shutil.copymode`) before it is committed: a failure to read those bits then leaves `path`
     untouched too, rather than already replaced with the wrong mode."""
@@ -191,26 +192,43 @@ def replacing_file(
     committed = False
     try:
         os.chmod(temporary, _CREATE_MODE)
-        try:
-            with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:
-                yield f
-        except BaseException:
-            if keep_on_error:
-                try:
-                    if copy_mode_from is not None:
-                        shutil.copymode(copy_mode_from, temporary)
-                    os.replace(temporary, target)
-                    committed = True
-                except OSError:
-                    log.warning("Could not save the diagnostic output at %s", target)
-            raise
+        with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:
+            yield f
         if copy_mode_from is not None:
             shutil.copymode(copy_mode_from, temporary)
         os.replace(temporary, target)
         committed = True
     finally:
         if not committed:
-            Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
+            _discard(temporary)
+
+
+@contextmanager
+def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator[IO[str]]:
+    """A tool's log, written at its own name from the start and flushed line by line, so that
+    `tail -F` shows a long run as it goes. (Each run replaces the file at the name: `tail -F`
+    follows the new file, where a `tail -f` keeps the one it opened.) This is the one write xeda
+    does not make complete and then rename: a log is meant to be watched while it grows, and a
+    failed tool's partial log is its diagnostic, kept as it stands.
+
+    The log is a new file, made beside `path` and renamed onto it at once (`os.replace`), before
+    anything is written; every line then goes to that file's own descriptor, never to the name. So
+    whatever was at `path` is replaced as a name and never written through: a symbolic link, or
+    a hard link, whose inode a file outside the run directory may share, which a tool may have
+    left there. A log that cannot be made raises here, so a caller that makes it before starting
+    the tool starts nothing. The caller has located `path` in the run directory
+    (`RunDirectory.writable`)."""
+    target = Path(path)
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
+    try:
+        os.chmod(temporary, _CREATE_MODE)
+        os.replace(temporary, target)
+    except BaseException:
+        os.close(fd)
+        _discard(temporary)
+        raise
+    with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:
+        yield f
 
 
 #: The largest byte count one `copy_file_range` or `sendfile` call is asked for (the kernel

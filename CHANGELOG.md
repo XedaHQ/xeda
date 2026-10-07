@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- A tool's log is now written while the run goes on, so `tail -F` shows a long run as it
+  happens. This covers `sim.log` and every other log a flow copies a tool's output to, and the
+  file a tool's output is sent to (Vivado's `<flow>_stdout.log`, for example). A log used to be
+  complete only when the run ended. Xeda now makes the log as a new file, puts it at its name
+  before the tool starts, and writes it line by line. A symbolic link or a hard link that a tool
+  left at the name is replaced and never written through, and a log that cannot be made starts no
+  tool. Each run replaces the log, so use `tail -F`: a `tail -f` keeps following the file of the
+  earlier run. Every other file that Xeda writes is still complete, then renamed.
+- A dockerized run no longer relabels the design directory and the configured mounts for SELinux
+  (`:z`), which changed the attributes of your own files. The container now runs with
+  `--security-opt label=disable` and every mount as given. The trade-off: on a host where SELinux
+  is enforcing, the container is no longer confined by SELinux. The old `:z` kept the confinement
+  but relabeled your files. To have a mount relabeled, write `:z` in its `Docker.mounts` value,
+  which Xeda passes through as given.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

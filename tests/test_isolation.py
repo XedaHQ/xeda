@@ -826,13 +826,18 @@ REVIEWED_PY_DELETIONS = {
     ("utils.py", "return path.rename(backup_path)"): (1, "a backup, to a name nothing has yet"),
     ("utils.py", "os.replace(temporary, target)"): (
         2,
-        "`replacing_file`: its own complete temporary over the file it replaces (a failed tool's "
-        "log too, with `keep_on_error`), which the caller located (`RunDirectory.writable`)",
+        "`replacing_file`: its own complete temporary over the file it replaces; `live_log`: its "
+        "own new temporary over the log's name at once. The name is one the caller located "
+        "(`RunDirectory.writable`), and a rename replaces what is there as a name, never through it",
     ),
     (
         "utils.py",
         "Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed",
-    ): (1, "`replacing_file`'s own temporary file, which `mkstemp` created"),
+    ): (
+        1,
+        "`_discard`: the temporary file `replacing_file` or `live_log` made with `mkstemp` and "
+        "did not put at the name",
+    ),
     (
         "flow_runner/default_runner.py",
         "p.unlink()  # the link itself, whose target, xeda's, is gone",
@@ -1226,12 +1231,20 @@ REVIEWED_WRITES = [
     (
         "utils.py",
         "os.replace(temporary, target)",
-        "`replacing_file(keep_on_error=True)`: a failed tool's redirected output, kept",
+        "`live_log`: a tool's log, a new temporary renamed onto the log's name at once, so that "
+        "it can be watched while the run goes on. Whatever was at the name is replaced as a name, "
+        "never written through; later lines go to the descriptor of the new file, never to the "
+        "name. Tool logs only: every other file is complete, then renamed",
     ),
     (
         "utils.py",
         'with os.fdopen(fd, mode, encoding=None if "b" in mode else encoding) as f:',
         "`replacing_file`: the temporary file `mkstemp` just created",
+    ),
+    (
+        "utils.py",
+        'with os.fdopen(fd, "w", encoding=encoding, buffering=1) as f:',
+        "`live_log`: the temporary file `mkstemp` just created, already at the log's name",
     ),
     ("utils.py", "return path.rename(backup_path)", "`backup_existing`: a rename, not a write"),
     (
