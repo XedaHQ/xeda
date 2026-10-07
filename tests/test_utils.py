@@ -282,3 +282,14 @@ def test_a_missing_fcopyfile_is_an_oserror_so_the_loop_takes_over(tmp_path, monk
         utils._copy_with_fcopyfile(0, 1, 1)
     assert excinfo.value.errno == errno.ENOSYS
     assert _copy(tmp_path, _content(CHUNK + 1)) == _content(CHUNK + 1)
+
+
+def test_a_failed_command_says_why_when_it_is_told():
+    """The tool's own words follow the exit code: a flow that knows what its tool reported
+    (`Nextpnr._failure`) adds them, and a failure without them reads as it always did."""
+    from xeda.utils import NonZeroExitCode
+
+    assert str(NonZeroExitCode(["tool", "a b"], 2)) == "Command 'tool a b' exited with code 2!"
+    told = NonZeroExitCode(["tool"], 2, "it could not place x", "and y")
+    assert str(told) == "Command 'tool' exited with code 2! it could not place x and y"
+    assert (told.command_args, told.exit_code) == ("tool", 2)

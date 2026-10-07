@@ -34,6 +34,10 @@ __all__ = ["Nextpnr"]
 log = logging.getLogger(__name__)
 
 
+#: How many of the error lines in nextpnr's log a failure it does not classify quotes.
+ERRORS_SHOWN = 5
+
+
 class NextpnrTool(Tool):
     """nextpnr, whose version banner goes to stderr rather than stdout.
 
@@ -827,7 +831,10 @@ class Nextpnr(FpgaSynthFlow):
 
     def _failure(self, error: NonZeroExitCode) -> Exception:
         """What a failed nextpnr is reported as: a constraint error at its original file and
-        line, a timing failure, or the tool's failure itself -- by the errors in its log."""
+        line, a timing failure, or the tool's failure itself -- by the errors in its log. An
+        error that is none of those is still the tool's failure (`NonZeroExitCode`), and says
+        what nextpnr reported, as the other two do: this run's error lines, once each, the
+        first `ERRORS_SHOWN` of them."""
         errors = self._error_lines()
         diagnostic = self._constraint_diagnostic(errors)
         if diagnostic:
@@ -843,7 +850,18 @@ class Nextpnr(FpgaSynthFlow):
                 + "; ".join(dict.fromkeys(missed))
                 + " (`timing_allow_fail` keeps the result anyway)"
             )
-        return error
+        reported = list(
+            dict.fromkeys(line.strip().removeprefix("ERROR:").strip() for line in errors)
+        )
+        if not reported or type(error) is not NonZeroExitCode:  # a timeout keeps its own words
+            return error
+        shown = reported[:ERRORS_SHOWN]
+        more = len(reported) - len(shown)
+        assert isinstance(self.settings, self.Settings)
+        rest = f" (and {more} more in {self.settings.log})" if more else ""
+        return NonZeroExitCode(
+            error.command_args, error.exit_code, f"nextpnr error: {'; '.join(shown)}{rest}"
+        )
 
     def _target(self) -> tuple[str, list[str]]:
         """The validated architecture and device arguments for this instance."""

@@ -520,8 +520,9 @@ placement dump, yosys's a mapped-primitive footprint (`yosys_fpga.xilinx_lut_foo
 `RAM<d>X<w>[SD]`, SRL and LUT primitive); neither is certified comparable with Vivado's.
 `clock_port` is reported only when the reported domain is itself a top-level port. A failed
 nextpnr is reported by the `ERROR:` lines of this run's log (`Nextpnr._failure`: a constraint
-error at its origin, a missed timing constraint, else the tool's failure) -- a warning is never
-the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
+error at its origin, a missed timing constraint, else the tool's failure, a `NonZeroExitCode`
+whose message ends with the first `ERRORS_SHOWN` distinct error lines: `NonZeroExitCode`'s extra
+arguments are shown after its exit code) -- a warning is never the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
 killed run left) and publishes with `replacing_copy` only a nonempty file of a packer that
 exited 0. `fpga-as` is given the part's own Project X-Ray directory (`<family>/<part>/part.json`)
 when the database has it; else the directory of the lowest speed grade of the same device and

@@ -226,6 +226,8 @@ settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin f
 - "timing constraints are not met: Max frequency ... (FAIL at ...)": relax the clock, or set
   `timing_allow_fail` to keep the result.
 - "nextpnr constraint error" names the original constraint file and line.
+- A `NonZeroExitCode` of nextpnr ends with "nextpnr error: ...", the first error lines this run's
+  log holds (an unplaceable cell, for example); more are in `nextpnr.log`.
 
 ## Reading numbers correctly
 
