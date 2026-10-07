@@ -240,9 +240,9 @@ reset value on its output register (69); an `ODDR` on the T input of a tri-state
 or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR` (71); a memory of 64K x 1 or
 deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad that an `ODDR` or an
 `OSERDESE2` drives (78). A timing or utilization report cannot show them; only a test of the
-bitstream itself can. Use a build of `main` from 2026-10-07 or later: `26f5e17a5`
-(`1.0.0-75-g26f5e17a`, from `nextpnr-himbaechel --version`) and every later commit have all of
-them. Xeda does not check the build. The authors compared bitstreams with Vivado's and tested none
+bitstream itself can. Use a build of `main` at `26f5e17a5` (`1.0.0-75-g26f5e17a`, from
+`nextpnr-himbaechel --version`) or later: that commit has all of them. Xeda does not check the
+build. The authors compared bitstreams with Vivado's and tested none
 on a board.
 
 Also, nextpnr ignores `set_property PULLUP true` without a warning. Write `set_property PULLTYPE

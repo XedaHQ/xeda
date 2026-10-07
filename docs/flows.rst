@@ -629,11 +629,10 @@ The part is given once: ``fpga`` is shared along the declared edges.
 
    The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization
    report cannot show these defects. Only a test of the bitstream itself can. Use a build of the
-   ``main`` branch of openXC7/nextpnr from 2026-10-07 or later. Commit ``26f5e17a5``
-   (``1.0.0-75-g26f5e17a``) has every fix in this list, and so has every later commit of
-   ``main``. ``nextpnr-himbaechel --version`` names the build. Xeda does not check the build. The
-   authors of the fixes compared the bitstreams with Vivado's for the same netlist; none of the
-   pull requests reports a test on a board.
+   ``main`` branch of openXC7/nextpnr at commit ``26f5e17a5`` (``1.0.0-75-g26f5e17a``) or later:
+   that commit has every fix in this list. ``nextpnr-himbaechel --version`` names the build. Xeda
+   does not check the build. The authors of the fixes compared the bitstreams with Vivado's for
+   the same netlist; none of the pull requests reports a test on a board.
 
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
