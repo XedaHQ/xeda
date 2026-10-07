@@ -204,3 +204,14 @@ def test_a_refusal_a_producer_makes_at_its_turn_is_its_own_and_the_requested_flo
     assert len(seen) == 2
     now = {p.name: p.read_bytes() for p in _directory(world).iterdir() if p.is_file()}
     assert now == kept, "the requested flow's trace and results are as the last launch left them"
+
+
+@pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])
+@pytest.mark.parametrize("before_run", [False, True])
+def test_a_refusal_keeps_what_it_says_of_the_run_when_it_crosses_a_process(error_class, before_run):
+    """An exception comes back from a worker process of an exploration by being pickled."""
+    import pickle
+
+    error = pickle.loads(pickle.dumps(error_class("refused", before_run=before_run)))
+    assert type(error) is error_class and error.before_run is before_run
+    assert str(error) == "refused"
