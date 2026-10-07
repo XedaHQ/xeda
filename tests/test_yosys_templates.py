@@ -2,9 +2,11 @@
 
 These do not need a yosys binary. They guard the `.ys` templates (used by yosys
 builds without TCL support, e.g. oss-cad-suite) against TCL leaking in, and pin
-the `.tcl` templates to their historical escaping.
+the `.tcl` templates to their historical escaping. Where no yosys can run a `.tcl` script,
+`tclsh` runs it against stub commands.
 """
 
+import itertools
 import re
 import shutil
 import subprocess
@@ -16,8 +18,10 @@ from pydantic import ValidationError
 
 from xeda import Design
 from xeda.flow import FPGA
-from xeda.flows import Yosys, YosysFpga
+from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
+
+from .tool_utils import require_tclsh
 
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
@@ -44,11 +48,15 @@ def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
     flow.init()  # registers the `esc` template filter and the netlist artifacts
     flow.artifacts.utilization_report = "reports/utilization.json"
     flow.artifacts.timing_report = "reports/timing.rpt"
-    stem = "yosys_fpga_synth" if flow_cls is YosysFpga else "yosys_synth"
+    stem = {YosysFpga: "yosys_fpga_synth", YosysSim: "yosys_sim"}.get(flow_cls, "yosys_synth")
     extra = {}
+    if flow_cls is YosysSim:
+        extra.update(
+            read_tb_sources=True, hierarchy_top="top", ghdl_top=None, cxxrtl_filename="sim.cc"
+        )
     if flow_cls is YosysFpga:
         extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
-        libraries = flow.settings.primitive_libraries(NEWEST_CHECKED_YOSYS)
+        libraries = flow.settings.primitive_libraries()
         # as `YosysFpga.run()` does: the reads, and the `verilog_lib` entries that are not one
         extra["primitive_libraries"] = [] if flow.settings.synth_pass_only else libraries
         extra["verilog_libs"] = flow.verilog_libraries_to_read(libraries)
@@ -123,30 +131,31 @@ def test_fpga_primitive_libraries_precede_hierarchy(flow_cls, script_format, tmp
 
 
 @pytest.mark.parametrize(
-    "fpga,release,expected",
+    "fpga,expected",
     [
         (
             {"part": "LFE5U-25F-6BG256C"},
-            (0, 69),
             ["+/lattice/cells_sim_ecp5.v", "+/lattice/cells_bb_ecp5.v"],
         ),
         (
             {"part": "iCE40HX1K-TQ144"},
-            (0, 69),
             ["+/ice40/cells_sim.v"],
         ),
         (
             {"part": "LIFCL-40-9BG400C"},
-            (0, 69),
             ["+/lattice/cells_sim_nexus.v", "+/lattice/cells_bb_nexus.v"],
+        ),
+        (
+            {"vendor": "gowin", "family": "gowin", "device": "GW1N-9"},
+            ["+/gowin/cells_sim.v", "+/gowin/cells_xtra_gw1n.v"],
         ),
     ],
 )
-def test_fpga_primitive_libraries_follow_release_recipe(fpga, release, expected):
+def test_fpga_primitive_libraries_follow_the_target(fpga, expected):
     from xeda.flows.yosys.yosys_fpga import YosysFpga
 
     settings = YosysFpga.Settings(fpga=fpga)
-    assert [library.path for library in settings.primitive_libraries(release)] == expected
+    assert [library.path for library in settings.primitive_libraries()] == expected
 
 
 @pytest.mark.parametrize("flow_cls", [Yosys, YosysFpga], ids=["yosys", "yosys_fpga"])
@@ -283,10 +292,163 @@ def test_script_format_selects_template_and_flag(tmp_path: Path) -> None:
 def test_stop_after_rtl_omits_synthesis(tmp_path: Path) -> None:
     """`.ys` has no `exit`, so stop_after=rtl must omit the post-RTL commands."""
     script = _render(YosysFpga, _fpga_settings(stop_after="rtl", rtl_json="rtl.json"), tmp_path)
-    assert "write_json rtl.json" in script
+    assert "write_json -selected rtl.json" in script
     assert "synth_xilinx" not in script
     assert "write_netlist" not in script
     assert "opt_clean" not in script
+
+
+def test_every_rtl_json_is_written_from_the_selected_modules() -> None:
+    """`post_rtl` is included by every yosys flow, `yosys_sim` too. The primitive libraries a flow
+    reads with `-lib` are in the design then, as boxes that can keep unprocessed `always` blocks,
+    which `write_json` refuses (`ERROR: Module ALU contains processes`). The default selection
+    holds no box, so `-selected` writes the design's own modules, as `write_verilog` does."""
+    for template in sorted(TEMPLATES_DIR.glob("post_rtl.*")):
+        lines = template.read_text().splitlines()
+        writes = [line for line in lines if re.match(r"(yosys )?write_json\b", line)]
+        assert len(writes) == 1, template.name
+        assert "write_json -selected " in writes[0], f"{template.name}: {writes[0]}"
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize(
+    "flow_cls, settings",
+    [(Yosys, _asic_settings), (YosysFpga, _fpga_settings)],
+    ids=["yosys_synth", "yosys_fpga_synth"],
+)
+def test_the_rendered_rtl_json_is_written_from_the_selected_modules(
+    flow_cls, settings, script_format, tmp_path: Path
+) -> None:
+    script = _render(flow_cls, settings(rtl_json="rtl.json", script_format=script_format), tmp_path)
+    assert re.search(r'^(yosys )?write_json -selected "?rtl\.json"?$', script, re.MULTILINE), script
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_the_synthesis_flow_makes_library_whiteboxes_blackboxes_before_its_netlist(
+    script_format, tmp_path: Path
+) -> None:
+    """The FPGA passes end with `blackbox =A:whitebox`, so no whitebox is left to `write_json`;
+    `synth` does not, so the generic flow does it itself, before it writes any netlist, when a
+    Verilog library (`verilog_lib`) may have left some. Without one the script is as it was."""
+    settings = {"netlist_json": "netlist.json", "script_format": script_format}
+    script = _render(
+        Yosys, _asic_settings(verilog_lib=["+/xilinx/cells_sim.v"], **settings), tmp_path
+    )
+    box = re.search(r"^(yosys )?blackbox =A:whitebox$", script, re.MULTILINE)
+    netlist = re.search(r'^(yosys )?write_json "?netlist\.json"?$', script, re.MULTILINE)
+    assert box and netlist and box.start() < netlist.start(), script
+    assert "blackbox" not in _render(Yosys, _asic_settings(**settings), tmp_path)
+
+
+#: What `post_rtl` writes for each RTL output, as yosys is handed it: a Tcl script gives yosys one
+#: word per argument, and `rtl_graph_flags` are split at their spaces.
+GRAPH_FLAGS = " ".join(YosysFpga.Settings.model_fields["rtl_graph_flags"].get_default()).split()
+RTL_FILES = {"rtl_json": "rtl.json", "rtl_verilog": "rtl.v", "rtl_graph": "rtl.dot"}
+RTL_COMMANDS = {
+    "rtl_json": [["write_json", "-selected", "rtl.json"]],
+    "rtl_verilog": [["write_verilog", "rtl.v"]],
+    "rtl_graph": [["show", "-prefix", "rtl", "-format", "dot", *GRAPH_FLAGS]],
+}
+RTL_LOGS = {
+    "rtl_json": ["log", "-stdout", "Writing JSON rtl.json"],
+    "rtl_verilog": ["log", "-stdout", "Writing Verilog rtl.v"],
+    "rtl_graph": ["log", "-stdout", "Writing RTL graph to rtl.dot"],
+}
+
+#: Every flow that includes `post_rtl`, over every combination of RTL outputs, with and without
+#: `stop_after`: `(flow, outputs, stop_after)`. The simulation flow has no `stop_after`.
+RTL_FLOWS = {"yosys": Yosys, "yosys_fpga": YosysFpga, "yosys_sim": YosysSim}
+RTL_CASES = [
+    (flow, outputs, stop)
+    for flow in RTL_FLOWS
+    for outputs in itertools.product((False, True), repeat=len(RTL_FILES))
+    for stop in ((None,) if flow == "yosys_sim" else (None, "rtl"))
+]
+RTL_IDS = [
+    f"{flow}-{''.join(letter if on else '-' for letter, on in zip('jvg', outputs))}-{stop or 'full'}"
+    for flow, outputs, stop in RTL_CASES
+]
+
+
+def _rtl_script(flow: str, outputs, stop, script_format: str, tmp_path: Path) -> str:
+    settings: dict[str, Any] = {"script_format": script_format}
+    settings.update({name: RTL_FILES[name] for name, on in zip(RTL_FILES, outputs) if on})
+    if stop:
+        settings["stop_after"] = stop
+    if flow == "yosys_fpga":
+        settings = _fpga_settings(**settings)
+    elif flow == "yosys":
+        settings = _asic_settings(**settings)
+    return _render(RTL_FLOWS[flow], settings, tmp_path)
+
+
+def _enabled(outputs) -> list[str]:
+    return [name for name, on in zip(RTL_FILES, outputs) if on]
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("flow,outputs,stop", RTL_CASES, ids=RTL_IDS)
+def test_each_rtl_command_is_a_line_of_its_own(
+    flow, outputs, stop, script_format, tmp_path: Path
+) -> None:
+    """An including template may strip the whitespace after `post_rtl`, and a block that left
+    its last command without a newline then joined it to the next command: `write_verilog
+    "rtl.v"yosys opt_clean -purge`, or `exityosys opt_clean -purge`. Each command is a whole
+    line, and `exit` -- a `.tcl` script's way to stop, which a `.ys` script has not -- another."""
+    script = _rtl_script(flow, outputs, stop, script_format, tmp_path)
+    lines = [line.strip() for line in script.splitlines()]
+    prefix = "(?:yosys )?" if script_format == "tcl" else ""
+    for name in _enabled(outputs):
+        for words in RTL_COMMANDS[name]:
+            pattern = prefix + " ".join(f'"?{re.escape(word)}"?' for word in words)
+            found = [line for line in lines if re.fullmatch(pattern, line)]
+            assert len(found) == 1, f"{words}: {found}\n{script}"
+    assert lines.count("exit") == (1 if stop and script_format == "tcl" else 0), script
+
+
+#: Runs a script as a yosys with TCL support would, but every command only records itself. `exit`
+#: ends the script as it would end yosys, so the commands after it do not run.
+TCL_HARNESS = """\
+set ::calls {}
+proc yosys {args} {lappend ::calls $args}
+proc unknown {args} {lappend ::calls $args}
+proc exit {args} {lappend ::calls [list exit {*}$args]; return -code return}
+source [lindex $argv 0]
+foreach call $::calls {puts [join [linsert $call 0 CALL] \x1f]}
+"""
+
+
+@pytest.mark.parametrize("flow,outputs,stop", RTL_CASES, ids=RTL_IDS)
+def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
+    flow, outputs, stop, tmp_path: Path
+) -> None:
+    """The `.tcl` script runs under `tclsh`, which parses it as yosys' TCL does: a glued command
+    is a syntax error (`extra characters after close-quote`) or a command name that does not
+    exist, and shows in the commands yosys would be handed. The RTL outputs come in order, and
+    `exit` ends the script when `stop_after` asks for it, and only then."""
+    require_tclsh()
+    script = tmp_path / "script.tcl"
+    script.write_text(_rtl_script(flow, outputs, stop, "tcl", tmp_path))
+    harness = tmp_path / "harness.tcl"
+    harness.write_text(TCL_HARNESS)
+    result = subprocess.run(
+        ["tclsh", str(harness), str(script)], capture_output=True, text=True, timeout=60
+    )
+    assert result.returncode == 0, f"{result.stderr}\n{script.read_text()}"
+    calls = [
+        line.split("\x1f")[1:] for line in result.stdout.splitlines() if line.startswith("CALL\x1f")
+    ]
+    expected = [
+        words for name in _enabled(outputs) for words in (RTL_LOGS[name], *RTL_COMMANDS[name])
+    ]
+    if expected:
+        start = calls.index(expected[0])
+        assert calls[start : start + len(expected)] == expected, calls
+        assert bool(calls[start + len(expected) :]), "the script ended with the RTL outputs"
+    assert (calls[-1:] == [["exit"]]) is bool(stop), calls
+    assert calls.count(["exit"]) == (1 if stop else 0), calls
+    if stop and expected:
+        assert calls[-1 - len(expected) : -1] == expected, calls
 
 
 # yosys commands that expand a file name as a glob pattern, so their file arguments go through
