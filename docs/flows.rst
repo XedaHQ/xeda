@@ -521,26 +521,13 @@ defaults are refused too. On the command line the empty list is ``-s read_verilo
 empty value). The text ``[]`` is refused, as it is for every list setting.
 
 The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
-selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,
-an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not add that
-clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
+selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay (described below).
+In pass-only mode, an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not
+add that clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
 either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
 ``flow3mfs``. Script names are taken from the installed Yosys build. The legacy ``flow3`` setting
 is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
 both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9 mapping is enabled.
-
-The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
-as the delay target of the LUT mapping (the ``-D`` option of ABC's ``&if`` command). The Yosys log
-shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a target only when
-the mapped logic can meet it. If the target is lower than the least delay that ABC9 can reach,
-ABC9 maps for that least delay, as it does with no target, and the netlist does not change. If the
-target is higher, ABC9 uses the slack to save area: the netlist gets smaller and deeper. So the
-netlist changes with ``clock.period`` only when the clock is slow for the design. With Yosys
-0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps to one netlist for every
-period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns the mapping has two more
-logic levels and 24 fewer LUTs than that netlist. A small design with two levels of logic (a
-block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10 ns. A netlist that
-does not change with the clock period is therefore expected.
 
 .. code-block:: bash
 
@@ -550,6 +537,21 @@ does not change with the clock period is therefore expected.
       systemverilog=default abc9_script=flow2
     xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
       flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
+
+The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
+as the delay target of the LUT mapping (the ``-D`` option of ABC's ``&if`` command). The Yosys log
+shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a target only when
+the mapped logic can meet it. If the target is lower than the least delay that ABC9 can reach,
+ABC9 maps for that least delay, as it does with no target, and the netlist does not change. ABC
+then prints ``ABC: Warning: Cannot meet the target required times (4000.00). Mapping continues
+anyway.`` in the Yosys log. If the target is higher, ABC9 spends the slack on area: the mapping can
+change, and it can get smaller. It can also keep its LUT count and change only the mix of LUT
+sizes. So the netlist changes with ``clock.period`` only when the clock is slow for the design.
+With Yosys 0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps to one netlist
+for every period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns the mapping has
+two more logic levels and 24 fewer LUTs than that netlist. A small design with two levels of logic
+(a block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10 ns. A netlist
+that does not change with the clock period is therefore expected.
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
 them, match the Yosys version and target, source paths and order, parameters, synthesis-pass

@@ -1807,18 +1807,21 @@ dependency must also share `custom_boards_file`.
   **The clock-derived delay reaches ABC9, and ABC9 often ignores it.** The full recipe writes
   `scratchpad -set abc9.D <period_ps / 1.5>` before the pass. `abc9_exe` reads `abc9.D` (in
   picoseconds) and puts `-D <value>` where the script has `{D}`: the four `&if` calls of `flow3`,
-  and the `&if` of the default scripts. The Yosys log shows it (`ABC: + &if -W 300 -D 6666.67`),
-  on Xilinx, ECP5, iCE40, Nexus and Gowin. ABC takes the value as the required time of its LUT
-  mapping, not as a goal it must reach: a target below the least delay it can reach is replaced
-  by that delay, which is also what it uses with no target. The netlist is then the one written
-  with the `abc9.D` line deleted. Only a target the logic can meet changes the mapping, and it
-  trades depth for area. Measured with Yosys 0.69+156 on picosoc: every period from 2.5 to 8.5 ns
-  writes one netlist, equal to the no-delay one (ABC's least delay is 5.7 ns, so it can meet the
-  target from a period of 8.6 ns); 9 and 10 ns map with 1 and 2 more levels and 27 and 24 fewer
-  LUTs (3,094 and 3,097 against 3,121). A design with nothing to trade (macram, whose logic is
-  two levels deep) writes one netlist for every period. So a netlist that does not move with
-  `clock.period` is not a lost setting: look for `-D` in the log. Add no workaround that scales
-  the delay.
+  and the `&if` of the default scripts. The Yosys log shows it (`ABC: + &if -W 300 -D
+  6666.666666666668`), on Xilinx, ECP5, iCE40, Nexus and Gowin. ABC takes the value as the required
+  time of its LUT mapping, not as a goal it must reach: a target below the least delay it can reach
+  is replaced by that delay, which is also what it uses with no target, and ABC says so in the log
+  (`ABC: Warning: Cannot meet the target required times (4000.00). Mapping continues anyway.`).
+  The netlist is then the one written with the `abc9.D` line deleted. Only a target the logic can
+  meet changes the mapping: ABC spends the slack on area, so the mapping can get smaller and
+  deeper, or keep its LUT count and change only its mix of LUT sizes (a three-operand 32-bit adder:
+  63 LUTs at 2, 8 and 50 ns, LUT3/LUT4/LUT6 32/26/5 at 2 ns and 32/31/0 from 8 ns). Measured with
+  Yosys 0.69+156 on picosoc: every period from 2.5 to 8.5 ns writes one netlist, equal to the
+  no-delay one (ABC's least delay is 5.7 ns, so it can meet the target from a period of 8.6 ns); 9
+  and 10 ns map with 1 and 2 more levels and 27 and 24 fewer LUTs (3,094 and 3,097 against 3,121).
+  A design with nothing to trade (macram, whose logic is two levels deep) writes one netlist for
+  every period. So a netlist that does not move with `clock.period` is not a lost setting: look for
+  `-D` in the log. Add no workaround that scales the delay.
 
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The
