@@ -7,14 +7,18 @@ import os
 import subprocess
 import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
 from xeda import Design
-from xeda.flow_runner import DefaultRunner
+from xeda.console import console
+from xeda.flow_runner import DefaultRunner, default_runner
 from xeda.flow_runner.run_lock import lock_file, run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
+from xeda.run_root import ensure_run_root
 
 from .io_flows import _Maker, _Taker
 from .tool_utils import producers_of
@@ -469,14 +473,17 @@ print("done", flush=True)
 """
 
 
-def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_path):
+def _launch_variants_scrubbing_at_once(tmp_path: Path, texts: tuple[str, ...], timeout: float):
+    """Make one hashed variant of `_Maker` for each of `texts`, then launch every variant again,
+    each as its own process with `--scrub`, all released together: each one removes the others'
+    run directories and then makes its own. Every launch must succeed."""
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
     runner = DefaultRunner(tmp_path / "run", hashed_run_dirs=True, display_results=False)
-    for text in ("one", "two"):
+    for text in texts:
         assert runner.launch_flow(_Maker, design, {"text": text}).succeeded
     children = []
     try:
-        for text in ("one", "two"):
+        for text in texts:
             child = subprocess.Popen(
                 [sys.executable, "-c", SCRUB_VARIANT, str(tmp_path), text],
                 cwd=tmp_path,
@@ -493,7 +500,7 @@ def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_pa
             child.stdin.flush()
         for child in children:
             try:
-                stdout, stderr = child.communicate(timeout=20)
+                stdout, stderr = child.communicate(timeout=timeout)
             except subprocess.TimeoutExpired:
                 pytest.fail("concurrent variants deadlocked while scrubbing each other")
             assert child.returncode == 0, stderr
@@ -503,6 +510,106 @@ def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_pa
             if child.poll() is None:
                 child.kill()
             child.communicate(timeout=10)
+
+
+def test_concurrent_hashed_launches_scrub_without_holding_their_own_locks(tmp_path):
+    _launch_variants_scrubbing_at_once(tmp_path, ("one", "two"), timeout=20)
+
+
+def test_hashed_launches_that_scrub_the_same_variants_at_once_all_succeed(tmp_path):
+    """With three variants, each directory is listed by two of the launches. One of them removes
+    it. The other finds it gone when its turn comes, which is what it wanted, and goes on."""
+    _launch_variants_scrubbing_at_once(tmp_path, ("one", "two", "three"), timeout=60)
+
+
+PARKED_CONSUMER = """
+import sys, time
+from pathlib import Path
+from xeda import Design
+from xeda.console import console
+from xeda.flow_runner import DefaultRunner
+from tests.io_flows import _Maker, _Taker
+root, control = Path(sys.argv[1]), Path(sys.argv[2])
+console.print = lambda *a, **kw: None
+def wait_for(name):
+    deadline = time.time() + 60
+    while not (control / name).exists():
+        assert time.time() < deadline, "no " + name
+        time.sleep(0.01)
+original_run = _Maker.run
+def run(self):
+    original_run(self)
+    (control / "running").write_text("x")
+    wait_for("go")
+_Maker.run = run
+original_lease = DefaultRunner._producer_read_lease
+def lease(self, producer):
+    (control / "completed").write_text("x")  # the producer is complete and unlocked, not yet leased
+    wait_for("lease")
+    return original_lease(self, producer)
+DefaultRunner._producer_read_lease = lease
+flow = DefaultRunner(root / "run", hashed_run_dirs=True, display_results=False).launch_flow(
+    _Taker, Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}), {})
+assert flow.succeeded
+print("done", flush=True)
+"""
+
+
+def _until_there(path: Path, timeout: float = 60) -> None:
+    deadline = time.time() + timeout
+    while not path.exists():
+        assert time.time() < deadline, f"{path.name} did not come"
+        time.sleep(0.01)
+
+
+def test_a_scrub_that_waited_for_a_producer_keeps_the_run_that_ended_while_it_waited(
+    tmp_path, monkeypatch
+):
+    """A consumer launches its producer. A scrub of the producer's flow lists the producer's run
+    directory while the producer runs, and waits for its lock. The producer ends its run, and the
+    scrub gets the lock before the consumer takes its read lease on the producer. The run that
+    ended is the one the consumer needs: scrub keeps it, and the consumer succeeds."""
+    control = tmp_path / "control"
+    control.mkdir()
+    child = subprocess.Popen(
+        [sys.executable, "-c", PARKED_CONSUMER, str(tmp_path), str(control)],
+        cwd=tmp_path,
+        env=_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    listed = threading.Event()
+    outcome: dict = {}
+    monkeypatch.setattr(console, "print", lambda *args, **kwargs: None)
+    monkeypatch.setattr(console, "input", lambda *args, **kwargs: (listed.set(), "yes")[1])
+
+    def scrubbing():
+        root = ensure_run_root(tmp_path / "run")
+        try:
+            outcome["result"] = default_runner.scrub_design(_Maker.name, root / "d", run_root=root)
+        except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
+            outcome["error"] = error
+
+    try:
+        _until_there(control / "running")
+        thread = threading.Thread(target=scrubbing)
+        thread.start()
+        assert listed.wait(timeout=30), "scrub did not list the run directories"
+        (control / "go").write_text("x")  # the producer ends its run
+        _until_there(control / "completed")  # and the consumer waits before it takes its lease
+        thread.join(timeout=30)
+        assert not thread.is_alive()
+        (control / "lease").write_text("x")
+        stdout, stderr = child.communicate(timeout=60)
+        assert child.returncode == 0, stderr
+        assert stdout.strip() == "done"
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.communicate(timeout=10)
+    assert "error" not in outcome, repr(outcome.get("error"))
+    assert outcome["result"].removed == []
 
 
 def test_shared_lock_acquisition_failure_is_a_clear_non_json_cli_error(tmp_path, monkeypatch):

@@ -1495,9 +1495,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     run_root = root if root is not None else Path(run_root).resolve()
 
     try:
-        scanned, removed = scrub_design(
-            flow, run_root / design_name, run_root=run_root, target=target
-        )
+        result = scrub_design(flow, run_root / design_name, run_root=run_root, target=target)
     except RunDirectoryError as e:  # a run directory xeda cannot remove
         fail(type(e).__name__, _error_message(e))
     if json_flag:
@@ -1508,8 +1506,10 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
                 "design": design_name,
                 "target": target,
                 "run_root": str(run_root),
-                "scanned": [str(d) for d in scanned],
-                "scrubbed": [str(d) for d in removed],
+                "scanned": [str(d) for d in result.scanned],
+                "scrubbed": [str(d) for d in result.removed],
+                "kept": [str(d) for d in result.kept],
+                "gone": [str(d) for d in result.gone],
             },
             "json",
         )
