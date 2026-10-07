@@ -397,8 +397,10 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   takes an ordered list. Otherwise an accepted type in `rtl.sources` supplies it, in source
   order (a `JsonNetlist` skips `yosys_fpga` for `nextpnr`); otherwise the declared default
   producer. Cardinality is checked. A bound input is never pruned by a matching source, and a
-  displaced default producer leaves the graph: its settings are unused (logged at info level)
-  and take no part in shared agreement. `inputs` is reserved wiring split out per origin
+  displaced default producer leaves the graph: its settings are unused and take no part in
+  shared agreement. Planning logs each configured section of a default producer the run does not
+  include, once, whether a source or a binding displaced it (`resolve`'s loop over the unused
+  default producers, which also checks their syntax). `inputs` is reserved wiring split out per origin
   before settings composition (`bindings.split_bindings`), never a `Flow.Settings` field or
   part of the design hash. A chain is command-line data: it overrides a file's binding of the
   same input (the plan reports it as `overridden`) and is an error, even when equal, against a
@@ -461,7 +463,15 @@ nonempty default or an explicit value. The flow chooses its output paths inside 
   (`_platform_key`) -- and `corner`, compared by the corner it selects. Disjoint leaves combine; conflicting values fail with
   both nodes and their real file/section origins. Explicit CLI leaves (`-s key` or
   `-s flows.<node>.key`) override those leaves for the connected group, preserving unrelated
-  leaves; API contributions remain a separate highest-precedence origin.
+  leaves; API contributions remain a separate highest-precedence origin. A board-aware node's
+  `fpga` is derived from its agreed board before `fpga` is agreed (`agree_targets`; the derived
+  leaves rank as the node's own board does and are located where the winning board was written,
+  `_agree` returning each agreed leaf's origin), so a bundled board alone is the device of every
+  node that shares `fpga` with it: `tests/test_board_device.py` sweeps every flow that declares
+  `board`, every origin and every position in a chain or default graph. A device written for a
+  flow that is not part of the run reaches no node -- a design-wide device is not a feature yet
+  -- and the error that a node lacks a required setting names each section that gives it without
+  reaching the node (`resolver._unreached`, passed to `check_required_settings`).
 - **Outputs are checked records.** `flow_runner/outputs.py` records enabled outputs in
   `results.json`'s `outputs` as `{path, sha}` (ordered lists for list outputs), after checking
   containment, readable files and `wrote_output`; failed output validation uses `MissingOutput`
@@ -1279,6 +1289,12 @@ dependency must also share `custom_boards_file`.
   one that *transforms* drifts each time (ISE's option quoting turned `"High"` into `""High""`).
   Format for a tool at render time in the template instead. `tests/test_model_invariants.py`
   re-assigns every field of every flow's settings to itself and fails on any change.
+- **A validator logs nothing above DEBUG.** It runs on every validation -- of the section of a
+  flow the run leaves out (the resolver checks their syntax), on every assignment and reload --
+  so INFO from it is noise, and for an unused section a report about settings that do not apply
+  ("Detected FPGA family" printed just before "openfpgaloader needs `fpga`"). Report a derived
+  fact where it is used. `tests/test_model_invariants.py::test_no_validator_logs_above_debug`
+  scans every validator in the package.
 - **Nested models serialize by their *annotated* type.** A field holding a subclass needs
   `SerializeAsAny[...]` (see `Design.dependencies`, which holds `GitReference`s) or the subclass's
   own fields are silently dropped from `model_dump()`. `model_dump(serialize_as_any=True)` is not

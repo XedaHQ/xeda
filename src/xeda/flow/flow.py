@@ -687,15 +687,25 @@ class Flow(metaclass=ABCMeta):
     action_reason: ClassVar[str | None] = None
 
     @classmethod
-    def check_required_settings(cls, settings: "Flow.Settings") -> None:
+    def check_required_settings(
+        cls, settings: "Flow.Settings", unreached: Mapping[str, str] | None = None
+    ) -> None:
         """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
-        before anything is set up for the run. The settings are the final, agreed values."""
+        before anything is set up for the run. The settings are the final, agreed values.
+        `unreached` says, for a setting, where it is given without reaching this flow (the
+        resolver knows: in the section of a flow that is not part of the run); the message
+        adds it, so a value the user did write is not left unexplained."""
         missing = []
+        notes = []
         for name, how in cls.required_settings.items():
             if is_unset(getattr(settings, name, None)):
                 missing.append(f"`{name}`, {how.format(flow=cls.name)}")
+                if unreached and unreached.get(name):
+                    notes.append(unreached[name])
         if missing:
-            raise FlowSettingsException(f"{cls.name} needs " + "; and ".join(missing))
+            raise FlowSettingsException(
+                f"{cls.name} needs " + "; and ".join(missing) + "".join(f". {n}" for n in notes)
+            )
 
     @classmethod
     def check_settings_supported(cls, settings: "Flow.Settings") -> None:

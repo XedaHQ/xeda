@@ -88,6 +88,12 @@ All notable changes to this project will be documented in this file.
   <package>.bit.gz`), which has no grade, so `write_flash` on a Xilinx board found no bridge. With
   a `cable`, or a board without an `openfpgaloader_board`, `--fpga-part` is still given, and a
   Xilinx part is written without its speed grade (`xc7a35tcpg236`).
+- The error for a missing `fpga` names each section that gives it without reaching the flow, such
+  as a part written only for `yosys_fpga` in `xeda run vivado_synth+openfpgaloader`.
+- Planning logs each unused section of a producer that a source or a chain displaced. Validators
+  log nothing above DEBUG, so a part in such a section no longer logs "Detected FPGA family".
+- A board/device conflict names where the board is written, and a board and a device that
+  disagree on one node name both parts.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

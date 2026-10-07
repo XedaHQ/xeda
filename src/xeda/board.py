@@ -141,7 +141,7 @@ def get_board_data(
         name = board.lower() if isinstance(board, str) else board
         database = "the bundled board database xeda/data/boards.toml"
         if name in boards_data:
-            log.info("Retrieved board data for %s", name)
+            log.debug("Retrieved board data for %s", name)
     if name not in boards_data:
         suggestions = get_close_matches(name, boards_data) if isinstance(name, str) else []
         hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
@@ -268,7 +268,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 return values
             if board_data:
                 board_fpga = cls._board_fpga(board_data)
-                log.info("FPGA info for board %s: %s", values["board"], str(board_fpga))
+                log.debug("FPGA info for board %s: %s", values["board"], board_fpga)
                 if board_fpga:
                     values["fpga"] = board_fpga
         return values

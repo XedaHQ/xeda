@@ -458,7 +458,7 @@ class YosysBase(Flow):
                     attr_file = Path(value)
                     if attr_file.suffix.endswith(".json"):
                         try:
-                            log.info("Parsing %s as JSON file", attr_file)
+                            log.debug("Parsing %s as JSON file", attr_file)
                             with open(attr_file) as f:
                                 value = {**json.load(f)}
                         except json.JSONDecodeError as e:

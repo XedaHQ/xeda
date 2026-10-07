@@ -158,9 +158,11 @@ in ``rtl.sources`` supplies that input instead and skips synthesis:
       top: top
 
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
-requires exactly one matching source. Settings for a producer displaced by sources are unused
-and logged. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by ``netlist_json``)
-and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or Nexus/Xilinx ``fasm``).
+requires exactly one matching source. A default producer that a source or a binding (a chain,
+or ``flows.<flow>.inputs``) displaces is not part of the run: its settings are unused, and
+planning logs each such section. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by
+``netlist_json``) and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or
+Nexus/Xilinx ``fasm``).
 ``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
 into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
 ``Bitstream`` source, and declares no output.
@@ -260,7 +262,12 @@ whether it runs because you named it or because it is somebody's default produce
 
 Shared leaves (``fpga``, ``board``, ``clocks``, ...) given at any one node apply to every node
 along the chain's edges. Two different values in files are a conflict that names both nodes and
-their files; a command-line value wins for the whole group.
+their files; a command-line value wins for the whole group. A flow that is not part of the run
+gives no shared leaf: ``vivado_synth+openfpgaloader`` replaces the programmer's default
+producers, so a device written only in ``flows.yosys_fpga`` reaches neither node. Write it for a
+flow of the chain (``flows.vivado_synth.fpga.part``, or a ``board`` for ``openfpgaloader``), or
+give ``-s fpga.part=<part>``. The error that a flow needs ``fpga`` names each section that gives
+it without reaching the flow.
 
 **Results.** ``flow``, ``results``, ``--help-settings`` and the exit status are the last flow's.
 ``--json`` adds ``request`` (the chain, element by element) and, for every flow of the plan, its

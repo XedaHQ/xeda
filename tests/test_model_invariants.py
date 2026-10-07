@@ -269,3 +269,61 @@ def test_quiet_verbose_and_debug_mean_the_same_whatever_order_they_are_given_in(
         assert all(s.model_dump() == constructed.model_dump() for s in settings), louder
         assert not any(s.is_quiet for s in settings), louder
     assert Settings(quiet=True).is_quiet
+
+
+# ----------------------------------------------------------------- validators log nothing above DEBUG
+
+SRC = Path(__file__).parent.parent / "src" / "xeda"
+LOUD = {"info", "warning", "warn", "error", "exception", "critical"}
+
+
+def _validators(tree):
+    """Every function a validator decorator marks, in `tree`."""
+    import ast
+
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
+            "validator" in ast.unparse(decorator) for decorator in node.decorator_list
+        ):
+            yield node
+
+
+def _loud_validators(source: str, name: str) -> list[str]:
+    """The validators in `source` that log above DEBUG, as `name:line function`."""
+    import ast
+
+    loud = []
+    for function in _validators(ast.parse(source, name)):
+        for call in ast.walk(function):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr in LOUD
+                and isinstance(call.func.value, ast.Name)
+                and call.func.value.id in ("log", "logger", "logging")
+            ):
+                loud.append(f"{name}:{call.lineno} {function.name}")
+    return loud
+
+
+def test_no_validator_logs_above_debug():
+    """A validator runs whenever a model is validated: for the section of a flow a run does not
+    include, on every assignment and on every reload. What it logs above DEBUG is noise at best;
+    for an unused section it reports settings that do not apply ("Detected FPGA family" for a
+    flow the run left out, just before the error that no flow of the run has a device)."""
+    loud = []
+    for path in sorted(SRC.rglob("*.py")):
+        loud += _loud_validators(path.read_text(), str(path.relative_to(SRC)))
+    assert loud == []
+
+
+def test_the_validator_scan_sees_a_validator_that_logs():
+    source = (
+        "class M:\n"
+        "    @model_validator(mode='before')\n"
+        "    @classmethod\n"
+        "    def v(cls, values):\n"
+        "        log.info('noise')\n"
+        "        return values\n"
+    )
+    assert _loud_validators(source, "m.py") == ["m.py:5 v"]
