@@ -196,8 +196,13 @@ All notable changes to this project will be documented in this file.
   lacks with the part data of the same device and package at the lowest other speed grade
   (for example `xc7k325tffg676-2`, whose database has only the `-1` directory). The pin map and
   configuration layout do not depend on the speed grade; `nextpnr` keeps the exact grade for
-  timing. The flow logs both parts, never uses another device or package, and records the files
-  it read, so a change of them runs it again.
+  timing. The flow logs both parts and never uses another device or package. A part with no data
+  at any speed grade of its package fails before any tool runs, and the message names the part,
+  the directory searched and the grades the database has for other packages of the device.
+- `fpga_pack` records every Project X-Ray file `fpga-as` can read as an input, so an in-place
+  change of the installed database runs it again. This closes a known limit: a change of the
+  installed data alone, with `fpga-as` unchanged, was not noticed. The first launch hashes about
+  80 MB in 290 files (0.2 s of processor time); later launches compare metadata (0.04 s).
 - The bundled boards `BASYS_3` (Digilent Basys 3, `xc7a35tcpg236-1`, loader name `basys3`) and
   `STLV7325_V2` (`xc7k325tffg676-2`, loader name `stlv7325`), each with a minimal pin file for its
   clock and one LED. The files name their sources and license, and have no `create_clock`.

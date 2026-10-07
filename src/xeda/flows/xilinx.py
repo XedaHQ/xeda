@@ -242,6 +242,10 @@ def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
     return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
+#: The files of a part's own directory that ``fpga-as`` reads.
+PART_FILES = ("part.json", "package_pins.csv", "required_features.fasm")
+
+
 @dataclass(frozen=True)
 class PartData:
     """The Project X-Ray part data ``fpga-as`` packs one part with.
@@ -258,10 +262,6 @@ class PartData:
     def exact(self) -> bool:
         return self.name.lower() == self.requested.lower()
 
-    def files(self) -> list[Path]:
-        """Every file of the directory: the pin map and the configuration layout."""
-        return sorted(path for path in self.directory.iterdir() if path.is_file())
-
 
 def _speed_grade_order(name: str) -> tuple[int, int, str]:
     """Order of a part's speed grades: the number, then a plain grade before its ``L`` variant."""
@@ -269,40 +269,90 @@ def _speed_grade_order(name: str) -> tuple[int, int, str]:
     return (int(match[1]), len(match[2]), name) if match else (sys.maxsize, 0, name)
 
 
-def locate_part_data(selection: XilinxSelection) -> PartData | None:
+def _package_of(name: str) -> str | None:
+    """The package of a part, with its pin count (``ffg676``), or ``None`` if not a part name."""
+    try:
+        fpga = FPGA(name)
+    except ValueError:
+        return None
+    return f"{fpga.package}{fpga.pins}" if fpga.package and fpga.pins else None
+
+
+def _no_part_data(selection: XilinxSelection, root: Path, with_data: list[str]) -> FlowFatalError:
+    """The error for a part whose package has no part data at any speed grade, naming what the
+    database has for the same device in other packages."""
+    package = _package_of(selection.part) or selection.part
+    grades: dict[str, list[str]] = {}
+    for name in sorted(with_data, key=_speed_grade_order):
+        grades.setdefault(_package_of(name) or "", []).append(FPGA(name).speed or "")
+    if grades:
+        elsewhere = "; ".join(
+            f"{p}: speed grades {', '.join(g)}" for p, g in sorted(grades.items())
+        )
+        available = f"It has part data for other packages of {selection.device} ({elsewhere})."
+    else:
+        available = f"It has no part data for any package of {selection.device}."
+    return FlowFatalError(
+        f"Project X-Ray has no part data for {selection.part}: {root} has no directory with a "
+        f"part.json for device {selection.device}, package {package}, at any speed grade. "
+        f"{available} Pack a part that has data, or set prjxray_db to a database that has this one."
+    )
+
+
+def locate_part_data(selection: XilinxSelection) -> PartData:
     """The part data directory of ``selection``: the exact part's, if the database has it.
 
     The pin map and the configuration layout of a part do not depend on its speed grade (only
     timing does, and ``nextpnr`` keeps the exact grade for that), and a database often has the
     directory of one grade only. When the exact part has none, the directory of the lowest speed
     grade of the same device and package stands in: the smallest grade number, a plain grade
-    before its ``L`` variant. Never another device or package. ``None`` when no directory of
-    that device and package holds a ``part.json``.
+    before its ``L`` variant. Never another device or package: with no directory of that device
+    and package that holds a ``part.json``, this raises a ``FlowFatalError`` that names the part,
+    the directory searched and the data the database has for other packages of the device.
     """
     root = selection.database / selection.family
     exact = root / selection.name
     if (exact / "part.json").is_file():
         return PartData(selection.part, selection.name, exact)
     parts_path = root / "mapping/parts.yaml"
-    parts = _mapping(parts_path, selection.part)
-    wanted = FPGA(selection.part)
-    candidates = []
-    for name, entry in parts.values():
+    with_data = []
+    for name, entry in _mapping(parts_path, selection.part).values():
         try:
-            other = FPGA(name)
             same_device = _mapped_name(entry, "device", parts_path, name) == selection.device
-        except (ValueError, FlowFatalError):
+        except FlowFatalError:
             continue
-        if (
-            same_device
-            and (other.package, other.pins) == (wanted.package, wanted.pins)
-            and (root / name / "part.json").is_file()
-        ):
-            candidates.append(name)
+        if same_device and _package_of(name) and (root / name / "part.json").is_file():
+            with_data.append(name)
+    package = _package_of(selection.part)
+    candidates = [name for name in with_data if _package_of(name) == package]
     if not candidates:
-        return None
+        raise _no_part_data(selection, root, with_data)
     name = min(candidates, key=_speed_grade_order)
     return PartData(selection.part, name, root / name)
+
+
+def packer_inputs(selection: XilinxSelection, data: PartData) -> list[Path]:
+    """Every existing Project X-Ray file ``fpga-as`` can read to pack ``selection``'s part.
+
+    From ``fpga-as``'s own source (the openXC7 fpga-assembler): it reads the family's part and
+    device mappings, the tile grid of the part's fabric, the part's ``part.json``,
+    ``package_pins.csv`` and optional ``required_features.fasm`` in ``data``'s directory, and, for
+    each tile type its input uses, ``segbits_<type>.db``, ``segbits_<type>.block_ram.db`` and
+    ``ppips_<type>.db``. Only the packer knows which tile types an input uses, so every such file
+    of the family is listed. The family's ``tile_type_<type>.json`` files are listed too, although
+    the packer opens none: it indexes them by name, and a tile type has bits only if its file
+    exists. Nothing else is read: not ``mask_*.db``, ``site_type_*.json`` or ``part.yaml``.
+    """
+    root = selection.database / selection.family
+    paths = [
+        root / "mapping/parts.yaml",
+        root / "mapping/devices.yaml",
+        root / selection.fabric / "tilegrid.json",
+        *(data.directory / name for name in PART_FILES),
+    ]
+    for pattern in ("tile_type_*.json", "segbits_*.db", "ppips_*.db"):
+        paths.extend(sorted(root.glob(pattern)))
+    return [path for path in paths if path.is_file()]
 
 
 def _tree_contents(

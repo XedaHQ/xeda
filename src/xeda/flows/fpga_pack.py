@@ -17,6 +17,7 @@ from .xilinx import (
     XilinxSelection,
     find_prjxray_database,
     locate_part_data,
+    packer_inputs,
     select_xilinx_part,
 )
 
@@ -45,7 +46,7 @@ class FpgaPack(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
-    _selection: XilinxSelection
+    _selection: XilinxSelection | None = None
     _part_data: PartData | None = None
 
     # Nothing beyond the keys every flow reports.
@@ -113,24 +114,28 @@ class FpgaPack(FpgaSynthFlow):
                 f"e.g. xc7a100tcsg324-1, not {fpga.part or fpga.device or None!r}."
             )
 
-    def prepare_inputs(self) -> None:
-        """Locate the Project X-Ray part data before freshness: the files read are inputs."""
+    def init(self) -> None:
+        """Locate the Project X-Ray data `fpga-as` packs with, before any producer runs.
+
+        A part with no data is refused here, so neither synthesis nor placement runs first. Every
+        file the packer can read is registered as an input, so an in-place change of the
+        installed database runs the packing again.
+        """
         assert isinstance(self.settings, self.Settings)
-        self._part_data = None
         if Nextpnr.io_family(self.settings) != "xilinx":
             return
         assert self.settings.fpga is not None
-        resolved = which("fpga-as")
+        resolved = which(PACKERS["xilinx"][0])
         if resolved is None:
             raise FlowFatalError("fpga-as is missing on PATH; install openXC7 1.0.")
         prjxray_db = self.settings.prjxray_db
         database = find_prjxray_database(
             Path(resolved), self.normalize_path_to_design_root(prjxray_db) if prjxray_db else None
         )
-        self._selection = select_xilinx_part(self.settings.fpga.part or "", database)
-        self._part_data = locate_part_data(self._selection)
-        if self._part_data is not None:
-            self.implicit_inputs.extend(self._part_data.files())
+        selection = select_xilinx_part(self.settings.fpga.part or "", database)
+        data = locate_part_data(selection)
+        self._selection, self._part_data = selection, data
+        self.implicit_inputs.extend(packer_inputs(selection, data))
 
     def run(self) -> None:
         """Pack the configuration handed over as the input `config`."""
@@ -158,11 +163,10 @@ class FpgaPack(FpgaSynthFlow):
         # `fpga-as` accept options in any position.
         fixed: list[str | Path] = []
         if family == "xilinx":
-            if not hasattr(self, "_selection"):
-                raise FlowFatalError("Call prepare_inputs() before running fpga_pack.")
-            selection = self._selection
-            data: PartData | None = self._part_data
-            if data is not None and not data.exact:
+            selection, data = self._selection, self._part_data
+            if selection is None or data is None:
+                raise FlowFatalError("Call init() before running fpga_pack.")
+            if not data.exact:
                 log.info(
                     "Project X-Ray has no part data for %s: packing with the data of %s, the same "
                     "device and package at another speed grade, from %s",
@@ -170,11 +174,9 @@ class FpgaPack(FpgaSynthFlow):
                     data.name,
                     data.directory,
                 )
-            # no directory for the package at all: fpga-as reports the part it cannot find
-            part = data.name if data is not None else selection.name
             fixed = [
                 f"--prjxray_db_path={selection.database / selection.family}",
-                f"--part={part}",
+                f"--part={data.name}",
             ]
         # The packer writes scratch space only: an exit of zero may still leave no file (or an
         # empty one), and fpga-as writes its bitstream to standard output, so a failure there

@@ -513,10 +513,20 @@ when the database has it; else the directory of the lowest speed grade of the sa
 package (`xilinx.locate_part_data`: smallest grade number, a plain grade before its `L` variant,
 never another device or package; the pin map and configuration layout do not depend on the grade,
 and `nextpnr` keeps the exact grade for timing), logged at info level naming both parts. With no
-such directory, `fpga-as` gets the exact part and reports it missing. `FpgaPack.prepare_inputs`
-registers that directory's files as implicit inputs, so an edit, or a new exact directory, makes
-the run stale. Known limit: an in-place change of other installed Project X-Ray data, with
-`fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
+directory of the package at any grade it raises a `FlowFatalError` naming the part, the directory
+searched and the other packages' grades. `FpgaPack.init` does all of this, so the error comes
+before any producer runs, and registers `xilinx.packer_inputs` as implicit inputs: every
+file `fpga-as` can read (read from its source, the openXC7 fpga-assembler: the family's
+`mapping/parts.yaml` and `devices.yaml`, the fabric's `tilegrid.json`, the part's `part.json`,
+`package_pins.csv` and optional `required_features.fasm`, and the family's `segbits_*.db` and
+`ppips_*.db`, since the tile types an input uses are the packer's to know; the
+`tile_type_*.json` files are listed by name only, because a tile type has bits only if its file
+exists; `mask_*.db`, `site_type_*.json` and `part.yaml` are never read). So an in-place change of
+the installed data, or a new file among those, makes the run stale; the first launch hashes about
+80 MB in 290 files (0.2 s of processor time), later ones compare metadata (0.04 s). When a new
+`fpga-as` reads other files, update `packer_inputs`: `test_fpga_pack_records_every_file_fpga_as_needs`
+(`XEDA_TESTS_OPENXC7=1`) packs from a copy of the database holding only the registered files and
+must produce the same bitstream.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

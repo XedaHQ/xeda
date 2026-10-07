@@ -606,16 +606,20 @@ configuration layout of a part do not depend on its speed grade, so ``fpga_pack`
 directory of the exact part when the database has one. If not, it uses the directory of the
 same device and package at the lowest other speed grade (the smallest grade number; a plain
 grade comes before its ``L`` variant), and logs which part it asked for and which directory it
-used. It never uses another device or package: if the database has no directory for the device
-and package, ``fpga-as`` reports the missing part. ``nextpnr`` keeps the exact grade for timing.
-The files of the directory in use are inputs of the run: an edit of one, or a new directory for
-the exact part, makes ``fpga_pack`` run again.
+used. ``nextpnr`` keeps the exact grade for timing. It never uses another device or package. If
+the database has no directory for the device and package at any speed grade, ``fpga_pack`` fails
+before any tool runs. The message names the part, the directory it searched and the packages of
+the same device that the database has, with their speed grades.
+
+The Project X-Ray files that ``fpga-as`` can read are inputs of the run: the family's part and
+device mappings, the tile grid of the part's die, the part's own files, and the family's tile
+type, segment bit and pseudo-PIP files. An in-place change of one of them, or a new file among
+them, makes ``fpga_pack`` run again. The first launch reads them to record their content, about
+80 MB in 290 files for a Kintex-7 part, and takes about 0.2 s of processor time more. Later
+launches compare file metadata only and take about 0.04 s more.
+
 ``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
 ``verify`` is accepted only with it.
-
-What is not noticed: an in-place change of other files of the installed Project X-Ray database, with
-``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
-from its own installation are not inputs; ``--rebuild-all`` runs everything).
 
 The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a
 design or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
