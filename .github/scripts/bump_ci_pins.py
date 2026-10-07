@@ -14,7 +14,9 @@ For each pin, the script asks GitHub for the newest upstream and replaces the pi
 newer. It never moves a pin back. A workflow file that does not exist has no pin to update, and
 the script skips it. A file that exists without its pin, or with the pin in another format, is an
 error: the script must change together with the format. Every value that comes from GitHub is
-checked against a strict pattern before it reaches a file.
+checked against a strict pattern before it reaches a file. The SHA-256 of the bsc tarball comes
+from a download that must be whole: it has the size and, when GitHub lists one, the digest that
+GitHub lists for the file.
 
 The script uses the standard library only. With `--dry-run` it prints the changes and writes
 nothing.
@@ -38,10 +40,14 @@ OPENXC7 = Path(".github/workflows/openxc7.yml")
 WORKFLOW = "bump-ci-pins.yml"
 TITLE = "Update the pinned CI tools"
 
-OSS_CAD_TAG = re.compile(r"\d{4}-\d{2}-\d{2}")
-BSC_TAG = re.compile(r"\d{4}\.\d{2}(?:\.\d+)?")
+# The ASCII digits only: `\d` matches the decimal digits of every script, and a tag written with
+# them would sort above every date. (The patterns are embedded in others by `.pattern`, so the
+# `re.ASCII` flag would not carry over.)
+OSS_CAD_TAG = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+BSC_TAG = re.compile(r"[0-9]{4}\.[0-9]{2}(?:\.[0-9]+)?")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+LISTED_DIGEST = re.compile(rf"sha256:(?P<hex>{SHA256.pattern})")  # how GitHub writes a digest
 
 GITHUB = "https://github.com"
 OSS_CAD_REPOSITORY = "YosysHQ/oss-cad-suite-build"
@@ -50,8 +56,9 @@ INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
 
 #: Asks GitHub's REST API for a path and returns the parsed JSON.
 Fetch = Callable[[str], Any]
-#: Downloads a URL and returns the SHA-256 of its content, in hexadecimal.
-Digest = Callable[[str], str]
+#: Downloads a URL, checks the content against the size and (if given) the SHA-256 that GitHub
+#: lists for the file, and returns the SHA-256 of the content, in hexadecimal.
+Digest = Callable[[str, int, "str | None"], str]
 
 
 class PinError(Exception):
@@ -84,6 +91,16 @@ class Update:
     new: str
     links: tuple[tuple[str, str], ...]
     sha256: str = ""  # of the bsc tarball
+    digest_listed: bool = False  # whether GitHub lists a digest for the tarball, and it matched
+
+
+@dataclass(frozen=True)
+class Tarball:
+    """The bsc tarball of a release, as GitHub's list of releases describes the file."""
+
+    tag: str
+    size: int
+    sha256: str | None = None  # the digest GitHub lists for the file, if it lists one
 
 
 # ---------------------------------------------------------------------------------------------
@@ -222,18 +239,38 @@ def bsc_url(tag: str) -> str:
     return f"{GITHUB}/{BSC_REPOSITORY}/releases/download/{tag}/{bsc_tarball(tag)}"
 
 
-def newest_bsc(answer: Any) -> str:
-    """The newest release that has the Ubuntu 24.04 tarball."""
-    tags = [
-        tag
+def _tarball(release: dict[str, Any], tag: str) -> Tarball:
+    """The tarball of `release`, which has one: its size, and its digest if GitHub lists one."""
+    name = bsc_tarball(tag)
+    asset = next(a for a in release["assets"] if isinstance(a, dict) and a.get("name") == name)
+    size = asset.get("size")
+    if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+        raise PinError(f"bsc: GitHub lists no size for {name}, or one that is not a size: {size!r}")
+    listed = asset.get("digest")
+    if listed is None:
+        return Tarball(tag, size)
+    match = LISTED_DIGEST.fullmatch(listed) if isinstance(listed, str) else None
+    if match is None:
+        raise PinError(
+            f"bsc: GitHub lists a digest for {name} that is not `sha256:` and 64 hexadecimal "
+            f"digits: {listed!r}"
+        )
+    return Tarball(tag, size, match.group("hex"))
+
+
+def newest_bsc(answer: Any) -> Tarball:
+    """The tarball of the newest release that has the Ubuntu 24.04 one."""
+    candidates = {
+        tag: release
         for release in _releases(answer, "bsc")
         if isinstance(tag := release.get("tag_name"), str)
         and BSC_TAG.fullmatch(tag)
         and bsc_tarball(tag) in _asset_names(release)
-    ]
-    if not tags:
+    }
+    if not candidates:
         raise PinError("bsc: no release has an Ubuntu 24.04 tarball")
-    return max(tags, key=_release_number)
+    tag = max(candidates, key=_release_number)
+    return _tarball(candidates[tag], tag)
 
 
 def installer_head(answer: Any) -> str:
@@ -243,20 +280,36 @@ def installer_head(answer: Any) -> str:
     return sha
 
 
-def installer_is_ahead(answer: Any) -> bool:
-    """Whether GitHub's comparison of the pinned commit with the head says the head is ahead."""
+def installer_state(answer: Any) -> str:
+    """The status in GitHub's comparison of the pinned commit (the base) with the head of main:
+    `ahead` when the head has commits that the pin lacks, and nothing else is an update."""
     status = answer.get("status") if isinstance(answer, dict) else None
     if status not in ("ahead", "behind", "identical", "diverged"):
         raise PinError("openXC7 installer: GitHub did not answer with a comparison")
-    return status == "ahead"
+    return status
+
+
+_NOT_AHEAD = {
+    "behind": "main ({new}) is behind the pinned commit ({old})",
+    "diverged": "main ({new}) and the pinned commit ({old}) have diverged",
+    "identical": "main ({new}) and the pinned commit ({old}) are identical",
+}
 
 
 def _compare(repository: str, old: str, new: str) -> str:
     return f"{GITHUB}/{repository}/compare/{old}...{new}"
 
 
-def find_update(pin: Pin, text: str, fetch: Fetch, digest: Digest) -> Update | None:
-    """The update for `pin`, or None when `text` already pins the newest upstream."""
+def _ignore(message: str) -> None:
+    pass
+
+
+def find_update(
+    pin: Pin, text: str, fetch: Fetch, digest: Digest, warn: Callable[[str], None] = _ignore
+) -> Update | None:
+    """The update for `pin`, or None when `text` already pins the newest upstream or has no
+    newer one to move to. `warn` hears of a pin that is left where it is for a reason that a
+    person should look at."""
     if pin.kind == "oss_cad":
         old = read_oss_cad(text)
         new = newest_oss_cad(fetch(f"/repos/{OSS_CAD_REPOSITORY}/releases?per_page=30"))
@@ -269,24 +322,30 @@ def find_update(pin: Pin, text: str, fetch: Fetch, digest: Digest) -> Update | N
         return Update(pin, old, new, links)
     if pin.kind == "bsc":
         old, _ = read_bsc(text)
-        new = newest_bsc(fetch(f"/repos/{BSC_REPOSITORY}/releases?per_page=30"))
+        tarball = newest_bsc(fetch(f"/repos/{BSC_REPOSITORY}/releases?per_page=30"))
+        new = tarball.tag
         if _release_number(new) <= _release_number(old):
             return None
-        sha256 = digest(bsc_url(new))
+        sha256 = digest(bsc_url(new), tarball.size, tarball.sha256)
         if not SHA256.fullmatch(sha256):
             raise PinError("bsc: the digest of the tarball is not a SHA-256")
         links = (
             ("release", f"{GITHUB}/{BSC_REPOSITORY}/releases/tag/{new}"),
             ("compare", _compare(BSC_REPOSITORY, old, new)),
         )
-        return Update(pin, old, new, links, sha256)
+        return Update(pin, old, new, links, sha256, digest_listed=tarball.sha256 is not None)
     if pin.kind == "installer":
         old = read_installer(text)
         new = installer_head(fetch(f"/repos/{INSTALLER_REPOSITORY}/commits/main"))
         if new == old:
             return None
-        if not installer_is_ahead(fetch(f"/repos/{INSTALLER_REPOSITORY}/compare/{old}...{new}")):
-            return None  # the pin is not behind main: it never moves back, or sideways
+        state = installer_state(fetch(f"/repos/{INSTALLER_REPOSITORY}/compare/{old}...{new}"))
+        if state != "ahead":
+            # The pin never moves back, or sideways. When main was rewritten, nothing will move
+            # it until a person does, so the run says so.
+            reason = _NOT_AHEAD[state].format(old=_shown(old), new=_shown(new))
+            warn(f"{reason}, so the pin stays. If upstream rewrote main, move the pin by hand.")
+            return None
         return Update(pin, old, new, (("compare", _compare(INSTALLER_REPOSITORY, old, new)),))
     raise PinError(f"unknown kind of pin: {pin.kind}")
 
@@ -327,9 +386,14 @@ def pull_request_text(updates: Sequence[Update]) -> tuple[str, str]:
     notes = []
     for u in updates:
         if u.pin.kind == "bsc":
+            checked = (
+                "GitHub lists the same digest for the file."
+                if u.digest_listed
+                else "GitHub lists no digest for the file, so the workflow checked only its size."
+            )
             notes.append(
                 f"The SHA-256 of `{bsc_tarball(u.new)}` is `{u.sha256}`. "
-                "The workflow computed it by downloading the file."
+                f"The workflow computed it by downloading the file. {checked}"
             )
         if u.pin.kind == "installer":
             notes.append(
@@ -375,17 +439,32 @@ def github_fetcher(token: str | None) -> Fetch:
     return fetch
 
 
-def download_digest(url: str) -> str:
+def download_digest(url: str, size: int, listed: str | None) -> str:
+    """Download `url` and return the SHA-256 of what arrived, in hexadecimal. The body must be
+    whole. `read` returns `b""` for a connection that the server closed early, as it does at the
+    end of a whole body, so the body must have the `size` that GitHub lists for the file, the
+    length that the server announces, and the digest `listed` (if GitHub lists one)."""
     digest = hashlib.sha256()
-    size = 0
+    read = 0
     request = urllib.request.Request(url, headers={"User-Agent": "xeda-bump-ci-pins"})
     with urllib.request.urlopen(request, timeout=120) as response:
+        announced = response.headers.get("Content-Length")
         for chunk in iter(lambda: response.read(1 << 20), b""):
             digest.update(chunk)
-            size += len(chunk)
-    if not size:
+            read += len(chunk)
+    if not read:
         raise PinError(f"{url} is empty")
-    return digest.hexdigest()
+    if read != size:
+        raise PinError(f"{url}: {read} bytes arrived, and GitHub lists the file as {size} bytes")
+    if announced is not None:
+        if not re.fullmatch(r"[0-9]+", announced):
+            raise PinError(f"{url}: the server announced a Content-Length of {announced!r}")
+        if read != int(announced):
+            raise PinError(f"{url}: {read} bytes arrived, and the server announced {announced}")
+    result = digest.hexdigest()
+    if listed is not None and result != listed:
+        raise PinError(f"{url}: its SHA-256 is {result}, and GitHub lists the digest {listed}")
+    return result
 
 
 # ---------------------------------------------------------------------------------------------
@@ -394,9 +473,20 @@ def download_digest(url: str) -> str:
 
 
 def run(
-    root: Path, fetch: Fetch, digest: Digest, dry_run: bool, log: Callable[[str], None]
+    root: Path,
+    fetch: Fetch,
+    digest: Digest,
+    dry_run: bool,
+    log: Callable[[str], None],
+    warn: Callable[[str], None] | None = None,
 ) -> list[Update]:
-    """Find the updates, and write them into the files under `root` unless `dry_run`."""
+    """Find the updates, and write them into the files under `root` unless `dry_run`. `warn`
+    hears of a pin that stays where it is for a reason to look at (default: `log` it)."""
+    if warn is None:
+
+        def warn(message: str) -> None:
+            log(f"warning: {message}")
+
     updates: list[Update] = []
     texts: dict[Path, str] = {}
     for pin in PINS:
@@ -407,9 +497,13 @@ def run(
             continue
         if pin.path not in texts:
             texts[pin.path] = path.read_text(encoding="utf-8")
-        update = find_update(pin, texts[pin.path], fetch, digest)
+        notes: list[str] = []
+        update = find_update(pin, texts[pin.path], fetch, digest, notes.append)
+        for note in notes:
+            warn(f"{label}: {note}")
         if update is None:
-            log(f"{label}: up to date")
+            if not notes:
+                log(f"{label}: up to date")
             continue
         log(f"{label}: {_shown(update.old)} -> {_shown(update.new)}")
         for name, url in update.links:
@@ -425,6 +519,15 @@ def run(
     return updates
 
 
+def warn_in_the_log(message: str) -> None:
+    """In GitHub Actions, a `::warning::` line shows on the page of the run, not only in its
+    log. The messages hold no text from GitHub but a status from a fixed list and commit hashes."""
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::warning title=Tool pins::{message}")
+    else:
+        print(f"warning: {message}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="the repository (default: .)")
@@ -435,7 +538,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     try:
-        updates = run(args.root, github_fetcher(token), download_digest, args.dry_run, print)
+        updates = run(
+            args.root, github_fetcher(token), download_digest, args.dry_run, print, warn_in_the_log
+        )
     except (PinError, OSError, ValueError) as error:  # OSError includes URLError
         print(f"error: {error}", file=sys.stderr)
         return 1

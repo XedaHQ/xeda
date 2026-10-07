@@ -7,12 +7,20 @@ pin never moves back, and nothing runs when upstream is not newer. What GitHub a
 before it reaches a file.
 """
 
+import hashlib
+import io
+import json
+import re
+import shutil
+import subprocess
 import sys
 import types
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+from xeda.yaml_loader import load_yaml
 
 ROOT = Path(__file__).parent.parent
 SCRIPT = ROOT / ".github" / "scripts" / "bump_ci_pins.py"
@@ -30,6 +38,10 @@ def _load_script() -> types.ModuleType:
 
 pins = _load_script()
 
+#: Maps the ASCII digits to the Arabic-Indic digits, which `\\d` matches in a Python pattern.
+ARABIC_INDIC = str.maketrans(
+    "0123456789", "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
+)
 OLD_SHA256 = "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
 NEW_SHA256 = "ab" * 32
 OLD_COMMIT = "efe9e07330e88434a831f2c52bee72739da0f0a5"
@@ -72,16 +84,26 @@ jobs:
 """
 
 
-def release(tag: Any, *assets: str, **flags: bool) -> dict[str, Any]:
-    return {"tag_name": tag, "assets": [{"name": name} for name in assets], **flags}
+TARBALL_SIZE = 123_456_789
+
+
+def release(tag: Any, *assets: Any, **flags: bool) -> dict[str, Any]:
+    """A release with assets: each a name, or a dict as GitHub describes an asset."""
+    return {
+        "tag_name": tag,
+        "assets": [{"name": a} if isinstance(a, str) else a for a in assets],
+        **flags,
+    }
 
 
 def oss_cad(date: str, **flags: bool) -> dict[str, Any]:
     return release(date, f"oss-cad-suite-linux-x64-{date.replace('-', '')}.tgz", **flags)
 
 
-def bsc(tag: str, **flags: bool) -> dict[str, Any]:
-    return release(tag, f"bsc-{tag}-ubuntu-24.04.tar.gz", **flags)
+def bsc(tag: str, asset: dict[str, Any] | None = None, **flags: bool) -> dict[str, Any]:
+    """A bsc release. `asset` adds to, or replaces, the fields of its Ubuntu 24.04 tarball."""
+    tarball = {"name": f"bsc-{tag}-ubuntu-24.04.tar.gz", "size": TARBALL_SIZE, **(asset or {})}
+    return release(tag, tarball, **flags)
 
 
 class Upstream:
@@ -100,12 +122,14 @@ class Upstream:
         }
         self.sha256 = sha256
         self.downloads: list[str] = []
+        self.checks: list[tuple[int, str | None]] = []  # the size and digest each download got
 
     def fetch(self, path: str) -> Any:
         return self.answers[path]
 
-    def digest(self, url: str) -> str:
+    def digest(self, url: str, size: int, sha256: str | None) -> str:
         self.downloads.append(url)
+        self.checks.append((size, sha256))
         return self.sha256
 
 
@@ -198,6 +222,12 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
             OPENXC7_TEXT.replace(OLD_COMMIT, "main"), "installer", "INSTALLER_REV", id="branch"
         ),
         pytest.param(OPENXC7_TEXT + OPENXC7_TEXT, "installer", "INSTALLER_REV", id="rev twice"),
+        pytest.param(
+            CI_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
+            "oss",
+            "version",
+            id="other digits",
+        ),
     ],
 )
 def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
@@ -240,6 +270,16 @@ def test_the_newest_oss_cad_build_has_the_linux_archive_the_action_downloads():
     assert pins.newest_oss_cad(answer) == "2026-10-09"
 
 
+def test_a_tag_written_with_other_digits_is_no_release_tag():
+    """`\\d` matches the decimal digits of every script, and such a tag would sort above every
+    date. Both patterns take the ASCII digits only."""
+    dated = "2026-10-08".translate(ARABIC_INDIC)
+    assert pins.newest_oss_cad([oss_cad("2026-10-06"), oss_cad(dated)]) == "2026-10-06"
+    numbered = "2026.10".translate(ARABIC_INDIC)
+    assert pins.newest_bsc([bsc("2026.07.1"), bsc(numbered)]).tag == "2026.07.1"
+    assert not pins.OSS_CAD_TAG.fullmatch(dated) and not pins.BSC_TAG.fullmatch(numbered)
+
+
 @pytest.mark.parametrize("answer", [[], {"message": "rate limit"}, "text", [1, 2], [release("x")]])
 def test_no_usable_oss_cad_release_is_an_error(answer):
     with pytest.raises(pins.PinError):
@@ -258,18 +298,51 @@ def test_the_newest_bsc_release_has_the_ubuntu_24_04_tarball():
         bsc("2026.08-rc1"),  # not a release number
         bsc("nightly"),
     ]
-    assert pins.newest_bsc(answer) == "2026.07.1"
+    assert pins.newest_bsc(answer).tag == "2026.07.1"
 
 
 def test_bsc_releases_are_ordered_as_numbers_not_as_text():
-    assert pins.newest_bsc([bsc("2026.07"), bsc("2026.07.1")]) == "2026.07.1"
-    assert pins.newest_bsc([bsc("2025.12.3"), bsc("2025.12.10")]) == "2025.12.10"
+    assert pins.newest_bsc([bsc("2026.07"), bsc("2026.07.1")]).tag == "2026.07.1"
+    assert pins.newest_bsc([bsc("2025.12.3"), bsc("2025.12.10")]).tag == "2025.12.10"
 
 
 @pytest.mark.parametrize("answer", [[], {"message": "rate limit"}, [release("2026.01")]])
 def test_no_usable_bsc_release_is_an_error(answer):
     with pytest.raises(pins.PinError):
         pins.newest_bsc(answer)
+
+
+def test_the_tarball_of_a_release_has_the_size_and_the_digest_github_lists_for_it():
+    answer = [bsc("2026.10", {"size": 1234, "digest": f"sha256:{NEW_SHA256}"}), bsc("2026.07.1")]
+    tarball = pins.newest_bsc(answer)
+    assert (tarball.tag, tarball.size, tarball.sha256) == ("2026.10", 1234, NEW_SHA256)
+
+
+@pytest.mark.parametrize("asset", [{}, {"digest": None}], ids=["no digest", "digest null"])
+def test_a_tarball_that_github_gives_no_digest_has_none(asset):
+    tarball = pins.newest_bsc([bsc("2026.10", asset)])
+    assert (tarball.size, tarball.sha256) == (TARBALL_SIZE, None)
+
+
+@pytest.mark.parametrize(
+    "asset",
+    [
+        pytest.param({"size": None}, id="no size"),
+        pytest.param({"size": 0}, id="empty"),
+        pytest.param({"size": -1}, id="negative"),
+        pytest.param({"size": "100"}, id="text"),
+        pytest.param({"size": True}, id="boolean"),
+        pytest.param({"size": 1.5}, id="fraction"),
+        pytest.param({"digest": "sha512:" + "ab" * 64}, id="another algorithm"),
+        pytest.param({"digest": "sha256:" + "AB" * 32}, id="upper case"),
+        pytest.param({"digest": "sha256:abc"}, id="short"),
+        pytest.param({"digest": ""}, id="empty digest"),
+        pytest.param({"digest": 7}, id="number"),
+    ],
+)
+def test_a_tarball_that_github_describes_wrongly_is_an_error(asset):
+    with pytest.raises(pins.PinError):
+        pins.newest_bsc([bsc("2026.10", asset)])
 
 
 @pytest.mark.parametrize("answer", [{}, [], {"sha": None}, {"sha": "main"}, {"sha": "ab" * 21}])
@@ -322,6 +395,19 @@ def test_a_newer_bsc_is_hashed_from_the_address_ci_downloads():
     assert pins.read_bsc(pins.apply_update(CI_TEXT, update)) == ("2026.10", NEW_SHA256)
 
 
+def test_a_newer_bsc_is_downloaded_against_the_size_and_digest_github_lists():
+    listed = {"size": 4321, "digest": f"sha256:{NEW_SHA256}"}
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", listed), bsc("2026.07.1")])
+    pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest)
+    assert upstream.checks == [(4321, NEW_SHA256)]
+
+
+def test_a_newer_bsc_without_a_listed_digest_is_downloaded_against_its_size():
+    upstream = newer_upstream()
+    pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest)
+    assert upstream.checks == [(TARBALL_SIZE, None)]
+
+
 def test_a_digest_that_is_no_sha256_is_an_error():
     upstream = newer_upstream(sha256="not a digest")
     with pytest.raises(pins.PinError, match="SHA-256"):
@@ -342,15 +428,140 @@ def test_a_newer_installer_commit_is_an_update_with_a_compare_link():
 
 
 @pytest.mark.parametrize("status", ["behind", "diverged"])
-def test_an_installer_head_that_is_not_ahead_of_the_pin_is_no_update(status):
+def test_an_installer_head_that_is_not_ahead_of_the_pin_is_no_update_and_is_warned_about(status):
+    """A rewritten `main` would otherwise stall the pin with no sign of it."""
     upstream = newer_upstream(comparison=status)
-    assert pins.find_update(pin("installer"), OPENXC7_TEXT, upstream.fetch, upstream.digest) is None
+    warnings: list[str] = []
+    update = pins.find_update(
+        pin("installer"), OPENXC7_TEXT, upstream.fetch, upstream.digest, warnings.append
+    )
+    assert update is None
+    assert len(warnings) == 1 and status in warnings[0]
+    assert OLD_COMMIT[:7] in warnings[0] and NEW_COMMIT[:7] in warnings[0]
+
+
+@pytest.mark.parametrize("status", ["behind", "diverged"])
+def test_a_run_warns_instead_of_saying_that_an_installer_pin_is_up_to_date(tmp_path, status):
+    write_checkout(tmp_path)
+    upstream = newer_upstream(comparison=status)
+    log: list[str] = []
+    warnings: list[str] = []
+    pins.run(
+        tmp_path,
+        upstream.fetch,
+        upstream.digest,
+        dry_run=True,
+        log=log.append,
+        warn=warnings.append,
+    )
+    assert len(warnings) == 1 and "openXC7 toolchain installer" in warnings[0]
+    assert status in warnings[0]
+    assert not any("installer" in line and "up to date" in line for line in log)
+    assert any("OSS CAD Suite" in line and "->" in line for line in log)  # the others go on
+
+
+def test_a_run_prints_a_warning_as_a_warning_when_no_one_collects_them(tmp_path, capsys):
+    write_checkout(tmp_path)
+    upstream = newer_upstream(comparison="diverged")
+    pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=print)
+    assert "warning: openXC7 toolchain installer" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("answer", [{}, [], {"status": "other"}, {"status": None}, "ahead"])
 def test_a_comparison_that_is_no_comparison_is_an_error(answer):
     with pytest.raises(pins.PinError, match="comparison"):
-        pins.installer_is_ahead(answer)
+        pins.installer_state(answer)
+
+
+@pytest.mark.parametrize("status", ["ahead", "behind", "identical", "diverged"])
+def test_a_comparison_is_its_status(status):
+    assert pins.installer_state({"status": status}) == status
+
+
+# ------------------------------------------------------------ the download of the bsc tarball
+
+BODY = b"the content of a tarball" * 50
+SIZE = len(BODY)
+BODY_SHA256 = hashlib.sha256(BODY).hexdigest()
+URL = "https://example.org/bsc.tar.gz"
+
+
+class Response:
+    """What `urlopen` gives: a body, and headers like the ones of a server."""
+
+    def __init__(self, body: bytes, headers: dict[str, str]):
+        self._body = io.BytesIO(body)
+        self.headers = headers
+
+    def read(self, amount: int = -1) -> bytes:
+        return self._body.read(amount)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exception):
+        return None
+
+
+def serve(monkeypatch, body: bytes, **headers: str) -> None:
+    monkeypatch.setattr(
+        pins.urllib.request, "urlopen", lambda request, timeout: Response(body, headers)
+    )
+
+
+def test_a_whole_download_is_hashed(monkeypatch):
+    serve(monkeypatch, BODY, **{"Content-Length": str(SIZE)})
+    assert pins.download_digest(URL, SIZE, BODY_SHA256) == BODY_SHA256
+
+
+def test_a_download_needs_neither_a_content_length_nor_a_listed_digest(monkeypatch):
+    serve(monkeypatch, BODY)
+    assert pins.download_digest(URL, SIZE, None) == BODY_SHA256
+
+
+def test_a_body_cut_short_by_a_clean_close_is_an_error(monkeypatch):
+    """`read` returns what arrived and then `b""`, as for a complete body: only the announced
+    length tells the difference."""
+    serve(monkeypatch, BODY[:40], **{"Content-Length": str(SIZE)})
+    with pytest.raises(pins.PinError, match="40"):
+        pins.download_digest(URL, SIZE, None)
+
+
+def test_a_short_body_is_an_error_when_the_server_announces_no_length(monkeypatch):
+    serve(monkeypatch, BODY[:40])
+    with pytest.raises(pins.PinError, match="40"):
+        pins.download_digest(URL, SIZE, None)
+
+
+def test_a_body_of_another_size_than_the_release_lists_is_an_error(monkeypatch):
+    serve(monkeypatch, BODY, **{"Content-Length": str(SIZE)})
+    with pytest.raises(pins.PinError, match=str(SIZE + 1)):
+        pins.download_digest(URL, SIZE + 1, None)
+
+
+def test_a_body_of_another_length_than_the_server_announced_is_an_error(monkeypatch):
+    serve(monkeypatch, BODY, **{"Content-Length": str(SIZE + 5)})
+    with pytest.raises(pins.PinError, match=str(SIZE + 5)):
+        pins.download_digest(URL, SIZE, None)
+
+
+@pytest.mark.parametrize("length", ["", "abc", "-5", "1e3", "\u0661\u0662"])
+def test_a_content_length_that_is_no_number_is_an_error(monkeypatch, length):
+    serve(monkeypatch, BODY, **{"Content-Length": length})
+    with pytest.raises(pins.PinError, match="Content-Length"):
+        pins.download_digest(URL, SIZE, None)
+
+
+def test_content_with_another_digest_than_github_lists_is_an_error(monkeypatch):
+    serve(monkeypatch, BODY, **{"Content-Length": str(SIZE)})
+    with pytest.raises(pins.PinError, match="digest"):
+        pins.download_digest(URL, SIZE, "ab" * 32)
+
+
+def test_an_empty_download_is_an_error(monkeypatch):
+    serve(monkeypatch, b"", **{"Content-Length": "0"})
+    with pytest.raises(pins.PinError, match="empty"):
+        pins.download_digest(URL, 0, None)
 
 
 # ------------------------------------------------------------------ the files of a checkout
@@ -446,9 +657,18 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     ):
         assert url in body
     assert f"`{NEW_SHA256}`" in body and "bsc-2026.10-ubuntu-24.04.tar.gz" in body
+    assert "GitHub lists no digest" in body  # this release lists none
     for text in (title, body, message):
         assert "Co-Authored-By" not in text and "Generated with" not in text
         assert all(line == line.rstrip() for line in text.splitlines())
+
+
+def test_the_text_says_when_github_lists_the_same_digest():
+    listed = {"digest": f"sha256:{NEW_SHA256}"}
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", listed), bsc("2026.07.1")])
+    update = pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest)
+    _, body = pins.pull_request_text([update])
+    assert "GitHub lists the same digest" in body and "no digest" not in body
 
 
 def test_the_text_names_only_the_tools_that_changed():
@@ -525,3 +745,73 @@ def test_the_command_fails_with_a_message_when_github_cannot_be_reached(
     monkeypatch.setattr(pins, "github_fetcher", lambda token: unreachable)
     assert pins.main(["--root", str(tmp_path), "--dry-run"]) == 1
     assert "no network" in capsys.readouterr().err
+
+
+# --------------------------------------------------------------------------- the workflow
+
+WORKFLOW_FILE = ROOT / ".github" / "workflows" / pins.WORKFLOW
+
+
+def steps() -> list[dict[str, Any]]:
+    return load_yaml(WORKFLOW_FILE)["jobs"]["bump"]["steps"]
+
+
+def test_the_checkout_keeps_no_credential_in_the_repository():
+    """The checkout would write the token into `.git/config`, where every later step reads it,
+    the script that processes what upstream answers included."""
+    checkout = next(s for s in steps() if str(s.get("uses", "")).startswith("actions/checkout@"))
+    options = checkout.get("with", {})
+    assert options.get("persist-credentials") is False
+    assert "token" not in options
+
+
+def test_the_step_that_runs_the_script_never_sees_the_token():
+    script_steps = [s for s in steps() if "bump_ci_pins.py" in s.get("run", "")]
+    assert len(script_steps) == 1
+    assert "CI_PINS_TOKEN" not in json.dumps(script_steps[0])
+
+
+def test_the_token_is_given_to_a_git_command_through_its_environment_only():
+    """It is not written to a file of the runner, and not on the command line, where `ps` shows
+    it."""
+    push = next(s for s in steps() if "git push" in s.get("run", ""))
+    run = push["run"]
+    assert "GIT_CONFIG_KEY_0" in run and "extraheader" in run
+    assert "git config" in run  # the identity of the commit...
+    assert not re.search(r"git config[^\n]*(token|extraheader|credential)", run, re.I)
+    assert "::add-mask::" in run
+    assert "set -x" not in run and "xtrace" not in run
+
+
+@pytest.mark.skipif(shutil.which("jq") is None, reason="the lookup is a jq expression")
+@pytest.mark.parametrize(
+    "listed, expected",
+    [
+        pytest.param([], "", id="none"),
+        pytest.param([{"number": 7, "isCrossRepository": False}], "7", id="one of ours"),
+        pytest.param([{"number": 7, "isCrossRepository": True}], "", id="one from a fork"),
+        pytest.param(
+            [
+                {"number": 7, "isCrossRepository": True},
+                {"number": 9, "isCrossRepository": False},
+            ],
+            "9",
+            id="a fork's first",
+        ),
+    ],
+)
+def test_the_pull_request_lookup_ignores_the_pull_requests_of_forks(listed, expected):
+    """`gh pr list --head` matches the name of the branch only, so a fork's pull request from a
+    branch of the same name would be taken for ours and edited."""
+    lookup = next(s["run"] for s in steps() if "gh pr list" in s.get("run", ""))
+    assert "--json number,isCrossRepository" in lookup
+    expression = re.search(r"--jq '([^']+)'", lookup)
+    assert expression is not None
+    answer = subprocess.run(
+        ["jq", "-r", expression.group(1)],
+        input=json.dumps(listed),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert answer.stdout.strip() == expected

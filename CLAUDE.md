@@ -82,9 +82,15 @@ date and the bsc version with its SHA-256, and `openxc7.yml` pins the openXC7 in
 force-pushes the branch `ci/bump-tool-pins` and opens or updates one pull request that lists
 old and new with links. Merge it only when CI passes: a newer tool can move a result that a
 test pins, such as the counts of `tests/test_openxc7_real.py`. The workflow needs the secret
-`CI_PINS_TOKEN`, a token with write access to Contents, Pull requests and Workflows:
-`GITHUB_TOKEN` cannot change workflow files, and a pull request that it opens does not start
-CI by itself. It changes nothing on a fork or off the default branch; it prints. Keep each
+`CI_PINS_TOKEN`, a fine-grained personal access token with write access to Contents, Pull
+requests and Workflows (not a GitHub App token, which expires in an hour): `GITHUB_TOKEN`
+cannot change workflow files, and a pull request that it opens does not start CI by itself.
+The token reaches two steps. The checkout keeps no credential (`persist-credentials: false`),
+and the step that runs the script never sees the token; the step that pushes gives it to the one
+`git push` through its environment (`tests/test_ci_pins.py` checks all three). The bsc SHA-256
+comes from a download that must have the size and the digest GitHub lists for the file. A pin
+that stays because main was rewritten (`behind`, `diverged`) is a warning in the log, not
+"up to date". The workflow changes nothing on a fork or off the default branch; it prints. Keep each
 pin on the line the script reads: `tests/test_ci_pins.py` parses the real workflow files, and a
 new pin needs a reader and a writer in the script. Dependabot (`.github/dependabot.yml`) keeps
 the versions of the actions current.

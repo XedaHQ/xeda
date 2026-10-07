@@ -7,10 +7,16 @@ name: Bump CI tool pins
 # of the token is the author of the pull request, and CI runs on it like on any other. A person
 # reads the pull request and merges it when CI passes.
 #
-# The workflow needs the secret CI_PINS_TOKEN: a fine-grained personal access token, or the token
-# of a GitHub App, with write access to Contents, Pull requests and Workflows of this repository.
-# GITHUB_TOKEN cannot do this job. It has no permission to change workflow files, and a pull
-# request that it opens does not start CI by itself.
+# The workflow needs the secret CI_PINS_TOKEN: a fine-grained personal access token with write
+# access to Contents, Pull requests and Workflows of this repository. It cannot be the token of a
+# GitHub App: that token expires after an hour, and a secret has to last. GITHUB_TOKEN cannot do
+# this job either. It has no permission to change workflow files, and a pull request that it
+# opens does not start CI by itself.
+#
+# The token reaches two steps and no other. The step that decides whether to change anything
+# reads that it is set. The step that pushes and opens the pull request uses it. The checkout
+# does not keep it in the repository, and the step that runs the script, which processes what
+# upstream answers, never sees it.
 #
 # The workflow changes something only when it runs on the default branch of a repository that is
 # not a fork. Anywhere else, and when a manual run sets dry_run, it prints the changes and stops.
@@ -67,7 +73,7 @@ jobs:
 
       - uses: actions/checkout@v5
         with:
-          token: ${{ secrets.CI_PINS_TOKEN || github.token }}
+          persist-credentials: false
 
       - name: Look for newer tool versions
         id: find
@@ -94,15 +100,24 @@ jobs:
           git switch --create "$BRANCH"
           git add .github/workflows
           git commit --quiet --file "$RUNNER_TEMP/commit-message.txt"
+          # The token goes to the one git command that pushes, through its environment. It is in
+          # no file of the runner and not on a command line. The encoded form is masked in the log.
+          basic="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
           # The branch may already hold exactly these changes, from the run of an earlier week.
           # Then the pull request is up to date, and a push would only start CI again.
           if git fetch --quiet origin "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
             echo "The branch $BRANCH already holds these changes."
           else
-            git push --force origin "HEAD:refs/heads/$BRANCH"
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic" \
+              git push --force origin "HEAD:refs/heads/$BRANCH"
           fi
           title="$(head -n 1 "$RUNNER_TEMP/commit-message.txt")"
-          number="$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')"
+          # --head matches the name of the branch only, so a pull request from a fork with a
+          # branch of the same name would be found too: take one of this repository.
+          number="$(gh pr list --head "$BRANCH" --state open --json number,isCrossRepository \
+            --jq 'map(select(.isCrossRepository | not)) | .[0].number // empty')"
           if [ -n "$number" ]; then
             gh pr edit "$number" --title "$title" --body-file "$RUNNER_TEMP/pull-request.md"
           else
