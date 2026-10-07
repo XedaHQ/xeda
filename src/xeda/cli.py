@@ -1404,8 +1404,12 @@ def dse(
     # when it starts, once its settings have validated -- one log per exploration.
     setup_logger(log_level, detailed_logs)
 
-    opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
-    dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
+    try:
+        opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
+        dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
+    except XedaException as e:  # a key given as a value and as a table
+        dse_failure(type(e).__name__, _error_message(e), e)
+        raise  # unreachable: dse_failure exits
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 

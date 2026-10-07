@@ -17,7 +17,7 @@ import time
 import tomllib
 import unittest
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -80,6 +80,7 @@ __all__ = [
     "first_key",
     "settings_to_dict",
     "flows_table_problems",
+    "ConflictingKeys",
     "XedaException",
     "ToolException",
     "NonZeroExitCode",
@@ -726,21 +727,45 @@ def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[
         return None
 
 
-def set_hierarchy(dct: Dict[str, Any], path, value):
-    if isinstance(path, str):
-        path = re.split(SEP, path)
-    k = path[0]
-    if len(path) == 1:
-        if isinstance(value, (dict)):
-            new_value: Dict[str, Any] = {}
-            for k2, v2 in value.items():
-                set_hierarchy(new_value, k2, v2)
-            value = new_value
-        dct[k] = value
+def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
+    """Set `value` in `dct` at `path`, a dotted key (`"clock.period"`) or its parts, making a
+    table of each key before the last. A dict `value` is set key by key, so a dotted key in it is
+    a path too.
+
+    A key is a value or a table, never both: one that holds a value cannot have keys inside it
+    (`timing=true` then `timing.x=1`), and one that has keys inside it is not given a value
+    (`timing.x=1` then `timing=true`). Either order is a `ConflictingKeys` naming both keys, not a
+    traceback in the one and a table lost in the other. A key left empty (`None`) is no value, so
+    a table follows it. Setting a key again replaces its value, and a table replaces a table.
+    """
+    parts = re.split(SEP, path) if isinstance(path, str) else list(path)
+    _set_hierarchy(dct, parts, value, ())
+
+
+def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tuple[Any, ...]):
+    """`set_hierarchy` for the table `dct`, which lies under the keys `above` (named in full in
+    an error)."""
+    key = parts[0]
+    here = (*above, key)
+    if len(parts) > 1:
+        if dct.get(key) is None:
+            dct[key] = {}
+        elif not isinstance(dct[key], MutableMapping):
+            raise ConflictingKeys(here, (*above, *parts))
+        _set_hierarchy(dct[key], parts[1:], value, here)
+        return
+    if isinstance(value, dict):
+        table: Dict[str, Any] = {}
+        for k, v in value.items():
+            _set_hierarchy(table, re.split(SEP, k) if isinstance(k, str) else [k], v, here)
+        value = table
     else:
-        if k not in dct:
-            dct[k] = {}
-        set_hierarchy(dct[k], path[1:], value)
+        held = dct.get(key)
+        if isinstance(held, MutableMapping) and held:
+            if value is None:  # nothing to set: the keys inside it stay
+                return
+            raise ConflictingKeys(here, (*here, next(iter(held))))
+    dct[key] = value
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -1176,6 +1201,28 @@ class XedaException(Exception):
     """Super-class of all xeda exceptions
     should be caught by CLI and handled appropriately
     """
+
+
+class ConflictingKeys(XedaException, ValueError):
+    """A key given as a value and as a table: `value_key` holds a value, and `child_key` sets a key
+    inside it, whichever came first. A `XedaException`, so the command line reports it, and a
+    `ValueError`, so a validator that expands a key reports it as the field's error."""
+
+    def __init__(self, value_key: Any, child_key: Any) -> None:
+        self.value_key = _dotted(value_key)
+        self.child_key = _dotted(child_key)
+        super().__init__(
+            f"`{self.value_key}` is set to a value, and `{self.child_key}` sets a key inside it: "
+            "give one of them"
+        )
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.value_key, self.child_key))
+
+
+def _dotted(key: Any) -> str:
+    """A key given as its parts, in the dotted form it is written in."""
+    return ".".join(map(str, key)) if isinstance(key, (tuple, list)) else str(key)
 
 
 class ToolException(XedaException):

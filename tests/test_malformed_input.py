@@ -409,3 +409,144 @@ def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(
     assert document["success"] is False
     assert document["error"]["type"] == "FlowSettingsError"
     assert "`flows` must be a mapping" in document["error"]["message"]
+
+
+# ---------------------------------------------------------------------------------------------
+# A key given as a value and as a table, from every origin that expands dotted keys: `-s
+# timing=true timing.x=1`, `--design-overrides tb=3 tb.top=x`, a design file with `tb: 3` beside
+# `tb.top`, a `flows` table with `verilator: 3` beside `verilator.timing`. A reported error naming
+# both keys in either order -- never a traceback, never a table silently lost.
+# ---------------------------------------------------------------------------------------------
+
+#: (the key that holds a value, a key inside it): setting names, design keys and flow sections
+KEY_PAIRS = [
+    ("timing", "timing.x"),
+    ("flows", "flows.verilator.timing"),
+    ("flows.verilator", "flows.verilator.timing"),
+    ("clock", "clock.period"),
+    ("tb", "tb.top"),
+]
+#: what the value key is given: text the command line can write, and what a file or code can
+VALUES_OF_THE_KEY = ["3", "true", "x", "", "[]"]
+KEY_ORIGINS = [
+    "command line",
+    "design overrides",
+    "API",
+    "design file",
+    "target",
+    "flows table of a design",
+    "flows table of the API",
+    "flows table of a project",
+    "section of a flows table",
+    "target flows table",
+]
+
+
+def _plan_with_keys(
+    directory: Path, origin: str, value_key: str, child_key: str, value: Any, child_first: bool
+):
+    """Plan `verilator` where `origin` gives `value_key` the `value` and `child_key` the number 1,
+    in the order asked for."""
+    runner = DefaultRunner(directory / "xeda_run", display_results=False)
+    items = [(value_key, value), (child_key, 1)]
+    if child_first:
+        items.reverse()
+    texts = [f"{key}={item}" for key, item in items]
+    if origin == "command line":
+        return runner.plan("verilator", _write_design(directory), flow_settings=texts)
+    if origin == "design overrides":
+        return runner.plan("verilator", _write_design(directory), design_overrides=texts)
+    if origin == "API":
+        return runner.plan("verilator", _write_design(directory), flow_settings=dict(items))
+    if origin == "design file":
+        return runner.plan("verilator", _write_design(directory, **dict(items)))
+    if origin == "target":
+        design = _write_design(directory, targets={"a": dict(items), "b": {}})
+        return runner.plan("verilator", design, target="a")
+    flow_items = [("verilator", value), ("verilator.timing", True)]
+    if child_first:
+        flow_items.reverse()
+    if origin == "flows table of a design":
+        return runner.plan("verilator", _write_design(directory, flows=dict(flow_items)))
+    if origin == "flows table of the API":
+        return runner.plan(
+            "verilator", _write_design(directory), flow_settings={"flows": dict(flow_items)}
+        )
+    if origin == "flows table of a project":
+        design = _write_design(directory)
+        project = directory / PROJECT_FILE
+        project.write_text(json.dumps({"flows": dict(flow_items)}))
+        return runner.plan("verilator", design, xedaproject=str(project))
+    if origin == "section of a flows table":
+        section = [("clock", value), ("clock.period", 5)]
+        if child_first:
+            section.reverse()
+        return runner.plan(
+            "verilator", _write_design(directory, flows={"verilator": dict(section)})
+        )
+    assert origin == "target flows table"
+    design = _write_design(directory, targets={"a": {"flows": dict(flow_items)}, "b": {}})
+    return runner.plan("verilator", design, target="a")
+
+
+@pytest.mark.parametrize("child_first", [False, True], ids=["value-first", "child-first"])
+@pytest.mark.parametrize("origin", KEY_ORIGINS)
+def test_a_key_that_is_a_value_and_a_table_is_reported_by_every_origin(
+    tmp_path, origin, child_first
+):
+    pairs = KEY_PAIRS if "flows table" not in origin else KEY_PAIRS[:1]
+    escaped = []
+    for number, ((value_key, child_key), value) in enumerate(
+        (pair, value) for pair in pairs for value in VALUES_OF_THE_KEY
+    ):
+        if origin == "design file" and value == "[]":
+            continue  # a design file's `[]` is a list, as the sweep above covers
+        try:
+            _plan_with_keys(
+                tmp_path / str(number), origin, value_key, child_key, value, child_first
+            )
+        except XedaException:
+            continue
+        except Exception as e:  # reporting exactly these is the point
+            escaped.append(f"{value_key}={value!r} {child_key}: {type(e).__name__}: {e}")
+            continue
+        escaped.append(f"{value_key}={value!r} {child_key}: accepted, one of them lost")
+
+    assert not escaped, f"{origin}:\n  " + "\n  ".join(escaped)
+
+
+def test_the_command_line_names_both_keys_and_exits_with_status_1(tmp_path):
+    design = _write_design(tmp_path)
+    for order in (["flows=3", "flows.verilator.timing=true"], ["timing.x=1", "timing=true"]):
+        result = CliRunner().invoke(
+            cli, ["run", "verilator", str(design), "--dry-run", "--json", "-s", *order]
+        )
+        document = json.loads(result.stdout)
+
+        assert result.exit_code == 1, result.output
+        assert document["error"]["type"] == "ConflictingKeys"
+        assert "sets a key inside it: give one of them" in document["error"]["message"]
+
+
+def test_a_design_file_with_such_keys_is_a_design_error_naming_the_file(tmp_path):
+    design = _write_design(tmp_path, **{"tb": 3, "tb.top": "x"})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    with pytest.raises(DesignValidationError, match=r"`tb` is set to a value.*`tb.top`") as raised:
+        runner.plan("verilator", design)
+
+    assert raised.value.file == str(design.absolute())
+
+
+@pytest.mark.parametrize("selected", ["a", "b"])
+def test_a_target_with_such_keys_is_refused_at_the_target_whichever_is_selected(tmp_path, selected):
+    design = _write_design(tmp_path, targets={"a": {"tb": 3, "tb.top": "x"}, "b": {}})
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    with pytest.raises(DesignValidationError) as raised:
+        runner.plan("verilator", design, target=selected)
+
+    assert [location for location, *_ in raised.value.errors] == ["targets.a.tb"]
+    assert "`targets.a.tb` is set to a value, and `targets.a.tb.top` sets a key" in str(
+        raised.value
+    )

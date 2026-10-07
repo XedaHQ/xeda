@@ -108,6 +108,10 @@ Command-line settings take dotted keys for nested values, and several can be giv
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 
+A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
+``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
+target, ``--design-overrides`` and a ``flows`` table.
+
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain

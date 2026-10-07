@@ -58,6 +58,7 @@ from .generation import judging_generation
 from .proc_utils import tool_output_redirect
 from .run_dir import RunDirectory
 from .utils import (
+    ConflictingKeys,
     NonZeroExitCode,
     WorkingDirectory,
     XedaException,
@@ -2288,7 +2289,10 @@ class Design(XedaBaseModel):
                 "a target is a table of the design's own keys (`sources`, `defines`, `rtl`, "
                 f"`tb`, `flows`, ...), got {type(overlay).__name__}",
             )
-        overlay = expand_hierarchy(dict(overlay))
+        try:
+            overlay = expand_hierarchy(dict(overlay))
+        except ConflictingKeys as e:
+            raise invalid(None, str(e)) from e
         known = {*input_names(cls), *FLAT_RTL_KEYS, "test", "tests"} - TARGET_FORBIDDEN_KEYS
         for key in overlay:
             if key in TARGET_FORBIDDEN_KEYS:
@@ -2628,7 +2632,12 @@ class Design(XedaBaseModel):
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         design_dict = _read_design_file(design_file)
-        design_dict = expand_hierarchy(design_dict)
+        try:
+            design_dict = expand_hierarchy(design_dict)
+        except ConflictingKeys as e:  # a key given as a value and as a table
+            raise DesignValidationError(
+                [(e.value_key, str(e), "", "value_error")], file=str(design_file.absolute())
+            ) from e
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:

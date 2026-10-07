@@ -608,7 +608,13 @@ or YAML, chosen by its suffix and read through the strict loader (`board.read_bo
 Every flow declares a nested `class Settings(<Base>.Settings)`. Settings are pydantic models
 (`XedaBaseModel`) with `extra = forbid`, so an unknown key in a design/CLI override is a hard error -
 this is intentional and surfaces as `FlowSettingsError`. CLI `-s key=value` supports dotted
-hierarchical keys.
+hierarchical keys, which every origin expands with the one function `utils.set_hierarchy`. A key is
+a value or a table, never both: `-s timing=true timing.x=1` and `-s timing.x=1 timing=true` are a
+`ConflictingKeys` naming both keys, a `XedaException` (the command line reports it) and a
+`ValueError` (a validator turns it into the field's error). `design.from_file` and a target's
+overlay report it as a `DesignValidationError`, and `dse` as its error document.
+`tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
+to every origin.
 
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
