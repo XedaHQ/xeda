@@ -1510,7 +1510,10 @@ dependency must also share `custom_boards_file`.
   which `tests/test_tool_input_equivalence.py` pins), so the netlist JSON never meets a
   whitebox. A new `write_json` needs one of the two. `post_rtl` blocks end their last command
   with a newline: an includer's `-%}` would otherwise glue the next command to it (the `.tcl`
-  form failed in Tcl that way).
+  form failed in Tcl that way). CI's yosys has no Tcl, so `tests/test_yosys_templates.py`
+  renders the three flows' scripts over every combination of RTL outputs and `stop_after`,
+  checks each command is a line of its own, and runs the `.tcl` ones under `tclsh` with stub
+  commands (`require_tclsh`); each glue fix has a revert that fails it.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for). Undeclared flows validate in

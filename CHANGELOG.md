@@ -69,10 +69,14 @@ All notable changes to this project will be documented in this file.
   modules only, as `rtl_verilog` and `rtl_graph` always did. A blackbox module, such as a library
   cell or a `black_box` module, is no longer listed in it. With a `verilog_lib`, the `yosys` flow
   now ends its synthesis with `blackbox =A:whitebox`, as the FPGA passes do, so its netlist JSON
-  no longer fails on such a library either. Its script is unchanged without a `verilog_lib`.
+  no longer fails on such a library either. With a whitebox library, its `cells` result and the
+  `num_submodules` of its utilization report now count the library instances as cells, not as
+  submodules, as the `yosys_fpga` results do. Its script is unchanged without a `verilog_lib`.
 - `yosys_fpga` with `script_format: tcl` put the command after the RTL outputs on the same line
-  as the last one, so Tcl rejected the script ("extra characters after close-quote") whenever
-  `rtl_json`, `rtl_verilog` or `rtl_graph` was set.
+  as the last one. With `rtl_json` or `rtl_verilog` set, Tcl rejected the script with
+  `extra characters after close-quote`. With `rtl_graph` set, yosys rejected the `show` command
+  with `Unexpected option in selection arguments`. With `stop_after: rtl`, `exit` was joined to
+  the next command, so the script did not stop. Every RTL output now ends with a newline.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

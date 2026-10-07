@@ -43,6 +43,7 @@ __all__ = [
     "require_nextpnr_ecp5",
     "require_nvc",
     "require_nvc_evidence",
+    "require_tclsh",
     "require_verilator",
     "require_vivado",
     "require_yosys",
@@ -342,6 +343,23 @@ def require_verilator() -> None:
     # reported as such rather than as a broken Verilator.
     require_c_toolchain()
     _require("verilator", _probe_verilator(), "`verilator --cc --build` of a trivial module")
+
+
+@lru_cache(maxsize=None)
+def _probe_tclsh() -> bool:
+    """Run a trivial script: `tclsh` with no argument would wait for a terminal."""
+    if not shutil.which("tclsh"):
+        return False
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "xeda_probe.tcl"
+        script.write_text("puts ok\n")
+        return _command_succeeds(["tclsh", str(script)], cwd=tmp)
+
+
+def require_tclsh() -> None:
+    """`tclsh`, which runs a rendered TCL script against stub commands where no tool is installed
+    that could run it (yosys builds without TCL support, for one)."""
+    _require("tclsh", _probe_tclsh(), "`tclsh` running a trivial script")
 
 
 def require_yosys() -> None:
