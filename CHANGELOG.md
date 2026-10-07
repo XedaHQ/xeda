@@ -137,10 +137,11 @@ All notable changes to this project will be documented in this file.
   compiler flags go through make and a shell, which split them at a space, read a `#` as a
   comment and a `$` as a variable, and take quotes, `;`, `&`, parentheses and backslashes as
   syntax: a run root with one of those in its path failed every build.
-- `verilator` no longer silences Verilator's `STMTDLY` and `INITIALDLY` warnings when `timing` is
-  off. Verilator then ignores a `#delay`, so a testbench's `#100; $finish` ended at time 0 and
-  passed without a word. Verilator now says so. A warning does not fail the run, unless
-  `warnings_fatal` is set. `timing` stays off by default.
+- `verilator` no longer hides Verilator's `STMTDLY` warning when `timing` is off. It passed
+  `-Wno-STMTDLY -Wno-INITIALDLY`. Verilator then ignores a delay on a statement (`#10;`), so a
+  testbench's `#100; $finish` ended at time 0 and passed without a word. Verilator now says so.
+  `INITIALDLY` is never raised, and `ASSIGNDLY` (a delay on an assignment) was never hidden. A
+  warning does not fail the run, unless `warnings_fatal` is set. `timing` stays off by default.
 
 ### Added
 - **A design generator is judged by content, not by a modification time.**

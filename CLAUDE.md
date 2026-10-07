@@ -1324,7 +1324,8 @@ dependency must also share `custom_boards_file`.
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
   `timing` is off by default: Verilator then ignores `#delay` (a `#100; $finish` ends at time 0),
-  and xeda leaves its `STMTDLY` and `INITIALDLY` warnings on, which fail a run only with
+  and xeda no longer hides its `STMTDLY` warning (a delay on a statement; `ASSIGNDLY`, on an
+  assignment, was never hidden, and `INITIALDLY` is never raised), which fails a run only with
   `warnings_fatal`.
   Verilator's makefile stops in a build directory whose path has whitespace ("GNU Make cannot
   build in directories containing spaces"), so `verilator` refuses such a run directory, and a

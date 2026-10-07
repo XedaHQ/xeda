@@ -192,13 +192,16 @@ def test_the_hooks_header_is_included_by_name_not_by_the_run_directory_path(tmp_
 
 
 def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):
-    """Without `timing`, Verilator ignores a `#delay`: the testbench's `#100; $finish` ends at
-    time 0. The warning says so, in the build's output; the default `-Wno-fatal` keeps it a
-    warning, so the run still passes."""
+    """Without `timing`, Verilator ignores a delay: the testbench's `#100; $finish` ends at time
+    0. The warnings say so, in the build's output: `STMTDLY` for a delay on a statement (xeda used
+    to hide it) and `ASSIGNDLY` for one on an assignment (it never did). The default
+    `-Wno-fatal` keeps them warnings, so the run still passes."""
     require_verilator()
-    flow = _launch(tmp_path, "initial begin #100; $finish; end", {})
-    output = capfd.readouterr()
-    assert "%Warning-STMTDLY" in output.out + output.err
+    flow = _launch(tmp_path, "reg r; initial begin r <= #1 1'b1; #100; $finish; end", {})
+    captured = capfd.readouterr()
+    output = captured.out + captured.err
+    assert "%Warning-STMTDLY" in output
+    assert "%Warning-ASSIGNDLY" in output
     assert flow.succeeded
     assert flow.results["sim.time"] == 0
 
