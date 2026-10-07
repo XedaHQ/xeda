@@ -10,10 +10,10 @@ logger -notime
 
 {% if not pass_only -%}
 {% if settings.prep is not none -%}
-prep {%- if settings.flatten %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
+prep {%- if settings.effective_flatten() %} -flatten {%- endif %} {%- if design.rtl.top %} -top {{design.rtl.top}} {%- else %} -auto-top {%- endif %} {{settings.prep|join(" ")}}
 {% else %}
 proc
-{% if settings.flatten -%}
+{% if settings.effective_flatten() -%}
 flatten
 {% endif -%}
 {% endif -%}

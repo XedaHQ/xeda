@@ -1500,6 +1500,14 @@ dependency must also share `custom_boards_file`.
   Source path spelling matters because Yosys embeds it in generated names. No general area/timing
   advantage should be claimed from the mode.
 
+  `flatten` is mode-specific too. Unset on a Xilinx target it is exactly `flatten: true`
+  (`Settings.effective_flatten`, used by `synth_command` and both `yosys_fpga_synth` templates):
+  xeda flattens before the RTL outputs (`rtl_verilog`, `rtl_json`) and passes `-flatten`, because
+  `synth_xilinx` alone keeps the hierarchy and the measured corpus was `flatten: true`.
+  `synth_pass_only` leaves it to the pass (False for Xilinx, no option), and the other targets'
+  passes flatten on their own, so unset adds nothing there. An explicit value applies in both
+  modes. `tests/test_yosys_recipe.py` pins the unset script equal to the `flatten: true` one.
+
   ABC9 script defaults are mode-specific: with `abc9_script=None`, the full Xeda recipe selects
   `flow3`, while pass-only leaves the synthesis pass's choice in effect. The full recipe also
   derives ABC9 delay from the clock; pass-only does not add that implicit delay. An explicit
@@ -1513,7 +1521,10 @@ dependency must also share `custom_boards_file`.
 
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The
-  target pass's `primitive_libraries()` still describes the libraries it reads internally.
+  target pass's `primitive_libraries()` still describes the libraries it reads internally. It is
+  one list for every supported release (`PASS_READS` in `tests/test_yosys_fpga_flags.py`, checked
+  by hand against each release's pass); the installed yosys is compared with it by test, both
+  directions, for every target, Gowin included.
   `verilog_lib` is a reviewed user read after sources; when it names a file already read by the
   pass, `YosysFpga.verilog_libraries_to_read()` skips that duplicate by file identity. Yosys' `+/...`
   spelling is compared lexically; ordinary paths are compared against the selected Yosys
@@ -1525,6 +1536,21 @@ dependency must also share `custom_boards_file`.
   classified as a refused Xeda stage or a reviewed read; tests compare generated scripts and
   exercise the native result against installed Yosys without claiming every reader/path setup is
   identical by default.
+
+  **Library boxes and `write_json`.** Every `-lib` read leaves boxes in the design, and `-lib`
+  keeps the `lib_whitebox` models with their unprocessed `always` blocks, which `write_json`
+  refuses ("Module ALU contains processes"). `write_verilog` and `show` skip boxes; `write_json`
+  does not. So the RTL stage (`post_rtl`, shared by `yosys`, `yosys_sim` and `yosys_fpga`) writes
+  `write_json -selected`, and the default selection holds no box: the RTL outputs describe the
+  design's own modules. The FPGA passes end with `blackbox =A:whitebox`, and `yosys_synth` does
+  the same before its netlist when `verilog_lib` is set (without it the script is as it was,
+  which `tests/test_tool_input_equivalence.py` pins), so the netlist JSON never meets a
+  whitebox. A new `write_json` needs one of the two. `post_rtl` blocks end their last command
+  with a newline: an includer's `-%}` would otherwise glue the next command to it (the `.tcl`
+  form failed in Tcl that way). CI's yosys has no Tcl, so `tests/test_yosys_templates.py`
+  renders the three flows' scripts over every combination of RTL outputs and `stop_after`,
+  checks each command is a line of its own, and runs the `.tcl` ones under `tclsh` with stub
+  commands (`require_tclsh`); each glue fix has a revert that fails it.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for). Undeclared flows validate in

@@ -409,12 +409,16 @@ by the installed Yosys version (0.63 is the minimum; flags are checked through 0
 the default mapper everywhere: opt-in ``-abc9`` for Xilinx before 0.69, built in otherwise.
 ``abc9 = false`` maps with classic ABC and ``retime`` enables ``-retime``;
 Yosys 0.69 removed both choices, so there they are errors. On iCE40, ``noabc`` maps LUTs without
-ABC altogether. ``flatten`` left unset keeps each pass's own choice (Xilinx keeps the hierarchy,
-the Lattice, iCE40 and Gowin passes flatten it); ``true`` or ``false`` overrides it. A setting the
-selected pass has no option for is an error rather than being ignored. The ``nowidelut``
-restriction is off: it can reduce area or timing on one design and worsen the other on another.
-iCE40 UltraPlus DSP and SPRAM inference are available as ``yosys_fpga``'s ``ice40_dsp``
-and ``ice40_spram`` settings.
+ABC altogether. ``flatten`` left unset on a Xilinx target is ``true``: ``synth_xilinx`` alone
+keeps the hierarchy, and flattening was never worse in 18 measured designs: Fmax rose by a
+factor of 1.08 (1.03 to 1.13). As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and
+``rtl_json``, so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice,
+iCE40 and Gowin passes flatten on their own, so for them an unset ``flatten`` adds nothing, and
+the RTL outputs keep the hierarchy. Under ``synth_pass_only`` an unset ``flatten`` is the pass's
+own choice for every target. A setting the selected pass has no option for is an error rather than
+being ignored. The ``nowidelut`` restriction is off: it can reduce area or timing on one design
+and worsen the other on another. iCE40 UltraPlus DSP and SPRAM inference are available as
+``yosys_fpga``'s ``ice40_dsp`` and ``ice40_spram`` settings.
 
 A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device
 and package: ``iCE40UP5K-SG48I`` or ``iCE40HX8K-CT256`` (temperature grade and tape-and-reel
