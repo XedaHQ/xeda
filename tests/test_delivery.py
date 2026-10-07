@@ -961,6 +961,25 @@ def test_a_producer_refused_before_it_is_entered_names_no_results_of_an_earlier_
     assert "results.json" not in str(refused.value)
 
 
+def test_a_launcher_that_ran_a_producer_before_names_no_results_of_that_run(world):
+    """The same launcher launches twice. What its first launch left of the producer is not what
+    the second launch's failure may point to: only a flow this launch built counts."""
+    launcher = DefaultRunner(world.root, display_results=False)
+    assert _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "b/n.v"}).succeeded
+    producer = world.root / "d" / _Deliverer.name
+    earlier = producer / "b" / "n.v"
+    assert earlier.is_file() and (producer / "results.json").is_file()
+    assert len(launcher.launched) == 2, "the launcher remembers the producer it ran"
+    with pytest.raises(FlowDependencyFailure, match="own run directory") as refused:
+        _launch(
+            world,
+            launcher,
+            flow=_Wrapper,
+            deliverer={"netlist": "b/n.v", "reads": str(earlier)},
+        )
+    assert "results.json" not in str(refused.value)
+
+
 def test_an_output_changed_after_its_run_is_not_delivered(world):
     """A deferred delivery copies what its node's run left (the digest `collect` noted), not a
     file written into that run directory since -- as another launch there would."""
