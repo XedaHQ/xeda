@@ -38,6 +38,7 @@ __all__ = [
     "require_cxxrtl_evidence",
     "require_cocotb",
     "require_ghdl",
+    "require_git",
     "require_iverilog",
     "require_nextpnr_ecp5",
     "require_nvc",
@@ -208,6 +209,11 @@ def require_cocotb() -> None:
 
 def require_ghdl() -> None:
     _require("ghdl", _probe_ghdl(), "`ghdl analyze` + `elaborate` of a trivial entity")
+
+
+def require_git() -> None:
+    """The `git` program, which GitPython runs to clone a repository."""
+    _require_command("git", ["git", "--version"])
 
 
 @lru_cache(maxsize=None)

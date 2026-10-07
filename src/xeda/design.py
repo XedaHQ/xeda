@@ -1699,8 +1699,8 @@ def clone_location(
     location = Path(cache) / host / path
     if owner is not None:
         return owner.unlinked(location)
-    base = os.path.normpath(cache)
-    inside = os.path.normpath(location)
+    base = os.path.abspath(cache)
+    inside = os.path.abspath(location)
     if inside == base or os.path.commonpath([base, inside]) != base:
         raise ValueError(
             f"{repo_url} would be cloned to {location}, outside the clone cache {cache}"
@@ -1780,8 +1780,15 @@ class GitReference(DesignReference):
         }
         merged = {k: v for k, v in derived.items() if v is not None}
         result = {**derived, **merged, **values}
-        if isinstance(result.get("repo_url"), str):
-            clone_name_parts(result["repo_url"], result.get("commit"), result.get("branch"))
+        if isinstance(result.get("repo_url"), str) and not result.get("clone_dir"):
+            # Names are checked where they name a directory: a `clone_dir` is used as given,
+            # and then nothing is named from the URL, the branch or the commit. A branch or a
+            # commit that is not text is the field's own error, reported at the field.
+            named = [
+                value if isinstance(value, str) else None
+                for value in (result.get("commit"), result.get("branch"))
+            ]
+            clone_name_parts(result["repo_url"], *named)
         if not result.get("uri"):
             # The mapping form (`{repo_url = ..., design_file = ...}`) that
             # `DesignReference.from_data()` routes here carries no `uri`, but the base class

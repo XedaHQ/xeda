@@ -2,9 +2,12 @@
 
 import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from xeda import Design
 from xeda.design import (
@@ -16,6 +19,8 @@ from xeda.design import (
 )
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectory, RunDirectoryError
+
+from .tool_utils import require_git
 
 URI = "https://example.com/u/lib.git#lib.toml"
 
@@ -112,11 +117,10 @@ def test_a_crafted_git_url_is_refused_before_any_clone(tmp_path, monkeypatch, cl
         {"repo_url": "https://../x.git", "design_file": "lib.toml"},
         {"repo_url": "https://h/u/lib.git", "design_file": "lib.toml", "branch": "../x"},
         {"repo_url": "https://h/u/lib.git", "design_file": "lib.toml", "commit": ".."},
+        {"repo_url": "https://h/u/li\0b.git", "design_file": "lib.toml"},
     ],
 )
 def test_the_mapping_form_is_refused_the_same_way(fields):
-    from pydantic import ValidationError
-
     with pytest.raises(ValidationError, match=r"\.\."):
         GitReference(**fields)
 
@@ -126,6 +130,13 @@ def test_a_branch_with_a_slash_is_still_cloned_inside_the_cache(tmp_path, clones
         uri="https://h/u/lib.git?branch=release/1.0#lib.toml", local_cache=tmp_path / "cache"
     )
     assert ref.clone_dir == tmp_path / "cache" / "h" / "u" / "lib.git_release" / "1.0"
+
+
+@pytest.mark.parametrize("path", ["/.hidden/x.git", "/..hidden/x.git"])
+def test_a_path_that_starts_with_a_dot_keeps_it_in_the_clone_directory(tmp_path, path):
+    """A component that only starts with dots is a name: `..hidden` is not `..`."""
+    location = clone_location(tmp_path, f"https://h{path}", None, None)
+    assert location == tmp_path / "h" / path.lstrip("/")
 
 
 def test_a_clone_directory_outside_the_cache_is_refused(tmp_path):
@@ -220,3 +231,90 @@ def test_the_containment_check_of_a_user_cache_stands_on_its_own(tmp_path, monke
     monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("h", "../../x.git"))
     with pytest.raises(ValueError, match="outside the clone cache"):
         clone_location(tmp_path / "cache", URI, None, None)
+
+
+@pytest.fixture
+def remote_lib(tmp_path, monkeypatch):
+    """The design `lib` in a bare repository on this machine, and a git that reads no other
+    configuration and reaches no network: `git@fake.invalid:org/lib.git` is rewritten to that
+    repository, and an ssh that is started anyway fails at once. The repository."""
+    require_git()
+    remotes = tmp_path / "remotes"
+    bare = remotes / "org" / "lib.git"
+    config = tmp_path / "gitconfig"
+    config.write_text(
+        "[user]\n\tname = Xeda Tests\n\temail = tests@example.invalid\n"
+        "[init]\n\tdefaultBranch = main\n"
+        "[commit]\n\tgpgsign = false\n"
+        f'[url "{remotes}/"]\n\tinsteadOf = git@fake.invalid:\n'
+    )
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    monkeypatch.setenv("GIT_SSH_COMMAND", "false")
+    work = tmp_path / "lib_work"
+    work.mkdir()
+    (work / "lib.v").write_text("module lib; endmodule\n")
+    (work / "lib.yaml").write_text("name: lib\nrtl:\n  sources: [lib.v]\n  top: lib\n")
+    for command in (
+        ["init", "-q", str(work)],
+        ["-C", str(work), "add", "."],
+        ["-C", str(work), "commit", "-q", "-m", "lib"],
+        ["clone", "-q", "--bare", str(work), str(bare)],
+    ):
+        subprocess.run(["git", *command], check=True, capture_output=True)
+    return bare
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        lambda bare: "git@fake.invalid:org/lib.git",
+        lambda bare: bare.as_uri(),
+        lambda bare: str(bare),
+    ],
+    ids=["scp-like", "file-without-host", "local-path"],
+)
+def test_a_clone_directory_the_user_names_is_used_as_given(tmp_path, monkeypatch, remote_lib, url):
+    """Nothing is named from the URL when `clone_dir` is given, so any URL Git takes will do:
+    one with no host (`file:///...`, a path) or none in URL form (`user@host:path`)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    clone = tmp_path / "clone"
+    dependency = {"repo_url": url(remote_lib), "design_file": "lib.yaml", "clone_dir": str(clone)}
+    spec = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top"}, "dependencies": [dependency]}
+    (tmp_path / "d.yaml").write_text(yaml.safe_dump(spec))
+    design = Design.from_file(tmp_path / "d.yaml")
+    assert (clone / ".git").is_dir()
+    assert any(src.path.name == "lib.v" for src in design.rtl.sources)
+    assert not (tmp_path / "xeda_run").exists()
+
+
+@pytest.mark.parametrize(
+    "repo_url", ["git@fake.invalid:org/lib.git", "file:///srv/git/lib.git", "/srv/git/lib.git"]
+)
+def test_a_url_with_no_host_needs_a_clone_directory(repo_url):
+    """Without `clone_dir` the host names the clone's directory, so a URL with none is refused."""
+    with pytest.raises(ValidationError, match="invalid URL"):
+        GitReference(repo_url=repo_url, design_file="lib.toml")
+
+
+@pytest.mark.parametrize("cache", [".", "./", "", "a/.."])
+def test_a_user_cache_that_is_the_current_directory_holds_its_clones(
+    tmp_path, monkeypatch, clones, cache
+):
+    """However it is spelled, a `local_cache` that is the current directory is a cache: its
+    clones lie inside it, though a relative path that normalizes to `.` has no common prefix."""
+    monkeypatch.chdir(tmp_path)
+    ref = GitReference(uri=URI, local_cache=cache)
+    assert os.path.abspath(ref.clone_dir) == str(tmp_path / "example.com" / "u" / "lib.git")
+    ref.fetch_design()
+    assert (tmp_path / "example.com" / "u" / "lib.git" / "lib.toml").is_file()
+
+
+@pytest.mark.parametrize("field", ["branch", "commit"])
+def test_a_branch_or_commit_that_is_not_text_is_reported_at_its_field(field):
+    """The text of a branch or commit is checked where it names a directory; what is not text is
+    the field's own error, at the field."""
+    with pytest.raises(ValidationError) as caught:
+        GitReference(repo_url="https://h/u/lib.git", design_file="lib.toml", **{field: 5})
+    assert [error["loc"] for error in caught.value.errors()] == [(field,)]
