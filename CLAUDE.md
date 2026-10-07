@@ -511,22 +511,18 @@ killed run left) and publishes with `replacing_copy` only a nonempty file of a p
 exited 0. `fpga-as` is given the part's own Project X-Ray directory (`<family>/<part>/part.json`)
 when the database has it; else the directory of the lowest speed grade of the same device and
 package (`xilinx.locate_part_data`: smallest grade number, a plain grade before its `L` variant,
-never another device or package; the pin map and configuration layout do not depend on the grade,
-and `nextpnr` keeps the exact grade for timing), logged at info level naming both parts. With no
-directory of the package at any grade it raises a `FlowFatalError` naming the part, the directory
-searched and the other packages' grades. `FpgaPack.init` does all of this, so the error comes
-before any producer runs, and registers `xilinx.packer_inputs` as implicit inputs: every
-file `fpga-as` can read (read from its source, the openXC7 fpga-assembler: the family's
-`mapping/parts.yaml` and `devices.yaml`, the fabric's `tilegrid.json`, the part's `part.json`,
-`package_pins.csv` and optional `required_features.fasm`, and the family's `segbits_*.db` and
-`ppips_*.db`, since the tile types an input uses are the packer's to know; the
-`tile_type_*.json` files are listed by name only, because a tile type has bits only if its file
-exists; `mask_*.db`, `site_type_*.json` and `part.yaml` are never read). So an in-place change of
-the installed data, or a new file among those, makes the run stale; the first launch hashes about
-80 MB in 290 files (0.2 s of processor time), later ones compare metadata (0.04 s). When a new
-`fpga-as` reads other files, update `packer_inputs`: `test_fpga_pack_records_every_file_fpga_as_needs`
-(`XEDA_TESTS_OPENXC7=1`) packs from a copy of the database holding only the registered files and
-must produce the same bitstream.
+never another device or package), logged at info level naming both parts. A device and package
+are one die with one pinout, so their grade directories are expected to agree and `nextpnr` keeps
+the exact grade for timing; a few groups of the installed database do not agree (`part.json`,
+`package_pins.csv`, or `required_features.fasm` for some `clg400` grades), so the lookup warns when
+the other grades' files in `PINOUT_FILES` (`part.json`, `package_pins.csv`) differ from the chosen
+one's. The bitstream's header, which `fpga-as` writes, names the stand-in part. With no directory
+of the package at any grade it raises a `FlowFatalError` naming the part, the directory searched
+and the other packages' grades. `FpgaPack.init` does all of this, so the error comes before any
+producer runs. Known limit: an in-place change of the installed Project X-Ray data alone, with
+`fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source, and neither is a new
+directory for the exact part (a tool's own installed files are never flow inputs; `--rebuild-all`
+packs again). A `prjxray_db` the user sets is tracked as a setting's directory, as before.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

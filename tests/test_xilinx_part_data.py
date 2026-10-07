@@ -1,10 +1,10 @@
 """The Project X-Ray data `fpga-as` packs with.
 
 Part data is the exact part's directory when the database has one, else the directory of the
-same device and package at another speed grade. Configuration data (pin map, id code) does not
-depend on the speed grade; only timing does, and `nextpnr` keeps the exact grade for that. A part
-with no directory at any speed grade of its package is an error before anything runs, and
-every file `fpga-as` can read is an input of the packing run.
+same device and package at another speed grade: the lowest, logged, with a warning if the grades
+differ in the files that describe the die and its pinout. `nextpnr` keeps the exact grade for
+timing. A part with no directory at any speed grade of its package is an error before anything
+runs. The installed database is a tool's own file: it is not an input of the packing run.
 """
 
 import json
@@ -32,7 +32,7 @@ def toolchain(tmp_path, monkeypatch):
     return prefix
 
 
-def _database(root: Path, parts: dict[str, str], present: list[str], extra=()) -> Path:
+def _database(root: Path, parts: dict[str, str], present: list[str]) -> Path:
     """A kintex7 database: `parts` maps each part to its device; `present` have a directory."""
     family = root / "kintex7"
     (family / "mapping").mkdir(parents=True)
@@ -49,8 +49,6 @@ def _database(root: Path, parts: dict[str, str], present: list[str], extra=()) -
         (family / name).mkdir()
         for file in ("part.json", "part.yaml", "package_pins.csv"):
             (family / name / file).write_text(PART_JSON)
-    for name in extra:
-        (family / name).write_text("data\n")
     return root
 
 
@@ -142,44 +140,48 @@ def test_a_device_with_no_part_data_at_all_is_named_as_such(tmp_path):
         _locate(database, "xc7k325tffg676-2")
 
 
-# -------------------------------------------------------------------------- what fpga-as can read
-
-EXTRA = [
-    "tile_type_INT_L.json",
-    "segbits_int_l.db",
-    "segbits_bram_l.block_ram.db",
-    "ppips_int_l.db",
-    "mask_int_l.db",
-    "site_type_SLICEL.json",
-    "settings.sh",
-]
+# ------------------------------------------------------- grades that stand in but do not agree
 
 
-def test_the_files_fpga_as_can_read_are_exactly_those_listed(tmp_path):
-    from xeda.flows import xilinx
+def _warnings(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
 
-    database = _database(tmp_path, PARTS, ["xc7k325tffg676-1", "xc7k325tffg900-2"], EXTRA)
-    family = database / "kintex7"
-    (family / "xc7k325tffg676-1/required_features.fasm").write_text("FEATURE\n")
-    selection = _select(database, "xc7k325tffg676-2")
-    data = xilinx.locate_part_data(selection)
-    assert xilinx.packer_inputs(selection, data) == [
-        family / "mapping/parts.yaml",
-        family / "mapping/devices.yaml",
-        family / "xc7k325t/tilegrid.json",
-        family / "xc7k325tffg676-1/part.json",
-        family / "xc7k325tffg676-1/package_pins.csv",
-        family / "xc7k325tffg676-1/required_features.fasm",
-        family / "tile_type_INT_L.json",
-        family / "segbits_bram_l.block_ram.db",
-        family / "segbits_int_l.db",
-        family / "ppips_int_l.db",
-    ]
-    # one without the optional part file lists only what exists
-    (family / "xc7k325tffg676-1/required_features.fasm").unlink()
-    assert family / "xc7k325tffg676-1/required_features.fasm" not in xilinx.packer_inputs(
-        selection, data
-    )
+
+def test_grades_that_agree_in_their_pinout_files_are_used_without_a_warning(tmp_path, caplog):
+    database = _database(tmp_path, PARTS, ["xc7k325tffg676-2", "xc7k325tffg676-3"])
+    with caplog.at_level(logging.INFO):
+        assert _locate(database, "xc7k325tffg676-1").name == "xc7k325tffg676-2"
+    assert not _warnings(caplog)
+
+
+@pytest.mark.parametrize("file", ["part.json", "package_pins.csv"])
+def test_a_grade_that_differs_in_a_pinout_file_is_named_in_a_warning(tmp_path, caplog, file):
+    database = _database(tmp_path, PARTS, ["xc7k325tffg676-2", "xc7k325tffg676-3"])
+    (database / "kintex7/xc7k325tffg676-3" / file).write_text("another die\n")
+    with caplog.at_level(logging.INFO):
+        data = _locate(database, "xc7k325tffg676-1")
+    assert data.name == "xc7k325tffg676-2"  # the lowest grade, as always
+    (message,) = _warnings(caplog)
+    assert "xc7k325tffg676-1" in message  # the part asked for
+    assert "xc7k325tffg676-2" in message  # the data used
+    assert "xc7k325tffg676-3" in message and file in message  # what differs
+    other = "package_pins.csv" if file == "part.json" else "part.json"
+    assert other not in message
+
+
+def test_the_exact_part_needs_no_comparison_and_no_warning(tmp_path, caplog):
+    database = _database(tmp_path, PARTS, ["xc7k325tffg676-2", "xc7k325tffg676-3"])
+    (database / "kintex7/xc7k325tffg676-3/part.json").write_text("another die\n")
+    with caplog.at_level(logging.INFO):
+        assert _locate(database, "xc7k325tffg676-2").exact
+    assert not _warnings(caplog)
+
+
+def test_a_single_grade_has_nothing_to_differ_from(tmp_path, caplog):
+    database = _database(tmp_path, PARTS, ["xc7k325tffg676-1"])
+    with caplog.at_level(logging.INFO):
+        assert _locate(database, "xc7k325tffg676-2").name == "xc7k325tffg676-1"
+    assert not _warnings(caplog)
 
 
 # -------------------------------------------------------------------------- the packing flow
@@ -254,87 +256,44 @@ def test_a_missing_packer_fails_before_any_tool_runs(tmp_path, toolchain, monkey
     assert _tools(tmp_path) == []
 
 
-# ------------------------------------------------------------- what a change of the data does
+# --------------------------------------------------------- the installed database is not an input
 
-
-def _stale_after(tmp_path: Path, change) -> bool:
-    """Whether a launch after `change()` runs again, with the fake toolchain's own database."""
-    first = _launch(tmp_path, part="xc7a100tcsg324-1")
-    assert not first.reused
-    assert _launch(tmp_path, part="xc7a100tcsg324-1").reused
-    change()
-    return not _launch(tmp_path, part="xc7a100tcsg324-1").reused
-
-
-READ = [
+DATABASE_FILES = [
     "mapping/parts.yaml",
     "mapping/devices.yaml",
     "xc7a100t/tilegrid.json",
     "xc7a100tcsg324-1/part.json",
     "xc7a100tcsg324-1/package_pins.csv",
-    "tile_type_CLBLL_L.json",
-    "segbits_clbll_l.db",
-    "ppips_clbll_l.db",
-]
-NOT_READ = [
-    "mask_clbll_l.db",
-    "site_type_SLICEL.json",
-    "xc7a100tcsg324-1/part.yaml",
-    "xc7a35tcsg324-1/part.json",
-    "xc7a50t/tilegrid.json",
 ]
 
 
-@pytest.mark.parametrize("name", READ)
-def test_an_in_place_change_of_a_file_fpga_as_reads_runs_the_packer_again(
-    tmp_path, toolchain, name
-):
-    path = toolchain / "share/nextpnr/prjxray-db/artix7" / name
-    assert _stale_after(tmp_path, lambda: path.write_text(path.read_text() + "# edited\n"))
-    packs = _calls_of(tmp_path, "fpga-as")
-    assert len(packs) == 2
+def test_no_file_of_the_installed_database_is_an_input_of_the_run(tmp_path, toolchain):
+    """A tool's own installed files are never flow inputs, so an in-place change of the installed
+    Project X-Ray data is not noticed when packing (`--rebuild-all` packs again)."""
+    first = _launch(tmp_path, part="xc7a100tcsg324-1")
+    assert not first.reused
+    installation = toolchain.resolve()
+    inside = [
+        path for path in first.implicit_inputs if Path(path).resolve().is_relative_to(installation)
+    ]
+    assert inside == []
+    database = toolchain / "share/nextpnr/prjxray-db/artix7"
+    for name in DATABASE_FILES:
+        path = database / name
+        path.write_text(path.read_text() + "# edited\n")
+        assert _launch(tmp_path, part="xc7a100tcsg324-1").reused, name
+    assert len(_calls_of(tmp_path, "fpga-as")) == 1
 
 
-@pytest.mark.parametrize("name", NOT_READ)
-def test_a_change_of_a_file_fpga_as_does_not_read_leaves_the_packing_fresh(
-    tmp_path, toolchain, name
-):
-    path = toolchain / "share/nextpnr/prjxray-db/artix7" / name
-    assert not _stale_after(tmp_path, lambda: path.write_text(path.read_text() + "# edited\n"))
-
-
-@pytest.mark.parametrize("name", ["segbits_int_l.db", "ppips_int_l.db", "tile_type_INT_L.json"])
-def test_a_new_file_fpga_as_would_read_runs_the_packer_again(tmp_path, toolchain, name):
-    path = toolchain / "share/nextpnr/prjxray-db/artix7" / name
-    assert _stale_after(tmp_path, lambda: path.write_text("{}\n"))
-
-
-def test_a_removed_file_fpga_as_read_runs_the_packer_again(tmp_path, toolchain):
-    path = toolchain / "share/nextpnr/prjxray-db/artix7/segbits_clbll_l.db"
-    assert _stale_after(tmp_path, path.unlink)
-
-
-def test_the_part_data_used_is_part_of_what_the_run_depended_on(tmp_path, toolchain):
-    """The grade that stands in, then the exact part's own directory appearing."""
-    artix = toolchain / "share/nextpnr/prjxray-db/artix7"
-    parts = artix / "mapping/parts.yaml"
-    for grade in ("2", "3"):
-        parts.write_text(
-            parts.read_text() + f"xc7a100tcsg324-{grade}:\n  device: xc7a100t\n  package: csg324\n"
-            f"  speedgrade: '{grade}'\n"
-        )
-    for grade in ("3",):
-        directory = artix / f"xc7a100tcsg324-{grade}"
-        directory.mkdir()
-        (directory / "part.json").write_text(PART_JSON)
-    part = "xc7a100tcsg324-2"
-    first = _launch(tmp_path, part=part)
-    assert not first.reused and "--part=xc7a100tcsg324-1" in _argv(first)
-    assert _launch(tmp_path, part=part).reused
-    # the exact part's own directory appearing changes the data used
-    shutil.copytree(artix / "xc7a100tcsg324-1", artix / part)
-    again = _launch(tmp_path, part=part)
-    assert not again.reused and f"--part={part}" in _argv(again)
+def test_a_database_the_user_names_is_tracked_as_a_setting_s_directory(tmp_path, toolchain):
+    """The `prjxray_db` setting names a directory the run depends on, as any path setting does."""
+    database = _database(tmp_path / "db", PARTS, ["xc7k325tffg676-1"])
+    assert not _launch(tmp_path, database).reused
+    assert _launch(tmp_path, database).reused
+    part_json = database / "kintex7/xc7k325tffg676-1/part.json"
+    part_json.write_text('{"idcode": "0x1"}\n')
+    assert not _launch(tmp_path, database).reused
+    assert _launch(tmp_path, database).reused
 
 
 def _calls_of(tmp_path: Path, tool: str) -> list[dict]:

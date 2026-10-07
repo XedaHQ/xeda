@@ -17,7 +17,6 @@ from .xilinx import (
     XilinxSelection,
     find_prjxray_database,
     locate_part_data,
-    packer_inputs,
     select_xilinx_part,
 )
 
@@ -117,9 +116,9 @@ class FpgaPack(FpgaSynthFlow):
     def init(self) -> None:
         """Locate the Project X-Ray data `fpga-as` packs with, before any producer runs.
 
-        A part with no data is refused here, so neither synthesis nor placement runs first. Every
-        file the packer can read is registered as an input, so an in-place change of the
-        installed database runs the packing again.
+        A part with no data is refused here, so neither synthesis nor placement runs first. The
+        installed database is the packer's own, and no input of the run: a change of it alone is
+        not noticed (`prjxray_db`, a setting, is tracked as any directory setting is).
         """
         assert isinstance(self.settings, self.Settings)
         if Nextpnr.io_family(self.settings) != "xilinx":
@@ -135,7 +134,6 @@ class FpgaPack(FpgaSynthFlow):
         selection = select_xilinx_part(self.settings.fpga.part or "", database)
         data = locate_part_data(selection)
         self._selection, self._part_data = selection, data
-        self.implicit_inputs.extend(packer_inputs(selection, data))
 
     def run(self) -> None:
         """Pack the configuration handed over as the input `config`."""

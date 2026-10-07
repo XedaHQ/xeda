@@ -225,66 +225,6 @@ def test_the_configuration_is_what_the_upstream_makefile_builds(
     assert packed[128:] == theirs[128:]
 
 
-def _pack_with(database: Path, part: str, fasm: Path) -> tuple[int, bytes]:
-    """What `fpga-as` does with `fasm` and `database` (a family directory): its exit status and
-    what it writes, but for the header, which holds the time of the run."""
-    done = subprocess.run(
-        ["fpga-as", f"--prjxray_db_path={database}", f"--part={part}", str(fasm)],
-        capture_output=True,
-        timeout=600,
-    )
-    return done.returncode, done.stdout[128:]
-
-
-def _tile_types(fasm: Path) -> list[str]:
-    """The tile types a FASM file has features in, the one with the most features first."""
-    counts: dict[str, int] = {}
-    for line in fasm.read_text().splitlines():
-        match = re.match(r"([A-Z][A-Z0-9_]*?)_X\d+Y\d+\.", line)
-        if match:
-            counts[match[1]] = counts.get(match[1], 0) + 1
-    return sorted(counts, key=lambda name: -counts[name])
-
-
-def test_fpga_pack_records_every_file_fpga_as_needs(built, tmp_path):
-    """The files `fpga_pack` registers as inputs are all the packer needs: a copy of the database
-    that holds only them (each as a link to the installed file) packs the same configuration.
-    Without a file of the tile type that has the most features, it does not: a missing segment bit
-    file leaves the tile's bits out silently, and a missing tile type file fails the packer. So
-    this compares what the packer does, byte for byte. This is the oracle for
-    `xilinx.packer_inputs`: a `fpga-as` that reads another file fails it."""
-    _runner, _design_, flow, _before, _after = built
-    selection, data = flow._selection, flow._part_data
-    assert selection is not None and data is not None and data.exact
-    config = flow.inputs.config
-    family = selection.database / selection.family
-    registered = list(flow.implicit_inputs)
-    names = {path.relative_to(family).as_posix() for path in registered}
-    # what the packer is known to read
-    assert {"mapping/parts.yaml", "mapping/devices.yaml"} <= names
-    assert f"{selection.fabric}/tilegrid.json" in names
-    assert {f"{data.name}/part.json", f"{data.name}/package_pins.csv"} <= names
-
-    def pruned(without: str | None = None) -> Path:
-        root = tmp_path / ("without-" + (without or "nothing").replace("/", "-")) / selection.family
-        for path in registered:
-            relative = path.relative_to(family)
-            if relative.as_posix() == without:
-                continue
-            (root / relative).parent.mkdir(parents=True, exist_ok=True)
-            (root / relative).symlink_to(path)
-        return root
-
-    whole = _pack_with(family, data.name, config)
-    assert whole[0] == 0 and len(whole[1]) > 3_000_000
-    assert _pack_with(pruned(), data.name, config) == whole
-    used = [name for name in _tile_types(config) if f"segbits_{name.lower()}.db" in names]
-    assert used, "the design has features in no tile type with segment bits"
-    for needed in (f"segbits_{used[0].lower()}.db", f"tile_type_{used[0]}.json"):
-        assert needed in names
-        assert _pack_with(pruned(needed), data.name, config) != whole, needed
-
-
 def test_an_unchanged_second_launch_runs_nothing(built):
     runner, design, _flow, _before, _after = built
     first = len(runner.launched)

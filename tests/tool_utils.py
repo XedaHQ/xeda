@@ -726,18 +726,12 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
         ),
         "prjxray-db/artix7/xc7a100t/tilegrid.json": "{}\n",
         "prjxray-db/artix7/xc7a50t/tilegrid.json": "{}\n",
-        # what `fpga-as` reads for a part: its directory and the family's tile type data
+        # the directory `fpga-as` finds the data of each part in
         **{
             f"prjxray-db/artix7/{part}/{name}": "{}\n"
             for part in ("xc7a100tcsg324-1", "xc7a35tcsg324-1")
             for name in ("part.json", "part.yaml", "package_pins.csv")
         },
-        "prjxray-db/artix7/tile_type_CLBLL_L.json": "{}\n",
-        "prjxray-db/artix7/segbits_clbll_l.db": "CLBLL_L.SLICEL_X0.ALUT.INIT[0] 00_00\n",
-        "prjxray-db/artix7/ppips_clbll_l.db": "CLBLL_L.CLBLL_L_A.CLBLL_L_AMUX always\n",
-        # present in the database, never read by `fpga-as`
-        "prjxray-db/artix7/mask_clbll_l.db": "00_00\n",
-        "prjxray-db/artix7/site_type_SLICEL.json": "{}\n",
     }
     for name, content in files.items():
         path = share / name

@@ -242,8 +242,9 @@ def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
     return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
-#: The files of a part's own directory that ``fpga-as`` reads.
-PART_FILES = ("part.json", "package_pins.csv", "required_features.fasm")
+#: The files of a part's directory that describe its die and its pinout. The directories of one
+#: device and package, at their speed grades, are expected to agree in them.
+PINOUT_FILES = ("part.json", "package_pins.csv")
 
 
 @dataclass(frozen=True)
@@ -302,13 +303,15 @@ def _no_part_data(selection: XilinxSelection, root: Path, with_data: list[str]) 
 def locate_part_data(selection: XilinxSelection) -> PartData:
     """The part data directory of ``selection``: the exact part's, if the database has it.
 
-    The pin map and the configuration layout of a part do not depend on its speed grade (only
-    timing does, and ``nextpnr`` keeps the exact grade for that), and a database often has the
-    directory of one grade only. When the exact part has none, the directory of the lowest speed
-    grade of the same device and package stands in: the smallest grade number, a plain grade
-    before its ``L`` variant. Never another device or package: with no directory of that device
-    and package that holds a ``part.json``, this raises a ``FlowFatalError`` that names the part,
-    the directory searched and the data the database has for other packages of the device.
+    A device and package are one die with one pinout, so the speed grade directories of one
+    device and package are expected to agree in ``part.json`` and ``package_pins.csv`` (``nextpnr``
+    keeps the exact grade for timing), and a database often has the directory of one grade only.
+    When the exact part has none, the directory of the lowest speed grade of the same device and
+    package stands in: the smallest grade number, a plain grade before its ``L`` variant. The
+    caller logs the choice. If the other grades' directories differ from it in those two files,
+    this logs a warning naming them. Never another device or package: with no directory of that
+    device and package that holds a ``part.json``, this raises a ``FlowFatalError`` that names the
+    part, the directory searched and the data the database has for other packages of the device.
     """
     root = selection.database / selection.family
     exact = root / selection.name
@@ -328,31 +331,34 @@ def locate_part_data(selection: XilinxSelection) -> PartData:
     if not candidates:
         raise _no_part_data(selection, root, with_data)
     name = min(candidates, key=_speed_grade_order)
+    differing = {}
+    for other in sorted(candidates, key=_speed_grade_order):
+        files = [
+            file
+            for file in PINOUT_FILES
+            if other != name and _content(root / other / file) != _content(root / name / file)
+        ]
+        if files:
+            differing[other] = files
+    if differing:
+        log.warning(
+            "The Project X-Ray data of the speed grades of %s%s do not agree. %s has none, so it "
+            "is packed with the data of %s, which differs from that of %s. Check the database.",
+            selection.device,
+            package,
+            selection.part,
+            name,
+            "; ".join(f"{other} in {', '.join(files)}" for other, files in differing.items()),
+        )
     return PartData(selection.part, name, root / name)
 
 
-def packer_inputs(selection: XilinxSelection, data: PartData) -> list[Path]:
-    """Every existing Project X-Ray file ``fpga-as`` can read to pack ``selection``'s part.
-
-    From ``fpga-as``'s own source (the openXC7 fpga-assembler): it reads the family's part and
-    device mappings, the tile grid of the part's fabric, the part's ``part.json``,
-    ``package_pins.csv`` and optional ``required_features.fasm`` in ``data``'s directory, and, for
-    each tile type its input uses, ``segbits_<type>.db``, ``segbits_<type>.block_ram.db`` and
-    ``ppips_<type>.db``. Only the packer knows which tile types an input uses, so every such file
-    of the family is listed. The family's ``tile_type_<type>.json`` files are listed too, although
-    the packer opens none: it indexes them by name, and a tile type has bits only if its file
-    exists. Nothing else is read: not ``mask_*.db``, ``site_type_*.json`` or ``part.yaml``.
-    """
-    root = selection.database / selection.family
-    paths = [
-        root / "mapping/parts.yaml",
-        root / "mapping/devices.yaml",
-        root / selection.fabric / "tilegrid.json",
-        *(data.directory / name for name in PART_FILES),
-    ]
-    for pattern in ("tile_type_*.json", "segbits_*.db", "ppips_*.db"):
-        paths.extend(sorted(root.glob(pattern)))
-    return [path for path in paths if path.is_file()]
+def _content(path: Path) -> bytes | None:
+    """The bytes of a file, or ``None`` if there is none."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
 
 
 def _tree_contents(
