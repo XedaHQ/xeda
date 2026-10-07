@@ -300,6 +300,44 @@ def test_a_record_another_launch_wrote_meanwhile_is_not_lost_when_this_launch_wr
     assert theirs.read_text() == "net\n" and ours.read_text() == "net\n"
 
 
+def test_the_question_about_the_requested_flow_s_file_comes_before_any_tool_runs(world):
+    """The requested flow's own file is asked about with the producers', before a tool of the
+    plan runs: its check is the first thing its launch does, and the producers are launched after
+    it."""
+    (world.user / "n.v").write_text("the user's file\n")
+    (world.user / "r.rpt").write_text("the user's report\n")
+    asked: list[tuple[list[str], list[str]]] = []
+
+    def confirm(conflicts):
+        asked.append((list(RUNS), [conflict.destination.name for conflict in conflicts]))
+        return True
+
+    world.runner.confirm_overwrite = confirm
+    flow = _launch(
+        world, own={"report": str(world.user / "r.rpt")}, delivers={"netlist": "$PWD/n.v"}
+    )
+    assert flow.succeeded
+    assert asked == [([], ["n.v"]), ([], ["r.rpt"])], "each asked once, with no tool run yet"
+    assert (world.user / "r.rpt").read_text() == "report\n"
+    assert (world.user / "n.v").read_text() == "net\n"
+
+
+def test_declining_the_replacement_of_the_requested_flow_s_file_runs_no_tool(world):
+    (world.user / "r.rpt").write_text("the user's report\n")
+    asked: list[list[str]] = []
+
+    def decline(conflicts):
+        asked.append([conflict.destination.name for conflict in conflicts])
+        return False
+
+    world.runner.confirm_overwrite = decline
+    with pytest.raises(OutputExistsError, match="r.rpt") as refused:
+        _launch(world, own={"report": str(world.user / "r.rpt")}, delivers={"netlist": "$PWD/n.v"})
+    assert refused.value.before_run and asked == [["r.rpt"]]
+    assert RUNS == [], "no producer ran for a launch that was declined"
+    assert (world.user / "r.rpt").read_text() == "the user's report\n"
+
+
 def _asking(runner) -> list[str]:
     """Answer yes to every question of `runner`; the names of the files asked about."""
     asked: list[str] = []

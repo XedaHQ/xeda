@@ -1087,7 +1087,8 @@ class FlowLauncher:
         earlier flow. First comes what no answer could allow (`--outputs-to`, and
         `Deliveries.refuse`), for every flow, the requested flow included; then the questions
         of the producers, in the order they run, each asked once. The requested flow asks its own
-        at its turn, which comes before any tool runs. A producer keeps the object it checked and
+        at its turn: that is the start of its own launch, before it launches its producers, so
+        before any tool runs. A producer keeps the object it checked and
         checks again with it at its turn: that finds the record this check anchored, so the
         destination is read once in the launch. At its turn, under its lock, the producer reads
         the delivery record again if another launch wrote it meanwhile."""
@@ -1219,7 +1220,9 @@ class FlowLauncher:
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
-            # the deliveries, checked before `--clean` and before any tool of this flow runs
+            # the deliveries, checked before `--clean`, before this flow's `init()` and before
+            # any producer is launched: the requested flow asks its own question here, so before
+            # any tool of the plan runs
             outputs_to = self.settings.outputs_to if depender is None else None
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:

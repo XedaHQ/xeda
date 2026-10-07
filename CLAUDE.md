@@ -918,8 +918,8 @@ up front). The requested flow also checks the named deliveries of every flow of 
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
 allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`), and
-only then asks the producers' questions; its own question comes at its turn, still before any
-tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+only then asks the producers' questions; its own question comes at its turn, the start of its
+own launch and before it launches its producers, so still before any tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
 a launch; that second check records what it found (`Deliveries.checked`). The object read its
 delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
