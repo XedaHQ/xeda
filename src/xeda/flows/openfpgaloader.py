@@ -6,12 +6,24 @@ from typing import Any, List, Literal, Optional, Union
 from ..board import FPGA_OR_BOARD_REQUIRED, WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
 from ..design import SourceType
-from ..flow import FpgaSynthFlow, In
+from ..flow import FPGA, FpgaSynthFlow, In
 from ..tool import Tool
 
 __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
+
+
+def _loader_part(fpga: FPGA) -> str:
+    """The part `--fpga-part` takes: a Xilinx part without its speed grade, any other as it is.
+
+    openFPGALoader uses the option as written to name the bridge bitstream it loads to write a
+    flash (`spiOverJtag_<device><package>.bit.gz`), and that name has no speed grade.
+    """
+    part = fpga.part or ""
+    if fpga.vendor == "xilinx" and fpga.speed and part.endswith(fpga.speed):
+        return part[: -len(fpga.speed)]
+    return part
 
 
 class OpenfpgaloaderTool(Tool):
@@ -54,7 +66,8 @@ class Openfpgaloader(FpgaSynthFlow):
     `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those
     stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted
     by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board
-    database), when it has one, plus the FPGA part. It always runs, since
+    database), when it has one. The FPGA part is given when the board is not named: a Xilinx part
+    without its speed grade, any other as it is. It always runs, since
     it changes a device rather than a file, and it is the only flow here that touches hardware.
     """
 
@@ -160,8 +173,9 @@ class Openfpgaloader(FpgaSynthFlow):
             args.extend(["--cable", ss.cable])
         elif board_name:
             args.extend(["--board", board_name])
-        if ss.fpga.part:
-            args.extend(["--fpga-part", ss.fpga.part])
+        # `--board` gives openFPGALoader the board's own part, and `--fpga-part` would replace it
+        if ss.fpga.part and (ss.cable or not board_name):
+            args.extend(["--fpga-part", _loader_part(ss.fpga)])
         for enabled, flag in (
             (ss.reset, "--reset"),
             (ss.write_flash, "--write-flash"),

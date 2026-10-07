@@ -270,7 +270,9 @@ def test_the_board_files_are_readable_as_package_resources(board):
 
 @BY_BOARD
 @pytest.mark.usefixtures("fake_loader")
-def test_the_loader_is_given_the_board_name_and_the_full_part(tmp_path, board):
+def test_the_loader_is_given_the_board_name_alone(tmp_path, board):
+    """It knows the board's part, and `--fpga-part` would replace it with one that names no
+    bridge bitstream (a part with a speed grade)."""
     flow = _program(tmp_path, _prebuilt(tmp_path), {"board": board.id})
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
@@ -280,8 +282,6 @@ def test_the_loader_is_given_the_board_name_and_the_full_part(tmp_path, board):
         str(tmp_path / "design/given.bit"),
         "--board",
         board.loader,
-        "--fpga-part",
-        board.part,
     ]
 
 

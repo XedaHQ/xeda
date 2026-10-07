@@ -298,18 +298,11 @@ def test_flash_and_verify_are_openfpgaloader_s_own_flags(tmp_path, fake_loader):
     assert "--flash" not in call["argv"]
 
 
-def test_a_ulx3s_is_programmed_by_its_board_name_and_part(tmp_path, fake_loader):
+def test_a_ulx3s_is_programmed_by_its_board_name(tmp_path, fake_loader):
     flow = _program(tmp_path, _prebuilt(tmp_path), {"board": "ulx3s_85f"})
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
-    assert call["argv"] == [
-        "--bitstream",
-        str(tmp_path / "design/given.bit"),
-        "--board",
-        "ulx3s",
-        "--fpga-part",
-        "LFE5U-85F-6BG381C",
-    ]
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--board", "ulx3s"]
 
 
 def test_a_cable_takes_precedence_over_the_board_s(tmp_path, fake_loader):
@@ -319,12 +312,13 @@ def test_a_cable_takes_precedence_over_the_board_s(tmp_path, fake_loader):
 
 
 #: Every bundled board, with its name in openFPGALoader (the board list of openFPGALoader's own
-#: src/board.hpp) and its FPGA part: the exact arguments `--board` and `--fpga-part` take.
+#: src/board.hpp) and the FPGA part `--fpga-part` takes when the board is not named: a Xilinx part
+#: has no speed grade there.
 BUNDLED_BOARDS = {
-    "arty_a7_100t": ("arty_a7_100t", "xc7a100tcsg324-1"),
-    "arty_a7_35t": ("arty_a7_35t", "xc7a35tcsg324-1"),
-    "basys_3": ("basys3", "xc7a35tcpg236-1"),
-    "stlv7325_v2": ("stlv7325", "xc7k325tffg676-2"),
+    "arty_a7_100t": ("arty_a7_100t", "xc7a100tcsg324"),
+    "arty_a7_35t": ("arty_a7_35t", "xc7a35tcsg324"),
+    "basys_3": ("basys3", "xc7a35tcpg236"),
+    "stlv7325_v2": ("stlv7325", "xc7k325tffg676"),
     "ulx3s_85f": ("ulx3s", "LFE5U-85F-6BG381C"),
 }
 
@@ -338,25 +332,22 @@ def test_the_table_of_bundled_boards_below_names_every_bundled_board():
 
 
 @pytest.mark.parametrize("board", sorted(BUNDLED_BOARDS))
-def test_every_bundled_board_is_programmed_by_its_openfpgaloader_board_and_part(
+def test_every_bundled_board_is_programmed_by_its_openfpgaloader_board_alone(
     tmp_path, fake_loader, board
 ):
-    loader, part = BUNDLED_BOARDS[board]
+    """`--board` makes openFPGALoader use the board's own part. `--fpga-part` would replace it,
+    and the loader names the bridge bitstream that writes a flash by it, as written: no speed
+    grade, so a part with one finds no bridge."""
+    loader, _part = BUNDLED_BOARDS[board]
     flow = _program(tmp_path, _prebuilt(tmp_path), {"board": board})
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
-    assert call["argv"] == [
-        "--bitstream",
-        str(tmp_path / "design/given.bit"),
-        "--board",
-        loader,
-        "--fpga-part",
-        part,
-    ]
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--board", loader]
 
 
 @pytest.mark.parametrize("board", sorted(BUNDLED_BOARDS))
 def test_a_cable_takes_precedence_over_every_bundled_board(tmp_path, fake_loader, board):
+    """No board name, so the part is given, as the loader writes it: without a speed grade."""
     _loader, part = BUNDLED_BOARDS[board]
     _program(tmp_path, _prebuilt(tmp_path), {"board": board, "cable": "ft231X"})
     (call,) = _calls(tmp_path, "openfpgaloader")
@@ -373,20 +364,52 @@ def test_a_cable_takes_precedence_over_every_bundled_board(tmp_path, fake_loader
 def test_a_bundled_board_in_capitals_is_programmed_by_the_same_name(tmp_path, fake_loader):
     _program(tmp_path, _prebuilt(tmp_path), {"board": "BASYS_3"})
     (call,) = _calls(tmp_path, "openfpgaloader")
-    assert call["argv"][2:4] == ["--board", "basys3"]
+    assert call["argv"][2:] == ["--board", "basys3"]
+
+
+@pytest.mark.parametrize(
+    "part,given",
+    [
+        ("xc7a35tcpg236-1", "xc7a35tcpg236"),
+        ("xc7k325tffg676-2", "xc7k325tffg676"),
+        ("xc7z035ffg676-2L", "xc7z035ffg676"),
+        ("XC7VX485TFFG1761-3", "XC7VX485TFFG1761"),
+        ("xc7a35tcpg236", "xc7a35tcpg236"),  # no grade to take away
+    ],
+)
+def test_a_xilinx_part_is_given_to_the_loader_without_its_speed_grade(
+    tmp_path, fake_loader, part, given
+):
+    """openFPGALoader uses `--fpga-part` as written to name the bridge bitstream
+    (`spiOverJtag_<device><package>.bit.gz`), which has no speed grade."""
+    _program(tmp_path, _prebuilt(tmp_path), {"fpga": part})
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--fpga-part", given]
+
+
+@pytest.mark.parametrize("part", [ECP5, "iCE40HX1K-TQ144"])
+def test_a_part_of_another_vendor_is_given_to_the_loader_as_it_is(tmp_path, fake_loader, part):
+    _program(tmp_path, _prebuilt(tmp_path), {"fpga": part})
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--fpga-part", part]
 
 
 def test_a_board_openfpgaloader_does_not_know_is_programmed_by_its_part_alone(
     tmp_path, fake_loader
 ):
-    """The field is optional: a board without it adds no `--board`, as before."""
+    """The field is optional: a board without it adds no `--board`, and its part is given."""
     boards = tmp_path / "design" / "boards.toml"
     boards.parent.mkdir()
-    boards.write_text(f'[MY_BOARD]\nfpga.part = "{ECP5}"\n')
+    boards.write_text('[MY_BOARD]\nfpga.part = "xc7a35tcpg236-1"\n')
     settings = {"board": "MY_BOARD", "custom_boards_file": "boards.toml"}
     _program(tmp_path, _prebuilt(tmp_path), settings)
     (call,) = _calls(tmp_path, "openfpgaloader")
-    assert call["argv"] == ["--bitstream", str(tmp_path / "design/given.bit"), "--fpga-part", ECP5]
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--fpga-part",
+        "xc7a35tcpg236",
+    ]
 
 
 def test_a_custom_board_is_programmed_by_its_programmer_name(tmp_path, fake_loader):
@@ -398,7 +421,7 @@ def test_a_custom_board_is_programmed_by_its_programmer_name(tmp_path, fake_load
     settings = {"board": "MY_BOARD", "custom_boards_file": "boards.toml"}
     _program(tmp_path, _prebuilt(tmp_path), settings)
     argv = _calls(tmp_path, "openfpgaloader")[0]["argv"]
-    assert argv[2:6] == ["--board", "programmer_board", "--fpga-part", ECP5]
+    assert argv[2:] == ["--board", "programmer_board"]
 
 
 # ------------------------------------------------------------------------- a prebuilt bitstream
@@ -485,8 +508,9 @@ def test_a_board_given_for_any_stage_is_the_whole_graph_s(tmp_path, fake_loader,
     flow = _program(tmp_path, design)
     assert flow.succeeded
     argv = _calls(tmp_path, "openfpgaloader")[0]["argv"]
-    assert argv[-2:] == ["--fpga-part", ECP5]
-    assert ("--board" in argv) == (where != "yosys_fpga")
+    # the board is named to the loader, which knows its part; with no board, the part is given
+    expected = ["--fpga-part", ECP5] if where == "yosys_fpga" else ["--board", "programmer_board"]
+    assert argv[2:] == expected
 
 
 @pytest.mark.parametrize("suffix", [".toml", ".yaml", ".yml"])
@@ -520,7 +544,7 @@ def test_a_custom_board_database_in_any_format_serves_the_whole_declared_graph(
     flow = _program(tmp_path, design)
     assert flow.succeeded
     argv = _calls(tmp_path, "openfpgaloader")[0]["argv"]
-    assert argv[2:6] == ["--board", "programmer_board", "--fpga-part", ECP5]
+    assert argv[2:] == ["--board", "programmer_board"]
     (placed,) = _calls(tmp_path, "nextpnr")
     (lpf,) = [a for a in placed["argv"] if a.startswith("--lpf=")]
     assert Path(lpf.removeprefix("--lpf=")).parent == tmp_path / "run/top/nextpnr"
@@ -648,8 +672,6 @@ def test_the_ulx3s_blinky_example_builds_and_programs_under_the_fakes(tmp_path, 
         str(tmp_path / "run/blinky/fpga_pack/outputs/blinky.bit"),
         "--board",
         "ulx3s",
-        "--fpga-part",
-        "LFE5U-85F-6BG381C",
     ]
 
 

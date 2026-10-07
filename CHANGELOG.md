@@ -53,6 +53,12 @@ All notable changes to this project will be documented in this file.
 - A message about a Chisel generator with `build_system: bloop` and no `project` named the
   command `bloop projects`, which only finds the project. It names the kind of generator
   (`ChiselGenerator`) until a project is selected.
+- `openfpgaloader` no longer gives `--fpga-part` beside `--board`. openFPGALoader knows the
+  board's part, and the option replaced it with a part that has a speed grade; the loader uses the
+  option as written to name the bridge bitstream that writes a flash (`spiOverJtag_<device>
+  <package>.bit.gz`), which has no grade, so `write_flash` on a Xilinx board found no bridge. With
+  a `cable`, or a board without an `openfpgaloader_board`, `--fpga-part` is still given, and a
+  Xilinx part is written without its speed grade (`xc7a35tcpg236`).
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root

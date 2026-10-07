@@ -1104,8 +1104,11 @@ ignoring case unless a node of the group names a custom database (`resolver._agr
 database and every file name are case-sensitive, as written. A board entry's optional
 `openfpgaloader_board` is the board's name in openFPGALoader (`--board`, from its `src/board.hpp`;
 text when given, and every bundled board has one); `openfpgaloader` passes it whenever `board` is
-set, a `cable` first, and a board without one adds no `--board`. The former key `name` is an error
-naming it (`WithFpgaBoardSettings._fpga_validate`).
+set, a `cable` first, and a board without one adds no `--board`. With `--board` it gives no
+`--fpga-part`: the loader knows the board's part, the option would replace it, and the loader
+names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`) by the option as
+written, so a part given without a board name drops a Xilinx speed grade (`_loader_part`). The
+former key `name` is an error naming it (`WithFpgaBoardSettings._fpga_validate`).
 
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
 `custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to

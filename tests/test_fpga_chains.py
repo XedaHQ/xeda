@@ -476,7 +476,7 @@ def test_the_whole_chain_builds_and_programs_the_board_through_the_fakes(
     # the programmer is the fake, by the file that ran, and read the packed bitstream only
     bitstream = root / "fpga_pack" / board.bitstream
     call = _programmed(tmp_path, toolchain, board.design, bitstream)
-    assert call["argv"][2:] == ["--board", board.programmer, "--fpga-part", board.part]
+    assert call["argv"][2:] == ["--board", board.programmer]
 
 
 def _chipdb_generator(tmp_path: Path) -> dict:
