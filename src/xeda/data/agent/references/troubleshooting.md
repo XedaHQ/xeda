@@ -229,6 +229,19 @@ settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin f
 - A `NonZeroExitCode` of nextpnr ends with "nextpnr error: ...", the first error lines this run's
   log holds (an unplaceable cell, for example); more are in `nextpnr.log`.
 
+### A 7-series bitstream builds but computes the wrong result
+
+Some openXC7 `nextpnr-himbaechel` builds write wrong bits with no error and with timing met. Known:
+an inferred multiplier (Yosys maps it to a `DSP48E1`) that ignores its A operand (openXC7/nextpnr
+issue 39), and the lost initial contents of a `RAM32M`/`RAM64M` (a memory with initial values that
+Yosys maps to LUT RAM; every LUT reads 0). A timing or utilization report cannot show either. The
+openXC7 1.0 release and every build before commit `18362b3` of openXC7/nextpnr (pull request 66)
+are affected, `1.0.0-41-g3e5c2cdd` included. `nextpnr-himbaechel --version` names the build: use
+`main` at `18362b3` or later (`1.0.0-75-g26f5e17a` has both fixes). Xeda does not check the build.
+
+Also, nextpnr ignores `set_property PULLUP true` without a warning. Write `set_property PULLTYPE
+PULLUP` for a pull-up. The bundled pin files use neither.
+
 ## Reading numbers correctly
 
 - **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;

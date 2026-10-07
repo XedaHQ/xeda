@@ -613,6 +613,16 @@ producer runs. Known limit: an in-place change of the installed Project X-Ray da
 directory for the exact part (a tool's own installed files are never flow inputs; `--rebuild-all`
 packs again). A `prjxray_db` the user sets is tracked as a setting's directory, as before.
 
+**openXC7 `nextpnr` builds before commit `18362b3` write wrong bits with no error** (the 1.0
+release and `3e5c2cdd`, the installer's pin when this was written, included): an inferred
+`DSP48E1` multiply ignores its A operand (issue 39, fixed by PR 66), and `pack_dram.cc` read
+`INITA` where the primitives have `INIT_A`, so an initialized `RAM32M`/`RAM64M` is all zeros
+(`dc85665`, PR 70). Both hit `yosys_fpga+nextpnr+fpga_pack`, and neither shows in timing or
+utilization. `docs/flows.rst` and the skill's troubleshooting say what to use. No code checks the
+build: raise the floor once an openXC7 release has both fixes. `nextpnr` also ignores
+`set_property PULLUP true` without a warning and reads `PULLTYPE PULLUP`; the bundled pin files use
+neither.
+
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML
 or YAML, chosen by its suffix and read through the strict loader (`board.read_board_database`).

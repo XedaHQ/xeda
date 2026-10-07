@@ -595,6 +595,30 @@ and reads no ``CHIPDB_DIR``-style environment variable. A design for the Arty A7
 openfpgaloader blinky.yaml`` builds the same bitstream if it is not up to date and loads it.
 The part is given once: ``fpga`` is shared along the declared edges.
 
+.. warning::
+
+   Some builds of openXC7's ``nextpnr-himbaechel`` write wrong bits and print no error: the
+   build succeeds, the timing is met, and the bitstream computes a wrong result. Two defects are
+   known. The openXC7 1.0 release has both, and so has ``1.0.0-41-g3e5c2cdd`` (2026-10-06), which
+   the openXC7 toolchain installer pinned. Every build before commit ``18362b3`` of
+   openXC7/nextpnr (pull request 66, merged on 2026-10-07) has at least one of them:
+
+   * An inferred multiplier is wrong. When Yosys maps a multiplication to a ``DSP48E1``, the
+     packer leaves eight control pins of the DSP untied, and the DSP ignores its A operand
+     (openXC7/nextpnr issue 39, fixed by pull request 66).
+   * The initial contents of a LUT RAM are lost. When a memory has initial contents and Yosys
+     maps it to ``RAM32M`` or ``RAM64M``, every LUT of the memory is 0. The packer read the
+     parameters ``INITA`` to ``INITD``, but the primitives have ``INIT_A`` to ``INIT_D``
+     (commit ``dc85665``, pull request 70).
+
+   The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization
+   report cannot show these defects. Only a functional test of the bitstream can. Use a
+   ``nextpnr-himbaechel`` built from the ``main`` branch of openXC7/nextpnr at commit
+   ``18362b3`` or later, which has both fixes. ``nextpnr-himbaechel --version`` names the build:
+   ``1.0.0-41-g3e5c2cdd`` is affected, and ``1.0.0-75-g26f5e17a`` has both fixes. Xeda does not
+   check the build. The authors of the fixes compared the bitstreams with Vivado's; they did not
+   test them on a device.
+
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
 before synthesis. ``board: arty_a7_100t`` or ``arty_a7_35t`` fills it in (``xeda list-boards``).
@@ -608,7 +632,9 @@ Digilent's master XDC and keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0
 ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...). They contain no
 clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
 one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
-and Xeda says so.
+and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It ignores
+``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the second
+form gets no pull-up. The bundled pin files use neither form; a pin file of your own may.
 
 The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
 buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
