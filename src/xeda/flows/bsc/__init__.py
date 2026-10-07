@@ -1165,6 +1165,16 @@ class BscSim(BscFlow, SimFlow):
 
     output_dir_setting = "sim_dir"
 
+    @classmethod
+    def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
+        """bsc's link step runs its tools through a shell without quoting, whatever the simulator,
+        and every path it is given lies in the run directory: one rule for every backend, with
+        one message. The directory is judged as given and as it resolves, since the Verilator
+        backend's makefile builds in the physical one. `_check_link_paths` stays as the backstop
+        for the design's own paths."""
+        super().check_run_directory(settings, run_path)
+        _check_link_paths([run_path, os.path.realpath(run_path)])
+
     def has_evidence_adapter(self) -> bool:
         """Every accepted simulator has a family-specific current-run evidence adapter."""
         assert isinstance(self.settings, self.Settings)

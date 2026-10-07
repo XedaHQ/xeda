@@ -107,7 +107,8 @@ def _launch(
             "stop_time",
             True,
         ),
-        ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "fatal", False),
+        ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "error", False),
+        ("initial begin #5 $stop; end", {"timing": True}, "error", False),
         pytest.param(
             'initial begin #5 $error("e"); #5 $finish; end',
             {"timing": True, "fail_severity": "failure"},
@@ -135,6 +136,76 @@ def test_verilator_passes_only_on_evidence(tmp_path, body, settings, ended_by, s
     assert flow.succeeded is success
 
 
+@pytest.mark.parametrize(
+    ("body", "ended_by", "kind"),
+    [
+        ('initial begin #5 $error("e"); #5 $finish; end', "error", "error"),
+        ("initial begin #5 $stop; end", "error", "error"),
+        ('initial begin #5 $fatal(1, "f"); end', "fatal", "fatal"),
+    ],
+    ids=["error", "stop", "fatal"],
+)
+def test_verilator_records_one_event_for_the_report_that_ended_it(tmp_path, body, ended_by, kind):
+    """`$error`, `$stop` and `$fatal` each end the run with the cause they have, and
+    record the report once: not as a fatal error, and not as a stop followed by a fatal error."""
+    require_verilator()
+    flow = _launch(tmp_path, body, {"timing": True})
+    assert flow.results["sim.ended_by"] == ended_by
+    events = flow.results["sim.evidence"]["events"]
+    assert [event["kind"] for event in events] == [kind]
+    assert flow.results["sim.errors"] == 1
+    assert not flow.succeeded
+
+
+DIRECT_STOP_DRIVER = """#include "verilated.h"
+int main(int, char**) {
+    vl_stop("direct.v", 3, "top");  // a `$stop` that does not come through `vl_stop_maybe`
+    return 0;
+}
+"""
+
+
+def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_path):
+    """Verilator calls `vl_stop` itself for some stops. It is one event, `stop`, and the run
+    ended by an error: not a stop followed by a fatal error."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        "initial begin #5 $finish; end",
+        {"timing": True},
+        extra_sources={"main.cpp": DIRECT_STOP_DRIVER},
+    )
+    assert flow.results["sim.ended_by"] == "error"
+    assert [e["kind"] for e in flow.results["sim.evidence"]["events"]] == ["stop"]
+    assert not flow.succeeded
+
+
+def test_the_hooks_header_is_included_by_name_not_by_the_run_directory_path(tmp_path):
+    """The compiler flags go through make, which splits them at a space: a path in them breaks
+    a build whose path has one. The model is compiled in `sim_dir`, where the header is."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #5 $finish; end", {"timing": True})
+    assert flow.succeeded
+    makefile = (flow.run_path / flow.settings.sim_dir / "Vtop.mk").read_text()
+    assert "-include xeda_hooks.h" in makefile
+    assert str(flow.run_path) not in makefile
+
+
+def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):
+    """Without `timing`, Verilator ignores a delay: the testbench's `#100; $finish` ends at time
+    0. The warnings say so, in the build's output: `STMTDLY` for a delay on a statement (xeda used
+    to hide it) and `ASSIGNDLY` for one on an assignment (it never did). The default
+    `-Wno-fatal` keeps them warnings, so the run still passes."""
+    require_verilator()
+    flow = _launch(tmp_path, "reg r; initial begin r <= #1 1'b1; #100; $finish; end", {})
+    captured = capfd.readouterr()
+    output = captured.out + captured.err
+    assert "%Warning-STMTDLY" in output
+    assert "%Warning-ASSIGNDLY" in output
+    assert flow.succeeded
+    assert flow.results["sim.time"] == 0
+
+
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     """Two top-level candidates: the design's `tb.top` is the one simulated."""
     require_verilator()
@@ -147,6 +218,32 @@ def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     log = (flow.run_path / flow.settings.sim_dir / "sim.log").read_text()
     assert "TB" in log and "OTHER" not in log
     assert flow.succeeded
+
+
+def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp_path):
+    """HDL among the testbench's sources (a checker bound into the design) does not make a design
+    with a C++ driver of its own ask for `tb.top`: the driver runs the RTL top."""
+    require_verilator()
+    (tmp_path / "dut.sv").write_text(
+        "`timescale 1ns/1ps\nmodule dut(input logic clk);\n"
+        "  logic [3:0] cnt = 0;\n  initial begin #50 $finish; end\nendmodule\n"
+    )
+    (tmp_path / "chk.sv").write_text(
+        "module chk(input logic clk, input logic [3:0] cnt);\nendmodule\n"
+        "bind dut chk c(.clk(clk), .cnt(cnt));\n"
+    )
+    (tmp_path / "main.cpp").write_text(OWN_DRIVER.replace("STATUS", "0"))
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["chk.sv", "main.cpp"]},
+    )
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        Verilator, design, {"timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert flow.results["sim.ended_by"] == "exit"
 
 
 @pytest.mark.parametrize("timescale", ["1ns/1ns", "1ns/1ps", "1ns/1fs", "1us/100ps"])

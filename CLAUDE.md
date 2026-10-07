@@ -1336,6 +1336,33 @@ dependency must also share `custom_boards_file`.
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
   top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
+  A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
+  failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
+  `fatal` for `$fatal` and Verilator's own fatal errors.
+  `timing` is off by default: Verilator then ignores `#delay` (a `#100; $finish` ends at time 0),
+  and xeda no longer hides its `STMTDLY` warning (a delay on a statement; `ASSIGNDLY`, on an
+  assignment, was never hidden, and `INITIALDLY` is never raised), which fails a run only with
+  `warnings_fatal`.
+  Verilator's makefile stops in a build directory whose path has whitespace ("GNU Make cannot
+  build in directories containing spaces"), so `verilator` refuses such a run directory, and a
+  `sim_dir`, where it builds; `bsc_sim` refuses it for every simulator, since bsc's link step runs
+  its tools through a shell without quoting (`_check_link_paths` stays as the backstop for the
+  design's own paths). Both go through `Flow.check_run_directory`, which is pure and judges the
+  path alone, before anything is created: the launcher calls it in `_run_identity` for every
+  launch, `plan` calls it, and `Dse` calls it once before the search; the `--remote` runner never
+  does (the build is the remote's). The run directory is judged by what it leads to (make builds
+  in the physical directory), `sim_dir` by its name (the launcher removes a link left at it).
+  Another flow with such a limit is a decision, pinned in `tests/test_verilator_run_directory.py`.
+  The hooks header goes into the compiler flags by name (`-include xeda_hooks.h`, the model builds
+  in `sim_dir`): make splits flags at a space, and reads `#` and `$` in them.
+  `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
+  `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
+  no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
+  drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design)`: `ghdl_sim` for
+  a VHDL testbench (`ghdl find-top` finds its top), `verilator` and `yosys_sim` for a design with a
+  `Cpp` source (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver, which
+  runs the model whatever HDL the testbench also holds). Another simulator on that list is a
+  decision.
   Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
   `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
   share a rank). GHDL, nvc, ModelSim, VCS, Vivado simulation/power, CXXRTL and every accepted

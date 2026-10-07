@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
-from ..design import Design
+from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -216,10 +216,28 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 return f"{vcd}.vcd"
             return vcd
 
+    @staticmethod
+    def has_cpp_driver(design: Design) -> bool:
+        """Whether the design brings a C++ driver of its own: `Cpp` sources among the RTL's and the
+        testbench's. A simulator that builds a C++ model runs it in place of its own (`verilator`,
+        `yosys_sim`)."""
+        return bool(design.sim_sources_of_type(SourceType.Cpp))
+
+    @classmethod
+    def runs_without_testbench_top(cls, design: Design) -> bool:
+        """Whether this simulator knows what to run for `design` when `tb.top` is not set, though
+        its testbench has sources in a hardware description language. No simulator does by
+        default. One that finds the testbench's top itself (GHDL's `find-top`), or runs a C++
+        driver of the design's own (Verilator, `yosys_sim`), says so by overriding this."""
+        return False
+
     @classmethod
     def check_design_supported(cls, design: Design) -> None:
         """A cocotb testbench needs a simulator xeda drives cocotb on (`cocotb_sim_name`): run on
-        any other, the design would be simulated without it and its tests would never run."""
+        any other, the design would be simulated without it and its tests would never run.
+        A testbench written in a hardware description language (`LANGUAGE_TYPES`) needs `tb.top`,
+        unless the simulator knows what to run without it (`runs_without_testbench_top`):
+        otherwise the simulator would simulate `rtl.top`, which has no stimulus."""
         super().check_design_supported(design)
         if design.tb.cocotb and not cls.cocotb_sim_name:
             supported = sorted(
@@ -232,6 +250,14 @@ class SimFlow(Flow, metaclass=ABCMeta):
             raise FlowSettingsException(
                 f"{cls.name} cannot run cocotb tests; use one of: {', '.join(supported)}"
             )
+        if not design.tb.cocotb and not design.tb.top:
+            hdl = [src for src in design.tb.sources if src.type in LANGUAGE_TYPES]
+            if hdl and not cls.runs_without_testbench_top(design):
+                raise FlowSettingsException(
+                    f"{cls.name} needs to know which module is the testbench: `tb.sources` "
+                    f"holds {', '.join(src.file.name for src in hdl)} but `tb.top` is not set. "
+                    "Set `tb.top` to the testbench's top module."
+                )
 
     def __init__(
         self,

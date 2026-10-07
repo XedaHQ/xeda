@@ -124,6 +124,38 @@ All notable changes to this project will be documented in this file.
   anchored afresh. Every mutation check is unchanged -- an
   edit given back its old mtime, and a different file put in the destination's place, are still
   refused.
+- `verilator` records the cause of the end of a run correctly. `$error`, a failed assertion and
+  `$stop` end a run as `sim.ended_by: error` (it was `fatal`, and the log said "a fatal error ended
+  it"), and `$fatal` as `fatal`. A report that ends a run is one event: a `$stop` that reached
+  Xeda's hooks directly recorded a `stop` and a `fatal` event.
+- A simulation whose testbench is written in a hardware description language (Verilog,
+  SystemVerilog, VHDL, Bluespec or Chisel) needs `tb.top`. Without it, Verilator ran `rtl.top`,
+  which has no stimulus, and the run failed as drained, and NVC failed on `nvc -e` with no top.
+  Every simulation flow now refuses the design when it is planned, and the message names `tb.top`.
+  Not affected: a cocotb testbench, a design with no testbench, `ghdl_sim` with a VHDL testbench
+  (it finds the top with `ghdl find-top`), and a design with a C++ driver of its own for
+  `verilator` and `yosys_sim`, whatever HDL its testbench also holds.
+- A run directory a flow cannot work in is refused at once: before the run root, the directory
+  or its lock is created, when a plan is made (`xeda run --dry-run`), and once at the start of
+  `xeda dse`. `Flow.check_run_directory` is the hook. Two flows have such a limit, for a path with
+  whitespace. `verilator`: Verilator's GNU Make build cannot work there (its makefile stops with
+  "GNU Make cannot build in directories containing spaces" before it compiles anything, and the
+  error used to come in the middle of the build). It refuses a `sim_dir`, the directory it builds
+  in, with whitespace too. A link in the run root is judged by the directory it leads to, as make
+  builds there; `sim_dir` by its name, since the launcher removes a link left at it. `bsc_sim`,
+  with every simulator: bsc's link step runs its tools through a shell without quoting, and it
+  used to fail after the compilation, with the run root already created. Each message names the
+  directory and says to use a run root without whitespace (`--run-root`).
+- `verilator` includes the header of its hooks by name (`-include xeda_hooks.h`, found in the
+  directory the model is built in), no longer by the absolute path of the run directory. The C++
+  compiler flags go through make and a shell, which split them at a space, read a `#` as a
+  comment and a `$` as a variable, and take quotes, `;`, `&`, parentheses and backslashes as
+  syntax: a run root with one of those in its path failed every build.
+- `verilator` no longer hides Verilator's `STMTDLY` warning when `timing` is off. It passed
+  `-Wno-STMTDLY -Wno-INITIALDLY`. Verilator then ignores a delay on a statement (`#10;`), so a
+  testbench's `#100; $finish` ended at time 0 and passed without a word. Verilator now says so.
+  `INITIALDLY` is never raised, and `ASSIGNDLY` (a delay on an assignment) was never hidden. A
+  warning does not fail the run, unless `warnings_fatal` is set. `timing` stays off by default.
 
 ### Added
 - **A design generator is judged by content, not by a modification time.**

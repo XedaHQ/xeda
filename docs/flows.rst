@@ -647,7 +647,10 @@ bsc supports. Every accepted backend (listed below) requires an observed ``$fini
 requested limit, with no runtime event reaching ``fail_severity`` (default ``error``).
 ``$finish(n)``'s argument is a verbosity level, not an exit status. A requested Bluesim
 ``max_cycles`` passes only with the measured cycle count and final simulated time; an early
-explicit finish remains valid. A silent exit 0 and a drained event queue fail.
+explicit finish remains valid. A silent exit 0 and a drained event queue fail. ``bsc_sim`` refuses
+a run directory whose path has whitespace, with every simulator, before anything is created and
+when planning: bsc's link step runs its tools through a shell without quoting. Use a run root
+without whitespace (``--run-root``).
 
 .. code-block:: bash
 
@@ -758,18 +761,34 @@ the driver exits with status 0 and nothing reported reaches ``fail_severity``. W
 cocotb's results decide the run. The model's output is also copied to ``sim.log`` in ``sim_dir``,
 except under cocotb, whose output goes straight to the terminal.
 
+A report that ends the run is one event, and ``sim.ended_by`` names its cause: ``error`` for
+``$error``, a failed assertion and ``$stop``, ``fatal`` for ``$fatal`` and for Verilator's own
+fatal errors.
+
 The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
-cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. ``rtl.parameters``
-apply only when the RTL top is the simulated top; ``tb.parameters`` always do.
+cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design with a
+Verilog or SystemVerilog testbench needs ``tb.top``: without it the flow refuses the design, since
+it would simulate ``rtl.top``, which has no stimulus. A design with a C++ driver of its own needs
+none. ``rtl.parameters`` apply only when the RTL top is the simulated top; ``tb.parameters``
+always do.
 
 Defaults and limits:
 
 * ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it;
   ``x_initial`` and ``x_assign`` default to ``"0"`` (they were ``"unique"``).
+* ``timing`` is off by default, for speed. Verilator then ignores a delay and says so with a
+  warning: ``STMTDLY`` for a delay on a statement (``#10;``, which Xeda used to hide) and
+  ``ASSIGNDLY`` for one on an assignment. A testbench's ``#100; $finish`` therefore ends at time 0
+  and still passes. Such a warning does not fail the run, unless ``warnings_fatal`` is set. Set
+  ``timing: true`` for a testbench that uses delays or waits.
 * ``stop_time`` is enforced by Xeda's own driver only: with cocotb, or with a design's own C++
   driver, it is an error.
 * ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
   an error, since Xeda's driver runs a C++ model.
+* A run directory whose path has whitespace is refused, before anything is created and when
+  planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
+  whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
+  whitespace (``--run-root``).
 * Verilator 5.024 or newer is required.
 
 Writing a new flow

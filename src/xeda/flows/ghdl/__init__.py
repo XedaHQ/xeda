@@ -517,6 +517,11 @@ class GhdlSim(Ghdl, SimFlow):
     )
     _sim_log: Path | None = None
 
+    @classmethod
+    def runs_without_testbench_top(cls, design: Design) -> bool:
+        """A VHDL testbench's top unit is found with `ghdl find-top`."""
+        return any(src.type is SourceType.Vhdl for src in design.tb.sources)
+
     class Settings(Ghdl.Settings, SimFlow.Settings):
         run_flags: List[str] = Field(
             [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."

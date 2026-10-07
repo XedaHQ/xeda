@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import string
 from glob import escape as glob_escape
 from glob import glob
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Unio
 
 from ...cocotb import cocotb_toplevel
 from ...dataclass import WORKING, Field, deliverable
-from ...design import SourceType
+from ...design import Design, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import NonZeroExitCode, Tool
@@ -100,8 +101,9 @@ class Verilator(SimFlow):
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
     plain C++/SystemC harnesses, and VCD/FST waveform tracing.
 
-    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top`; with cocotb,
-    the module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
+    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with
+    HDL testbench sources needs `tb.top`, unless it has a C++ driver of its own); with cocotb, the
+    module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
     `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and
     `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the
     simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in
@@ -158,7 +160,9 @@ class Verilator(SimFlow):
         timing: bool = Field(
             False,
             description="Enable Verilator's `--timing` support for delays and non-blocking "
-            "event controls, needed by testbenches that use `#delay` or `wait`.",
+            "event controls, needed by testbenches that use `#delay` or `wait`. When it is off, "
+            "Verilator ignores a delay and warns about it (`STMTDLY` for a statement, "
+            "`ASSIGNDLY` for an assignment), so a testbench's `#100; $finish` ends at time 0.",
         )
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"
@@ -297,10 +301,34 @@ class Verilator(SimFlow):
             raise FlowSettingsException("no simulation top: set tb.top or rtl.top")
         return top
 
+    @classmethod
+    def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
+        """Refuse a build directory whose path has whitespace: Verilator's makefile stops with
+        "GNU Make cannot build in directories containing spaces" before it compiles anything,
+        because make splits a path at whitespace. The model is built in `sim_dir`, a name inside
+        the run directory. Make builds in the physical directory, so the run directory is judged
+        by what it leads to, but `sim_dir` by its name: the launcher removes a link left at it
+        before the run, and never follows it."""
+        super().check_run_directory(settings, run_path)
+        assert isinstance(settings, cls.Settings)
+        build = os.path.normpath(os.path.join(os.path.realpath(run_path), settings.sim_dir))
+        if any(char in string.whitespace for char in build):
+            raise FlowSettingsException(
+                f"{cls.name} cannot build in {build}: Verilator's GNU Make build cannot work in "
+                "a directory whose path has whitespace. Use a run root (`--run-root`) and a "
+                "`sim_dir` whose paths have none."
+            )
+
+    @classmethod
+    def runs_without_testbench_top(cls, design: Design) -> bool:
+        """A design with a C++ driver of its own runs the model, whatever HDL its testbench
+        sources hold (a bound checker, a model): the driver does not need a testbench top."""
+        return cls.has_cpp_driver(design)
+
     def own_driver(self) -> bool:
-        """Whether the design brings its own C++ driver (`Cpp` sources), which runs the model in
-        place of xeda's."""
-        return bool(self.design.sim_sources_of_type(SourceType.Cpp))
+        """Whether the design brings its own C++ driver, which runs the model in place of
+        xeda's."""
+        return self.has_cpp_driver(self.design)
 
     def simulation_evidence(self) -> SimEvidence | None:
         """The end record this run's model wrote (`report_file`: this run's own only). A design's
@@ -413,11 +441,6 @@ class Verilator(SimFlow):
         args += [
             "-Wno-DECLFILENAME",
         ]
-        if not ss.timing:
-            args += [
-                "-Wno-STMTDLY",
-                "-Wno-INITIALDLY",
-            ]
 
         if ss.threads:
             args += ["--threads", ss.threads]
@@ -513,7 +536,8 @@ class Verilator(SimFlow):
                 )
             for macro in HOOK_MACROS:
                 args += ["-CFLAGS", f"-D{macro}"]
-            args += ["-CFLAGS", f"-include {self.run_path / header}"]
+            # by name: make splits a flag at a space, and the model is compiled in `sim_dir`
+            args += ["-CFLAGS", f"-include {header.name}"]
 
         env = None
 

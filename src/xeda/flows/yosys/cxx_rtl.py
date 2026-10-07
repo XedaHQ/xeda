@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, XedaBaseModel, deliverable
-from ...design import SourceType
+from ...design import Design, SourceType
 from ...flow import FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
@@ -43,6 +43,11 @@ class YosysSim(YosysBase, SimFlow):
     _end_record: Path | None = None
     _events_record: Path | None = None
     _driver_exit_code: int | None = None
+
+    @classmethod
+    def runs_without_testbench_top(cls, design: Design) -> bool:
+        """The testbench is a C++ driver of the design's own, which needs no testbench top."""
+        return cls.has_cpp_driver(design)
 
     class Settings(YosysBase.Settings, SimFlow.Settings):
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
