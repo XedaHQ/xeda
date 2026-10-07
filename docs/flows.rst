@@ -435,7 +435,8 @@ and worsen the other on another. iCE40 UltraPlus DSP and SPRAM inference are ava
 with no netlist and no report. A setting that asks for what synthesis writes is refused before
 anything runs: ``netlist_json`` and ``netlist_verilog``, which are on by default, and
 ``netlist_graph``, ``write_blif``, ``sta`` and ``ltp``. So write
-``-s stop_after=rtl netlist_json= netlist_verilog=``.
+``-s stop_after=rtl netlist_json= netlist_verilog=``. A flow that takes the netlist, such as
+``nextpnr``, cannot follow a stopped flow: the plan is refused, and the message names that flow.
 
 A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device
 and package: ``iCE40UP5K-SG48I`` or ``iCE40HX8K-CT256`` (temperature grade and tape-and-reel

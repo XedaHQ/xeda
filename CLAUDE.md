@@ -1699,7 +1699,11 @@ dependency must also share `custom_boards_file`.
   setting's value (`common.stop_after_conflicts`, from each flow's `check_settings_supported`):
   `netlist_json` and `netlist_verilog` (both on by default, so the stop needs `-s netlist_json=
   netlist_verilog=`), `netlist_graph`, `write_blif`, `sta` and `ltp`. One rule for the declared
-  output (`netlist`, which would fail as a missing output) and the plain artifacts alike.
+  output (`netlist`, which would fail as a missing output) and the plain artifacts alike. A flow
+  that takes the netlist (`nextpnr`, `openroad`) cannot follow a stopped flow: its demand switches
+  the netlist back on, so `YosysBase.enable_output` refuses it, and the resolver's message names the
+  consumer (`yosys_fpga.netlist is required by nextpnr: ...`) -- the advice to turn the netlist off
+  would be circular there, and stays for a stopped flow run alone.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).

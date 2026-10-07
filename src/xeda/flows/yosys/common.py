@@ -530,6 +530,20 @@ class YosysBase(Flow):
                         value[attr] = format_attribute_value(attr_val)
             return value
 
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """A flow that takes an output of this one asks for it. A flow stopped after the RTL
+        (`stop_after`) writes none, so the ask is refused, saying that no flow which takes it can
+        follow. Telling the user to turn the netlist settings off (`stop_after_conflicts`) would
+        send them in a circle: this ask turns them back on."""
+        if getattr(settings, "stop_after", None) == "rtl":  # `yosys_sim` has no `stop_after`
+            raise ValueError(
+                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
+                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
+                "out the flow that takes it"
+            )
+        super().enable_output(settings, name, design_name=design_name)
+
     @property
     def script_ext(self) -> str:
         """Extension of the script template to render (`.ys` or `.tcl`)."""

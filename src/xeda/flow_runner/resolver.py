@@ -1084,8 +1084,18 @@ def resolve(
                 try:
                     request.cls.enable_output(request.settings, name, design_name=design.name)
                 except ValueError as error:
+                    consumers = [
+                        consumer.label
+                        for consumer in requests
+                        if any(
+                            producer is request and output == name
+                            for edges in consumer.producers.values()
+                            for producer, output in edges
+                        )
+                    ]
                     raise FlowSettingsException(
-                        f"{request.cls.name}.{name} is required by a consumer: {error}"
+                        f"{request.cls.name}.{name} is required by "
+                        f"{', '.join(consumers) or 'a consumer'}: {error}"
                     ) from error
                 if request.settings.model_dump() != before:
                     switched.append(name)
