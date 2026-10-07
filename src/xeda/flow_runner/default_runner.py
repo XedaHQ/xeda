@@ -447,8 +447,8 @@ def _listed(flow_name: str, path: Path) -> _Listed:
 
 def _lock_path(path: Path, run_root: Path) -> Path:
     """What a candidate is locked by. A link to a directory inside the run root is locked by that
-    directory: it stays one lock when another scrub, which held it, has removed the directory and
-    then the link. Anything else is locked by its own path. That includes a link out of the run
+    directory: it stays one lock when another scrub, which held it, has removed the link and then
+    the directory. Anything else is locked by its own path. That includes a link out of the run
     root or to nowhere: the lock refuses it, before it makes anything. A link may change while
     scrub waits for the lock, so scrub asks again once it holds the lock."""
     if path.is_symlink() and path.is_dir() and RunDirectory.lies_under(path, run_root):
@@ -550,9 +550,11 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
                 )
                 done.kept.append(p)
                 continue
-            RunDirectory.claimed(locked, run_root).delete()  # the directory whose lock is held
             if p.is_symlink():  # a run directory reached through a link in the run root
-                p.unlink()  # the link itself, whose target, xeda's, is gone
+                # The link first, as itself. Another scrub that listed it then finds it gone. A
+                # link to a directory that is gone is a link to nowhere, which its lock refuses.
+                p.unlink()  # the link itself, never what it leads to
+            RunDirectory.claimed(locked, run_root).delete()  # the directory whose lock is held
         done.removed.append(p)
     summary = f"{len(done.removed)} folders removed"
     if done.kept:

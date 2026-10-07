@@ -611,7 +611,7 @@ def test_two_scrubs_that_listed_the_same_run_directories_both_succeed(tmp_path, 
 def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, monkeypatch):
     """The two-scrub case with a candidate that is a link to a directory beside it. A link is
     locked by the directory it leads to. That stays one lock when the scrub holding it has removed
-    the directory and then the link, so the other, which waited, finds the link gone and goes on
+    the link and then the directory, so the other, which waited, finds the link gone and goes on
     instead of failing to lock a link that is no more."""
     tree = Tree(tmp_path)
     store = run_dir(tree.design / "x" / "store")
@@ -650,6 +650,73 @@ def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, m
     assert all(isinstance(outcome, default_runner.ScrubResult) for outcome in outcomes), outcomes
     assert sorted(p for outcome in outcomes for p in outcome.removed) == [link]
     assert not os.path.lexists(link) and not store.exists()
+
+
+def test_a_scrub_that_listed_a_link_succeeds_while_another_is_between_its_two_removals(
+    tmp_path, monkeypatch
+):
+    """Two scrubs list a candidate that is a link to a directory beside it. One holds the lock of
+    the directory and removes the link and the directory, in two steps. The other asks for the
+    candidate between the two steps. It must find the link gone, or a link to nowhere is left for
+    the lock to refuse, and that scrub fails. Whichever step is the first, the second scrub is
+    run once the first is done and the second not yet."""
+    tree = Tree(tmp_path)
+    store = run_dir(tree.design / "x" / "store")
+    link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
+    link.symlink_to(store, target_is_directory=True)
+    listed = threading.Event()
+    may_ask = threading.Event()
+    between = threading.Event()
+    outcome: dict = {}
+
+    def ask(prompt="", *args, **kwargs):
+        if threading.current_thread() is second:
+            listed.set()  # the candidate is listed, with the link still leading to its directory
+            assert may_ask.wait(timeout=30)
+        return "yes"
+
+    def second_scrub():
+        try:
+            outcome["second"] = default_runner.scrub_design(
+                FLOW, tree.design, run_root=tree.root, target="x"
+            )
+        except BaseException as error:  # noqa: BLE001 - reported by the test thread, below
+            outcome["second"] = error
+
+    def after_the_first_removal():
+        if not between.is_set():
+            between.set()
+            may_ask.set()  # the second scrub asks for the candidate now
+            second.join(timeout=30)
+
+    real_delete = default_runner.RunDirectory.delete
+    real_unlink = Path.unlink
+    resolved_store = Path(os.path.realpath(store))
+
+    def delete(self):
+        real_delete(self)
+        if self.path == resolved_store:
+            after_the_first_removal()
+
+    def unlink(self, *args, **kwargs):
+        real_unlink(self, *args, **kwargs)
+        if self == link:
+            after_the_first_removal()
+
+    second = threading.Thread(target=second_scrub)
+    monkeypatch.setattr(console, "input", ask)
+    monkeypatch.setattr(default_runner.RunDirectory, "delete", delete)
+    monkeypatch.setattr(Path, "unlink", unlink)
+    second.start()
+    assert listed.wait(timeout=30), "the second scrub did not list the candidate"
+    first = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
+    assert between.is_set() and not second.is_alive()
+    assert first.removed == [link]
+    assert isinstance(outcome["second"], default_runner.ScrubResult), repr(outcome["second"])
+    assert outcome["second"].gone == [link] and outcome["second"].removed == []
+    assert not os.path.lexists(link) and not store.exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["xeda_run"], "nothing made outside"
+    assert (link.parent / f"{link.name}.lock").is_file(), "its lock, beside the name it asked for"
 
 
 def a_running_directory(path: Path) -> Path:

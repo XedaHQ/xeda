@@ -884,8 +884,11 @@ link inside the run root leads to, so both names share one lock; without a run r
 component is never resolved -- and a parent, or a link, leading out of the run root or nowhere is
 refused before anything is created) and judges it again once the lock is held. A candidate that is
 a link to a directory in the run root is locked by that directory (`_lock_path`), which stays one
-lock when another scrub has removed the directory and then the link; a link out of the run root or
-to nowhere is locked by its own path, which the lock refuses before it makes anything. Once the lock
+lock when another scrub has removed the link and then the directory; a link out of the run root or
+to nowhere is locked by its own path, which the lock refuses before it makes anything. Scrub removes
+the link first, as itself, and then the directory whose lock it holds: with the directory first, a
+second scrub that listed the link could ask for it between the two steps, find a link to nowhere,
+and fail on the lock's refusal, where it now finds the link gone and skips it. Once the lock
 is held, `_lock_path` is asked again: a link retargeted, or replaced by a directory, while scrub
 waited no longer leads to the directory whose lock is held, and is refused with a `RunDirectoryError`
 (scrub would remove a directory whose lock it does not hold, and a launch running in it could lose
