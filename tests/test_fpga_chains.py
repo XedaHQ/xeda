@@ -235,7 +235,7 @@ def _boards(plan) -> dict[str, str]:
 
 
 def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path):
-    flows = {"fpga_pack": {"board": "ulx3s_85f"}, "nextpnr": {"board": "ulx3s_85f"}}
+    flows = {"fpga_pack": {"board": "ULX3S_85F"}, "nextpnr": {"board": "ulx3s_85f"}}
     plan = _runner(tmp_path).plan(
         parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows)
     )
@@ -245,7 +245,7 @@ def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path)
 def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path):
     """The same board is the same run: settings, identities and run directories alike."""
     graphs = []
-    for spelling in ("ulx3s_85f", "ulx3s_85f", "Ulx3s_85F"):
+    for spelling in ("ulx3s_85f", "ULX3S_85F", "Ulx3s_85F"):
         plan = _runner(tmp_path).plan(
             parse_request("yosys_fpga+nextpnr+fpga_pack"),
             _design(tmp_path, flows={"nextpnr": {"board": spelling}}),
@@ -256,7 +256,7 @@ def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path
     plan = _runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr+fpga_pack"),
         _design(tmp_path),
-        flow_settings={"board": "ulx3s_85f"},
+        flow_settings={"board": "ULX3S_85F"},
     )
     assert _graph(plan) == graphs[0]
 

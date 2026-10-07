@@ -1194,11 +1194,12 @@ database and every file name are case-sensitive, as written. A board entry's opt
 `openfpgaloader_board` is the board's name in openFPGALoader (`--board`, from its `src/board.hpp`;
 text when given, and every bundled board has one); `openfpgaloader` passes it as `--board` when
 `board` is set and no `cable` is. A `cable` takes precedence: `--cable`, `--fpga-part` when the
-part is known, and no board name. A board without one adds no `--board`. With `--board` it gives
-no `--fpga-part`: the loader knows the board's part, the option would replace it, and the loader
-names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`) by the option as
-written, so a part given without a board name drops a Xilinx speed grade (`_loader_part`). The
-former key `name` is an error naming it (`WithFpgaBoardSettings._fpga_validate`).
+part is known, and no board name. A board without an `openfpgaloader_board` adds no `--board`.
+With `--board` it gives no `--fpga-part`: the loader knows the board's part, the option would
+replace it, and the loader names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`)
+by the option as written, so a part given without a board name drops a Xilinx speed grade
+(`_loader_part`). The former key `name` is an error naming it
+(`WithFpgaBoardSettings._fpga_validate`).
 
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
 `custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to
