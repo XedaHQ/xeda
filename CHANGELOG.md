@@ -382,7 +382,8 @@ All notable changes to this project will be documented in this file.
   directory, or a link that no longer leads to a directory beside
   it, is refused (`RunDirectoryError`) and left alone. A link counts as a run directory only when
   it leads to a directory beside it, and scrub locks it by that directory, so two scrubs that list
-  the same link both succeed. The lock does not protect a run that was complete when scrub listed
+  the same link both succeed. A link that was retargeted, or replaced by a directory, while scrub
+  waited for the lock is refused: scrub would hold the lock of one directory and remove another. The lock does not protect a run that was complete when scrub listed
   it: a consumer about to read such a producer fails with a `FlowDependencyFailure` instead of
   reading a directory that is being removed.
 - **A run directory's lock file is `<run dir>.lock` beside the run directory, whatever it has

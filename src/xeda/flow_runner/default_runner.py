@@ -450,7 +450,8 @@ def _lock_path(path: Path, run_root: Path) -> Path:
     """What a candidate is locked by. A link to a directory inside the run root is locked by that
     directory: it stays one lock when another scrub, which held it, has removed the directory and
     then the link. Anything else is locked by its own path. That includes a link out of the run
-    root or to nowhere: the lock refuses it, before it makes anything."""
+    root or to nowhere: the lock refuses it, before it makes anything. A link may change while
+    scrub waits for the lock, so scrub asks again once it holds the lock."""
     if path.is_symlink() and path.is_dir() and RunDirectory.lies_under(path, run_root):
         return Path(os.path.realpath(path))
     return path
@@ -498,9 +499,13 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
     Scrub removes the runs it listed, which are the runs that were confirmed. Once it holds a
     candidate's lock it looks at what is at the path. Nothing there any more (`_is_gone`: another
     scrub, or a purge, removed it while this one waited) is skipped, and said: the scrub wanted
-    it gone. Anything else that is no run directory of the flow -- no directory, or a link that
-    now leads anywhere but to a directory beside it -- is not removed, and the scrub fails
-    (`RunDirectoryError`). A run directory whose run records are not what the listing saw
+    it gone. A candidate that no longer leads to the directory whose lock is held (`_lock_path`
+    asked again: a link retargeted, or replaced by a directory, while scrub waited) is not
+    removed, and the scrub fails (`RunDirectoryError`): scrub would remove a directory whose lock
+    it does not hold. What is removed is the locked directory itself, never what a link leads to
+    by then. Anything else that is no run directory of the flow -- no directory, or a link that
+    now leads anywhere but to a directory beside it -- is not removed either, and the scrub fails
+    the same way. A run directory whose run records are not what the listing saw
     (`_completion_records`) was written to by a launch after the listing: a run ended there, or
     a launch found its run fresh and refreshed the trace. Scrub cannot tell which, and what is
     there is no longer what was confirmed: it is kept, and said. The rest are removed. The three
@@ -520,12 +525,18 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
     done = _Removal([], [], [])
     for c in candidates:
         p = c.path
-        with run_dir_lock(_lock_path(p, run_root), run_root):
+        locked = _lock_path(p, run_root)
+        with run_dir_lock(locked, run_root):
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
                 _say(f"{p} is gone already")
                 done.gone.append(p)
                 continue
+            if _lock_path(p, run_root) != locked:
+                raise RunDirectoryError(
+                    f"{p} changed while scrub waited for its lock. It no longer leads to "
+                    f"{locked}, the directory whose lock scrub holds. It was not removed."
+                )
             if not _still_a_run_directory(c):
                 raise RunDirectoryError(
                     f"{p} is no longer a run directory of {c.flow_name} in {c.parent}: it is no "
@@ -540,7 +551,7 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
                 )
                 done.kept.append(p)
                 continue
-            RunDirectory.claimed(p, run_root).delete()
+            RunDirectory.claimed(locked, run_root).delete()  # the directory whose lock is held
             if p.is_symlink():  # a run directory reached through a link in the run root
                 p.unlink()  # the link itself, whose target, xeda's, is gone
         done.removed.append(p)

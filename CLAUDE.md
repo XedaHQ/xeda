@@ -886,7 +886,11 @@ component is never resolved -- and a parent, or a link, leading out of the run r
 refused before anything is created) and judges it again once the lock is held. A candidate that is
 a link to a directory in the run root is locked by that directory (`_lock_path`), which stays one
 lock when another scrub has removed the directory and then the link; a link out of the run root or
-to nowhere is locked by its own path, which the lock refuses before it makes anything.
+to nowhere is locked by its own path, which the lock refuses before it makes anything. Once the lock
+is held, `_lock_path` is asked again: a link retargeted, or replaced by a directory, while scrub
+waited no longer leads to the directory whose lock is held, and is refused with a `RunDirectoryError`
+(scrub would remove a directory whose lock it does not hold, and a launch running in it could lose
+it). What is removed is the locked directory itself, never what the link leads to by then.
 **Scrub removes the runs it listed, which are the runs that were confirmed**, so under the lock
 (`_remove_confirmed`), in this order: **one that is gone is skipped** (`_is_gone`: `lstat` says
 `FileNotFoundError` and nothing else, so a link, a file and an error that cannot tell are

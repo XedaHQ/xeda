@@ -652,6 +652,102 @@ def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, m
     assert not os.path.lexists(link) and not store.exists()
 
 
+def a_running_directory(path: Path) -> Path:
+    """The run directory of a launch that is running: the `settings.json` its run wrote when it
+    started, and none of the run records, which it removed first."""
+    path.mkdir(parents=True)
+    (path / "settings.json").write_text("{}")
+    return path
+
+
+@pytest.mark.parametrize(
+    "becomes",
+    ["a link to a running directory", "a link to a run directory", "a directory"],
+)
+def test_a_link_candidate_that_changes_while_scrub_waits_for_its_lock_is_refused(
+    tmp_path, confirmations, monkeypatch, becomes
+):
+    """A candidate that is a link is locked by the directory it leads to. The link may be
+    retargeted, or replaced by a directory, while scrub waits for that lock. Scrub then holds the
+    lock of one directory, and would remove another, whose own lock it does not hold: a launch
+    running in it, under its lock, could lose its directory. Scrub refuses the candidate, with an
+    error, and removes nothing."""
+    tree = Tree(tmp_path)
+    old = a_running_directory(tree.design / "x" / "old")
+    link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
+    link.symlink_to(old, target_is_directory=True)
+    real_lock = default_runner.run_dir_lock
+    after_the_change: list[list[tuple[str, str]]] = []
+
+    def changing(path, *args, **kwargs):
+        if Path(path) == old and not after_the_change:  # scrub asks for the lock of `old`
+            link.unlink()
+            if becomes == "a directory":
+                a_running_directory(link)
+            else:
+                new = tree.design / "x" / "new"
+                (a_running_directory if "running" in becomes else run_dir)(new)
+                link.symlink_to(new, target_is_directory=True)
+            after_the_change.append(entries(tmp_path, locks=False))
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", changing)
+    with pytest.raises(RunDirectoryError, match="changed while scrub waited"):
+        default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
+    assert after_the_change, "the lock of the directory the link led to was never asked for"
+    assert entries(tmp_path, locks=False) == after_the_change[0], "something was removed"
+
+
+def test_scrub_removes_the_directory_it_locked_when_the_link_leads_elsewhere_by_then(
+    tmp_path, confirmations, monkeypatch
+):
+    """The link is retargeted after scrub has judged it, and before it removes anything. What it
+    removes is the directory it holds the lock of, never the one the link leads to by then."""
+    tree = Tree(tmp_path)
+    old = a_running_directory(tree.design / "x" / "old")
+    new = a_running_directory(tree.design / "x" / "new")
+    link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
+    link.symlink_to(old, target_is_directory=True)
+    real_records = default_runner._completion_records
+    asked: list[Path] = []
+
+    def records_and_then_the_link_moves(path):
+        found = real_records(path)
+        if Path(path) == link and asked:  # the comparison under the lock, after the listing's
+            link.unlink()
+            link.symlink_to(new, target_is_directory=True)
+        asked.append(path)
+        return found
+
+    monkeypatch.setattr(default_runner, "_completion_records", records_and_then_the_link_moves)
+    result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="x")
+    assert result.removed == [link]
+    assert not old.exists() and not os.path.lexists(link)
+    assert new.exists() and (new / "settings.json").exists(), "the directory it did not lock"
+
+
+def test_a_candidate_that_became_a_link_beside_it_before_scrub_chose_its_lock_is_kept(
+    tmp_path, monkeypatch, said
+):
+    """The listing saw a directory. By the time scrub chooses its lock the path is a link to a
+    directory beside it, with other run records than the listing saw. The link is locked by that
+    directory, which scrub holds when it removes it: scrub keeps it, as it keeps any directory
+    whose run records changed."""
+    tree = Tree(tmp_path)
+    victim, other = tree.a
+
+    def ask(prompt="", *args, **kwargs):  # after the listing, before any lock is chosen
+        default_runner.RunDirectory.claimed(victim, tree.root).delete()
+        victim.symlink_to(run_dir(victim.parent / "store"), target_is_directory=True)
+        return "yes"
+
+    monkeypatch.setattr(console, "input", ask)
+    result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
+    assert result.kept == [victim] and result.removed == [other]
+    assert victim.is_symlink() and (victim / "out.txt").exists()
+    assert f"kept {victim}: {KEPT}" in said
+
+
 def test_a_link_that_leads_below_its_directory_is_left_alone(tmp_path, confirmations):
     """A run directory is a child of the directory it is listed in, or a link to a directory beside
     it. A link named like one that leads below it, into a target's directory, is neither: scrub
@@ -761,32 +857,37 @@ def entries(base: Path, *, locks: bool) -> list[tuple[str, str]]:
     return sorted(found)
 
 
+def shape(replacement, listed: bool, outcome: str):
+    return pytest.param(replacement, listed, outcome, id=f"{replacement.__name__}-{outcome}")
+
+
 @pytest.mark.parametrize(
-    ("replacement", "outcome"),
+    ("replacement", "listed", "outcome"),
     [
-        (files_added, "removed"),
-        (results_made_again, "kept"),
-        (trace_refreshed, "kept"),
-        (newer_run, "kept"),
-        (link_to_a_directory_beside_it, "kept"),
-        (link_below_its_directory, "refused"),
-        (link_out_of_the_run_root, "refused"),
-        (link_to_another_targets_run_directory, "refused"),
-        (link_to_nowhere, "refused"),
-        (a_file, "refused"),
-        (renamed_away, "gone"),
+        shape(files_added, True, "removed"),
+        shape(results_made_again, True, "kept"),
+        shape(trace_refreshed, True, "kept"),
+        shape(newer_run, True, "kept"),
+        # a directory that becomes a link while scrub waits is no longer the one it locked
+        shape(link_to_a_directory_beside_it, True, "refused"),
+        shape(link_below_its_directory, False, "refused"),
+        shape(link_out_of_the_run_root, False, "refused"),
+        shape(link_to_another_targets_run_directory, False, "refused"),
+        shape(link_to_nowhere, False, "refused"),
+        shape(a_file, False, "refused"),
+        shape(renamed_away, False, "gone"),
     ],
-    ids=lambda value: value if isinstance(value, str) else value.__name__,
 )
 def test_what_scrub_does_with_a_candidate_that_changed_after_it_was_listed(
-    tmp_path, confirmations, monkeypatch, replacement, outcome
+    tmp_path, confirmations, monkeypatch, replacement, listed, outcome
 ):
     """One rule for what scrub does with a directory, judged twice: when it lists the directory and
     again when it holds the directory's lock. Whatever is at the first candidate's path -- put
     there before the listing, or only after it -- is what scrub would have listed or it is not. If
     it would have been listed, it is removed, unless its run records changed after the listing:
     then scrub keeps it. If nothing is there, scrub skips it and goes on. If something else is
-    there, scrub refuses it with an error and removes nothing more."""
+    there, scrub refuses it with an error and removes nothing more, and so it does when what was
+    a directory when scrub chose its lock is a link by the time it holds it."""
 
     def tree_with_the_first_candidate_replaced(base: Path, *, at_once: bool):
         base.mkdir()
@@ -804,8 +905,7 @@ def test_what_scrub_does_with_a_candidate_that_changed_after_it_was_listed(
 
     tree, victim, _ = tree_with_the_first_candidate_replaced(tmp_path / "listed", at_once=True)
     result = default_runner.scrub_design(FLOW, tree.design, run_root=tree.root, target="a")
-    listed = outcome in ("removed", "kept")
-    assert (victim in result.removed) == listed, "it is listed exactly when it can be removed"
+    assert (victim in result.removed) == listed, "it is listed when it is there from the start"
 
     later = tmp_path / "later"
     tree, victim, replace = tree_with_the_first_candidate_replaced(later, at_once=False)

@@ -473,7 +473,9 @@ looks at what is at the listed path:
 * If nothing is at the path any more, because another scrub or a purge removed it, scrub says so
   and goes on. That is what you asked for, so it is no error.
 * If the path is no longer a directory, or is now a link that does not lead to a directory beside
-  it, scrub stops with an error and leaves it alone.
+  it, scrub stops with an error and leaves it alone. It does the same for a link that was
+  retargeted while scrub waited: scrub holds the lock of the directory the link led to, and does
+  not remove another directory.
 * Otherwise scrub removes it.
 
 The summary line says how many directories scrub removed, kept, and found gone already. With
