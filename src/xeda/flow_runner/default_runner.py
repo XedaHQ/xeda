@@ -976,7 +976,8 @@ class FlowLauncher:
 
         A launch enters each run directory once: the plan has one node per flow, and a second
         entry is a `FlowFatalError`. Every flow launched is appended to `launched` as it
-        completes, whether it succeeded, failed or raised.
+        completes, whether it succeeded, failed or raised. A flow that did not run, because the
+        delivery of one of its producers was refused before the producer's tool ran, is not.
 
         Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs.
         The requested flow checks the deliveries of every flow of the plan when the launch
@@ -1249,6 +1250,7 @@ class FlowLauncher:
                     runner_cwd=runner_cwd,
                     run_directory=run_directory,
                 )
+            untouched = False
             try:
                 flow.design_hash = design_hash
                 flow.flow_hash = flowrun_hash
@@ -1274,7 +1276,9 @@ class FlowLauncher:
                     if isinstance(e, DeliveryError) and e.before_run:
                         # a producer's delivery was refused before its tool ran: this flow's
                         # directory still describes its last run, and an earlier producer that
-                        # ran meanwhile makes the next launch stale through its new run id
+                        # ran meanwhile makes the next launch stale through its new run id. The
+                        # flow did not run, and the launch does not list it as launched
+                        untouched = True
                         raise
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)
@@ -1418,7 +1422,8 @@ class FlowLauncher:
                         recorded.outputs_recorded_ns if recorded else None,
                     )
                     self._completed_runs[run_path.resolve()] = (flow, token)
-                self.launched.append(flow)
+                if not untouched:
+                    self.launched.append(flow)
         return flow
 
     def _defer_delivery(self, flow: Flow, delivery: Deliveries, outputs_to: Optional[Path]) -> None:

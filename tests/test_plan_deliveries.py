@@ -14,8 +14,11 @@ from types import SimpleNamespace
 from typing import Callable, ClassVar, List, Optional
 
 import pytest
+import yaml
+from click.testing import CliRunner
 
 from xeda import Design
+from xeda.cli import cli
 from xeda.dataclass import Field, deliverable
 from xeda.deliver import Deliveries, DeliveryError, OutputExistsError
 from xeda.design import SourceType
@@ -309,6 +312,40 @@ def test_a_refusal_of_a_later_producer_comes_before_the_question_about_an_earlie
     assert type(refused.value) is DeliveryError and refused.value.before_run
     assert asked == [] and RUNS == []
     assert (world.user / "c.a").read_text() == "the user's file\n"
+
+
+def test_the_requested_flow_reads_not_run_after_a_refusal_at_a_producer_s_turn(world, monkeypatch):
+    """The refusal comes before the producer's tool, so the flow that asked for it did not run
+    either: the document says so, as it says of the producer."""
+    check = Deliveries.check
+    seen: list[Path] = []
+
+    def check_again(self, predicted=()):
+        if self.run_path.name == "__delivers":
+            seen.append(self.run_path)
+            if len(seen) == 2:  # the producer's own turn, after the one made ahead
+                raise DeliveryError("changed since it was first checked", before_run=True)
+        return check(self, predicted)
+
+    monkeypatch.setattr(Deliveries, "check", check_again)
+    design = world.design.root_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": [], "top": "t"},
+                "flows": {"__delivers": {"netlist": str(world.user / "n.v")}},
+            }
+        )
+    )
+    result = CliRunner().invoke(
+        cli, ["run", "__both", str(design), "--run-root", str(world.root), "--json"]
+    )
+    document = json.loads(result.stdout)
+    assert result.exit_code != 0 and document["success"] is False
+    assert RUNS == [_ReadsDir.name]
+    states = {node["node"]: node["state"] for node in document["nodes"]}
+    assert states == {"__reads_dir": "ran", "__delivers": "not run", "__both": "not run"}
 
 
 @pytest.mark.parametrize("error_class", [DeliveryError, OutputExistsError])
