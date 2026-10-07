@@ -462,13 +462,31 @@ or by a design without one) and those under every target's directory below it. T
 disk, so a target the design file no longer names is found too, and no design file is read. With
 ``--target NAME`` only ``<design_name>/NAME/`` is searched, leaving the pre-target runs and every
 other target's. The directories to be removed are listed first and confirmed once. Scrub removes
-each one under its own lock, so a launch that is running in it finishes first. It then removes
-what is at the listed path, if that is still one of the flow's run directories there: a newer run
-of the flow counts. If nothing is at the path any more, because another scrub or a purge removed
-it, scrub skips it and goes on. If the path is no longer a directory, or now leads out of its
-directory or out of the run root, scrub stops with an error and leaves it alone. A run
-directory of another flow is never searched, and a link that leads out of the run root is never
-followed. ``--scrub`` on a launch removes the flow's other run directories in the launch's own
+the runs it listed, which are the runs you confirmed. It takes each directory's lock first, so it
+never removes a directory while a launch is running in it: it waits until the launch ends. Then it
+looks at what is at the listed path:
+
+* If a run finished there after the listing (its ``results.json`` or ``trace.json`` is not what
+  the listing saw), scrub keeps it and says so. You did not confirm that run.
+* If nothing is at the path any more, because another scrub or a purge removed it, scrub says so
+  and goes on. That is what you asked for, so it is no error.
+* If the path is no longer a directory, or is now a link that does not lead to a directory beside
+  it, scrub stops with an error and leaves it alone.
+* Otherwise scrub removes it.
+
+The summary line says how many directories scrub removed, kept, and found gone already. A run
+directory that is a link counts only when it leads to a directory beside it, and scrub removes
+both. A run directory of another flow is never searched, and a link that leads out of the run
+root is never followed.
+
+The lock does not protect a run that was complete when scrub listed it. If another launch is
+about to read that run, scrub removes it. For example, a consumer has run its producer but has not
+yet taken its read lease on the producer's directory. The consumer then fails with a
+``FlowDependencyFailure`` (``changed before acquiring its read lease``) and does not read a
+directory that is being removed. This is by design. Do not scrub a flow whose runs other launches
+are starting to use.
+
+``--scrub`` on a launch removes the flow's other run directories in the launch's own
 directory, so it never reaches another target's.
 
 xeda's space and yours

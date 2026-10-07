@@ -883,26 +883,38 @@ confirms once, then removes each under its own lock (`run_dir_lock(path, run_roo
 is `lock_file(path, run_root)`, beside the run directory -- beside what a last component that is a
 link inside the run root leads to, so both names share one lock; without a run root the last
 component is never resolved -- and a parent, or a link, leading out of the run root or nowhere is
-refused before anything is created) and judges it again once the lock
-is held (`_still_a_run_directory`, by `_is_run_directory`, the one rule that listed it: named for
-the flow, a directory, and resolving to a child of the directory it was listed in -- itself or, for
-a link, a directory beside it, never one below it or above it; `_run_directories_in` lists nothing
-in a directory outside the run root). A candidate that is a link to a directory in the run root is
-locked by that directory (`_lock_path`), which stays one lock when another scrub has removed the
-directory and then the link; a link out of the run root or to nowhere is locked by its own path,
-which the lock refuses before it makes anything.
-**It judges what is at the path then, never whether it is the directory that was listed**: an
-inode number or an inode change time says nothing about a run directory, since every file a launch
-adds or removes moves it, and a launch that writes in its directory while scrub waits for the
-lock, or a newer run of the flow in its place, is removed as scrub is asked to. **One that is
-gone is skipped** (`_is_gone`: `lstat` says `FileNotFoundError` and nothing else, so a link, a file
-and an error that cannot tell are something): another scrub or a purge removed it while this one
-waited, and the scrub wanted it gone. It is logged at info level and is not in `scrubbed`; two
-scrubs that listed the same directory both succeed. One that holds something else -- no directory,
-or a link now leading out of the parent or the run root -- is refused with a `RunDirectoryError`.
-A link out of the run root is never followed. A launch's `--scrub` leaves out its own run
-directory by where it resolves to (`_run_directories_in`), never by whether it exists: a sibling's
-scrub may remove it while this one lists. `--json` reports `target`, the `scanned` directories
+refused before anything is created) and judges it again once the lock is held. A candidate that is
+a link to a directory in the run root is locked by that directory (`_lock_path`), which stays one
+lock when another scrub has removed the directory and then the link; a link out of the run root or
+to nowhere is locked by its own path, which the lock refuses before it makes anything.
+**Scrub removes the runs it listed, which are the runs that were confirmed**, so under the lock
+(`_remove_confirmed`), in this order: **one that is gone is skipped** (`_is_gone`: `lstat` says
+`FileNotFoundError` and nothing else, so a link, a file and an error that cannot tell are
+something): another scrub or a purge removed it while this one waited, and the scrub wanted it
+gone. One that is no run directory of the flow any more (`_still_a_run_directory`, by
+`_is_run_directory`, the one rule that listed it: named for the flow, a directory, and resolving to
+a child of the directory it was listed in -- itself or, for a link, a directory beside it, never
+one below it or above it; `_run_directories_in` lists nothing in a directory outside the run root)
+is refused with a `RunDirectoryError`. **One whose completion records changed is kept**: the
+listing keeps the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`,
+`_completion_records`: identity, size and times, absent counted), and a directory where they
+differ, or have appeared, holds a run that ended after the listing -- a newer run, a failed one, a
+refreshed trace -- which nobody confirmed. The rest are removed. **Neither an inode number nor an
+inode change time says anything about a run directory**: every file a launch adds or removes moves
+the change time, and a launch that finds its run fresh only writes a marker, so it ends no run and
+keeps nothing. Gone and kept are no error: each is said on the console, one line (`kept PATH: a run
+finished there after the listing`, `PATH is gone already`) and a summary (`N folders removed, K
+kept, G gone already.`), and logged at info level, because `xeda scrub` configures no logging; none
+is in `scrubbed`, and two scrubs that listed the same directory both succeed. A link out of the run
+root is never followed. A launch's `--scrub` leaves out its own run directory by where it resolves
+to (`_run_directories_in`), never by whether it exists: a sibling's scrub may remove it while this
+one lists. **What the lock protects, exactly**: scrub never removes a directory while a launch runs
+in it (it waits for the launch), and never the run that ended while it waited. It does not protect a
+run that was complete when scrub listed it. If another launch is about to read that run -- a
+consumer that has run its producer and has not yet taken its read lease on the producer's directory
+-- scrub removes it, and the consumer's launch fails closed with a `FlowDependencyFailure` (`changed
+before acquiring its read lease`) instead of reading a directory that is going: the designed
+fail-closed behavior. Do not scrub a flow whose runs other launches are starting to use. `--json` reports `target`, the `scanned` directories
 and the `scrubbed` run directories. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing, including legacy dependencies; changed or uncertain completion evidence in the
