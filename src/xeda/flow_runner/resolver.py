@@ -25,7 +25,7 @@ from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
-from ..flow.flow import written_path_problems
+from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow.synth import PhysicalClock
@@ -692,6 +692,28 @@ def _unreached(
     return found
 
 
+def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> str:
+    """For each input that reached `producer` by default, `; a <Type> source would supply
+    <consumer>'s <input> and skip <producer>`: a typed source of a type the input takes replaces
+    a default producer. An input bound to its producer keeps it whatever the design lists, so it
+    adds nothing."""
+    notes = []
+    for consumer in requests:
+        assert consumer.settings is not None
+        for selected in consumer.inputs:
+            reached = any(
+                child is producer for child, _output in consumer.producers.get(selected.name, ())
+            )
+            if reached and selected.binding_origin is None:
+                types = selected_types(consumer.cls, consumer.settings, selected.name)
+                kinds = "/".join(kind.name for kind in types)
+                notes.append(
+                    f"; a {kinds} source would supply {consumer.label}'s {selected.name} "
+                    f"and skip {producer.label}"
+                )
+    return "".join(notes)
+
+
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
     """Use the flow-name checks of `settings_layers` while preserving per-layer single-clock input syntax."""
     normalized = merge_flow_sections(values, flow_class_for=registered_flow)
@@ -1134,9 +1156,14 @@ def resolve(
                         )
     for request in requests:
         assert request.settings is not None
-        check_launchable(
-            request.cls, request.settings, design, _unreached(request, requests, layers)
-        )
+        try:
+            check_launchable(
+                request.cls, request.settings, design, _unreached(request, requests, layers)
+            )
+        except NoReadableSource as refusal:
+            raise NoReadableSource(
+                f"{refusal}{_replaceable_by_a_source(request, requests)}"
+            ) from None
 
     # The final settings select the very same sources and producer formats as discovery.
     for request in requests:

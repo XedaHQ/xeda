@@ -798,7 +798,7 @@ class Flow(metaclass=ABCMeta):
                 + (", ".join(f"{src.file} ({src.type.name})" for src in sources) or "none")
                 for part, sources in by_part.items()
             )
-            raise FlowSettingsException(
+            raise NoReadableSource(
                 f"{cls.name} reads none of the design's sources: {has}; {cls.name} reads {reads}"
             )
 
@@ -1502,6 +1502,12 @@ class FlowSettingsException(FlowException):
     """Validation of settings failed
     This is a fatal error and the flow should not be run.
     """
+
+
+class NoReadableSource(FlowSettingsException):
+    """A flow that reads the design's sources (`Flow.reads_sources`) has none of a type it reads.
+    The resolver adds, for a producer that a consumer reached by default, the source that would
+    have replaced it."""
 
 
 class FlowSettingsError(FlowSettingsException):

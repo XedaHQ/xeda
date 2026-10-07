@@ -215,6 +215,10 @@ CHOOSING_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is None]
 READS_ONE_TYPE = [(cls, member) for cls in READING_FLOWS for member in sorted(cls.reads_sources)]
 
 
+#: What the refusal of a default producer adds: the source that would have replaced the node.
+SKIPPED_BY_A_NETLIST = "a JsonNetlist source would supply nextpnr's netlist and skip yosys_fpga"
+
+
 def _edif_only(root: Path) -> Design:
     """A design whose only source is a netlist that no flow reads."""
     root.mkdir(exist_ok=True)
@@ -306,19 +310,35 @@ def test_a_design_with_nothing_the_flow_reads_is_refused_at_launch(flow, tmp_pat
         )
     assert str(raised.value).startswith("yosys_fpga" if flow == "nextpnr" else flow)
     assert str(root / "top.edf") in str(raised.value)
+    # only `nextpnr` takes a source in place of the producer it plans by default
+    assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is (flow == "nextpnr")
     assert not list((tmp_path / "xeda_run").rglob("settings.json")), "nothing was set up"
 
 
-@pytest.mark.parametrize("flow", ["yosys_fpga", "nextpnr"])
-def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(flow, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("request_text", "hinted"),
+    [
+        ("yosys_fpga", False),
+        # `nextpnr` reaches `yosys_fpga` by default, so a netlist source would replace it ...
+        ("nextpnr", True),
+        # ... and a chain binds the producer: no source replaces it, so none is suggested
+        ("yosys_fpga+nextpnr", False),
+    ],
+)
+def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(
+    request_text, hinted, tmp_path, monkeypatch
+):
     monkeypatch.chdir(tmp_path)
     design = _edif_only(tmp_path / "design")
     with pytest.raises(
         FlowSettingsException, match="yosys_fpga reads none of the design's sources"
-    ):
+    ) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            flow, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+            request_text, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
         )
+    assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is hinted
+    if hinted:
+        assert str(raised.value).endswith(f"; {SKIPPED_BY_A_NETLIST}")
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 
