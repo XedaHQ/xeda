@@ -15,7 +15,10 @@ All notable changes to this project will be documented in this file.
   earlier run. Every other file that Xeda writes is still complete, then renamed.
 - A dockerized run no longer relabels the design directory and the configured mounts for SELinux
   (`:z`), which changed the attributes of your own files. The container now runs with
-  `--security-opt label=disable` and every mount as given.
+  `--security-opt label=disable` and every mount as given. The trade-off: on a host where SELinux
+  is enforcing, the container is no longer confined by SELinux. The old `:z` kept the confinement
+  but relabeled your files. To have a mount relabeled, write `:z` in its `Docker.mounts` value,
+  which Xeda passes through as given.
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
