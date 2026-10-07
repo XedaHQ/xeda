@@ -766,9 +766,10 @@ A report that ends the run is one event, and ``sim.ended_by`` names its cause: `
 fatal errors.
 
 The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
-cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design whose
-testbench sources are Verilog or SystemVerilog needs ``tb.top``, unless it has a C++ driver of its
-own: without it the flow refuses the design. ``rtl.parameters`` apply only when the RTL top is the simulated top; ``tb.parameters``
+cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design with a
+Verilog or SystemVerilog testbench needs ``tb.top``: without it the flow refuses the design, since
+it would simulate ``rtl.top``, which has no stimulus. A design with a C++ driver of its own needs
+none. ``rtl.parameters`` apply only when the RTL top is the simulated top; ``tb.parameters``
 always do.
 
 Defaults and limits:

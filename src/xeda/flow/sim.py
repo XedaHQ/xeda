@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
-from ..design import LANGUAGE_TYPES, Design
+from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
 
@@ -215,6 +215,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
             if isinstance(vcd, (str, Path)) and not Path(vcd).suffix:
                 return f"{vcd}.vcd"
             return vcd
+
+    @staticmethod
+    def has_cpp_driver(design: Design) -> bool:
+        """Whether the design brings a C++ driver of its own: `Cpp` sources among the RTL's and the
+        testbench's. A simulator that builds a C++ model runs it in place of its own (`verilator`,
+        `yosys_sim`)."""
+        return bool(design.sim_sources_of_type(SourceType.Cpp))
 
     @classmethod
     def runs_without_testbench_top(cls, design: Design) -> bool:

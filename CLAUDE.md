@@ -1344,8 +1344,9 @@ dependency must also share `custom_boards_file`.
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
   drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design)`: `ghdl_sim` for
   a VHDL testbench (`ghdl find-top` finds its top), `verilator` and `yosys_sim` for a design with a
-  `Cpp` source (a C++ driver of its own runs the model, whatever HDL the testbench also holds).
-  Another simulator on that list is a decision.
+  `Cpp` source (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver, which
+  runs the model whatever HDL the testbench also holds). Another simulator on that list is a
+  decision.
   Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
   `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
   share a rank). GHDL, nvc, ModelSim, VCS, Vivado simulation/power, CXXRTL and every accepted

@@ -60,7 +60,7 @@ The aliases `test` and `tests` are also accepted. The section has the same `sour
 
 | Key | Meaning |
 | --- | --- |
-| `top` | Toplevel testbench module. Up to two, as a list, when a secondary toplevel is needed. |
+| `top` | Toplevel testbench module. Up to two, as a list, when a secondary toplevel is needed. Required when `tb.sources` holds a Verilog, SystemVerilog, VHDL, Bluespec or Chisel source and the testbench is not cocotb: a simulation flow refuses the design and names `tb.top`. Not needed with a C++ driver of the design's own (`verilator`, `yosys_sim`), nor by `ghdl_sim` for a VHDL testbench (it finds the top). |
 | `uut` | Instance name of the unit under test inside the testbench. Some flows need it for waveform dumping or activity capture. |
 | `cocotb` | `true`, or a table with `module`, `toplevel`, `testcase`. Detected automatically from a `.py` source. |
 

@@ -47,7 +47,7 @@ class YosysSim(YosysBase, SimFlow):
     @classmethod
     def runs_without_testbench_top(cls, design: Design) -> bool:
         """The testbench is a C++ driver of the design's own, which needs no testbench top."""
-        return bool(design.sim_sources_of_type(SourceType.Cpp))
+        return cls.has_cpp_driver(design)
 
     class Settings(YosysBase.Settings, SimFlow.Settings):
         systemverilog: Literal["default", "uhdm", "slang"] = Field(

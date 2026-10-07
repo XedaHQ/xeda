@@ -323,12 +323,12 @@ class Verilator(SimFlow):
     def runs_without_testbench_top(cls, design: Design) -> bool:
         """A design with a C++ driver of its own runs the model, whatever HDL its testbench
         sources hold (a bound checker, a model): the driver does not need a testbench top."""
-        return bool(design.sim_sources_of_type(SourceType.Cpp))
+        return cls.has_cpp_driver(design)
 
     def own_driver(self) -> bool:
-        """Whether the design brings its own C++ driver (`Cpp` sources), which runs the model in
-        place of xeda's."""
-        return bool(self.design.sim_sources_of_type(SourceType.Cpp))
+        """Whether the design brings its own C++ driver, which runs the model in place of
+        xeda's."""
+        return self.has_cpp_driver(self.design)
 
     def simulation_evidence(self) -> SimEvidence | None:
         """The end record this run's model wrote (`report_file`: this run's own only). A design's

@@ -22,7 +22,7 @@ from xeda.design import LANGUAGE_TYPES
 from xeda.flow import FlowException, SimFlow
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
-from xeda.flows import Verilator
+from xeda.flows import Verilator, YosysSim
 
 SIM_FLOW_NAMES = sorted(
     {
@@ -97,6 +97,23 @@ def test_the_simulators_that_run_without_a_testbench_top(language, tmp_path):
     assert running(language) == ({"ghdl_sim"} if language == "vhdl" else set())
     with_driver = {"verilator", "yosys_sim"} | ({"ghdl_sim"} if language == "vhdl" else set())
     assert running(language, "driver") == with_driver
+
+
+def test_one_predicate_says_whether_a_design_has_a_cpp_driver(tmp_path):
+    """`verilator` (for its own use of the driver, and for the rule here) and `yosys_sim` ask
+    `SimFlow.has_cpp_driver`."""
+    for expected in (False, True):
+        design = _design(
+            _in_new_directory(tmp_path, f"design-{expected}"),
+            "systemverilog",
+            *(["driver"] if expected else []),
+            top="tb",
+        )
+        assert SimFlow.has_cpp_driver(design) is expected
+        assert Verilator.runs_without_testbench_top(design) is expected
+        assert YosysSim.runs_without_testbench_top(design) is expected
+        flow = Verilator({}, design, _in_new_directory(tmp_path, f"run-{expected}"))
+        assert flow.own_driver() is expected
 
 
 @pytest.mark.parametrize("flow_name", SIM_FLOW_NAMES, ids=str)
