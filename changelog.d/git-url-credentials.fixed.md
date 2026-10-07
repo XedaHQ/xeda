@@ -1,2 +1,3 @@
 - The user name and password of a Git dependency's URL no longer appear in the clone directory's
-  name, in logs or in error messages.
+  name, in logs or in error messages. Delete old clone directories whose names hold credentials:
+  xeda no longer makes them.

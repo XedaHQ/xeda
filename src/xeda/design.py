@@ -180,7 +180,11 @@ class DesignValidationError(AnyDesignValidationException):
             # the design file `from_file` attaches: the one thing that says where to look
             f' in "{self.file}"' if self.file else "",
             "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
-        ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data and self.design_in_msg else "")
+        ) + (
+            f"\nDesign:\n{pformat(_shown_dependencies(self.data))}\n"
+            if self.data and self.design_in_msg
+            else ""
+        )
 
 
 #: The format a design file is read in, by its suffix. The one rule for what a design file is:
@@ -1610,6 +1614,29 @@ class DesignReference(XedaBaseModel):
     #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
     local_cache: Optional[Path] = None
 
+    @field_validator("uri")
+    @classmethod
+    def _a_plain_reference_is_a_design_file(cls, value: str) -> str:
+        """A reference of this class names a design file on disk. A URL names a Git repository,
+        which is written `git+<url>`: refused here, naming that spelling, instead of being taken
+        for a path that does not exist."""
+        if cls is DesignReference and _URL_SCHEME.match(value):
+            shown = redacted_url(value)
+            raise ValueError(
+                f"the design dependency {shown!r} is a URL, not the path of a design file: "
+                f"write a Git repository as `git+{shown}`"
+            )
+        return value
+
+    def __repr_args__(self) -> Iterator[tuple[Optional[str], Any]]:
+        """The one text form of a reference, for `repr`, `str`, f-strings, log lines and every
+        container that holds one: its URL without the credentials (`redacted_url`). The fields
+        keep the URL as written, since the clone needs it."""
+        for name, value in super().__repr_args__():
+            if name in ("uri", "repo_url") and isinstance(value, str):
+                value = redacted_url(value)
+            yield name, value
+
     @staticmethod
     def from_data(data) -> DesignReference:
         if isinstance(data, DesignReference):
@@ -1641,7 +1668,7 @@ class DesignReference(XedaBaseModel):
     def fetch_design(self) -> Design:
         design_path = Path(self.uri)
         if not design_path.exists():
-            raise ValueError(f"file {design_path} does not exist!")
+            raise ValueError(f"file {redacted_url(str(design_path))} does not exist!")
         return Design.from_file(design_path)
 
 
@@ -1657,6 +1684,10 @@ _DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
 #: The user name and password of a URL's authority (`scheme://user:password@host`), up to its
 #: last `@`.
 _URL_USERINFO = re.compile(r"(?<=//)[^/?#]*(?=@)")
+
+
+#: The start of a URL: a scheme and `//`. A design file's path has none.
+_URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
 
 
 def redacted_url(url: str) -> str:

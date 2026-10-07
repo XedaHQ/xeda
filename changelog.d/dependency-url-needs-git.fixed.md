@@ -1,0 +1,1 @@
+- A dependency written as a URL without `git+` is refused, naming the `git+<url>` spelling.

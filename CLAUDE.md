@@ -889,12 +889,19 @@ Folding cannot keep `a/b` and `a_b` apart; the digest does, so references that s
 clones never share a directory, and one reference always has the same. **The user name and password
 of a URL (`https://user:token@host/...`) are no part of a name** (the host token is what follows the
 last `@` of the authority), since a name shows in paths and logs; the digest still covers the whole
-URL, so URLs that differ only in their credentials are cloned apart. Every log line and error
-message that prints a URL goes through `design.redacted_url` (`***` for the credentials; the
-debug dump of the design masks its dependencies' URLs the same way), and
-`tests/test_git_dependencies.py` scans `design.py` for a URL formatted into a message without it.
-Git is still handed the URL as written, so the clone itself keeps it in its own `.git/config`, and
-the design file and the recorded settings are the user's own copies. `tests/test_git_dependencies.py`
+URL, so URLs that differ only in their credentials are cloned apart (the digest protects nothing:
+whoever can read the directory's name can read its `.git/config`, where git keeps the URL as it
+was given, and the design file and the recorded settings are the user's own copies). Every log
+line and error message that prints a URL goes through `design.redacted_url` (`***` for the
+credentials), and a reference has one text form, `DesignReference.__repr_args__` (`uri` and
+`repo_url` redacted, while the fields keep the URL, which the clone needs): a reference in a
+message, a log line, a container or the debug dump of the design (`_shown_dependencies` masks the
+string and mapping forms of a dependency too) is masked. **A dependency is the path of a design
+file or `git+<url>`**: the base `DesignReference` refuses a URL (a scheme and `//`), naming the
+`git+` spelling, instead of reading it as a path that does not exist and printing it.
+`tests/test_git_dependencies.py` runs each route that prints with a credentialed URL, and scans
+`design.py` for a URL, or a path made from one (`design_path`), formatted into a message without
+`redacted_url`. `tests/test_git_dependencies.py`
 pins a name: changing the identity re-clones everything, and moves the `design_hash` of every design
 with a Git dependency (its sources count by path). A clone is one directory below its host's, so
 none lies inside another. A path, branch or commit with a `.` or `..` component, a drive such as

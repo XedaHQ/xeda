@@ -19,6 +19,7 @@ import xeda.design
 from xeda import Design
 from xeda.design import (
     DEPENDENCY_CLONES,
+    DesignReference,
     DesignValidationError,
     GitReference,
     clone_location,
@@ -631,8 +632,9 @@ def test_a_url_is_shown_without_its_credentials():
         assert redacted_url(plain) == plain
 
 
-#: The names a Git URL, or a design that holds one, goes by in `design.py`.
-URL_NAMES = {"repo_url", "uri", "uri_str"}
+#: The names a Git URL, or a value taken from a reference's URI, goes by in `design.py`: the
+#: path `DesignReference.fetch_design` makes of it is one.
+URL_NAMES = {"repo_url", "uri", "uri_str", "design_path"}
 
 
 def _names_a_url(node: ast.AST) -> bool:
@@ -661,3 +663,130 @@ def test_no_message_in_design_py_shows_a_git_url_as_it_is():
             values = list(node.args[1:])  # the arguments a message is formatted with
         shown += [f"line {value.lineno}" for value in values if _names_a_url(value)]
     assert shown == [], f"{source.name} shows a URL without `redacted_url`: {shown}"
+
+
+# ------------------------------------- a reference shows its URL without the credentials, always
+TOKEN_URL = f"https://user:{SECRET}@example.com/org/lib.git#design.yaml"
+
+
+def _dependency_design(root: Path, dependency) -> Path:
+    (root / "top.v").write_text("module top; endmodule\n")
+    (root / "d.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top"},
+                "dependencies": [dependency],
+            }
+        )
+    )
+    return root / "d.yaml"
+
+
+@pytest.mark.parametrize(
+    "dependency", [TOKEN_URL, {"uri": TOKEN_URL}], ids=["a-string", "a-mapping"]
+)
+def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, monkeypatch, dependency):
+    """Without `git+` and `repo_url` a dependency is a local design file, and a URL is none. The
+    reference of the base class took it for a path that did not exist, and printed it."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DesignValidationError) as refused:
+        Design.from_file(_dependency_design(tmp_path, dependency))
+    message = str(refused.value)
+    assert "git+https://***@example.com/org/lib.git#design.yaml" in message
+    assert SECRET not in message
+
+
+def test_a_url_without_git_is_refused_on_the_command_line_without_the_credentials(
+    tmp_path, monkeypatch
+):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        cli, ["run", "yosys", str(_dependency_design(tmp_path, TOKEN_URL)), "--json"]
+    )
+    assert result.exit_code != 0
+    assert "git+https://***@example.com" in result.output
+    assert SECRET not in result.output
+
+
+def test_a_local_design_file_is_still_a_dependency_by_its_path():
+    assert DesignReference(uri="lib/lib.toml").uri == "lib/lib.toml"
+    assert DesignReference.from_data("../lib/lib.toml").uri == "../lib/lib.toml"
+    assert DesignReference.from_data(r"C:\lib\lib.toml").uri == r"C:\lib\lib.toml"
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: GitReference(uri=TOKEN_URL),
+        lambda: GitReference(
+            repo_url=f"https://user:{SECRET}@example.com/org/lib.git", design_file="design.yaml"
+        ),
+        lambda: DesignReference.from_data(f"git+{TOKEN_URL}"),
+    ],
+    ids=["uri", "repo_url", "from_data"],
+)
+def test_a_reference_is_shown_without_the_credentials_of_its_url(make):
+    reference = make()
+    for text in (
+        repr(reference),
+        str(reference),
+        f"{reference}",
+        f"{reference!r}",
+        "%s" % (reference,),
+        repr([reference]),
+        repr({"dependencies": [reference]}),
+    ):
+        assert SECRET not in text and "https://***@example.com/org/lib.git" in text, text
+    # what the clone needs is still in it
+    assert SECRET in reference.uri and SECRET in reference.repo_url  # type: ignore[attr-defined]
+
+
+def test_a_reference_that_is_a_path_is_shown_as_it_is():
+    assert "lib/lib.toml" in repr(DesignReference(uri="lib/lib.toml"))
+
+
+def test_the_debug_dump_masks_the_references_an_api_caller_gives(
+    tmp_path, monkeypatch, clones, caplog
+):
+    monkeypatch.chdir(tmp_path)
+    reference = GitReference(
+        uri=f"https://user:{SECRET}@example.com/u/lib.git#lib.toml", local_cache=tmp_path / "cache"
+    )
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    with caplog.at_level(logging.DEBUG):
+        Design(
+            name="d",
+            design_root=tmp_path,
+            rtl={"sources": ["top.v"], "top": "top"},
+            dependencies=[reference],
+        )
+    assert "Design data" in caplog.text and clones
+    assert SECRET not in caplog.text
+
+
+def test_a_failed_clone_does_not_show_the_credentials(tmp_path, monkeypatch):
+    """GitPython hides the user name and the password in the command line it reports."""
+    import git.exc
+    import git.repo
+
+    def clone_from(url, to_path, **kwargs):
+        raise git.exc.GitCommandError(
+            ["git", "clone", "-v", "--", url, str(to_path)], 128, "fatal: repository not found"
+        )
+
+    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with (
+        loading_in_run_root(runner.load_run_root),
+        pytest.raises(git.exc.GitCommandError) as failed,
+    ):
+        Design.from_file(
+            _credentialed_design(tmp_path, f"https://user:{SECRET}@example.com/u/l.git")
+        )
+    assert SECRET not in str(failed.value) and "example.com" in str(failed.value)
