@@ -242,6 +242,125 @@ def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
     return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
+#: The files of a part's directory that describe its die and its pinout. The directories of one
+#: device and package, at their speed grades, are expected to agree in them.
+PINOUT_FILES = ("part.json", "package_pins.csv")
+
+
+@dataclass(frozen=True)
+class PartData:
+    """The Project X-Ray part data ``fpga-as`` packs one part with.
+
+    ``name`` is the part whose directory ``directory`` is: the part asked for, or another speed
+    grade of the same device and package.
+    """
+
+    requested: str
+    name: str
+    directory: Path
+
+    @property
+    def exact(self) -> bool:
+        return self.name.lower() == self.requested.lower()
+
+
+def _speed_grade_order(name: str) -> tuple[int, int, str]:
+    """Order of a part's speed grades: the number, then a plain grade before its ``L`` variant."""
+    match = re.fullmatch(r"(\d+)(L?)", (FPGA(name).speed or "").lstrip("-").upper())
+    return (int(match[1]), len(match[2]), name) if match else (sys.maxsize, 0, name)
+
+
+def _package_of(name: str) -> str | None:
+    """The package of a part, with its pin count (``ffg676``), or ``None`` if not a part name."""
+    try:
+        fpga = FPGA(name)
+    except ValueError:
+        return None
+    return f"{fpga.package}{fpga.pins}" if fpga.package and fpga.pins else None
+
+
+def _no_part_data(selection: XilinxSelection, root: Path, with_data: list[str]) -> FlowFatalError:
+    """The error for a part whose package has no part data at any speed grade, naming what the
+    database has for the same device in other packages."""
+    package = _package_of(selection.part) or selection.part
+    grades: dict[str, list[str]] = {}
+    for name in sorted(with_data, key=_speed_grade_order):
+        grades.setdefault(_package_of(name) or "", []).append(FPGA(name).speed or "")
+    if grades:
+        elsewhere = "; ".join(
+            f"{p}: speed grades {', '.join(g)}" for p, g in sorted(grades.items())
+        )
+        available = f"It has part data for other packages of {selection.device} ({elsewhere})."
+    else:
+        available = f"It has no part data for any package of {selection.device}."
+    return FlowFatalError(
+        f"Project X-Ray has no part data for {selection.part}: {root} has no directory with a "
+        f"part.json for device {selection.device}, package {package}, at any speed grade. "
+        f"{available} Pack a part that has data, or set prjxray_db to a database that has this one."
+    )
+
+
+def locate_part_data(selection: XilinxSelection) -> PartData:
+    """The part data directory of ``selection``: the exact part's, if the database has it.
+
+    A device and package are one die with one pinout, so the speed grade directories of one
+    device and package are expected to agree in ``part.json`` and ``package_pins.csv`` (``nextpnr``
+    keeps the exact grade for timing), and a database often has the directory of one grade only.
+    When the exact part has none, the directory of the lowest speed grade of the same device and
+    package stands in: the smallest grade number, a plain grade before its ``L`` variant. The
+    caller logs the choice. If the other grades' directories differ from it in those two files,
+    this logs a warning naming them. Never another device or package: with no directory of that
+    device and package that holds a ``part.json``, this raises a ``FlowFatalError`` that names the
+    part, the directory searched and the data the database has for other packages of the device.
+    """
+    root = selection.database / selection.family
+    exact = root / selection.name
+    if (exact / "part.json").is_file():
+        return PartData(selection.part, selection.name, exact)
+    parts_path = root / "mapping/parts.yaml"
+    with_data = []
+    for name, entry in _mapping(parts_path, selection.part).values():
+        try:
+            same_device = _mapped_name(entry, "device", parts_path, name) == selection.device
+        except FlowFatalError:
+            continue
+        if same_device and _package_of(name) and (root / name / "part.json").is_file():
+            with_data.append(name)
+    package = _package_of(selection.part)
+    candidates = [name for name in with_data if _package_of(name) == package]
+    if not candidates:
+        raise _no_part_data(selection, root, with_data)
+    name = min(candidates, key=_speed_grade_order)
+    differing = {}
+    for other in sorted(candidates, key=_speed_grade_order):
+        files = [
+            file
+            for file in PINOUT_FILES
+            if other != name and _content(root / other / file) != _content(root / name / file)
+        ]
+        if files:
+            differing[other] = files
+    if differing:
+        log.warning(
+            "The Project X-Ray data of the speed grades of %s%s do not agree. %s has none, so it "
+            "is packed with the data of %s, which differs from that of %s. Check the database.",
+            selection.device,
+            package,
+            selection.part,
+            name,
+            "; ".join(f"{other} in {', '.join(files)}" for other, files in differing.items()),
+        )
+    return PartData(selection.part, name, root / name)
+
+
+def _content(path: Path) -> bytes | None:
+    """The bytes of a file, or ``None`` if there is none."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
 def _tree_contents(
     root: Path, ancestors: frozenset[Path] = frozenset()
 ) -> tuple[tuple[str, str], ...]:

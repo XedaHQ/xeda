@@ -745,6 +745,12 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
         ),
         "prjxray-db/artix7/xc7a100t/tilegrid.json": "{}\n",
         "prjxray-db/artix7/xc7a50t/tilegrid.json": "{}\n",
+        # the directory `fpga-as` finds the data of each part in
+        **{
+            f"prjxray-db/artix7/{part}/{name}": "{}\n"
+            for part in ("xc7a100tcsg324-1", "xc7a35tcsg324-1")
+            for name in ("part.json", "part.yaml", "package_pins.csv")
+        },
     }
     for name, content in files.items():
         path = share / name

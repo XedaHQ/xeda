@@ -131,7 +131,7 @@ namespaces = false
     "*.toml",
     "boards/**/*.xdc",
     "boards/**/*.lpf",
-    "boards/arty/*.md",
+    "boards/*/*.md",
 ]
 "xeda.data.agent" = [
     "SKILL.md",

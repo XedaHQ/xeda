@@ -82,6 +82,12 @@ All notable changes to this project will be documented in this file.
   The listing left out a launch's own directory only if it still existed, so one that had just
   gone was listed to be removed. A launch now leaves out its own run directory by where it
   resolves to, whether or not it exists.
+- `openfpgaloader` no longer gives `--fpga-part` beside `--board`. openFPGALoader knows the
+  board's part, and the option replaced it with a part that has a speed grade; the loader uses the
+  option as written to name the bridge bitstream that writes a flash (`spiOverJtag_<device>
+  <package>.bit.gz`), which has no grade, so `write_flash` on a Xilinx board found no bridge. With
+  a `cable`, or a board without an `openfpgaloader_board`, `--fpga-part` is still given, and a
+  Xilinx part is written without its speed grade (`xc7a35tcpg236`).
 - Generator freshness now follows symlinked directories among its `sources`, validates damaged
   output records as stale, and rechecks its input identity after acquiring the record lock. The selected direct
   generator executable is part of the content identity. A POSIX lease on the existing design-root
@@ -221,6 +227,21 @@ All notable changes to this project will be documented in this file.
   warning does not fail the run, unless `warnings_fatal` is set. `timing` stays off by default.
 
 ### Added
+- `fpga_pack` packs a Xilinx 7-series part whose exact speed grade the Project X-Ray database
+  lacks with the part data of the same device and package at the lowest other speed grade
+  (for example `xc7k325tffg676-2`, whose database has only the `-1` directory). A device and
+  package are one die with one pinout, so the grade directories are expected to agree in
+  `part.json` and `package_pins.csv`, and `nextpnr` keeps the exact grade for timing. The flow
+  logs both parts, warns if the other grades' files differ, and never uses another device or
+  package. The header of the bitstream names the part whose data was used. A part with no data at
+  any speed grade of its package fails before any tool runs, and the message names the part, the
+  directory searched and the grades the database has for other packages of the device.
+- The bundled boards `basys_3` (Digilent Basys 3, `xc7a35tcpg236-1`, openFPGALoader name
+  `basys3`) and `stlv7325_v2` (`xc7k325tffg676-2`, openFPGALoader name `stlv7325`). Each has a pin
+  file for its clock, every user LED, the user buttons and the USB-UART. `basys_3` uses Digilent's
+  port names (`clk`, `led[15:0]`, `btnC` as the reset button, `RsRx`, `RsTx`); `stlv7325_v2` uses
+  `clk_p`, `clk_n`, `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx` and `uart_tx`.
+  The files name their sources, license, LED and button polarity, and have no `create_clock`.
 - **A design generator is judged by content, not by a modification time.**
   `rtl.generator` runs again only when something it reads or produced changed: the digest of
   every file of its `sources` (a directory counts as every file in it, outside the design root
@@ -379,6 +400,21 @@ All notable changes to this project will be documented in this file.
 - `dc` checks `target_libraries` when a run is launched, as the other flows check their required
   settings. A run without it is refused, and the message says how to give it. A settings layer
   that does not hold it (a platform given alone) no longer fails validation by itself.
+- **Bundled boards have lower-case names and are found in any letter case.** `xeda list-boards`
+  shows `ulx3s_85f`, `arty_a7_100t`, `arty_a7_35t`, `basys_3` and `stlv7325_v2`, and
+  `board: ARTY_A7_100T`, `arty_a7_100t` and `Arty_A7_100T` select the same board, which the
+  settings store as `arty_a7_100t`: every spelling is one setting and one run identity (a design
+  that named a bundled board in capitals runs once more, under the new identity). Two nodes of a
+  chain that name a bundled board in different letter case agree. The board names in a custom
+  database (`custom_boards_file`) and file names stay case-sensitive, exactly as written. The
+  bundled database is refused if a board name in it is not lower case, so two names that differ
+  only in case cannot exist. **Breaking: a board entry's `name` was renamed
+  `openfpgaloader_board`**, the board's name in openFPGALoader (`--board`), in the database and in
+  `xeda list-boards --json`. It is optional, and an entry that still has `name` fails with
+  `` `name` was removed: use `openfpgaloader_board` ``. Every bundled board has the name that
+  openFPGALoader's own board list gives it (`basys_3` is `basys3`, `ulx3s_85f` is `ulx3s`), and
+  `openfpgaloader` passes it as `--board` whenever `board` is set. A `cable` takes precedence, and a
+  board without the field adds no `--board`.
 - **`openroad` consumes a declared netlist from `yosys`.** The resolver supplies `yosys.netlist`,
   or a typed `VerilogNetlist` source skips synthesis, and `-s flows.yosys.*` with
   `xeda run openroad` now reaches that producer. Platform copies and `openroad`'s own merged

@@ -286,6 +286,14 @@ def pack_or_load(tool, args):
     contents = read_inputs(paths)
     if not all(contents):
         raise ValueError("empty input")
+    if tool == "fpga-as":
+        # as the real one: the part's own directory of the family's database, by the exact name
+        part_json = Path(opts["prjxray_db_path"]) / opts["part"] / "part.json"
+        if not part_json.is_file():
+            raise ValueError(
+                f"part mapping parsing: could not open file: {part_json}: "
+                "No such file or directory"
+            )
     mode = record(tool, args, paths, contents)
     if mode == "no-output" or tool == "openFPGALoader":
         return 0

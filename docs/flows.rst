@@ -26,17 +26,23 @@ Discovering flows and their settings
     it in) on top of the clock settings. A ``board`` is looked up in the bundled database
     (``xeda list-boards``) or, with ``custom_boards_file``, in your own: a TOML or YAML file,
     chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an error), mapping
-    each board name to its ``fpga``, programmer ``name`` and local ``lpf``. A relative
-    ``custom_boards_file`` resolves against the design directory, and a board's local ``lpf``
-    against the database file's own directory, in either format. YAML is read as YAML 1.2, like
-    every other YAML file xeda reads::
+    each board name to its ``fpga``, its name in openFPGALoader (``openfpgaloader_board``, optional)
+    and its local ``lpf``. A relative ``custom_boards_file`` resolves against the design directory, and a
+    board's local ``lpf`` against the database file's own directory, in either format. YAML is read
+    as YAML 1.2, like every other YAML file xeda reads::
 
         # boards.yaml
         MY_BOARD:
-          name: ulx3s
+          openfpgaloader_board: ulx3s
           fpga:
             part: LFE5U-85F-6BG381C
           lpf: my_board.lpf
+
+    The bundled boards have lower-case names and are found by their name in any letter case:
+    ``ARTY_A7_100T``, ``arty_a7_100t`` and ``Arty_A7_100T`` select the same board, which Xeda
+    stores as ``arty_a7_100t``. The names in your own database are case-sensitive, like file names:
+    ``MY_BOARD`` is not found as ``my_board``. The database's former ``name`` key was renamed
+    ``openfpgaloader_board``; an entry that still has ``name`` is an error that says so.
 
 ``asic_synthesis``
     Targets a standard-cell process. Adds a ``platform`` setting naming a PDK.
@@ -543,7 +549,8 @@ The part is given once: ``fpga`` is shared along the declared edges.
 
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
-before synthesis. ``board: ARTY_A7_100T`` or ``ARTY_A7_35T`` fills it in (``xeda list-boards``).
+before synthesis. ``board: arty_a7_100t`` or ``arty_a7_35t`` fills it in (``xeda list-boards``).
+So do ``basys_3`` (``xc7a35tcpg236-1``) and ``stlv7325_v2`` (``xc7k325tffg676-2``).
 
 **Constraints.** ``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN``/``LOC``
 and ``IOSTANDARD``) and may carry ``create_clock``; with no ``Xdc`` source and a ``board``, the
@@ -554,6 +561,20 @@ ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...).
 clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
 one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
 and Xeda says so.
+
+The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
+buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
+follows. Each file gives the source of every group of pins, and none of the pins is checked on
+hardware.
+
+* ``basys_3`` uses Digilent's names, all LVCMOS33: ``clk``, ``led[15:0]``, the buttons ``btnC``,
+  ``btnU``, ``btnL``, ``btnR`` and ``btnD``, and the UART's ``RsRx`` (an input of the FPGA) and
+  ``RsTx`` (an output). The LEDs and buttons are active high, and ``btnC`` is the reset button.
+* ``stlv7325_v2`` has no vendor names. Its ports are ``clk_p`` and ``clk_n`` (the differential
+  clock, DIFF_SSTL15: the design needs an ``IBUFDS`` and a ``BUFG``), ``led[7:0]`` and ``btn[1:0]``
+  (``btn[0]`` is the reset button), and the UART's ``uart_rx`` (an input) and ``uart_tx`` (an
+  output). The LEDs and buttons are active low. ``btn[1]`` and the UART are in a bank whose
+  voltage the board's jumper J4 sets; their standard, LVCMOS33, is right with J4 at 3.3 V.
 
 **The chip database.** nextpnr needs a database for the die, which openXC7 generates from the
 Project X-Ray data. Xeda generates it on first use and keeps it under the run root, in
@@ -593,12 +614,35 @@ design against itself across settings or seeds with one toolchain, not across to
 **Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
 database and the part, into a scratch file in its run directory, and publishes the bitstream
 only when the packer succeeded with a nonempty file: a failed run leaves no partial bitstream.
+A Project X-Ray database often has the part data of one speed grade only. A device and package
+are one die with one pinout, so the speed grade directories of one device and package are
+expected to agree, and ``fpga_pack`` uses the directory of the exact part when the database has
+one. If not, it uses the directory of the same device and package at the lowest other speed grade
+(the smallest grade number; a plain grade comes before its ``L`` variant), and logs which part it
+asked for and which directory it used. It warns if the other grades' ``part.json`` or
+``package_pins.csv`` differ from the one it uses. ``nextpnr`` keeps the exact grade for timing.
+The header of the bitstream, which ``fpga-as`` writes, names the part whose data was used: a
+build for ``xc7k325tffg676-2`` packed with the ``-1`` data says ``xc7k325tffg676-1``. ``fpga_pack``
+never uses another device or package. If the database has no directory for the device and package
+at any speed grade, it fails before any tool runs. The message names the part, the directory it
+searched and the packages of the same device that the database has, with their speed grades.
+
 ``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
-``verify`` is accepted only with it.
+``verify`` is accepted only with it. When ``board`` is set, it passes the board's
+``openfpgaloader_board`` to openFPGALoader as ``--board``, and no ``--fpga-part``: openFPGALoader
+knows the board's part, and the option would replace it. A ``cable`` takes precedence over the
+board. A board that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow
+gives the part and the cable alone. openFPGALoader uses ``--fpga-part`` as written to name the
+bridge bitstream it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has
+no speed grade. So the flow gives a Xilinx part without it (``xc7a35tcpg236``), and any other
+part as it is. Every bundled board has an ``openfpgaloader_board``, taken from openFPGALoader's
+own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``).
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
-from its own installation are not inputs; ``--rebuild-all`` runs everything).
+from its own installation are not inputs; ``--rebuild-all`` runs everything). A new directory
+for the exact part is not noticed either. A ``prjxray_db`` you set is a setting that names a
+directory, and Xeda tracks it as it does any such setting.
 
 The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a
 design or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,

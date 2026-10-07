@@ -270,7 +270,7 @@ def test_typed_sources_displace_board_fallback_and_foreign_sources_do_not(tmp_pa
     (tmp_path / "pins.lpf").write_text("# chosen\n")
     (tmp_path / "foreign.xdc").write_text("# foreign\n")
     (tmp_path / "timing.sdc").write_text("# timing\n")
-    settings = {"board": "ULX3S_85F"}
+    settings = {"board": "ulx3s_85f"}
     chosen, _ = make_flow(tmp_path, monkeypatch, sources=["pins.lpf"], settings=settings)
     chosen.prepare_inputs()
     assert chosen._pin_inputs == [tmp_path / "pins.lpf"] and chosen.implicit_inputs == []
@@ -311,19 +311,19 @@ def test_archive_board_preparation_reuses_and_replaces_content_identity(tmp_path
         rtl={"sources": [{"file": netlist.name, "type": "JsonNetlist"}], "top": "d"},
     )
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    first = runner.launch_flow(Nextpnr, design, {"board": "ULX3S_85F"})
+    first = runner.launch_flow(Nextpnr, design, {"board": "ulx3s_85f"})
     assert first.succeeded
     prepared = first.implicit_inputs[0]
     assert prepared.is_relative_to(runner.run_root / ".cache/board-files")
     before = prepared.stat().st_mtime_ns
-    assert runner.launch_flow(Nextpnr, design, {"board": "ULX3S_85F"}).reused
+    assert runner.launch_flow(Nextpnr, design, {"board": "ulx3s_85f"}).reused
     assert prepared.stat().st_mtime_ns == before
     pack("# archive two\n")
-    changed = runner.launch_flow(Nextpnr, design, {"board": "ULX3S_85F"})
+    changed = runner.launch_flow(Nextpnr, design, {"board": "ulx3s_85f"})
     assert changed.succeeded and not changed.reused
     assert changed.implicit_inputs[0] != prepared
     assert prepared.read_text() == "# archive one\n"
-    assert runner.launch_flow(Nextpnr, design, {"board": "ULX3S_85F"}).reused
+    assert runner.launch_flow(Nextpnr, design, {"board": "ulx3s_85f"}).reused
 
 
 def test_url_constraints_fetch_only_during_run_into_owned_scratch(tmp_path, monkeypatch):

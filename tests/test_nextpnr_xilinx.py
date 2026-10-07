@@ -514,7 +514,7 @@ def test_a_board_supplies_the_part_and_its_pin_file(tmp_path, monkeypatch):
     """No typed XDC source: the bundled Arty A7-100 pin file is the fallback, with the clock."""
     design, runner = _project(tmp_path, monkeypatch)
     design = Design(name="top", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
-    settings = {"board": "ARTY_A7_100T", "clocks": {"main": {"port": "CLK100MHZ", "period": 10}}}
+    settings = {"board": "arty_a7_100t", "clocks": {"main": {"port": "CLK100MHZ", "period": 10}}}
     flow = runner.run("nextpnr", design, flow_settings=settings)
     assert flow is not None and flow.succeeded
     merged = (flow.run_path / "constraints.xdc").read_text()

@@ -186,7 +186,8 @@ def test_packers_read_configuration_and_use_positional_output(name, tmp_path):
 
 def _fpga_as_args(root):
     database = root / "database"
-    database.mkdir()
+    (database / "xc7a100tcsg324-1").mkdir(parents=True)
+    (database / "xc7a100tcsg324-1/part.json").write_text("{}\n")
     source = root / "input.fasm"
     source.write_text("TILE.FEATURE\n")
     return [f"--prjxray_db_path={database}", "--part", "xc7a100tcsg324-1", source]
@@ -202,6 +203,15 @@ def test_fpga_as_stdout_is_binary_and_diagnostics_are_separate(tmp_path):
         "input.fasm",
         "fake_fpga.calls.jsonl",
     }
+
+
+def test_fpga_as_needs_the_data_of_the_part_it_is_given_as_the_real_one_does(tmp_path):
+    args = _fpga_as_args(tmp_path)
+    args[1:3] = ["--part", "xc7a100tcsg324-2"]  # a grade the database has no directory for
+    result = _run("fpga-as", args, tmp_path)
+    assert result.returncode != 0 and not result.stdout
+    assert b"part mapping parsing: could not open file" in result.stderr
+    assert b"xc7a100tcsg324-2/part.json" in result.stderr
 
 
 @pytest.mark.parametrize(

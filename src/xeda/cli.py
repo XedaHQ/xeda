@@ -276,7 +276,7 @@ def list_boards(output_format: str, json_flag: bool):
         "Bundled FPGA boards",
         [
             ("Board", {"header_style": "bold green", "style": "bold"}),
-            ("Name", {}),
+            ("openFPGALoader board", {}),
             ("FPGA part", {}),
         ],
     )
@@ -284,7 +284,9 @@ def list_boards(output_format: str, json_flag: bool):
         fpga = board.get("fpga") or {}
         part = fpga.get("part") if isinstance(fpga, dict) else str(fpga)
         table.add_row(
-            escape(board["board"]), escape(str(board.get("name", "-"))), escape(str(part or "-"))
+            escape(board["board"]),
+            escape(str(board.get("openfpgaloader_board", "-"))),
+            escape(str(part or "-")),
         )
     console.print(table)
 

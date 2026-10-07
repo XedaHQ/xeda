@@ -1604,7 +1604,7 @@ def test_a_remote_run_programs_a_prebuilt_bitstream_with_the_worker_s_fake_loade
         rtl={"sources": ["top.v", {"file": "built.bit", "type": "Bitstream"}], "top": "top"},
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    settings = ["board=ULX3S_85F"]
+    settings = ["board=ulx3s_85f"]
     expected = runner.resolve(get_flow_class("openfpgaloader"), design, settings)
     assert [node.name for node in expected.nodes] == ["openfpgaloader"]
     results = runner.run_remote(design, "openfpgaloader", "fake", flow_settings=settings)
@@ -1620,7 +1620,7 @@ def test_a_remote_run_programs_a_prebuilt_bitstream_with_the_worker_s_fake_loade
     shipped = Path(call["argv"][1])
     assert call["argv"][0] == "--bitstream" and shipped.is_relative_to(remote_host)
     assert shipped.read_bytes() == b"a bitstream built elsewhere"
-    assert call["argv"][2:] == ["--board", "ulx3s", "--fpga-part", "LFE5U-85F-6BG381C"]
+    assert call["argv"][2:] == ["--board", "ulx3s"]
 
 
 def _nextpnr_design(tmp_path: Path) -> Path:

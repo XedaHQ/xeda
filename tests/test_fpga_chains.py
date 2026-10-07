@@ -209,7 +209,7 @@ def test_a_database_override_agrees_along_a_chained_edge(tmp_path, owner):
 def test_a_board_given_at_one_node_is_every_chained_node_s_device(tmp_path, owner):
     """The board, or the device, written once anywhere on the chain reaches every node that
     declares it, through the explicit edges."""
-    setting = {"fpga": ECP5} if owner == "yosys_fpga" else {"board": "ULX3S_85F"}
+    setting = {"fpga": ECP5} if owner == "yosys_fpga" else {"board": "ulx3s_85f"}
     plan = _runner(tmp_path).plan(
         parse_request("yosys_fpga+nextpnr+fpga_pack+openfpgaloader"),
         _design(tmp_path, flows={owner: setting}),
@@ -218,15 +218,61 @@ def test_a_board_given_at_one_node_is_every_chained_node_s_device(tmp_path, owne
     assert len(set(parts.values())) == 1 and len(parts) == 4, parts
     if owner != "yosys_fpga":
         boards = {n.name: n.settings.board for n in plan.nodes if hasattr(n.settings, "board")}
-        assert set(boards.values()) == {"ULX3S_85F"}, boards
+        assert set(boards.values()) == {"ulx3s_85f"}, boards
 
 
 def test_boards_that_differ_along_a_chain_are_an_error_naming_both_nodes(tmp_path):
-    flows = {"fpga_pack": {"board": "ULX3S_85F"}, "nextpnr": {"board": "ULX3S_12F"}}
+    flows = {"fpga_pack": {"board": "ulx3s_85f"}, "nextpnr": {"board": "ulx3s_12f"}}
     with pytest.raises(FlowSettingsError) as raised:
         _runner(tmp_path).plan(parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows))
     message = str(raised.value)
     assert "fpga_pack" in message and "nextpnr" in message and "board" in message
+
+
+def _boards(plan) -> dict[str, str]:
+    return {n.name: n.settings.board for n in plan.nodes if hasattr(n.settings, "board")}
+
+
+def test_a_bundled_board_named_in_two_cases_along_a_chain_is_one_board(tmp_path):
+    flows = {"fpga_pack": {"board": "ULX3S_85F"}, "nextpnr": {"board": "ulx3s_85f"}}
+    plan = _runner(tmp_path).plan(
+        parse_request("nextpnr+fpga_pack"), _design(tmp_path, flows=flows)
+    )
+    assert _boards(plan) == {"nextpnr": "ulx3s_85f", "fpga_pack": "ulx3s_85f"}
+
+
+def test_the_case_of_a_bundled_board_name_changes_nothing_about_the_run(tmp_path):
+    """The same board is the same run: settings, identities and run directories alike."""
+    graphs = []
+    for spelling in ("ulx3s_85f", "ULX3S_85F", "Ulx3s_85F"):
+        plan = _runner(tmp_path).plan(
+            parse_request("yosys_fpga+nextpnr+fpga_pack"),
+            _design(tmp_path, flows={"nextpnr": {"board": spelling}}),
+        )
+        graphs.append(_graph(plan))
+    assert graphs[0] == graphs[1] == graphs[2]
+    # given on the command line or through the API, it is stored the same way
+    plan = _runner(tmp_path).plan(
+        parse_request("yosys_fpga+nextpnr+fpga_pack"),
+        _design(tmp_path),
+        flow_settings={"board": "ULX3S_85F"},
+    )
+    assert _graph(plan) == graphs[0]
+
+
+def test_a_custom_board_named_in_two_cases_along_a_chain_is_two_boards(tmp_path):
+    flows = {
+        "fpga_pack": {"board": "Foo", "custom_boards_file": "boards.toml"},
+        "nextpnr": {"board": "foo"},
+    }
+    design = _design(tmp_path, flows=flows)
+    (design.root_path / "boards.toml").write_text(
+        f'[Foo]\nfpga.part = "{ECP5}"\n[foo]\nfpga.part = "{ECP5}"\n'
+    )
+    with pytest.raises(FlowSettingsError) as raised:
+        _runner(tmp_path).plan(parse_request("nextpnr+fpga_pack"), design)
+    message = str(raised.value)
+    assert "disagrees" in message and "'Foo'" in message and "'foo'" in message
 
 
 # ================================================================================ execution
@@ -431,7 +477,7 @@ def test_the_whole_chain_builds_and_programs_the_board_through_the_fakes(
     # the programmer is the fake, by the file that ran, and read the packed bitstream only
     bitstream = root / "fpga_pack" / board.bitstream
     call = _programmed(tmp_path, toolchain, board.design, bitstream)
-    assert call["argv"][2:] == ["--board", board.programmer, "--fpga-part", board.part]
+    assert call["argv"][2:] == ["--board", board.programmer]
 
 
 def _chipdb_generator(tmp_path: Path) -> dict:

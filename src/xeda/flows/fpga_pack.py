@@ -12,7 +12,13 @@ from ..flow import Flow, FlowFatalError, FlowSettingsException, FpgaSynthFlow, I
 from ..tool import Tool
 from ..utils import replacing_copy
 from .nextpnr import Nextpnr
-from .xilinx import find_prjxray_database, select_xilinx_part
+from .xilinx import (
+    PartData,
+    XilinxSelection,
+    find_prjxray_database,
+    locate_part_data,
+    select_xilinx_part,
+)
 
 __all__ = ["FpgaPack"]
 
@@ -38,6 +44,9 @@ class FpgaPack(FpgaSynthFlow):
     """
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
+
+    _selection: XilinxSelection | None = None
+    _part_data: PartData | None = None
 
     # Nothing beyond the keys every flow reports.
     results_description: dict = {}
@@ -104,6 +113,28 @@ class FpgaPack(FpgaSynthFlow):
                 f"e.g. xc7a100tcsg324-1, not {fpga.part or fpga.device or None!r}."
             )
 
+    def init(self) -> None:
+        """Locate the Project X-Ray data `fpga-as` packs with, before any producer runs.
+
+        A part with no data is refused here, so neither synthesis nor placement runs first. The
+        installed database is the packer's own, and no input of the run: a change of it alone is
+        not noticed (`prjxray_db`, a setting, is tracked as any directory setting is).
+        """
+        assert isinstance(self.settings, self.Settings)
+        if Nextpnr.io_family(self.settings) != "xilinx":
+            return
+        assert self.settings.fpga is not None
+        resolved = which(PACKERS["xilinx"][0])
+        if resolved is None:
+            raise FlowFatalError("fpga-as is missing on PATH; install openXC7 1.0.")
+        prjxray_db = self.settings.prjxray_db
+        database = find_prjxray_database(
+            Path(resolved), self.normalize_path_to_design_root(prjxray_db) if prjxray_db else None
+        )
+        selection = select_xilinx_part(self.settings.fpga.part or "", database)
+        data = locate_part_data(selection)
+        self._selection, self._part_data = selection, data
+
     def run(self) -> None:
         """Pack the configuration handed over as the input `config`."""
         assert isinstance(self.settings, self.Settings)
@@ -130,15 +161,21 @@ class FpgaPack(FpgaSynthFlow):
         # `fpga-as` accept options in any position.
         fixed: list[str | Path] = []
         if family == "xilinx":
-            resolved = which(executable)
-            if resolved is None:
-                raise FlowFatalError("fpga-as is missing on PATH; install openXC7 1.0.")
-            database = find_prjxray_database(
-                Path(resolved),
-                self.normalize_path_to_design_root(ss.prjxray_db) if ss.prjxray_db else None,
-            )
-            selection = select_xilinx_part(ss.fpga.part or "", database)
-            fixed = [f"--prjxray_db_path={database / selection.family}", f"--part={selection.name}"]
+            selection, data = self._selection, self._part_data
+            if selection is None or data is None:
+                raise FlowFatalError("Call init() before running fpga_pack.")
+            if not data.exact:
+                log.info(
+                    "Project X-Ray has no part data for %s: packing with the data of %s, the same "
+                    "device and package at another speed grade, from %s",
+                    data.requested,
+                    data.name,
+                    data.directory,
+                )
+            fixed = [
+                f"--prjxray_db_path={selection.database / selection.family}",
+                f"--part={data.name}",
+            ]
         # The packer writes scratch space only: an exit of zero may still leave no file (or an
         # empty one), and fpga-as writes its bitstream to standard output, so a failure there
         # leaves part of one. The bitstream's own name is replaced only by a whole new one.

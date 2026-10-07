@@ -116,7 +116,7 @@ def test_foreign_pins_and_sdc_leave_pin_binding_empty(tmp_path):
     design = _design(tmp_path, [("foreign.xdc", SourceType.Xdc), ("a.sdc", SourceType.Sdc)])
     node = (
         DefaultRunner(tmp_path / "run")
-        .plan(Nextpnr, design, flow_settings={"board": "ULX3S_85F"})
+        .plan(Nextpnr, design, flow_settings={"board": "ulx3s_85f"})
         .node("nextpnr")
     )
     assert next(entry for entry in node.inputs if entry.name == "constraints").origin == "none"
@@ -177,7 +177,7 @@ def test_matching_source_displaces_conflicting_producer_settings(tmp_path):
 def test_matching_source_displaces_a_conflicting_producer_board(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
     design.flow[_ConfigTaker.name] = {"fpga": FAMILIES[0][0]}
-    design.flow["nextpnr"] = {"board": "ARTY_A7_35T"}
+    design.flow["nextpnr"] = {"board": "arty_a7_35t"}
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert [node.name for node in plan.nodes] == [_ConfigTaker.name]
     assert plan.nodes[0].settings.board is None
@@ -254,16 +254,16 @@ def test_one_database_override_reaches_only_endpoints_with_the_setting(tmp_path,
 @pytest.mark.parametrize("owner", [_ConfigTaker.name, "nextpnr"])
 def test_board_target_propagates_before_family_selection(tmp_path, owner):
     design = _design(tmp_path)
-    design.flow[owner] = {"board": "ULX3S_85F"}
+    design.flow[owner] = {"board": "ulx3s_85f"}
     plan = DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
     assert all(node.settings.fpga.family == "ecp5" for node in plan.nodes)
     assert plan.node(_ConfigTaker.name).inputs[0].origin == "producer"
-    assert plan.node("nextpnr").settings.board == "ULX3S_85F"
+    assert plan.node("nextpnr").settings.board == "ulx3s_85f"
 
 
 def test_displaced_board_target_cannot_satisfy_the_consumer(tmp_path):
     design = _design(tmp_path, [("given.config", SourceType.EcpConfig)])
-    design.flow["nextpnr"] = {"board": "ULX3S_85F"}
+    design.flow["nextpnr"] = {"board": "ulx3s_85f"}
     with pytest.raises(FlowSettingsException, match=r"needs `fpga`"):
         DefaultRunner(tmp_path / "run").plan(_ConfigTaker, design)
 

@@ -7,6 +7,6 @@ rtl:
 
 flows:
   nextpnr:
-    board: ARTY_A7_100T
+    board: arty_a7_100t
   yosys_fpga:
     flatten: true

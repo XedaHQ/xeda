@@ -507,8 +507,21 @@ nextpnr is reported by the `ERROR:` lines of this run's log (`Nextpnr._failure`:
 error at its origin, a missed timing constraint, else the tool's failure) -- a warning is never
 the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
 killed run left) and publishes with `replacing_copy` only a nonempty file of a packer that
-exited 0. Known limit: an in-place change of the installed Project X-Ray data alone, with
-`fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source.
+exited 0. `fpga-as` is given the part's own Project X-Ray directory (`<family>/<part>/part.json`)
+when the database has it; else the directory of the lowest speed grade of the same device and
+package (`xilinx.locate_part_data`: smallest grade number, a plain grade before its `L` variant,
+never another device or package), logged at info level naming both parts. A device and package
+are one die with one pinout, so their grade directories are expected to agree and `nextpnr` keeps
+the exact grade for timing; a few groups of the installed database do not agree (`part.json`,
+`package_pins.csv`, or `required_features.fasm` for some `clg400` grades), so the lookup warns when
+the other grades' files in `PINOUT_FILES` (`part.json`, `package_pins.csv`) differ from the chosen
+one's. The bitstream's header, which `fpga-as` writes, names the stand-in part. With no directory
+of the package at any grade it raises a `FlowFatalError` naming the part, the directory searched
+and the other packages' grades. `FpgaPack.init` does all of this, so the error comes before any
+producer runs. Known limit: an in-place change of the installed Project X-Ray data alone, with
+`fpga-as` unchanged, is not noticed when packing a prebuilt `Fasm` source, and neither is a new
+directory for the exact part (a tool's own installed files are never flow inputs; `--rebuild-all`
+packs again). A `prjxray_db` the user sets is tracked as a setting's directory, as before.
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML
@@ -1136,6 +1149,24 @@ and `test_nvc.py` simulate the examples in place.
   ever compared with the remote's.
 - `platforms/` - ASIC PDK descriptions (asap7, nangate45, sky130hd/hs) for OpenROAD/DC;
   `board.py` + `data/boards.toml` for FPGA boards.
+
+**Board names: bundled ones are lower case and found in any letter case; custom ones are exact.**
+`data/boards.toml` names every board in lower case (`ulx3s_85f`, `arty_a7_100t`, `basys_3`, ...),
+and `board.bundled_boards` refuses a database with any other name, so two names that differ only
+in case cannot exist (`tests/test_boards.py`). `get_board_data` lowers the name for a lookup in
+the bundled database and looks it up as written in a custom one, and `canonical_board_name` is
+what a validated `board` is stored as -- in the validator and in `__setattr__`, since a
+`before` validator's write to the assigned field does not stick -- so every spelling is one
+setting, one run identity and one plan. The resolver compares two nodes' `board` leaves
+ignoring case unless a node of the group names a custom database (`resolver._agree`). A custom
+database and every file name are case-sensitive, as written. A board entry's optional
+`openfpgaloader_board` is the board's name in openFPGALoader (`--board`, from its `src/board.hpp`;
+text when given, and every bundled board has one); `openfpgaloader` passes it whenever `board` is
+set, a `cable` first, and a board without one adds no `--board`. With `--board` it gives no
+`--fpga-part`: the loader knows the board's part, the option would replace it, and the loader
+names its flash bridge bitstream (`spiOverJtag_<device><package>.bit.gz`) by the option as
+written, so a part given without a board name drops a Xilinx speed grade (`_loader_part`). The
+former key `name` is an error naming it (`WithFpgaBoardSettings._fpga_validate`).
 
 Board-aware settings read their database through `WithFpgaBoardSettings.board_data()`.
 `custom_boards_file` replaces the bundled database (which stays TOML) and resolves relative to

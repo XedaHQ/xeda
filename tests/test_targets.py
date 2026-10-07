@@ -105,7 +105,7 @@ def test_mappings_merge_key_by_key_at_every_depth():
     design = Design.from_file(KNIGHT, target="ulx3s")
     assert design.rtl.parameters == {"WIDTH": 4}
     assert design.rtl.defines == {"CLK_HZ": 25000000}
-    assert design.flow["nextpnr"] == {"seed": 3, "board": "ULX3S_85F"}
+    assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
     assert design.flow["vivado_synth"] == {"clock": {"period": 10.0}}
     assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
 
@@ -117,12 +117,12 @@ def test_a_target_meets_the_design_s_other_spelling_of_a_key(tmp_path):
         "rtl": {"sources": ["knight.v"], "top": "knight", "generics": {"WIDTH": 8, "DEPTH": 2}},
         "flow": {"nextpnr": {"seed": 3}},
         "targets": {
-            "t": {"parameters": {"WIDTH": 4}, "flows": {"nextpnr": {"board": "ULX3S_85F"}}}
+            "t": {"parameters": {"WIDTH": 4}, "flows": {"nextpnr": {"board": "ulx3s_85f"}}}
         },
     }
     design = Design.from_file(write_design(tmp_path, data))
     assert design.rtl.parameters == {"WIDTH": 4, "DEPTH": 2}
-    assert design.flow["nextpnr"] == {"seed": 3, "board": "ULX3S_85F"}
+    assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
 
 
 def test_dotted_keys_in_a_target_are_expanded(tmp_path):
@@ -452,11 +452,11 @@ def layered_project(tmp_path: Path) -> Path:
             "parameters": {"WIDTH": 8, "DEPTH": 2},
             "defines": {"A": 1, "B": 2},
         },
-        "flows": {"nextpnr": {"seed": 3, "board": "ARTY_A7_100T"}},
+        "flows": {"nextpnr": {"seed": 3, "board": "arty_a7_100t"}},
     }
     target = {
         "rtl": {"parameters": {"WIDTH": 4}, "defines": {"A": 9}},
-        "flows": {"nextpnr": {"seed": 5, "board": "ULX3S_85F"}},
+        "flows": {"nextpnr": {"seed": 5, "board": "ulx3s_85f"}},
     }
     write_design(tmp_path, design, "unused.yaml")
     path = tmp_path / "xedaproject.yaml"
@@ -494,11 +494,11 @@ def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
 
     # Flow settings, all the way down: the project's `placer` survives every layer above it.
     base = planned_nextpnr(tmp_path, "plain")
-    assert (base.seed, base.placer, base.board) == (3, "heap", "ARTY_A7_100T")  # design > project
+    assert (base.seed, base.placer, base.board) == (3, "heap", "arty_a7_100t")  # design > project
     chosen = planned_nextpnr(tmp_path, "layered", "ulx3s")
-    assert (chosen.seed, chosen.placer, chosen.board) == (5, "heap", "ULX3S_85F")  # target > design
+    assert (chosen.seed, chosen.placer, chosen.board) == (5, "heap", "ulx3s_85f")  # target > design
     cli = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["seed=9"])
-    assert (cli.seed, cli.placer, cli.board) == (9, "heap", "ULX3S_85F")  # command line > target
+    assert (cli.seed, cli.placer, cli.board) == (9, "heap", "ulx3s_85f")  # command line > target
     qualified = planned_nextpnr(
         tmp_path, "layered", "ulx3s", flow_settings=["flows.nextpnr.seed=8"]
     )
@@ -510,18 +510,19 @@ def test_a_target_overrides_the_design_and_only_where_it_writes(tmp_path):
     )
     assert both.seed == 11  # API > command line > target
     board = planned_nextpnr(tmp_path, "layered", "ulx3s", flow_settings=["board=ARTY_A7_35T"])
-    assert board.board == "ARTY_A7_35T"  # a command-line `board` beats the target's too
+    # a command-line `board` beats the target's too, and is stored under the board's one name
+    assert board.board == "arty_a7_35t"
 
 
 def test_a_target_disagreeing_with_its_design_on_a_shared_leaf_is_not_an_error(tmp_path):
     """The agreement rule is between two nodes of one graph; a target is the design's own author.
 
-    The design says `board: ARTY_A7_100T` for `nextpnr` and the target `ULX3S_85F`: the target
+    The design says `board: arty_a7_100t` for `nextpnr` and the target `ulx3s_85f`: the target
     wins, with no error naming both. (Two *nodes* disagreeing, yosys against nextpnr, is the
     resolver's error; that is another mechanism, tested in `test_resolver`.)
     """
     settings = planned_nextpnr(tmp_path, "layered", "ulx3s")
-    assert settings.board == "ULX3S_85F"
+    assert settings.board == "ulx3s_85f"
     assert settings.fpga.part == "LFE5U-85F-6BG381C"
 
 
@@ -530,7 +531,7 @@ def test_two_nodes_still_must_agree_when_a_target_supplies_one_side(tmp_path):
     data = {
         "name": "d",
         "rtl": {"sources": ["knight.v"], "top": "knight"},
-        "flows": {"nextpnr": {"board": "ARTY_A7_100T"}},
+        "flows": {"nextpnr": {"board": "arty_a7_100t"}},
         "targets": {"t": {"flows": {"yosys_fpga": {"fpga": "LFE5U-85F-6BG381C"}}}},
     }
     path = write_design(tmp_path, data)

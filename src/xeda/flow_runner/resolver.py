@@ -582,6 +582,15 @@ def _agree(
         for request in group:
             for path, (value, key, loc) in _normalized_leaves(request, shared, context).items():
                 candidates.setdefault(path, []).append((request, value, key, loc))
+        if shared == "board" and not any(r.raw.values.get("custom_boards_file") for r in group):
+            # A bundled board is found by its name in any letter case, so two spellings are one
+            # board; the names of a custom database are case-sensitive and compare as written.
+            candidates = {
+                path: [
+                    (r, v, k.lower() if isinstance(k, str) else k, loc) for r, v, k, loc in items
+                ]
+                for path, items in candidates.items()
+            }
         agreed: dict[str, Any] = {}
         for path, contributions in candidates.items():
             rank = {"file": 0, "cli": 1, "api": 2}
