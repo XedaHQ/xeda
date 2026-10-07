@@ -663,7 +663,9 @@ class Flow(metaclass=ABCMeta):
     #: may name the flow as ``{flow}``). Checked when the flow is launched, by
     #: `check_required_settings`, not when its settings are validated: a layer of settings, such
     #: as one section of a design file, holds only some of them, and a model that insisted on all
-    #: of them could not validate it.
+    #: of them could not validate it. So the model never requires them: `Flow.Settings` refuses a
+    #: field without a default when its class is defined. Give the field a default (`None`, or an
+    #: empty value), and name the setting here.
     required_settings: Dict[str, str] = {}
 
     #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
