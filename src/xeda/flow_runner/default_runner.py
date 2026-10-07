@@ -40,6 +40,7 @@ from ..deliver import (
     deliverable_setting_names,
     outputs_to_deliveries,
     recorded_artifacts,
+    refuse_shared_destinations,
     split_deliveries,
 )
 from ..design import (
@@ -1240,13 +1241,15 @@ class FlowLauncher:
         """Make now the checks that every flow of the plan makes of its deliveries when its turn
         comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
         earlier flow. First comes what no answer could allow (`--outputs-to`, and
-        `Deliveries.refuse`), for every flow, the requested flow included; then the questions
-        of the producers, in the order they run, each asked once. The requested flow asks its own
-        at its turn: that is the start of its own launch, before it launches its producers, so
-        before any tool runs. A producer keeps the object it checked and
-        checks again with it at its turn: that finds the record this check anchored, so the
-        destination is read once in the launch. At its turn, under its lock, the producer reads
-        the delivery record again if another launch wrote it meanwhile."""
+        `Deliveries.refuse`), for every flow, the requested flow included -- and a destination
+        that two deliveries name (`refuse_shared_destinations`: every named delivery of the
+        launch is known from the plan); then the questions of the producers, in the order they
+        run, each asked once. The requested flow asks its own at its turn: that is the start of
+        its own launch, before it launches its producers, so before any tool runs. A producer
+        keeps the object it checked and checks again with it at its turn: that finds the record
+        this check anchored, so the destination is read once in the launch. At its turn, under
+        its lock, the producer reads the delivery record again if another launch wrote it
+        meanwhile."""
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries)
         own.check_outputs_to(outputs_to)
@@ -1259,13 +1262,18 @@ class FlowLauncher:
         )
         own.refuse(predicted)
         ahead: dict[NodeKey, Deliveries] = {}
+        copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         for planned in plan.nodes:
-            if planned.node_key != requested.node_key:
+            if planned.node_key == requested.node_key:
+                named = deliveries
+            else:
                 named = split_deliveries(planned.settings, design.name)
                 if named:
                     ahead[planned.node_key] = self._deliveries_of(planned.run_path, named)
+            copies += [(planned.name, d, d.destination) for d in named]
         for producer in ahead.values():
             producer.refuse()
+        refuse_shared_destinations(copies, before_run=True)
         for producer in ahead.values():
             producer.check()
         self._deliveries_ahead = ahead
@@ -1603,6 +1611,16 @@ class FlowLauncher:
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
         if not delivery.pending:
             return
+        # what only a run reveals -- `--outputs-to`'s artifacts, the files of a directory output --
+        # is compared with every copy noted so far, before any copy is made
+        refuse_shared_destinations(
+            (
+                (other.name, named, destination)
+                for other, noted in [*self._pending_deliveries, (flow, delivery)]
+                for named, _source, destination, _sha in noted.pending
+            ),
+            before_run=False,
+        )
         self._pending_deliveries.append((flow, delivery))
 
     def _input_settings(

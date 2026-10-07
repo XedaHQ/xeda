@@ -481,6 +481,31 @@ def test_the_whole_chain_builds_and_programs_the_board_through_the_fakes(
     assert call["argv"][2:] == ["--board", board.programmer]
 
 
+def test_two_stages_of_a_chain_naming_one_destination_are_refused_before_any_tool(
+    tmp_path, toolchain
+):
+    """The synthesis netlist and the placed design both go to one file: the first would be
+    delivered and the second refused after both tools ran, as a change nobody made."""
+    design = _write_design(tmp_path, flows={"nextpnr": {"fpga": ECP5}})
+    same = tmp_path / "same.out"
+    result, document = _xeda(
+        "run",
+        "yosys_fpga+nextpnr",
+        design,
+        "-s",
+        f"flows.yosys_fpga.netlist_verilog={same}",
+        f"flows.nextpnr.write={same}",
+    )
+    assert result.exit_code != 0 and document["success"] is False
+    assert document["error"]["type"] == "DeliveryError"
+    message = document["error"]["message"]
+    assert (
+        f"`flows.yosys_fpga.netlist_verilog` and `flows.nextpnr.write` both name {same}" in message
+    )
+    assert not same.exists() and not _every_call(tmp_path), "a tool ran before the refusal"
+    assert {node["state"] for node in document["nodes"]} == {"not run"}
+
+
 def _chipdb_generator(tmp_path: Path) -> dict:
     """The one call that generated the chip database nextpnr was handed, under the run root."""
     (record,) = (tmp_path / "xeda_run/.cache/xilinx-chipdb").glob("*/fake_fpga.calls.jsonl")

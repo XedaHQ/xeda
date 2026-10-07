@@ -14,10 +14,13 @@ A delivery never goes onto an input -- any file a flow of the launch reads (`Rea
 identity and resolved path) -- nor into a directory a read setting names (every file there is an
 input of the run, one delivered there too), into a run root, or over a directory; it never
 deletes anything and never writes through a symbolic link (a temporary file in the
-destination's directory, renamed into place). An existing file is replaced only when it is xeda's
-own earlier delivery, unchanged, as its record says (`delivery_record`: beside the run directory,
-in the run root); anything else needs the user's confirmation -- `overwrite_outputs`, or a yes
-from the launcher's `confirm_overwrite` (the command line's prompt) -- asked before any tool of
+destination's directory, renamed into place). Two deliveries of one launch never go to one
+destination (`refuse_shared_destinations`): the launch refuses it, naming both, before any tool
+runs for the destinations the settings name, and before the first copy for those a run reveals.
+An existing file is replaced only when it is xeda's own earlier delivery, unchanged, as its record
+says (`delivery_record`: beside the run directory, in the run root); anything else needs the
+user's confirmation -- `overwrite_outputs`, or a yes from the launcher's `confirm_overwrite` (the
+command line's prompt) -- asked before any tool of
 the launch runs (`Deliveries.check`: the requested flow makes the check of every flow of the plan
 when the launch starts, after every refusal no answer could change, `Deliveries.refuse`). A yes
 is for the file the user was asked about, as it was then (`ConfirmedReplacements`): a file that
@@ -72,6 +75,7 @@ __all__ = [
     "delivery_record",
     "outputs_to_deliveries",
     "recorded_artifacts",
+    "refuse_shared_destinations",
     "split_deliveries",
 ]
 
@@ -254,6 +258,44 @@ def outputs_to_deliveries(
         relative = PurePath(path.relative_to(base))
         found.setdefault(relative, Delivery(OUTPUTS_TO, relative, Path(directory) / relative))
     return list(found.values())
+
+
+def _written_as(owner: str, delivery: Delivery) -> str:
+    """How the user asked for `delivery`: `--outputs-to`, or the setting as it is written under
+    `flows.<flow>`."""
+    if delivery.key == OUTPUTS_TO:
+        return f"`{OUTPUTS_TO}` ({delivery.name})"
+    return f"`flows.{owner}.{delivery.key}`"
+
+
+def refuse_shared_destinations(
+    copies: Iterable[tuple[str, Delivery, Path]], *, before_run: bool
+) -> None:
+    """A `DeliveryError` when two copies of one launch go to one destination (located, as
+    `Deliveries` locates every destination), naming everything that asked for it. A destination
+    takes one output: delivering the first and refusing the second as a change nobody made,
+    after the tools ran, gave a false reason and a partial delivery.
+
+    `copies`: the name of a flow, one of its deliveries, and where that copy goes, in the order
+    the flows run. A named delivery goes to the destination it names, and is known from the plan,
+    before any tool runs (`before_run`). A copy of `--outputs-to`, or of a file of a directory
+    output, is known only when its flow has run, so the launch asks again then, before the first
+    copy is made."""
+    asked: dict[Path, list[str]] = {}
+    for owner, delivery, destination in copies:
+        asked.setdefault(_located(destination), []).append(_written_as(owner, delivery))
+    shared = [(destination, names) for destination, names in asked.items() if len(names) > 1]
+    if not shared:
+        return
+    listed = "; ".join(
+        f"{', '.join(names[:-1]) + ' and ' + names[-1]} {'both' if len(names) == 2 else 'all'} "
+        f"name {destination}"
+        for destination, names in shared
+    )
+    raise DeliveryError(
+        f"{listed}: a destination takes one output; name them apart",
+        before_run=before_run,
+    )
 
 
 def recorded_artifacts(results_json: Path) -> Any:

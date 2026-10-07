@@ -563,7 +563,12 @@ dependency's input, a later sibling's), inside a directory a setting of any of t
 library or include directory such as ``lib_paths``: every file under it is an input, so a
 destination there is refused -- ``--outputs-to`` naming one up front -- even where no file is yet),
 or inside any run root -- a bare name would otherwise put an output back into its own run
-directory. An existing file at the destination is replaced without
+directory. Two outputs never go to one destination. When two deliverable settings name the same
+file -- two settings of one flow, or of two flows of the launch -- Xeda refuses the launch before
+any tool runs, and the message names both settings. ``--outputs-to`` follows the same rule, but
+the artifacts it delivers are known only after the run: if one of them would land on a
+destination another output names, Xeda refuses the launch once the requested flow has run, before
+it copies anything. An existing file at the destination is replaced without
 asking only when it is Xeda's own earlier delivery there, unchanged (its digest and inode still
 match what Xeda wrote, tracked in a delivery record kept beside the run directory, in the run
 root -- which survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda

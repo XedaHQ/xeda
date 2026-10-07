@@ -1023,9 +1023,12 @@ not (whether a tool reads it cannot be known before the run; `--outputs-to` into
 up front). The requested flow also checks the named deliveries of every flow of the plan when the
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
-allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`), and
-only then asks the producers' questions; its own question comes at its turn, the start of its
-own launch and before it launches its producers, so still before any tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`) --
+a destination two deliveries name is one of them (`deliver.refuse_shared_destinations`: every
+named delivery of the launch, with its flow, in the order the flows run, naming both settings as
+`flows.<flow>.<key>`) -- and only then asks the producers' questions; its own question comes at
+its turn, the start of its own launch and before it launches its producers, so still before any
+tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
 a launch; that second check records what it found (`Deliveries.checked`). The object read its
 delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
@@ -1050,8 +1053,11 @@ would deliver on the remote host, so the error names the producer's own request 
 (`xeda run --remote fpga_pack ... --outputs-to DIR`).
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
-directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
-clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
+directory's lock), and compares what it noted with every copy noted before it
+(`refuse_shared_destinations` again, in `_defer_delivery`): `--outputs-to`'s artifacts and a
+directory output's files are known only now, and a destination two of them share is refused
+before the first copy, a `DeliveryError` that is no `before_run` one, since the tools ran; the
+copies themselves are made in `_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
 has even run. An existing file at a destination is replaced without asking only when it is xeda's
 own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode

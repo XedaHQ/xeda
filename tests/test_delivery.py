@@ -755,6 +755,60 @@ def test_a_name_xeda_keeps_is_refused(world):
         _launch(world, netlist="results.json")  # a bare name: a location never is one
 
 
+def test_two_settings_naming_one_destination_are_refused_before_the_tool_runs(world):
+    """One destination takes one output. Delivering the first and refusing the second as "changed
+    while the run went on" gave a false reason, and a partial delivery."""
+    same = world.user / "same.out"
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, netlist=str(same), report=str(same))
+    message = str(refused.value)
+    assert f"`flows.{_Deliverer.name}.netlist` and `flows.{_Deliverer.name}.report`" in message
+    assert f"both name {same}" in message
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert RUNS == [], "a tool ran before the refusal"
+    assert not same.exists()
+
+
+def test_a_destination_named_through_a_link_is_the_destination_it_leads_to(world):
+    """A destination is told by where it is, not by how it is spelled."""
+    (world.user / "real").mkdir()
+    (world.user / "alias").symlink_to(world.user / "real", target_is_directory=True)
+    with pytest.raises(DeliveryError, match="both name"):
+        _launch(world, netlist="$PWD/real/same.out", report="$PWD/alias/same.out")
+    assert RUNS == [] and not (world.user / "real" / "same.out").exists()
+
+
+def test_two_outputs_for_two_destinations_are_both_delivered(world):
+    flow = _launch(world, netlist="$PWD/a.out", report="$PWD/b.out")
+    assert flow.succeeded
+    assert sorted(d.destination.name for d in flow.deliveries) == ["a.out", "b.out"]
+
+
+def test_outputs_to_and_a_producer_naming_one_destination_are_refused_before_anything_is_copied(
+    world,
+):
+    """`--outputs-to` delivers the requested flow's artifacts, which the run alone reveals. Its
+    destinations are compared with every other delivery of the launch once the requested flow has
+    run, before the first copy: nothing is delivered, the producer's output included."""
+    out = world.user / "got"
+    launcher = DefaultRunner(world.root, display_results=False, outputs_to=out)
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": str(out / "summary.txt")})
+    message = str(refused.value)
+    assert f"`flows.{_Deliverer.name}.netlist` and `--outputs-to` (summary.txt)" in message
+    assert f"both name {out / 'summary.txt'}" in message
+    assert not refused.value.before_run, "the tools ran: only the run reveals the artifacts"
+    assert RUNS == [_Deliverer.name]
+    assert not out.exists(), "nothing was delivered"
+    # a refusal is only about where: asking for another place finds every run up to date, so
+    # nothing runs again, and both outputs arrive
+    elsewhere = world.user / "elsewhere.v"
+    flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": str(elsewhere)})
+    assert flow.succeeded and flow.reused and flow.producers[0].reused
+    assert RUNS == [_Deliverer.name]
+    assert elsewhere.read_text() == "net\n" and (out / "summary.txt").read_text() == "ok\n"
+
+
 def test_a_failed_run_delivers_nothing(world):
     _launch(world, netlist="$PWD/net.v", text="a\n")
     flow = _launch(world, netlist="$PWD/net.v", text="b\n", fail=True)

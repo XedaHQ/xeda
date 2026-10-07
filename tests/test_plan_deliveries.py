@@ -387,6 +387,38 @@ def test_a_refusal_of_a_later_producer_comes_before_the_question_about_an_earlie
     assert (world.user / "c.a").read_text() == "the user's file\n"
 
 
+@pytest.mark.parametrize("sharers", ["two producers", "a producer and the requested flow"])
+def test_a_destination_two_flows_of_the_plan_name_is_refused_before_any_tool(world, sharers):
+    """Every delivery of a launch is known from the plan, so a destination named twice is refused
+    before the first tool runs, naming both settings, instead of delivering one output and
+    refusing the other as "changed while the run went on" after all the tools had run."""
+    same = world.user / "same.out"
+    if sharers == "two producers":
+        own, sections = {}, dict(reads_dir={"copy": str(same)}, delivers={"netlist": str(same)})
+        first, second = "__reads_dir.copy", "__delivers.netlist"
+    else:
+        own, sections = {"report": str(same)}, dict(delivers={"netlist": str(same)})
+        first, second = "__delivers.netlist", "__both.report"
+    with pytest.raises(DeliveryError) as refused:
+        _launch(world, own=own, **sections)
+    # in the order the flows run
+    assert f"`flows.{first}` and `flows.{second}` both name {same}" in str(refused.value)
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert RUNS == [] and not same.exists()
+    assert not _directory(world).exists(), "the requested flow's directory was not even made"
+
+
+def test_a_destination_two_flows_name_is_refused_before_the_question_about_a_file_in_the_way(world):
+    same = world.user / "same.out"
+    same.write_text("the user's file\n")
+    asked = _asking(world.runner)
+    with pytest.raises(DeliveryError, match="both name") as refused:
+        _launch(world, reads_dir={"copy": str(same)}, delivers={"netlist": str(same)})
+    assert type(refused.value) is DeliveryError and refused.value.before_run
+    assert asked == [] and RUNS == []
+    assert same.read_text() == "the user's file\n"
+
+
 def test_the_requested_flow_reads_not_run_after_a_refusal_at_a_producer_s_turn(world, monkeypatch):
     """The refusal comes before the producer's tool, so the flow that asked for it did not run
     either: the document says so, as it says of the producer."""
