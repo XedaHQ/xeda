@@ -435,10 +435,12 @@ def test_a_candidate_gone_when_its_lock_is_held_is_skipped_and_not_counted(
     assert document["success"] is True and document["scrubbed"] == [str(other)]
     assert document["gone"] == [str(victim)] and document["kept"] == []
     assert tree.present(tree.a) == [False, False]
+    # By the message itself: the command line's log filter shortens a record's logger name in
+    # place, so a name test depends on which tests ran first in this process.
     skipped = [
         record.getMessage()
         for record in caplog.records
-        if record.name == default_runner.__name__ and record.levelno == logging.INFO
+        if record.levelno == logging.INFO and record.getMessage().startswith("Not removing ")
     ]
     assert skipped == [f"Not removing {victim}: it is gone already"], caplog.text
     assert f"{victim} is gone already" in said
