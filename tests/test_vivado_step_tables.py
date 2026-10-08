@@ -19,7 +19,7 @@ from pydantic import ConfigDict
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth
+from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoProject, VivadoSynth
 from xeda.flows.vivado import vivado_alt_synth as alt
 from xeda.flows.vivado.vivado_synth import RunOptions
 
@@ -263,3 +263,113 @@ def test_vivado_synth_adds_the_mode_to_the_more_options_the_design_gave(
         script,
     ), script
     assert run.settings.synth.steps["SYNTH_DESIGN"]["ARGS"]["MORE"]["OPTIONS"] == options
+
+
+@needs_tclsh
+def test_vivado_project_derives_its_steps_where_it_renders_the_script(
+    tmp_path, monkeypatch
+) -> None:
+    """As for `vivado_synth`: the script has the mode, the flattening and the hooks, and the
+    settings the run records do not."""
+    settings = {"fpga": PART, "clock_period": 5.5}
+    design = _design()
+    plain = _run(VivadoProject, tmp_path / "plain", design, settings, monkeypatch)
+    derived = _run(
+        VivadoProject,
+        tmp_path / "derived",
+        design,
+        {**settings, "out_of_context": True, "flatten_hierarchy": "full"},
+        monkeypatch,
+    )
+    script = _script(derived, "vivado_project.tcl")
+    assert '"STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS" "-mode out_of_context"' in script, script
+    assert '"STEPS.SYNTH_DESIGN.flatten_hierarchy" "full"' in script and ".TCL.POST" in script
+    for run in ("synth", "impl"):
+        assert getattr(derived.settings, run).steps == getattr(plain.settings, run).steps
+    assert derived.settings.synth.steps["SYNTH_DESIGN"] == {}
+
+
+@needs_tclsh
+def test_vivado_project_launches_do_not_leave_their_options_for_the_next(
+    tmp_path, monkeypatch
+) -> None:
+    before, after = _two_launches(
+        VivadoProject,
+        tmp_path,
+        monkeypatch,
+        _design(),
+        {"fpga": PART, "clock_period": 5.5},
+        {
+            "out_of_context": True,
+            "flatten_hierarchy": "full",
+            "synth": {"steps": {"SYNTH_DESIGN": {"ARGS": {"MORE": {"OPTIONS": ["-retiming"]}}}}},
+        },
+        "vivado_project.tcl",
+    )
+    assert after == before
+    assert "out_of_context" not in after and "retiming" not in after
+
+
+#: A step property as each script sets it: `vivado_synth` by name, value and run, `vivado_project`
+#: by position. (The hooks name files of their own flow's directory, so they are left out.)
+_SYNTH_PROPERTY = re.compile(
+    r'^set_property -name "([^"]+)" -value "((?:[^"\\]|\\.)*)" -objects \[get_runs (\w+)\]$', re.M
+)
+_PROJECT_PROPERTY = re.compile(
+    r'^set_property "([^"]+)" "((?:[^"\\]|\\.)*)" \[get_runs (\w+)\]$', re.M
+)
+
+
+def _step_properties(script: str, pattern: "re.Pattern[str]") -> dict:
+    return {
+        (run, name): value
+        for name, value, run in pattern.findall(script)
+        if name.startswith("STEPS.") and not name.endswith(".TCL.POST")
+    }
+
+
+@needs_tclsh
+def test_vivado_project_sets_the_step_properties_that_vivado_synth_sets(
+    tmp_path, monkeypatch
+) -> None:
+    """The two flows build the same project runs from the same steps: the options of a step, the
+    ones nested one level deeper (`MORE OPTIONS`), a list of options and the mode of an
+    out-of-context synthesis reach the runs in both."""
+    settings = {
+        "fpga": PART,
+        "clock_period": 5.5,
+        "out_of_context": True,
+        "flatten_hierarchy": "full",
+        "synth": {
+            "steps": {
+                "SYNTH_DESIGN": {
+                    "ARGS": {
+                        "MORE": {"OPTIONS": ["-retiming"]},
+                        "GLOBAL_RETIMING": "on",
+                        "OPTIONS": ["-a", "-b"],
+                    }
+                }
+            }
+        },
+        "impl": {"steps": {"PLACE_DESIGN": {"ARGS": {"DIRECTIVE": "Explore"}}}},
+    }
+    design = _design()
+    synth = _step_properties(
+        _script(
+            _run(VivadoSynth, tmp_path / "synth", design, settings, monkeypatch),
+            "vivado_synth.tcl",
+        ),
+        _SYNTH_PROPERTY,
+    )
+    project = _step_properties(
+        _script(
+            _run(VivadoProject, tmp_path / "project", design, settings, monkeypatch),
+            "vivado_project.tcl",
+        ),
+        _PROJECT_PROPERTY,
+    )
+    assert synth[("synth_1", "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS")] == (
+        "-retiming -mode out_of_context"
+    )
+    assert synth[("synth_1", "STEPS.SYNTH_DESIGN.ARGS.OPTIONS")] == "-a -b"
+    assert project == synth

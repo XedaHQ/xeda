@@ -89,7 +89,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         settings = self.settings
         self.artifacts.project = f"{self.design.name}.xpr"
 
-        synth_steps, impl_steps = run_steps(settings)
+        synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
         # reports are written after each major step, as `vivado_synth` writes them
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
         tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)

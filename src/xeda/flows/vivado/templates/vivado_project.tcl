@@ -71,7 +71,19 @@ set_property generic {{generics|tcl_word}} [current_fileset]
 {%- for name,value in options.items() %}
 {% if value is mapping %}
 {%- for k,v in value.items() %}
+{%- if v is mapping %}
+{%- for kk,vv in v.items() %}
+{%- if vv is iterable and (vv is not string) %}
+{%- set vv = vv | join(" ") %}
+{%- endif %}
+set_property {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k ~ " " ~ kk)|tcl_word}} {{vv|tcl_word}} [get_runs synth_1]
+{%- endfor %}
+{%- else %}
+{%- if v is iterable and (v is not string) %}
+{%- set v = v | join(" ") %}
+{%- endif %}
 set_property {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k)|tcl_word}} {{v|tcl_word}} [get_runs synth_1]
+{%- endif %}
 {%- endfor %}
 {%- else %}
 set_property {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} {{value|tcl_word}} [get_runs synth_1]
@@ -83,7 +95,19 @@ set_property {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} {{value|tcl_word}} [get
 {%- for name,value in options.items() %}
 {% if value is mapping %}
 {%- for k,v in value.items() %}
+{%- if v is mapping %}
+{%- for kk,vv in v.items() %}
+{%- if vv is iterable and (vv is not string) %}
+{%- set vv = vv | join(" ") %}
+{%- endif %}
+set_property {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k ~ " " ~ kk)|tcl_word}} {{vv|tcl_word}} [get_runs impl_1]
+{%- endfor %}
+{%- else %}
+{%- if v is iterable and (v is not string) %}
+{%- set v = v | join(" ") %}
+{%- endif %}
 set_property {{("STEPS." ~ step ~ "." ~ name ~ "." ~ k)|tcl_word}} {{v|tcl_word}} [get_runs impl_1]
+{%- endif %}
 {%- endfor %}
 {%- else %}
 set_property {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} {{value|tcl_word}} [get_runs impl_1]
