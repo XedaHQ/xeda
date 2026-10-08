@@ -40,6 +40,9 @@ from .bindings import (
 )
 from .chains import FlowRequest, fitting_outputs
 from .settings_layers import (
+    API_ORIGIN,
+    COMMAND_LINE_ORIGIN,
+    SUPPLIED_SECTIONS_ORIGIN,
     _nested_model,
     carry_diagnostics,
     check_run_flows,
@@ -66,14 +69,13 @@ SHARED_SETTINGS = (
 #: Shared settings that are one value, compared and propagated whole -- never split into
 #: leaves and merged key by key with another node's: a platform is a model.
 INDIVISIBLE_SETTINGS = ("platform",)
-ORIGIN_NAMES = ("the project file", "the design file", "the command line")
 log = logging.getLogger(__name__)
 
 
 BINDING_ORIGINS = {
     "chain": "chain",
     "file": "saved binding",
-    "cli": "command line",
+    "cli": "`-s` or `flow_settings`",
     "api": "API",
 }
 
@@ -748,16 +750,16 @@ def resolve(
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
     layers = [
-        (label, _sections(values), "cli" if "command line" in label else "file")
+        (label, _sections(values), "cli" if label == COMMAND_LINE_ORIGIN else "file")
         for label, values in origins
     ]
     if not layers:
-        layers.append(("the supplied flow sections", _sections(sections), "file"))
+        layers.append((SUPPLIED_SECTIONS_ORIGIN, _sections(sections), "file"))
     cli_sections = _sections(command_line) if command_line else {}
     if cli_sections:
-        layers.append(("the command line", cli_sections, "cli"))
+        layers.append((COMMAND_LINE_ORIGIN, cli_sections, "cli"))
     if api_overrides:
-        layers.append(("the API", _sections(api_overrides), "api"))
+        layers.append((API_ORIGIN, _sections(api_overrides), "api"))
 
     root_raw = _Located()
     for label, values, kind in layers:
@@ -765,7 +767,7 @@ def resolve(
     # settings is normally already composed by `settings_layers`. Preserve locations for identical leaves;
     # only additional caller edits form a final direct-API contribution.
     supplied = _located(
-        _explicit(settings) if settings is not None else {}, flow_cls, "the API", "api"
+        _explicit(settings) if settings is not None else {}, flow_cls, API_ORIGIN, "api"
     )
     known = _leaves(root_raw.values)
     normalized_known = _shared_locations(root_raw, flow_cls, context)

@@ -345,7 +345,10 @@ removed before the run, so an earlier success never stands for a run that died
   its `flows.nextpnr.board` replaces the design's with no error, while a key it does not write
   stays the design's, and the project's own keys survive both. The loader folds the target into the
   design's mapping, so it is part of the design origin, below `-s` and the API
-  (`tests/test_targets.py`, the layer-order tests). **This is not the agreement rule**: agreement
+  (`tests/test_targets.py`, the layer-order tests). `run()`/`plan()`'s `flow_settings` (`-s` items
+  or an API mapping) is the command-line layer; `flow_overrides` is the API layer. Every origin label
+  (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`) is a constant of `settings_layers`,
+  in every message and `--json` origin. **This is not the agreement rule**: agreement
   is between two *nodes* of one graph (`yosys_fpga` against `nextpnr`) naming different values for
   a shared leaf, an error even when a target supplied one side; two *origins* contributing to one
   node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**:

@@ -105,6 +105,9 @@ from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
+    API_ORIGIN,
+    COMMAND_LINE_ORIGIN,
+    SUPPLIED_SECTIONS_ORIGIN,
     FlowNotFoundError,
     check_not_removed,
     command_line_sections,
@@ -1057,20 +1060,20 @@ class FlowLauncher:
             clean_origins.append((location, clean))
             layers.append(bindings)
         all_flows_settings, bindings = split_bindings(
-            all_flows_settings or {}, location="the supplied API flow sections"
+            all_flows_settings or {}, location=SUPPLIED_SECTIONS_ORIGIN
         )
         if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
             layers.append(bindings)
         if direct:
-            clean_origins.append(("the supplied flow sections", all_flows_settings))
+            clean_origins.append((SUPPLIED_SECTIONS_ORIGIN, all_flows_settings))
         clean_cli, bindings = split_bindings(
-            command_line or {}, location="the command line", kind="cli"
+            command_line or {}, location=COMMAND_LINE_ORIGIN, kind="cli"
         )
         layers.append(bindings)
-        clean_api, bindings = split_bindings(api_overrides or {}, location="the API", kind="api")
+        clean_api, bindings = split_bindings(api_overrides or {}, location=API_ORIGIN, kind="api")
         layers.append(bindings)
         clean_root, bindings = split_bindings(
-            {flow_class.name: flow_settings or {}}, location="the API", kind="api"
+            {flow_class.name: flow_settings or {}}, location=API_ORIGIN, kind="api"
         )
         layers.append(bindings)
         # Preserve the context/full value of a Settings instance on ordinary direct calls.
@@ -2182,10 +2185,10 @@ class FlowLauncher:
         if plan is None and depender is None:
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections, section_bindings = split_bindings(
-                all_flows_settings or {}, location="the supplied API flow sections"
+                all_flows_settings or {}, location=SUPPLIED_SECTIONS_ORIGIN
             )
             own, own_bindings = split_bindings(
-                {flow_cls.name: flow_settings or {}}, location="the API", kind="api"
+                {flow_cls.name: flow_settings or {}}, location=API_ORIGIN, kind="api"
             )
             layers = (section_bindings, own_bindings)
             # a flow that declares no inputs has none to bind: an `inputs` key is an error
@@ -2304,7 +2307,7 @@ class FlowLauncher:
             cli_sections, {requested.name: cli_own}, flow_class_for=_get_flow_class_if_known
         )
         layers = [
-            split_bindings(cli_sections, location="the command line", kind="cli")[1],
+            split_bindings(cli_sections, location=COMMAND_LINE_ORIGIN, kind="cli")[1],
             split_bindings(
                 {
                     requested.name: (
@@ -2313,7 +2316,7 @@ class FlowLauncher:
                         else settings_to_dict(flow_overrides)
                     )
                 },
-                location="the API",
+                location=API_ORIGIN,
                 kind="api",
             )[1],
         ]
@@ -2591,10 +2594,10 @@ class FlowLauncher:
             cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known
         )
         cli_sections, cli_bindings = split_bindings(
-            cli_sections, location="the command line", kind="cli"
+            cli_sections, location=COMMAND_LINE_ORIGIN, kind="cli"
         )
         api_sections, api_bindings = split_bindings(
-            {flow_class.name: flow_overrides}, location="the API", kind="api"
+            {flow_class.name: flow_overrides}, location=API_ORIGIN, kind="api"
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)

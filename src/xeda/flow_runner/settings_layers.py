@@ -9,7 +9,8 @@ A flow's settings are assembled from these layers, lowest precedence first:
    design's own author saying "for this build, these values", so what it writes wins over the
    design's. The loader merges it into the design before anything else sees the design, so it
    is part of the design's origin and below the command line and the API
-5. the command line (``-s KEY=VALUE``), then overrides given through the API
+5. the command line (``-s KEY=VALUE``, or the ``flow_settings`` of ``run`` and ``plan``), then
+   overrides given through the API (``flow_overrides``)
 
 The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
 so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead
@@ -37,7 +38,10 @@ from ..flow.io import declared_inputs
 from ..utils import XedaException, flows_table_problems, hierarchical_merge, settings_to_dict
 
 __all__ = [
+    "API_ORIGIN",
+    "COMMAND_LINE_ORIGIN",
     "REMOVED_FLOWS",
+    "SUPPLIED_SECTIONS_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
     "check_not_removed",
@@ -53,6 +57,15 @@ __all__ = [
     "split_flow_sections",
     "transitive_dependencies",
 ]
+
+
+#: How messages name the command-line layer. `run` and `plan` take the command line's `-s` items
+#: and the `flow_settings` an API caller gives them as one layer, so the label names both.
+COMMAND_LINE_ORIGIN = "the command line (`-s`) or `flow_settings`"
+#: The layer that the API's overrides, and the settings a launch is handed directly, form.
+API_ORIGIN = "the API"
+#: The `flows` sections that a launch with a built design is handed (`all_flows_settings`).
+SUPPLIED_SECTIONS_ORIGIN = "the supplied flow sections"
 
 
 class FlowNotFoundError(XedaException):
@@ -334,7 +347,7 @@ def split_flow_sections(
     error naming both spellings."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
-        own.pop("flows", None), flow_class_for=flow_class_for, location="the command line"
+        own.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
     )
     flow_cls = flow_class_for(requested) if flow_class_for is not None else None
     settings_cls = flow_cls.Settings if flow_cls is not None else None

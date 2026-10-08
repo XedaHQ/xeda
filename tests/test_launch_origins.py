@@ -16,6 +16,7 @@ settings; the design is never edited.
 
 import copy
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -310,3 +311,99 @@ def test_settings_given_as_a_model_leave_the_design_s_sections_in_force(tmp_path
     assert flow is not None and flow.succeeded
     assert flow.settings.verbose == 1 and flow.settings.fpga.part == PART
     assert _launched(runner) == _planned_with(tmp_path, design, {"verbose": 1})
+
+
+# --------------------------------------------------------------------------- origin labels
+
+#: How messages name the layer of `-s` and of the `flow_settings` that `run` and `plan` take.
+COMMAND_LINE = "the command line (`-s`) or `flow_settings`"
+
+
+def _plan_error(tmp_path, **kwargs) -> str:
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "labels", display_results=False).plan(_Place, design, **kwargs)
+    return str(raised.value)
+
+
+DISAGREEING_MAPPING = {"fpga": OTHER_PART, "flows": {"__synth": {"fpga": PART}}}
+DISAGREEING_ITEMS = [f"fpga={OTHER_PART}", f"flows.__synth.fpga={PART}"]
+
+
+@pytest.mark.parametrize(
+    "given", [DISAGREEING_MAPPING, DISAGREEING_ITEMS], ids=["mapping", "items"]
+)
+def test_a_conflict_in_flow_settings_names_the_command_line_and_flow_settings(tmp_path, given):
+    """`run` and `plan` take the command line's `-s` items and an API caller's `flow_settings`
+    as one layer, so the label says both."""
+    message = _plan_error(tmp_path, flow_settings=given)
+    assert f"in {COMMAND_LINE}" in message, message
+    assert "in the command line (fpga.part)" not in message, message
+
+
+def test_a_conflict_in_the_api_layer_still_names_the_api(tmp_path):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(tmp_path / "labels", display_results=False)
+    with pytest.raises(FlowSettingsException) as raised:
+        runner.resolve(
+            _Place,
+            design,
+            {},
+            api_overrides={"__place": {"fpga": OTHER_PART}, "__synth": {"fpga": PART}},
+        )
+    assert "in the API" in str(raised.value) and "command line" not in str(raised.value)
+
+
+def test_a_conflict_on_the_command_line_names_the_command_line_and_flow_settings(tmp_path):
+    path = tmp_path / "design.yaml"
+    path.write_text(yaml.safe_dump({"name": "d", "rtl": {"sources": [], "top": "t"}}))
+    arguments = ["run", "__place", str(path), "--dry-run", "--json"]
+    for item in DISAGREEING_ITEMS:
+        arguments += ["-s", item]
+    result = CliRunner().invoke(cli, arguments)
+    document = json.loads(result.stdout)
+    assert result.exit_code != 0 and document["success"] is False, document
+    assert f"in {COMMAND_LINE}" in document["error"]["message"], document
+
+
+@pytest.mark.parametrize(
+    "given",
+    [{"inputs": {"made": "__input_maker.made"}}, ["inputs.made=__input_maker.made"]],
+    ids=["mapping", "items"],
+)
+def test_a_binding_in_flow_settings_is_located_in_that_layer(tmp_path, given):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
+        _Taker, design, flow_settings=given
+    )
+    (made,) = (i for i in plan.node("__taker").inputs if i.name == "made")
+    assert made.binding_origin == "cli"
+    assert made.binding_location == f"{COMMAND_LINE}: flows.__taker.inputs.made"
+    assert "(`-s` or `flow_settings`)" in made.describe(), made.describe()
+
+
+def test_a_binding_in_flow_overrides_is_still_located_in_the_api(tmp_path):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    plan = DefaultRunner(tmp_path / "bindings", display_results=False).plan(
+        _Taker, design, flow_overrides={"inputs.made": "__input_maker.made"}
+    )
+    (made,) = (i for i in plan.node("__taker").inputs if i.name == "made")
+    assert (made.binding_origin, made.binding_location) == (
+        "api",
+        "the API: flows.__taker.inputs.made",
+    )
+
+
+def test_one_constant_names_each_origin():
+    """Every message takes the label of an origin from `settings_layers`
+    (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`): no other module spells it
+    out."""
+    source = Path(__file__).parent.parent / "src" / "xeda"
+    spelled = [
+        f"{path.relative_to(source)}:{number}"
+        for path in sorted(source.rglob("*.py"))
+        if path.name != "settings_layers.py"
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if re.search(r"""["']the (command line|API|supplied (API )?flow sections)["']""", line)
+    ]
+    assert not spelled, f"spell an origin as a constant of settings_layers: {spelled}"

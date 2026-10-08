@@ -67,7 +67,9 @@ precedence:
 3. the design file's ``flows.<flow_name>`` section
 4. the selected target's ``flows.<flow_name>`` section, if you chose a target with ``--target``
    (see :ref:`targets`)
-5. the command line, via ``-s``/``--settings``
+5. the command line, via ``-s``/``--settings``. The ``flow_settings`` argument of ``run()`` and
+   ``plan()`` is this same layer, so messages name it "the command line (``-s``) or
+   ``flow_settings``".
 6. the API, via ``flow_overrides``
 
 They merge key by key: ``-s clock.freq=100MHz`` changes that one setting of a ``clock`` section
@@ -378,8 +380,9 @@ error, even when they are equal and before either is checked:
 
 .. code-block:: text
 
-    The chain position 1 (yosys_fpga) -> 2 (nextpnr) binds input 'netlist'; the command line:
-    flows.nextpnr.inputs.netlist also binds that input. Give the binding in one place, even when equal.
+    The chain position 1 (yosys_fpga) -> 2 (nextpnr) binds input 'netlist'; the command line (`-s`)
+    or `flow_settings`: flows.nextpnr.inputs.netlist also binds that input. Give the binding in one
+    place, even when equal.
 
 A project file given with ``--xedaproject project.yaml`` holds the same ``flows.<flow>.inputs``
 sections, below the design's:
