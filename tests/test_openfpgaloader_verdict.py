@@ -435,9 +435,135 @@ def test_every_sign_names_the_place_in_the_loader_s_source_that_prints_it():
     assert not set(FAILURE_PREFIXES) & set(FAILURE_ENDINGS)
 
 
+#: The sentences of the message about a flash that was not written; each is a line of it.
+NORMAL_MARKER = (
+    "A finished flash write ends with the progress bar `Writing: [...] 100.00%` and, on the next "
+    "line, `Done`."
+)
+QUIET_MARKER = (
+    "This run uses quiet progress bars, so a finished flash write prints the line `Writing: Done`."
+)
+NONE_OF_ONE_FINISHED = (
+    "This run writes 1 flash chip, so the log has to show 1 finished write. It shows 0."
+)
+TWO_CHIPS_ONE_FINISHED = (
+    "This run writes 2 flash chips, so the log has to show 2 finished writes. It shows 1."
+)
+NO_WRITING_LINE = "The log has no `Writing` line."
+BAR_WITHOUT_DONE = "The log has a `Writing` bar at 100.00% that `Done` does not follow at once."
+STOPPED_BEFORE = (
+    "The loader can stop before it writes, and print nothing, when the flash stays locked after "
+    "its unlock (a flash of the SST26VF family does this). A release after 1.1.1 can also print "
+    "the write in another way."
+)
+STOPPED_DURING = (
+    "The loader stopped during the write, or a release after 1.1.1 prints the end of a write in "
+    "another way."
+)
+BEGUN = "start addr: 00000000, end_addr: 00010000\n"
+BAR_AT_100 = f"\rWriting: [{FULL}] 100.00%\n"
+BAR_AT_50 = f"\rWriting: [{HALF}] 50.00%\n"
+
+#: A log, the keywords for `loader_failure`, and the lines that the message has and lacks.
+UNWRITTEN_FLASH_MESSAGES = {
+    "normal-none-found": (
+        FLASH_LOCKED,
+        {"flash_writes": 1},
+        [NORMAL_MARKER, NONE_OF_ONE_FINISHED, NO_WRITING_LINE, STOPPED_BEFORE],
+        [QUIET_MARKER, STOPPED_DURING, BAR_WITHOUT_DONE],
+    ),
+    "quiet-none-found": (
+        FLASH_LOCKED,
+        {"flash_writes": 1, "quiet": True},
+        [QUIET_MARKER, NONE_OF_ONE_FINISHED, NO_WRITING_LINE, STOPPED_BEFORE],
+        [NORMAL_MARKER, STOPPED_DURING, BAR_WITHOUT_DONE],
+    ),
+    "a-bar-at-100-without-done": (
+        FLASH_FOUND + BEGUN + BAR_AT_100,
+        {"flash_writes": 1},
+        [NORMAL_MARKER, NONE_OF_ONE_FINISHED, BAR_WITHOUT_DONE, STOPPED_DURING],
+        [QUIET_MARKER, NO_WRITING_LINE, STOPPED_BEFORE],
+    ),
+    "a-bar-that-stops-at-half": (
+        FLASH_FOUND + BEGUN + BAR_AT_50,
+        {"flash_writes": 1},
+        [
+            NORMAL_MARKER,
+            NONE_OF_ONE_FINISHED,
+            f"The log ends its `Writing` lines at `Writing: [{HALF}] 50.00%`, and `Done` does "
+            "not follow it.",
+            STOPPED_DURING,
+        ],
+        [NO_WRITING_LINE, BAR_WITHOUT_DONE, STOPPED_BEFORE],
+    ),
+    "quiet-bars-without-done": (
+        FLASH_FOUND + BEGUN + "Writing: \n",
+        {"flash_writes": 1, "quiet": True},
+        [
+            QUIET_MARKER,
+            NONE_OF_ONE_FINISHED,
+            "The log ends its `Writing` lines at `Writing:`, and `Done` does not follow it.",
+            STOPPED_DURING,
+        ],
+        [NORMAL_MARKER, NO_WRITING_LINE, STOPPED_BEFORE],
+    ),
+    "one-of-two-chips": (
+        FLASH_FOUND + FLASH_BARS_1_1_1_PIPE,
+        {"flash_writes": 2},
+        [
+            "openFPGALoader exited with status 0, but it did not report that it wrote both "
+            "flash chips.",
+            NORMAL_MARKER,
+            TWO_CHIPS_ONE_FINISHED,
+            "The log has no `Writing` line after the last finished write.",
+            STOPPED_BEFORE,
+        ],
+        [NONE_OF_ONE_FINISHED, STOPPED_DURING],
+    ),
+    "one-of-two-chips-and-a-bar-without-done": (
+        FLASH_FOUND + FLASH_BARS_1_1_1_PIPE + BEGUN + BAR_AT_100,
+        {"flash_writes": 2},
+        [TWO_CHIPS_ONE_FINISHED, BAR_WITHOUT_DONE, STOPPED_DURING],
+        [NO_WRITING_LINE, STOPPED_BEFORE],
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "log,keywords,has,lacks",
+    UNWRITTEN_FLASH_MESSAGES.values(),
+    ids=UNWRITTEN_FLASH_MESSAGES,
+)
+def test_the_message_of_a_flash_that_was_not_written_says_what_the_run_needs_and_what_the_log_holds(
+    log, keywords, has, lacks
+):
+    """The marker is the one of the run's verbosity, the counts are the run's and the log's, and
+    the cause fits what the log holds: a log with no `Writing` line is a loader that stopped before
+    it wrote, a log with one is a write that did not end."""
+    failure = loader_failure(log, **keywords)
+    assert failure is not None
+    lines = failure.message().splitlines()
+    for sentence in has:
+        assert sentence in lines, sentence
+    for sentence in lacks:
+        assert sentence not in lines, sentence
+    assert "The flash may hold its old data, or only part of the file." in lines
+    assert any(line.startswith("Set `verify: true` as well.") for line in lines)
+    last = [line.strip() for line in log.replace("\r", "\n").splitlines() if line.strip()]
+    assert failure.evidence == tuple(last[-3:])  # where the output ends, as the loader printed it
+
+
 @pytest.mark.parametrize("form", FINISHED_FLASH_WRITES.values(), ids=FINISHED_FLASH_WRITES)
 def test_a_flash_write_the_loader_reports_finished_meets_the_requirement(form):
     assert loader_failure(FLASH_FOUND + form, flash_writes=1) is None
+
+
+def test_an_update_at_100_before_done_does_not_hide_the_end_of_the_write():
+    """A large image can show 100.00% in an update (`%3.2f` rounds 99.996), and `done()` prints the
+    bar again: the first bar is not followed by `Done`, the second is."""
+    log = FLASH_FOUND + BEGUN + BAR_AT_100 + BAR_AT_100 + "\nDone\n"
+    assert loader_failure(log, flash_writes=1) is None
+    assert loader_failure(log, flash_writes=2) is not None
 
 
 def test_a_flash_that_stays_locked_is_no_finished_write():
@@ -487,8 +613,7 @@ def test_a_flash_write_of_two_chips_needs_two_finished_writes():
     assert loader_failure(one + FLASH_BARS_1_1_1_PIPE, flash_writes=2) is None
     failure = loader_failure(one, flash_writes=2)
     assert failure is not None
-    assert "has to write 2 flash chips" in failure.message()
-    assert "shows 1 finished write" in failure.message()
+    assert TWO_CHIPS_ONE_FINISHED in failure.message().splitlines()
 
 
 def test_a_sign_of_failure_leads_and_the_missing_report_is_not_added_to_it():
@@ -872,6 +997,27 @@ def test_a_xilinx_flash_write_that_stops_before_writing_fails_although_the_loade
     assert ("--verify" in call["argv"]) is verify
 
 
+@pytest.mark.parametrize(
+    "more,marker",
+    [
+        ({}, NORMAL_MARKER),
+        ({"verbose_level": -1}, QUIET_MARKER),
+        ({"extra_args": ["--quiet"]}, QUIET_MARKER),
+    ],
+    ids=["normal", "verbose_level-1", "quiet-option"],
+)
+def test_the_error_of_a_flash_that_was_not_written_names_the_marker_of_the_runs_verbosity(
+    tmp_path, fake_loader, monkeypatch, more, marker
+):
+    printing(monkeypatch, stdout=FLASH_LOCKED)
+    flow = program(tmp_path, xilinx_flash(**more))
+    assert not flow.succeeded
+    lines = recorded(tmp_path)["error"]["message"].splitlines()
+    assert marker in lines and NONE_OF_ONE_FINISHED in lines and NO_WRITING_LINE in lines
+    assert (QUIET_MARKER in lines) is (marker == QUIET_MARKER)
+    assert (NORMAL_MARKER in lines) is (marker == NORMAL_MARKER)
+
+
 def test_a_report_is_required_of_a_xilinx_flash_write_only(tmp_path, fake_loader, monkeypatch):
     """The log of a loader that stopped, from an SRAM load of a Xilinx board and from a flash write
     of an ECP5 board: the first has no flash to write, and the loader of the second throws when a
@@ -894,7 +1040,7 @@ def test_a_xilinx_flash_write_of_two_chips_is_reported_for_each(tmp_path, fake_l
     printing(monkeypatch, stdout=FLASH_FOUND + FLASH_BARS_1_1_1_PIPE)
     flow = program(tmp_path, both)
     assert not flow.succeeded
-    assert "has to write 2 flash chips" in recorded(tmp_path)["error"]["message"]
+    assert TWO_CHIPS_ONE_FINISHED in recorded(tmp_path)["error"]["message"].splitlines()
     (call,) = _calls(tmp_path, "openfpgaloader")
     assert call["argv"] == [
         "--bitstream",

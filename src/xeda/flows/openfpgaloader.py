@@ -88,8 +88,9 @@ def _loader_part(fpga: FPGA) -> str:
 # which the split into lines drops. The BPI flash writer of v1.1.0 and later uses the same label
 # (bpiFlash.cpp:449). The loader never sets a locale, so the point of `100.00%` is the same
 # everywhere. A later release that prints another bar fails every Xilinx flash write, loudly: the
-# run says what it looked for and where the log is. `SPIInterface::write` verifies only after a
-# write that succeeded (`if (_spif_verify && ret)`, spiInterface.cpp:219; v0.13.1: 192), so
+# run says what it looked for, what the log holds and where it is (`NEWEST_CHECKED_OPENFPGALOADER`
+# is the newest release checked: raise it with this comment). `SPIInterface::write` verifies only
+# after a write that succeeded (`if (_spif_verify && ret)`, spiInterface.cpp:219; v0.13.1: 192), so
 # `verify` does not report a write that stopped.
 
 #: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
@@ -244,6 +245,9 @@ def _reported_failures(lines: list[str]) -> list[str]:
     return list(dict.fromkeys(reported))
 
 
+#: The newest release of openFPGALoader whose output the verdict was checked against; a later
+#: release can print what a flash write has to report in another way.
+NEWEST_CHECKED_OPENFPGALOADER = (1, 1, 1)
 #: The progress bar of a flash write at its end (progressBar.cpp:21-51); `done()` follows it with
 #: a line `Done`. With quiet bars (`verbose_level: -1`) `done()` prints `Done` after `Writing: `.
 _WRITE_BAR_AT_ITS_END = re.compile(r"Writing: \[=+\] 100\.00%")
@@ -252,36 +256,71 @@ _WRITE_DONE_QUIET = re.compile(r"(?:^|\s)Writing: Done$")
 MAX_LAST_LINES = 3
 
 
-def _finished_flash_writes(lines: list[str]) -> int:
+def _finished_flash_writes(lines: list[str]) -> tuple[int, int]:
     """How many flash writes the lines report as finished: a `Writing` bar at its end that `Done`
-    follows at once, or `Writing: Done` (see the comment above)."""
+    follows at once, or `Writing: Done` (see the comment above). Also the index of the line after
+    the last of them, 0 when there is none."""
     finished = 0
+    after = 0
     for index, line in enumerate(lines):
         if _WRITE_DONE_QUIET.search(line):
-            finished += 1
+            finished, after = finished + 1, index + 1
         elif _WRITE_BAR_AT_ITS_END.fullmatch(line) and lines[index + 1 : index + 2] == ["Done"]:
-            finished += 1
-    return finished
+            finished, after = finished + 1, index + 2
+    return finished, after
 
 
-def _unwritten_flash(lines: list[str], finished: int, expected: int, verify: bool) -> LoaderFailure:
-    """The failure of a flash write that the output does not report as finished: the sentences and
-    the end of the output, which shows where the loader stopped."""
-    ends = "a progress bar `Writing: [...] 100.00%` and the word `Done`"
-    sentences = [
-        "openFPGALoader exited with status 0, but it did not report that it wrote the flash."
-    ]
-    if expected == 1:
-        sentences.append(f"A flash write ends with {ends}. The log has no such lines.")
-    else:
-        sentences.append(
-            f"It has to write {expected} flash chips, and each write ends with {ends}. "
-            f"The log shows {finished} finished write{'' if finished == 1 else 's'}."
+def _unwritten_flash(
+    lines: list[str], finished: int, after: int, expected: int, *, verify: bool, quiet: bool
+) -> LoaderFailure:
+    """The failure of a flash write that the output does not report as finished. The sentences say
+    what this run needs (the line of its verbosity, the writes of its flash chips) and what the log
+    holds after the last finished write; the lines quoted are the end of the output, which shows
+    where the loader stopped."""
+    newest = ".".join(str(part) for part in NEWEST_CHECKED_OPENFPGALOADER)
+    plural = "" if expected == 1 else "s"
+    if quiet:
+        marker = (
+            "This run uses quiet progress bars, so a finished flash write prints the line "
+            "`Writing: Done`."
         )
-    sentences.append(
-        "The loader can stop before it writes, and print nothing, when the flash stays locked "
-        "after its unlock. A flash of the SST26VF family does this."
-    )
+    else:
+        marker = (
+            "A finished flash write ends with the progress bar `Writing: [...] 100.00%` and, on "
+            "the next line, `Done`."
+        )
+    sentences = [
+        "openFPGALoader exited with status 0, but it did not report that it wrote "
+        + ("the flash." if expected == 1 else "both flash chips."),
+        marker,
+        f"This run writes {expected} flash chip{plural}, so the log has to show {expected} "
+        f"finished write{plural}. It shows {finished}.",
+    ]
+    # what the log holds after the last finished write, and the cause that fits it
+    writing = [line for line in lines[after:] if line.startswith("Writing:")]
+    if not writing:
+        sentences.append(
+            "The log has no `Writing` line" + (" after the last finished write." if after else ".")
+        )
+        sentences.append(
+            "The loader can stop before it writes, and print nothing, when the flash stays locked "
+            f"after its unlock (a flash of the SST26VF family does this). A release after {newest} "
+            "can also print the write in another way."
+        )
+    else:
+        last = writing[-1]
+        if _WRITE_BAR_AT_ITS_END.fullmatch(last):
+            sentences.append(
+                "The log has a `Writing` bar at 100.00% that `Done` does not follow at once."
+            )
+        else:
+            sentences.append(
+                f"The log ends its `Writing` lines at `{last}`, and `Done` does not follow it."
+            )
+        sentences.append(
+            "The loader stopped during the write, or a release after "
+            f"{newest} prints the end of a write in another way."
+        )
     sentences.append("The flash may hold its old data, or only part of the file.")
     if not verify:
         sentences.append(
@@ -301,20 +340,22 @@ def loader_failure(
     *,
     flash_writes: int = 0,
     verify: bool = False,
+    quiet: bool = False,
 ) -> Optional[LoaderFailure]:
     """The failure that the output `text` of the loader shows (see above), or None if it shows
     none. `target`, when known, names the board or part that the flow is set up to program.
     `flash_writes` is the number of flash writes that the loader has to report as finished (a
-    flash write on a Xilinx FPGA: one for each flash chip), and `verify` tells whether it was
-    asked to read the flash back."""
+    flash write on a Xilinx FPGA: one for each flash chip), `verify` tells whether it was asked to
+    read the flash back, and `quiet` whether it was asked for quiet progress bars: the message
+    names the line that a finished write prints in that case."""
     lines = _output_lines(text)
     sentences, evidence = _unfinished_load(lines, target)
     reported = [line for line in _reported_failures(lines) if line not in evidence]
     if not sentences and not reported:
-        finished = _finished_flash_writes(lines)
+        finished, after = _finished_flash_writes(lines)
         if finished >= flash_writes:
             return None
-        return _unwritten_flash(lines, finished, flash_writes, verify)
+        return _unwritten_flash(lines, finished, after, flash_writes, verify=verify, quiet=quiet)
     if not sentences:
         sentences = ["openFPGALoader exited with status 0, but it reported a failure."]
     if any(_NO_PART_FOR_THE_BRIDGE in line for line in reported):
@@ -542,6 +583,12 @@ class Openfpgaloader(FpgaSynthFlow):
             return 0
         return 2 if ss.target_flash == "both" else 1
 
+    def _quiet_bars(self) -> bool:
+        """Whether the loader prints quiet progress bars (no bar, only `Done`): with
+        `verbose_level: -1`, or with its own `--quiet` among the extra arguments."""
+        assert isinstance(self.settings, self.Settings)
+        return self.settings.verbose_level == -1 or "--quiet" in self.settings.extra_args
+
     def parse_reports(self) -> bool:
         """The verdict: a nonzero exit status failed the run already (`run()` raised it). A run
         also fails when this run's log shows a failure (`loader_failure`), or when there is no log
@@ -567,6 +614,7 @@ class Openfpgaloader(FpgaSynthFlow):
                 target=self._target(),
                 flash_writes=self._flash_writes(),
                 verify=self.settings.verify,
+                quiet=self._quiet_bars(),
             )
         if failure is None:
             return True

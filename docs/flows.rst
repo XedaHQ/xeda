@@ -727,10 +727,12 @@ with a progress bar and the word ``Done``:
    Writing: [==================================================] 100.00%
    Done
 
-With ``verbose_level: -1`` the loader prints ``Writing: Done`` instead. Xeda looks for these lines
-once for each flash chip it writes (twice with ``target_flash: both``). It checked the loader's
-source from 0.13.1 to 1.1.1 for them. A later release that prints another bar fails every Xilinx
-flash write: the error says what Xeda looked for, so read the log. ``verify: true`` makes the
+With ``verbose_level: -1`` (or ``--quiet`` in ``extra_args``) the loader prints ``Writing: Done``
+instead. Xeda looks for these lines once for each flash chip it writes (twice with ``target_flash:
+both``). It checked the loader's source from 0.13.1 to 1.1.1 for them. A later release that prints
+another bar fails every Xilinx flash write. The error names the line that this run needs, how many
+finished writes it needs and how many the log shows, and what the log holds after the last one, so
+read the log. ``verify: true`` makes the
 loader read the flash back after a write that finished, and it prints ``Verification failed at``
 and an address if the flash holds other data than the file. The loader does not read the flash
 back when the write stopped, so the lines above are the only check for that.
