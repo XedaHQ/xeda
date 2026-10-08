@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
@@ -243,6 +243,13 @@ class Tool(XedaBaseModel):
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
+    #: Whether the tool wants a terminal to write to when xeda's output is one, for its colors and
+    #: a progress bar that it redraws in place (`run_process(terminal=...)`). It gets one only
+    #: if colors are wanted too (`console_colors`) and it runs here, not in a container.
+    pseudo_terminal: ClassVar[bool] = False
+    #: Why the tool needs `minimum_version`, for the message about an older one: the user sees
+    #: what that release lacks, and not only that xeda refuses it.
+    minimum_version_reason: ClassVar[str] = ""
 
     design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
     flow_settings_: Optional[Flow.Settings] = Field(
@@ -300,14 +307,7 @@ class Tool(XedaBaseModel):
                 else:
                     self.docker = Docker(image=flow.settings.docker)  # type: ignore
 
-        if self.minimum_version and not self.version_gte(*self.minimum_version):
-            log.error(
-                "%s version %s is required. Found version: %s",
-                self.executable,
-                ".".join(str(i) for i in self.minimum_version),
-                self.version_str,
-            )
-            raise ToolException("Minimum version not met")
+        self.require_minimum_version()
         if flow is not None:
             if self.info not in flow.results.tools:
                 flow.results.tools.append(self.info)
@@ -349,6 +349,22 @@ class Tool(XedaBaseModel):
         except Exception:  # noqa: BLE001 - version metadata must not prevent a tool run
             version = None
         return {"executable": self.executable, "version": version}
+
+    def require_minimum_version(self) -> None:
+        """Raise a `ToolException` that names the version found and the version needed, if the
+        tool is older than `minimum_version`. A version that could not be read is not compared
+        (`_version_is_gte`). `derive` copies a model and runs no constructor, so a flow that
+        derives a tool with a floor asks for this check itself."""
+        if not self.minimum_version or self.version_gte(*self.minimum_version):
+            return
+        needed = ".".join(str(part) for part in self.minimum_version)
+        message = (
+            f"Minimum version not met: {self.executable} {self.version_str} was found. "
+            f"Xeda needs {needed} or newer."
+        )
+        if self.minimum_version_reason:
+            message += f" {self.minimum_version_reason}"
+        raise ToolException(message)
 
     def _get_version_output(self, *version_flags) -> Optional[str]:
         if self.version_flag is None:
@@ -555,6 +571,7 @@ class Tool(XedaBaseModel):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                terminal=self.pseudo_terminal and self.console_colors,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")

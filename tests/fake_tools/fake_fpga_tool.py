@@ -7,6 +7,12 @@ partial, no-output, malformed-report, fail, or signal; DELAY is seconds before o
 Only version/help probes bypass input validation and call recording. openFPGALoader answers
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
+It rejects an option it does not have (`LOADER_OPTIONS`, the table of v1.1.1), as the real parser does.
+XEDA_FAKE_FPGA_LOADER_VERSION replaces the line it prints for `-V` (an empty one: no version).
+When it programs, openFPGALoader prints XEDA_FAKE_FPGA_LOADER_STDOUT on stdout and
+XEDA_FAKE_FPGA_LOADER_STDERR on stderr (nothing, by default) and exits with the status in
+XEDA_FAKE_FPGA_LOADER_STATUS (0, by default): the real one exits with status 0 after several
+failures and tells them in its output.
 """
 
 import argparse
@@ -25,6 +31,86 @@ BITSTREAM = b"\x00\xffXEDA bitstream\x00"
 LOADER_VERSION = "openFPGALoader v1.0.0"
 #: ... and for `--version`, which it does not have (the message is the real one's).
 LOADER_NO_VERSION_OPTION = "Error parsing options: Option 'version' does not exist"
+#: The options of openFPGALoader v1.1.1 (src/main.cpp:895-1022), each with whether it takes a value.
+#: The real parser (cxxopts) rejects any other option with the message of `loader_option_error`,
+#: and the loader then exits with status 1.
+LOADER_OPTIONS = {
+    "altsetting": True,
+    "bitstream": True,
+    "secondary-bitstream": True,
+    "board": True,
+    "bridge": True,
+    "cable": True,
+    "status-pin": True,
+    "invert-read-edge": False,
+    "vid": True,
+    "pid": True,
+    "cable-index": True,
+    "busdev-num": True,
+    "ftdi-serial": True,
+    "ftdi-channel": True,
+    "device": True,
+    "detect": False,
+    "dfu": False,
+    "dump-flash": False,
+    "bulk-erase": False,
+    "enable-quad": False,
+    "disable-quad": False,
+    "target-flash": True,
+    "external-flash": False,
+    "file-size": True,
+    "file-type": True,
+    "flash-sector": True,
+    "fpga-part": True,
+    "freq": True,
+    "write-flash": False,
+    "index-chain": True,
+    "misc-device": True,
+    "ip": True,
+    "list-boards": False,
+    "list-cables": False,
+    "list-fpga": False,
+    "write-sram": False,
+    "offset": True,
+    "pins": True,
+    "probe-firmware": True,
+    "protect-flash": True,
+    "quiet": False,
+    "reset": False,
+    "scan-usb": False,
+    "skip-load-bridge": False,
+    "skip-reset": False,
+    "spi": False,
+    "unprotect-flash": False,
+    "verbose": False,
+    "verbose-level": True,
+    "help": False,
+    "verify": False,
+    "xvc": False,
+    "port": True,
+    "mcufw": True,
+    "conmcu": False,
+    "read-dna": False,
+    "read-xadc": False,
+    "read-register": True,
+    "user-flash": True,
+    "Version": False,
+}
+LOADER_SHORT_OPTIONS = {
+    "b": "board",
+    "B": "bridge",
+    "c": "cable",
+    "d": "device",
+    "f": "write-flash",
+    "m": "write-sram",
+    "o": "offset",
+    "r": "reset",
+    "v": "verbose",
+    "h": "help",
+    "D": "read-dna",
+    "X": "read-xadc",
+    "V": "Version",
+}
 NETLIST = {"creator": "fake yosys", "modules": {"top": {"ports": {}, "cells": {}}}}
 VALUE_OPTIONS = {
     "json",
@@ -75,7 +161,7 @@ VALUE_OPTIONS = {
     "fpga-part",
     "offset",
     "cable-index",
-    "usb-serial-num",
+    "ftdi-serial",
     "index-chain",
     "file-type",
     "target-flash",
@@ -131,6 +217,9 @@ def record(tool, args, inputs, contents, seed=1):
         "inputs": list(map(str, inputs)),
         "input_bytes": list(map(len, contents)),
         "seed": seed,
+        # whether the tool was given a terminal, as a person's shell gives one
+        "stdout_is_terminal": os.isatty(1),
+        "stderr_is_terminal": os.isatty(2),
     }
     with open("fake_fpga.calls.jsonl", "a", encoding="utf-8") as stream:
         stream.write(json.dumps(call) + "\n")
@@ -264,6 +353,37 @@ def strict_getopt(args):
     return flags, []
 
 
+def loader_option_error(args):
+    """What the real loader's option parser says about the first option it does not know (a
+    long name, or a letter of a short form), or None if it knows them all."""
+    pending = iter(args)
+    for arg in pending:
+        if arg == "--":
+            return None
+        if arg.startswith("--"):
+            name, has_value, _ = arg[2:].partition("=")
+            if name not in LOADER_OPTIONS:
+                return f"Error parsing options: Option '{name}' does not exist"
+            if LOADER_OPTIONS[name] and not has_value and next(pending, None) is None:
+                return f"Error parsing options: Option '{name}' requires an argument"
+        elif arg.startswith("-") and len(arg) > 1:
+            for index, letter in enumerate(arg[1:], 1):
+                if letter not in LOADER_SHORT_OPTIONS:
+                    return f"Error parsing options: Option '{letter}' does not exist"
+                takes_value = LOADER_OPTIONS[LOADER_SHORT_OPTIONS[letter]]
+                if takes_value and index == len(arg) - 1 and next(pending, None) is None:
+                    return f"Error parsing options: Option '{letter}' requires an argument"
+    return None
+
+
+def loader_output():
+    """What the loader prints once it has read its bitstream, and the status it exits with."""
+    for stream, name in ((sys.stdout, "STDOUT"), (sys.stderr, "STDERR")):
+        stream.write(os.environ.get(f"XEDA_FAKE_FPGA_LOADER_{name}", ""))
+        stream.flush()
+    return int(os.environ.get("XEDA_FAKE_FPGA_LOADER_STATUS", "0"))
+
+
 def pack_or_load(tool, args):
     opts, positional = options(args)
     if tool == "icepack":
@@ -295,7 +415,9 @@ def pack_or_load(tool, args):
                 "No such file or directory"
             )
     mode = record(tool, args, paths, contents)
-    if mode == "no-output" or tool == "openFPGALoader":
+    if tool == "openFPGALoader":
+        return loader_output()
+    if mode == "no-output":
         return 0
     output = b"\x00\xffpartial" if mode == "partial" else BITSTREAM
     if tool == "fpga-as":
@@ -420,10 +542,14 @@ def main():
     probe_args = [arg for arg in args if arg not in ("-T", "-Q")]
     if tool == "openFPGALoader":
         if probe_args in (["-V"], ["--Version"]):
-            print(LOADER_VERSION)
+            print(os.environ.get("XEDA_FAKE_FPGA_LOADER_VERSION", LOADER_VERSION))
             return 0
         if probe_args == ["--version"]:
             print(LOADER_NO_VERSION_OPTION, file=sys.stderr)
+            return 1
+        error = loader_option_error(args)
+        if error:
+            print(error, file=sys.stderr)
             return 1
     if probe_args in (["--version"], ["-V"], ["--help"], ["-h"]):
         if tool.startswith("nextpnr-"):

@@ -338,7 +338,8 @@ to a flow that finished without raising, and the top-level document of such a fl
 
 * ``ReportedFailure`` -- ``"`<flow>` reported failure: its reports or checks did not pass"`` --
   a failure that a non-throwing ``parse_reports()`` or ``check_results()`` reported: the tool
-  exited 0 and the reports or checks the flow reads say otherwise.
+  exited 0 and the reports or checks the flow reads say otherwise. A flow can give a message of
+  its own: ``openfpgaloader`` says what its loader reported and quotes the lines.
 * ``MissingOutput`` -- the flow passed its own checks, but an enabled declared output is absent,
   unreadable, outside the run directory or not written by this run (see ``outputs`` above).
 

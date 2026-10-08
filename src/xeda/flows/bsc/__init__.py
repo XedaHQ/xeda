@@ -32,7 +32,7 @@ from .sim_evidence import (
     verilator_evidence,
     xsim_evidence,
 )
-from ...tool import Docker, Tool, ToolException
+from ...tool import Docker, Tool
 from ...utils import replacing_copy, replacing_file, tcl_word, unique
 
 log = logging.getLogger(__name__)
@@ -1626,9 +1626,7 @@ class BscSim(BscFlow, SimFlow):
             minimum_version=MIN_VERILATOR_VERSION,
         )
         # derive copies a model; it does not run Tool's constructor/version check.
-        if not tool.version_gte(*MIN_VERILATOR_VERSION):
-            log.error("Verilator %s is required; found %s", MIN_VERILATOR_VERSION, tool.version_str)
-            raise ToolException("Minimum version not met")
+        tool.require_minimum_version()
         return tool
 
     def _build_verilator_hooks(self) -> list[str]:

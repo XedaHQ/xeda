@@ -53,6 +53,7 @@ READERS = {
     "dc",
     "diamond_synth",
     "ise_synth",
+    "openfpgaloader",
     "quartus",
     "vivado_alt_synth",
     "vivado_project",

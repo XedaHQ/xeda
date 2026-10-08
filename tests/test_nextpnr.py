@@ -740,6 +740,10 @@ def test_openfpgaloader_synthesis_keeps_src_like_nextpnr(tmp_path, monkeypatch, 
     """Through `fpga_pack` and `nextpnr`: the synthesis is still the one nextpnr places."""
     from xeda.flows.openfpgaloader import Openfpgaloader
 
+    from .tool_utils import use_fake_fpga_tools
+
+    # the programmer is prepared first and asks the loader for its version: the fake answers
+    use_fake_fpga_tools(monkeypatch, tmp_path / "toolchain")
     settings = _yosys_launch_settings(tmp_path, monkeypatch, Openfpgaloader, flows)
     assert settings.netlist_src_attrs is keeps_src
 

@@ -310,7 +310,8 @@ fresh `trace.json`, on success, once `_report` has returned).
 failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
 the dependency and its `results.json`). A flow that fails with no exception and no tool exit
 status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "ReportedFailure"`
-and a message from `_execute` (never overwriting a real error), so a depender quotes something.
+and a message from `_execute` (a flow may set its own message first, as `openfpgaloader` does; a
+real error is never overwritten), so a depender quotes something.
 The two names are two roles, not one thing spelled twice (neither is an exception class; both are
 strings in JSON documents): `FlowFailed` is the *verdict* at the top of the `--json` document of
 `xeda run` when the requested flow itself ran without raising and did not succeed (a raised
@@ -772,9 +773,26 @@ A dockerized tool runs with `--security-opt label=disable` and every mount exact
 `:z`), so xeda never relabels the user's files; a mount that wants relabeling says so in its own
 `Docker.mounts` value.
 
+**A tool that wants a terminal asks for one** (`Tool.pseudo_terminal`, a class constant, true for
+`OpenfpgaloaderTool` only). Through a pipe such a tool prints no colors, and its progress bar, drawn
+with `\r`, becomes a line for each update with a blank line between (`run_process` reads the pipe
+in universal-newline mode, where a lone `\r` ends a line; changing that for every tool would put
+`\r` into every log). `run_process(terminal=True)` -- passed by `Tool.execute` when the tool asks
+and `console_colors` is on, native runs only -- gives the child a pseudo-terminal (`os.openpty`)
+in place of the pipe, but only when there is a `tee` log and xeda's own output is a terminal
+(`_stdout_terminal_fd`): in a pipe, a file, CI, `--json` captured by an agent, nothing changes.
+`_run_in_terminal` copies the bytes as they arrive to `tool_output_stream()` (colors, in-place
+redraws), and to the `tee` log without escape sequences, one line per redraw, no empty lines; the
+time limit, the stop hook and the exit status are those of the pipe, and `highlight_rules` do not
+apply. The loader's verdict reads the log, so it is the same either way
+(`tests/test_proc_utils_terminal.py`, with real pseudo-terminals).
+
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
-`flow.results.tools`. Subclass `Tool` to pin an executable, a default `Docker` image, `minimum_version`,
+`flow.results.tools`. Subclass `Tool` to pin an executable, a default `Docker` image, `minimum_version`
+(`Tool.require_minimum_version` raises a `ToolException` that names the version found and the one
+needed, with `minimum_version_reason` when the subclass gives one; `derive` runs no constructor, so
+a flow that derives a tool with a floor calls it),
 and `highlight_rules` (regex -> ANSI, used to colorize tool output) - see `VivadoTool`. Use
 `tool.derive("other_exe")` to spawn a sibling executable from the same image/config. **A query
 about the tool itself (its version) goes through `Tool.probe_stdout`**, which runs it in a
@@ -1878,6 +1896,52 @@ dependency must also share `custom_boards_file`.
   answers both starts and never touches it, while the same query against the sentinel or any other
   loader fails the test like the programming call would (no sentinel answers `-V`: a loader
   reached without the fake is the `PATH` that would program on the next call).
+- **A programmer run passes only if the loader's output shows no failure.** openFPGALoader (read
+  at v1.1.1) exits 0 after most failures: Xilinx `program_mem` prints the readback `ir: ... done 0`
+  and a status-register dump and returns, an unreadable bitstream prints `FAIL` and returns, a flash
+  write ignores `SPIInterface::write`'s result; Lattice throws (status 1); Gowin and iCE40 print
+  `FAIL`/`Fail` and return. So `Openfpgaloader.parse_reports` judges this run's `openfpgaloader.log`
+  (`report_file`: a log this run did not write, or none, fails) with the pure
+  `loader_failure(text, target)`, after `_output_lines` drops escape codes and carriage returns: DONE
+  low (the register's ID and CRC error fields give the cause), a line ending `FAIL`/`Fail`, and the
+  messages of the paths whose result the loader ignores (`program_spi`, the CPLD and PROM
+  programmers): a line starting with a key of `FAILURE_PREFIXES` (`Error: `, `Can't program `,
+  `FAIL: `, `Verification failed at `) or ending with a key of `FAILURE_ENDINGS` (`Read ID failed`,
+  `flash overflow`, `wait: Error`, ...; an end, since a terminal's progress bar has no line end and
+  the next message is glued to it). A table value is the file:line of v1.1.1 that prints it, and
+  `tests/test_openfpgaloader_verdict.py` sweeps both tables, so a new sign is one entry with its
+  citation. `Can't program ... missing device-package information` (a board the loader lists
+  without a part, such as `kc705`, with `write_flash`) adds sentences that say to set `cable`; a
+  board name still gives no `--fpga-part`. The verdict requires **one success marker, of a Xilinx
+  flash write only** (`Openfpgaloader._flash_writes`: `write_flash` on a Xilinx `fpga`, two writes
+  with `target_flash: both`): the `Writing` bar at its end followed by `Done`, or `Writing: Done`
+  with quiet bars (`_finished_flash_writes`). The loader can stop before it writes and say nothing
+  (`SPIFlash::global_unlock` of an SST26VF that stays locked, spiFlash.cpp:1212-1215), and `verify`
+  does not report that, since `SPIInterface::write` verifies only after a write that succeeded. The
+  module's comment holds the citations and why the bar is the same from v0.13.1 to v1.1.1; the
+  tests' bytes come from a program that links the loader's `progressBar.cpp` and `display.cpp` of
+  the tag and nothing else (no loader), to a pipe and to a terminal. A later release that prints
+  another bar fails every such write, which is the point; the error (`_unwritten_flash`) is built
+  from the run (the line of its verbosity, `verbose_level: -1` or `--quiet` giving `Writing: Done`;
+  the writes it needs) and from the log (the writes found; what follows the last one). Nothing else
+  needs a marker (other families print other words, and a required marker would fail good runs), so
+  a failure without one of these signs passes; a nonzero exit keeps its `NonZeroExitCode`. The
+  loader must be 0.13.1 or newer (`MIN_OPENFPGALOADER_VERSION`: the first release with the DONE
+  readback that says so in `-V`; the tag v0.13.0 has the readback and prints 0.12.1, as its
+  CMakeLists names that version): `OpenfpgaloaderTool.minimum_version`, checked by `Tool.__init__`
+  from the `-V` query, when `Openfpgaloader.init` makes the tool, so a loader that is too old is
+  refused before any producer runs (a plan or dry run starts no loader); the fake loader's
+  `XEDA_FAKE_FPGA_LOADER_VERSION` sets what `-V` prints. The failure is the node's `ReportedFailure`
+  with the flow's own message in plain sentences and the quoted lines. The file:line citations are
+  in the tables and the module's comment: add a sign to a table with its citation and a log in
+  `tests/test_openfpgaloader_verdict.py`. The fake loader prints
+  `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`, and
+  rejects an option outside `LOADER_OPTIONS` (the v1.1.1 table, from `src/main.cpp`) as the real
+  parser does: a new loader setting needs its option in that table, and
+  `test_every_setting_of_the_loader_is_an_option_the_loader_has` sets every setting at once;
+  `tests/resources/openfpgaloader/*.txt` are real v1.1.1 logs (a failed Basys 3 load, a good Arty
+  load; `.log` is git-ignored). `tests/test_openfpgaloader_verdict.py` also sweeps that every flow
+  with an `action_reason` judges its tool's output (`unjudged_actions`).
 - **A change that a user can see adds a changelog fragment; nobody edits `CHANGELOG.md`'s
   `[Unreleased]` section**, so no two pull requests touch the same lines. One file per entry,
   `changelog.d/<slug>.<type>.md`: `<slug>` is kebab-case (the pull request number is not known

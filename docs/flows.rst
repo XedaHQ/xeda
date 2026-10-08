@@ -676,7 +676,72 @@ own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no 
 from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader detects
 the device. Programming the flash needs the device, so ``write_flash`` is refused before anything
 runs when neither ``fpga`` nor a board gives it. What the loader printed is in
-``openfpgaloader.log`` in its run directory.
+``openfpgaloader.log`` in its run directory. In a terminal, Xeda runs the loader with a terminal
+of its own, as you would run it by hand: its colors work, and its progress bar is redrawn in
+place. The log has the same text without the escape codes, with one line for each redraw. Without
+a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
+line for each update of the bar.
+
+Xeda needs openFPGALoader 0.13.1 or newer. It asks the loader for its version (``-V``) before any
+flow of the chain runs, so an older loader fails the launch at once, before Xeda builds anything.
+The error has the version it found and the version it needs. The loader prints the DONE state of a
+Xilinx FPGA only since release 0.13.0, so with an older one a load that left DONE low would pass.
+Release 0.13.0 prints its version as 0.12.1, so Xeda cannot tell it from the older releases and
+refuses it too.
+
+The run fails when the loader exits with a nonzero status. It also fails when the log shows that
+the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
+failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of
+the log that show it. Xeda looks for these signs:
+
+* DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1
+  isc_done 0 isc_ena 0 init 1 done 0`` and then the status register of the FPGA. If the register
+  reports an ID error, the bitstream is for another device than the one on the cable: check the
+  board. The loader uses the first cable that matches, so with several boards of the same kind
+  connected it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
+  number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
+  damaged or incomplete.
+* A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
+* An error message that the loader prints before it ends with status 0. A flash write that fails
+  does this: the loader prints why and exits with status 0. Xeda knows the lines that start with
+  ``Error:``, ``Can't program``, ``FAIL:`` or ``Verification failed at``, and the lines that end
+  with ``Read ID failed``, ``Failed to read flash``, ``flash overflow``, ``disable protection
+  failed``, ``wait: Error`` or ``write en: Error``. They show that the flash does not answer, is
+  write-protected, is too small, does not accept the data, or holds other data than the file.
+* A flash write for which the loader knows no part. The loader names the bridge that writes a flash
+  after the part of the FPGA. With ``--board``, it takes the part from its own list of boards, and
+  that list gives some boards no part (``kc705`` is one). The loader then prints ``Can't program SPI
+  flash: missing device-package information``, writes nothing and exits with status 0. Set
+  ``cable`` as well (``digilent`` for ``kc705``; ``openFPGALoader --list-boards`` shows the cable
+  of each board, and ``Undefined`` where the part is missing): the flow then gives the loader the
+  part from ``fpga`` (``--fpga-part``) in place of the board's name.
+
+A flash write on a Xilinx FPGA must also say that it finished, and Xeda fails the run when it does
+not. The loader can stop before it writes without any message, and exit with status 0: a flash of
+the SST26VF family that stays locked after the loader unlocked it does this. The flash then holds
+its old data, or only part of the file when a write stopped half way. A write that finished ends
+with a progress bar and the word ``Done``:
+
+.. code-block:: text
+
+   Writing: [==================================================] 100.00%
+   Done
+
+With ``verbose_level: -1`` (or ``--quiet`` in ``extra_args``) the loader prints ``Writing: Done``
+instead. Xeda looks for these lines once for each flash chip it writes (twice with ``target_flash:
+both``). It checked the loader's source from 0.13.1 to 1.1.1 for them. A later release that prints
+another bar fails every Xilinx flash write. The error names the line that this run needs, how many
+finished writes it needs and how many the log shows, and what the log holds after the last one, so
+read the log. ``verify: true`` makes the
+loader read the flash back after a write that finished, and it prints ``Verification failed at``
+and an address if the flash holds other data than the file. The loader does not read the flash
+back when the write stopped, so the lines above are the only check for that.
+
+Xeda requires no other sign of success, because the other families and versions print other words
+or nothing. A load that fails in another way, with status 0 and none of these signs, passes: read
+the log. A run without a log of its own fails, because it leaves no evidence that the device was
+programmed. A Lattice load needs no sign in the log, because the loader exits with a nonzero
+status when it fails. An SRAM load needs none either.
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads

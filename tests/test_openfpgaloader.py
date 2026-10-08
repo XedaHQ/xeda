@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.board import WithFpgaBoardSettings
 from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
@@ -94,11 +95,11 @@ def test_the_loader_takes_one_bitstream_and_declares_no_output():
     assert not {"nextpnr", "packer_args", "bitstream_file", "bitstream"} & fields
 
 
-def test_the_loader_always_runs_because_it_programs(tmp_path):
+def test_the_loader_always_runs_because_it_programs(tmp_path, fake_loader):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
     flow = Openfpgaloader(Openfpgaloader.Settings(fpga=ECP5), design, tmp_path / "loader")
     assert flow.always_runs() == "it programs a device"
-    flow.init()
+    flow.init()  # makes the loader's tool: asks the (fake) loader for its version
     assert not hasattr(flow, "packer")
 
 
@@ -125,13 +126,97 @@ def test_the_loader_records_its_version_in_the_results(tmp_path, fake_loader):
     assert results["tools"] == expected
 
 
-def test_the_loader_is_asked_for_its_version_with_a_capital_v():
-    """openFPGALoader v1.1.1 lists `-V, --Version` and rejects `--version`. Pinned without
-    starting anything: a tool made outside a flow queries nothing until its version is read."""
+def test_the_loader_is_asked_for_its_version_with_a_capital_v(fake_loader):
+    """openFPGALoader v1.1.1 lists `-V, --Version` and rejects `--version`. A tool with a
+    minimum version asks for it when it is made, so this runs on the fake, which answers `-V`
+    as the real one does."""
     tool = OpenfpgaloaderTool()
     assert (tool.executable, tool.version_flag) == ("openFPGALoader", ["-V"])
+    assert tool.version == ("1", "0", "0")  # what the fake prints for `-V`
     # the one line a real v1.1.1 prints for it
     assert tool.process_version_output("openFPGALoader v1.1.1\n") == ("1", "1", "1")
+
+
+def test_the_loader_needs_release_0_13_1_or_newer():
+    """The DONE state of a Xilinx FPGA is printed only since release 0.13.0 (0.12.1 has no such
+    line): with an older loader, a load that left DONE low would look like any other. The tag
+    v0.13.0 names its version 0.12.1 (its CMakeLists), so `-V` cannot tell it from the release
+    before it; 0.13.1 is the first to name itself."""
+    from xeda.flows.openfpgaloader import MIN_OPENFPGALOADER_VERSION
+
+    assert MIN_OPENFPGALOADER_VERSION == (0, 13, 1)
+    # read from the model: making the tool would start the loader to ask for its version
+    assert OpenfpgaloaderTool.model_fields["minimum_version"].default == MIN_OPENFPGALOADER_VERSION
+
+
+@pytest.mark.parametrize("version", ["v0.13.1", "v0.13.2", "v0.14.0", "v1.0.0", "v1.1.1"])
+def test_a_loader_of_the_minimum_release_or_newer_programs(
+    tmp_path, fake_loader, monkeypatch, version
+):
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
+    assert _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}).succeeded
+    assert len(_calls(tmp_path, "openfpgaloader")) == 1
+
+
+#: What `-V` prints for each: a real 0.13.0 announces itself as `v0.12.1`, so its row is the one
+#: of 0.12.1 (the row for `v0.13.0` stands for a loader built from a tree that names it so).
+OLDER_LOADERS = ["v0.13.0", "v0.12.1", "v0.12.0", "v0.9.0", "v0.3.0"]
+
+
+@pytest.mark.parametrize("version", OLDER_LOADERS)
+def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_both_versions(
+    tmp_path, fake_loader, monkeypatch, version
+):
+    """The version comes from the loader's `-V` (the only start that is no programming call)."""
+    from xeda.tool import ToolException
+
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
+    with pytest.raises(ToolException) as raised:
+        _runner(tmp_path).run("openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5})
+    message = str(raised.value)
+    assert message.startswith("Minimum version not met: openFPGALoader ")
+    assert f"{version.removeprefix('v')} was found" in message
+    assert "Xeda needs 0.13.1 or newer" in message
+    assert "whether a Xilinx FPGA finished its configuration" in message  # why
+    # a user whose loader is release 0.13.0, which prints 0.12.1, is told why it is refused too
+    assert "Release 0.13.0 does, but it prints 0.12.1 as its version" in message
+    assert not _calls(tmp_path, "openfpgaloader")  # the loader was never started to program
+    results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
+    assert results["success"] is False and results["error"]["type"] == "ToolException"
+    assert results["error"]["message"] == message
+
+
+def test_an_older_loader_is_refused_before_any_producer_runs(tmp_path, fake_loader, monkeypatch):
+    """The loader is asked for its version when the flow is prepared (`init`), which comes before
+    the producers: neither synthesis, placement nor packing runs for a launch that is refused."""
+    from xeda.tool import ToolException
+
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", "openFPGALoader v0.12.1")
+    assert_fake_loader()
+    with pytest.raises(ToolException, match="Xeda needs 0.13.1 or newer"):
+        _runner(tmp_path).run("openfpgaloader", _design(tmp_path), flow_settings={"fpga": ECP5})
+    # only the loader's own directory was made, with the failure in it
+    assert [p.name for p in (tmp_path / "run/top").iterdir() if p.is_dir()] == ["openfpgaloader"]
+    for built in ("yosys_fpga", "nextpnr", "fpga_pack"):
+        assert not _calls(tmp_path, built), f"{built} ran"
+    results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
+    assert results["success"] is False and results["error"]["type"] == "ToolException"
+
+
+def test_planning_never_starts_the_loader(tmp_path, programmer_guard):
+    """A plan (and so a dry run) constructs no flow, so it needs no loader on `PATH`: with the
+    sentinel as the only `openFPGALoader`, nothing starts it."""
+    assert shutil.which("openFPGALoader") == str(programmer_guard.sentinel)
+    plan = _runner(tmp_path).plan(Openfpgaloader, _design(tmp_path), flow_settings={"fpga": ECP5})
+    assert [n.name for n in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader"]
+    assert not programmer_guard.reached()
+
+
+def test_a_loader_whose_version_cannot_be_read_is_not_compared(tmp_path, fake_loader, monkeypatch):
+    """The rule of every tool (`Tool._version_is_gte`): a version that could not be read is not
+    compared. Every release since 0.3 prints `openFPGALoader v<version>` for `-V`."""
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", "")
+    assert _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}).succeeded
 
 
 def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):
@@ -295,6 +380,98 @@ def test_flash_and_verify_are_openfpgaloader_s_own_flags(tmp_path, fake_loader):
         "--scan-usb",
     ]
     assert "--flash" not in call["argv"]
+
+
+#: Every setting of the flow that has a loader option of its own, each set to a value the loader
+#: accepts together with the others: the command line the flow builds from all of them.
+ALL_LOADER_SETTINGS = {
+    "reset": True,
+    "cable": "ft2232",
+    "write_flash": True,
+    "verify": True,
+    "freq": 6000000,
+    "offset": 4096,
+    "cable_index": 1,
+    "usb_serial_num": "FT123456",
+    "index_chain": 0,
+    "file_type": "bit",
+    "target_flash": "primary",
+    "skip_reset": True,
+    "skip_load_bridge": True,
+    "verbose_level": 1,
+    "extra_args": ["--scan-usb"],
+}
+
+
+def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_loader):
+    """The fake rejects an option that openFPGALoader v1.1.1 does not have, as the real parser
+    does (`fake_fpga_tool.LOADER_OPTIONS`, from the loader's `src/main.cpp`): so a setting passed
+    under a name that the loader does not know fails here, not on a board. `usb_serial_num` was
+    passed as `--usb-serial-num`; the option is `--ftdi-serial`."""
+    own = set(Openfpgaloader.Settings.model_fields) - set(WithFpgaBoardSettings.model_fields)
+    assert own == set(ALL_LOADER_SETTINGS), "a setting of the loader that this table lacks"
+    flow = _program(
+        tmp_path, _prebuilt(tmp_path), {"fpga": ECP5, "verbose": 1, **ALL_LOADER_SETTINGS}
+    )
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--cable",
+        "ft2232",
+        "--fpga-part",
+        ECP5,
+        "--reset",
+        "--write-flash",
+        "--verify",
+        "--skip-reset",
+        "--skip-load-bridge",
+        "--verbose",
+        "--freq",
+        "6000000",
+        "--offset",
+        "4096",
+        "--cable-index",
+        "1",
+        "--ftdi-serial",
+        "FT123456",
+        "--index-chain",
+        "0",
+        "--file-type",
+        "bit",
+        "--target-flash",
+        "primary",
+        "--verbose-level",
+        "1",
+        "--scan-usb",
+    ]
+
+
+@pytest.mark.parametrize(
+    "argument,message",
+    [
+        (["--usb-serial-num", "FT123456"], "Option 'usb-serial-num' does not exist"),
+        (["--no-such-option"], "Option 'no-such-option' does not exist"),
+        (["-Z"], "Option 'Z' does not exist"),
+        (["--cable"], "Option 'cable' requires an argument"),
+    ],
+)
+def test_the_fake_loader_rejects_what_the_real_option_parser_rejects(
+    tmp_path, fake_loader, monkeypatch, argument, message
+):
+    """The oracle above is only as good as the fake: it fails an option the loader does not have,
+    with the loader's message (a `printError`) and status 1 (`parse_opt` returns -1)."""
+    flow = _runner(tmp_path).run(
+        "openfpgaloader",
+        _prebuilt(tmp_path),
+        flow_settings={"fpga": ECP5, "extra_args": argument},
+    )
+    assert flow is not None and not flow.succeeded
+    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    log = (tmp_path / "run/top/openfpgaloader/openfpgaloader.log").read_text()
+    assert f"Error parsing options: {message}" in log
+    assert not _calls(tmp_path, "openfpgaloader")  # it stopped before it read the bitstream
 
 
 def test_a_ulx3s_is_programmed_by_its_board_name(tmp_path, fake_loader):
