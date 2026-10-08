@@ -70,10 +70,11 @@ def _loader_part(fpga: FPGA) -> str:
 #   `std::cout` write to stdout (display.cpp:23-65). The flow merges the two into one log.
 #
 # The verdict looks for signs of failure and requires no sign of success. The loader is at least
-# v0.13.0 (`MIN_OPENFPGALOADER_VERSION`), the first release that prints the readback of the DONE
-# signal. The other families print other words or nothing, so a required marker would fail good
-# runs of other families and of releases that change a line. A load that fails without one of the
-# signs below passes. Its whole output is in the log in the run directory.
+# release 0.13.1 (`MIN_OPENFPGALOADER_VERSION`), the first one that prints the readback of the
+# DONE signal and says so in its version. The other families print other words or nothing, so a
+# required marker would fail good runs of other families and of releases that change a line. A
+# load that fails without one of the signs below passes. Its whole output is in the log in the
+# run directory.
 
 #: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
 _DONE_READBACK = re.compile(
@@ -252,10 +253,12 @@ def loader_failure(text: str, target: Optional[str] = None) -> Optional[LoaderFa
 
 
 #: The first release of openFPGALoader that prints the state of a Xilinx FPGA after a load
-#: (`done` of the readback, and the status register with `done 0`): v0.12.0 has no such line, so
-#: with an older loader a load that left DONE low would pass. Every release since v0.3 prints
-#: `openFPGALoader v<version>` for `-V`, which `Tool` reads.
-MIN_OPENFPGALOADER_VERSION = (0, 13, 0)
+#: (`done` of the readback, and the status register with `done 0`) and says so in its version:
+#: v0.12.1 has no such line, so with an older loader a load that left DONE low would pass. The
+#: tag v0.13.0 has the line, but its CMakeLists still names the version 0.12.1 (`-V` prints
+#: `v${PROJECT_VERSION}`), so `-V` cannot tell it from the release before it. v0.13.1 names
+#: itself. Every release since v0.3 prints `openFPGALoader v<version>` for `-V`, which `Tool` reads.
+MIN_OPENFPGALOADER_VERSION = (0, 13, 1)
 
 
 class OpenfpgaloaderTool(Tool):
@@ -275,7 +278,8 @@ class OpenfpgaloaderTool(Tool):
 
     pseudo_terminal: ClassVar[bool] = True
     minimum_version_reason: ClassVar[str] = (
-        "Older loaders do not report whether a Xilinx FPGA finished its configuration."
+        "Older loaders do not report whether a Xilinx FPGA finished its configuration. "
+        "Release 0.13.0 does, but it prints 0.12.1 as its version, so Xeda cannot tell it apart."
     )
     minimum_version: Optional[Tuple[Union[int, str], ...]] = MIN_OPENFPGALOADER_VERSION
     executable: str = "openFPGALoader"
@@ -312,12 +316,12 @@ class Openfpgaloader(FpgaSynthFlow):
     known: a Xilinx part without its speed grade, any other as it is. Without a part,
     openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The
     loader's output is kept in `openfpgaloader.log` in the run directory. It needs openFPGALoader
-    0.13.0 or newer, and refuses an older loader before it programs. The run fails when the
-    loader exits with a nonzero status, and also when its output shows that the device was not
-    programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error
-    the FPGA reports), a step that printed FAIL, or an error message, such as a flash that does
-    not answer. The flow always runs, since it changes a device rather than a file, and it is the
-    only flow here that touches hardware.
+    0.13.1 or newer, and refuses an older loader before it builds or programs anything. The run
+    fails when the loader exits with a nonzero status, and also when its output shows that the
+    device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID
+    or CRC error the FPGA reports), a step that printed FAIL, or an error message, such as a flash
+    that does not answer. The flow always runs, since it changes a device rather than a file, and
+    it is the only flow here that touches hardware.
     """
 
     #: the device only to program the flash (`required_settings_for`)
@@ -329,6 +333,9 @@ class Openfpgaloader(FpgaSynthFlow):
     # This flow reports no results beyond the keys every flow reports; declaring this
     # explicitly keeps `xeda list-results` from guessing.
     results_description: dict = {}
+
+    #: The loader's tool, made in `init()`.
+    loader: OpenfpgaloaderTool
 
     class Settings(WithFpgaBoardSettings):
         removed_settings = {
@@ -421,6 +428,15 @@ class Openfpgaloader(FpgaSynthFlow):
             return {"fpga": FLASH_NEEDS_THE_DEVICE}
         return {}
 
+    def init(self) -> None:
+        """Make the loader's tool, which asks the program for its version, before any producer
+        runs: a loader that is too old (`MIN_OPENFPGALOADER_VERSION`) is refused here, so neither
+        synthesis, placement nor packing runs first. The query touches no device. The tool is made
+        in the flow, so it takes the flow's settings and is listed in the results with the
+        version it reports."""
+        super().init()
+        self.loader = OpenfpgaloaderTool()
+
     def always_runs(self) -> Optional[str]:
         return super().always_runs() or self.action_reason
 
@@ -507,9 +523,6 @@ class Openfpgaloader(FpgaSynthFlow):
             if value is not None:
                 args.extend([option, str(value)])
         args.extend(ss.extra_args)
-        # made here, in the flow, so it takes the flow's settings and is listed in the results,
-        # with the version it reports: the loader is started twice, once to ask for its version
-        # and once to program. Its output goes to the log, made anew before the loader starts.
-        OpenfpgaloaderTool().run(
-            *args, tee=self.run_directory.writable(LOADER_LOG), merge_stderr=True
-        )
+        # the loader is started twice: `init` asked it for its version, and this program call
+        # follows. Its output goes to the log, made anew before the loader starts.
+        self.loader.run(*args, tee=self.run_directory.writable(LOADER_LOG), merge_stderr=True)

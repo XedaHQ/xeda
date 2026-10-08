@@ -1916,9 +1916,11 @@ dependency must also share `custom_boards_file`.
   `SPIFlash::global_unlock` (SST26VF, spiFlash.cpp:1212-1215). The verdict requires **no success
   marker** (other families print other words, and a required marker would fail good runs), so a
   failure without one of these signs passes; a nonzero exit keeps its `NonZeroExitCode`. The loader
-  must be 0.13.0 or newer (`MIN_OPENFPGALOADER_VERSION`, the first release with the DONE readback):
-  `OpenfpgaloaderTool.minimum_version`, checked by `Tool.__init__` from the `-V` query, when the
-  flow makes the tool in `run()` (so after the producers; their runs are kept); the fake loader's
+  must be 0.13.1 or newer (`MIN_OPENFPGALOADER_VERSION`: the first release with the DONE readback
+  that says so in `-V`; the tag v0.13.0 has the readback and prints 0.12.1, as its CMakeLists names
+  that version): `OpenfpgaloaderTool.minimum_version`, checked by `Tool.__init__` from the `-V`
+  query, when `Openfpgaloader.init` makes the tool, so a loader that is too old is refused before
+  any producer runs (a plan or dry run starts no loader); the fake loader's
   `XEDA_FAKE_FPGA_LOADER_VERSION` sets what `-V` prints. The failure is the node's `ReportedFailure`
   with the flow's own message in plain sentences and the quoted lines. The file:line citations are
   in the tables and the module's comment: add a sign to a table with its citation and a log in

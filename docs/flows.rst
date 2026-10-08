@@ -682,10 +682,12 @@ place. The log has the same text without the escape codes, with one line for eac
 a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
 line for each update of the bar.
 
-Xeda needs openFPGALoader 0.13.0 or newer. It asks the loader for its version (``-V``) when it is
-about to program, and an older loader fails the run, with the version it found and the version it
-needs in the error. The loader prints the DONE state of a Xilinx FPGA only since 0.13.0, so with an
-older one a load that left DONE low would pass.
+Xeda needs openFPGALoader 0.13.1 or newer. It asks the loader for its version (``-V``) before any
+flow of the chain runs, so an older loader fails the launch at once, before Xeda builds anything.
+The error has the version it found and the version it needs. The loader prints the DONE state of a
+Xilinx FPGA only since release 0.13.0, so with an older one a load that left DONE low would pass.
+Release 0.13.0 prints its version as 0.12.1, so Xeda cannot tell it from the older releases and
+refuses it too.
 
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
