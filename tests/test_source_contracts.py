@@ -106,7 +106,7 @@ EXPECTED_READS = {
     "ghdl_synth": "Vhdl",
     "nvc": "Vhdl",
     "modelsim": "Verilog SystemVerilog Vhdl",
-    "vcs": "Verilog SystemVerilog Vhdl",
+    "vcs": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader",
     "vivado_sim": "Verilog SystemVerilog Vhdl",
     "vivado_postsynth_sim": "Verilog SystemVerilog Vhdl",
     "bsc": "Bluespec Verilog SystemVerilog",
@@ -438,9 +438,19 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
     tmp_path, monkeypatch
 ):
     """`vivado_power` and `vivado_postsynth_sim` take their inputs from `vivado_synth`, every one
-    by default: no one source replaces it, so the refusal suggests none."""
+    by default: no one source replaces it, so the refusal suggests none. The design has a
+    testbench, which `vivado_postsynth_sim` reads, so the synthesis is what is refused."""
     monkeypatch.chdir(tmp_path)
-    design = _edif_only(tmp_path / "design")
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "top.edf").write_text("(edif top)\n")
+    (root / "tb.v").write_text("module tb; endmodule\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["top.edf"], "top": "top"},
+        tb={"sources": ["tb.v"], "top": "tb"},
+    )
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
             "vivado_power", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 10.0}
@@ -717,6 +727,14 @@ HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
 REVIEWED_DIRECT_READS: dict[str, str] = {
     "xeda.flows.vivado.vivado_synth:constraint_files: sources": "the Xdc and Sdc sources, "
     "which both flows that call it (`vivado_synth`, `vivado_alt_synth`) declare",
+    "xeda.flows.bsc:BscSim._tb_top: sources": "whether the design has a testbench at all, which "
+    "decides the module simulated",
+    "xeda.flows.bsc:BscSim.run: sources": "which of the Bluespec sources `sources_read` selected "
+    "are the testbench's, to find the package of its top",
+    "xeda.flows.yosys.cxx_rtl:YosysSim.run: sources": "whether the testbench is VHDL, which "
+    "decides the unit GHDL elaborates",
+    "xeda.flows.ghdl:GhdlSynth.synth_args: sources_of_type": "the VHDL sources of a one-shot "
+    "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
 }
 
 TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
