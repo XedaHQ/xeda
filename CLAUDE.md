@@ -1090,7 +1090,9 @@ content hash; `PlanContext.design_hash` is empty and the plan is never registere
 judged early, so judged after generation as before: an untyped pattern or a Git dependency
 (`DeferredLoad.complete` false: either can add sources, a top or a testbench), and a declared
 design that fails to load (another generated file named as a `file`) -- a failure after the load
-(`_request` named the design) is the request's own and is raised. A plan still refuses to
+(`_request` named the design) is the request's own and is raised, complete or not (it reads only
+the design's name, target and `flows`). A project's design chooser is asked once
+(`_choosing_once`: the second load takes the first answer by name). A plan still refuses to
 generate, after the declared checks. `tests/test_checks_before_generation.py` counts generator
 runs on every path.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no

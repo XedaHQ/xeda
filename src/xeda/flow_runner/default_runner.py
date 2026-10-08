@@ -767,6 +767,25 @@ def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
     return None
 
 
+def _choosing_once(
+    select: Callable[[XedaProject, Any, str | None], Design | None],
+) -> Callable[[XedaProject, Any, str | None], Design | None]:
+    """`select`, the chooser of a project's design, asked once however many times the request is
+    loaded (`FlowLauncher._judged_request` loads a design twice when it would generate): the
+    later loads take the design chosen first, by its name, loaded anew."""
+    chosen: list[str] = []
+
+    def choose(project: XedaProject, name: Any, target: str | None) -> Design | None:
+        if chosen:
+            return project.get_design(chosen[0], target)
+        selected = select(project, name, target)
+        if selected is not None:
+            chosen.append(selected.name)
+        return selected
+
+    return choose
+
+
 def _refuse_outputs_to_a_programmer(
     plan: Plan, node: PlanNode, outputs_to: Path, *, remote: bool = False
 ) -> None:
@@ -2481,6 +2500,8 @@ class FlowLauncher:
         load and its plan judge it, as they always did."""
         if design_overrides is not None and not isinstance(design_overrides, dict):
             design_overrides = list(design_overrides)  # read by both loads
+        if select_design_in_project is not None:
+            select_design_in_project = _choosing_once(select_design_in_project)
         arguments = (
             flow,
             design,
@@ -2497,12 +2518,14 @@ class FlowLauncher:
             try:
                 declared = self._request(*arguments, target=target)
             except Exception:
-                # `_request` names the design once it has loaded it: what fails after that is
-                # the request's own refusal, which the full load would make too
-                loaded = self.design_name is not None
-                if not deferred.deferred or (loaded and deferred.complete):
+                # `_request` names the design once it has loaded it. What fails after that is
+                # the request's own refusal, which the full load makes too: it reads the
+                # design's name, target and `flows` sections, which no deferred work changes.
+                if not deferred.deferred or self.design_name is not None:
                     raise
-                log.debug("Not judged before %s: %s", deferred.deferred[0], "loading failed")
+                log.debug(
+                    "The design does not load before %s: judged after it", *deferred.deferred[:1]
+                )
         if not deferred.deferred:
             assert declared is not None
             return declared, self._resolve_request(declared)

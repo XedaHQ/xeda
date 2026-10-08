@@ -326,3 +326,32 @@ def test_a_load_with_nothing_to_defer_is_a_full_load(tmp_path):
         design = Design(name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
     assert not deferred.deferred and deferred.complete
     assert design == Design(name="d", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
+
+
+def test_a_project_s_design_is_chosen_once(tmp_path, monkeypatch):
+    """A design chosen from a project (the command line's menu) is asked for once, though the
+    design is loaded twice: before its generator runs, and in full."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.v"])
+    spec = json.loads(generated.file.read_text())
+    spec["design_root"] = str(generated.root)
+    other = {"name": "other", "design_root": str(generated.root), "rtl": {"sources": ["gen.py"]}}
+    project = tmp_path / "xedaproject.json"
+    project.write_text(json.dumps({"designs": [spec, other]}))
+    asked = []
+
+    def select(project, name, target):
+        asked.append(name)
+        return project.get_design("generated", target)
+
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(
+        "vivado_synth",
+        xedaproject=str(project),
+        flow_settings=dict(XILINX),
+        select_design_in_project=select,
+    )
+    assert flow is not None and flow.succeeded
+    assert asked == [None]
+    assert generated.runs == 1
