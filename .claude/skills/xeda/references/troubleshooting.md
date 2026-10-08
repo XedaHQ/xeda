@@ -110,9 +110,11 @@ that raises is named by its exception class instead, and a failed producer is
 
 The cause, not the verdict: a node's `results.json` says `error.type = "ReportedFailure"` when its
 own reports or checks failed without an exception or a tool exit status (a tool that exited 0 and
-wrote no netlist, for instance; `openfpgaloader` when its log shows DONE low, `FAIL` or an `Error:`
-message, with the lines quoted in `error.message`: an ID error means the bitstream is for another
-device than the one on the cable, so check the board). A declared output that xeda finds missing
+wrote no netlist, for instance; `openfpgaloader` when its log shows DONE low, `FAIL`, an `Error:`
+message or another failed flash write, with the lines quoted in `error.message`: an ID error means
+the bitstream is for another device than the one on the cable, so check the board; `Can't program
+SPI flash: missing device-package information` means the loader's own list gives the board no
+part, so set `cable` as well). A declared output that xeda finds missing
 after the flow's own checks passed is `MissingOutput` instead. The names differ on purpose:
 `FlowFailed` is the top of the document, what happened to the request; `ReportedFailure` is inside
 a node, why it failed. Its consumers quote the message ("dependency yosys_fpga failed: ..."), and the

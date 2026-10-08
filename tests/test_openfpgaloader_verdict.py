@@ -14,6 +14,7 @@ and exits with the status the test gives.
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,11 +24,23 @@ from rich.console import Console
 
 from xeda import proc_utils
 from xeda.flow import Flow
-from xeda.flows.openfpgaloader import LOADER_LOG, loader_failure
+from xeda.flows.openfpgaloader import (
+    FAILURE_ENDINGS,
+    FAILURE_PREFIXES,
+    LOADER_LOG,
+    loader_failure,
+)
 
 from . import tool_utils
 from .settings_samples import flow_classes
-from .test_openfpgaloader import ECP5, _design, _prebuilt, _runner, assert_fake_loader
+from .test_openfpgaloader import (
+    ECP5,
+    _calls,
+    _design,
+    _prebuilt,
+    _runner,
+    assert_fake_loader,
+)
 from .test_proc_utils_terminal import Terminal
 
 RESOURCES = Path(__file__).parent / "resources/openfpgaloader"
@@ -149,6 +162,18 @@ Done
 Writing: [==================================================] 100.00%
 
 Done
+"""
+
+#: A flash write for a board that the loader lists without a part (`kc705`, board.hpp:197): the
+#: loader names the SPI bridge after the part, finds none, prints why and returns false, which
+#: `Xilinx::program_spi` ignores (xilinx.cpp:723, 849). The loader exits with status 0.
+FLASH_WITHOUT_A_PART = """\
+write to flash
+empty
+Jtag frequency : requested 10.00MHz   -> real 10.00MHz
+Open file DONE
+Parse file DONE
+Can't program SPI flash: missing device-package information
 """
 
 #: A load into an ECP5 (Lattice) that worked: the loader has no readback to print, and a failed
@@ -281,12 +306,82 @@ def test_a_status_word_fail_ends_the_line_of_every_failed_step(output, line):
         (FLASH_DOES_NOT_ANSWER, "Read ID failed"),
         ("start addr: 00000000, end_addr: 00010000\nwait: Error\n", "wait: Error"),
         ("write en: Error\n", "write en: Error"),
+        # in a terminal the progress bar has no line end, so the next message follows its percent
+        (
+            "\rWriting: [==        ] 40.00%write en: Error\n",
+            "Writing: [==        ] 40.00%write en: Error",
+        ),
+        # the flash write that `program_spi` ignores (xilinx.cpp:849): the bridge cannot be chosen
+        (FLASH_WITHOUT_A_PART, "Can't program SPI flash: missing device-package information"),
+        (
+            "Can't program BPI flash: missing device-package information\n",
+            "Can't program BPI flash: missing device-package information",
+        ),
+        # the image does not fit the chip; a block protection that stays; a register the loader
+        # does not know; a PDI load whose status says failed
+        ("Detected: winbond W25Q32 64 sectors size: 32Mb\nflash overflow\n", "flash overflow"),
+        ("unlock blocks\ndisable protection failed\n", "disable protection failed"),
+        ("Unknown Top/Bottom register\n", "Unknown Top/Bottom register"),
+        ("PDI programing failed\n", "PDI programing failed"),
+        # a failed verify prints `Fail`, then why; the cause is the line the user needs
+        ("Failed to read flash\n", "Failed to read flash"),
+        ("Verification failed at 4096\n", "Verification failed at 4096"),
+        # the direct SPI mode prints `FAIL: ` and what the exception holds (main.cpp:817)
+        ("Parse file DONE\nFAIL: flash write refused\n", "FAIL: flash write refused"),
+        # the CPLD and platform flash programmers of the same family
+        (
+            "Only jed file and flash mode supported for XC95 CPLD\n",
+            "Only jed file and flash mode supported for XC95 CPLD",
+        ),
+        ("flow erase failed\n", "flow erase failed"),
+        ("Erase: fails to verify blank check\n", "Erase: fails to verify blank check"),
     ],
 )
 def test_the_flash_failures_the_loader_prints_and_does_not_exit_with_are_failures(output, line):
     failure = loader_failure(output)
     assert failure is not None and line in failure.evidence
     assert "reported" in failure.message()
+
+
+@pytest.mark.parametrize("prefix", list(FAILURE_PREFIXES))
+def test_every_failure_prefix_is_a_sign_at_the_start_of_a_line_only(prefix):
+    """The sweep of the class: a prefix added to the table is judged here without a test of its
+    own. The same words inside a line are the text of something else."""
+    line = f"{prefix}some reason or address"
+    failure = loader_failure(f"Parse file DONE\n{line}\n")
+    assert failure is not None and line in failure.evidence
+    assert loader_failure(f"design_name: {line}\n") is None
+
+
+@pytest.mark.parametrize("message", list(FAILURE_ENDINGS))
+def test_every_failure_ending_is_a_sign_at_the_end_of_a_line(message):
+    """The message alone, after the label of a step that has no line end yet, and glued to the
+    percent of a progress bar that a terminal redraws."""
+    for line in (message, f"Erase Flash: {message}", f"Writing: [==    ] 40.00%{message}"):
+        failure = loader_failure(f"{line}\n")
+        assert failure is not None and line in failure.evidence, line
+    assert loader_failure(f"{message} is what the manual calls it\n") is None
+
+
+def test_every_sign_names_the_place_in_the_loader_s_source_that_prints_it():
+    place = re.compile(r"\b[a-zA-Z0-9]+\.cpp:\d+")
+    for table in (FAILURE_PREFIXES, FAILURE_ENDINGS):
+        for message, where in table.items():
+            assert place.search(where), f"{message!r} has no citation: {where!r}"
+    assert not set(FAILURE_PREFIXES) & set(FAILURE_ENDINGS)
+
+
+def test_a_failed_verify_quotes_the_address_that_follows_the_fail_line():
+    """`ProgressBar::fail` prints `Fail` (a bare word: the line before it is quoted for context),
+    and the address comes after it (spiFlash.cpp:586-591)."""
+    log = "Reading: [=====     ] 40.00%\n\nFail\nVerification failed at 4096\n"
+    failure = loader_failure(log)
+    assert failure is not None
+    assert failure.evidence == (
+        "Reading: [=====     ] 40.00%",
+        "Fail",
+        "Verification failed at 4096",
+    )
 
 
 @pytest.mark.parametrize(
@@ -300,6 +395,10 @@ def test_the_flash_failures_the_loader_prints_and_does_not_exit_with_are_failure
         # for information, nor an error code in a name
         "Use: /tmp/Fail\nuse /tmp/xFAIL\ndesign_name: myFail\nCRC Error       No CRC error\n",
         f"{DONE_HIGH}\nRegister raw value: 0x0\nID Error        No ID error\n",
+        # a message that starts a line is a sign; the same words inside a line, or a message
+        # that does not end the line, are the text of something else
+        "Use: /tmp/Can't program x\ndesign_name: FAIL: x\nnote: Verification failed at the end\n",
+        "the flash overflow check comes first\nRead ID failed is a message, not this line\n",
     ],
 )
 def test_a_log_without_a_sign_of_failure_passes(output):
@@ -525,6 +624,69 @@ def test_a_programmer_in_a_chain_fails_the_chain_with_its_message(
     for built in ("yosys_fpga", "nextpnr", "fpga_pack"):
         built_results = json.loads((tmp_path / f"run/top/{built}/results.json").read_text())
         assert built_results["success"] is True
+
+
+#: A custom board whose name in the loader (`kc705`) has no part in the loader's own list.
+KC705_BOARDS = """\
+[MY_KC705]
+openfpgaloader_board = "kc705"
+fpga.part = "xc7k325tffg676-2"
+"""
+
+
+def flash_settings(tmp_path, **more) -> dict:
+    """Settings that write the flash of the board above."""
+    boards = tmp_path / "design" / "boards.toml"
+    boards.parent.mkdir(exist_ok=True)
+    boards.write_text(KC705_BOARDS)
+    return {"board": "MY_KC705", "custom_boards_file": "boards.toml", "write_flash": True, **more}
+
+
+def test_a_flash_write_with_no_part_for_the_bridge_fails_and_says_how_to_give_one(
+    tmp_path, fake_loader, monkeypatch
+):
+    """`program_spi` ignores the failure of its bridge (xilinx.cpp:849), so the loader exits with
+    status 0 after writing nothing. The board name stays the whole of what the loader is told
+    about the device: a board name gives no part."""
+    head, _, line = FLASH_WITHOUT_A_PART.partition("Can't")
+    printing(monkeypatch, stdout=head, stderr="Can't" + line)
+    flow = program(tmp_path, flash_settings(tmp_path))
+    assert not flow.succeeded
+    error = recorded(tmp_path)["error"]
+    assert error["type"] == "ReportedFailure"
+    message = error["message"]
+    assert "exited with status 0" in message
+    assert "Can't program SPI flash: missing device-package information" in message
+    # why, and what to set: a cable, with which the flow gives the part in place of the name
+    assert "names after the part of the FPGA" in message
+    assert "`cable`" in message and "`--fpga-part`" in message
+    assert "`openFPGALoader --list-boards` shows the cable of each board" in message
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--board",
+        "kc705",
+        "--write-flash",
+    ]
+
+
+def test_a_cable_gives_the_flash_write_the_part_the_board_name_lacks(tmp_path, fake_loader):
+    """The advice of the message above: with a `cable` the flow passes no board name and gives the
+    part, without its speed grade, which names a bridge the loader ships
+    (`spiOverJtag_xc7k325tffg676.bit.gz`)."""
+    flow = program(tmp_path, flash_settings(tmp_path, cable="digilent"))
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--cable",
+        "digilent",
+        "--fpga-part",
+        "xc7k325tffg676",
+        "--write-flash",
+    ]
 
 
 def test_the_command_line_exits_with_1_and_the_message_in_the_json(tmp_path):

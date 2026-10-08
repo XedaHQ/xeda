@@ -1903,18 +1903,28 @@ dependency must also share `custom_boards_file`.
   `FAIL`/`Fail` and return. So `Openfpgaloader.parse_reports` judges this run's `openfpgaloader.log`
   (`report_file`: a log this run did not write, or none, fails) with the pure
   `loader_failure(text, target)`, after `_output_lines` drops escape codes and carriage returns: DONE
-  low (the register's ID and CRC error fields give the cause), a line ending `FAIL`/`Fail`, a line
-  starting `Error: `, `Read ID failed`, `wait: Error`, `write en: Error`. It requires **no success
+  low (the register's ID and CRC error fields give the cause), a line ending `FAIL`/`Fail`, and the
+  messages of the paths whose result the loader ignores (`program_spi`, the CPLD and PROM
+  programmers): a line starting with a key of `FAILURE_PREFIXES` (`Error: `, `Can't program `,
+  `FAIL: `, `Verification failed at `) or ending with a key of `FAILURE_ENDINGS` (`Read ID failed`,
+  `flash overflow`, `wait: Error`, ...; an end, since a terminal's progress bar has no line end and
+  the next message is glued to it). A table value is the file:line of v1.1.1 that prints it, and
+  `tests/test_openfpgaloader_verdict.py` sweeps both tables, so a new sign is one entry with its
+  citation. `Can't program ... missing device-package information` (a board the loader lists
+  without a part, such as `kc705`, with `write_flash`) adds sentences that say to set `cable`; a
+  board name still gives no `--fpga-part`. The one silent failure left is the last check of
+  `SPIFlash::global_unlock` (SST26VF, spiFlash.cpp:1212-1215). The verdict requires **no success
   marker** (other families print other words, and a required marker would fail good runs), so a
   failure without one of these signs passes; a nonzero exit keeps its `NonZeroExitCode`. The loader
   must be 0.13.0 or newer (`MIN_OPENFPGALOADER_VERSION`, the first release with the DONE readback):
   `OpenfpgaloaderTool.minimum_version`, checked by `Tool.__init__` from the `-V` query, when the
   flow makes the tool in `run()` (so after the producers; their runs are kept); the fake loader's
-  `XEDA_FAKE_FPGA_LOADER_VERSION` sets what `-V` prints. The failure is the node's `ReportedFailure` with the flow's own message in
-  plain sentences and the quoted lines. The file:line citations are in the module's comment: add a
-  sign there with its citation and a log in `tests/test_openfpgaloader_verdict.py`. The fake loader
-  prints `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`,
-  and rejects an option outside `LOADER_OPTIONS` (the v1.1.1 table, from `src/main.cpp`) as the real
+  `XEDA_FAKE_FPGA_LOADER_VERSION` sets what `-V` prints. The failure is the node's `ReportedFailure`
+  with the flow's own message in plain sentences and the quoted lines. The file:line citations are
+  in the tables and the module's comment: add a sign to a table with its citation and a log in
+  `tests/test_openfpgaloader_verdict.py`. The fake loader prints
+  `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`, and
+  rejects an option outside `LOADER_OPTIONS` (the v1.1.1 table, from `src/main.cpp`) as the real
   parser does: a new loader setting needs its option in that table, and
   `test_every_setting_of_the_loader_is_an_option_the_loader_has` sets every setting at once;
   `tests/resources/openfpgaloader/*.txt` are real v1.1.1 logs (a failed Basys 3 load, a good Arty

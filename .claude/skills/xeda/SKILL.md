@@ -190,8 +190,9 @@ It needs openFPGALoader 0.13.0 or newer (it asks `-V` before it programs and ref
 one). It fails on a nonzero exit, and also when `openfpgaloader.log` shows the device was not
 programmed although the loader exited 0 (v1.1.1 does that): DONE low after a Xilinx load
 (`ir: ... done 0`, with the ID or CRC error the FPGA reports), a step that printed `FAIL`, an
-`Error:` message. The error is `ReportedFailure`; it quotes the lines. A load that fails in
-another way passes: read the log.
+`Error:` message, a flash write that failed (`Read ID failed`, `Can't program SPI flash: missing
+device-package information`, `Verification failed at ...`). The error is `ReportedFailure`; it
+quotes the lines. A load that fails in another way passes: read the log.
 A `flows.open_xc7` section fails as the removed flow's own name does, naming the replacement.
 
 Put pin constraints in `rtl.sources` as typed `Lpf`, `Pcf`, `Pdc` or `Xdc` files. nextpnr

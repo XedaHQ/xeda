@@ -700,9 +700,19 @@ the log that show it. Xeda looks for these signs:
   number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
   damaged or incomplete.
 * A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
-* An error message that the loader prints before it ends with status 0: a line that starts with
-  ``Error:``, or ``Read ID failed``, ``wait: Error`` or ``write en: Error`` (a flash that does
-  not answer or does not accept the data).
+* An error message that the loader prints before it ends with status 0. A flash write that fails
+  does this: the loader prints why and exits with status 0. Xeda knows the lines that start with
+  ``Error:``, ``Can't program``, ``FAIL:`` or ``Verification failed at``, and the lines that end
+  with ``Read ID failed``, ``Failed to read flash``, ``flash overflow``, ``disable protection
+  failed``, ``wait: Error`` or ``write en: Error``. They show that the flash does not answer, is
+  write-protected, is too small, does not accept the data, or holds other data than the file.
+* A flash write for which the loader knows no part. The loader names the bridge that writes a flash
+  after the part of the FPGA. With ``--board``, it takes the part from its own list of boards, and
+  that list gives some boards no part (``kc705`` is one). The loader then prints ``Can't program SPI
+  flash: missing device-package information``, writes nothing and exits with status 0. Set
+  ``cable`` as well (``digilent`` for ``kc705``; ``openFPGALoader --list-boards`` shows the cable
+  of each board, and ``Undefined`` where the part is missing): the flow then gives the loader the
+  part from ``fpga`` (``--fpga-part``) in place of the board's name.
 
 Xeda requires no sign of success, because the other families and versions print other words or
 nothing. A load that fails in another way, with status 0 and none of these signs, passes: read the

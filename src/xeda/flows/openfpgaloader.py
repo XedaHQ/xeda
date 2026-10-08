@@ -52,9 +52,17 @@ def _loader_part(fpga: FPGA) -> str:
 #   register, one `<field> <value>` line for each field (lines 991-993, 1043-1067, 1195-1225). It
 #   throws nothing, so the exit status is 0. For a file that it cannot read or parse, `program`
 #   prints `FAIL` and returns (lines 628-643). `program_spi`, which writes a flash, ignores the
-#   result of `SPIInterface::write` (line 849). So a flash that does not answer (`Read ID failed`,
-#   spiFlash.cpp:628 and spiInterface.cpp:222) or is write-protected (`Error: block protection is
-#   set`, spiFlash.cpp:454) ends with status 0 too.
+#   result of `SPIInterface::write` (line 849), as `program` ignores the result of the
+#   programmers of the CPLDs and of the platform flash (`flow_program`, `xc2c_flow_program`,
+#   `xcf_program`). These writers print why a step failed and return false. So a flash write that
+#   fails ends with status 0, whatever the cause: a flash that does not answer, a write that the
+#   chip refuses, an image that does not fit, a bridge that cannot be chosen, a verify that
+#   differs. `FAILURE_PREFIXES` and `FAILURE_ENDINGS` hold what the loader prints for each, with
+#   the place in its source. (A BPI flash whose bridge cannot be chosen ends with status 1:
+#   `program_bpi` throws.) One failure prints nothing that tells it: `SPIFlash::global_unlock`
+#   (spiFlash.cpp:1199-1217, for the SST26VF) returns false when a sector stays locked after the
+#   unlock. Its write enable and its wait print signs; only the final check of the lock registers
+#   is silent.
 # * Lattice (ECP5, lattice.cpp). `program` throws when a step failed (lines 1073-1082): status 1.
 # * Gowin and iCE40 print `FAIL` or `Fail` for a failed step and return (gowin.cpp:385-426,
 #   ice40.cpp:104-149): status 0.
@@ -82,10 +90,36 @@ _SHORT_HEADER = re.compile(
 )
 #: A step that failed: its label, if any, and then the word that `printError` writes.
 _FAILED_STEP = re.compile(r"(?:^|\s)(?:FAIL|Fail)$")
-#: The prefix of the error messages that the loader prints on a line of their own.
-_ERROR_PREFIX = "Error: "
-#: The messages of a flash that is not written, on the paths that end with status 0 (see above).
-_FLASH_FAILURES = ("Read ID failed", "wait: Error", "write en: Error")
+#: Failure messages that start a line, each with the place in the source of v1.1.1 where the loader
+#: prints it. The rest of the line is a reason, an address or a name. The same words inside a line
+#: are the text of something else, such as a field of a register dump.
+FAILURE_PREFIXES: dict[str, str] = {
+    "Error: ": "the loader's own prefix, such as spiFlash.cpp:454, :868, :875 and xilinx.cpp:1584",
+    "Can't program ": "xilinx.cpp:723 (SPI bridge), :759 (BPI bridge); the same words are in "
+    "altera.cpp:196 and efinix.cpp:435",
+    "FAIL: ": "main.cpp:817 (the direct SPI mode), efinix.cpp:190",
+    "Verification failed at ": "spiFlash.cpp:589 (the address that differs)",
+}
+#: Failure messages that end a line, each with the place where the loader prints it. They are not
+#: required to start one: in a terminal the progress bar has no line end, and the message that
+#: follows it is glued to its percent.
+FAILURE_ENDINGS: dict[str, str] = {
+    "Read ID failed": "spiFlash.cpp:628, printed by spiInterface.cpp:222",
+    "Failed to read flash": "spiFlash.cpp:354, :581",
+    "flash overflow": "spiFlash.cpp:399",
+    "disable protection failed": "spiFlash.cpp:848, :881",
+    "Unknown Top/Bottom register": "spiFlash.cpp:1112",
+    "write en: Error": "spiFlash.cpp:810",
+    "wait: Error": "xilinx.cpp:2259, and the wait of every other family",
+    "PDI programing failed": "xilinx.cpp:952",
+    "Only jed file and flash mode supported for XC95 CPLD": "xilinx.cpp:618",
+    "flow erase failed": "xilinx.cpp:1727",
+    "Erase: fails to verify blank check": "xilinx.cpp:2011",
+}
+#: What the loader prints when it cannot name the bridge that writes a flash, since it knows no
+#: part: a board that its own list gives no part (`kc705`, board.hpp:197) and no `--fpga-part`
+#: (xilinx.cpp:722-728; main.cpp:216-219 takes the part from the board only when it has one).
+_NO_PART_FOR_THE_BRIDGE = "missing device-package information"
 _ESCAPE_CODES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 #: The most lines that a message quotes for the failures that the loader reports as a step.
 MAX_REPORTED_LINES = 6
@@ -183,8 +217,8 @@ def _reported_failures(lines: list[str]) -> list[str]:
     for index, line in enumerate(lines):
         if (
             _FAILED_STEP.search(line)
-            or line.startswith(_ERROR_PREFIX)
-            or line.endswith(_FLASH_FAILURES)
+            or line.startswith(tuple(FAILURE_PREFIXES))
+            or line.endswith(tuple(FAILURE_ENDINGS))
         ):
             if index and re.fullmatch(r"FAIL|Fail", line):
                 reported.append(lines[index - 1])
@@ -202,6 +236,18 @@ def loader_failure(text: str, target: Optional[str] = None) -> Optional[LoaderFa
         return None
     if not sentences:
         sentences = ["openFPGALoader exited with status 0, but it reported a failure."]
+    if any(_NO_PART_FOR_THE_BRIDGE in line for line in reported):
+        sentences.extend(
+            [
+                "To write a flash, the loader loads a bridge that it names after the part of "
+                "the FPGA.",
+                "It knows no part: the board name that the flow gave it has none in its own "
+                "list of boards.",
+                "Set `cable` as well. The flow then gives the loader the part of the FPGA "
+                "(`--fpga-part`) in place of the board name.",
+                "`openFPGALoader --list-boards` shows the cable of each board.",
+            ]
+        )
     return LoaderFailure(tuple(sentences), tuple(evidence + reported[:MAX_REPORTED_LINES]))
 
 
@@ -269,8 +315,9 @@ class Openfpgaloader(FpgaSynthFlow):
     0.13.0 or newer, and refuses an older loader before it programs. The run fails when the
     loader exits with a nonzero status, and also when its output shows that the device was not
     programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error
-    the FPGA reports), a step that printed FAIL, or an error message. The flow always runs, since
-    it changes a device rather than a file, and it is the only flow here that touches hardware.
+    the FPGA reports), a step that printed FAIL, or an error message, such as a flash that does
+    not answer. The flow always runs, since it changes a device rather than a file, and it is the
+    only flow here that touches hardware.
     """
 
     #: the device only to program the flash (`required_settings_for`)
