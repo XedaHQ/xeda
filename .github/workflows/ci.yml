@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 0
@@ -103,7 +103,7 @@ jobs:
     timeout-minutes: 15
     steps:
       # Full history: xeda's version is derived from the git tags.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up Python 3.11
@@ -145,7 +145,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # Full history: xeda's version, which conf.py reads, is derived from the git tags.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up Python
