@@ -54,6 +54,19 @@ def test_the_text_of_the_command_line_and_a_mapping_conflict_alike(value_first):
             build()
 
 
+@pytest.mark.parametrize("value", VALUES, ids=repr)
+def test_a_table_given_as_a_whole_after_a_value_conflicts_too(value):
+    """A later layer that gives the key a whole table (a mapping, not a dotted key) is the same
+    mistake: before, the table silently replaced the value."""
+    table: dict = {}
+    set_hierarchy(table, "timing", value)
+    with pytest.raises(ConflictingKeys, match=r"`timing` is set to a value, and `timing.x`"):
+        set_hierarchy(table, "timing", {"x": 1})
+    assert table == {"timing": value}
+    with pytest.raises(ConflictingKeys):
+        settings_to_dict([{"timing": value}, {"timing": {"x": 1}}])
+
+
 def test_the_keys_are_named_in_full_wherever_they_are_deep():
     with pytest.raises(ConflictingKeys) as deep:
         settings_to_dict(["flows.verilator.clock=3", "flows.verilator.clock.period=5"])

@@ -755,6 +755,10 @@ def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tup
         _set_hierarchy(dct[key], parts[1:], value, here)
         return
     if isinstance(value, dict):
+        held = dct.get(key)
+        if value and held is not None and not isinstance(held, MutableMapping):
+            # a whole table after a value is the same mistake as a dotted key inside it
+            raise ConflictingKeys(here, (*here, next(iter(value))))
         table: Dict[str, Any] = {}
         for k, v in value.items():
             _set_hierarchy(table, re.split(SEP, k) if isinstance(k, str) else [k], v, here)
