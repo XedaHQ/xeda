@@ -93,17 +93,19 @@ def test_a_simulator_without_cocotb_names_the_ones_with_it(flow_class, cocotb_de
 def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_design, tmp_path):
     """Every simulator runs or rejects a cocotb testbench."""
     flow_class = get_flow_class(flow_name)
+    # a design the simulator reads, so what it judges is the testbench
+    design = _readable_by(flow_class, cocotb_design)
     if flow_class.cocotb_sim_name:
-        flow_class.check_design_supported(_readable_by(flow_class, cocotb_design))
+        flow_class.check_design_supported(design)
         return
     rejected = re.escape(f"{flow_name} cannot run cocotb tests; use one of: ")
     with pytest.raises(FlowException, match=rejected):
-        flow_class.check_design_supported(cocotb_design)
+        flow_class.check_design_supported(design)
     # and constructed directly, not launched
     with pytest.raises(FlowException, match=rejected):
         flow_class(
             settings=_minimal_required_settings(flow_class.Settings),
-            design=cocotb_design,
+            design=design,
             run_path=tmp_path / "run",
         )
 
