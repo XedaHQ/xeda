@@ -2,7 +2,9 @@
 
 import os
 import shutil
+import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -45,13 +47,35 @@ def _watched() -> list[Path]:
     return [CHECKOUT, CHECKOUT / "tests", *sorted(examples), *trees]
 
 
-def _entries(directories: list[Path]) -> set[str]:
-    return {
-        str(path.relative_to(CHECKOUT))
-        for directory in directories
-        for path in directory.iterdir()
-        if not path.name.startswith(".") and path != TESTS_PYCACHE
-    }
+def _state(path: Path) -> tuple[Any, ...] | None:
+    """What the guard compares of an entry: a file by its size and modification time, a link by
+    its target, a directory by being one (the entries of a watched directory are watched in their
+    own right). None for an entry that vanished meanwhile."""
+    try:
+        status = path.lstat()
+        if stat.S_ISLNK(status.st_mode):
+            return ("link", os.readlink(path))
+    except OSError:
+        return None
+    if stat.S_ISDIR(status.st_mode):
+        return ("directory",)
+    return ("file", status.st_size, status.st_mtime_ns)
+
+
+def _entries(directories: list[Path]) -> dict[str, tuple[Any, ...]]:
+    """The state of every entry of the watched directories, by its path in the checkout."""
+    states = {}
+    for directory in directories:
+        try:
+            paths = list(directory.iterdir())
+        except FileNotFoundError:  # removed since it was listed: its entries are gone
+            continue
+        for path in paths:
+            if path.name.startswith(".") or path == TESTS_PYCACHE:
+                continue
+            if (state := _state(path)) is not None:
+                states[str(path.relative_to(CHECKOUT))] = state
+    return states
 
 
 #: What the checkout held when this file was imported, before pytest imported any test module. A
@@ -61,18 +85,32 @@ DIRECTORIES_AT_START = _watched()
 ENTRIES_AT_START = _entries(DIRECTORIES_AT_START)
 
 
-def _entries_added_since_the_start() -> set[str]:
-    new = _entries(DIRECTORIES_AT_START) - ENTRIES_AT_START
+def _changes_since_the_start() -> dict[str, list[str]]:
+    """The entries of the watched directories that are new, changed (rewritten, even with the
+    text they had, or replaced by something else) and removed since this file was imported, by
+    kind. Empty when the checkout is as it was. Rewriting a file adds no name, so a record of
+    names alone would not tell."""
+    now = _entries(DIRECTORIES_AT_START)
+    new = set(now) - set(ENTRIES_AT_START)
     if any(_opted_in(layer) for layer in OPT_IN_LAYERS):
         new.discard(OPT_IN_WORK_DIR)
-    return new
+    kinds = {
+        "new": new,
+        "changed": {
+            name
+            for name in now.keys() & ENTRIES_AT_START.keys()
+            if now[name] != ENTRIES_AT_START[name]
+        },
+        "removed": set(ENTRIES_AT_START) - set(now),
+    }
+    return {kind: sorted(names) for kind, names in kinds.items() if names}
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _nothing_is_written_into_the_checkout():
     yield
-    new = _entries_added_since_the_start()
-    assert not new, f"tests wrote into the checkout: {sorted(new)}"
+    changes = _changes_since_the_start()
+    assert not changes, f"tests wrote into the checkout: {changes}"
 
 
 # ------------------------------------------------------------- the environment is left as found

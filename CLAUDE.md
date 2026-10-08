@@ -1162,10 +1162,12 @@ directory).
 
 `tests/conftest.py`'s autouse, session-scoped fixture fails if the checkout's top level, `tests/`,
 any example design's own directory, or `.github/` and `tools/` (each with every directory below
-it) gained a new entry since `conftest.py` was imported -- the snapshot is taken at import, before
-pytest imports the test modules, so a module that writes as it is imported (the bytecode of a
-script it loads) fails the run too. The exemptions are `tests/__pycache__` (the suite's own
-imports) and a top-level `xeda_run/`, the latter only when an opt-in
+it) gained a new entry, lost one, or changed a file (its size or modification time, so a test
+that rewrites `.github/workflows/ci.yml` fails too, even with the text it had) since `conftest.py`
+was imported -- the snapshot is taken at import, before pytest imports the test modules, so a
+module that writes as it is imported (the bytecode of a script it loads) fails the run too. The
+exemptions are `tests/__pycache__` (the suite's own imports), names that start with a dot, and a
+top-level `xeda_run/`, the latter only when an opt-in
 layer (`XEDA_TESTS_VIVADO`/`XEDA_TESTS_DOCKER`/`XEDA_TESTS_EXTERNAL`) is set, since those tests
 deliberately work in the checkout's own `xeda_run/` (a container can mount it where the system
 temp directory is not). A `__pycache__` in an example's directory is a failure: `test_ghdl.py`
