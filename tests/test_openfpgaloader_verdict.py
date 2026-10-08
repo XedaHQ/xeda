@@ -188,7 +188,8 @@ def test_the_basys_3_log_is_a_failure_the_loader_did_not_exit_with():
     assert "ID error" in message and "ID code in the bitstream" in message
     assert "board basys_3, part xc7a35tcpg236-1" in message  # which board the flow was told
     # two boards on the cable, the loader takes the first: say how to choose
-    assert "`cable_index`" in message and "several boards" in message
+    assert "`cable_index`" in message and "`usb_serial_num`" in message
+    assert "several boards" in message
     # the decisive lines, as the loader printed them
     assert failure.evidence == (
         DONE_LOW,

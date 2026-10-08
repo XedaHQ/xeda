@@ -14,6 +14,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.board import WithFpgaBoardSettings
 from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
@@ -295,6 +296,98 @@ def test_flash_and_verify_are_openfpgaloader_s_own_flags(tmp_path, fake_loader):
         "--scan-usb",
     ]
     assert "--flash" not in call["argv"]
+
+
+#: Every setting of the flow that has a loader option of its own, each set to a value the loader
+#: accepts together with the others: the command line the flow builds from all of them.
+ALL_LOADER_SETTINGS = {
+    "reset": True,
+    "cable": "ft2232",
+    "write_flash": True,
+    "verify": True,
+    "freq": 6000000,
+    "offset": 4096,
+    "cable_index": 1,
+    "usb_serial_num": "FT123456",
+    "index_chain": 0,
+    "file_type": "bit",
+    "target_flash": "primary",
+    "skip_reset": True,
+    "skip_load_bridge": True,
+    "verbose_level": 1,
+    "extra_args": ["--scan-usb"],
+}
+
+
+def test_every_setting_of_the_loader_is_an_option_the_loader_has(tmp_path, fake_loader):
+    """The fake rejects an option that openFPGALoader v1.1.1 does not have, as the real parser
+    does (`fake_fpga_tool.LOADER_OPTIONS`, from the loader's `src/main.cpp`): so a setting passed
+    under a name that the loader does not know fails here, not on a board. `usb_serial_num` was
+    passed as `--usb-serial-num`; the option is `--ftdi-serial`."""
+    own = set(Openfpgaloader.Settings.model_fields) - set(WithFpgaBoardSettings.model_fields)
+    assert own == set(ALL_LOADER_SETTINGS), "a setting of the loader that this table lacks"
+    flow = _program(
+        tmp_path, _prebuilt(tmp_path), {"fpga": ECP5, "verbose": 1, **ALL_LOADER_SETTINGS}
+    )
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--cable",
+        "ft2232",
+        "--fpga-part",
+        ECP5,
+        "--reset",
+        "--write-flash",
+        "--verify",
+        "--skip-reset",
+        "--skip-load-bridge",
+        "--verbose",
+        "--freq",
+        "6000000",
+        "--offset",
+        "4096",
+        "--cable-index",
+        "1",
+        "--ftdi-serial",
+        "FT123456",
+        "--index-chain",
+        "0",
+        "--file-type",
+        "bit",
+        "--target-flash",
+        "primary",
+        "--verbose-level",
+        "1",
+        "--scan-usb",
+    ]
+
+
+@pytest.mark.parametrize(
+    "argument,message",
+    [
+        (["--usb-serial-num", "FT123456"], "Option 'usb-serial-num' does not exist"),
+        (["--no-such-option"], "Option 'no-such-option' does not exist"),
+        (["-Z"], "Option 'Z' does not exist"),
+        (["--cable"], "Option 'cable' requires an argument"),
+    ],
+)
+def test_the_fake_loader_rejects_what_the_real_option_parser_rejects(
+    tmp_path, fake_loader, monkeypatch, argument, message
+):
+    """The oracle above is only as good as the fake: it fails an option the loader does not have,
+    with the loader's message (a `printError`) and status 1 (`parse_opt` returns -1)."""
+    flow = _runner(tmp_path).run(
+        "openfpgaloader",
+        _prebuilt(tmp_path),
+        flow_settings={"fpga": ECP5, "extra_args": argument},
+    )
+    assert flow is not None and not flow.succeeded
+    assert flow.results["error"]["type"] == "NonZeroExitCode"
+    log = (tmp_path / "run/top/openfpgaloader/openfpgaloader.log").read_text()
+    assert f"Error parsing options: {message}" in log
+    assert not _calls(tmp_path, "openfpgaloader")  # it stopped before it read the bitstream
 
 
 def test_a_ulx3s_is_programmed_by_its_board_name(tmp_path, fake_loader):

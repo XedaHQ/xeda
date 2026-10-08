@@ -163,8 +163,9 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
         # (ftdipp_mpsse.cpp:50-53, main.cpp:289); it never compares the FPGA it finds with the
         # part of the board it was given (main.cpp:216-219 uses the part for the flash only)
         sentences.append(
-            "The loader uses the first cable that matches unless the `cable_index` setting "
-            "names another, so with several boards connected it can program the wrong one."
+            "The loader uses the first cable that matches unless the `cable_index` or "
+            "`usb_serial_num` setting names another, so with several boards connected it can "
+            "program the wrong one."
         )
     if crc_error:
         sentences.append(
@@ -299,7 +300,11 @@ class Openfpgaloader(FpgaSynthFlow):
         freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
         offset: Optional[int] = Field(None, ge=0, description="Flash start address in bytes.")
         cable_index: Optional[int] = Field(None, ge=0, description="Probe index.")
-        usb_serial_num: Optional[str] = Field(None, description="USB probe serial number.")
+        usb_serial_num: Optional[str] = Field(
+            None,
+            description="Serial number of the FTDI probe to use (`--ftdi-serial`). Selects one "
+            "of several probes of the same kind.",
+        )
         index_chain: Optional[int] = Field(None, ge=0, description="Device index in JTAG chain.")
         file_type: Optional[str] = Field(
             None, description="Bitstream type when extension detection is insufficient."
@@ -426,19 +431,21 @@ class Openfpgaloader(FpgaSynthFlow):
         ):
             if enabled:
                 args.append(flag)
-        for name in (
-            "freq",
-            "offset",
-            "cable_index",
-            "usb_serial_num",
-            "index_chain",
-            "file_type",
-            "target_flash",
-            "verbose_level",
+        # each setting with the option of openFPGALoader that it is (main.cpp:895-1022): the
+        # serial number is the loader's `--ftdi-serial`, and only an FTDI probe has one
+        for name, option in (
+            ("freq", "--freq"),
+            ("offset", "--offset"),
+            ("cable_index", "--cable-index"),
+            ("usb_serial_num", "--ftdi-serial"),
+            ("index_chain", "--index-chain"),
+            ("file_type", "--file-type"),
+            ("target_flash", "--target-flash"),
+            ("verbose_level", "--verbose-level"),
         ):
             value = getattr(ss, name)
             if value is not None:
-                args.extend([f"--{name.replace('_', '-')}", str(value)])
+                args.extend([option, str(value)])
         args.extend(ss.extra_args)
         # made here, in the flow, so it takes the flow's settings and is listed in the results,
         # with the version it reports: the loader is started twice, once to ask for its version

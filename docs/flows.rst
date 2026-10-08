@@ -691,9 +691,9 @@ the log that show it. Xeda looks for these signs:
   isc_done 0 isc_ena 0 init 1 done 0`` and then the status register of the FPGA. If the register
   reports an ID error, the bitstream is for another device than the one on the cable: check the
   board. The loader uses the first cable that matches, so with several boards of the same kind
-  connected it can program the wrong one, unless ``cable_index`` names another. If the register
-  reports a CRC error, the bitstream is damaged or incomplete. Loaders before version 0.13.0 do
-  not print this state.
+  connected it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
+  number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
+  damaged or incomplete. Loaders before version 0.13.0 do not print this state.
 * A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
 * An error message that the loader prints before it ends with status 0: a line that starts with
   ``Error:``, or ``Read ID failed``, ``wait: Error`` or ``write en: Error`` (a flash that does
