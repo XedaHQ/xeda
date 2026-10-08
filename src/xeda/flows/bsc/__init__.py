@@ -94,8 +94,12 @@ _VERILOG_INSTANCE = re.compile(
 BSV_DEFINES_FILE = "bsv_defines.v"
 #: bsc compiles BSV from `.bsv` and BH (Bluespec Classic) from `.bs`; it rejects other suffixes.
 _BSC_SOURCE_SUFFIXES = (".bsv", ".bs")
-#: What bsc links in for imported C functions: C and C++ sources, objects and archives.
-_FOREIGN_SUFFIXES = (".c", ".cc", ".cpp", ".cxx", ".o", ".a")
+#: The Verilog sources of a design: the modules a Bluespec package imports, which bsc finds on
+#: its Verilog search path and the simulators read.
+_VERILOG_TYPES = (SourceType.Verilog, SourceType.SystemVerilog)
+#: What bsc links in for imported C functions: C and C++ sources, objects and archives. A source
+#: is one of them by its type, as for every flow, whatever its suffix.
+_FOREIGN_TYPES = (SourceType.C, SourceType.Cpp, SourceType.ObjectFile)
 #: What separates the entries of a bsc search path, so no entry can contain it.
 _PATH_SEPARATOR = ":"
 
@@ -239,6 +243,8 @@ class BscFlow(Flow, metaclass=ABCMeta):
     #: `-vsearch`, so `bsc`, a compilation, reads `tb` as `bsc_sim` does; the Bluesim backend reads
     #: no Verilog, and `tb` stays declared there as a safe over-approximation
     design_parts = frozenset({"rtl", "tb"})
+
+    reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES})
 
     class Settings(Flow.Settings):
         # ------------------------------------------------------------------ directories and paths
@@ -615,9 +621,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     # ---------------------------------------------------------------------------------- helpers
 
+    def _sources_of(self, *types: SourceType, tb: bool) -> list[DesignSource]:
+        """The design's sources of `types` that this flow reads, RTL first, then the testbench's
+        with `tb`."""
+        return [src for src in self.sources_read(rtl=True, tb=tb) if src.type in types]
+
     def _bsc_sources(self, *, tb: bool) -> list[DesignSource]:
         """The design's Bluespec sources, RTL first, checked for suffixes bsc accepts."""
-        sources = self.design.sources_of_type(SourceType.Bluespec, rtl=True, tb=tb)
+        sources = self._sources_of(SourceType.Bluespec, tb=tb)
         bad = [str(src.file) for src in sources if src.file.suffix not in _BSC_SOURCE_SUFFIXES]
         if bad:
             raise FlowSettingsException(
@@ -673,12 +684,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         verilog_dirs: list[str | Path] = [
             self.normalize_path_to_design_root(p) for p in ss.verilog_search_paths
         ]
-        verilog_dirs += [
-            src.file.parent
-            for src in self.design.sources_of_type(
-                SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=True
-            )
-        ]
+        verilog_dirs += [src.file.parent for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
         flags += ["-vsearch", _bsc_path(self._vendor_verilog_dirs() + verilog_dirs, "vsearch")]
         return flags + self._fdir_flags()
 
@@ -1004,9 +1010,7 @@ class Bsc(BscFlow):
         """
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        design_verilog = self.design.sources_of_type(
-            SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=False
-        )
+        design_verilog = self._sources_of(*_VERILOG_TYPES, tb=False)
         defined_in: dict[str, Path] = {}
         for src in design_verilog:
             for module in _verilog_modules(src.file):
@@ -1164,6 +1168,9 @@ class BscSim(BscFlow, SimFlow):
     )
 
     output_dir_setting = "sim_dir"
+
+    # The link step also compiles in the C and C++ code a testbench imports.
+    reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES, *_FOREIGN_TYPES})
 
     @classmethod
     def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
@@ -1339,14 +1346,9 @@ class BscSim(BscFlow, SimFlow):
             _ = self._verilator()
 
     def _foreign_sources(self) -> list[Path]:
-        """The design's C/C++ sources, objects and archives, which the link step compiles in
-        for imported C functions (`import "BDPI"`): the files bsc accepts at link, whatever
-        type the design gave them (xeda types `.c` as nothing)."""
-        return [
-            src.file
-            for src in self.design.sources_of_type("*", rtl=True, tb=True)
-            if src.file.suffix in _FOREIGN_SUFFIXES
-        ]
+        """The design's C and C++ sources, objects and archives, which the link step compiles in
+        for imported C functions (`import "BDPI"`)."""
+        return [src.file for src in self._sources_of(*_FOREIGN_TYPES, tb=True)]
 
     def _tb_top(self) -> str | None:
         """The module to simulate: `tb.top`, or `rtl.top` for a design without a testbench."""
@@ -1397,12 +1399,7 @@ class BscSim(BscFlow, SimFlow):
         # design's Verilog is named: a file holding another module, or several, counts too
         link_files = [*self._foreign_sources()]
         if not bluesim:
-            link_files += [
-                src.file
-                for src in self.design.sources_of_type(
-                    SourceType.Verilog, SourceType.SystemVerilog, rtl=True, tb=True
-                )
-            ]
+            link_files += [src.file for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
         link_flags = self._link_flags(bluesim)
         if bluesim:
             self.copy_from_template("sim_record.h", script_filename="sim_record.h")

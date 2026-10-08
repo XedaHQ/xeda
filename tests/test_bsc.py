@@ -395,6 +395,85 @@ def test_a_bh_suffix_is_rejected_by_name(tmp_path):
         flow._bsc_sources(tb=False)
 
 
+@pytest.mark.parametrize("flow", ["bsc", "bsc_sim"])
+def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tmp_path):
+    """bsc reads Bluespec and Verilog; a netlist of another format is passed to no command."""
+    _write(tmp_path, {"top.edf": "(edif top)\n"})
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
+    with pytest.raises(FlowSettingsException, match=rf"{flow} reads none of the design's sources"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize("flow", ["bsc", "bsc_sim"])
+@pytest.mark.parametrize("part", ["rtl", "tb"])
+@pytest.mark.parametrize(
+    ("unread", "language"), [("dut.vhd", "Vhdl"), ("dut.sc", "Chisel")], ids=["vhdl", "chisel"]
+)
+def test_a_language_bsc_cannot_read_is_refused_by_name_when_planned(
+    flow, part, unread, language, tmp_path
+):
+    """A VHDL source beside Bluespec ones would be passed over, and bsc would compile and
+    simulate a design without it. The testbench counts as the RTL does."""
+    _write(tmp_path, {"Top.bsv": TOP_PKG, "Tb.bsv": TB_PKG, unread: "-- not for bsc\n"})
+    sources = {"rtl": ["Top.bsv"], "tb": ["Tb.bsv"]}
+    sources[part].append(unread)
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": sources["rtl"], "top": "mkTop"},
+        tb={"sources": sources["tb"], "top": "mkTb"},
+    )
+    with pytest.raises(
+        FlowSettingsException,
+        match=rf"{flow} cannot read the design's {language} source\(s\) .*{unread}",
+    ):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+def test_a_bluespec_design_with_imported_verilog_and_foreign_code_is_planned(tmp_path):
+    """The imported Verilog module, the C++ function a testbench calls and the archive it links
+    are sources `bsc_sim` reads beside the Bluespec ones."""
+    names = ["pipe_mul.v", "Top.bsv", "mac.cpp", "lib.a", "kernel.c", "ops.o"]
+    _write(tmp_path, {name: "// a source\n" for name in names})
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": names, "top": "mkTop"},
+        tb={"sources": ["Top.bsv"], "top": "mkTop"},
+    )
+    planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan("bsc_sim", design)
+    assert [node.name for node in planned.nodes] == ["bsc_sim"]
+
+
+def test_the_foreign_code_bsc_links_is_chosen_by_source_type_not_by_suffix(tmp_path):
+    """A source is what its `type` says: a C++ file named `.cu` is linked, an object file the
+    design calls data is not. Inferred types agree with the suffixes bsc takes, so a design
+    that gives no `type` links what it linked before."""
+    names = ["mac.cpp", "kernel.cu", "lib.a", "ops.o", "plain.c", "notes.cc", "Dpi.bsv"]
+    _write(tmp_path, {name: "// a source\n" for name in names})
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": []},
+        tb={
+            "sources": [
+                "mac.cpp",
+                {"file": "kernel.cu", "type": "Cpp"},
+                "lib.a",
+                {"file": "ops.o", "type": "Data"},
+                "plain.c",
+                {"file": "notes.cc", "type": "Data"},
+                "Dpi.bsv",
+            ],
+            "top": "mkDpi",
+        },
+    )
+    flow = _flow(BscSim, design, tmp_path / "run")
+    assert [p.name for p in flow._foreign_sources()] == ["mac.cpp", "kernel.cu", "lib.a", "plain.c"]
+
+
 def test_a_search_path_with_a_colon_is_rejected(tmp_path):
     design = _accum_design(tmp_path / "d")
     flow = _flow(Bsc, design, tmp_path / "run", search_paths=["/a:b"])
@@ -1266,7 +1345,7 @@ def test_imported_verilog_in_a_file_named_otherwise_is_simulated(simulator, tmp_
 
 @pytest.mark.parametrize("simulator", SIMULATORS)
 def test_a_plain_c_function_is_linked_into_the_simulation(simulator, tmp_path, capfd):
-    """bsc links `.c` sources too, which xeda gives no source type, on every simulator."""
+    """bsc links `.c` sources too (type `C`), as it links `.cpp` ones, on every simulator."""
     _require_simulator(simulator)
     require_c_toolchain()
     _write(tmp_path, {"Dpi.bsv": BDPI_TB, "mac.c": MAC_CPP.replace('extern "C" ', "")})
