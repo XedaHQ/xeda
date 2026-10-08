@@ -676,7 +676,11 @@ own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no 
 from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader detects
 the device. Programming the flash needs the device, so ``write_flash`` is refused before anything
 runs when neither ``fpga`` nor a board gives it. What the loader printed is in
-``openfpgaloader.log`` in its run directory.
+``openfpgaloader.log`` in its run directory. In a terminal, Xeda runs the loader with a terminal
+of its own, as you would run it by hand: its colors work, and its progress bar is redrawn in
+place. The log has the same text without the escape codes, with one line for each redraw. Without
+a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
+line for each update of the bar.
 
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several

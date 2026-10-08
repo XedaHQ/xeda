@@ -773,6 +773,20 @@ A dockerized tool runs with `--security-opt label=disable` and every mount exact
 `:z`), so xeda never relabels the user's files; a mount that wants relabeling says so in its own
 `Docker.mounts` value.
 
+**A tool that wants a terminal asks for one** (`Tool.pseudo_terminal`, a class constant, true for
+`OpenfpgaloaderTool` only). Through a pipe such a tool prints no colors, and its progress bar, drawn
+with `\r`, becomes a line for each update with a blank line between (`run_process` reads the pipe
+in universal-newline mode, where a lone `\r` ends a line; changing that for every tool would put
+`\r` into every log). `run_process(terminal=True)` -- passed by `Tool.execute` when the tool asks
+and `console_colors` is on, native runs only -- gives the child a pseudo-terminal (`os.openpty`)
+in place of the pipe, but only when there is a `tee` log and xeda's own output is a terminal
+(`_stdout_terminal_fd`): in a pipe, a file, CI, `--json` captured by an agent, nothing changes.
+`_run_in_terminal` copies the bytes as they arrive to `tool_output_stream()` (colors, in-place
+redraws), and to the `tee` log without escape sequences, one line per redraw, no empty lines; the
+time limit, the stop hook and the exit status are those of the pipe, and `highlight_rules` do not
+apply. The loader's verdict reads the log, so it is the same either way
+(`tests/test_proc_utils_terminal.py`, with real pseudo-terminals).
+
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
 `flow.results.tools`. Subclass `Tool` to pin an executable, a default `Docker` image, `minimum_version`,

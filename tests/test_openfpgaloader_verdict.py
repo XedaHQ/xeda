@@ -19,13 +19,16 @@ import sys
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
+from xeda import proc_utils
 from xeda.flow import Flow
 from xeda.flows.openfpgaloader import LOADER_LOG, loader_failure
 
 from . import tool_utils
 from .settings_samples import flow_classes
 from .test_openfpgaloader import ECP5, _design, _prebuilt, _runner, assert_fake_loader
+from .test_proc_utils_terminal import Terminal
 
 RESOURCES = Path(__file__).parent / "resources/openfpgaloader"
 
@@ -390,6 +393,14 @@ def test_a_load_that_ends_with_done_high_passes(tmp_path, fake_loader, monkeypat
     printing(monkeypatch, stdout=owner_log("arty-configured.txt"))
     flow = program(tmp_path, {"board": "arty_a7_100t"})
     assert flow.succeeded
+    # no terminal of xeda's own to show the loader's: it writes to a pipe
+    (call,) = [
+        json.loads(line)
+        for line in (tmp_path / "run/top/openfpgaloader/fake_fpga.calls.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    assert not call["stdout_is_terminal"]
     results = recorded(tmp_path)
     assert results["success"] is True and "error" not in results
 
@@ -468,6 +479,35 @@ def test_a_log_a_previous_run_left_is_no_evidence_about_this_one(
     assert "left no log of this run" in error["message"] and LOADER_LOG in error["message"]
     assert "ID Error" not in error["message"] and DONE_LOW not in error["message"]
     assert log.read_bytes() == before  # xeda did not touch it
+
+
+@pytest.mark.skipif(os.name != "posix", reason="a pseudo-terminal is POSIX")
+@pytest.mark.parametrize("name", ["basys3-id-error.txt", "arty-configured.txt"])
+def test_the_verdict_is_the_same_when_the_loader_runs_in_a_terminal(
+    tmp_path, fake_loader, monkeypatch, name
+):
+    """In a terminal the loader has a terminal of its own (`OpenfpgaloaderTool.pseudo_terminal`):
+    its log has the same lines but for the blank ones, so the verdict is the same."""
+    terminal = Terminal()
+    monkeypatch.setattr(proc_utils, "_tool_output", terminal.stream)
+    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    printing(monkeypatch, stdout=owner_log(name))
+    try:
+        flow = program(tmp_path, {"board": "basys_3"})
+        log = (tmp_path / "run/top/openfpgaloader" / LOADER_LOG).read_text()
+        shown = terminal.shown()
+    finally:
+        terminal.close()
+    assert flow.succeeded is (name == "arty-configured.txt")
+    (call,) = [
+        json.loads(line)
+        for line in (tmp_path / "run/top/openfpgaloader/fake_fpga.calls.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    assert call["stdout_is_terminal"] and call["stderr_is_terminal"]
+    assert log.splitlines() == [line for line in owner_log(name).splitlines() if line.strip()]
+    assert owner_log(name).splitlines()[1] in shown  # the terminal got the loader's output too
 
 
 def test_a_programmer_in_a_chain_fails_the_chain_with_its_message(

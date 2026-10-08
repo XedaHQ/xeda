@@ -1,3 +1,4 @@
+import codecs
 import contextlib
 import errno
 import logging
@@ -16,7 +17,7 @@ from collections.abc import Callable, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
+from typing import IO, Any, Dict, Iterator, List, Optional, TextIO, Tuple, Union
 
 import colorama
 import psutil
@@ -321,6 +322,90 @@ def _needs_explicit_carriage_return(terminal_fd: Optional[int]) -> bool:
     return not (oflag & termios.OPOST and oflag & termios.ONLCR)
 
 
+#: The escape sequences of a terminal (colors, moving the cursor): the text of a log has none.
+_ESCAPE_SEQUENCES = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+#: What ends a line of a terminal's output. A carriage return alone redraws the line.
+_LINE_ENDS = re.compile(r"\r\n|\r|\n")
+
+
+def _write_log_lines(log_file: IO[str], segments: Sequence[str]) -> None:
+    """Write lines of a terminal's output to a log, without the escape sequences and without
+    the empty lines that a line end after a carriage return leaves."""
+    for segment in segments:
+        text = _ESCAPE_SEQUENCES.sub("", segment)
+        if text.strip():
+            log_file.write(text + "\n")
+
+
+def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
+    """Copy what a child writes to its pseudo-terminal, until it closes it. `stream` (xeda's own
+    terminal) gets it as the child wrote it, when it arrives: the colors work, and so does a line
+    that the child redraws with a carriage return. The log gets the lines, one for each redraw,
+    without the escape sequences."""
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    pending = ""  # the last line, which has not ended yet
+    while True:
+        try:
+            data = os.read(master, 65536)
+        except OSError as error:
+            if error.errno != errno.EIO:  # Linux ends the output so; macOS reads nothing
+                raise
+            data = b""
+        text = decoder.decode(data, final=not data)
+        if text:
+            stream.write(text)
+            stream.flush()
+            *ended, pending = _LINE_ENDS.split(pending + text)
+            _write_log_lines(log_file, ended)
+        if not data:
+            break
+    _write_log_lines(log_file, [pending])
+
+
+def _run_in_terminal(
+    command: List[str],
+    env: Optional[Dict[str, Any]],
+    cwd: Union[None, str, os.PathLike],
+    check: bool,
+    merge_stderr: bool,
+    timeout: float | None,
+    tee: Path,
+    on_stop: Callable[[], None] | None,
+    new_session: bool,
+) -> None:
+    """`run_process` for a child that has a pseudo-terminal in place of the pipe: stdout and, with
+    `merge_stderr`, stderr are the terminal. The time limit, the stop hook, the log and the exit
+    status are those of the pipe."""
+    master, slave = os.openpty()
+    try:
+        # The log is made before the tool starts: a log that cannot be made must not start it.
+        with (
+            live_log(tee, encoding="utf-8") as log_file,
+            subprocess.Popen(
+                command,
+                stdout=slave,
+                stderr=slave if merge_stderr else None,
+                env=env,
+                cwd=cwd,
+                start_new_session=new_session,
+            ) as proc,
+        ):
+            os.close(slave)  # the child's copy is the only one left: its end is our EOF
+            slave = -1
+            with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
+                _copy_from_terminal(master, log_file, tool_output_stream())
+                ret = proc.wait()
+            if deadline.expired:
+                assert timeout is not None
+                raise ProcessTimeout(command, timeout)
+            if check and ret != 0:
+                raise NonZeroExitCode(command, ret)
+    finally:
+        os.close(master)
+        if slave >= 0:
+            os.close(slave)
+
+
 def proc_output(is_stderr: bool, line):
     print(
         f"{'[E] ' if is_stderr else ''}{line}",
@@ -342,6 +427,7 @@ def run_process(
     timeout: float | None = None,
     tee: Path | None = None,
     on_stop: Callable[[], None] | None = None,
+    terminal: bool = False,
 ) -> Union[None, str]:
     """Run `executable`; return its captured stdout when `stdout` is True.
 
@@ -367,6 +453,15 @@ def run_process(
 
     `merge_stderr` folds the child's stderr into stdout while capturing (`stdout=True`)
     or copying lines (tee/highlighting), so stderr diagnostics also reach the transcript.
+
+    `terminal`: the child asks for a terminal. When its output is copied to a `tee` log and xeda's
+    own output is a terminal, the child gets a pseudo-terminal in place of the pipe, for its stdout
+    and, with `merge_stderr`, its stderr. It behaves as it does when a person runs it: it writes
+    colors, and redraws a progress bar in place. `tool_output_stream()` gets what it writes as it
+    writes it. The log gets the same text without the escape sequences, a line for each redraw and
+    no empty line. In any other case (a pipe, a file, a CI log, a captured stream) `terminal` has
+    no effect: the child sees the pipe it always saw. `highlight_rules` do not apply to a child
+    with a terminal, which colors its own output.
     """
     if timeout is not None and not timeout > 0:
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
@@ -387,6 +482,9 @@ def run_process(
     if cwd:
         log.debug("cwd=%s", cwd)
     new_session = timeout is not None and os.name == "posix"
+    if terminal and stdout is None and tee is not None and _stdout_terminal_fd() is not None:
+        _run_in_terminal(command, env, cwd, check, merge_stderr, timeout, tee, on_stop, new_session)
+        return None
     if _needs_line_copy(stdout, highlight_rules, tool_output_redirect(), tee):
         # compile regex str keys to improve performance
         highlight_rules_re: Dict[re.Pattern, str] = {}

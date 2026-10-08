@@ -8,7 +8,7 @@ import shutil
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
 from .console import console
 from .dataclass import Field, PrivateAttr, XedaBaseModel, field_validator
@@ -243,6 +243,10 @@ class Tool(XedaBaseModel):
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
+    #: Whether the tool wants a terminal to write to when xeda's output is one, for its colors and
+    #: a progress bar that it redraws in place (`run_process(terminal=...)`). It gets one only
+    #: if colors are wanted too (`console_colors`) and it runs here, not in a container.
+    pseudo_terminal: ClassVar[bool] = False
 
     design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
     flow_settings_: Optional[Flow.Settings] = Field(
@@ -555,6 +559,7 @@ class Tool(XedaBaseModel):
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
+                terminal=self.pseudo_terminal and self.console_colors,
             )
         except FileNotFoundError as e:
             path = env["PATH"] if env and "PATH" in env else os.environ.get("PATH")

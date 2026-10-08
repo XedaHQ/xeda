@@ -135,6 +135,9 @@ def record(tool, args, inputs, contents, seed=1):
         "inputs": list(map(str, inputs)),
         "input_bytes": list(map(len, contents)),
         "seed": seed,
+        # whether the tool was given a terminal, as a person's shell gives one
+        "stdout_is_terminal": os.isatty(1),
+        "stderr_is_terminal": os.isatty(2),
     }
     with open("fake_fpga.calls.jsonl", "a", encoding="utf-8") as stream:
         stream.write(json.dumps(call) + "\n")

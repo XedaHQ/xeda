@@ -3,7 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, ClassVar, List, Literal, Optional, Union
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
@@ -211,8 +211,14 @@ class OpenfpgaloaderTool(Tool):
     generic `Tool` flag would record an empty version. The query prints one line on stdout,
     `openFPGALoader v1.1.1`, which `Tool`'s default patterns do not match (the fallback would
     keep the leading `v`). Asking for the version touches no device.
+
+    It asks for a terminal (`pseudo_terminal`). Its progress bar redraws one line with a carriage
+    return only when its output is a terminal, and its colors need one (display.cpp:23-65,
+    progressBar.cpp:43-50); through a pipe it prints a line for each update. In a terminal, the
+    user then sees the output as when running the loader by hand.
     """
 
+    pseudo_terminal: ClassVar[bool] = True
     executable: str = "openFPGALoader"
     version_flag: Optional[List[str]] = ["-V"]
     version_regexps: List[Union[re.Pattern[str], str]] = [
