@@ -85,13 +85,21 @@ jobs:
           fi
 
       - name: Get the installer and install its system packages
-        # Everything the installer lists, to build the tools.
+        # What the installer lists, to build the tools, less two packages for tools that this job
+        # does not build: Java (the parser of the FASM files, made with prjxray) and pypy3 (the
+        # chip databases of the upstream makefiles; xeda makes its own). They are 62 of the 106 MB
+        # to download, and the mirror of the runners fails some of those downloads. The build step
+        # runs the same file, so it asks for no more. If a revision of the installer lays out its
+        # list another way, the edit changes nothing and the full list is installed.
         if: steps.toolchain.outputs.cache-hit != 'true'
         timeout-minutes: 10
         run: |
           set -euo pipefail
           git clone --quiet https://github.com/openXC7/toolchain-installer.git "$RUNNER_TEMP/installer"
           git -C "$RUNNER_TEMP/installer" checkout --quiet --detach "$INSTALLER_REV"
+          sed -i '/^APT_DEPENDENCIES=(/,/)$/ { s/ default-jre-headless//; s/ pypy3//; }' \
+            "$RUNNER_TEMP/installer/toolchain-sources-builder.sh"
+          git -C "$RUNNER_TEMP/installer" diff --stat
           # Sourcing the script defines its functions. It does not build anything.
           # shellcheck source=/dev/null
           source "$RUNNER_TEMP/installer/toolchain-sources-builder.sh"
