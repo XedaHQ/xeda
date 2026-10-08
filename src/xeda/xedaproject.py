@@ -13,7 +13,6 @@ from .utils import (
     WorkingDirectory,
     XedaException,
     flows_table_problems,
-    hierarchical_merge,
     tomllib,
 )
 from .yaml_loader import load_yaml
@@ -68,7 +67,8 @@ class XedaProject:
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
     root_path: Path = attrs.field(factory=Path.cwd)
-    # applied to each design when the project is read, and again over a selected target
+    # applied to a design once, when it is selected (`Design.target_selected`), as they are to a
+    # design file: the entries of `designs` stay as written
     design_overrides: dict[str, Any] = {}
 
     @classmethod
@@ -140,15 +140,14 @@ class XedaProject:
                 design_cls = model_with_allow_extra(design_cls)
             else:
                 for d in designs:
-                    for k in design_remove_extra:
-                        d.pop(k, None)
+                    design_cls.remove_keys(d, design_remove_extra)
         else:
             designs = []
 
         with WorkingDirectory(file.parent):
             try:
                 return cls(
-                    designs=[hierarchical_merge(d, design_overrides) for d in designs],
+                    designs=designs,
                     flows=flows,
                     design_cls=design_cls,
                     root_path=file.parent.resolve(),
@@ -160,7 +159,13 @@ class XedaProject:
 
     @property
     def design_names(self) -> List[str]:
-        return [str(d.get("name")) for d in self.designs if "name" in d]
+        """The names of the designs as they are loaded: an override of `name` renames each."""
+        renamed = "name" in self.design_overrides
+        return [
+            str(self.design_overrides["name"] if renamed else d.get("name"))
+            for d in self.designs
+            if renamed or "name" in d
+        ]
 
     def get_design(
         self, name_or_idx: Union[str, int, None] = None, target: str | None = None

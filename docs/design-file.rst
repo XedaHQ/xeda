@@ -487,10 +487,30 @@ One design file can describe the design for several boards. Each entry of ``targ
   design's alone. An unknown key is an error, as it is in the design.
 - **Merging.** Mappings merge key by key, at every depth (``defines``, ``parameters``, each
   ``flows.<flow>`` section). ``sources`` (``rtl`` and ``tb``) are appended after the design's, in
-  order. Any other list replaces the design's. A ``flows`` table is checked before it is merged,
-  the design's own and every target's, selected or not: each is a mapping of flow names to
-  mappings, and a mistake is an error whichever target you select (a target's is reported at
-  ``targets.<name>.flows``).
+  order. Any other list replaces the design's. Each ``flows.<flow>`` section is merged by the
+  rules of that flow's settings layers (see :doc:`flows`): the aliases of a setting and the
+  clock spellings of the flow are read as they are there.
+- **A short form means its table.** Where the design and the target write one key in different
+  forms, each is read as the table it stands for before they merge. ``clock: CLK`` is
+  ``clock: {port: CLK}``; ``parameters`` as a list of ``{name, value}`` objects is the mapping
+  they give; ``language.vhdl: "08"`` is ``language.vhdl: {version: "08"}``; ``tb.cocotb: true``
+  is ``tb.cocotb: {}`` (so it keeps the design's ``module``, and ``false`` means no cocotb, which
+  replaces the design's table); a flow's ``fpga: <part>`` is ``fpga: {part: <part>}``. Aliases
+  (``generics`` for ``parameters``, ``version`` for ``standard``) are read the same way, at every
+  depth.
+- **The design's clock.** The design's clock is ``clock``, ``clock_port`` or ``clocks``: three
+  spellings of one list of clocks. A target's ``clocks``, in any form, replaces the design's
+  list. A target's ``clock`` or ``clock_port`` names the design's first clock and changes it key
+  by key (``clock: {name: sys}`` keeps the design's port). ``clock: null``, ``clock_port: ""`` and
+  an empty table (``clock: {}``) mean no clock, in the design and in a target. A clock that is
+  neither text nor a table (``clock: 0``, ``clock: false``) is an error, reported at the key as
+  written, in a target as well (at ``targets.<name>.rtl.clock``). Two spellings in one place are an
+  error.
+- **A table where a table is expected.** A value that is no table, and no short form of one,
+  where a table is expected (``tb: 3``) is an error, whichever target you select: a target's
+  table written over it does not hide it. The design's own ``flows`` table and every target's
+  are checked as well, the target's at ``targets.<name>.flows``, and so is every target's
+  overlay, selected or not, at ``targets.<name>.<key>``.
 - **A target overrides the design.** A target is the design author saying "for this board, these
   values", so where the design and the target write the same key, the target's value wins, key by
   key: a target's ``flows.nextpnr.board`` replaces the design's ``flows.nextpnr.board`` without an
@@ -504,8 +524,10 @@ One design file can describe the design for several boards. Each entry of ``targ
 - **Paths** in a target resolve against the design root, like the design's own.
 - **Selection.** A design with one target needs no ``--target``. With several, ``--target`` is
   required, and the error lists them. ``--target`` on a design without ``targets`` is an error.
-  From Python: ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` apply over the
-  selected target.
+  From Python: ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay
+  on the selected design like a target, and merge by the same rules: a short form means its
+  table, a mistake in the design is not hidden by an override, and a ``sources`` override is added
+  after the design's sources, like a target's. A project's designs take them the same way.
 - **Names.** A target name starts with a letter and holds letters, digits, ``_`` and ``-``, and
   is not the name or alias of a flow. There is one spelling, ``targets.<name>``: a design file
   has no ``target`` key; the loader records the selected name, which overrides cannot change.

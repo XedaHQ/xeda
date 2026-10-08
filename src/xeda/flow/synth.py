@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import Annotated, Any, Dict, Optional, Union
+from collections.abc import Mapping
+from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, Union
 
-from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
+from ..dataclass import Field, XedaBaseModel, field_validator, model_validator, unspecified
 from ..design import Clock, Design
 from ..units import convert_unit
 from ..utils import first_key, first_value
@@ -212,6 +213,8 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
 
+        field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"clocks": unspecified}
+
         @classmethod
         def __get_pydantic_json_schema__(cls, core_schema, handler):
             """Advertise the two single-clock input shorthands that normalize into `clocks`."""
@@ -386,7 +389,9 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
         fpga: Optional[FPGA] = Field(
             None,
             description="Target FPGA device. Accepts a full part identifier as a string "
-            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
+            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields. A part identifier '
+            "alone is `part: <identifier>` wherever layers merge, so over a mapping it changes "
+            "the part and keeps the other fields that mapping wrote (a speed grade, say).",
         )
 
 

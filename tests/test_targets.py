@@ -18,6 +18,7 @@ from xeda.cli import cli
 from xeda.design import DESIGN_PARTS, DesignValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
 from xeda.flows import VivadoSynth
 from xeda.xedaproject import XedaProject
 
@@ -30,6 +31,11 @@ SINGLE = RESOURCES / "single.yaml"
 
 def design_hash(design: Design) -> str:
     return design.parts_hash(DESIGN_PARTS)
+
+
+def flows_as_read(design: Design) -> dict:
+    """The design's `flows` sections as the launcher reads them."""
+    return merge_flow_sections(design.flow, flow_class_for=registered_flow)
 
 
 def write_design(tmp_path: Path, data: dict, name: str = "d.yaml") -> Path:
@@ -53,21 +59,36 @@ def error_of(tmp_path: Path, data: dict, **kwargs) -> str:
 # ------------------------------------------------------------------------------ the oracle
 
 
-@pytest.mark.parametrize("target", ["arty", "ulx3s"])
-def test_a_selected_target_is_the_design_written_flat_by_hand(target):
-    selected = Design.from_file(KNIGHT, target=target)
-    flat = Design.from_file(RESOURCES / f"knight_{target}_flat.yaml")
+@pytest.mark.parametrize(
+    "design, target, flat",
+    [
+        ("knight.yaml", "arty", "knight_arty_flat.yaml"),
+        ("knight.yaml", "ulx3s", "knight_ulx3s_flat.yaml"),
+        # a shorthand means exactly the table it stands for, on either side of the merge
+        ("shorthands.yaml", "tables", "shorthands_tables_flat.yaml"),
+        ("tables.yaml", "shorthands", "tables_shorthands_flat.yaml"),
+    ],
+)
+def test_a_selected_target_is_the_design_written_flat_by_hand(design, target, flat):
+    selected = Design.from_file(RESOURCES / design, target=target)
+    flat = Design.from_file(RESOURCES / flat)
 
     assert selected.target == target and flat.target is None
     assert selected.rtl_hash == flat.rtl_hash
     assert selected.tb_hash == flat.tb_hash
     assert design_hash(selected) == design_hash(flat)
+    # A flow's section is settings as written; the launcher reads every section through the
+    # merge of the layers (aliases and clock spellings canonical), so the sections are compared
+    # as it reads them.
+    assert flows_as_read(selected) == flows_as_read(flat)
     for name in Design.model_fields:
-        if name != "target":
+        if name not in ("target", "flow"):
             assert getattr(selected, name) == getattr(flat, name), name
-    assert selected.model_dump(exclude={"target"}) == flat.model_dump(exclude={"target"})
-    assert selected.model_dump(mode="json", exclude={"target"}) == flat.model_dump(
-        mode="json", exclude={"target"}
+    assert selected.model_dump(exclude={"target", "flow"}) == flat.model_dump(
+        exclude={"target", "flow"}
+    )
+    assert selected.model_dump(mode="json", exclude={"target", "flow"}) == flat.model_dump(
+        mode="json", exclude={"target", "flow"}
     )
 
 
@@ -159,7 +180,7 @@ def test_design_overrides_cannot_change_or_hide_the_selected_target(tmp_path, re
 
 def test_project_design_overrides_cannot_forge_the_selected_target(tmp_path):
     project = XedaProject.from_file(project_file(tmp_path), design_overrides={"target": "another"})
-    with pytest.raises(DesignValidationError, match="`target` is not a key of a design"):
+    with pytest.raises(DesignValidationError, match="cannot be overridden"):
         project.get_design("knight", target="ulx3s")
 
 

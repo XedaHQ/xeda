@@ -25,17 +25,29 @@ design itself. Only `run`, `plan` and the remote runner read a project file.
 """
 
 import difflib
-from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
-from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Any
 
-from ..dataclass import XedaBaseModel, input_names
+from ..dataclass import (
+    XedaBaseModel,
+    appended_fields_of,
+    canonical_names,
+    input_names,
+    is_mistake,
+    mapping_form,
+    nested_model,
+)
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
-from ..utils import XedaException, flows_table_problems, hierarchical_merge, settings_to_dict
+from ..utils import (
+    XedaException,
+    as_list,
+    flows_table_problems,
+    hierarchical_merge,
+    settings_to_dict,
+)
 
 __all__ = [
     "API_ORIGIN",
@@ -109,41 +121,6 @@ def check_not_removed(flow_name: str) -> None:
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
-
-
-def _nested_model(annotation: Any) -> type[XedaBaseModel] | None:
-    """The model a mapping value of `annotation` is validated as, if it has one."""
-    origin = get_origin(annotation)
-    if origin is Annotated:
-        return _nested_model(get_args(annotation)[0])
-    if origin in (Union, UnionType):
-        for choice in get_args(annotation):
-            model = _nested_model(choice)
-            if model is not None:
-                return model
-        return None
-    if isinstance(annotation, type) and issubclass(annotation, XedaBaseModel):
-        return annotation
-    return None
-
-
-def _canonicalize_setting_names(
-    values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
-) -> dict[str, Any]:
-    """Canonicalize aliases at one model level in one precedence layer.
-
-    This happens *per layer*, so a higher layer's `nthreads` overrides a lower layer's `ncpus`.
-    If one layer gives both spellings, preserve both and let pydantic reject the ambiguity rather
-    than silently choosing one.
-    """
-    names = input_names(settings_cls)
-    targets = [names.get(key, key) for key in values]
-    duplicates = {target for target, count in Counter(targets).items() if count > 1}
-    canonical: dict[str, Any] = {}
-    for (key, value), target in zip(values.items(), targets):
-        output_key = key if target in duplicates else target
-        canonical[output_key] = value
-    return canonical
 
 
 def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
@@ -223,20 +200,40 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
 def _merge_settings_layer(
     base: Mapping[str, Any], values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
 ) -> dict[str, Any]:
-    """Merge one already-parsed layer with model-aware aliases and nested settings."""
-    canonical = _canonicalize_setting_names(values, settings_cls)
+    """Merge one already-parsed layer with model-aware aliases and nested settings.
+
+    A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
+    table: where it meets a table, from below or above, the two merge key by key. Where it
+    meets nothing, it stays as written. A form that is no table (`WHOLE`), and a value that is
+    no form at all, replace what is below them."""
+    canonical = canonical_names(values, settings_cls)
     canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
     merged = deepcopy(dict(base))
+    settings_cls.merge_inputs(merged, canonical)
 
     for key, value in canonical.items():
         target = input_names(settings_cls).get(key, key)
         info = settings_cls.model_fields.get(target)
-        child_cls = _nested_model(info.annotation) if info is not None else None
+        child_cls = nested_model(info.annotation) if info is not None else None
         old = merged.get(key)
-        if child_cls is not None and isinstance(value, Mapping):
+        old_form = mapping_form(settings_cls, target, old)
+        new_form = mapping_form(settings_cls, target, value)
+        if key in merged and info is not None and is_mistake(settings_cls, target, old):
+            # What is below is no table where one is expected: it stays, with nothing merged
+            # over it, so that validation reports it as it would with no layer above.
+            continue
+        if key in appended_fields_of(settings_cls) and key in merged:
+            merged[key] = [*as_list(old), *as_list(value)]
+        elif child_cls is not None and isinstance(value, Mapping):
             merged[key] = _merge_settings_layer(
-                old if isinstance(old, Mapping) else {}, value, child_cls
+                old_form if isinstance(old_form, Mapping) else {}, value, child_cls
             )
+        elif (
+            child_cls is not None
+            and isinstance(new_form, Mapping)
+            and isinstance(old_form, Mapping)
+        ):
+            merged[key] = _merge_settings_layer(old_form, new_form, child_cls)
         elif key == "clocks" and _has_clock_inputs(settings_cls) and isinstance(value, Mapping):
             clock_values = dict(value)
             existing_before = merged.get("clocks")
@@ -271,8 +268,8 @@ def _merge_settings_layer(
                     ):
                         clock_values[cname] = {**cval, "name": cname}
             merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
-        elif isinstance(old, Mapping) and isinstance(value, Mapping):
-            merged[key] = hierarchical_merge(dict(old), dict(value))
+        elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
+            merged[key] = hierarchical_merge(dict(old_form), dict(new_form))
         else:
             merged[key] = deepcopy(value)
     return merged
@@ -328,7 +325,7 @@ def _leaves(
         if settings_cls is not None:
             target = input_names(settings_cls).get(key, key)
             info = settings_cls.model_fields.get(target)
-            child_cls = _nested_model(info.annotation) if info is not None else None
+            child_cls = nested_model(info.annotation) if info is not None else None
         if isinstance(value, Mapping) and value:
             leaves.update(_leaves(value, child_cls, (*prefix, target), (*written, key)))
         else:

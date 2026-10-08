@@ -255,18 +255,39 @@ Four orthogonal abstractions, deliberately decoupled:
   before anything else sees the design: `Design.select_target(data, target)` works on the raw
   mapping -- the overlay takes the design's own keys (not `TARGET_FORBIDDEN_KEYS`), is folded by
   `process_compatibility(defaults=False)` (the design's own fold, so a key means the same in
-  both), then `hierarchical_merge`d over the design, `rtl.sources`/`tb.sources` appended -- and
-  records the name as `Design.target`, which no hash reads. `Design.from_file(path, target=)`,
+  both), then merged over the design by `settings_layers.merge_layers` with `settings_cls=Design`
+  (`Design._merge_target`: the one merge of flow settings layers, so a key means the same in
+  both; `appended_fields` appends `rtl.sources`/`tb.sources`) -- and
+  records the name as `Design.target`, which no hash reads. `--design-overrides` are one more
+  overlay and `Design.target_selected` merges them by the same `_merge_target`, once, for a design
+  file and for a project's entry alike (`XedaProject.designs` stays as written; `design_names`
+  applies a `name` override; `Design.remove_keys` removes a key of `remove_extra` in every
+  spelling, since a merge writes field names). `Design.from_file(path, target=)`,
   `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
   `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
   needs no selection; several without one, an unknown one, a name that is a flow's, and a
   written `target` key are `DesignValidationError`s at `targets...`. The oracle
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
-  field, hash and dump but `target`. The design's own `flows` table is judged before a target is merged into it, and every
-  target's overlay is judged at `targets.<name>.flows` whether it is selected or not
-  (`design._flows_table`, the design validator's own function): the merge replaces a value that
-  is no mapping by the overlay's mapping, and would otherwise hide a mistake in the table for
-  that target alone. `design_schema()` adds `targets` to the input syntax only
+  field, hash and dump but `target` and the spelling of a flow's section (`flows_as_read`). **A
+  shorthand means exactly the table it stands for, in every merge** -- a target over its design
+  and every settings layer over the one below (`dataclass.mapping_form`): a model with a form
+  declares it once, `XedaBaseModel.as_mapping` (`FPGA` part string, `Clock` port, `LanguageSettings`
+  standard, `CocotbTestbench` true/`WHOLE` for false, `Platform` name `WHOLE`) or, for a field that
+  is no model, `field_shorthands` (`parameters` as a list, `unspecified` for `None`), and its
+  validator calls the same function. `field_shorthands` and `appended_fields` are read along the
+  MRO (`field_shorthands_of`, `appended_fields_of`): a subclass adds to its bases' and its entry
+  for the same field wins, so it repeats none of theirs. `tests/test_shorthand_forms.py` sweeps every table-taking
+  field of the design and of each flow (a probe the field accepts must not be `is_mistake`, and
+  its table validates as it does) and scans for a second copy of a conversion. The merge reads
+  both sides by it before choosing key by key or replace; the design's clock (`clock`,
+  `clock_port`, `clocks`: `RtlSettings.merge_inputs`) is one list: a target's `clocks` replaces
+  it, its `clock`/`clock_port` refine the first clock, `clock: null`/`clock_port: ""`/an empty table mean none; a
+  clock that is neither text nor a table is refused at the key written (`RtlSettings.clock_mistake`,
+  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too).
+  **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
+  nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
+  target's `tb` table; `synth: 3` under `-s synth.strategy=...`); a target's own is reported at
+  `targets.<name>.<key>`, selected or not, as its `flows` table is (`design._flows_table`). `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
   carry it as `PlanContext.target`, which names where every node runs: a run directory is
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
@@ -345,7 +366,8 @@ removed before the run, so an earlier success never stands for a run that died
   its `flows.nextpnr.board` replaces the design's with no error, while a key it does not write
   stays the design's, and the project's own keys survive both. The loader folds the target into the
   design's mapping, so it is part of the design origin, below `-s` and the API
-  (`tests/test_targets.py`, the layer-order tests). `run()`/`plan()`'s `flow_settings` (`-s` items
+  (`tests/test_targets.py`, the layer-order tests). `fpga: P` over a table that pins other fields
+  keeps them, exactly as `-s fpga.part=P` does. `run()`/`plan()`'s `flow_settings` (`-s` items
   or an API mapping) is the command-line layer; `flow_overrides` is the API layer. Every origin label
   (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`) is a constant of `settings_layers`,
   in every message and `--json` origin. **This is not the agreement rule**: agreement

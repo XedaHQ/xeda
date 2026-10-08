@@ -77,6 +77,15 @@ given in the design file, rather than replacing the whole section. Precedence go
 setting was given first (project, design, target, command line, API). A target's value wins over
 the design's for the same key, and only for the keys the target writes.
 
+A short form means exactly the table it stands for, in every merge. ``fpga: xc7a35tcpg236-1`` is
+``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote as
+text. ``-s fpga=<part>`` over a design's ``fpga`` table changes the part and keeps the other keys
+the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. The aliases of a setting
+(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock_period``, ``clock``,
+``clocks``) are read in each layer on its own, so a layer above changes what a layer below wrote
+whichever spelling each used. A value that is no table where a table is expected (``synth: 3``)
+is an error, whatever a higher layer writes over it.
+
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
 flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``
 places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming

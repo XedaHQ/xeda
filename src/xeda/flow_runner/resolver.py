@@ -22,7 +22,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel
+from ..dataclass import BaseModel, expand_forms, nested_model
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
@@ -43,7 +43,6 @@ from .settings_layers import (
     API_ORIGIN,
     COMMAND_LINE_ORIGIN,
     SUPPLIED_SECTIONS_ORIGIN,
-    _nested_model,
     carry_diagnostics,
     check_run_flows,
     compose_flow_settings,
@@ -347,23 +346,14 @@ def _clock_inputs(
             result[prefix] = deepcopy(singular)
     for key, value in values.items():
         info = model.model_fields.get(key)
-        child = _nested_model(info.annotation) if info else None
+        child = nested_model(info.annotation) if info else None
         if child and isinstance(value, dict):
             result.update(_clock_inputs(value, child, (*prefix, key)))
     return result
 
 
-def _fpga_shorthands(values: dict[str, Any]) -> None:
-    for key, value in values.items():
-        if key == "fpga" and isinstance(value, str):
-            values[key] = {"part": value}
-        elif isinstance(value, dict):
-            _fpga_shorthands(value)
-
-
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
-    values = merge_layers(_explicit(raw), settings_cls=cls.Settings)
-    _fpga_shorthands(values)
+    values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
     locations = {path: _Location(label, kind) for path in _leaves(values)}
     # `settings_layers` synthesizes a name when a singular spelling creates a clock. It is not caller input.
     original = merge_layers(_explicit(raw))

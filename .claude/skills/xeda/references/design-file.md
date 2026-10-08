@@ -268,6 +268,12 @@ targets:
   `defines`, `top`, `clock`, ...); not `name` or `targets`. Unknown keys are errors.
 - Mappings merge at every depth; `sources` are appended after the design's; any other list
   replaces the design's. Paths resolve against the design root.
+- A short form means its table where the design and a target meet (`clock: CLK` is `clock:
+  {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
+  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
+  refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
+  A value that is no table where one is expected (`tb: 3`) is an error whichever target is selected.
+  `--design-overrides` meet the design by the same rules.
 - One target: no `--target` needed. Several: `--target` is required and the error lists them.
   `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
 - **A target overrides the design**, key by key: where both write a key, the target's value

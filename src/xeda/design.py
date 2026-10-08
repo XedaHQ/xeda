@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Optional,
@@ -39,18 +40,22 @@ from typing import (
 from urllib.parse import parse_qs, urlparse
 
 import yaml
-from pydantic_core import core_schema
+from pydantic_core import InitErrorDetails, PydanticCustomError, core_schema
 
 from .dataclass import (
+    WHOLE,
     AliasChoices,
     Field,
     SerializeAsAny,
     ValidationError,
     XedaBaseModel,
+    canonical_tree,
     field_validator,
     input_names,
     model_validator,
     model_with_allow_extra,
+    shape_problems,
+    unspecified,
     validation_errors,
 )
 from .digest import content_digest
@@ -948,6 +953,11 @@ def _normalize_parameters(value: Any) -> Any:
     return value
 
 
+def _parameters_form(value: Any) -> Any:
+    """The table that a list of `{name, value}` objects stands for (`field_shorthands`)."""
+    return _parameters_as_mapping(value) if isinstance(value, list) else None
+
+
 #: What `sources` accepts, shown by `xeda design-schema`.
 SOURCES_DESCRIPTION = (
     "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and "
@@ -970,6 +980,12 @@ class DVSettings(XedaBaseModel):
         "`{name, value}` objects. `generics` is accepted as the same setting's other name.",
     )
     defines: Dict[str, DefineType] = Field(default={})
+
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {
+        "parameters": _parameters_form
+    }
+    #: A target's sources come after the design's.
+    appended_fields: ClassVar[tuple[str, ...]] = ("sources",)
 
     @property
     def generics(self) -> Dict[str, DefineType]:
@@ -1046,9 +1062,18 @@ class DVSettings(XedaBaseModel):
         return sources
 
 
+#: The three spellings of a design's clock, which are one setting.
+CLOCK_SPELLINGS = ("clock", "clock_port", "clocks")
+
+
 class Clock(XedaBaseModel):
     port: str
     name: Optional[str] = None
+
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """A bare string is the clock's port: `clock: CLK` is `clock: {port: CLK}`."""
+        return {"port": value} if isinstance(value, str) else None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -1366,8 +1391,9 @@ class RtlSettings(DVSettings):
         properties = schema.setdefault("properties", {})
         clock_item = deepcopy(properties["clocks"]["items"])
         properties["clock"] = {
-            "anyOf": [clock_item, {"type": "string"}],
-            "description": "Single design clock shorthand. Prefer an object with `port`.",
+            "anyOf": [clock_item, {"type": "string"}, {"type": "null"}],
+            "description": "Single design clock shorthand. Prefer an object with `port`. "
+            "`null` means no clock.",
             "x-xeda-input-only": True,
         }
         properties["clock_port"] = {
@@ -1387,7 +1413,7 @@ class RtlSettings(DVSettings):
             # unrelated assignments must not reconstruct or detach the established list.
             return values
 
-        present = [name for name in ("clock", "clock_port", "clocks") if name in values]
+        present = [name for name in CLOCK_SPELLINGS if name in values]
         if len(present) > 1:
             raise ValueError(
                 "Specify only one of `clock`, `clock_port`, or `clocks`; prefer `clock` for "
@@ -1395,27 +1421,122 @@ class RtlSettings(DVSettings):
             )
         if present:
             spelling = present[0]
-            if spelling == "clocks":
-                return values
-            value = values.pop(spelling)
-            if spelling == "clock_port":
-                # Historically an empty compatibility string meant that the design had no
-                # declared clock. Preserve that meaning instead of constructing a clock with an
-                # unusable empty port.
-                value = {"port": value} if value else None
-            values["clocks"] = [value] if value is not None else []
+            if spelling != "clocks":
+                value = values.pop(spelling)
+                if cls.clock_mistake(spelling, value):
+                    # reported at the key as written, not at the `clocks` it would become
+                    what = "a port name" if spelling == "clock_port" else "a port name or a table"
+                    raise ValidationError.from_exception_data(
+                        cls.__name__,
+                        [
+                            InitErrorDetails(
+                                type=PydanticCustomError(
+                                    "clock_form",
+                                    "{message}",
+                                    {"message": f"`{spelling}` is {what}, not {value!r:.60}"},
+                                ),
+                                loc=(spelling,),
+                                input=value,
+                            )
+                        ],
+                    )
+                values["clocks"] = cls.clock_tables(spelling, value)
         return values
 
     @field_validator("clocks", mode="before")
     @classmethod
     def _normalize_clocks(cls, clocks):
-        if clocks is None:
-            return []
-        if isinstance(clocks, (str, dict, Clock)):
-            clocks = [clocks]
-        if not isinstance(clocks, list):
-            raise ValueError(f"Expecting 'clocks' to be a list but found {clocks}")
-        return [{"port": clock} if isinstance(clock, str) else clock for clock in clocks if clock]
+        return cls.clock_tables("clocks", clocks)
+
+    @classmethod
+    def clock_tables(cls, spelling: str, value: Any) -> list[Any]:
+        """The clocks that `value`, written as `spelling` of the design's clock, gives, each as
+        the table it stands for. The validators read a clock by this function, and so does the
+        merge of a target over its design (`merge_inputs`). `clock: null`, `clock: ""` and
+        `clock_port: ""` mean no clock. An item that is no form of a clock is kept as it is,
+        for validation to report: only a text or a table is one (a number is not)."""
+        if spelling == "clocks":
+            if value is None:
+                return []
+            if isinstance(value, (str, Mapping, Clock)):
+                value = [value]
+            if not isinstance(value, list):
+                raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
+            items = value
+        elif spelling == "clock_port":
+            # Historically an empty compatibility string meant that the design had no declared
+            # clock; keep that instead of constructing a clock with an unusable empty port.
+            return [Clock.as_mapping(value) or value] if value else []
+        else:
+            items = [value]
+        # an empty table, like `null` and `""`, says nothing: there is no clock
+        return [
+            Clock.as_mapping(item) if isinstance(item, str) else item
+            for item in items
+            if item is not None and item != "" and not (isinstance(item, Mapping) and not item)
+        ]
+
+    @classmethod
+    def clock_mistake(cls, spelling: str, value: Any) -> bool:
+        """Whether `value`, written as `spelling` of the design's clock, is no clock: a clock is
+        a port name or a table (`clock_tables`), and a `clock_port` is a port name."""
+        try:
+            tables = cls.clock_tables(spelling, value)
+        except ValueError:
+            return True
+        return not all(isinstance(table, (Mapping, Clock)) for table in tables)
+
+    @classmethod
+    def form_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, Any]]:
+        """The clock spellings of `values` that are no clock, as they are written: `clock` and
+        `clock_port` are no fields, so `shape_problems` asks here."""
+        return [
+            (spelling, values[spelling])
+            for spelling in CLOCK_SPELLINGS
+            if spelling in values and cls.clock_mistake(spelling, values[spelling])
+        ]
+
+    @classmethod
+    def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
+        """A design's clock is `clock`, `clock_port` or `clocks`: three spellings of the one
+        list of clocks. Where `values` (the higher layer) writes one of them and `merged` has one
+        below, the two meet as lists of tables. `clocks`, in any form, replaces the list below.
+        `clock` and `clock_port` name the first design clock (as the `clock` property does) and
+        refine it key by key; `clock: null` and `clock_port: ""` mean no clock, which replaces.
+        A layer that writes two spellings, or a clock that is no form of one, is left as it is,
+        so validation reports it: a lower clock that is no form of one is kept, and the clock of
+        the higher layer is dropped."""
+        written = [name for name in CLOCK_SPELLINGS if name in values]
+        below = [name for name in CLOCK_SPELLINGS if name in merged]
+        if not written or not below:
+            return
+        if len(written) > 1:
+            for name in below:
+                del merged[name]
+            return
+        if len(below) > 1:
+            return
+        (name,), (lower,) = written, below
+
+        def tables(spelling: str, value: Any) -> list[Any] | None:
+            try:
+                clocks = cls.clock_tables(spelling, value)
+            except ValueError:
+                return None
+            return clocks if all(isinstance(clock, Mapping) for clock in clocks) else None
+
+        lowest, higher = tables(lower, merged[lower]), tables(name, values[name])
+        if lowest is None:
+            del values[name]
+            return
+        del merged[lower]
+        if higher is None:
+            return
+        del values[name]
+        if name == "clocks" or not lowest or not higher:
+            merged["clocks"] = higher
+        else:
+            merged["clocks"] = [hierarchical_merge(dict(lowest[0]), dict(higher[0])), *lowest[1:]]
 
     @property
     def clock(self) -> Optional[Clock]:
@@ -1446,6 +1567,14 @@ class RtlSettings(DVSettings):
 
 
 class CocotbTestbench(XedaBaseModel):
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """`cocotb: true` is a cocotb testbench with every default, `{}`. `cocotb: false` is no
+        cocotb testbench: no table, so it replaces and is replaced."""
+        if value is True:
+            return {}
+        return WHOLE if value is False else None
+
     module: Optional[str] = None
     toplevel: Optional[str] = None
     testcase: List[str] = Field(
@@ -1485,7 +1614,8 @@ class TbSettings(DVSettings):
     @classmethod
     def _auto_set_cocotb(cls, value, info):
         values = info.data if isinstance(info.data, dict) else {}
-        if value is False:
+        form = CocotbTestbench.as_mapping(value)
+        if form is WHOLE:
             return None
 
         def has_cocotb(tb):
@@ -1499,8 +1629,8 @@ class TbSettings(DVSettings):
                     return True
             return False
 
-        if value is True or (value is None and has_cocotb(values)):
-            return CocotbTestbench()
+        if form is not None or (value is None and has_cocotb(values)):
+            return form or {}
         return value
 
 
@@ -1523,8 +1653,12 @@ class LanguageSettings(XedaBaseModel):
         return value
 
     @classmethod
-    def from_version(cls, version: str | int):
-        return cls(version=cls.two_digit_standard(version))  # type: ignore
+    def as_mapping(cls, value: Any) -> Any:
+        """A standard written alone is the table that names it: `vhdl: "08"` is `vhdl:
+        {standard: "08"}`. A bool is no standard."""
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            return None
+        return {"standard": cls.two_digit_standard(value)}
 
 
 class VhdlSettings(LanguageSettings):
@@ -1538,12 +1672,9 @@ class Language(XedaBaseModel):
     @field_validator("verilog", "vhdl", mode="before")
     @classmethod
     def _language_settings(cls, value, info):
-        if isinstance(value, (str, int)):
-            if info.field_name == "vhdl":
-                return VhdlSettings.from_version(value)
-            elif info.field_name == "verilog":
-                return LanguageSettings.from_version(value)
-        return value
+        model = {"vhdl": VhdlSettings, "verilog": LanguageSettings}.get(info.field_name)
+        expanded = model.as_mapping(value) if model is not None else None
+        return value if expanded is None else expanded
 
 
 class RtlDep(XedaBaseModel):
@@ -2010,10 +2141,6 @@ _NO_SINGULAR_TARGET = (
 )
 
 
-def _as_list(value: Any) -> list[Any]:
-    return list(value) if isinstance(value, (list, tuple)) else [value]
-
-
 def _flows_table(value: Any) -> dict[str, Any]:
     """The `flows` table of a design, or of a target's overlay, as the design holds it: a dotted
     key is a section's setting, and a section left empty (`None`) is dropped. A table of the wrong
@@ -2028,15 +2155,37 @@ def _flows_table(value: Any) -> dict[str, Any]:
     return {k: v for k, v in (value or {}).items() if v is not None}
 
 
-def _spell_as(base: dict[str, Any], overlay: dict[str, Any], model: type[XedaBaseModel]) -> None:
-    """Rename `overlay`'s keys to the spelling `base` uses for the same field of `model`
-    (`flow`/`flows`, `parameters`/`generics`), so the two meet when merged."""
-    names = input_names(model)
-    spelled = {names[key]: key for key in base if key in names}
-    for key in list(overlay):
-        ours = spelled.get(names.get(key, ""), key)
-        if ours != key and ours not in overlay:
-            overlay[ours] = overlay.pop(key)
+def _known_flow(name: str) -> Any:
+    """The registered flow `name` stands for (any spelling the command line takes), or None."""
+    importlib.import_module("xeda.flows")
+    return importlib.import_module("xeda.flow_runner.settings_layers").registered_flow(name)
+
+
+def _tables_by_flow(table: Mapping[str, Any]) -> dict[str, Any]:
+    """A `flows` table with each flow under its canonical name. A name given twice, and a removed
+    flow's, are the errors `merge_flow_sections` raises for them."""
+    layers = importlib.import_module("xeda.flow_runner.settings_layers")
+    layers.merge_flow_sections(table, flow_class_for=_known_flow)  # raises on those mistakes
+    by_flow = {}
+    for name, section in table.items():
+        flow_cls = _known_flow(name)
+        by_flow[flow_cls.name if flow_cls is not None else name] = section
+    return by_flow
+
+
+def _flow_section_problems(
+    table: Mapping[str, Any],
+) -> list[tuple[tuple[str, ...], Any]]:
+    """Where a section of `table` (a `flows` table) holds a value that is no table at a setting
+    that takes one: `(flow, setting, ...)` paths. A flow that is not registered is not judged."""
+    problems = []
+    for name, section in _tables_by_flow(table).items():
+        flow_cls = _known_flow(name)
+        if flow_cls is not None and isinstance(section, Mapping):
+            problems += [
+                ((name, *path), v) for path, v in shape_problems(flow_cls.Settings, section)
+            ]
+    return problems
 
 
 def target_name_problem(name: Any) -> str | None:
@@ -2111,6 +2260,9 @@ class Design(XedaBaseModel):
         "design's identity, and a design file does not write it.",
         json_schema_extra={"hidden_from_schema": True},
     )
+
+    #: A design whose `flows` is `null` has none.
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"flow": unspecified}
 
     @field_validator("name", mode="after")
     @classmethod
@@ -2250,27 +2402,55 @@ class Design(XedaBaseModel):
             base = cls.process_compatibility(deepcopy(data))
         except ValueError as e:
             raise invalid("", str(e)) from e
-        # The merge below replaces a value that is no mapping by the overlay's mapping, which
-        # would hide a mistake in the design's own table for this target alone. So the table is
-        # judged first, as the design validator judges it: the design is as valid as it is,
-        # whichever target is selected.
+        # The flows table is judged first, as the design validator judges it: the design is as
+        # valid as it is, whichever target is selected.
         for key, value in base.items():
             if input_names(cls).get(key) == "flow":
                 try:
                     _flows_table(value)
                 except ValueError as e:
                     raise invalid(key, str(e)) from e
-        for part, model in (("rtl", RtlSettings), ("tb", TbSettings)):
-            ours, theirs = base.get(part), overlay.get(part)
-            if isinstance(ours, dict) and isinstance(theirs, dict):
-                _spell_as(ours, theirs, model)
-                if "sources" in theirs:
-                    theirs["sources"] = [
-                        *_as_list(ours.get("sources", [])),
-                        *_as_list(theirs["sources"]),
-                    ]
-        _spell_as(base, overlay, cls)
-        return {**hierarchical_merge(base, overlay), "target": target}
+        try:
+            merged = cls._merge_target(base, overlay)
+        except (ValueError, XedaException) as e:
+            raise invalid("flows", str(e)) from e
+        return {**merged, "target": target}
+
+    @classmethod
+    def _merge_target(cls, base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:
+        """The design `base` with the overlay of a target merged over it, both folded as
+        `process_compatibility` does. One rule for every key, the one that merges the settings
+        layers of a flow (`settings_layers.merge_layers`): each side is read as the tables its
+        shorthands stand for (a clock as its port, `parameters` as a list of objects, `vhdl` as
+        its standard) and under the field names its aliases stand for; tables merge key by key at
+        every depth, everything else the overlay writes replaces. Sources are appended, and each
+        flow's section is merged by that flow's own rules, an alias and a clock shorthand
+        included. A value of the design that is no table where one is expected is kept as it
+        is, with nothing of the overlay merged over it, so that validation reports it as it
+        would with no target."""
+        layers = importlib.import_module("xeda.flow_runner.settings_layers")
+        base, overlay = canonical_tree(cls, base), canonical_tree(cls, overlay)
+        flows: list[dict[str, Any] | None] = []
+        for side in (base, overlay):
+            names = [key for key in side if input_names(cls).get(key) == "flow"]
+            flows.append(_flows_table(side.pop(names[0])) if len(names) == 1 else None)
+        low, high = flows
+        merged = layers.merge_layers(base, overlay, settings_cls=cls)
+        if low is None and high is None:
+            return merged
+        low_by_flow = _tables_by_flow(low or {})
+        high_by_flow = _tables_by_flow(high or {})
+        merged_flows: dict[str, Any] = {}
+        for name in dict.fromkeys([*low_by_flow, *high_by_flow]):
+            below, above = low_by_flow.get(name), high_by_flow.get(name)
+            flow_cls = _known_flow(name)
+            if below is None or above is None:
+                merged_flows[name] = deepcopy(below if above is None else above)
+                continue
+            settings_cls = flow_cls.Settings if flow_cls is not None else None
+            merged_flows[name] = layers.merge_layers(below, above, settings_cls=settings_cls)
+        merged["flow"] = merged_flows
+        return merged
 
     @classmethod
     def _target_overlay(cls, name: Any, overlay: Any) -> dict[str, Any]:
@@ -2321,9 +2501,24 @@ class Design(XedaBaseModel):
                 except ValueError as e:
                     raise invalid(key, str(e)) from e
         try:
-            return cls.process_compatibility(overlay, defaults=False)
+            folded = cls.process_compatibility(overlay, defaults=False)
         except ValueError as e:
             raise invalid(None, str(e)) from e
+        # A value that is no table where one is expected is the target's own mistake, reported
+        # where it is written whether or not the target is selected.
+        for path, value in shape_problems(cls, folded):
+            if input_names(cls).get(path[0]) != "flow":  # a `flows` table is judged on its own
+                raise invalid(
+                    ".".join(path), f"takes a table or a short form of one, not {value!r:.60}"
+                )
+        for key, value in folded.items():
+            if input_names(cls).get(key) == "flow":
+                for path, value in _flow_section_problems(_flows_table(value)):
+                    raise invalid(
+                        ".".join((key, *path)),
+                        f"takes a table or a short form of one, not {value!r:.60}",
+                    )
+        return folded
 
     @classmethod
     def process_generation(cls, data: Dict[str, Any]):
@@ -2608,6 +2803,16 @@ class Design(XedaBaseModel):
         return self.design_root
 
     @classmethod
+    def remove_keys(cls, data: dict[str, Any], names: Iterable[str]) -> None:
+        """Remove the keys `names` from the design description `data`, each in every spelling:
+        a field is one key whichever alias or field name the description uses (`flows` and
+        `flow`)."""
+        spelled = input_names(cls)
+        fields = {spelled.get(name, name) for name in names}
+        for key in [key for key in data if spelled.get(key, key) in fields]:
+            del data[key]
+
+    @classmethod
     def from_file(
         cls: Type[DesignType],
         design_file: Union[str, os.PathLike],
@@ -2651,8 +2856,7 @@ class Design(XedaBaseModel):
                 )
                 design_dict["name"] = design_name
             if not allow_extra:
-                for k in remove_extra:
-                    design_dict.pop(k, None)
+                cls.remove_keys(design_dict, remove_extra)
             # Default value for design_root is the folder containing the design description file.
             dr = design_dict.pop("design_root", None)
             if design_root is None:
@@ -2682,7 +2886,8 @@ class Design(XedaBaseModel):
         """A design description as written in a file (a design file, or a project's `designs`
         entry), with its target selected and then `overrides` applied: what every loader of
         written designs builds the `Design` from. Written input has no `target` key: the
-        loader records the name there."""
+        loader records the name there. The overrides are an overlay on the design like a target
+        is, and are merged by the same rule (`_merge_target`)."""
         selected = cls.select_target(data, target)
         overrides = deepcopy(dict(overrides or {}))
         if "target" in overrides:
@@ -2697,10 +2902,16 @@ class Design(XedaBaseModel):
                 ],
                 data=dict(data),
             )
-        if selected.get("target") is not None:
-            # the selected design is folded, so the flat form of an override is folded too
+        if not overrides:
+            return selected
+        try:
+            # both are folded as a target and its design are, so a flat key means the same in each
             overrides = cls.process_compatibility(overrides, defaults=False)
-        return hierarchical_merge(selected, overrides)
+            return cls._merge_target(cls.process_compatibility(deepcopy(selected)), overrides)
+        except (ValueError, XedaException) as e:
+            raise DesignValidationError(
+                [("flows", str(e), "", "value_error")], data=dict(data)
+            ) from e
 
     def source_path_as_named(self, src: FileResource) -> Path:
         """`src` as this design names it: relative to the design root when it is under it,

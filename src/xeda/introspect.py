@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import textwrap
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_args
 
@@ -656,11 +657,32 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
 #: Input shapes a field's validators accept but the model schema does not describe. Keyed by
 #: definition name ("" for the root Design model), then by property name. Where a field has an
 #: alias, both names are listed, because the loader accepts either.
+#: `parameters` (and `generics`) as a list of `{name, value}` objects, which stands for the mapping
+#: they give.
+_PARAMETER_LIST = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "value": {}},
+        "required": ["name", "value"],
+    },
+}
 _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
     # Design.authors accepts a single "Name <email>" string
-    "": {"author": [{"type": "string"}], "authors": [{"type": "string"}]},
+    "": {
+        "author": [{"type": "string"}],
+        "authors": [{"type": "string"}],
+        "parameters": [_PARAMETER_LIST],
+        "generics": [_PARAMETER_LIST],
+    },
+    "RtlSettings": {"parameters": [_PARAMETER_LIST], "generics": [_PARAMETER_LIST]},
     # tb.top accepts a bare module name; tb.cocotb accepts `true`
-    "TbSettings": {"top": [{"type": "string"}], "cocotb": [{"type": "boolean"}]},
+    "TbSettings": {
+        "top": [{"type": "string"}],
+        "cocotb": [{"type": "boolean"}],
+        "parameters": [_PARAMETER_LIST],
+        "generics": [_PARAMETER_LIST],
+    },
     # language.vhdl = "2008" and language.vhdl = 2008 are both accepted
     "Language": {
         "vhdl": [{"type": "string"}, {"type": "integer"}],
@@ -723,18 +745,31 @@ def _add_targets(schema: dict[str, Any]) -> None:
                 k: v for k, v in deepcopy(definitions[name]).items() if k != "required"
             }
 
-    def overlaid(node: Any) -> Any:
+    # `clock` and `clock_port` name the design's first clock and change it key by key, so a
+    # target's `clock` may leave out the port; `clocks` replaces the list, so its clocks are whole.
+    if "Clock" in definitions:
+        definitions["ClockOverlay"] = {
+            k: v for k, v in deepcopy(definitions["Clock"]).items() if k != "required"
+        }
+
+    def overlaid(node: Any, refs: Mapping[str, str] = partial) -> Any:
         if isinstance(node, dict):
             return {
-                k: partial.get(v, v) if k == "$ref" and isinstance(v, str) else overlaid(v)
+                k: refs.get(v, v) if k == "$ref" and isinstance(v, str) else overlaid(v, refs)
                 for k, v in node.items()
             }
         if isinstance(node, list):
-            return [overlaid(item) for item in node]
+            return [overlaid(item, refs) for item in node]
         return node
 
+    clock_refs = {**partial, "#/$defs/Clock": "#/$defs/ClockOverlay"}
+    rtl_overlay = definitions.get("RtlSettingsOverlay", {}).get("properties", {})
+    if "clock" in rtl_overlay:
+        rtl_overlay["clock"] = overlaid(rtl_overlay["clock"], clock_refs)
     properties: dict[str, Any] = {
-        name: overlaid(spec) for name, spec in root.items() if name not in TARGET_FORBIDDEN_KEYS
+        name: overlaid(spec, clock_refs if name == "clock" else partial)
+        for name, spec in root.items()
+        if name not in TARGET_FORBIDDEN_KEYS
     }
     properties.update({name: False for name in sorted(TARGET_FORBIDDEN_KEYS)})
     root["targets"] = {
