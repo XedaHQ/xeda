@@ -735,6 +735,13 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "decides the unit GHDL elaborates",
     "xeda.flows.ghdl:GhdlSynth.synth_args: sources_of_type": "the VHDL sources of a one-shot "
     "elaboration, a branch no caller takes: every one passes `one_shot_elab=False`",
+    "xeda.cocotb:Cocotb.env: sources": "whether a cocotb testbench lists any source",
+    "xeda.cocotb:Cocotb.env: sources_of_type": "the `Cocotb` (Python) sources, whose last names "
+    "the test module cocotb imports: no simulator reads them",
+    "xeda.flows.modelsim.sim_evidence:parse_modelsim_evidence: sim_sources": "the VHDL sources, "
+    "to tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
+    "xeda.flows.vivado.sim_evidence:parse_xsim_evidence: sim_sources": "the VHDL sources, to "
+    "tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
 }
 
 TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
@@ -776,22 +783,15 @@ def python_source_reads(source: str, skip_classes=()) -> list[tuple[str, int, st
             found.append((".".join(self.scope) or "<module>", node.lineno, what))
 
         def visit_Attribute(self, node: ast.Attribute) -> None:
-            if node.attr in DIRECT_ATTRIBUTES:
+            # a call or not: `design.sources_of_type(...)`, and `read = design.sources_of_type`
+            if node.attr == SELECTION or node.attr in DIRECT_CALLS | DIRECT_ATTRIBUTES:
                 self._hit(node, node.attr)
             self.generic_visit(node)
 
-        def visit_Call(self, node: ast.Call) -> None:
-            func = node.func
-            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            if name == SELECTION:
-                self._hit(node, SELECTION)
-            elif name in DIRECT_CALLS:
-                self._hit(node, name)
-            if isinstance(func, ast.Attribute):
-                # the callee is a read already counted by name; visit its receiver only
-                self.visit(func.value)
-            for child in [*node.args, *node.keywords]:
-                self.visit(child)
+        def visit_Name(self, node: ast.Name) -> None:
+            # a function of these names called or passed by itself
+            if node.id == SELECTION or node.id in DIRECT_CALLS:
+                self._hit(node, node.id)
 
     Visitor().visit(tree)
     return found
@@ -811,10 +811,12 @@ def template_source_reads(text: str) -> list[tuple[int, str]]:
 def source_reads(cls: type[Flow]) -> list[tuple[str, int, str]]:
     """Every read of the design's sources by `cls`'s code -- the classes of its MRO and the code
     of their modules outside any class -- and by the templates it can render, as `(where, line,
-    what)`: `where` is `module:qualified name`, or `template <name>`."""
+    what)`: `where` is `module:qualified name`, or `template <name>`. `Flow` itself, which holds
+    the contract (the selection, its template global and the check), is no flow's code."""
     names_by_module: dict[str, set[str]] = {}
     for klass in _mro(cls):
-        names_by_module.setdefault(klass.__module__, set()).add(klass.__name__)
+        if klass is not Flow:
+            names_by_module.setdefault(klass.__module__, set()).add(klass.__name__)
     found = []
     for module_name, names in sorted(names_by_module.items()):
         source = inspect.getsource(sys.modules[module_name])
@@ -839,6 +841,11 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
         "sim_sources_of_type": ("def f(d): return d.sim_sources_of_type(1)", "sim_sources_of_type"),
         "header_dirs": ("def run(d): return d.header_dirs(tb=True)", "header_dirs"),
         "the selection": ("def run(self): return self.sources_read(tb=True)", SELECTION),
+        "a method taken": (
+            "def run(d): read = d.sources_of_type; return read('*')",
+            "sources_of_type",
+        ),
+        "a function passed": ("def run(f): return map(header_dirs, f)", "header_dirs"),
     }
     for what, (source, expected) in reads.items():
         assert [hit[2] for hit in python_source_reads(source)] == [expected], what
@@ -916,9 +923,60 @@ def test_a_flow_selects_what_it_reads_only_through_sources_read(cls, name):
     )
 
 
+#: The code a flow calls besides its own classes, whose reads of the design's sources the
+#: sweep below holds to the same review: every module of the flows and of their base classes,
+#: and cocotb's.
+HELPER_MODULES = sorted(
+    {
+        name
+        for name in sys.modules
+        if name.startswith(("xeda.flows.", "xeda.flow.")) or name == "xeda.cocotb"
+    }
+)
+
+
+def helper_reads(module_name: str) -> list[tuple[str, int, str]]:
+    """Every read of the design's sources by the code of `module_name`, every class included."""
+    source = inspect.getsource(sys.modules[module_name])
+    return [
+        (f"{module_name}:{where}", line, what) for where, line, what in python_source_reads(source)
+    ]
+
+
+def test_the_helpers_cover_the_flows_packages_and_cocotb():
+    assert "xeda.cocotb" in HELPER_MODULES
+    assert "xeda.flows.vivado.sim_evidence" in HELPER_MODULES
+    assert "xeda.flow.sim" in HELPER_MODULES
+
+
+@pytest.mark.parametrize("module_name", HELPER_MODULES)
+def test_no_helper_reads_the_design_s_sources_around_a_declaration(module_name):
+    """What a flow's helpers read of the design's sources -- the evidence readers a simulator
+    calls, cocotb's support, another flow's static method -- is held to the review as the
+    flows' own code is: a read other than `sources_read()` is reviewed, or it is a finding."""
+    # a flow's own code is judged with its declaration, by the tests above
+    judged = {
+        f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
+    }
+    direct = [
+        f"{where}:{line}: {what}"
+        for where, line, what in helper_reads(module_name)
+        if what != SELECTION
+        and f"{where}: {what}" not in REVIEWED_DIRECT_READS
+        and f"{where}: {what}" not in judged
+    ]
+    assert not direct, (
+        "a read of the design's sources around a flow's declaration; select with "
+        "sources_read() or review it in REVIEWED_DIRECT_READS:\n" + "\n".join(direct)
+    )
+
+
 def test_every_reviewed_direct_read_is_still_there():
     places = {
         f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
+    }
+    places |= {
+        f"{where}: {what}" for name in HELPER_MODULES for where, _, what in helper_reads(name)
     }
     gone = sorted(set(REVIEWED_DIRECT_READS) - places)
     assert not gone, f"reviewed reads that are gone, delete their entries: {gone}"

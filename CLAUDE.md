@@ -1680,9 +1680,11 @@ dependency must also share `custom_boards_file`.
   module-level code, minus `JUDGING_METHODS`: `check_design_supported` and what it asks) and the
   templates it renders (`test_design_parts.reachable_templates`): a flow with a read of the design's
   sources must declare, a declaring flow must call `sources_read`, and any other read
-  (`sources_of_type`, `sim_sources`, `.rtl.sources`, ...) must be in `REVIEWED_DIRECT_READS` --
-  except `header_dirs` in a flow that declares both header types (it is their include path). The
-  same file plans every example for every flow its sections name. One source of any type the flow
+  (`sources_of_type`, `sim_sources`, `.rtl.sources`, ..., called or taken as a method) must be
+  in `REVIEWED_DIRECT_READS` -- except `header_dirs` in a flow that declares both header types
+  (it is their include path). `HELPER_MODULES` (every module of `xeda.flows`/`xeda.flow`, and
+  `xeda.cocotb`) is held to the same review for code no flow's class holds (the evidence
+  readers, cocotb's support). The same file plans every example for every flow its sections name. One source of any type the flow
   reads is enough, a constraint or header file included: an `.edf` with an `.xdc` still plans for
   `vivado_synth`, because requiring a language source would refuse a Tcl-only design whose script
   reads its own RTL. Headers need an actual include/search path, and source type names must never
