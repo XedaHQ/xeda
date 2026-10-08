@@ -38,7 +38,7 @@ jobs:
       RUNTIME_PACKAGES: share/xeda-ci/runtime-packages.txt
     steps:
       # Full history: xeda's version is derived from the git tags.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
