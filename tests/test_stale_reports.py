@@ -284,10 +284,11 @@ def test_a_flow_the_sweep_cannot_run_never_reads_a_previous_run_s_report(
 
     flow_name, settings, files_of = DIRECT[case]
     flow_class = get_flow_class(flow_name)
+    (tmp_path / "sqrt.vhd").write_text("entity sqrt is end;\n")  # a source the simulators read
     design = Design(
         name="sqrt",
         design_root=tmp_path,
-        rtl={"sources": [], "top": "sqrt"},
+        rtl={"sources": ["sqrt.vhd"], "top": "sqrt"},
         tb={"sources": [], "cocotb": True, "top": "tb"},
     )
     outcomes = {}

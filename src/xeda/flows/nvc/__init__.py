@@ -43,6 +43,8 @@ class Nvc(SimFlow):
     """
 
     cocotb_sim_name = "nvc"
+    #: NVC analyzes VHDL.
+    reads_sources = frozenset({SourceType.Vhdl})
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
@@ -274,7 +276,7 @@ class Nvc(SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         if sources is None:
-            sources = self.design.sim_sources_of_type(SourceType.Vhdl)
+            sources = self.sources_read(tb=True)
         self.nvc.run(*self.global_options(), "-a", *sources, *self.analyze_flags())
 
     def elaborate_flags(self) -> List[str]:
@@ -447,7 +449,7 @@ class Nvc(SimFlow):
             runtime = self.nvc.derive(self.nvc.executable, redirect_stdout=None)
         options = dict(env=env, timeout=ss.timeout, tee=self._sim_log, merge_stderr=True)
         if one_shot:
-            sources = self.design.sim_sources_of_type(SourceType.Vhdl)
+            sources = self.sources_read(tb=True)
             runtime.run(
                 *self.global_options(),
                 "-a",

@@ -326,10 +326,10 @@ def test_a_flow_that_declares_no_io_plans_as_one_node(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     design = _design_file(tmp_path / "d")
     _forbid_execution(monkeypatch)
-    result = CliRunner().invoke(cli, ["run", "ghdl_sim", str(design), "--dry-run", "--json"])
+    result = CliRunner().invoke(cli, ["run", "verilator", str(design), "--dry-run", "--json"])
     assert result.exit_code == 0, (result.output, result.exception)
     (node,) = json.loads(result.stdout)["plan"]["nodes"]
-    assert node["flow"] == "ghdl_sim" and node["inputs"] == [] and node["switched_on"] == []
+    assert node["flow"] == "verilator" and node["inputs"] == [] and node["switched_on"] == []
     assert not (tmp_path / "xeda_run").exists()
 
 

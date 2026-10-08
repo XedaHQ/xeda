@@ -83,6 +83,9 @@ class GhdlTool(Tool):
 class Ghdl(Flow, metaclass=ABCMeta):
     """VHDL simulation using GHDL"""
 
+    #: GHDL analyzes VHDL.
+    reads_sources = frozenset({SourceType.Vhdl})
+
     class Settings(Flow.Settings):
         analysis_flags: List[str] = Field(
             [],
@@ -430,7 +433,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         # sources sharing a base name (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd` are "both compiled to
         # 'fifo.o'").
         top = self.analyze(
-            design.rtl.sources, design.rtl.top, design.language.vhdl, find_top=not per_source
+            self.sources_read(), design.rtl.top, design.language.vhdl, find_top=not per_source
         )
         if per_source:
             # Every output name is decided before anything is synthesized, so a collision is
@@ -472,7 +475,7 @@ class GhdlSynth(Ghdl, SynthFlow):
         """
         design = self.design
         outputs: dict[Path, DesignSource] = {}
-        for src in design.sources_of_type(SourceType.Vhdl, rtl=True, tb=False):
+        for src in self.sources_read():
             out_file = output_dir / design.source_artifact_name(src, ".v")
             other = outputs.get(out_file)
             if other is not None:
@@ -728,7 +731,7 @@ class GhdlSim(Ghdl, SimFlow):
 
         run_flags.extend(ss.generics_flags(tb_generics))
 
-        tb_top = self.elaborate(design.sim_sources, tb_top, design.language.vhdl)
+        tb_top = self.elaborate(self.sources_read(tb=True), tb_top, design.language.vhdl)
         # as `design.sim_tops`, with the top unit `elaborate` settled on
         sim_tops = (design.rtl.top,) if design.tb.cocotb and design.rtl.top else tb_top
         runtime = self.ghdl

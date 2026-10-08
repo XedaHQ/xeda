@@ -1876,7 +1876,10 @@ def test_remote_input_bindings_are_refused_before_connecting(
     monkeypatch.setattr(remote_module, "Connection", lambda **kwargs: connected.append(kwargs))
     binding = "__maker.made"
     flow = {flow_name: {"inputs": {"made": binding}}} if origin == "design" else {}
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"}, flow=flow)
+    (tmp_path / "t.vhd").write_text("entity t is end;\n")  # a source `ghdl_sim` reads
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["t.vhd"], "top": "t"}, flow=flow
+    )
     settings = {
         "design": None,
         "command_line": {"inputs.made": binding},

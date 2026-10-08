@@ -6,7 +6,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import VhdlSettings
-from xeda.flow import FlowException
+from xeda.flow import FlowException, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, GhdlSynth
 from xeda.flows.ghdl import GhdlTool
@@ -465,3 +465,80 @@ def test_ghdl_native_log_evidence(tmp_path, text, ended, time, event):
     evidence = parse_ghdl_log(flow, path)
     assert evidence is not None and evidence.ended_by == ended and evidence.time == time
     assert ([e.kind for e in evidence.events] or [None])[0] == event
+
+
+def _systemverilog_design(root: Path) -> Design:
+    """A SystemVerilog unit and a SystemVerilog testbench, with its top named."""
+    (root / "dut.sv").write_text("module dut; endmodule\n")
+    (root / "tb.sv").write_text("module tb; dut u(); endmodule\n")
+    return Design(
+        name="sv",
+        design_root=root,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["tb.sv"], "top": "tb"},
+    )
+
+
+@pytest.mark.parametrize("flow", ["ghdl_sim", "ghdl_synth"])
+def test_ghdl_refuses_a_systemverilog_design_when_planned(flow, tmp_path):
+    """GHDL reads VHDL. A SystemVerilog source used to be passed over, and ghdl failed with "no
+    file to analyze" (or simulated nothing). Now the plan refuses the design, naming the source
+    and what GHDL reads."""
+    design = _systemverilog_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsException) as raised:
+        runner.plan(flow, design)
+    message = str(raised.value)
+    assert message.startswith(f"{flow} cannot read the design's SystemVerilog source(s) "), message
+    assert str(tmp_path / "dut.sv") in message and message.endswith("it reads Vhdl")
+    assert not (tmp_path / "xeda_run").exists()
+
+
+def test_ghdl_sim_on_a_systemverilog_design_starts_no_ghdl(tmp_path, ghdl_commands):
+    """The refusal comes before the tool: no `ghdl` command runs and no run directory is made."""
+    require_ghdl()
+    design = _systemverilog_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="cannot read the design's SystemVerilog"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(GhdlSim, design)
+    assert ghdl_commands == []
+    assert not (tmp_path / "xeda_run").exists()
+
+
+@pytest.fixture
+def analyzed(monkeypatch) -> list[list[str]]:
+    """The arguments of every `ghdl analyze` a flow runs."""
+    calls: list[list[str]] = []
+    original_run = GhdlTool.run
+
+    def recording_run(self, *args, **kwargs):
+        if args and args[0] == "analyze":
+            calls.append([str(arg) for arg in args])
+        return original_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(GhdlTool, "run", recording_run)
+    return calls
+
+
+def test_ghdl_sim_analyzes_the_vhdl_sources_in_design_order(tmp_path, analyzed):
+    """RTL sources, then testbench sources, in the order the design lists them. A source of a
+    type GHDL is not given (a constraint file) is not analyzed."""
+    require_ghdl()
+    for name, entity in (("b.vhd", "unit_b"), ("a.vhd", "unit_a")):
+        (tmp_path / name).write_text(_vhdl_inverter(entity))
+    (tmp_path / "pins.xdc").write_text("# a constraint\n")
+    (tmp_path / "tb.vhd").write_text(
+        "entity tb is end; architecture sim of tb is begin\n"
+        "process begin std.env.finish; wait; end process; end;\n"
+    )
+    design = Design(
+        name="order",
+        design_root=tmp_path,
+        rtl={"sources": ["b.vhd", "a.vhd", "pins.xdc"], "top": "unit_a"},
+        tb={"sources": ["tb.vhd"], "top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(GhdlSim, design)
+    assert flow is not None and flow.succeeded
+    (analysis,) = analyzed
+    assert analysis[-3:] == [str(tmp_path / f) for f in ("b.vhd", "a.vhd", "tb.vhd")]
+    assert not any("pins.xdc" in argument for argument in analysis)
