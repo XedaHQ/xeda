@@ -16,6 +16,7 @@ These cases need real ptys: `capsys`/`capfd` are not ttys, so they exercise only
 the no-terminal half.
 """
 
+import contextlib
 import os
 import pty
 import select
@@ -392,12 +393,30 @@ from xeda.proc_utils import ProcessTimeout  # noqa: E402
 #: one when the tool was too slow.
 TIME_LIMITS = (0.5, 2, 8, 32)
 
+#: How long after its limit (or after an interrupt) a watchdog may take to stop a process. The
+#: processes of these tests sleep for 60 s. A watchdog that stopped nothing would let the call
+#: wait until they end by themselves, and the call would raise what the test expects all the
+#: same. The margin is far above any stop, even on a busy machine, and far below the sleep.
+STOP_MARGIN = 20
+
+
+@contextlib.contextmanager
+def _stopped_within(limit: float = 0):
+    """The block, which waits for a process that sleeps for 60 s, ends soon after `limit` s."""
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        elapsed = time.monotonic() - started
+        assert elapsed < limit + STOP_MARGIN, (
+            f"the process lived {elapsed:.0f} s, past its limit of {limit} s and the margin of "
+            f"{STOP_MARGIN} s: it ended by itself, nothing stopped it"
+        )
+
 
 def test_a_process_past_its_time_limit_is_stopped_and_reported():
-    started = time.monotonic()
-    with pytest.raises(ProcessTimeout) as info:
+    with pytest.raises(ProcessTimeout) as info, _stopped_within(0.5):
         run_process(sys.executable, ["-c", "import time; time.sleep(60)"], timeout=0.5)
-    assert time.monotonic() - started < 20
     assert info.value.timeout == 0.5
     assert "0.5" in str(info.value)
 
@@ -407,9 +426,9 @@ def test_a_process_within_its_time_limit_is_unaffected():
 
 
 def test_a_captured_process_past_its_time_limit_is_stopped(tmp_path):
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(sys.executable, ["-c", "import time; time.sleep(60)"], stdout=True, timeout=0.5)
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(
             sys.executable,
             ["-c", "import time; time.sleep(60)"],
@@ -419,7 +438,7 @@ def test_a_captured_process_past_its_time_limit_is_stopped(tmp_path):
 
 
 def test_a_highlighted_process_past_its_time_limit_is_stopped():
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(
             sys.executable,
             ["-c", "import time; print('x', flush=True); time.sleep(60)"],
@@ -486,7 +505,7 @@ def test_a_tool_that_is_stopped_leaves_the_log_it_had_written(tmp_path, route):
     log = tmp_path / "sim.log"
     child = "import time; print('so far', flush=True); time.sleep(60)"
     for limit in TIME_LIMITS:
-        with pytest.raises(ProcessTimeout):
+        with pytest.raises(ProcessTimeout), _stopped_within(limit):
             run_process(sys.executable, ["-c", child], timeout=limit, **{route: log})
         if log.read_text():  # the tool wrote its line before the limit expired
             break
@@ -712,7 +731,7 @@ def test_the_time_limit_stops_the_process_tree(tmp_path):
     try:
         for attempt, limit in enumerate(TIME_LIMITS):
             started = tmp_path / f"started-{attempt}"
-            with pytest.raises(ProcessTimeout):
+            with pytest.raises(ProcessTimeout), _stopped_within(limit):
                 run_process(sys.executable, ["-c", _tree(started)], timeout=limit)
             child = _read_pid(started)
             if child is not None:  # the child ran when the limit expired
@@ -811,15 +830,13 @@ def test_an_interrupt_while_copying_output_stops_the_process(monkeypatch):
         raise KeyboardInterrupt
 
     monkeypatch.setattr("builtins.print", interrupted)
-    started = time.monotonic()
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
             ["-c", f"{DEFAULT_SIGINT}import time; print('x', flush=True); time.sleep(60)"],
             highlight_rules={"x": ""},
             timeout=60,
         )
-    assert time.monotonic() - started < 30
 
 
 @pytest.mark.skipif(os.name != "posix", reason="process groups are POSIX")
@@ -1036,7 +1053,7 @@ _SLEEPER = ["-c", "import time; time.sleep(60)"]
 
 def test_a_timeout_calls_the_stop_hook_once():
     calls = []
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(sys.executable, _SLEEPER, timeout=0.5, on_stop=lambda: calls.append(1))
     assert calls == [1]
 
@@ -1045,7 +1062,7 @@ def test_a_failing_stop_hook_does_not_replace_the_timeout():
     def broken():
         raise RuntimeError("docker is gone")
 
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(sys.executable, _SLEEPER, timeout=0.5, on_stop=broken)
 
 
@@ -1057,7 +1074,7 @@ def test_a_failing_stop_hook_does_not_replace_an_interrupt(monkeypatch):
         raise KeyboardInterrupt
 
     monkeypatch.setattr("builtins.print", interrupted)
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
             ["-c", "import time; print('x', flush=True); time.sleep(60)"],
@@ -1068,7 +1085,7 @@ def test_a_failing_stop_hook_does_not_replace_an_interrupt(monkeypatch):
 
 def test_the_stop_hook_runs_on_the_calling_thread_after_a_timeout():
     seen = []
-    with pytest.raises(ProcessTimeout):
+    with pytest.raises(ProcessTimeout), _stopped_within(0.5):
         run_process(
             sys.executable,
             _SLEEPER,
@@ -1085,7 +1102,7 @@ def test_the_stop_hook_runs_on_the_calling_thread_after_an_interrupt(monkeypatch
         raise KeyboardInterrupt
 
     monkeypatch.setattr("builtins.print", interrupted)
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt), _stopped_within():
         run_process(
             sys.executable,
             ["-c", "import time; print('x', flush=True); time.sleep(60)"],
@@ -1113,7 +1130,7 @@ def test_a_slow_stop_hook_never_delays_the_stopping_of_the_process():
 
     pu.subprocess.Popen = recording_popen  # type: ignore[misc]
     try:
-        with pytest.raises(ProcessTimeout):
+        with pytest.raises(ProcessTimeout), _stopped_within(0.3):
             run_process(sys.executable, _SLEEPER, timeout=0.3, on_stop=hook)
     finally:
         pu.subprocess.Popen = real_popen  # type: ignore[misc]
