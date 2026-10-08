@@ -32,6 +32,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
 from .test_chain_documentation import FLOWS_RST, _blocks, _stage
+from .test_edif import _peak_memory, _write_large_netlist
 from .test_edif import netlist as edif_netlist
 from .tool_utils import (
     FAKE_TOOLS_DIR,
@@ -240,7 +241,11 @@ def test_a_chain_to_the_loader_switches_the_bitstream_on_with_its_conventional_n
         pytest.param(
             {"black_box": ["blinky"]}, "`black_box` makes blinky a black box", id="black_box"
         ),
-        pytest.param({"stop_after": "rtl"}, "`stop_after: rtl`", id="stop_after_rtl"),
+        pytest.param(  # a stop after the RTL refuses the results of later stages by themselves
+            {"stop_after": "rtl", "netlist_json": None, "netlist_verilog": None},
+            "`stop_after: rtl`",
+            id="stop_after_rtl",
+        ),
         pytest.param({"fpga": "LFE5U-25F-6BG381C"}, "not a Xilinx device", id="not_xilinx"),
     ],
 )
@@ -255,7 +260,7 @@ def test_no_edif_netlist_is_written_for_a_synthesis_vivado_cannot_read(
         _plan(tmp_path, "yosys_fpga+vivado_impl", design)
     message = str(raised.value)
     assert (
-        "yosys_fpga.netlist_edif is required by a consumer: no EDIF netlist is written" in message
+        "yosys_fpga.netlist_edif is required by vivado_impl: no EDIF netlist is written" in message
     )
     assert cause in message, message
     synthesis = _plan(tmp_path, "yosys_fpga", design).node("yosys_fpga")
@@ -441,6 +446,21 @@ def test_a_listed_netlist_with_a_hierarchy_stops_the_flow_before_vivado_starts(
         _runner(tmp_path).run_flow(VivadoImpl, design, SETTINGS)
     message = _stopped_before_vivado(tmp_path / "run" / "blinky" / "vivado_impl", raised)
     assert "given.edf" in message and "core" in message
+
+
+def test_the_netlist_is_checked_without_being_held_in_memory(tmp_path) -> None:
+    """The netlist of a large design is hundreds of megabytes. The check before Vivado starts
+    reads it in chunks: a file of 30,000 instances, with a hierarchy in it, takes a fraction of
+    its size in memory (`tests/test_edif.py` shows that this does not grow with the file)."""
+    path = tmp_path / "large.edif"
+    size = _write_large_netlist(path, 30_000, ("core",))
+
+    def check() -> None:
+        with pytest.raises(FlowFatalError, match="core"):
+            VivadoImpl.refuse_a_hierarchy(path)
+
+    peak = _peak_memory(check)
+    assert peak < size // 6, f"{peak} bytes were held for a netlist of {size}"
 
 
 @pytest.mark.parametrize("kept_by", ["hdl", "rtl_attributes"])

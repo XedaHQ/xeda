@@ -644,7 +644,10 @@ consumer naming the setting (`flatten`, ...); a non-default `netlist_edif` where
 refused too. What no setting shows (a `(* keep_hierarchy *)` in the HDL, `rtl.attributes`, a listed
 `.edf`) is in the netlist: `VivadoImpl.refuse_a_hierarchy` reads it before Vivado starts
 (`xeda/edif.py`: an instance that refers, through an external library, to a module the netlist
-defines -- how yosys writes a hierarchy) and fails naming the modules. The synthesis itself never
+defines -- how yosys writes a hierarchy) and fails naming the modules. The reader streams the file
+in chunks and keeps only the distinct cells and `(cell, library)` pairs, so its memory does not
+grow with the instances (`tests/test_edif.py` measures it with `tracemalloc`; the module doc lists
+what it holds, and the limits that bound it for text that is no EDIF). The synthesis itself never
 fails for a hierarchy: `yosys_fpga+nextpnr` places one. A black box the settings do not make (the
 HDL's, `verilog_lib`'s) looks like a primitive in the file, and Vivado stops on it. The four
 hazards of a yosys netlist in Vivado are each excluded by construction

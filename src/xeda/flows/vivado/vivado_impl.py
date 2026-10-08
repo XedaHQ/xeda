@@ -6,7 +6,7 @@ from typing import Optional
 
 from ...dataclass import Field, field_validator
 from ...design import Design, SourceType
-from ...edif import modules_used_as_library_cells
+from ...edif import modules_used_as_library_cells_in_file
 from ...flow import Flow, FlowFatalError, FlowSettingsException, In, Out
 from ...utils import replacing_copy
 from .vivado_alt_synth import expand_run_options, flatten_options
@@ -120,10 +120,9 @@ class VivadoImpl(VivadoImplementation):
         """Stop for a netlist that Vivado would take apart into black boxes. The settings show
         only some of the ways to a hierarchy (`YosysFpga.Settings.edif_problem`): the HDL asks for
         one too (`(* keep_hierarchy *)`), and a netlist from elsewhere may hold one. The netlist
-        shows them all. Vivado reports the cause in its log, and xeda only its exit status."""
-        modules = modules_used_as_library_cells(
-            netlist.read_text(encoding="utf-8", errors="replace")
-        )
+        shows them all, and is read in chunks: the file of a large design is not held. Vivado
+        reports the cause in its log, and xeda only its exit status."""
+        modules = modules_used_as_library_cells_in_file(netlist)
         if modules:
             raise FlowFatalError(
                 f"The EDIF netlist {netlist} is not flat. Its instances refer to modules that it "
