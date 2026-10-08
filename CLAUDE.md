@@ -70,7 +70,8 @@ pre-existing findings (mostly `UP006`/`UP007` PEP-585/604 annotations and `RUF01
 enforced. Don't mass-fix those; keep new code clean.
 
 Most tests use `tests/fake_tools/`, but some end-to-end tests drive genuinely installed tools
-(`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`, `test_openroad.py`'s yosys
+(`test_ghdl.py`, `test_nvc.py`, `test_verilator.py`, `test_yosys.py`,
+`test_yosys_fpga_netlist_cells.py`, `test_openroad.py`'s yosys
 synthesis, `test_bsc.py`'s `bsc`/`bsc_sim` flows, the GHDL half of `test_remote_run.py`, parts of
 `test_cli_structured_output.py`, and `test_cocotb.py`'s runs of every cocotb simulator).
 Those **skip** when the tool is missing or installed-but-broken, via the probes in
@@ -1720,6 +1721,12 @@ dependency must also share `custom_boards_file`.
   `tests/test_yosys_fpga_flags.py`, read from the passes' sources for every supported release
   from 0.63:
   on a new yosys release, add its option changes there and raise `NEWEST_CHECKED_YOSYS`.
+  `tests/test_yosys_fpga_netlist_cells.py` runs `yosys_fpga` with the real yosys for every nextpnr
+  target and fails on a generic (`$`) cell nextpnr cannot place, judged as nextpnr's JSON reader
+  judges it (`frontend_base.h`: its top module, non-box modules, the skipped `$scopeinfo`/`$print`/
+  `$check`, and a pad-driving `$_TBUF_` on ECP5/iCE40). It guards CI's tool bumps against yosys
+  regressions such as the `$buf` cells the 2026-09-15 to 2026-10-07 nightlies left for Xilinx and
+  Gowin (yosys PR 6174, fixed by 6267).
 - **`synth_pass_only` is an option group that reads the design's sources as a bare
   `yosys <files>` does, then runs the target's pass, and it refuses what would make it differ.**
   The reader is still chosen by each source's `type` (xeda's source type is authoritative), so a
