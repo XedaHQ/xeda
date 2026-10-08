@@ -237,12 +237,12 @@ flow runs. So is a design with no source that the flow reads: a design whose onl
 ``.edf`` file, for example, gives ``yosys_fpga`` and ``vivado_synth`` nothing to read. The error
 names the sources the design lists, with their types, and the types the flow reads. It also
 stops ``nextpnr``, because the ``yosys_fpga`` synthesis that ``nextpnr`` would plan has no source
-to read; the error then adds that a ``JsonNetlist`` source would replace the synthesis. The rule
-has a limit: one source of a type the flow reads is enough, a constraint file included. An
-``.edf`` file together with an ``.xdc`` file therefore still plans for ``vivado_synth``, which
-reads only the constraints. Contracts cover ``rtl.sources``; ``vivado_project`` also checks
-``tb.sources``.
-Headers reach include/search paths; no template turns a source type's name into a tool command.
+to read. When nothing else in the plan needs the synthesis, the error adds that a ``JsonNetlist``
+source would replace it. The rule has a limit: one source of a type the flow reads is enough, a
+constraint file included. An ``.edf`` file together with an ``.xdc`` file therefore still plans
+for ``vivado_synth``, which reads only the constraints. Contracts cover ``rtl.sources``;
+``vivado_project`` also checks ``tb.sources``. Headers reach include/search paths; no template
+turns a source type's name into a tool command.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files; it rejects a ``.bh``

@@ -1608,15 +1608,17 @@ dependency must also share `custom_boards_file`.
   `Flow.check_design_supported` raises `NoReadableSource`, naming each part's sources with their
   types and the types the flow reads. It runs for every planned node, so `nextpnr`'s default
   `yosys_fpga` producer is refused, and the resolver adds which source would replace a producer
-  that a consumer reached by default (`a JsonNetlist source would supply nextpnr's netlist and
-  skip yosys_fpga`; a bound producer, as in a chain, gets none). A typed `JsonNetlist` that
-  displaces the producer plans. The rule covers the eight flows that declare `reads_sources`
-  (`tests/test_source_contracts.py` sweeps every flow); a flow that chooses its inputs in its own
-  code (`reads_sources` is None) is not covered. One source of any type the flow reads is enough,
-  a constraint or header file included: an `.edf` with an `.xdc` still plans for `vivado_synth`,
-  because requiring a language source would refuse a Tcl-only design whose script reads its own
-  RTL. Headers need an actual include/search path, and source type names must never become tool
-  commands.
+  (`a JsonNetlist source would supply nextpnr's netlist and skip yosys_fpga`) when that is all it
+  takes: one input of the plan reaches the producer, and by default. A producer that is bound (a
+  chain, a saved, command-line or API binding) or that a second input reaches stays in the plan
+  whatever the design lists, so its refusal adds nothing (`_replaceable_by_a_source`). A typed
+  `JsonNetlist` that displaces the producer plans. The rule covers the eight flows that declare
+  `reads_sources` (`tests/test_source_contracts.py` sweeps every flow); a flow that chooses its
+  inputs in its own code (`reads_sources` is None) is not covered. One source of any type the flow
+  reads is enough, a constraint or header file included: an `.edf` with an `.xdc` still plans for
+  `vivado_synth`, because requiring a language source would refuse a Tcl-only design whose script
+  reads its own RTL. Headers need an actual include/search path, and source type names must never
+  become tool commands.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source

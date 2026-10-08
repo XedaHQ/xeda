@@ -8,15 +8,18 @@ type."""
 
 import re
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 import xeda
 from xeda import Design
+from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
-from xeda.flow import Flow, FlowSettingsException
+from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flows import Nextpnr
 
 from .settings_samples import flow_classes
 from .test_tcl_paths import needs_tclsh
@@ -339,6 +342,83 @@ def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(
     assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is hinted
     if hinted:
         assert str(raised.value).endswith(f"; {SKIPPED_BY_A_NETLIST}")
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.fixture
+def private_registry():
+    """A flow that a test defines does not leak into the sweeps of other tests."""
+    saved = dict(registered_flows)
+    yield
+    registered_flows.clear()
+    registered_flows.update(saved)
+
+
+def _reads_nextpnr_and_the_netlist():
+    """A test flow with two inputs: `nextpnr`'s configuration, which it takes from the default
+    producer, and a netlist that has no default and that a saved binding takes from `yosys_fpga`."""
+
+    class _ReadsNextpnrAndTheNetlist(Flow):
+        """Read a configuration from nextpnr and a netlist from yosys_fpga."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        required_settings = Nextpnr.required_settings
+
+        class Settings(WithFpgaBoardSettings, Flow.Settings):
+            """No setting of its own."""
+
+        class Inputs(Flow.Inputs):
+            config: Path = In(
+                SourceType.EcpConfig,
+                producer="nextpnr",
+                output="config",
+                description="The configuration nextpnr writes.",
+            )
+            netlist: Path = In(SourceType.JsonNetlist, description="A synthesized netlist.")
+
+        def run(self):
+            self.results["read"] = self.inputs.netlist.read_text()
+
+    return _ReadsNextpnrAndTheNetlist
+
+
+def _own_refusal(flow: str, design: Design) -> str:
+    """What the flow says about the design when it is launched alone: no producer, no note."""
+    with pytest.raises(FlowSettingsException) as refused:
+        registered_flows[flow][1].check_design_supported(design)
+    return str(refused.value)
+
+
+def test_a_producer_that_another_input_binds_is_not_said_to_leave_the_plan(
+    tmp_path, monkeypatch, private_registry
+):
+    """`nextpnr` reaches `yosys_fpga` by default, but another flow's input is bound to it by a
+    saved binding: a netlist source would replace the first edge only, so the plan would keep
+    `yosys_fpga` and refuse again. The refusal suggests nothing."""
+    monkeypatch.chdir(tmp_path)
+    taker = _reads_nextpnr_and_the_netlist()
+    design = _edif_only(tmp_path / "design")
+    design.flow[taker.name] = {"inputs": {"netlist": "yosys_fpga.netlist"}}
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            taker, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        )
+    assert str(raised.value) == _own_refusal("yosys_fpga", design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_with_one_source(
+    tmp_path, monkeypatch
+):
+    """`vivado_power` and `vivado_postsynth_sim` take their inputs from `vivado_synth`, every one
+    by default: no one source replaces it, so the refusal suggests none."""
+    monkeypatch.chdir(tmp_path)
+    design = _edif_only(tmp_path / "design")
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            "vivado_power", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 10.0}
+        )
+    assert str(raised.value) == _own_refusal("vivado_synth", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
 
 

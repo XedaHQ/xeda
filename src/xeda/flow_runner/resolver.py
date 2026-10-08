@@ -693,25 +693,27 @@ def _unreached(
 
 
 def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> str:
-    """For each input that reached `producer` by default, `; a <Type> source would supply
-    <consumer>'s <input> and skip <producer>`: a typed source of a type the input takes replaces
-    a default producer. An input bound to its producer keeps it whatever the design lists, so it
-    adds nothing."""
-    notes = []
-    for consumer in requests:
-        assert consumer.settings is not None
-        for selected in consumer.inputs:
-            reached = any(
-                child is producer for child, _output in consumer.producers.get(selected.name, ())
-            )
-            if reached and selected.binding_origin is None:
-                types = selected_types(consumer.cls, consumer.settings, selected.name)
-                kinds = "/".join(kind.name for kind in types)
-                notes.append(
-                    f"; a {kinds} source would supply {consumer.label}'s {selected.name} "
-                    f"and skip {producer.label}"
-                )
-    return "".join(notes)
+    """`; a <Type> source would supply <consumer>'s <input> and skip <producer>`, when that one
+    source takes `producer` out of the plan: exactly one input of the plan reaches it, and by
+    default, which a typed source of a type the input takes replaces. Otherwise the plan keeps
+    `producer` whatever source the design adds -- an input bound to it (a chain, a saved binding,
+    the command line or the API) keeps it, and so does any other input that reaches it -- and the
+    refusal adds nothing."""
+    edges = [
+        (consumer, name)
+        for consumer in requests
+        for name, reached in consumer.producers.items()
+        if any(child is producer for child, _output in reached)
+    ]
+    if len(edges) != 1:
+        return ""
+    consumer, name = edges[0]
+    assert consumer.settings is not None
+    selected = next((item for item in consumer.inputs if item.name == name), None)
+    if selected is None or selected.binding_origin is not None:
+        return ""
+    kinds = "/".join(kind.name for kind in selected_types(consumer.cls, consumer.settings, name))
+    return f"; a {kinds} source would supply {consumer.label}'s {name} and skip {producer.label}"
 
 
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
