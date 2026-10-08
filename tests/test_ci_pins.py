@@ -101,8 +101,14 @@ def oss_cad(date: str, **flags: bool) -> dict[str, Any]:
 
 
 def bsc(tag: str, asset: dict[str, Any] | None = None, **flags: bool) -> dict[str, Any]:
-    """A bsc release. `asset` adds to, or replaces, the fields of its Ubuntu 24.04 tarball."""
-    tarball = {"name": f"bsc-{tag}-ubuntu-24.04.tar.gz", "size": TARBALL_SIZE, **(asset or {})}
+    """A bsc release. `asset` adds to, or replaces, the fields of its Ubuntu 24.04 tarball, which
+    has the digest that GitHub publishes unless `asset` says `{"digest": None}`."""
+    tarball = {
+        "name": f"bsc-{tag}-ubuntu-24.04.tar.gz",
+        "size": TARBALL_SIZE,
+        "digest": f"sha256:{NEW_SHA256}",
+        **(asset or {}),
+    }
     return release(tag, tarball, **flags)
 
 
@@ -122,12 +128,12 @@ class Upstream:
         }
         self.sha256 = sha256
         self.downloads: list[str] = []
-        self.checks: list[tuple[int, str | None]] = []  # the size and digest each download got
+        self.checks: list[tuple[int, str]] = []  # the size and digest each download got
 
     def fetch(self, path: str) -> Any:
         return self.answers[path]
 
-    def digest(self, url: str, size: int, sha256: str | None) -> str:
+    def digest(self, url: str, size: int, sha256: str) -> str:
         self.downloads.append(url)
         self.checks.append((size, sha256))
         return self.sha256
@@ -318,9 +324,10 @@ def test_the_tarball_of_a_release_has_the_size_and_the_digest_github_lists_for_i
     assert (tarball.tag, tarball.size, tarball.sha256) == ("2026.10", 1234, NEW_SHA256)
 
 
-@pytest.mark.parametrize("asset", [{}, {"digest": None}], ids=["no digest", "digest null"])
-def test_a_tarball_that_github_gives_no_digest_has_none(asset):
-    tarball = pins.newest_bsc([bsc("2026.10", asset)])
+@pytest.mark.parametrize("fields", [{}, {"digest": None}], ids=["no digest", "digest null"])
+def test_a_tarball_that_github_gives_no_digest_has_none(fields):
+    asset = {"name": "bsc-2026.10-ubuntu-24.04.tar.gz", "size": TARBALL_SIZE, **fields}
+    tarball = pins.newest_bsc([release("2026.10", asset)])
     assert (tarball.size, tarball.sha256) == (TARBALL_SIZE, None)
 
 
@@ -402,10 +409,26 @@ def test_a_newer_bsc_is_downloaded_against_the_size_and_digest_github_lists():
     assert upstream.checks == [(4321, NEW_SHA256)]
 
 
-def test_a_newer_bsc_without_a_listed_digest_is_downloaded_against_its_size():
-    upstream = newer_upstream()
-    pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest)
-    assert upstream.checks == [(TARBALL_SIZE, None)]
+@pytest.mark.parametrize("asset", [{"digest": None}, {"digest": None, "size": 4321}], ids=str)
+def test_a_newer_bsc_without_a_published_digest_is_not_pinned(asset):
+    """The digest the workflow computes from a download is only as good as the download: a file
+    changed after its release, to one of the same size, would become the pin. Without a digest
+    that GitHub publishes, the pin stays and a person pins by hand."""
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", asset), bsc("2026.07.1")])
+    notes: list[str] = []
+    update = pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest, notes.append)
+    assert update is None
+    assert upstream.downloads == []  # nothing is downloaded to take a digest from
+    assert notes == ["2026.10 has no published digest; pin it by hand (the pin stays at 2026.07.1)"]
+
+
+def test_a_bsc_that_is_not_newer_needs_no_digest():
+    upstream = newer_upstream(bsc_releases=[bsc("2026.07.1", {"digest": None})])
+    notes: list[str] = []
+    assert (
+        pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest, notes.append) is None
+    )
+    assert notes == []
 
 
 def test_a_digest_that_is_no_sha256_is_an_error():
@@ -467,6 +490,37 @@ def test_a_run_prints_a_warning_as_a_warning_when_no_one_collects_them(tmp_path,
     assert "warning: openXC7 toolchain installer" in capsys.readouterr().out
 
 
+BSC_WITHOUT_DIGEST = "Bluespec Compiler (bsc): 2026.10 has no published digest; pin it by hand"
+
+
+def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_others(tmp_path):
+    write_checkout(tmp_path)
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
+    log: list[str] = []
+    warnings: list[str] = []
+    updates = pins.run(
+        tmp_path,
+        upstream.fetch,
+        upstream.digest,
+        dry_run=False,
+        log=log.append,
+        warn=warnings.append,
+    )
+    assert [u.pin.kind for u in updates] == ["oss_cad", "installer"]
+    assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
+    assert warnings == [f"{BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)"]
+    assert not any("Bluespec" in line and "up to date" in line for line in log)
+    assert upstream.downloads == []
+
+
+def test_a_run_prints_that_warning_as_a_warning_when_nobody_collects_it(tmp_path):
+    write_checkout(tmp_path)
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
+    log: list[str] = []
+    pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
+    assert f"warning: {BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)" in log
+
+
 @pytest.mark.parametrize("answer", [{}, [], {"status": "other"}, {"status": None}, "ahead"])
 def test_a_comparison_that_is_no_comparison_is_an_error(answer):
     with pytest.raises(pins.PinError, match="comparison"):
@@ -514,9 +568,9 @@ def test_a_whole_download_is_hashed(monkeypatch):
     assert pins.download_digest(URL, SIZE, BODY_SHA256) == BODY_SHA256
 
 
-def test_a_download_needs_neither_a_content_length_nor_a_listed_digest(monkeypatch):
+def test_a_download_needs_no_content_length(monkeypatch):
     serve(monkeypatch, BODY)
-    assert pins.download_digest(URL, SIZE, None) == BODY_SHA256
+    assert pins.download_digest(URL, SIZE, BODY_SHA256) == BODY_SHA256
 
 
 def test_a_body_cut_short_by_a_clean_close_is_an_error(monkeypatch):
@@ -524,32 +578,32 @@ def test_a_body_cut_short_by_a_clean_close_is_an_error(monkeypatch):
     length tells the difference."""
     serve(monkeypatch, BODY[:40], **{"Content-Length": str(SIZE)})
     with pytest.raises(pins.PinError, match="40"):
-        pins.download_digest(URL, SIZE, None)
+        pins.download_digest(URL, SIZE, BODY_SHA256)
 
 
 def test_a_short_body_is_an_error_when_the_server_announces_no_length(monkeypatch):
     serve(monkeypatch, BODY[:40])
     with pytest.raises(pins.PinError, match="40"):
-        pins.download_digest(URL, SIZE, None)
+        pins.download_digest(URL, SIZE, BODY_SHA256)
 
 
 def test_a_body_of_another_size_than_the_release_lists_is_an_error(monkeypatch):
     serve(monkeypatch, BODY, **{"Content-Length": str(SIZE)})
     with pytest.raises(pins.PinError, match=str(SIZE + 1)):
-        pins.download_digest(URL, SIZE + 1, None)
+        pins.download_digest(URL, SIZE + 1, BODY_SHA256)
 
 
 def test_a_body_of_another_length_than_the_server_announced_is_an_error(monkeypatch):
     serve(monkeypatch, BODY, **{"Content-Length": str(SIZE + 5)})
     with pytest.raises(pins.PinError, match=str(SIZE + 5)):
-        pins.download_digest(URL, SIZE, None)
+        pins.download_digest(URL, SIZE, BODY_SHA256)
 
 
 @pytest.mark.parametrize("length", ["", "abc", "-5", "1e3", "\u0661\u0662"])
 def test_a_content_length_that_is_no_number_is_an_error(monkeypatch, length):
     serve(monkeypatch, BODY, **{"Content-Length": length})
     with pytest.raises(pins.PinError, match="Content-Length"):
-        pins.download_digest(URL, SIZE, None)
+        pins.download_digest(URL, SIZE, BODY_SHA256)
 
 
 def test_content_with_another_digest_than_github_lists_is_an_error(monkeypatch):
@@ -561,7 +615,7 @@ def test_content_with_another_digest_than_github_lists_is_an_error(monkeypatch):
 def test_an_empty_download_is_an_error(monkeypatch):
     serve(monkeypatch, b"", **{"Content-Length": "0"})
     with pytest.raises(pins.PinError, match="empty"):
-        pins.download_digest(URL, 0, None)
+        pins.download_digest(URL, 0, BODY_SHA256)
 
 
 # ------------------------------------------------------------------ the files of a checkout
@@ -657,18 +711,21 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     ):
         assert url in body
     assert f"`{NEW_SHA256}`" in body and "bsc-2026.10-ubuntu-24.04.tar.gz" in body
-    assert "GitHub lists no digest" in body  # this release lists none
+    assert "GitHub lists the same digest" in body
     for text in (title, body, message):
         assert "Co-Authored-By" not in text and "Generated with" not in text
         assert all(line == line.rstrip() for line in text.splitlines())
 
 
-def test_the_text_says_when_github_lists_the_same_digest():
-    listed = {"digest": f"sha256:{NEW_SHA256}"}
-    upstream = newer_upstream(bsc_releases=[bsc("2026.10", listed), bsc("2026.07.1")])
-    update = pins.find_update(pin("bsc"), CI_TEXT, upstream.fetch, upstream.digest)
-    _, body = pins.pull_request_text([update])
-    assert "GitHub lists the same digest" in body and "no digest" not in body
+def test_the_text_lists_the_pins_that_stayed_and_why():
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
+    update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
+    note = "Bluespec Compiler (bsc): 2026.10 has no published digest; pin it by hand"
+    _, body = pins.pull_request_text([update], [note])
+    assert f"\n- {note}\n" in body
+    _, without = pins.pull_request_text([update])
+    assert "These pins stay" not in without and "pin it by hand" not in without
+    assert "These pins stay where they are:" in body
 
 
 def test_the_text_names_only_the_tools_that_changed():
@@ -736,6 +793,22 @@ def test_the_command_writes_the_files_and_the_texts(command, tmp_path_factory, m
     assert body.read_text().startswith("This pull request updates tool versions that CI pins.")
     assert message.read_text().startswith(pins.TITLE)
     assert output.read_text() == "changed=true\n"
+
+
+def test_the_command_tells_the_pull_request_which_pin_stayed(tmp_path, monkeypatch, capsys):
+    """The run's log says it, and so does the pull request that the other pins make."""
+    write_checkout(tmp_path)
+    upstream = newer_upstream(bsc_releases=[bsc("2026.10", {"digest": None}), bsc("2026.07.1")])
+    monkeypatch.setattr(pins, "github_fetcher", lambda token: upstream.fetch)
+    monkeypatch.setattr(pins, "download_digest", upstream.digest)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    body, message = tmp_path / "body.md", tmp_path / "message.txt"
+    argv = ["--root", str(tmp_path), "--body-file", str(body), "--message-file", str(message)]
+    assert pins.main(argv) == 0
+    assert f"warning: {BSC_WITHOUT_DIGEST}" in capsys.readouterr().out
+    assert f"\n- {BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)\n" in body.read_text()
+    assert "bsc" not in message.read_text().lower()  # the commit changes the other pins only
 
 
 def test_the_command_reports_no_change_to_the_workflow(tmp_path, monkeypatch, capsys):

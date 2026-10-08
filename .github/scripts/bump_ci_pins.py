@@ -15,8 +15,9 @@ newer. It never moves a pin back. A workflow file that does not exist has no pin
 the script skips it. A file that exists without its pin, or with the pin in another format, is an
 error: the script must change together with the format. Every value that comes from GitHub is
 checked against a strict pattern before it reaches a file. The SHA-256 of the bsc tarball comes
-from a download that must be whole: it has the size and, when GitHub lists one, the digest that
-GitHub lists for the file.
+from a download that must be whole: it has the size and the digest that GitHub publishes for the
+file. A release with no published digest is not pinned: the script says so, and a person pins it
+by hand.
 
 The script uses the standard library only. With `--dry-run` it prints the changes and writes
 nothing.
@@ -56,9 +57,9 @@ INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
 
 #: Asks GitHub's REST API for a path and returns the parsed JSON.
 Fetch = Callable[[str], Any]
-#: Downloads a URL, checks the content against the size and (if given) the SHA-256 that GitHub
-#: lists for the file, and returns the SHA-256 of the content, in hexadecimal.
-Digest = Callable[[str, int, "str | None"], str]
+#: Downloads a URL, checks the content against the size and the SHA-256 that GitHub publishes for
+#: the file, and returns the SHA-256 of the content, in hexadecimal.
+Digest = Callable[[str, int, str], str]
 
 
 class PinError(Exception):
@@ -91,7 +92,6 @@ class Update:
     new: str
     links: tuple[tuple[str, str], ...]
     sha256: str = ""  # of the bsc tarball
-    digest_listed: bool = False  # whether GitHub lists a digest for the tarball, and it matched
 
 
 @dataclass(frozen=True)
@@ -100,7 +100,7 @@ class Tarball:
 
     tag: str
     size: int
-    sha256: str | None = None  # the digest GitHub lists for the file, if it lists one
+    sha256: str | None = None  # the digest GitHub publishes for the file, if it does
 
 
 # ---------------------------------------------------------------------------------------------
@@ -326,6 +326,12 @@ def find_update(
         new = tarball.tag
         if _release_number(new) <= _release_number(old):
             return None
+        if tarball.sha256 is None:
+            # What the workflow would pin is the digest of whatever it downloads, a file that could
+            # have been changed after its release to one of the same size. Only a digest that
+            # GitHub published can tell.
+            warn(f"{new} has no published digest; pin it by hand (the pin stays at {old})")
+            return None
         sha256 = digest(bsc_url(new), tarball.size, tarball.sha256)
         if not SHA256.fullmatch(sha256):
             raise PinError("bsc: the digest of the tarball is not a SHA-256")
@@ -333,7 +339,7 @@ def find_update(
             ("release", f"{GITHUB}/{BSC_REPOSITORY}/releases/tag/{new}"),
             ("compare", _compare(BSC_REPOSITORY, old, new)),
         )
-        return Update(pin, old, new, links, sha256, digest_listed=tarball.sha256 is not None)
+        return Update(pin, old, new, links, sha256)
     if pin.kind == "installer":
         old = read_installer(text)
         new = installer_head(fetch(f"/repos/{INSTALLER_REPOSITORY}/commits/main"))
@@ -376,31 +382,29 @@ def commit_message(updates: Sequence[Update]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def pull_request_text(updates: Sequence[Update]) -> tuple[str, str]:
-    """The title and the body of the pull request, in Markdown."""
+def pull_request_text(updates: Sequence[Update], notes: Sequence[str] = ()) -> tuple[str, str]:
+    """The title and the body of the pull request, in Markdown. `notes` say which pins stayed
+    where they are, and why."""
     rows = [
         f"| {u.pin.tool} | {u.pin.name} in `{u.pin.path.name}` | `{_shown(u.old)}` "
         f"| `{_shown(u.new)}` | " + ", ".join(f"[{label}]({url})" for label, url in u.links) + " |"
         for u in updates
     ]
-    notes = []
+    explanations = []
     for u in updates:
         if u.pin.kind == "bsc":
-            checked = (
-                "GitHub lists the same digest for the file."
-                if u.digest_listed
-                else "GitHub lists no digest for the file, so the workflow checked only its size."
-            )
-            notes.append(
+            explanations.append(
                 f"The SHA-256 of `{bsc_tarball(u.new)}` is `{u.sha256}`. "
-                f"The workflow computed it by downloading the file. {checked}"
+                "The workflow computed it by downloading the file. "
+                "GitHub lists the same digest for the file."
             )
         if u.pin.kind == "installer":
-            notes.append(
+            explanations.append(
                 "A new installer commit can build another yosys, nextpnr or Project X-Ray "
                 "database, and `tests/test_openxc7_real.py` pins counts that depend on them. "
                 "Read the changes of the installer first."
             )
+    stayed = ["These pins stay where they are:", "", *[f"- {note}" for note in notes], ""]
     body = [
         "This pull request updates tool versions that CI pins.",
         f"The workflow `{WORKFLOW}` opens it on Mondays, when a tool has a newer version. While "
@@ -410,7 +414,8 @@ def pull_request_text(updates: Sequence[Update]) -> tuple[str, str]:
         "| --- | --- | --- | --- | --- |",
         *rows,
         "",
-        *[f"{note}\n" for note in notes],
+        *[f"{explanation}\n" for explanation in explanations],
+        *(stayed if notes else []),
         "CI starts on this pull request by itself. Read the changes of each tool, and merge the "
         "pull request only when CI passes. A newer tool can change a result that a test pins.",
     ]
@@ -439,11 +444,11 @@ def github_fetcher(token: str | None) -> Fetch:
     return fetch
 
 
-def download_digest(url: str, size: int, listed: str | None) -> str:
+def download_digest(url: str, size: int, listed: str) -> str:
     """Download `url` and return the SHA-256 of what arrived, in hexadecimal. The body must be
     whole. `read` returns `b""` for a connection that the server closed early, as it does at the
     end of a whole body, so the body must have the `size` that GitHub lists for the file, the
-    length that the server announces, and the digest `listed` (if GitHub lists one)."""
+    length that the server announces, and the digest `listed`, which GitHub publishes."""
     digest = hashlib.sha256()
     read = 0
     request = urllib.request.Request(url, headers={"User-Agent": "xeda-bump-ci-pins"})
@@ -462,7 +467,7 @@ def download_digest(url: str, size: int, listed: str | None) -> str:
         if read != int(announced):
             raise PinError(f"{url}: {read} bytes arrived, and the server announced {announced}")
     result = digest.hexdigest()
-    if listed is not None and result != listed:
+    if result != listed:
         raise PinError(f"{url}: its SHA-256 is {result}, and GitHub lists the digest {listed}")
     return result
 
@@ -497,12 +502,12 @@ def run(
             continue
         if pin.path not in texts:
             texts[pin.path] = path.read_text(encoding="utf-8")
-        notes: list[str] = []
-        update = find_update(pin, texts[pin.path], fetch, digest, notes.append)
-        for note in notes:
-            warn(f"{label}: {note}")
+        reasons: list[str] = []
+        update = find_update(pin, texts[pin.path], fetch, digest, reasons.append)
+        for reason in reasons:
+            warn(f"{pin.tool}: {reason}")
         if update is None:
-            if not notes:
+            if not reasons:
                 log(f"{label}: up to date")
             continue
         log(f"{label}: {_shown(update.old)} -> {_shown(update.new)}")
@@ -529,6 +534,12 @@ def warn_in_the_log(message: str) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    notes: list[str] = []
+
+    def warn_and_note(message: str) -> None:
+        warn_in_the_log(message)
+        notes.append(message)
+
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=Path.cwd(), help="the repository (default: .)")
     parser.add_argument("--dry-run", action="store_true", help="print the changes, write nothing")
@@ -539,14 +550,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     try:
         updates = run(
-            args.root, github_fetcher(token), download_digest, args.dry_run, print, warn_in_the_log
+            args.root, github_fetcher(token), download_digest, args.dry_run, print, warn_and_note
         )
     except (PinError, OSError, ValueError) as error:  # OSError includes URLError
         print(f"error: {error}", file=sys.stderr)
         return 1
 
     if updates:
-        title, body = pull_request_text(updates)
+        title, body = pull_request_text(updates, notes)
         if args.dry_run:
             print(f"\nThe pull request would be titled {title!r}, with this text:\n\n{body}")
         else:
