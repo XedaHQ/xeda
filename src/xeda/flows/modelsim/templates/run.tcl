@@ -1,7 +1,7 @@
 onerror {exit -code 1}
 {#- ModelSim's `exit` takes its status as `-code N`: a plain `exit 1` exits vsim with status 0 #}
 puts "\n===========================( Compiling HDL Sources )==========================="
-{%- for src in design.sim_sources if src.type %}
+{%- for src in sources_read(rtl=true, tb=true) %}
 {%- if src.type.name in ("Verilog", "SystemVerilog") %}
 if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" or src.variant == "systemverilog" %} -sv{% endif %} {{vlog_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error

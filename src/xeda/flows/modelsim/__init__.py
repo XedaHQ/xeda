@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from ...dataclass import Field
-from ...design import DesignValidationError
+from ...design import DesignValidationError, SourceType
 from ...flow import SimFlow
 from ...flow.flow import describe_results
 from ...flow.sim import SimEvidence
@@ -43,6 +43,9 @@ class Modelsim(SimFlow):
     ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the
     default severity. Verified with ModelSim-Intel Starter 2020.1.
     """
+
+    #: `vlog` compiles Verilog and SystemVerilog, `vcom` compiles VHDL.
+    reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
 
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
