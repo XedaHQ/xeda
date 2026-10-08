@@ -858,17 +858,61 @@ def steps() -> list[dict[str, Any]]:
 
 
 TOKEN = "CI_PINS_TOKEN"
+#: The secret itself in an expression, and the question whether it is set, which hands on nothing.
+SECRET_ITSELF = re.compile(r"\$\{\{\s*secrets\." + TOKEN + r"\s*\}\}")
+SECRET_ASKED = re.compile(r"\$\{\{\s*secrets\." + TOKEN + r"\s*!=\s*''\s*\}\}")
+#: The two commands of the pushing step that get the token, apart from the one that takes it from
+#: the environment: the encoder of the credential, and `gh`, each for itself.
+TOKEN_USES = re.compile(
+    r"""printf 'x-access-token:%s' "\$token" \| base64|\bGH_TOKEN="\$token" gh\b"""
+)
+
+
+def commands(run: str) -> list[str]:
+    """The commands of a script, one to a line: a command that spans lines is joined, and
+    comments and blank lines are gone."""
+    lines = run.replace("\\\n", " ").splitlines()
+    return [line.strip() for line in lines if line.strip() and not line.strip().startswith("#")]
+
+
+def script_problems(run: str, variable: str) -> list[str]:
+    """Where the pushing step's script puts the token, which its env gives it as `variable`.
+
+    Every command of a step inherits the env of the step, so the script takes the token into a
+    variable of its shell and removes the one of the env before it runs any other command. After
+    that, the token goes to the encoder of the credential and to `gh`, each for itself."""
+    problems = []
+    lines = commands(run)
+    taken = (
+        len(lines) > 2
+        and lines[0].startswith("set -")
+        and lines[1] == f'token="${variable}"'
+        and lines[2] == f"unset {variable}"
+    )
+    if not taken:
+        problems.append(
+            f'the step that pushes does not take the token out of its environment (token="${variable}", '
+            f"then unset {variable}) before any other command"
+        )
+    for line in lines[3:]:
+        if re.search(rf"\b{variable}\b", line):
+            problems.append(f"the step that pushes reads {variable} after it removed it: {line}")
+        if re.search(r"\$\{?token\b", TOKEN_USES.sub("", line)):
+            problems.append(f"a command that is not the encoder or gh gets the token: {line}")
+    return problems
 
 
 def token_problems(document: dict[str, Any]) -> list[str]:
     """Everything wrong with where the workflow puts the token, in words (none: all is right).
 
-    The token can push to this repository. It reaches two steps and no other: the step that
-    decides whether to change anything reads that it is set, and the step that pushes uses it.
-    So it is in no `env` of the workflow or of the job, which every step would see, nor in the
-    step that runs the script on what upstream answers. The checkout keeps no credential, and a
-    git command gets the token through its environment, never on its command line, where `ps`
-    shows it.
+    The token can push to this repository, so only the commands that need it get it. The step that
+    decides whether to change anything asks whether the secret is set, which gives it nothing to
+    hand on. Only the step that pushes takes the secret, and only from the env of that step, which
+    every command of it inherits, so its script moves the token into a variable of its shell and
+    removes the one of the env before it runs any other command. The workflow and the job have no
+    token in their env, the step that runs the script on what upstream answers never sees it, and
+    the checkout keeps no credential. git gets the credential through its environment, never on
+    its command line, where `ps` shows it.
     """
     problems = []
     job = document["jobs"]["bump"]
@@ -876,20 +920,30 @@ def token_problems(document: dict[str, Any]) -> list[str]:
         if TOKEN in json.dumps(env):
             problems.append(f"{where} gives the token to every step through its env")
     all_steps = job["steps"]
-    needs = [
-        index
-        for index, step in enumerate(all_steps)
-        if "git push" in step.get("run", "") or '[ -z "$TOKEN" ]' in step.get("run", "")
-    ]
-    holders = [index for index, step in enumerate(all_steps) if TOKEN in json.dumps(step)]
-    if len(needs) != 2 or holders != needs:
-        problems.append(
-            f"steps {holders} hold the token, and exactly the steps that push and that check "
-            f"it is set ({needs}) are to"
-        )
-    for step in all_steps:
-        if "bump_ci_pins.py" in step.get("run", "") and TOKEN in json.dumps(step):
-            problems.append("the step that runs the script sees the token")
+    pushing = [index for index, step in enumerate(all_steps) if "git push" in step.get("run", "")]
+    if len(pushing) != 1:
+        problems.append(f"{len(pushing)} steps run git push, and exactly one does")
+    for index, step in enumerate(all_steps):
+        text = json.dumps(step)
+        itself, asked = len(SECRET_ITSELF.findall(text)), len(SECRET_ASKED.findall(text))
+        if text.count("secrets." + TOKEN) != itself + asked:
+            problems.append(f"step {index} puts the secret into an expression that hands it on")
+        if itself and index not in pushing:
+            problems.append(f"step {index} gets the secret, which only the step that pushes may")
+            if "bump_ci_pins.py" in step.get("run", ""):
+                problems.append("the step that runs the script sees the token")
+        if index in pushing:
+            variables = [
+                name
+                for name, value in (step.get("env") or {}).items()
+                if SECRET_ITSELF.search(str(value))
+            ]
+            if len(variables) != 1 or itself != 1:
+                problems.append(
+                    "the step that pushes does not take the token from one env variable"
+                )
+            else:
+                problems += script_problems(step["run"], variables[0])
         if str(step.get("uses", "")).startswith("actions/checkout@"):
             if step.get("with", {}).get("persist-credentials") is not False:
                 problems.append("the checkout keeps its credential in .git/config")
@@ -898,7 +952,7 @@ def token_problems(document: dict[str, Any]) -> list[str]:
             problems.append("a git command line carries the credential (git -c ...)")
         if re.search(r"\bgit\b[^\n]*\bhttps?://[^\s/]*@", run):
             problems.append("a git command line carries the credential in a URL")
-        if "git push" in run:
+        if index in pushing:
             if "GIT_CONFIG_KEY_0" not in run or "extraheader" not in run:
                 problems.append("the push does not give git the credential through its environment")
             if "::add-mask::" not in run:
@@ -912,17 +966,34 @@ def token_problems(document: dict[str, Any]) -> list[str]:
     return problems
 
 
-def test_the_workflow_hands_the_token_only_to_the_steps_that_need_it():
+def test_the_workflow_hands_the_token_only_to_the_commands_that_need_it():
     assert token_problems(workflow()) == []
-
-
-def _drop_persist_credentials(document):
-    checkout = next(s for s in document["jobs"]["bump"]["steps"] if "uses" in s)
-    checkout["with"].pop("persist-credentials")
 
 
 def _step_with(document, text):
     return next(s for s in document["jobs"]["bump"]["steps"] if text in s.get("run", ""))
+
+
+def _push_rewritten(old, new):
+    """A change of the real workflow: `old` in the script of the pushing step becomes `new`."""
+
+    def mutate(document):
+        step = _step_with(document, "git push")
+        assert old in step["run"], old
+        step["run"] = step["run"].replace(old, new, 1)
+
+    return mutate
+
+
+def _with_secret_in_env(name, step_text):
+    def mutate(document):
+        _step_with(document, step_text).setdefault("env", {})[name] = "${{ secrets.CI_PINS_TOKEN }}"
+
+    return mutate
+
+
+def _checkout(document):
+    return next(s for s in document["jobs"]["bump"]["steps"] if "uses" in s)
 
 
 MUTATIONS = {
@@ -935,62 +1006,95 @@ MUTATIONS = {
         "the job gives the token",
     ),
     "the token for the step that runs the script": (
-        lambda d: _step_with(d, "bump_ci_pins.py")
-        .setdefault("env", {})
-        .update(T="${{ secrets.CI_PINS_TOKEN }}"),
+        _with_secret_in_env("T", "bump_ci_pins.py"),
         "the step that runs the script sees the token",
     ),
-    "the token for the checkout": (
-        lambda d: _drop_persist_credentials(d),
+    "the token for the step that decides, as it was": (
+        _with_secret_in_env("TOKEN", "gh api"),
+        "which only the step that pushes may",
+    ),
+    "the token for the checkout, or the token of the workflow": (
+        lambda d: _checkout(d)["with"].update(token="${{ secrets.CI_PINS_TOKEN || github.token }}"),
+        "hands it on",
+    ),
+    "the checkout keeping its credential": (
+        lambda d: _checkout(d)["with"].pop("persist-credentials"),
         "the checkout keeps its credential",
     ),
     "no token for the step that pushes": (
-        lambda d: _step_with(d, "git push").update(env={}),
-        "hold the token",
+        lambda d: _step_with(d, "git push")["env"].pop("PINS_TOKEN"),
+        "does not take the token from one env variable",
+    ),
+    "the token in the text of the script": (
+        _push_rewritten(
+            "git fetch", 'curl -H "Authorization: ${{ secrets.CI_PINS_TOKEN }}" x\n  git fetch'
+        ),
+        "does not take the token from one env variable",
+    ),
+    "the secret left in the env of every command of the step": (
+        lambda d: (
+            _push_rewritten('token="$PINS_TOKEN"\nunset PINS_TOKEN\n', "")(d),
+            _step_with(d, "git push")["env"].update(GH_TOKEN="${{ secrets.CI_PINS_TOKEN }}"),
+            _step_with(d, "git push")["env"].pop("PINS_TOKEN"),
+        ),
+        "does not take the token out of its environment",
+    ),
+    "no unset": (
+        _push_rewritten("unset PINS_TOKEN\n", ""),
+        "does not take the token out of its environment",
+    ),
+    "the unset after another command": (
+        _push_rewritten(
+            'unset PINS_TOKEN\ngit config user.name "github-actions[bot]"',
+            'git config user.name "github-actions[bot]"\nunset PINS_TOKEN',
+        ),
+        "does not take the token out of its environment",
+    ),
+    "the token exported again": (
+        _push_rewritten("git switch", 'export GH_TOKEN="$token"\n  git switch'),
+        "gets the token",
+    ),
+    "the token echoed": (
+        _push_rewritten("git switch", 'echo "$token"\n  git switch'),
+        "gets the token",
+    ),
+    "the token given to a git command": (
+        _push_rewritten("git switch", 'GH_TOKEN="$token" git switch'),
+        "gets the token",
+    ),
+    "the variable of the env read after the unset": (
+        _push_rewritten('GH_TOKEN="$token" gh pr list', 'GH_TOKEN="$PINS_TOKEN" gh pr list'),
+        "after it removed it",
     ),
     "the credential on a git command line": (
-        lambda d: _step_with(d, "git push").update(
-            run=_step_with(d, "git push")["run"].replace(
-                "git push",
-                'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push',
-            )
+        _push_rewritten(
+            "git push",
+            'git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $basic" push',
         ),
         "carries the credential",
     ),
     "the credential on a git command line that spans lines": (
-        lambda d: _step_with(d, "git push").update(
-            run=_step_with(d, "git push")["run"].replace(
-                "git push", 'git \\\n -c "http.https://github.com/.extraheader=$basic" push'
-            )
+        _push_rewritten(
+            "git push", 'git \\\n -c "http.https://github.com/.extraheader=$basic" push'
         ),
         "carries the credential",
     ),
     "the credential in the URL of the push": (
-        lambda d: _step_with(d, "git push").update(
-            run=_step_with(d, "git push")["run"].replace(
-                "git push --force origin", "git push --force https://x:$GH_TOKEN@github.com/o/r.git"
-            )
+        _push_rewritten(
+            "git push --force origin", "git push --force https://x:$token@github.com/o/r.git"
         ),
         "in a URL",
     ),
     "the encoded credential shown before it is masked": (
-        lambda d: _step_with(d, "git push").update(
-            run=_step_with(d, "git push")["run"].replace(
-                'echo "::add-mask::$basic"', 'echo "$basic"\n  echo "::add-mask::$basic"'
-            )
-        ),
+        _push_rewritten('echo "::add-mask::$basic"', 'echo "$basic"\n  echo "::add-mask::$basic"'),
         "used before it is masked",
     ),
     "the log showing the credential": (
-        lambda d: _step_with(d, "git push").update(
-            run="set -x\n" + _step_with(d, "git push")["run"]
-        ),
+        _push_rewritten("set -euo pipefail", "set -x\n  set -euo pipefail"),
         "would echo the credential",
     ),
     "the encoded credential not masked": (
-        lambda d: _step_with(d, "git push").update(
-            run=_step_with(d, "git push")["run"].replace("::add-mask::", "::notice::")
-        ),
+        _push_rewritten("::add-mask::", "::notice::"),
         "not masked",
     ),
 }

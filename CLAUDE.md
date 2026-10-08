@@ -85,12 +85,18 @@ test pins, such as the counts of `tests/test_openxc7_real.py`. The workflow need
 `CI_PINS_TOKEN`, a fine-grained personal access token with write access to Contents, Pull
 requests and Workflows (not a GitHub App token, which expires in an hour): `GITHUB_TOKEN`
 cannot change workflow files, and a pull request that it opens does not start CI by itself.
-The token reaches two steps. The checkout keeps no credential (`persist-credentials: false`),
-and the step that runs the script never sees the token; the step that pushes gives it to the one
-`git push` through its environment (`tests/test_ci_pins.py` checks all three). The bsc SHA-256
-comes from a download that must have the size and the digest GitHub lists for the file. A pin
-that stays because main was rewritten (`behind`, `diverged`) is a warning in the log, not
-"up to date". The workflow changes nothing on a fork or off the default branch; it prints. Keep each
+The token reaches the commands that need it and no other: the checkout keeps no credential
+(`persist-credentials: false`); the step that decides gets only whether the secret is set
+(`secrets.CI_PINS_TOKEN != ''`); the step that runs the script never sees it; the step that
+pushes takes it from its env into a shell variable and unsets the env variable before its first
+command (every command of a step inherits the step's env), then gives it to the one `git push`
+through that command's environment and to each `gh` for itself (`tests/test_ci_pins.py` lists
+every way to hand it out, with a change of the real workflow for each). The bsc pin moves only
+to a release whose tarball has a digest that GitHub publishes, and the download must have that
+digest and the size GitHub lists; without a digest the pin stays, and the run's log and the pull
+request say "pin it by hand". A pin that stays because main was rewritten (`behind`, `diverged`)
+is a warning in the log, not "up to date". The workflow changes nothing on a fork or off the
+default branch; it prints. Keep each
 pin on the line the script reads: `tests/test_ci_pins.py` parses the real workflow files, and a
 new pin needs a reader and a writer in the script. Dependabot (`.github/dependabot.yml`) keeps
 the versions of the actions current.
