@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import stat
 import sys
@@ -30,6 +31,7 @@ from .utils import XedaException
 log = logging.getLogger(__name__)
 
 __all__ = [
+    "DIR_NAME_HASH_LEN",
     "OutputSnapshot",
     "OutputState",
     "RunDirectory",
@@ -37,12 +39,64 @@ __all__ = [
     "record_output_state",
     "resolved_inside",
     "rmtree",
+    "run_directory_name",
+    "run_directory_problem",
 ]
 
 
 class RunDirectoryError(XedaException):
     """A run directory xeda cannot use: one that leads out of its run root, or one holding the
     design's own files; or a path in one that leads out of it."""
+
+
+#: The length of the run hash in the name of a hashed run directory, `<flow>_<hash>`.
+DIR_NAME_HASH_LEN = 16
+
+
+def run_directory_name(flow_name: str) -> re.Pattern[str]:
+    """The names a run directory of `flow_name` has: `flow_name`, which every default run makes,
+    or `flow_name`, an underscore and a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` run hash, which
+    `hashed_run_dirs` makes."""
+    return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
+
+
+def run_directory_problem(path: Path, flow_name: str, parent: Path) -> Optional[str]:
+    """Why `path` is not a run directory of `flow_name` in `parent`, or None if it is.
+
+    This is the one definition of a run directory for a launch and for `xeda scrub`: a launch
+    runs only in one, and scrub removes only these. `parent` is the directory that holds run
+    directories, resolved (`os.path.realpath`): the design's directory, or the target's.
+
+    A run directory is named `flow_name` or `flow_name_<hash>` (`run_directory_name`), is a
+    directory, and lies in `parent`. A symbolic link counts only if it leads, where the chain of
+    links ends, to a directory of that kind named like a run directory of `flow_name` and lying
+    in `parent`. So a link never stands for a target's directory, for another flow's run
+    directory, for a directory below or above `parent`, for one outside the run root, or for a
+    file or nowhere. Where the link ends is judged by `os.path.realpath`, as the lock beside a
+    link is. The function only reads: it follows links and looks at what is at their end.
+
+    The answer is a clause with "it" as its subject, ready to follow a name: "it is a link to
+    /run/d/a, which is not a directory named vivado_synth or vivado_synth_<hash> in /run/d"."""
+    pattern = run_directory_name(flow_name)
+    if pattern.match(path.name) is None:
+        return f"its name is not {flow_name} or {flow_name}_<hash>"
+    ends_at = Path(os.path.realpath(path))
+    if not os.path.islink(path):
+        if not path.is_dir():
+            return "it is not a directory"
+        if ends_at.parent != parent:
+            return f"it resolves to {ends_at}, which is not in {parent}"
+        return None
+    if not ends_at.exists():
+        return f"it is a link to {ends_at}, which does not exist"
+    if not ends_at.is_dir():
+        return f"it is a link to {ends_at}, which is not a directory"
+    if pattern.match(ends_at.name) is None or ends_at.parent != parent:
+        return (
+            f"it is a link to {ends_at}, which is not a directory named {flow_name} or "
+            f"{flow_name}_<hash> in {parent}"
+        )
+    return None
 
 
 #: A file's or directory's state: `(st_dev, st_ino, st_size, st_mtime_ns, st_ctime_ns)`.
@@ -282,9 +336,25 @@ class RunDirectory:
             log.info("Deleting all files in the run directory %s", self.path)
             self.remove(*sorted(self.path.iterdir()))
 
-    def delete(self) -> None:
-        """Delete the run directory itself."""
+    def delete(self, *links: str | os.PathLike) -> None:
+        """Delete the run directory itself, after each of `links`: the names, in the run root,
+        by which it was reached. A name that is a symbolic link is removed as itself, first and
+        whatever it leads to, never followed, so no name is left leading nowhere. A name that is
+        no link (the directory itself, say) or is gone is left as it is. A link whose own
+        directory lies outside the run root is refused, and nothing is removed."""
         if self.run_root is None:
             raise RunDirectoryError(f"{self.path} is no run directory a launcher chose")
+        names = []
+        for given in links:
+            name = Path(os.path.abspath(given))
+            if not name.is_symlink():
+                continue
+            if not Path(os.path.realpath(name.parent)).is_relative_to(self.run_root):
+                raise RunDirectoryError(
+                    f"{name} lies outside the run root {self.run_root}: xeda does not remove it"
+                )
+            names.append(name)
+        for name in names:
+            name.unlink()  # the link itself, never what it leads to
         self.clear()
         self.path.rmdir()

@@ -1517,7 +1517,8 @@ def dse(
 def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
     """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>:
     the pre-target ones and those of every target (<design_name>/<target>/), or with --target
-    only that target's. They are listed, and confirmed once."""
+    only that target's. They are listed, and confirmed once. A link named like a run directory
+    that does not lead to a run directory of the flow beside it is skipped, and said."""
     if json_flag:
         machine_readable_mode()
 
@@ -1563,6 +1564,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
                 "scrubbed": [str(d) for d in result.removed],
                 "kept": [str(d) for d in result.kept],
                 "gone": [str(d) for d in result.gone],
+                "skipped": [str(d) for d in result.skipped],
             },
             "json",
         )

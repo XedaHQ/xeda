@@ -148,8 +148,16 @@ it (`.xeda-run-root`, `.gitignore`, `CACHEDIR.TAG`); keep nothing of yours there
 A run directory is `<run root>/<design>[/<target>]/<flow>` (or `<flow>_<hash>`) and nothing else:
 `get_flow_run_path` refuses a design name that is not a name (`design.DESIGN_NAME`), a target that
 is not a target name (`design.target_name_problem`) and a directory
-that leads out of the run root through a symbolic link; one that is itself a link resolving inside
-the run root is used. **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
+that leads out of the run root through a symbolic link. **One definition of a run directory serves
+the launch and scrub** (`run_dir.run_directory_problem(path, flow, parent)`, with
+`run_dir.DIR_NAME_HASH_LEN` and the name pattern `run_directory_name`): named `<flow>` or
+`<flow>_<hash>`, a directory, in `parent`; a link counts only if the end of its chain of links
+(`os.path.realpath`) is itself named so and lies in `parent`, beside it. A link to a target's
+directory, another flow's run directory, a directory below or above, out of the run root, a file or
+nowhere is none. `run_path_of` refuses such a last component naming the link and its end (pure:
+`lstat`/`realpath`), and scrub lists none of them. `tests/test_run_directory_rule.py` holds the
+table of link cases and the agreement oracle (scrub lists a link if and only if a launch accepts
+it). **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
 the launcher snapshots every file and directory under the run directory right before `run()`
 (`Flow.start_run`, `run_dir.OutputSnapshot`, keyed by device and inode, so every name of an
 earlier run's file -- through a link, in another letter case -- finds that file's state; a flow
@@ -1118,11 +1126,21 @@ component is never resolved -- and a parent, or a link, leading out of the run r
 refused before anything is created) and judges it again once the lock is held. A candidate that is
 a link to a directory in the run root is locked by that directory (`_lock_path`), which stays one
 lock when another scrub has removed the link and then the directory; a link out of the run root or
-to nowhere is locked by its own path, which the lock refuses before it makes anything. Scrub removes
-the link first, as itself, and then the directory whose lock it holds: with the directory first, a
-second scrub that listed the link could ask for it between the two steps, find a link to nowhere,
-and fail on the lock's refusal, where it now finds the link gone and skips it. Once the lock
-is held, `_lock_path` is asked again: a link retargeted, or replaced by a directory, while scrub
+to nowhere is locked by its own path, which the lock refuses before it makes anything. **A
+directory is one candidate under every name the listing found for it** (`_listed`, by
+`os.path.realpath`: the first name is the candidate, the others its `aliases`, shown before the
+question, and `ScrubResult.removed` holds the first name only): `RunDirectory.delete(*links)`
+removes the links first, as themselves, and then the directory whose lock scrub holds, so no
+link is left leading nowhere, which a launch refuses and a scrub reports as skipped for good;
+every alias is judged again under the lock exactly as the first name is (`_refuse_a_change`: it
+still leads to the directory whose lock is held and is still a run directory of the flow, else a
+`RunDirectoryError` and nothing is removed, a name already gone is skipped). With the directory
+first, a second scrub that listed the link could ask for it between the two steps, find a link to
+nowhere, and fail on the lock's refusal, where it now finds the link gone and skips it. Every
+deletion of a whole run directory removes every valid link to it beside it with it: scrub (its
+aliases), and the purge of `_clean_up` and DSE's `_purge_run` (`run_directory_names`, the names
+the same listing finds). Once the lock
+is held, where the name leads is asked again (`_refuse_a_change`): a link retargeted, or replaced by a directory, while scrub
 waited no longer leads to the directory whose lock is held, and is refused with a `RunDirectoryError`
 (scrub would remove a directory whose lock it does not hold, and a launch running in it could lose
 it). What is removed is the locked directory itself, never what the link leads to by then.
@@ -1130,12 +1148,14 @@ it). What is removed is the locked directory itself, never what the link leads t
 (`_remove_confirmed`), in this order: **one that is gone is skipped** (`_is_gone`: `lstat` says
 `FileNotFoundError` and nothing else, so a link, a file and an error that cannot tell are
 something): another scrub or a purge removed it while this one waited, and the scrub wanted it
-gone. One that is no run directory of the flow any more (`_still_a_run_directory`, by
-`_is_run_directory`, the one rule that listed it: named for the flow, a directory, and resolving to
-a child of the directory it was listed in -- itself or, for a link, a directory beside it, never
-one below it or above it; `_run_directories_in` lists nothing in a directory outside the run root)
-is refused with a `RunDirectoryError`. **One whose run records changed is kept**: the listing keeps
-the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`, `_completion_records`:
+gone. One that is no run directory of the flow any more (`_problem_now`, by
+`run_directory_problem`, the one rule that listed it and a launch applies; `_run_directories_in`
+lists nothing in a directory outside the run root) is refused with a `RunDirectoryError` that says
+why. A link named like a run directory of the flow that fails the rule is not listed: scrub says so
+before it asks, naming the link and why (`skipped PATH: it is a link to X, which is not a directory
+named FLOW or FLOW_<hash> in DIR`, `_say_skipped`, also logged at info level), returns it as
+`ScrubResult.skipped` and never waits for the lock of what it leads to. **One whose run records
+changed is kept**: the listing keeps the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`, `_completion_records`:
 identity, size and times, absent counted), and a directory where they differ, or have appeared, was
 written to by a launch after the listing. Either a run ended there (a newer run, a failed one), or
 a launch of the requested flow found its run fresh and refreshed the trace once the records it had
@@ -1158,8 +1178,8 @@ consumer that has run its producer and has not yet taken its read lease on the p
 -- scrub removes it, and the consumer's launch fails closed with a `FlowDependencyFailure` (`changed
 before acquiring its read lease`) instead of reading a directory that is going: the designed
 fail-closed behavior. Do not scrub a flow whose runs other launches are starting to use. `--json`
-reports `target`, the `scanned` directories and the `scrubbed`, `kept` and `gone` run directories,
-one document on stdout; the lines above go to stderr. Consumers hold verified
+reports `target`, the `scanned` directories and the `scrubbed`, `kept`, `gone` and `skipped` run
+directories, one document on stdout; the lines above go to stderr. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry
@@ -1661,8 +1681,9 @@ dependency must also share `custom_boards_file`.
   `inside` with a `RunDirectoryError` naming the link; a link at a path's own name is removed as
   itself, never followed. `remove(*paths)`
   deletes each -- file, link (as itself) or directory tree -- inside the directory only, nothing in
-  an `unlaunched` one; `clear()` empties the whole directory; `delete()` also removes the directory
-  itself. A tool is free to replace a project or a directory by its own name inside the run
+  an `unlaunched` one; `clear()` empties the whole directory; `delete(*links)` also removes the directory
+  itself, after the symbolic links it was reached by (each removed as itself, never followed;
+  a name that is no link is left; one whose own directory lies outside the run root is refused). A tool is free to replace a project or a directory by its own name inside the run
   directory (`-force`/`-overwrite`, Diamond's and ISE's new project): the whole directory is
   xeda's, so there is nothing of the user's there for the tool to lose. **`RunDirectory` is not the
   only writer of a run directory, though**: `trace.json` (`write_trace`/`remove_trace`,

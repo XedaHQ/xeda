@@ -365,7 +365,7 @@ def flock(fd, mode):
         print("waiting", flush=True)
     return original(fd, mode)
 run_lock.fcntl.flock = flock
-_purge_run(Path(sys.argv[1]), Path(sys.argv[2]))
+_purge_run(Path(sys.argv[1]), Path(sys.argv[2]), "worker")
 print("done", flush=True)
 """
     writer = None

@@ -10,7 +10,8 @@ and marked (`.xeda-run-root`), and this file proves the parts of that which no o
   `./xeda_run` an earlier xeda made is adopted;
 * a design name that would put a run directory elsewhere is refused, and so is a run directory
   (a design's or a dependency's) that is a link leading out of the run root; one that is a link
-  resolving inside the run root is used, and scrubbed as what it leads to;
+  to a run directory of the same flow beside it is used, and scrubbed as what it leads to, and
+  every other link at a run directory's name is refused (`test_run_directory_rule.py`);
 * `clean` empties xeda's run directory, and a flow built without a launcher deletes nothing;
 * a working setting given as a location (`../x`, an absolute path) is refused at launch before any
   tool runs, one whose name Tcl would substitute is removed literally, a work directory a tool
@@ -409,26 +410,55 @@ def test_a_run_directory_linked_out_of_the_run_root_is_refused(tmp_path, monkeyp
 
 def test_a_run_directory_inside_the_run_root_is_the_usual_one(tmp_path):
     """The names of ordinary designs and flows map to `<run root>/<design>/<flow>`; a link there
-    that resolves inside the run root is not refused."""
+    to a run directory of the flow beside it is not refused."""
     launcher = _launcher(tmp_path)
     root = launcher.run_root
     assert launcher.get_flow_run_path("sqrt", "vivado_synth") == root / "sqrt" / "vivado_synth"
     assert launcher.get_flow_run_path("my-design", "ghdl_sim") == root / "my-design" / "ghdl_sim"
 
-    target = root / "sqrt" / "elsewhere_in_the_root"
+    target = root / "sqrt" / "vivado_synth_0123456789abcdef"
     target.mkdir(parents=True)
     (root / "sqrt" / "vivado_synth").symlink_to(target, target_is_directory=True)
 
     assert launcher.get_flow_run_path("sqrt", "vivado_synth") == root / "sqrt" / "vivado_synth"
 
 
-def test_a_run_directory_that_is_a_link_inside_the_run_root_is_used(tmp_path, monkeypatch):
-    """A run directory that is a link resolving inside the run root is accepted: the run's files
-    land where it leads."""
+def test_a_run_directory_that_is_a_link_to_another_directory_in_the_run_root_is_refused(
+    tmp_path, monkeypatch
+):
+    """A link at a run directory's name leads to a run directory of the flow beside it, or it is
+    refused before anything is written: a directory with another name in the run root is not the
+    flow's, and the run would land in it."""
     use_fake_tools(monkeypatch)
     launcher = _launcher(tmp_path)
     root = launcher.run_root
     target = root / "sqrt" / "elsewhere_in_the_root"
+    target.mkdir(parents=True)
+    (target / "mine.txt").write_text("not a run directory\n")
+    link = root / "sqrt" / "vivado_synth"
+    link.symlink_to(target, target_is_directory=True)
+    before = _tree(root)
+
+    with pytest.raises(RunDirectoryError, match="cannot be the run directory of vivado_synth"):
+        launcher.get_flow_run_path("sqrt", "vivado_synth")
+    with pytest.raises(RunDirectoryError) as refused:
+        launcher.run(
+            "vivado_synth",
+            design=Design.from_file(SQRT / "sqrt.yaml"),
+            flow_settings=XILINX_SETTINGS,
+        )
+    assert str(link) in str(refused.value)
+    assert _tree(root) == before
+    assert not fake_calls(target)
+
+
+def test_a_run_directory_that_is_a_link_to_a_run_directory_beside_it_is_used(tmp_path, monkeypatch):
+    """A run directory that is a link to a run directory of the flow beside it is accepted: the
+    run's files land where it leads."""
+    use_fake_tools(monkeypatch)
+    launcher = _launcher(tmp_path)
+    root = launcher.run_root
+    target = root / "sqrt" / "vivado_synth_0123456789abcdef"
     target.mkdir(parents=True)
     (root / "sqrt" / "vivado_synth").symlink_to(target, target_is_directory=True)
 
@@ -481,12 +511,14 @@ def test_scrub_never_removes_what_a_link_out_of_the_run_root_leads_to(tmp_path, 
     assert _tree(elsewhere) == before and link.is_symlink()
 
 
-def test_scrub_removes_a_link_into_the_run_root_and_what_it_leads_to(tmp_path, monkeypatch):
-    """A run directory that is a link to another directory of the run root is xeda's: scrubbing
-    it removes the directory it leads to and the link."""
+def test_scrub_removes_a_link_to_a_run_directory_beside_it_and_what_it_leads_to(
+    tmp_path, monkeypatch
+):
+    """A run directory that is a link to a run directory of the flow beside it is xeda's:
+    scrubbing it removes the directory it leads to and the link."""
     run_root = ensure_run_root(tmp_path / "xeda_run")
     design_dir = run_root / "sqrt"
-    target = design_dir / "other"
+    target = design_dir / "vivado_synth_0123456789abcdef"
     target.mkdir(parents=True)
     (target / "results.json").write_text("{}\n")
     link = design_dir / "vivado_synth"
@@ -497,6 +529,27 @@ def test_scrub_removes_a_link_into_the_run_root_and_what_it_leads_to(tmp_path, m
 
     assert not target.exists() and not os.path.lexists(link)
     assert design_dir.is_dir()
+
+
+def test_scrub_leaves_a_link_to_another_directory_in_the_run_root_and_what_it_leads_to(
+    tmp_path, monkeypatch
+):
+    """A link at a run directory's name that leads to a directory with another name is not the
+    flow's run directory, wherever in the run root it leads: scrub removes neither."""
+    run_root = ensure_run_root(tmp_path / "xeda_run")
+    design_dir = run_root / "sqrt"
+    target = design_dir / "other"
+    target.mkdir(parents=True)
+    (target / "results.json").write_text("{}\n")
+    link = design_dir / "vivado_synth"
+    link.symlink_to(target, target_is_directory=True)
+    asked = []
+    monkeypatch.setattr(console, "input", lambda prompt: asked.append(prompt) or "yes")
+
+    assert not scrub_runs("vivado_synth", design_dir, run_root=run_root)
+
+    assert not asked
+    assert (target / "results.json").exists() and link.is_symlink()
 
 
 # ---------------------------------------------------------------------------------------------

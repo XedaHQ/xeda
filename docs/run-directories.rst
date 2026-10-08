@@ -68,6 +68,15 @@ notices a changed file). There used to be a third layer,
 ``<design>_<design_hash>/``, dropped when ``--incremental`` was off; it is gone (delete any such
 directories by hand -- Xeda no longer looks for them).
 
+A run directory is a directory named ``<flow>`` or ``<flow>_<16-char run hash>``. It can also be a
+symbolic link, but only a link that leads to such a directory of the same flow in the same
+directory: ``<design>/<flow>`` can lead to ``<design>/<flow>_<hash>``, for example. Xeda follows
+the whole chain of links and judges where it ends. Xeda neither runs a flow in, nor scrubs, a
+link that leads anywhere else. That includes a target's directory, another flow's run directory,
+a directory below or above, a place outside the run root, a file, and nowhere. A launch refuses
+such a link, naming it and what it leads to, before it writes anything. ``xeda scrub`` skips it
+(see below). The same rule decides both.
+
 Xeda reuses a flow's directory across runs by default, which is what you want while iterating:
 incremental tool state (a synthesis checkpoint, a compiled library) survives between runs. Use
 ``--clean`` for a run that must start from nothing; see `Rebuilding only what changed`_.
@@ -448,8 +457,9 @@ Cleaning up
        included; deferred until the requested flow has finished, so it can still read their files).
    * - ``--post-cleanup-purge``
      - After a run, remove the run directory entirely. It needs no ``--post-cleanup`` beside it.
-       A file that is delivered to a location you named is moved out of it, not copied (see
-       `Outputs where you name them`_).
+       Every link that names the run directory beside it (see `Where it goes`_) goes with the
+       directory, as with ``xeda scrub``. A file that is delivered to a location you named is
+       moved out of it, not copied (see `Outputs where you name them`_).
    * - ``--scrub``
      - Before running, remove the flow's other run directories for this design. Asks for
        confirmation. If the launch also has to ask whether to replace a file you named for an
@@ -474,16 +484,31 @@ looks at what is at the listed path:
   you confirmed.
 * If nothing is at the path any more, because another scrub or a purge removed it, scrub says so
   and goes on. That is what you asked for, so it is no error.
-* If the path is no longer a directory, or is now a link that does not lead to a directory beside
-  it, scrub stops with an error and leaves it alone. It does the same for a link that was
+* If the path is no longer a run directory of the flow, scrub stops with an error and leaves it
+  alone. That is the case for a directory that became a file, and for a link that now leads
+  anywhere but to a run directory of the flow beside it. It does the same for a link that was
   retargeted while scrub waited: scrub holds the lock of the directory the link led to, and does
   not remove another directory.
 * Otherwise scrub removes it.
 
 The summary line says how many directories scrub removed, kept, and found gone already. With
 ``--json``, the document lists them (see :doc:`machine-readable`). A run directory that is a link
-counts only when it leads to a directory beside it, and scrub removes both. A run directory of another flow is never searched, and a link that leads out of the run
-root is never followed.
+counts only when it leads to a run directory of the same flow beside it (see `Where it goes`_).
+Scrub lists such a directory once, whatever names it has, and shows each name before it asks.
+Under the directory's lock, it removes every link to the directory first, and then the directory,
+so no link is left leading nowhere. If one of the names no longer leads to the directory by then,
+scrub stops with an error and removes nothing. A link that is named like a run directory of the
+flow and leads anywhere else is not listed, so it is not removed, and nor is what it leads to. Scrub does not wait for the
+lock of the run it leads to. It says so instead, before it asks, one line for each link:
+
+.. code-block:: text
+
+    skipped xeda_run/sqrt/vivado_synth_0123456789abcdef: it is a link to
+    xeda_run/sqrt/a, which is not a directory named vivado_synth or vivado_synth_<hash> in
+    xeda_run/sqrt
+
+(Scrub writes each message on one line, with full paths.) A run directory of another flow is
+never searched, and a link that leads out of the run root is never followed.
 
 The lock does not protect a run that was complete when scrub listed it. If another launch is
 about to read that run, scrub removes it. For example, a consumer has run its producer but has not

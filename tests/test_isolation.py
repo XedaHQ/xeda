@@ -902,14 +902,6 @@ REVIEWED_PY_DELETIONS = {
         "`_discard`: the temporary file `replacing_file` or `live_log` made with `mkstemp` and "
         "did not put at the name",
     ),
-    (
-        "flow_runner/default_runner.py",
-        "p.unlink()  # the link itself, never what it leads to",
-    ): (
-        1,
-        "`scrub_runs`: a run directory reached through a link in the run root, the link itself, "
-        "before its target (under the run root) is removed",
-    ),
     ("flows/yosys/common.py", "flags.remove(flag)"): (1, "a list of flags"),
     ("proc_utils.py", "readable.remove(fd)"): (1, "a list of file descriptors"),
     ("deliver.py", "os.replace(temporary, destination)"): (
