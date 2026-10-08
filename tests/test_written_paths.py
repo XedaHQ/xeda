@@ -273,8 +273,9 @@ def test_vcs_writes_a_relative_waveform_in_its_run_directory(tmp_path):
     from xeda.flows import Vcs
 
     (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "tb.sv").write_text("module tb; endmodule\n")
     design = Design(
-        name="d", design_root=tmp_path / "design", rtl={"sources": []}, tb={"top": "tb"}
+        name="d", design_root=tmp_path / "design", rtl={"sources": ["tb.sv"]}, tb={"top": "tb"}
     )
     flow = Vcs({"fsdb": "dump.fsdb"}, design, tmp_path / "run")
     flow.init()

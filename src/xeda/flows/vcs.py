@@ -27,6 +27,18 @@ class Vcs(SimFlow):
     UCLI time checkpoints alone do not establish HDL completion.
     """
 
+    #: `vlogan` analyzes Verilog and SystemVerilog and finds a header through the directory it
+    #: lies in (`+incdir+`), `vhdlan` analyzes VHDL.
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+        }
+    )
+
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
@@ -301,15 +313,16 @@ class Vcs(SimFlow):
             vlogan_args.append(f"+warn={ss.vlogan_warns}")
         if ss.init_std_logic:
             vhdlan_args += ["-init_std_logic", str(ss.init_std_logic)]
-        vlog_files = self.design.sources_of_type(SourceType.Verilog, rtl=True, tb=True)
+        sources = self.sources_read(tb=True)
+        vlog_files = [src for src in sources if src.type is SourceType.Verilog]
         if vlog_files:
             log.info("analyzing Verilog files")
             self.vlogan.run(*vlogan_args, *(str(f) for f in vlog_files), env=env)
-        sv_files = self.design.sources_of_type(SourceType.SystemVerilog, rtl=True, tb=True)
+        sv_files = [src for src in sources if src.type is SourceType.SystemVerilog]
         if sv_files:
             log.info("analyzing SystemVerilog files")
             self.vlogan.run(*vlogan_args, "-sverilog", *(str(f) for f in sv_files), env=env)
-        vhdl_files = self.design.sources_of_type(SourceType.Vhdl, rtl=True, tb=True)
+        vhdl_files = [src for src in sources if src.type is SourceType.Vhdl]
         if vhdl_files:
             log.info("analyzing VHDL files")
             self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files), env=env)
