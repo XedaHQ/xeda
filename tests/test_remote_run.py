@@ -2048,8 +2048,9 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     plan = runner.plan(flow_name, design, flow_settings=settings)
     expected = plan.node(flow_name).flowrun_hash
     if flow_name == "openroad":
-        (resolved,) = plan.node("openroad").inputs
-        assert resolved.name == "netlist" and resolved.producer == "yosys"
+        netlist, sdc = plan.node("openroad").inputs
+        assert netlist.name == "netlist" and netlist.producer == "yosys"
+        assert sdc.name == "sdc" and sdc.origin == "none"
     results = runner.run_remote(design, flow_name, "fake", flow_settings=settings)
     assert results and results["success"], results
     assert results["flow_hash"] == expected
