@@ -1139,11 +1139,11 @@ def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):
     assert RUNS == [] and (world.user / "net.v").read_text() == "a\n"
 
 
-def _purging(world) -> DefaultRunner:
-    """A launcher that deletes each run directory after the launch (`--post-cleanup-purge`)."""
-    return DefaultRunner(
-        world.root, display_results=False, post_cleanup=True, post_cleanup_purge=True
-    )
+def _purging(world, **options) -> DefaultRunner:
+    """A launcher that deletes each run directory after the launch (`--post-cleanup-purge`),
+    with `post_cleanup` as well unless `options` say otherwise."""
+    options = {"post_cleanup": True, **options}
+    return DefaultRunner(world.root, display_results=False, post_cleanup_purge=True, **options)
 
 
 def _remember_inodes(world, name: str = "d.v") -> dict:
@@ -1164,13 +1164,15 @@ def _leftovers(directory: Path) -> List[str]:
     return sorted(p.name for p in directory.iterdir() if p.name.startswith(".xeda-delivery-"))
 
 
-def test_a_purged_run_delivers_by_moving_its_file_out(world, caplog):
+@pytest.mark.parametrize("post_cleanup", [True, False], ids=["with-post-cleanup", "purge-alone"])
+def test_a_purged_run_delivers_by_moving_its_file_out(world, caplog, post_cleanup):
     """The run directory is deleted right after the delivery, so the delivered file is the run's
-    own file: same inode, one name, no second copy on the disk, and no temporary left."""
+    own file: same inode, one name, no second copy on the disk, and no temporary left. Purging
+    needs no `post_cleanup` beside it."""
     inodes = _remember_inodes(world)
     destination = world.user / "out" / "net.v"
     with caplog.at_level(logging.INFO, logger="xeda.deliver"):
-        flow = _launch(world, _purging(world), netlist="$PWD/out/net.v")
+        flow = _launch(world, _purging(world, post_cleanup=post_cleanup), netlist="$PWD/out/net.v")
     delivered = destination.stat()
     assert (delivered.st_ino, delivered.st_nlink) == (inodes["d.v"], 1)
     assert destination.read_text() == "net\n"
@@ -1790,6 +1792,30 @@ def sqrt_copy(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(FAKE_TOOLS) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(work)
     return work
+
+
+def test_post_cleanup_purge_alone_on_the_command_line_removes_the_run_and_delivers_by_move(
+    sqrt_copy, monkeypatch
+):
+    """`--post-cleanup-purge` without `--post-cleanup`: the run directory is gone, and the files
+    `--outputs-to` delivers left it by rename."""
+    moves: List[bool] = []
+    move_into = deliver.Deliveries._move_into
+    monkeypatch.setattr(
+        deliver.Deliveries,
+        "_move_into",
+        lambda self, source, temporary: moves.append(move_into(self, source, temporary))
+        or moves[-1],
+    )
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"]
+    args += ["--outputs-to", "got", "--post-cleanup-purge", "--json"]
+    document = json.loads(CliRunner().invoke(cli, args).stdout)
+    assert document["success"]
+    (node,) = document["nodes"]
+    assert not Path(node["run_path"]).exists()
+    assert node["deliveries"] and all(d["state"] == "delivered" for d in node["deliveries"])
+    assert all(Path(d["to"]).is_file() for d in node["deliveries"])
+    assert moves and all(moves), "every file delivered was moved"
 
 
 def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):

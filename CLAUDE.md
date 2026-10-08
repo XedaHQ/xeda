@@ -1096,7 +1096,12 @@ its inputs from.
 `--clean` empties a flow's run directory before it runs and runs every flow ("make clean, then
 make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clean up after the
 *requested* flow completes, dependencies included but deferred to the end so a depender can still
-read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
+read a dependency's files; pruning removes the trace first, so a pruned run is not reused.
+`--post-cleanup-purge` needs no `--post-cleanup`: `FlowLauncher._run_dir_policy` is the one place
+that makes it imply the clean-up, so `_clean_up`, the pending clean-ups and the delivery by move
+all follow from the `RunDirPolicy`. An exploration is the exception: its `post_cleanup_purge`
+means that `Dse.run_flow` deletes the runs that did not improve, so its worker launcher gets
+`post_cleanup_purge` only together with `post_cleanup`, and each launch of it leaves its run directory. A
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
 takes the same exclusive lock and retains the durable lock file. **Scrub reads the disk, never

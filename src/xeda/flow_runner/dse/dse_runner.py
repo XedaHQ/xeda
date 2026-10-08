@@ -419,9 +419,20 @@ class Dse(FlowLauncher):
         base_settings = adjusted_plan.node(flow_class.name).settings
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
+        # `post_cleanup_purge` means here that the exploration deletes the runs that did not
+        # improve, itself, once their outcome is in. A launch purges its own run directory only
+        # when `post_cleanup` asks for a clean-up too, as before the purge implied one: else the
+        # best run would go as well.
         worker = FlowLauncher(
             self._run_root,
-            **{name: getattr(self.settings, name) for name in FlowLauncher.Settings.model_fields},
+            **{
+                **{
+                    name: getattr(self.settings, name)
+                    for name in FlowLauncher.Settings.model_fields
+                },
+                "post_cleanup_purge": self.settings.post_cleanup
+                and self.settings.post_cleanup_purge,
+            },
         )
         worker._request_context = self._request_context
         worker._launch_inputs = list(self._launch_inputs)

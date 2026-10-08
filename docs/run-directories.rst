@@ -447,8 +447,9 @@ Cleaning up
      - After a run, keep only ``settings.json``, ``results.json`` and the artifacts (dependencies
        included; deferred until the requested flow has finished, so it can still read their files).
    * - ``--post-cleanup-purge``
-     - After a run, remove the run directory entirely. A file that is delivered to a location you
-       named is moved out of it, not copied (see `Outputs where you name them`_).
+     - After a run, remove the run directory entirely. It needs no ``--post-cleanup`` beside it.
+       A file that is delivered to a location you named is moved out of it, not copied (see
+       `Outputs where you name them`_).
    * - ``--scrub``
      - Before running, remove the flow's other run directories for this design. Asks for
        confirmation. If the launch also has to ask whether to replace a file you named for an

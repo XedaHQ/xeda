@@ -792,7 +792,8 @@ class FlowLauncher:
         backups: bool = False
         # remove flow files except settings.json, results.json, and artifacts _after_ run:
         post_cleanup: bool = False
-        # remove flow_run folder and all of its contents _after_ running the flow:
+        # remove flow_run folder and all of its contents _after_ running the flow (it needs no
+        # `post_cleanup`: `_run_dir_policy` makes one imply the other):
         post_cleanup_purge: bool = False
         # remove previous flow directories _before_ running the flow:
         scrub_old_runs: bool = False
@@ -1751,11 +1752,13 @@ class FlowLauncher:
 
     def _run_dir_policy(self) -> RunDirPolicy:
         """What this launch does with its run directory: the launcher's settings, for every
-        flow alike, dependencies included."""
+        flow alike, dependencies included. Purging is a clean-up after the run, so
+        `post_cleanup_purge` alone makes `post_cleanup` true here -- the one place where the two
+        settings meet, which `_clean_up`, the pending clean-ups and the delivery by move follow."""
         return RunDirPolicy(
             clean=self.settings.clean,
             scrub_old_runs=self.settings.scrub_old_runs,
-            post_cleanup=self.settings.post_cleanup,
+            post_cleanup=self.settings.post_cleanup or self.settings.post_cleanup_purge,
             post_cleanup_purge=self.settings.post_cleanup_purge,
         )
 
