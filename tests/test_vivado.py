@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA
+from xeda.flow import FPGA, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoSim, VivadoSynth
 from xeda.flows.vivado.vivado_synth import parse_hier_util, run_steps, vivado_synth_generics
@@ -401,6 +401,62 @@ def test_vivado_sim_does_not_record_vcd_or_saif_when_disabled(tmp_path, monkeypa
     assert flow is not None and flow.succeeded
     assert "vcd" not in flow.artifacts
     assert "saif" not in flow.artifacts
+
+
+@needs_tclsh
+def test_vivado_sim_analyzes_the_sources_it_reads_in_design_order(tmp_path, monkeypatch) -> None:
+    """The RTL sources, then the testbench's, each with its analyzer in design order (a
+    SystemVerilog source with `-sv`). A source of a type xsim is not given (a constraint file) is
+    not analyzed."""
+    use_fake_tools(monkeypatch)
+    root = tmp_path / "design"
+    root.mkdir()
+    for name, text in {
+        "b.v": "module b; endmodule\n",
+        "a.vhd": "entity a is end;\n",
+        "pins.xdc": "# a constraint\n",
+        "tb.sv": "module tb; endmodule\n",
+    }.items():
+        (root / name).write_text(text)
+    design = Design(
+        name="order",
+        design_root=root,
+        rtl={"sources": ["b.v", "a.vhd", "pins.xdc"], "top": "a"},
+        tb={"sources": ["tb.sv"], "top": "tb"},
+    )
+    flow = DefaultRunner(tmp_path / "run").run_flow(VivadoSim, design, {})
+    assert flow is not None and flow.succeeded
+    analyzed = [
+        (call[1], Path(call[-1]).name, "-sv" in call)
+        for call in fake_calls(flow.run_path)
+        if call[:1] == ["exec"] and call[1:2] in (["xvlog"], ["xvhdl"])
+    ]
+    assert analyzed == [
+        ("xvlog", "b.v", False),
+        ("xvhdl", "a.vhd", False),
+        ("xvlog", "tb.sv", True),
+    ]
+
+
+def test_vivado_sim_refuses_a_bluespec_source_when_planned(tmp_path, monkeypatch) -> None:
+    """The Vivado simulator analyzes Verilog, SystemVerilog and VHDL. A Bluespec source used to
+    be passed over. Now the design is refused, naming the source, before anything is set up."""
+    use_fake_tools(monkeypatch)
+    root = tmp_path / "design"
+    _vivado_sim_design(root)
+    (root / "tb" / "gen.bsv").write_text("package Gen; endpackage\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["rtl/top.vhd"], "top": "top"},
+        tb={"sources": ["tb/tb_top.vhd", "tb/gen.bsv"], "top": "tb_top", "uut": "uut"},
+    )
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "run").run_flow(VivadoSim, design, {})
+    message = str(raised.value)
+    assert message.startswith("vivado_sim cannot read the design's Bluespec source(s) "), message
+    assert str(root / "tb" / "gen.bsv") in message
+    assert not (tmp_path / "run").exists()
 
 
 def test_parse_hier_util(tmp_path: Path) -> None:
