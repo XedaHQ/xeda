@@ -186,11 +186,12 @@ button), `btnU`, `btnL`, `btnR`, `btnD`, `RsRx`, `RsTx`; LEDs and buttons are ac
 `BUFG`), `led[7:0]`, `btn[1:0]` (`btn[0]` is the reset button), `uart_rx`, `uart_tx`; LEDs and
 buttons are active low. Neither file has a `create_clock`: give the clock in the flow settings.
 `openfpgaloader` loads SRAM by default; `write_flash` programs flash and `verify` needs it.
-It fails on a nonzero exit, and also when `openfpgaloader.log` shows the device was not programmed
-although the loader exited 0 (v1.1.1 does that): DONE low after a Xilinx load (`ir: ... done 0`,
-with the ID or CRC error the FPGA reports), a step that printed `FAIL`, an `Error:` message. The
-error is `ReportedFailure`; it quotes the lines. A load that fails in another way passes: read
-the log.
+It needs openFPGALoader 0.13.0 or newer (it asks `-V` before it programs and refuses an older
+one). It fails on a nonzero exit, and also when `openfpgaloader.log` shows the device was not
+programmed although the loader exited 0 (v1.1.1 does that): DONE low after a Xilinx load
+(`ir: ... done 0`, with the ID or CRC error the FPGA reports), a step that printed `FAIL`, an
+`Error:` message. The error is `ReportedFailure`; it quotes the lines. A load that fails in
+another way passes: read the log.
 A `flows.open_xc7` section fails as the removed flow's own name does, naming the replacement.
 
 Put pin constraints in `rtl.sources` as typed `Lpf`, `Pcf`, `Pdc` or `Xdc` files. nextpnr

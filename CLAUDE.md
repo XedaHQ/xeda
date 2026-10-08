@@ -789,7 +789,10 @@ apply. The loader's verdict reads the log, so it is the same either way
 
 Instantiating `Tool(...)` inside a flow method auto-discovers the calling `Flow` via `inspect.stack`, so
 it inherits `dockerized`, `print_commands`, and console-color settings and appends its version info to
-`flow.results.tools`. Subclass `Tool` to pin an executable, a default `Docker` image, `minimum_version`,
+`flow.results.tools`. Subclass `Tool` to pin an executable, a default `Docker` image, `minimum_version`
+(`Tool.require_minimum_version` raises a `ToolException` that names the version found and the one
+needed, with `minimum_version_reason` when the subclass gives one; `derive` runs no constructor, so
+a flow that derives a tool with a floor calls it),
 and `highlight_rules` (regex -> ANSI, used to colorize tool output) - see `VivadoTool`. Use
 `tool.derive("other_exe")` to spawn a sibling executable from the same image/config. **A query
 about the tool itself (its version) goes through `Tool.probe_stdout`**, which runs it in a
@@ -1902,9 +1905,12 @@ dependency must also share `custom_boards_file`.
   `loader_failure(text, target)`, after `_output_lines` drops escape codes and carriage returns: DONE
   low (the register's ID and CRC error fields give the cause), a line ending `FAIL`/`Fail`, a line
   starting `Error: `, `Read ID failed`, `wait: Error`, `write en: Error`. It requires **no success
-  marker** (the readback exists since 0.13.0; other families print other words, and a required
-  marker would fail good runs), so a failure without one of these signs passes; a nonzero exit keeps
-  its `NonZeroExitCode`. The failure is the node's `ReportedFailure` with the flow's own message in
+  marker** (other families print other words, and a required marker would fail good runs), so a
+  failure without one of these signs passes; a nonzero exit keeps its `NonZeroExitCode`. The loader
+  must be 0.13.0 or newer (`MIN_OPENFPGALOADER_VERSION`, the first release with the DONE readback):
+  `OpenfpgaloaderTool.minimum_version`, checked by `Tool.__init__` from the `-V` query, when the
+  flow makes the tool in `run()` (so after the producers; their runs are kept); the fake loader's
+  `XEDA_FAKE_FPGA_LOADER_VERSION` sets what `-V` prints. The failure is the node's `ReportedFailure` with the flow's own message in
   plain sentences and the quoted lines. The file:line citations are in the module's comment: add a
   sign there with its citation and a log in `tests/test_openfpgaloader_verdict.py`. The fake loader
   prints `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`,

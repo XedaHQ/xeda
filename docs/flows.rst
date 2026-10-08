@@ -682,6 +682,11 @@ place. The log has the same text without the escape codes, with one line for eac
 a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
 line for each update of the bar.
 
+Xeda needs openFPGALoader 0.13.0 or newer. It asks the loader for its version (``-V``) when it is
+about to program, and an older loader fails the run, with the version it found and the version it
+needs in the error. The loader prints the DONE state of a Xilinx FPGA only since 0.13.0, so with an
+older one a load that left DONE low would pass.
+
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
 failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of
@@ -693,7 +698,7 @@ the log that show it. Xeda looks for these signs:
   board. The loader uses the first cable that matches, so with several boards of the same kind
   connected it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
   number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
-  damaged or incomplete. Loaders before version 0.13.0 do not print this state.
+  damaged or incomplete.
 * A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
 * An error message that the loader prints before it ends with status 0: a line that starts with
   ``Error:``, or ``Read ID failed``, ``wait: Error`` or ``write en: Error`` (a flash that does

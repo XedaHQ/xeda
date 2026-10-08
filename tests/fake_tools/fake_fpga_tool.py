@@ -8,6 +8,7 @@ Only version/help probes bypass input validation and call recording. openFPGALoa
 its version as the real one does: `-V` or `--Version` (capital V) print `openFPGALoader v1.0.0`,
 and the conventional `--version` is rejected, so a flow that asks the wrong way gets no version.
 It rejects an option it does not have (`LOADER_OPTIONS`, the table of v1.1.1), as the real parser does.
+XEDA_FAKE_FPGA_LOADER_VERSION replaces the line it prints for `-V` (an empty one: no version).
 When it programs, openFPGALoader prints XEDA_FAKE_FPGA_LOADER_STDOUT on stdout and
 XEDA_FAKE_FPGA_LOADER_STDERR on stderr (nothing, by default) and exits with the status in
 XEDA_FAKE_FPGA_LOADER_STATUS (0, by default): the real one exits with status 0 after several
@@ -541,7 +542,7 @@ def main():
     probe_args = [arg for arg in args if arg not in ("-T", "-Q")]
     if tool == "openFPGALoader":
         if probe_args in (["-V"], ["--Version"]):
-            print(LOADER_VERSION)
+            print(os.environ.get("XEDA_FAKE_FPGA_LOADER_VERSION", LOADER_VERSION))
             return 0
         if probe_args == ["--version"]:
             print(LOADER_NO_VERSION_OPTION, file=sys.stderr)

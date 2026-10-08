@@ -126,13 +126,62 @@ def test_the_loader_records_its_version_in_the_results(tmp_path, fake_loader):
     assert results["tools"] == expected
 
 
-def test_the_loader_is_asked_for_its_version_with_a_capital_v():
-    """openFPGALoader v1.1.1 lists `-V, --Version` and rejects `--version`. Pinned without
-    starting anything: a tool made outside a flow queries nothing until its version is read."""
+def test_the_loader_is_asked_for_its_version_with_a_capital_v(fake_loader):
+    """openFPGALoader v1.1.1 lists `-V, --Version` and rejects `--version`. A tool with a
+    minimum version asks for it when it is made, so this runs on the fake, which answers `-V`
+    as the real one does."""
     tool = OpenfpgaloaderTool()
     assert (tool.executable, tool.version_flag) == ("openFPGALoader", ["-V"])
+    assert tool.version == ("1", "0", "0")  # what the fake prints for `-V`
     # the one line a real v1.1.1 prints for it
     assert tool.process_version_output("openFPGALoader v1.1.1\n") == ("1", "1", "1")
+
+
+def test_the_loader_needs_release_0_13_0_or_newer():
+    """The DONE state of a Xilinx FPGA is printed only since 0.13.0 (v0.12.0 has no such line): with
+    an older loader, a load that left DONE low would look like any other."""
+    from xeda.flows.openfpgaloader import MIN_OPENFPGALOADER_VERSION
+
+    assert MIN_OPENFPGALOADER_VERSION == (0, 13, 0)
+    # read from the model: making the tool would start the loader to ask for its version
+    assert OpenfpgaloaderTool.model_fields["minimum_version"].default == MIN_OPENFPGALOADER_VERSION
+
+
+@pytest.mark.parametrize("version", ["v0.13.0", "v0.13.1", "v0.14.0", "v1.0.0", "v1.1.1"])
+def test_a_loader_of_the_minimum_release_or_newer_programs(
+    tmp_path, fake_loader, monkeypatch, version
+):
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
+    assert _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}).succeeded
+    assert len(_calls(tmp_path, "openfpgaloader")) == 1
+
+
+@pytest.mark.parametrize("version", ["v0.12.1", "v0.12.0", "v0.9.0", "v0.3.0"])
+def test_an_older_loader_is_refused_before_it_programs_and_the_message_names_both_versions(
+    tmp_path, fake_loader, monkeypatch, version
+):
+    """The version comes from the loader's `-V` (the only start that is no programming call)."""
+    from xeda.tool import ToolException
+
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", f"openFPGALoader {version}")
+    with pytest.raises(ToolException) as raised:
+        _runner(tmp_path).run("openfpgaloader", _prebuilt(tmp_path), flow_settings={"fpga": ECP5})
+    message = str(raised.value)
+    assert message.startswith("Minimum version not met: openFPGALoader ")
+    assert f"{version.removeprefix('v')} was found" in message
+    assert "Xeda needs 0.13.0 or newer" in message
+    assert "whether a Xilinx FPGA finished its configuration" in message  # why
+    assert not _calls(tmp_path, "openfpgaloader")  # the loader was never started to program
+    results = json.loads((tmp_path / "run/top/openfpgaloader/results.json").read_text())
+    assert results["success"] is False and results["error"]["type"] == "ToolException"
+    assert results["error"]["message"] == message
+
+
+def test_a_loader_whose_version_cannot_be_read_is_not_compared(tmp_path, fake_loader, monkeypatch):
+    """The rule of every tool (`Tool._version_is_gte`): a version that could not be read is not
+    compared. Every release since 0.3 prints `openFPGALoader v<version>` for `-V`."""
+    monkeypatch.setenv("XEDA_FAKE_FPGA_LOADER_VERSION", "")
+    assert _program(tmp_path, _prebuilt(tmp_path), {"fpga": ECP5}).succeeded
 
 
 def test_a_base_class_reason_to_always_run_comes_first(tmp_path, monkeypatch):

@@ -3,7 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, List, Literal, Optional, Union
+from typing import Any, ClassVar, List, Literal, Optional, Tuple, Union
 
 from ..board import WithFpgaBoardSettings
 from ..dataclass import Field, model_validator
@@ -61,10 +61,11 @@ def _loader_part(fpga: FPGA) -> str:
 # * `printError` writes to stderr. `printInfo`, `printWarn`, `printSuccess`, `printf` and
 #   `std::cout` write to stdout (display.cpp:23-65). The flow merges the two into one log.
 #
-# The verdict looks for signs of failure and requires no sign of success. The readback of the DONE
-# signal exists only since v0.13.0, and the other families print other words or nothing, so a
-# required marker would fail good runs of other versions and families. A load that fails without
-# one of the signs below passes. Its whole output is in the log in the run directory.
+# The verdict looks for signs of failure and requires no sign of success. The loader is at least
+# v0.13.0 (`MIN_OPENFPGALOADER_VERSION`), the first release that prints the readback of the DONE
+# signal. The other families print other words or nothing, so a required marker would fail good
+# runs of other families and of releases that change a line. A load that fails without one of the
+# signs below passes. Its whole output is in the log in the run directory.
 
 #: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
 _DONE_READBACK = re.compile(
@@ -204,6 +205,13 @@ def loader_failure(text: str, target: Optional[str] = None) -> Optional[LoaderFa
     return LoaderFailure(tuple(sentences), tuple(evidence + reported[:MAX_REPORTED_LINES]))
 
 
+#: The first release of openFPGALoader that prints the state of a Xilinx FPGA after a load
+#: (`done` of the readback, and the status register with `done 0`): v0.12.0 has no such line, so
+#: with an older loader a load that left DONE low would pass. Every release since v0.3 prints
+#: `openFPGALoader v<version>` for `-V`, which `Tool` reads.
+MIN_OPENFPGALOADER_VERSION = (0, 13, 0)
+
+
 class OpenfpgaloaderTool(Tool):
     """openFPGALoader, whose version flag is spelled with a capital V.
 
@@ -220,6 +228,10 @@ class OpenfpgaloaderTool(Tool):
     """
 
     pseudo_terminal: ClassVar[bool] = True
+    minimum_version_reason: ClassVar[str] = (
+        "Older loaders do not report whether a Xilinx FPGA finished its configuration."
+    )
+    minimum_version: Optional[Tuple[Union[int, str], ...]] = MIN_OPENFPGALOADER_VERSION
     executable: str = "openFPGALoader"
     version_flag: Optional[List[str]] = ["-V"]
     version_regexps: List[Union[re.Pattern[str], str]] = [
@@ -253,7 +265,8 @@ class Openfpgaloader(FpgaSynthFlow):
     database), when it has one. The FPGA part is given when the board is not named and the part is
     known: a Xilinx part without its speed grade, any other as it is. Without a part,
     openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The
-    loader's output is kept in `openfpgaloader.log` in the run directory. The run fails when the
+    loader's output is kept in `openfpgaloader.log` in the run directory. It needs openFPGALoader
+    0.13.0 or newer, and refuses an older loader before it programs. The run fails when the
     loader exits with a nonzero status, and also when its output shows that the device was not
     programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error
     the FPGA reports), a step that printed FAIL, or an error message. The flow always runs, since
