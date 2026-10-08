@@ -11,6 +11,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow_runner import DefaultRunner
+from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows.yosys.yosys import preproc_libs
 
@@ -273,11 +274,12 @@ endmodule
 """
 
 
-def _synthesize_for_vivado(tmp_path, **settings):
-    """Synthesize `EDIF_DESIGN` for a Xilinx device with real yosys."""
+def _synthesize_for_vivado(tmp_path, source=EDIF_DESIGN, **settings):
+    """Synthesize a design of `top` over `core` (`EDIF_DESIGN`) for a Xilinx device with real
+    yosys."""
     require_yosys()
     root = tmp_path / "edif"
-    _write(root / "top.v", EDIF_DESIGN)
+    _write(root / "top.v", source)
     design = Design(name="edif", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
     flow = DefaultRunner(tmp_path / "run").run_flow(
         YosysFpga, design, {"fpga": {"part": "xc7a35tcpg236-1"}, **settings}
@@ -309,6 +311,60 @@ def test_yosys_fpga_writes_no_edif_netlist_for_a_hierarchical_synthesis(tmp_path
     flow = _synthesize_for_vivado(tmp_path, flatten=False)
     assert not (flow.run_path / "netlist.edif").exists()
     assert "netlist_edif" not in flow.results["outputs"] and "netlist" in flow.results["outputs"]
+
+
+#: `core` with the attribute in the HDL: the hierarchy no setting shows
+EDIF_DESIGN_KEEPING_CORE = EDIF_DESIGN.replace(
+    "module core", "(* keep_hierarchy *)\nmodule core", 1
+)
+
+
+@pytest.mark.parametrize(
+    "settings, source, shown_by_the_settings",
+    [
+        pytest.param({"keep_hierarchy": ["core"]}, EDIF_DESIGN, True, id="keep_hierarchy"),
+        pytest.param(
+            {"set_mod_attribute": {"keep_hierarchy": {"core": 1}}},
+            EDIF_DESIGN,
+            True,
+            id="set_mod_attribute",
+        ),
+        pytest.param(  # a bare name selects a module in yosys: the instance is `c:u_core`
+            {"set_attribute": {"keep_hierarchy": {"c:u_core": 1}}},
+            EDIF_DESIGN,
+            True,
+            id="set_attribute",
+        ),
+        pytest.param(
+            {"set_attribute": {"keep_hierarchy": 1}}, EDIF_DESIGN, True, id="set_attribute_all"
+        ),
+        pytest.param({"black_box": ["core"]}, EDIF_DESIGN, True, id="black_box"),
+        pytest.param({}, EDIF_DESIGN_KEEPING_CORE, False, id="hdl_attribute"),
+    ],
+)
+def test_every_way_to_keep_core_out_of_the_flat_netlist_is_found(
+    tmp_path, settings, source, shown_by_the_settings
+):
+    """The synthesis itself succeeds with a hierarchy (`yosys_fpga+nextpnr` takes the JSON netlist
+    of one), and Vivado cannot read one. A route its settings show writes no EDIF netlist, so a
+    consumer is refused while planning. The one only the HDL shows, an attribute, is found in the
+    EDIF netlist that is written. The flat design is the control: no route, no finding."""
+    flow = _synthesize_for_vivado(tmp_path, source, **settings)
+    modules = json.loads((flow.run_path / "netlist.json").read_text())["modules"]
+    assert "core" in modules, "the route did not keep core out of the flat netlist"
+    edif = flow.run_path / "netlist.edif"
+    assert flow.settings.edif_problem() is not None if shown_by_the_settings else True
+    if shown_by_the_settings:
+        assert not edif.exists() and "netlist_edif" not in flow.results["outputs"]
+    else:
+        assert flow.settings.edif_problem() is None
+        assert modules_used_as_library_cells(edif.read_text()) == ["core"]
+
+
+def test_a_flat_edif_netlist_uses_no_module_as_a_library_cell(tmp_path):
+    flow = _synthesize_for_vivado(tmp_path)
+    assert "core" not in json.loads((flow.run_path / "netlist.json").read_text())["modules"]
+    assert modules_used_as_library_cells((flow.run_path / "netlist.edif").read_text()) == []
 
 
 def test_a_hierarchical_yosys_netlist_would_define_two_cells(tmp_path):

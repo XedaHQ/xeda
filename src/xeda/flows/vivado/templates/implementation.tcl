@@ -1,11 +1,13 @@
 {#- The implementation steps of the non-project scripts, from `place_design` to the bitstream.
 
     The script that includes this file has opened a placeable design (synthesized, or linked from
-    a netlist), has included `util.tcl`, and has set `reports_dir`. It reads the implementation
-    options of `settings.impl`. The checkpoints and the netlists are written only by a flow whose
-    settings switch them on (`write_checkpoint`, `write_netlist`, `write_timing_netlist`). For
-    those, the script has also set `settings.outputs_dir` and `checkpoints_dir`, and has made
-    them and the directory `post_place` of `reports_dir`. -#}
+    a netlist), has included `util.tcl`, and has set `reports_dir`. It has made the directory
+    `post_place` of `reports_dir`, which the power optimization after placement reports into (and
+    the checkpoint, if one is written): Vivado makes no directory for a report. This file reads
+    the implementation options of `settings.impl`. The checkpoints and the netlists are written
+    only by a flow whose settings switch them on (`write_checkpoint`, `write_netlist`,
+    `write_timing_netlist`). For those, the script has also set `settings.outputs_dir` and
+    `checkpoints_dir`, and has made them. -#}
 {%- set write_checkpoint = settings.write_checkpoint is defined and settings.write_checkpoint -%}
 {%- set write_netlist = settings.write_netlist is defined and settings.write_netlist -%}
 {%- set write_timing_netlist = settings.write_timing_netlist is defined and settings.write_timing_netlist -%}

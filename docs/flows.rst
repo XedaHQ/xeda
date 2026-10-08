@@ -821,12 +821,13 @@ Vivado place and route of a yosys netlist
 -----------------------------------------
 
 ``vivado_impl`` implements a netlist in Vivado, in non-project mode. It reads the constraints and
-an EDIF netlist, links the design for the part, and runs ``opt_design``, ``place_design`` and
-``route_design``. It does no synthesis. Its ``netlist`` input is an ``Edif`` design source or, by
-default, the EDIF netlist that ``yosys_fpga`` writes for a Xilinx device. So Vivado can place and
-route the open-source synthesis, and you can compare it with ``vivado_synth`` and
-``vivado_alt_synth`` on one design. The design needs ``rtl.top``, a Xilinx part, a clock, and
-pin constraints as ``Xdc`` sources (or ``xdc_files``):
+an EDIF netlist, links the design for the part, and runs the implementation steps of
+``vivado_alt_synth``. With the default strategy these are ``opt_design``, ``place_design``, a second
+``opt_design``, ``phys_opt_design`` (twice) and ``route_design``. It does no synthesis. Its
+``netlist`` input is an ``Edif`` design source or, by default, the EDIF netlist that ``yosys_fpga``
+writes for a Xilinx device. So Vivado can place and route the open-source synthesis, and you can
+compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The design needs
+``rtl.top``, a Xilinx part, a clock, and pin constraints as ``Xdc`` sources (or ``xdc_files``):
 
 .. code-block:: yaml
 
@@ -855,17 +856,22 @@ It is written when ``bitstream`` is set, or when a flow after ``vivado_impl`` ne
 ``openfpgaloader``. A bitstream needs every port to be constrained; without ``bitstream``, Vivado
 stops after routing and the flow reports timing and utilization only. The results are those of
 ``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp``, ...), read from Vivado's reports of
-the routed design. ``impl.strategy`` and ``impl.steps`` choose the implementation options as for
+the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their options as for
 ``vivado_alt_synth``. Only 7-series parts were tested.
 
 **The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
--pvector bra``, whenever the synthesis is flat: a Xilinx target with ``flatten`` unset or true, no
-``keep_hierarchy``, and no ``stop_after``. Nothing asks for it, so ``yosys_fpga+nextpnr`` and
-``yosys_fpga+vivado_impl`` share one synthesis run. ``netlist_edif`` names the file, or a location
-it is delivered to. Vivado reads a flat netlist only: for a hierarchical one it finds the modules
-undefined and treats them as black boxes. So with ``flatten: false`` the synthesis writes no EDIF
-netlist, and ``yosys_fpga+vivado_impl`` is refused while planning, with ``flatten`` named. The
-synthesis itself is not refused, and ``netlist_edif`` is an error where none is written.
+-pvector bra``, when its settings make a Xilinx synthesis flat: ``flatten: true``, or ``flatten``
+unset and ``synth_pass_only`` off; no ``keep_hierarchy`` (the setting, or an attribute of that name
+in ``set_mod_attribute`` or ``set_attribute``); no ``black_box``; and no ``stop_after``. Nothing
+asks for it, so ``yosys_fpga+nextpnr`` and ``yosys_fpga+vivado_impl`` share one synthesis run.
+``netlist_edif`` names the file, or a location it is delivered to. Vivado reads a flat netlist
+only: for a hierarchical one it finds the modules undefined and treats them as black boxes. So
+where the settings show a hierarchy, the synthesis writes no EDIF netlist, and
+``yosys_fpga+vivado_impl`` is refused while planning, with the setting named (``flatten`` for
+``flatten: false``). The synthesis itself is not refused, and ``netlist_edif`` is an error where
+none is written. The settings cannot show a ``(* keep_hierarchy *)`` attribute in the HDL, or one
+that the design gives in ``rtl.attributes``, but the netlist does: ``vivado_impl`` reads it before
+it starts Vivado, and stops with the modules named.
 
 Pin constraints name the ports as the netlist does. yosys writes a one-bit bus (``input [0:0] a``)
 as the scalar port ``a``, so its constraint is ``get_ports a``, and ``get_ports {a[0]}`` matches
@@ -876,9 +882,12 @@ typed ``Edif``, and ``xeda run vivado_impl blinky.yaml`` then runs no synthesis.
 is called, the flow copies it to ``<top>.edif`` in its run directory, because Vivado finds the top
 module of an EDIF netlist by the name of its file. The netlist has to be flat, and written with its
 buses' ranges: in yosys, ``synth_xilinx -flatten -top <top>``, then ``write_edif -pvector bra
-<top>.edif``. Vivado reads a bus written without its range with its bits reversed, and says
-nothing about it. A Verilog netlist is not an input: Vivado drops the contents of a block RAM
-that has undefined bits when it reads one, and says nothing about that either.
+<top>.edif``. The flow stops, before it starts Vivado, for a netlist whose instances refer as
+library cells to modules that the netlist itself defines, which is how yosys writes a hierarchy.
+It cannot tell a black box from a primitive, and cannot see a bus written without its range:
+Vivado reads such a bus with its bits reversed, and says nothing about it. A Verilog netlist is not
+an input: Vivado drops the contents of a block RAM that has undefined bits when it reads one, and
+warns only with a critical warning (``[Netlist 29-72]``).
 
 Bluespec
 ========

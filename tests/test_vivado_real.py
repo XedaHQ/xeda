@@ -422,6 +422,23 @@ def test_vivado_impl_builds_the_bitstream_of_a_yosys_netlist(work_dir) -> None:
     assert _logged(flow.run_path, "link_design completed successfully")
 
 
+def test_vivado_impl_runs_the_power_optimization_steps_it_is_asked_for(work_dir) -> None:
+    """`impl.steps.power_opt` has the script optimize the power after placement and write a report
+    in `reports/post_place`. Vivado makes no directory for a report, so the script makes this one.
+    """
+    require_yosys()
+    steps = {"power_opt": {"verbose": True}}  # any value that is not empty switches the step on
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoImpl,
+        _impl_design(work_dir / "design", "blinky"),
+        {**IMPL_SETTINGS, "impl": {"steps": steps}},
+    )
+    assert flow is not None and flow.succeeded
+    report = flow.run_path / "reports" / "post_place" / "post_place_power_optimization.rpt"
+    assert report.is_file() and "Power optimization report" in report.read_text()
+    assert flow.results["ff"] == 27 and flow.results["wns"] > 0
+
+
 def test_vivado_impl_implements_an_edif_netlist_it_is_given(work_dir) -> None:
     """A listed netlist named other than its top: Vivado looks the top up by the name of the
     file, so the flow reads a copy named for it."""

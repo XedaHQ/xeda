@@ -10,6 +10,7 @@ set_param general.maxThreads {{settings.nthreads}}
 {%- endif %}
 
 file mkdir ${reports_dir}
+file mkdir [file join ${reports_dir} post_place]
 
 {% for msg in settings.suppress_msgs -%}
 set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress

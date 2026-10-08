@@ -636,12 +636,20 @@ has all of them. `nextpnr` also ignores `set_property PULLUP true` without a war
 `flows/vivado/vivado_impl.py`). `yosys_fpga` declares `netlist_edif` (`Edif`, no `enabled_by`, as
 `nextpnr.config`: a consumer switches nothing on, so `yosys_fpga+nextpnr` and
 `yosys_fpga+vivado_impl` are one yosys identity and one run) and writes it, `write_edif -pvector
-bra`, exactly when `YosysFpga.Settings.edif_problem()` is None: a Xilinx target, flat
-(`effective_flatten`, no `keep_hierarchy`), not `stop_after: rtl`. Otherwise `output_types` is
-`()` and `enable_output` raises the problem's text, so planning refuses the consumer naming
-`flatten`; a non-default `netlist_edif` where none is written is refused too. The four hazards of
-a yosys netlist in Vivado (two of them silent) are each excluded by construction
-(`tests/test_vivado_impl.py`):
+bra`, whenever `YosysFpga.Settings.edif_problem()` is None: a Xilinx target, flat as far as the
+settings show (`effective_flatten`; no `keep_hierarchy`, no `keep_hierarchy` attribute in
+`set_mod_attribute` or `set_attribute`, no `black_box`), not `stop_after: rtl`. Otherwise
+`output_types` is `()` and `enable_output` raises the problem's text, so planning refuses the
+consumer naming the setting (`flatten`, ...); a non-default `netlist_edif` where none is written is
+refused too. What no setting shows (a `(* keep_hierarchy *)` in the HDL, `rtl.attributes`, a listed
+`.edf`) is in the netlist: `VivadoImpl.refuse_a_hierarchy` reads it before Vivado starts
+(`xeda/edif.py`: an instance that refers, through an external library, to a module the netlist
+defines -- how yosys writes a hierarchy) and fails naming the modules. The synthesis itself never
+fails for a hierarchy: `yosys_fpga+nextpnr` places one. A black box the settings do not make (the
+HDL's, `verilog_lib`'s) looks like a primitive in the file, and Vivado stops on it. The four
+hazards of a yosys netlist in Vivado are each excluded by construction
+(`tests/test_vivado_impl.py`; only the reversed bus gives no message at all, a hierarchy and a
+misnamed file fail loudly, and block RAM `x` bits in a Verilog netlist draw one critical warning):
 the `-pvector bra` in `write_netlist.{ys,tcl}`; no EDIF unless flat; the netlist staged as
 `<rtl.top>.edif` whatever it was called (Vivado finds the top by the file's name; the fake
 `link_design` has the same rule); `netlist` takes `Edif` only, since a Verilog netlist drops block
@@ -649,10 +657,11 @@ RAM contents with `x` bits. The script is `vivado_impl.tcl` (non-project: `read_
 `link_design`, `opt_design`) plus `implementation.tcl`, the tail it shares with
 `vivado_alt_synth.tcl`: its `write_checkpoint`/`write_netlist`/`write_timing_netlist` blocks are
 `is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`, until
-stage-typed checkpoint and netlist types exist). `VivadoImplementation` (`vivado_synth.py`) holds
-what `vivado_synth`, `vivado_alt_synth` and `vivado_impl` share: the implementation settings, the
-bitstream's `enable_output` and the timing and utilization parsing. Real Vivado:
-`tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
+stage-typed checkpoint and netlist types exist), and the includer makes `reports/post_place`
+(Vivado makes no directory for a report; the fake Vivado fails as it does, `[Common 17-37]`).
+`VivadoImplementation` (`vivado_synth.py`) holds what `vivado_synth`, `vivado_alt_synth` and
+`vivado_impl` share: the implementation settings, the bitstream's `enable_output` and the timing
+and utilization parsing. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

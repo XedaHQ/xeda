@@ -513,9 +513,40 @@ proc __head {path count} {
 # a path, so what a flow is handed does not change with the directory it runs in; a flow that
 # is handed the wrong one of two of them hands its tool different text.
 proc __vivado_text {path text} {
+    __vivado_writes $path
     if {$::__no_output} { return }
-    file mkdir [file dirname $path]
     set f [open $path w]; puts -nonewline $f $text; close $f
+}
+# Vivado makes no directory for a report or a file it writes, whatever the command and whatever
+# the file: it fails (`ERROR: [Common 17-37]`) where the directory is not there. So the stand-in
+# does, and a script that never made the directory fails here as it does in Vivado.
+proc __vivado_writes {path} {
+    set dir [file dirname $path]
+    if {![file isdirectory $dir]} {
+        error "\[Common 17-37\] Directory in which file [file tail $path] is to be written does not exist \[$dir\]"
+    }
+}
+# The file a `report_*` or `write_*` command writes, from its words: the value of `-file` (or
+# `-json`), else the last word of a `write_*` command that is no option. Empty if it writes none.
+proc __vivado_target {command words} {
+    foreach option {-file -json} {
+        set i [lsearch -exact $words $option]
+        if {$i >= 0} { return [lindex $words $i+1] }
+    }
+    set last [lindex $words end]
+    if {[string match write_* $command] && $last ne "" && ![string match -* $last]} { return $last }
+    return ""
+}
+# the commands no model above answers: recorded, and failed when they write a file into a
+# directory that is not there
+proc unknown {args} {
+    set result [__call {*}$args]
+    set command [lindex $args 0]
+    if {[string match report_* $command] || [string match write_* $command]} {
+        set target [__vivado_target $command [lrange $args 1 end]]
+        if {$target ne ""} { __vivado_writes $target }
+    }
+    return $result
 }
 proc __vivado_top_name {} { expr {[info exists ::__vivado_top] && $::__vivado_top ne "" ? $::__vivado_top : "top"} }
 # `write_verilog [-mode funcsim|timesim] [-sdf_anno false] [-force] [-file] <file>`
@@ -597,6 +628,7 @@ proc __xml_attribute {text} { string map [list & {&amp;} \" {&quot;} < {&lt;} > 
 # checkpoint and activity it was made from. Other formats record only.
 proc report_power {args} {
     set result [__call report_power {*}$args]
+    if {[__option $args -file] ne ""} { __vivado_writes [__option $args -file] }
     if {[__option $args -format] ne "xml" || [info exists ::env(XEDA_FAKE_POWER_NO_OUTPUT)]} { return $result }
     set rows [list {Total On-Chip Power (W)} 0.5 {Fake: checkpoint} $::__vivado_checkpoint {Fake: activity} $::__vivado_activity]
     set xml "<report><section title=\"Summary\"><table>"

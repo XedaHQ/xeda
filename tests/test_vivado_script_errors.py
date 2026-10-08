@@ -10,6 +10,7 @@ so there the read error was not even a failure.)
 
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 import click
@@ -19,7 +20,7 @@ from xeda import Design
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 
-from .tool_utils import fake_calls, use_fake_tools
+from .tool_utils import FAKE_TOOLS_DIR, fake_calls, use_fake_tools
 
 TEMPLATES = Path(__file__).parent.parent / "src" / "xeda" / "flows" / "vivado" / "templates"
 INCLUDE = re.compile(r"\{%-?\s*include\s+['\"]([\w.]+)['\"]\s*-?%\}")
@@ -107,3 +108,44 @@ def test_a_read_error_fails_the_script_with_its_own_message(
     calls = fake_calls(run.run_path)
     assert failing in {call[0] if call[0] != "exec" else call[1] for call in calls}
     assert "errorExit" not in {call[0] for call in calls}, "errorExit ran as a tool command"
+
+
+#: the commands of the templates that write a file, each with the file in `{file}`
+WRITING_COMMANDS = [
+    "report_timing_summary -no_header -delay_type max -file {file}",
+    "report_utilization -hierarchical -force -file {file}",
+    "report_power_opt -file {file}",
+    "report_drc -file {file}",
+    "report_power -hier all -format xml -verbose -file {file}",
+    "write_checkpoint -force {file}",
+    "write_bitstream -force {file}",
+    "write_verilog -mode funcsim -force {file}",
+    "write_verilog -mode timesim -sdf_anno false -force -file {file}",
+    "write_sdf -mode timesim -process_corner slow -force -file {file}",
+    "write_xdc -no_fixed_only -force {file}",
+]
+
+
+@pytest.mark.skipif(not shutil.which("tclsh"), reason="the fake Vivado runs its TCL under tclsh")
+@pytest.mark.parametrize("command", WRITING_COMMANDS)
+def test_the_fake_vivado_makes_no_directory_for_a_file_it_writes(command, tmp_path) -> None:
+    """Vivado does not make the directory of a report or a file: `ERROR: [Common 17-37]
+    Directory in which file ... is to be written does not exist`. A stand-in that made it hid
+    a script that relied on it: `vivado_impl` never made `reports/post_place`, which the power
+    optimization of the shared implementation steps reports into."""
+    script = tmp_path / "script.tcl"
+    script.write_text(command.format(file="out/dir/file.rpt") + "\n")
+    run = ["vivado", "-mode", "batch", "-source", str(script)]
+    missing = subprocess.run(
+        [str(FAKE_TOOLS_DIR / run[0]), *run[1:]], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert missing.returncode != 0, command
+    assert (
+        "[Common 17-37] Directory in which file file.rpt is to be written does not exist [out/dir]"
+    ) in missing.stderr
+    assert not (tmp_path / "out").exists(), "the stand-in made the directory"
+    (tmp_path / "out" / "dir").mkdir(parents=True)
+    made = subprocess.run(
+        [str(FAKE_TOOLS_DIR / run[0]), *run[1:]], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert made.returncode == 0, made.stderr

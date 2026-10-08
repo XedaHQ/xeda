@@ -129,6 +129,15 @@ def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default
     return "opt-in" if target == "xilinx" else "default"
 
 
+def _given_the_attribute(attributes: dict, name: str) -> list[str]:
+    """The objects that a `set_attribute` or `set_mod_attribute` mapping gives the attribute
+    `name` with a value that sets it (0 does not), or `every object` for a value with no object."""
+    value = attributes.get(name)
+    if isinstance(value, dict):
+        return [str(path) for path, given in value.items() if given not in (0, False)]
+    return [] if value is None or value in (0, False) else ["every object"]
+
+
 class YosysFpga(YosysBase, FpgaSynthFlow):
     """
     Yosys Open SYnthesis Suite: FPGA synthesis
@@ -171,9 +180,10 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
             Path("netlist.edif"),
             description="The EDIF netlist for Vivado (`vivado_impl`), written with `write_edif "
             "-pvector bra` so that Vivado reads every bus in the right order: a name in the run "
-            "directory, or a location it is delivered to. It is always written for a Xilinx "
-            "target whose synthesis is flattened (`flatten`), and never otherwise, since Vivado "
-            "reads a flat netlist only.",
+            "directory, or a location it is delivered to. It is written for a Xilinx target "
+            "whose settings make the synthesis flat, and not otherwise (`flatten: false`, "
+            "`keep_hierarchy`, `black_box` and `stop_after` stop it), since Vivado reads a flat "
+            "netlist only.",
             json_schema_extra=deliverable(),
         )
         synth_pass_only: bool = Field(
@@ -328,11 +338,34 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
                     "the hierarchy"
                 )
                 return f"{cause}, and Vivado reads a flat netlist only; set `flatten: true`"
+            return self._kept_out_of_the_flat_netlist()
+
+        def _kept_out_of_the_flat_netlist(self) -> Optional[str]:
+            """What the settings keep out of a flat netlist, or None. `flatten` leaves alone a
+            module or a cell with the attribute `keep_hierarchy`, whichever setting gave it, and
+            `black_box` empties a module. Vivado reads a flat netlist and resolves no module
+            that the netlist does not define. A `keep_hierarchy` that the settings do not show
+            (in the HDL, in `rtl.attributes`) is found by `vivado_impl` in the netlist. A black
+            box that the HDL makes is not: the file declares it as it does a primitive."""
             if self.keep_hierarchy:
                 return (
                     "`keep_hierarchy` keeps "
                     + ", ".join(self.keep_hierarchy)
                     + " unflattened, and Vivado reads a flat netlist only"
+                )
+            for setting in ("set_mod_attribute", "set_attribute"):
+                kept = _given_the_attribute(getattr(self, setting), "keep_hierarchy")
+                if kept:
+                    return (
+                        f"`{setting}` gives `keep_hierarchy` to {', '.join(kept)}, so the "
+                        "synthesis keeps the hierarchy, and Vivado reads a flat netlist only"
+                    )
+            if self.black_box:
+                boxes = ", ".join(self.black_box)
+                return (
+                    f"`black_box` makes {boxes} "
+                    + ("a black box" if len(self.black_box) == 1 else "black boxes")
+                    + ", and Vivado cannot resolve a module that the netlist does not define"
                 )
             return None
 
@@ -798,8 +831,8 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         netlist_edif: Path | None = Out(
             SourceType.Edif,
             description="The synthesized netlist as EDIF, with bus ranges, written at "
-            "`netlist_edif`, for Vivado (`vivado_impl`). Written whenever a Xilinx synthesis is "
-            "flattened, and absent otherwise.",
+            "`netlist_edif`, for Vivado (`vivado_impl`). Written when the settings make a Xilinx "
+            "synthesis flat, and absent otherwise.",
         )
 
     @classmethod
@@ -889,9 +922,12 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         return [entry for entry in ss.verilog_lib if not is_pass_library(entry)]
 
     def init(self) -> None:
-        super().init()
         assert isinstance(self.settings, self.Settings)
-        if self.settings.edif_problem() is None:
+        # judged as the plan did, on the settings as given: `init()` folds the design's
+        # `rtl.attributes` into `set_attribute`, and the run writes what the plan declared
+        problem = self.settings.edif_problem()
+        super().init()
+        if problem is None:
             self.artifacts.netlist_edif = self.settings.netlist_edif
 
     def prepare_output_parents(self) -> None:

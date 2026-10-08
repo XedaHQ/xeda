@@ -214,8 +214,11 @@ bitstream=$PWD/blinky.bit`. Its `netlist` is `yosys_fpga`'s `netlist_edif` outpu
 `{file: "top.edf", type: Edif}` in `rtl.sources` (which skips synthesis); `bitstream` is its only
 output, written when set or when `openfpgaloader` follows. `yosys_fpga` writes the EDIF
 (`write_edif -pvector bra`, beside the JSON netlist, so `nextpnr` and `vivado_impl` share one
-synthesis run) whenever a Xilinx synthesis is flat; with `flatten: false`, `keep_hierarchy` or
-`synth_pass_only` and no `flatten: true`, it writes none and the chain is refused naming the cause.
+synthesis run) whenever a Xilinx synthesis is flat; with `flatten: false`, `keep_hierarchy` (also as
+an attribute in `set_mod_attribute` or `set_attribute`), `black_box` or `synth_pass_only` and no
+`flatten: true`, it writes none and the chain is refused naming the cause. A hierarchy only the HDL
+(`(* keep_hierarchy *)`) or `rtl.attributes` asks for stops `vivado_impl` before Vivado starts,
+naming the modules.
 The flow copies the netlist to `<top>.edif`, since Vivado finds the top by the file's name, so it
 needs `rtl.top`, a Xilinx `fpga`, a clock and `Xdc` pin sources (a bitstream needs every port
 constrained; a one-bit bus, `input [0:0] a`, is the scalar port `a` in the netlist, so constrain

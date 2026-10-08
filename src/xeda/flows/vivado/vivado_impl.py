@@ -6,6 +6,7 @@ from typing import Optional
 
 from ...dataclass import Field, field_validator
 from ...design import Design, SourceType
+from ...edif import modules_used_as_library_cells
 from ...flow import Flow, FlowFatalError, FlowSettingsException, In, Out
 from ...utils import replacing_copy
 from .vivado_alt_synth import expand_run_options, flatten_options
@@ -23,9 +24,10 @@ class VivadoImpl(VivadoImplementation):
     `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl
     design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here.
     A generated TCL script reads the constraints and the netlist, links the design, and runs
-    `opt_design`, `place_design` and `route_design` (and the optimizations the `impl` options
-    ask for) on it in memory; it reports timing and utilization, and writes a bitstream when
-    `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`.
+    `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that
+    `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after
+    placement); it reports timing and utilization, and writes a bitstream when `bitstream` is
+    set or a consumer needs it. The results are those of `vivado_synth`.
 
     Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies
     the netlist to `<top>.edif` in its run directory, whatever the file was called. The design
@@ -33,8 +35,9 @@ class VivadoImpl(VivadoImplementation):
     are `Xdc` design sources or `xdc_files`.
 
     A netlist from another source has to be flat, and written with its buses' ranges: yosys's
-    `write_edif -pvector bra` after `synth_xilinx -flatten`. Without the ranges Vivado links the
-    design with every bus reversed and says nothing about it.
+    `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it
+    starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the
+    ranges. Without them Vivado links the design with every bus reversed and says nothing.
     """
 
     # Vivado's runs, whose status `vivado_synth` reports, are project mode's
@@ -112,6 +115,25 @@ class VivadoImpl(VivadoImplementation):
         super().init()
         self.add_template_filter("flatten_options", flatten_options)
 
+    @staticmethod
+    def refuse_a_hierarchy(netlist: Path) -> None:
+        """Stop for a netlist that Vivado would take apart into black boxes. The settings show
+        only some of the ways to a hierarchy (`YosysFpga.Settings.edif_problem`): the HDL asks for
+        one too (`(* keep_hierarchy *)`), and a netlist from elsewhere may hold one. The netlist
+        shows them all. Vivado reports the cause in its log, and xeda only its exit status."""
+        modules = modules_used_as_library_cells(
+            netlist.read_text(encoding="utf-8", errors="replace")
+        )
+        if modules:
+            raise FlowFatalError(
+                f"The EDIF netlist {netlist} is not flat. Its instances refer to modules that it "
+                f"defines as library cells: {', '.join(modules)}. Vivado looks a library cell up "
+                "among its primitives, takes each of these modules for a black box, and stops. "
+                "Write a flat netlist. With `yosys_fpga`, set `flatten: true`, and remove every "
+                "`keep_hierarchy`: the setting, the attribute in `set_mod_attribute`, "
+                "`set_attribute` and `rtl.attributes`, and the attribute in the HDL."
+            )
+
     def run(self) -> None:
         """Place and route the netlist handed over as the input `netlist`."""
         ss = self.settings
@@ -122,6 +144,7 @@ class VivadoImpl(VivadoImplementation):
         assert top, "checked at launch (`check_design_supported`)"
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")
+        self.refuse_a_hierarchy(inputs.netlist)
 
         # Vivado finds the top by the name of the file (`[Project 1-68] No files found to match
         # top module`): so whatever the netlist is called, the script reads this copy of it
