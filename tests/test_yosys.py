@@ -666,6 +666,33 @@ def test_yosys_passes_vhdl_top_generics_to_ghdl_and_leaves_the_design_alone(tmp_
     assert len(netlist["modules"]["inv"]["ports"]["y"]["bits"]) == 5
 
 
+def test_yosys_elaborates_a_vhdl_top_with_a_constraint_file_listed_after_it(tmp_path):
+    """The top is the last source in a hardware language, not the last one listed: with `top.sdc`
+    last the script handed the generic to GHDL and then asked `chparam` for it, and yosys stopped
+    with "Module `inv' is used with parameters but is not parametric"."""
+    require_yosys_ghdl_plugin()
+    _write(
+        tmp_path / "inv.vhd",
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity inv is generic(W: positive := 2);\n"
+        "  port(a: in std_logic_vector(W-1 downto 0); y: out std_logic_vector(W-1 downto 0));\n"
+        "end;\n"
+        "architecture rtl of inv is begin y <= not a; end;\n",
+    )
+    _write(tmp_path / "top.sdc", "# constraints\n")
+    design = Design(
+        name="inv",
+        design_root=tmp_path,
+        rtl={"sources": ["inv.vhd", "top.sdc"], "top": "inv", "parameters": {"W": 5}},
+    )
+    flow = DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, {})
+    assert flow is not None and flow.succeeded
+    script = (flow.run_path / "yosys_synth.ys").read_text()
+    assert "-gW=5" in script and "chparam" not in script
+    netlist = json.loads((flow.run_path / "netlist.json").read_text())
+    assert len(netlist["modules"]["inv"]["ports"]["y"]["bits"]) == 5
+
+
 def _liberty(cell: str) -> str:
     """Return Liberty source text for a cell used in Yosys tests."""
     return (
