@@ -81,10 +81,66 @@ jobs:
           XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.14' && '1' || '' }}
         run: "python -m tox"
 
+  # The tox job runs on Linux only. This job runs on macOS, with the oldest supported Python,
+  # the test files whose code differs by operating system. A call that exists on Linux only, such
+  # as os.waitid, fails here. No EDA tool is installed, so a test that needs one skips;
+  # XEDA_TESTS_REQUIRE_TOOLS is not set on purpose. The tox job runs the full suite.
+  # Why each file is here:
+  #   process groups, signals and pseudo-terminals: test_proc_utils, test_remote_streaming
+  #   file locks (flock): test_read_locks (run-directory leases), test_target_scrub (scrub, which
+  #     also handles links), test_generator_staleness (a lock on the design directory),
+  #     test_external_cache (six processes fill one cache)
+  #   file-system clocks and file metadata: test_digest, test_trace_inputs, test_trace_soundness
+  #     (racy timestamps, inode change times)
+  #   file copying (fcopyfile): test_utils, test_delivery
+  #   links, FIFOs, permissions and resolved paths (a macOS temporary directory is behind a
+  #     link): test_trace_directories, test_run_directory, test_run_dir_safety, test_run_root,
+  #     test_isolation
+  macos:
+    # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
+    # tests when this line does, and not on the day GitHub moves the label.
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      # Full history: xeda's version is derived from the git tags.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      # These files need nothing but pytest and its parallel runner. (jsonschema and the cocotb
+      # of the examples are for tests that this job does not run.)
+      - name: Install dependencies
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --editable . pytest pytest-xdist
+      - name: Run the operating-system-sensitive tests
+        run: >-
+          python -m pytest -n auto
+          tests/test_proc_utils.py
+          tests/test_remote_streaming.py
+          tests/test_read_locks.py
+          tests/test_target_scrub.py
+          tests/test_generator_staleness.py
+          tests/test_external_cache.py
+          tests/test_digest.py
+          tests/test_trace_inputs.py
+          tests/test_trace_soundness.py
+          tests/test_utils.py
+          tests/test_delivery.py
+          tests/test_trace_directories.py
+          tests/test_run_directory.py
+          tests/test_run_dir_safety.py
+          tests/test_run_root.py
+          tests/test_isolation.py
+
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only
-  # needs the documentation toolchain, not the EDA tools the job above installs. Not in
-  # tox-gh-actions' mapping on purpose: the job above would build it once per Python.
+  # needs the documentation toolchain, not the EDA tools the tox job installs. Not in
+  # tox-gh-actions' mapping on purpose: the tox job would build it once per Python.
   docs:
     runs-on: ubuntu-24.04
     steps:
