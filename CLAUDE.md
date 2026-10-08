@@ -76,8 +76,8 @@ synthesis, `test_bsc.py`'s `bsc`/`bsc_sim` flows, the GHDL half of `test_remote_
 Those **skip** when the tool is missing or installed-but-broken, via the probes in
 `tests/tool_utils.py` (`require_ghdl()`, `require_yosys_ghdl_plugin()`, `require_bsc()`,
 `require_bluesim()`, ...). Setting `XEDA_TESTS_REQUIRE_TOOLS=1` turns those skips into failures;
-CI sets it, so a tool vanishing from CI cannot look like a pass -- CI installs bsc 2026.07.1 from
-its official release tarball for exactly this reason. `test_remote_run.py` and `test_dse_run.py` run
+CI sets it, so a tool vanishing from CI cannot look like a pass -- CI installs bsc from its
+official release tarball (pinned in `ci.yml`) for exactly this reason. `test_remote_run.py` and `test_dse_run.py` run
 `xeda run --remote` and `xeda dse` end to end on the fake Vivado; the remote one replaces only
 the transport (a filesystem-backed fabric `Connection`, execnet's `popen` gateway for `ssh=`),
 so no SSH server is needed. tox passes
@@ -86,6 +86,32 @@ so no SSH server is needed. tox passes
 `environment` for a local tox run, drop its `py3bin/` from `PATH`: it holds a bundled
 `python3.11` that tox would otherwise build `py311` on, and that venv cannot start. Tests that exercise
 cocotb-based example designs need `pip install -r examples/requirements.txt`.
+
+**CI's tool pins are kept current by a weekly workflow.** `ci.yml` pins the OSS CAD Suite build
+date and the bsc version with its SHA-256, and `openxc7.yml` pins the openXC7 installer commit
+(`INSTALLER_REV`). `.github/workflows/bump-ci-pins.yml` (Mondays 08:23 UTC, after the suite's build, or by hand) runs
+`.github/scripts/bump_ci_pins.py` (standard library only; `--dry-run` prints the changes),
+force-pushes the branch `ci/bump-tool-pins` and opens or updates one pull request that lists
+old and new with links. Merge it only when CI passes: a newer tool can move a result that a
+test pins, such as the counts of `tests/test_openxc7_real.py`. The workflow needs the secret
+`CI_PINS_TOKEN`, a fine-grained personal access token with write access to Contents, Pull
+requests and Workflows (not a GitHub App token, which expires in an hour): `GITHUB_TOKEN`
+cannot change workflow files, and a pull request that it opens does not start CI by itself.
+The token reaches the commands that need it and no other: the checkout keeps no credential
+(`persist-credentials: false`); the step that decides gets only whether the secret is set
+(`secrets.CI_PINS_TOKEN != ''`); the step that runs the script never sees it; the step that
+pushes takes it from its env into a shell variable and unsets the env variable before its first
+command (every command of a step inherits the step's env), then gives it to the one `git push`
+through that command's environment and to each `gh` for itself (`tests/test_ci_pins.py` lists
+every way to hand it out, with a change of the real workflow for each). The bsc pin moves only
+to a release whose tarball has a digest that GitHub publishes, and the download must have that
+digest and the size GitHub lists; without a digest the pin stays, and the run's log and the pull
+request say "pin it by hand". A pin that stays because main was rewritten (`behind`, `diverged`)
+is a warning in the log, not "up to date". The workflow changes nothing on a fork or off the
+default branch; it prints. Keep each
+pin on the line the script reads: `tests/test_ci_pins.py` parses the real workflow files, and a
+new pin needs a reader and a writer in the script. Dependabot (`.github/dependabot.yml`) keeps
+the versions of the actions current.
 
 Running flows manually:
 
@@ -1185,14 +1211,20 @@ directory).
   case: links in, out, dangling, cyclic and at a working location's name, through a relaunch,
   `--clean`, post-cleanup, a purge, `xeda scrub` and deliveries, with the outside tree unchanged.
 
-`tests/conftest.py`'s autouse, session-scoped fixture snapshots the checkout's top level, `tests/`
-and every example design's own directory before the suite runs, and fails if any of them gained a
-new entry by the end -- the exemptions are `tests/__pycache__` (the suite's own imports) and a
+`tests/conftest.py`'s autouse, session-scoped fixture fails if the checkout's top level, `tests/`,
+any example design's own directory, or `.github/` and `tools/` (each with every directory below
+it) gained a new entry, lost one, or changed a file (its size or modification time, so a test
+that rewrites `.github/workflows/ci.yml` fails too, even with the text it had) since `conftest.py`
+was imported -- the snapshot is taken at import, before pytest imports the test modules, so a
+module that writes as it is imported (the bytecode of a script it loads) fails the run too. The
+exemptions are `tests/__pycache__` (the suite's own imports), names that start with a dot, and a
 top-level `xeda_run/`, the latter only when an opt-in
 layer (`XEDA_TESTS_VIVADO`/`XEDA_TESTS_DOCKER`/`XEDA_TESTS_EXTERNAL`) is set, since those tests
 deliberately work in the checkout's own `xeda_run/` (a container can mount it where the system
 temp directory is not). A `__pycache__` in an example's directory is a failure: `test_ghdl.py`
-and `test_nvc.py` simulate the examples in place.
+and `test_nvc.py` simulate the examples in place. A test that runs a script of `.github/` or
+`tools/` as a module loads its source without bytecode (`tests/test_changelog_fragments.py`,
+`tests/test_ci_pins.py`); `tests/test_checkout_guard.py` is the guard's own oracle.
 
 ### Other runners
 

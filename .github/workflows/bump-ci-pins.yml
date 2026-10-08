@@ -1,0 +1,137 @@
+name: Bump CI tool pins
+
+# CI pins the tools that it installs: the OSS CAD Suite and the Bluespec Compiler (bsc) in ci.yml,
+# and the openXC7 toolchain installer in openxc7.yml. Every Monday this workflow looks for newer
+# versions (.github/scripts/bump_ci_pins.py). When it finds one, it changes the pins on the branch
+# ci/bump-tool-pins and opens a pull request, or updates the pull request that is open. The owner
+# of the token is the author of the pull request, and CI runs on it like on any other. A person
+# reads the pull request and merges it when CI passes.
+#
+# The workflow needs the secret CI_PINS_TOKEN: a fine-grained personal access token with write
+# access to Contents, Pull requests and Workflows of this repository. It cannot be the token of a
+# GitHub App: that token expires after an hour, and a secret has to last. GITHUB_TOKEN cannot do
+# this job either. It has no permission to change workflow files, and a pull request that it
+# opens does not start CI by itself.
+#
+# The token reaches the commands that need it and no other. Only the step that pushes and opens
+# the pull request gets the secret. The step that decides whether to change anything asks whether
+# it is set and gets only the answer. The checkout does not keep it in the repository, and the
+# step that runs the script, which processes what upstream answers, never sees it. Every command
+# of a step inherits the env of the step, so the step that pushes takes the secret out of its env
+# at once, and gives it to the one command that pushes (through the env of that command) and to
+# each `gh` command, for itself. tests/test_ci_pins.py checks all of this.
+#
+# The workflow changes something only when it runs on the default branch of a repository that is
+# not a fork. Anywhere else, and when a manual run sets dry_run, it prints the changes and stops.
+on:
+  schedule:
+    - cron: "23 8 * * 1" # Mondays, after the OSS CAD Suite build (published 06:00 to 07:30 UTC)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Print the changes and change nothing
+        type: boolean
+        default: false
+
+# The writes use CI_PINS_TOKEN. GITHUB_TOKEN only reads.
+permissions:
+  contents: read
+
+# Two runs would push the same branch.
+concurrency:
+  group: bump-ci-pins
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      BRANCH: ci/bump-tool-pins
+    steps:
+      # Asks GitHub about the repository, and does not trust the event for it: a scheduled run
+      # has no webhook payload to read the default branch from.
+      - name: Decide whether to change anything
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+          # Whether the secret is set, never the secret: `gh` and every other command of the step
+          # would inherit it.
+          PINS_TOKEN_IS_SET: ${{ secrets.CI_PINS_TOKEN != '' }}
+        run: |
+          set -euo pipefail
+          read -r fork default_branch < <(
+            gh api "repos/$GITHUB_REPOSITORY" --jq '[.fork, .default_branch] | @tsv'
+          )
+          dry_run=false
+          if [ "$fork" = "true" ] || [ "$DRY_RUN_INPUT" = "true" ] || [ "$GITHUB_REF_NAME" != "$default_branch" ]; then
+            dry_run=true
+          fi
+          if [ "$dry_run" = "false" ] && [ "$PINS_TOKEN_IS_SET" != "true" ]; then
+            echo "::error::The secret CI_PINS_TOKEN is not set. The comment at the top of this workflow says what it must be."
+            exit 1
+          fi
+          echo "fork=$fork, default branch=$default_branch, ref=$GITHUB_REF_NAME: dry run=$dry_run"
+          {
+            echo "DRY_RUN=$dry_run"
+            echo "BASE=$default_branch"
+          } >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Look for newer tool versions
+        id: find
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # for the rate limit of the read-only lookups
+        run: |
+          set -euo pipefail
+          options=()
+          if [ "$DRY_RUN" = "true" ]; then
+            options+=(--dry-run)
+          fi
+          python3 .github/scripts/bump_ci_pins.py "${options[@]}" \
+            --body-file "$RUNNER_TEMP/pull-request.md" --message-file "$RUNNER_TEMP/commit-message.txt"
+
+      - name: Push the branch, and open or update the pull request
+        if: steps.find.outputs.changed == 'true' && env.DRY_RUN != 'true'
+        env:
+          PINS_TOKEN: ${{ secrets.CI_PINS_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The commands of this step inherit PINS_TOKEN. Take it into a variable of this shell,
+          # which they do not inherit, before the first of them.
+          token="$PINS_TOKEN"
+          unset PINS_TOKEN
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$BRANCH"
+          git add .github/workflows
+          git commit --quiet --file "$RUNNER_TEMP/commit-message.txt"
+          # The token goes to the one git command that pushes, through its environment. It is in
+          # no file of the runner and not on a command line. The encoded form is masked in the log.
+          basic="$(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
+          echo "::add-mask::$basic"
+          # The branch may already hold exactly these changes, from the run of an earlier week.
+          # Then the pull request is up to date, and a push would only start CI again.
+          if git fetch --quiet origin "$BRANCH" 2>/dev/null && git diff --quiet FETCH_HEAD HEAD; then
+            echo "The branch $BRANCH already holds these changes."
+          else
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+              GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $basic" \
+              git push --force origin "HEAD:refs/heads/$BRANCH"
+          fi
+          title="$(head -n 1 "$RUNNER_TEMP/commit-message.txt")"
+          # --head matches the name of the branch only, so a pull request from a fork with a
+          # branch of the same name would be found too: take one of this repository.
+          number="$(GH_TOKEN="$token" gh pr list --head "$BRANCH" --state open \
+            --json number,isCrossRepository \
+            --jq 'map(select(.isCrossRepository | not)) | .[0].number // empty')"
+          if [ -n "$number" ]; then
+            GH_TOKEN="$token" gh pr edit "$number" --title "$title" \
+              --body-file "$RUNNER_TEMP/pull-request.md"
+          else
+            GH_TOKEN="$token" gh pr create --base "$BASE" --head "$BRANCH" --title "$title" \
+              --body-file "$RUNNER_TEMP/pull-request.md"
+          fi
