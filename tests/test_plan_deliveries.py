@@ -449,8 +449,8 @@ def test_two_names_of_one_file_that_only_delivery_can_tell_are_reported_as_two_d
     a, b, link = _two_directories_one_a_link_later(world)
     deliver = Deliveries.deliver
 
-    def deliver_then_link(self):
-        made = deliver(self)
+    def deliver_then_link(self, **kwargs):
+        made = deliver(self, **kwargs)
         if self.run_path.name == "__reads_dir":
             link()
         return made

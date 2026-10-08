@@ -262,8 +262,9 @@ asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
 ``deliveries`` lists every output that node's flow copied to a location the settings or
 ``--outputs-to`` named, once the whole launch finished (see :doc:`run-directories`'s "Outputs
 where you name them"): ``setting`` is the setting (or ``--outputs-to``) that asked for it,
-``from`` the file in the run directory, ``to`` where it was copied, and ``state`` either
-``"delivered"`` (a new copy was written) or ``"unchanged"`` (the destination already held exactly
+``from`` the file in the run directory, ``to`` where it was copied (or moved: see
+:doc:`run-directories`), and ``state`` either ``"delivered"`` (the file was written at the
+destination, as a new copy or by a move) or ``"unchanged"`` (the destination already held exactly
 that file). It is ``[]`` for a node with nothing to deliver, and a fresh node still lists its
 deliveries: delivery follows a node's outcome, not whether its tool ran.
 

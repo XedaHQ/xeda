@@ -35,7 +35,9 @@ own file system, read just before (`_destination_clock`), so the next check of a
 delivery reads nothing (`_destination_record`). What a flow delivers is noted with each file's
 digest when it completes (`Deliveries.collect`) and copied when the launch has finished
 (`Deliveries.deliver`), when every flow of it has read its inputs; a destination that changed
-after it was checked, or an output that changed after its run, is never delivered.
+after it was checked, or an output that changed after its run, is never delivered. When the launch
+deletes a flow's run directory right after (`--post-cleanup-purge`), the file is moved out of it
+instead of copied, so a large output costs no second copy on the disk.
 """
 
 from __future__ import annotations
@@ -46,6 +48,7 @@ import logging
 import os
 import stat
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePath
@@ -637,6 +640,22 @@ class ConfirmedReplacements:
         return True
 
 
+def _discard(temporary: Path, source: Path, moved: bool) -> None:
+    """Undo a delivery that did not complete. A copy's temporary file is removed. A moved file is
+    the run's own output, never removed: it goes back where the run left it, and if that fails
+    the error says where it is."""
+    if not moved:
+        temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
+        return
+    try:
+        os.replace(temporary, source)
+    except OSError as e:
+        raise DeliveryError(
+            f"xeda moved {source} to {temporary} to deliver it, and the delivery failed. "
+            f"Moving it back failed too ({e}). The output is in {temporary}"
+        ) from e
+
+
 class Deliveries:
     """One node's deliveries: checked before any of its tools runs (`refuse`, `check`), noted
     file by file once it succeeded or was found up to date (`collect`), and made when the launch
@@ -929,7 +948,7 @@ class Deliveries:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
 
-    def deliver(self) -> list[Delivered]:
+    def deliver(self, *, move: bool = False) -> list[Delivered]:
         """Copy each file `collect` noted to where it was named. A destination that is an input
         -- of any flow of the launch, all known by now -- is refused; one checked before the run
         that changed since is not replaced (`DeliveryError`, once the others are made); a file
@@ -937,8 +956,14 @@ class Deliveries:
         before an `OSError` from `_copy` (a full disk, a permission lost mid-run) is still
         recorded (`self.delivered`, `_write_record` under `finally`), so a later call, and the
         caller's `flow.deliveries` (reported in `--json`'s `nodes[].deliveries`), do not
-        under-report what actually reached disk before the error."""
+        under-report what actually reached disk before the error.
+
+        `move`: the caller deletes the run directory right after this call, so a file may leave it
+        by rename instead of being copied (`_copy`). The caller decides it for each flow, never for
+        the launch: a flow found up to date keeps its directory, and its trace vouches for its
+        outputs there. Only a file that no other delivery names is moved (`_movable`)."""
         self.delivered = []
+        movable = self._movable() if move else set()
         changed: list[str] = []
         shared: list[str] = []
         late: list[tuple[Conflict, Path, _State, str]] = []
@@ -970,7 +995,7 @@ class Deliveries:
                     if why is not None:
                         late.append((Conflict(delivery, destination, why), src, expected, sha))
                         continue
-                made = self._copy(delivery, src, destination, expected, sha)
+                made = self._copy(delivery, src, destination, expected, sha, src in movable)
                 if made is None:
                     changed.append(str(destination))
                 else:
@@ -979,7 +1004,9 @@ class Deliveries:
             # whatever the user would say about a file found in the way
             if late and not shared and self._confirmed([conflict for conflict, *_rest in late]):
                 for conflict, src, expected, sha in late:
-                    made = self._copy(conflict.delivery, src, conflict.destination, expected, sha)
+                    made = self._copy(
+                        conflict.delivery, src, conflict.destination, expected, sha, src in movable
+                    )
                     if made is None:
                         changed.append(str(conflict.destination))
                     else:
@@ -1001,8 +1028,52 @@ class Deliveries:
             )
         return self.delivered
 
+    def _movable(self) -> set[Path]:
+        """The sources of the noted files that `deliver` may move: those that only one delivery
+        reaches. A file that two deliveries reach is copied every time: moving it for one would
+        leave nothing for the other. Each source counts by the file it is and by the file it leads
+        to (device and inode, so two spellings of one name are one source), which makes a file
+        and a link to it in the run directory one file."""
+        reached = [
+            (src, {i for i in (_identity(src, follow=False), _identity(src)) if i is not None})
+            for _delivery, src, _dest, _sha in self.pending
+        ]
+        count = Counter(file for _src, files in reached for file in files)
+        return {src for src, files in reached if files and all(count[f] == 1 for f in files)}
+
+    def _move_into(self, source: Path, temporary: Path) -> bool:
+        """Rename `source` over `temporary`, the placeholder `mkstemp` made in the destination's
+        directory; whether it did. Only a regular file with no other name (`st_nlink == 1`) is
+        moved. A link is delivered as the file it leads to, and stays. A file with another hard
+        link would share its inode with that name, and a later write there would change the
+        delivered file. Nor is a file moved out of a directory outside the run directory, which a
+        link in the run directory may lead to: that would remove a file that is not the run's.
+        A rename the system refuses (another file system, a permission) changed nothing, and the
+        file is copied."""
+        try:
+            found = os.lstat(source)
+            run_path = Path(os.path.realpath(self.run_path))
+            parent = Path(os.path.realpath(source.parent))
+            if (
+                not stat.S_ISREG(found.st_mode)
+                or found.st_nlink != 1
+                or not (parent == run_path or parent.is_relative_to(run_path))
+            ):
+                return False
+            os.replace(source, temporary)
+        except OSError as e:
+            log.debug("%s is copied, not moved: %s", source, e)
+            return False
+        return True
+
     def _copy(
-        self, delivery: Delivery, source: Path, destination: Path, expected: _State, sha: str
+        self,
+        delivery: Delivery,
+        source: Path,
+        destination: Path,
+        expected: _State,
+        sha: str,
+        move: bool = False,
     ) -> Optional[Delivered]:
         """Copy `source` to `destination` (located), accepted as it was then (`expected`): into a
         new temporary file in its directory, renamed into place -- checked again right before the
@@ -1014,7 +1085,11 @@ class Deliveries:
 
         A destination that already holds the output is not copied at all, and what it holds is
         read only when its record's metadata cannot vouch for it (`_held`): an unchanged delivery
-        costs no pass over the destination once a check has anchored its record."""
+        costs no pass over the destination once a check has anchored its record.
+
+        With `move` the run's file itself is renamed to the temporary name when it can be
+        (`_move_into`), and everything after is as for a copy. If the delivery does not complete,
+        the file goes back to where the run left it (`_discard`)."""
         if destination.is_file() and not destination.is_symlink():
             try:
                 now, reading = self._held(destination)
@@ -1026,17 +1101,21 @@ class Deliveries:
         destination.parent.mkdir(parents=True, exist_ok=True)
         fd, name = tempfile.mkstemp(prefix=".xeda-delivery-", dir=destination.parent)
         temporary = Path(name)
+        moved = done = False
         try:
-            with os.fdopen(fd, "wb") as out, open(source, "rb") as data:
-                copy_fd(data.fileno(), out.fileno())
-                if hasattr(os, "fchmod"):  # by the descriptor: its name may lead elsewhere now
-                    os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
+            with os.fdopen(fd, "wb") as out:
+                moved = move and self._move_into(source, temporary)
+                if not moved:
+                    with open(source, "rb") as data:
+                        copy_fd(data.fileno(), out.fileno())
+                        # by the descriptor: its name may lead elsewhere now
+                        if hasattr(os, "fchmod"):
+                            os.fchmod(out.fileno(), stat.S_IMODE(os.fstat(data.fileno()).st_mode))
             if (
                 _located(destination) != destination
                 or self._refusal(destination, delivery) is not None
                 or _state(destination) != expected
             ):
-                temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
                 return None
             if content_digest(temporary) != sha:
                 raise DeliveryError(
@@ -1044,11 +1123,12 @@ class Deliveries:
                     f"{self.run_path} meanwhile? -- so it is not delivered to {destination}"
                 )
             os.replace(temporary, destination)
-        except BaseException:
-            temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
-            raise
+            done = True
+        finally:
+            if not done:
+                _discard(temporary, source, moved)
         self._remember(delivery, source, destination, sha)
-        log.info("Delivered %s to %s", source, destination)
+        log.info("%s %s to %s", "Moved" if moved else "Delivered", source, destination)
         return Delivered(delivery.key, source, destination, "delivered")
 
     def _remember(

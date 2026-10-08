@@ -756,7 +756,8 @@ def _print_plan(plan: Plan) -> None:
 @click.option(
     "--post-cleanup-purge",
     is_flag=True,
-    help="After the run, remove each run directory.",
+    help="After the run, remove each run directory. An output delivered to a location you named "
+    "is moved there instead of copied, when it can be.",
 )
 @click.option(
     "--scrub",

@@ -305,7 +305,10 @@ def _audit(event: str, args: tuple) -> None:
             continue
         if path.is_relative_to(world.delivered) and _from_deliver():
             if event == "os.rename" and raw is args[1]:  # a delivery, renamed into place
-                _WATCH["delivered"].append(path)
+                # a file moved out of the run directory first arrives under the delivery's
+                # temporary name, which is no delivery: a temporary left behind is a change
+                staged = path.name.startswith(".xeda-delivery-")
+                _WATCH["moved" if staged else "delivered"].append(path)
             continue
         _WATCH["violations"].append(f"{event} {path}")
 
@@ -314,12 +317,18 @@ sys.addaudithook(_audit)
 
 
 @contextmanager
-def watching(world: World, delivered: Optional[list] = None) -> Iterator[list]:
+def watching(
+    world: World, delivered: Optional[list] = None, moved: Optional[list] = None
+) -> Iterator[list]:
     """Audit the launches in the block: yields the violations; `delivered` collects every file
-    `xeda/deliver.py` renamed into place."""
+    `xeda/deliver.py` renamed into place, and `moved` each file it moved out of a run directory
+    to a delivery's temporary name (the first of the two renames of a delivery by move)."""
     violations: list = []
     _WATCH.update(
-        world=world, violations=violations, delivered=[] if delivered is None else delivered
+        world=world,
+        violations=violations,
+        delivered=[] if delivered is None else delivered,
+        moved=[] if moved is None else moved,
     )
     try:
         yield violations
@@ -419,12 +428,17 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         launcher["clean"] = True
     elif scenario == "purge":
         launcher.update(post_cleanup=True, post_cleanup_purge=True)
-    elif scenario == "delivered":
-        if flow_class.action_reason is None:
+    elif scenario in DELIVERING:
+        if scenario == "purged_delivered":
+            launcher.update(post_cleanup=True, post_cleanup_purge=True)
+        located = LOCATED.get(flow_class.name, {})
+        # a file that two deliveries name is copied, never moved: a flow with a located
+        # deliverable has `--outputs-to` deliver its other artifacts only
+        if flow_class.action_reason is None and not (located and scenario == "purged_delivered"):
             # a programmer writes no outputs: `--outputs-to` is refused before it runs
             # (`test_fpga_chains.py`), so it delivers only what it names
             launcher["outputs_to"] = world.delivered
-        for key, name in LOCATED.get(flow_class.name, {}).items():
+        for key, name in located.items():
             settings[key] = str(world.delivered / name)
     outcomes = []
     errors = []
@@ -443,6 +457,11 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
 
 
 FLOWS = [cls for cls, _ in flow_classes()]
+#: the scenarios that deliver outputs (`purged_delivered` deletes the run directories after, so
+#: delivery moves the files)
+DELIVERING = ("delivered", "purged_delivered")
+#: flows whose located deliverable the sweep's launch really delivers: under a purge, by move
+MOVING = {"vivado_synth", "vivado_sim", "yosys_fpga", "nextpnr", "fpga_pack"}
 
 
 def _flow(name: str):
@@ -454,7 +473,7 @@ def _named(world: World, flow_name: str, scenario: str, delivered: List[Path]) -
     destination it named -- a located deliverable, and the `outputs_to` directory itself -- and,
     in that directory, each file delivery wrote there and the directories it made on the way.
     Nothing else in it: a tool's file beside a delivered one is a change."""
-    if scenario != "delivered":
+    if scenario not in DELIVERING:
         return set()
     named = {world.delivered, *(world.delivered / n for n in LOCATED.get(flow_name, {}).values())}
     for path in delivered:
@@ -462,13 +481,21 @@ def _named(world: World, flow_name: str, scenario: str, delivered: List[Path]) -
     return {str(p.relative_to(world.parent)) for p in named}
 
 
-def _sweep(flow_class, world: World, monkeypatch, scenario: str) -> tuple:
+def _sweep(
+    flow_class,
+    world: World,
+    monkeypatch,
+    scenario: str,
+    delivered: Optional[List[Path]] = None,
+    moved: Optional[List[Path]] = None,
+) -> tuple:
     """One launch of the sweep: what changed outside the run root but the destinations it named
-    what the audit hook saw, and whether the flow reached its `run()`."""
+    what the audit hook saw, and whether the flow reached its `run()`. `delivered` collects the
+    files delivery renamed into place, `moved` those it moved out of a run directory."""
     before = _state(world.parent, [world.root])
     reached: list = []
-    delivered: List[Path] = []
-    with watching(world, delivered) as violations:
+    delivered = [] if delivered is None else delivered
+    with watching(world, delivered, moved) as violations:
         _launch(flow_class, world, monkeypatch, scenario, reached)
     after = _state(world.parent, [world.root])
     named = _named(world, flow_class.name, scenario, delivered)
@@ -478,17 +505,28 @@ def _sweep(flow_class, world: World, monkeypatch, scenario: str) -> tuple:
     return changed, violations, reached
 
 
-@pytest.mark.parametrize("scenario", ["twice", "clean", "purge", "delivered"])
+@pytest.mark.parametrize("scenario", ["twice", "clean", "purge", "delivered", "purged_delivered"])
 @pytest.mark.parametrize("flow_class", FLOWS, ids=lambda c: c.name)
 def test_nothing_outside_the_run_root_changes_but_what_was_named(
     flow_class, scenario, tmp_path, monkeypatch
 ):
-    """No change outside the run root, seen in the file system or by the audit hook."""
-    changed, violations, reached = _sweep(flow_class, _world(tmp_path), monkeypatch, scenario)
+    """No change outside the run root, seen in the file system or by the audit hook. Where the
+    run directories are deleted after the delivery, every file delivered was moved, and no
+    temporary name is left."""
+    delivered: List[Path] = []
+    moved: List[Path] = []
+    changed, violations, reached = _sweep(
+        flow_class, _world(tmp_path), monkeypatch, scenario, delivered, moved
+    )
     assert not changed, f"{flow_class.name} changed {changed}"
     assert not violations, f"{flow_class.name}: {violations}"
     if scenario == "twice":  # the sweep keeps its teeth
         assert bool(reached) is (flow_class.name not in UNREACHED), UNREACHED.get(flow_class.name)
+    if scenario == "purged_delivered":  # and the move is what it sweeps
+        assert len(moved) == len(delivered), f"{flow_class.name}: {moved} moved, {delivered} made"
+        assert bool(moved) or flow_class.name not in MOVING, f"{flow_class.name} moved nothing"
+    else:
+        assert not moved, f"{flow_class.name} moved files without a purge: {moved}"
 
 
 def _also_runs(flow_class, monkeypatch, command: str) -> None:
@@ -878,12 +916,25 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery's own temporary file, renamed over the destination the rules allowed",
     ),
+    ("deliver.py", "os.replace(source, temporary)"): (
+        1,
+        "a delivery by move, when the launch deletes the run directory right after: the run's "
+        "own regular file, with no other name and inside the run directory by its resolved path "
+        "(`Deliveries._move_into`), renamed over the delivery's own temporary placeholder "
+        "beside the destination. It removes the run's name, never a file of the user's",
+    ),
+    ("deliver.py", "os.replace(temporary, source)"): (
+        1,
+        "the undo of that move: the run's file goes back to the name it was moved from. It "
+        "replaces nothing: the name is free, as the move freed it under the run's lock",
+    ),
     (
         "deliver.py",
         "temporary.unlink(missing_ok=True)  # its own temporary file, never anything else",
     ): (
-        2,
-        "its own temporary file, after a failed copy or a failed re-check",
+        1,
+        "its own temporary copy, after a failed copy or a failed re-check (`_discard`); a moved "
+        "file is the run's output and is put back instead",
     ),
     ("deliver.py", "os.replace(temporary, self.record_path)"): (
         1,
@@ -1287,7 +1338,19 @@ REVIEWED_WRITES = [
     ("deliver.py", "temporary.write_text(", "the delivery record's temporary, a new file"),
     (
         "deliver.py",
-        'with os.fdopen(fd, "wb") as out, open(source, "rb") as data:',
+        "os.replace(source, temporary)",
+        "a delivery by move: the run's own file renamed over the delivery's temporary "
+        "placeholder, which `mkstemp` just created beside the destination. A link at the "
+        "placeholder's name is not there: `mkstemp` made it exclusively",
+    ),
+    (
+        "deliver.py",
+        "os.replace(temporary, source)",
+        "the undo of a move: the file goes back to the run directory, to the name it left",
+    ),
+    (
+        "deliver.py",
+        'with os.fdopen(fd, "wb") as out:',
         "a delivery's temporary, which `mkstemp` just created beside the destination",
     ),
     (

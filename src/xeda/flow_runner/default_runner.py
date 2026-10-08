@@ -249,6 +249,11 @@ class RunDirPolicy:
     post_cleanup: bool
     post_cleanup_purge: bool
 
+    @property
+    def purges(self) -> bool:
+        """Whether the clean-up after the launch deletes the run directory (`_clean_up`)."""
+        return self.post_cleanup and self.post_cleanup_purge
+
 
 @dataclass(frozen=True)
 class _Request:
@@ -1218,16 +1223,24 @@ class FlowLauncher:
         """At the end of a top-level launch: with `deliver` (it completed, and its requested
         flow succeeded or was up to date), the deliveries noted for its flows (`_defer_delivery`),
         each under its run directory's lock, in completion order; then the deferred clean-ups,
-        which may remove a file that is delivered. Each on its own, a failure logged and the next
+        which may remove a file that is delivered. A flow whose run directory a clean-up deletes
+        delivers by moving its files. Each on its own, a failure logged and the next
         going on. The first failure, if any."""
         self._claims = set()
         self._deliveries_ahead = {}
         deliveries, self._pending_deliveries = self._pending_deliveries, []
+        # A flow whose run directory the clean-ups below delete gives its files away by rename. A
+        # flow found up to date has no clean-up pending, so it is copied from and keeps its files.
+        purged = {
+            id(flow)
+            for flow, _settings, _results, policy in self._pending_clean_ups
+            if policy.purges
+        }
         first_error: Optional[Exception] = None
         for flow, delivery in deliveries if deliver else []:
             try:
                 with run_dir_lock(flow.run_path, self.run_root):
-                    flow.deliveries = delivery.deliver()
+                    flow.deliveries = delivery.deliver(move=id(flow) in purged)
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
                 # `deliver()` records, and reports through `delivery.delivered`, whatever it
                 # copied before raising (an `OSError` partway through), so a `--json` reader still
@@ -2015,7 +2028,7 @@ class FlowLauncher:
         not even if the pruning is interrupted halfway."""
         if policy.post_cleanup:
             remove_trace(flow.run_path)
-            if policy.post_cleanup_purge:
+            if policy.purges:
                 log.warning("Deleting flow run path %s", flow.run_path)
                 flow.run_directory.delete()
             else:

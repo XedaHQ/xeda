@@ -447,7 +447,8 @@ Cleaning up
      - After a run, keep only ``settings.json``, ``results.json`` and the artifacts (dependencies
        included; deferred until the requested flow has finished, so it can still read their files).
    * - ``--post-cleanup-purge``
-     - After a run, remove the run directory entirely.
+     - After a run, remove the run directory entirely. A file that is delivered to a location you
+       named is moved out of it, not copied (see `Outputs where you name them`_).
    * - ``--scrub``
      - Before running, remove the flow's other run directories for this design. Asks for
        confirmation. If the launch also has to ask whether to replace a file you named for an
@@ -526,8 +527,8 @@ Quartus's ``project_new -overwrite``, DC's ``write_icc2_files -force``, Diamond'
 project) -- the whole directory is Xeda's, so there is nothing of yours there to lose.
 
 **Nothing outside the run root changes except what you name.** An output setting you give a
-location, or ``--outputs-to``, is copied there (see `Outputs where you name them`_) -- that is the
-one deliberate exception, and it never deletes anything: a destination is written and, if it was
+location, or ``--outputs-to``, is copied or moved there (see `Outputs where you name them`_) -- that is the
+one deliberate exception, and it never deletes anything of yours: a destination is written and, if it was
 already there, replaced only with your say-so. Two further exceptions exist, both something you
 configure explicitly rather than something Xeda decides on its own: a git dependency's configured
 ``clone_dir``/``local_cache`` (otherwise its clone goes in the run root's ``.dependencies``), and
@@ -594,6 +595,27 @@ made once more right before the copy, in case something changed in between: a de
 changed since its last check is never replaced, confirmed or not. A **fresh** run (one the trace
 found up to date, so no tool ran) delivers its outputs too: delivery follows the run's outcome, not
 whether a tool executed.
+
+With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. A
+delivered file is then **moved** out of the run directory, not copied, so a large output does not
+take a second copy of disk space. Xeda renames the file to a temporary name beside the destination,
+makes the same checks as for a copy right before it renames the file into place, and checks the
+file's digest. If any of this fails, Xeda puts the file back where the run left it. When both
+places are on one file system, a move is a rename. Across file systems, and wherever a rename is
+refused, Xeda copies the file as usual. Xeda also copies in these cases, because a move would be
+wrong or the run directory stays:
+
+* The file is a symbolic link, or has another hard link. The delivered file would be a link that
+  dangles after the purge, or would share its content with the other name.
+* The file is in a directory outside the run directory, which a link inside the run directory
+  leads to. A move would remove a file outside the run directory.
+* Two outputs reach the same file, for example a setting and ``--outputs-to``, or a file and a link
+  to it. Xeda copies it for each of them.
+* The flow was found up to date. Its run directory is not deleted, and its trace still names the
+  output there.
+
+A moved file is recorded in the delivery record like a copy, and the next launch replaces it
+without asking.
 
 Reading a delivered file to confirm it is Xeda's own costs a pass over it, which matters for a
 gigabyte-sized output, so it is read only when its record's metadata cannot vouch for it -- the

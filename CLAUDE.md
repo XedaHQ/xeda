@@ -1261,8 +1261,18 @@ it (the first stays), never "changed while the run went on". The copies themselv
 `_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its
 reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
-has even run. An existing file at a destination is replaced without asking only when it is xeda's
-own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
+has even run. **A flow whose run directory the clean-ups delete delivers by rename**
+(`RunDirPolicy.purges`, read per flow from `_pending_clean_ups` in `_finish_launch`, never from the
+global setting: a flow found up to date has no clean-up pending, so it is copied from and its trace
+stays true; `Deliveries.deliver(move=True)`): `_copy` renames the run's file over its `mkstemp`
+placeholder (`_move_into`), then makes the copy's re-checks and digest check, then the final
+rename. A failure after the first rename puts the file back (`_discard`), never unlinks it; if
+that fails too, the error names the temporary. Only a regular file with `st_nlink == 1`, whose
+parent resolves inside the run directory and that no other delivery of the node names
+(`_movable`, by device and inode of the file and of what a link leads to) moves; anything else, and any `OSError` of the first rename
+(another file system), copies. The remote runner copies (`run_remote` has no clean-up step and
+the CLI hands it neither option, so its local mirror is never purged), and `dse` delivers nothing. An existing file at a destination is replaced without asking only when it is
+xeda's own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
 file holding exactly the delivered bytes is xeda's copy whatever touched it since, while another
 inode, or different bytes, fails closed and asks. **Whether the content must be read is decided by
 the trust rule, like every other record's** (`deliver._destination_record`): a check that
@@ -1290,8 +1300,10 @@ directory).
 
 - **The canary sweep and the audit hook**, exercised together by
   `test_nothing_outside_the_run_root_changes_but_what_was_named`: every registered flow
-  (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in four scenarios
-  (`twice`, `clean`, `purge`, `delivered` -- 100 cases) inside a `World` seeded with a canary file
+  (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in five scenarios
+  (`twice`, `clean`, `purge`, `delivered`, `purged_delivered` -- 125 cases; the last deletes the
+  run directories after delivering, so the files are moved, and the audit hook counts each move
+  against the deliveries made) inside a `World` seeded with a canary file
   at every name a template or xeda itself could write (`CANARIES`: every flow's template
   filenames, `trace.json`, `.xeda.lock`, a Vivado project, `Logs/canary.log`, ...) and a symlink
   out to a sibling `outside/` directory. `_state` snapshots every entry of the design directory's
