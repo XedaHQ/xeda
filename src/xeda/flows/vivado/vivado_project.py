@@ -15,9 +15,9 @@ from ..vivado.vivado_synth import (
     VivadoSynth,
     constraint_files,
     post_step_hooks,
-    project_mode_conflicts,
     refuse_conflicts,
     run_steps,
+    step_mode_conflicts,
 )
 
 log = logging.getLogger(__name__)
@@ -81,10 +81,11 @@ class VivadoProject(Vivado, FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs. Only
+        the steps count: the template renders no `set_synth_properties`."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
-        refuse_conflicts(cls.Settings, project_mode_conflicts(settings))
+        refuse_conflicts(cls.Settings, step_mode_conflicts(settings))
 
     def init(self):
         """Set up Vivado project execution and optional GUI mode."""

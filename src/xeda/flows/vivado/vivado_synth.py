@@ -129,28 +129,47 @@ def refuse_conflicts(settings_class: Any, problems: List[Tuple[str, str]]) -> No
         )
 
 
-def project_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
-    """What, in the settings of a project-mode flow, gives a mode beside `out_of_context`: the
-    extra options of the synthesis step, and the property of the run that `set_synth_properties`
-    sets after the steps (the same property, so the later one holds)."""
+def step_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What, in the steps of the settings, gives a mode beside `out_of_context`: the extra options
+    of the synthesis step, the run property that a project-mode script sets from them."""
     if not settings.out_of_context:
         return []
-    texts: List[Tuple[str, str]] = []
     step = settings.synth.steps.get("SYNTH_DESIGN")
     args = step.get("ARGS") if isinstance(step, dict) else None
     more = args.get("MORE") if isinstance(args, dict) else None
-    if isinstance(more, dict) and more.get("OPTIONS") is not None:
-        options = more["OPTIONS"]
-        texts.append(
-            (
-                MORE_OPTIONS_KEY,
-                " ".join(map(str, options)) if isinstance(options, list) else str(options),
-            )
-        )
+    if not isinstance(more, dict) or more.get("OPTIONS") is None:
+        return []
+    options = more["OPTIONS"]
+    text = " ".join(map(str, options)) if isinstance(options, list) else str(options)
+    return out_of_context_conflicts(MORE_OPTIONS_KEY, text)
+
+
+def property_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What, in `set_synth_properties`, loses or doubles the mode of `out_of_context`. The script
+    of `vivado_synth` sets those properties after the steps, so one for the options of
+    `synth_design` replaces the steps' value, the mode they add included: it has to carry
+    `-mode out_of_context` itself. Another mode in it is refused as in the steps."""
+    if not settings.out_of_context:
+        return []
+    problems: List[Tuple[str, str]] = []
     for name, value in settings.set_synth_properties.items():
-        if name.upper() == MORE_OPTIONS_PROPERTY:
-            texts.append((f"set_synth_properties[{name}]", str(value)))
-    return [conflict for where, text in texts for conflict in out_of_context_conflicts(where, text)]
+        if name.upper() != MORE_OPTIONS_PROPERTY:
+            continue
+        where = f"set_synth_properties[{name}]"
+        text = str(value)
+        found = out_of_context_conflicts(where, text)
+        if not found and not synth_design_modes(text):
+            found = [
+                (
+                    where,
+                    f"`out_of_context` asks for `-mode {OUT_OF_CONTEXT}`, and `{where}` is set "
+                    "after the steps, so it replaces the options they give, the mode included. "
+                    f"Add `-mode {OUT_OF_CONTEXT}` to it, or give the options in `{MORE_OPTIONS_KEY}`"
+                    " and drop it",
+                )
+            ]
+        problems += found
+    return problems
 
 
 def run_steps(
@@ -809,7 +828,7 @@ class VivadoSynth(VivadoImplementation):
     def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
         """What in the settings gives `synth_design` a mode beside `out_of_context`, as
         (setting, why). A flow with another way to write the options overrides this."""
-        return project_mode_conflicts(settings)
+        return step_mode_conflicts(settings) + property_mode_conflicts(settings)
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
@@ -831,6 +850,8 @@ class VivadoSynth(VivadoImplementation):
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
         synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
+        # the planning check's judgment again: a flow built directly is not planned
+        refuse_conflicts(type(settings), property_mode_conflicts(settings))
 
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")

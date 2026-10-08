@@ -1805,15 +1805,19 @@ dependency must also share `custom_boards_file`.
   otherwise exits 1 naming the run, its status and `<project>.runs/<run>/runme.log`.
 - **`out_of_context` adds one `-mode out_of_context` to `synth_design`, and never replaces a
   mode.** `vivado_synth` and `vivado_project` put it in the run property
-  `STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS` (`synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS`;
-  `set_synth_properties` sets the same property after the steps), `vivado_alt_synth` in the
-  `synth` step. A mode the design already
-  gives is kept once; another one is refused before anything runs, by `check_settings_supported`
-  (`vivado_synth.out_of_context_conflicts`, a `FlowSettingsError` naming the setting and the option);
-  without `out_of_context` the design's own `-mode` goes through. What counts as a mode is what
-  Vivado 2024.2 reads (`is_mode_switch`, checked against the real tool): the switch in lower case,
-  or an abbreviation of it no other switch shares (`-mod`; `-m` is `max_bram` too), never
-  `-mode=default` or `--mode`; the value in either letter case, never abbreviated.
+  `STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS` (`synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS`),
+  `vivado_alt_synth` in the `synth` step. A mode the design already gives is kept once; another
+  one is refused before anything runs, by `check_settings_supported`
+  (`vivado_synth.out_of_context_conflicts`, a `FlowSettingsError` naming the setting and the
+  option), and again where the script is rendered, for a flow built directly. Without
+  `out_of_context` the design's own `-mode` goes through. `vivado_synth.tcl` also sets
+  `set_synth_properties` after the steps, so with `out_of_context` an entry for that property
+  replaces the steps' value, the mode included: it has to carry `-mode out_of_context` itself
+  (`property_mode_conflicts`). `vivado_project.tcl` renders no `set_synth_properties`, so only the
+  steps count for it (`step_mode_conflicts`). What counts as a mode is what Vivado 2024.2 reads
+  (`is_mode_switch`, checked against the real tool): the switch in lower case, or an abbreviation
+  of it no other switch shares (`-mod`; `-m` is `max_bram` too), never `-mode=default` or
+  `--mode`; the value in either letter case, never abbreviated.
   `tests/test_vivado_out_of_context_mode.py`.
 - **Yosys FPGA synthesis options are chosen by the installed yosys release.** The `synth_*`
   passes changed their options across releases (ABC9 became the default in 0.36, Nexus moved to

@@ -13,6 +13,8 @@ import pytest
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
+from xeda.flows.vivado.vivado_synth import run_steps
+from xeda.utils import WorkingDirectory
 
 from .test_vivado_step_tables import PART, _design, _run, _script, needs_tclsh
 from .tool_utils import use_fake_tools
@@ -150,24 +152,124 @@ def test_the_check_is_made_by_the_flow_class_alone(flow_class, tmp_path) -> None
         flow_class.check_settings_supported(fine)
 
 
-@pytest.mark.parametrize("flow_class", [VivadoSynth, VivadoProject])
-def test_a_property_set_by_hand_is_judged_like_the_option_setting(flow_class) -> None:
-    """`set_synth_properties` sets the same run property, after the steps."""
-    prop = "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS"
-    settings = {**SETTINGS, "out_of_context": True}
+# `vivado_synth.tcl` sets `set_synth_properties` after the steps, so a property for the options of
+# `synth_design` replaces what the steps gave, the mode included. (`vivado_project.tcl` does not
+# render `set_synth_properties`: only the steps count for it.)
+PROPERTY = "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS"
+PROPERTY_KEY = f"set_synth_properties[{PROPERTY}]"
+
+
+def with_property(value, name: str = PROPERTY, **settings) -> dict:
+    return {**SETTINGS, "set_synth_properties": {name: value}, **settings}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param("-flatten_hierarchy none", id="no-mode"),
+        pytest.param("", id="empty"),
+        pytest.param("-mode default", id="another-mode"),
+    ],
+)
+@pytest.mark.parametrize("name", [PROPERTY, PROPERTY.lower()], ids=["upper", "lower"])
+def test_a_property_that_replaces_the_options_must_carry_the_mode(value, name) -> None:
+    settings = VivadoSynth.Settings(**with_property(value, name, out_of_context=True))
     with pytest.raises(FlowSettingsException) as error:
-        flow_class.check_settings_supported(
-            flow_class.Settings(**settings, set_synth_properties={prop: "-mode default"})
-        )
-    assert "out_of_context" in str(error.value) and prop in str(error.value)
-    flow_class.check_settings_supported(
-        flow_class.Settings(**settings, set_synth_properties={prop: "-mode out_of_context"})
+        VivadoSynth.check_settings_supported(settings)
+    message = str(error.value)
+    assert "out_of_context" in message and f"set_synth_properties[{name}]" in message
+    if value != "-mode default":
+        assert "after the steps" in message and MORE_OPTIONS in message
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["-mode out_of_context", "-flatten_hierarchy none -mode out_of_context", "-mod OUT_OF_CONTEXT"],
+)
+def test_a_property_that_carries_the_mode_is_fine(value) -> None:
+    VivadoSynth.check_settings_supported(
+        VivadoSynth.Settings(**with_property(value, out_of_context=True))
     )
-    flow_class.check_settings_supported(
-        flow_class.Settings(
-            **{**SETTINGS, "set_synth_properties": {prop: "-mode default"}},
+
+
+def test_a_property_is_not_judged_without_out_of_context() -> None:
+    for value in ("-flatten_hierarchy none", "", "-mode default"):
+        VivadoSynth.check_settings_supported(VivadoSynth.Settings(**with_property(value)))
+
+
+def test_a_property_for_something_else_is_not_judged() -> None:
+    VivadoSynth.check_settings_supported(
+        VivadoSynth.Settings(
+            **with_property("-retiming", "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM", out_of_context=True)
         )
     )
+
+
+@needs_tclsh
+def test_a_property_that_carries_the_mode_holds_it_once_in_the_script(
+    tmp_path, monkeypatch
+) -> None:
+    """The property is set last, so its value is the run's; the mode is in it once. (The
+    launcher expands the dots of a property name into a hierarchy, so such a setting reaches a
+    flow built directly only.)"""
+    use_fake_tools(monkeypatch)
+    flow = _built_directly(
+        VivadoSynth,
+        tmp_path,
+        out_of_context=True,
+        set_synth_properties={PROPERTY: "-flatten_hierarchy none -mode out_of_context"},
+    )
+    with WorkingDirectory(tmp_path):
+        flow.init()
+        flow.run()
+    value = project_mode_options((tmp_path / "vivado_synth.tcl").read_text())
+    assert value == "-flatten_hierarchy none -mode out_of_context"
+
+
+# A flow built directly is not planned, so its own render-time check is the only one.
+def _built_directly(flow_class, tmp_path, **settings):
+    return flow_class(flow_class.Settings(**{**SETTINGS, **settings}), _design(), tmp_path)
+
+
+@pytest.mark.parametrize("flow_class", [VivadoSynth, VivadoProject])
+def test_a_flow_built_directly_refuses_another_mode_in_the_steps(flow_class, tmp_path) -> None:
+    flow = _built_directly(
+        flow_class, tmp_path, out_of_context=True, **more_options(["-mode default"])
+    )
+    with pytest.raises(FlowSettingsException) as error:
+        flow.run()
+    assert "out_of_context" in str(error.value) and MORE_OPTIONS in str(error.value)
+
+
+@pytest.mark.parametrize("value", ["-flatten_hierarchy none", "-mode default"])
+def test_vivado_synth_built_directly_refuses_a_property_without_the_mode(value, tmp_path) -> None:
+    flow = _built_directly(
+        VivadoSynth, tmp_path, out_of_context=True, set_synth_properties={PROPERTY: value}
+    )
+    with pytest.raises(FlowSettingsException) as error:
+        flow.run()
+    assert PROPERTY_KEY in str(error.value)
+
+
+def test_alt_synth_built_directly_refuses_another_mode(tmp_path) -> None:
+    flow = _built_directly(
+        VivadoAltSynth, tmp_path, out_of_context=True, **synth_step({"mode": "default"})
+    )
+    with pytest.raises(FlowSettingsException) as error:
+        flow.run()
+    assert "out_of_context" in str(error.value) and SYNTH_STEP in str(error.value)
+
+
+@pytest.mark.parametrize("value", ["-flatten_hierarchy none", "-mode default", ""])
+def test_vivado_project_does_not_judge_what_its_script_does_not_apply(value, tmp_path) -> None:
+    """Its template renders the steps and not `set_synth_properties`, so the property has no
+    effect there, and refusing it would refuse nothing."""
+    settings = {"out_of_context": True, "set_synth_properties": {PROPERTY: value}}
+    VivadoProject.check_settings_supported(VivadoProject.Settings(**{**SETTINGS, **settings}))
+    # built directly, its render-time check passes it too (it fails later, at the missing tool)
+    flow = _built_directly(VivadoProject, tmp_path, **settings)
+    synth_steps, _ = run_steps(flow.settings, out_of_context=True)
+    assert synth_steps["SYNTH_DESIGN"]["ARGS"]["MORE"]["OPTIONS"] == ["-mode out_of_context"]
 
 
 # ----------------------------------------------------------------------------- vivado_alt_synth
