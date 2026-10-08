@@ -109,14 +109,14 @@ def run_steps(
         args = synth_design.get("ARGS", {})
         args_more = args.get("MORE", {})
         assert isinstance(args_more, dict), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
-        args_more_options = args.get("OPTIONS", [])
-        if isinstance(args_more_options, str):
-            args_more_options = [args_more_options]
+        more_options = args_more.get("OPTIONS", [])
+        if isinstance(more_options, str):
+            more_options = [more_options]
         assert isinstance(
-            args_more_options, list
-        ), f"SYNTH_DESIGN.ARGS.OPTIONS: {args_more_options} must be a list/str"
-        args_more_options.append("-mode out_of_context")
-        args_more["OPTIONS"] = args_more_options
+            more_options, list
+        ), f"SYNTH_DESIGN.ARGS.MORE.OPTIONS: {more_options} must be a list or text"
+        more_options.append("-mode out_of_context")
+        args_more["OPTIONS"] = more_options
         args["MORE"] = args_more
         synth_design["ARGS"] = args
     return synth, impl

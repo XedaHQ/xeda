@@ -1,2 +1,3 @@
-- Fix `vivado_alt_synth` dropping `out_of_context` when its synthesis step is empty or a list. The
-  Vivado flows no longer record the options they derive at run time in their settings.
+- Fix `out_of_context` losing options: `vivado_alt_synth` dropped it for an empty or list
+  synthesis step, and `vivado_synth` replaced the `SYNTH_DESIGN.ARGS.MORE.OPTIONS` of the design.
+  The Vivado flows no longer record the options they derive in their settings.

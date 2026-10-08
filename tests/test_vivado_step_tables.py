@@ -231,9 +231,35 @@ def test_vivado_synth_launches_do_not_leave_their_options_for_the_next(
         {
             "out_of_context": True,
             "flatten_hierarchy": "full",
-            "synth": {"steps": {"SYNTH_DESIGN": {"ARGS": {"OPTIONS": ["-retiming"]}}}},
+            "synth": {"steps": {"SYNTH_DESIGN": {"ARGS": {"MORE": {"OPTIONS": ["-retiming"]}}}}},
         },
         "vivado_synth.tcl",
     )
     assert after == before
     assert "out_of_context" not in after and "retiming" not in after
+
+
+@needs_tclsh
+@pytest.mark.parametrize(
+    "options",
+    [pytest.param(["-retiming"], id="list"), pytest.param("-retiming", id="text")],
+)
+def test_vivado_synth_adds_the_mode_to_the_more_options_the_design_gave(
+    tmp_path, monkeypatch, options
+) -> None:
+    """An out-of-context synthesis adds its mode to the `MORE OPTIONS` of `synth_design`, and
+    keeps the ones the settings already hold."""
+    more = {"steps": {"SYNTH_DESIGN": {"ARGS": {"MORE": {"OPTIONS": options}}}}}
+    run = _run(
+        VivadoSynth,
+        tmp_path / "run",
+        _design(),
+        {"fpga": PART, "clock_period": 5.5, "out_of_context": True, "synth": more},
+        monkeypatch,
+    )
+    script = _script(run, "vivado_synth.tcl")
+    assert re.search(
+        r'-name "STEPS\.SYNTH_DESIGN\.ARGS\.MORE OPTIONS" -value "-retiming -mode out_of_context"',
+        script,
+    ), script
+    assert run.settings.synth.steps["SYNTH_DESIGN"]["ARGS"]["MORE"]["OPTIONS"] == options
