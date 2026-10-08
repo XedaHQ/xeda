@@ -4,8 +4,9 @@ import logging
 import re
 from abc import ABCMeta
 from collections import OrderedDict
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
@@ -64,13 +65,23 @@ def vivado_synth_generics(parameters: dict) -> List[str]:
     return generics
 
 
-def normalize_run_steps(settings: Any) -> None:
-    """Every step of the synthesis and implementation runs as a mapping holding its `ARGS` and
-    `TCL` mappings, so the steps' properties, and the hooks attached to them, have a place."""
-    for run_settings, steps in (
-        (settings.synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
+def run_steps(
+    settings: Any, *, out_of_context: bool = False
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The steps of the synthesis run and of the implementation run of a project-mode script, as
+    the script sets their properties. They are copies of `settings.synth.steps` and
+    `settings.impl.steps` that the flow completes. A run does not write into its settings, nor
+    into the defaults and tables behind them: the next run of the process would read those.
+
+    Every step is a mapping that holds its `ARGS` and `TCL` mappings, so the steps' properties,
+    and the hooks attached to them, have a place. `SYNTH_DESIGN` holds what the settings
+    derive: `flatten_hierarchy`, and with `out_of_context` the option `-mode out_of_context`."""
+    synth = deepcopy(settings.synth.steps)
+    impl = deepcopy(settings.impl.steps)
+    for steps, names in (
+        (synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
         (
-            settings.impl,
+            impl,
             [
                 "PLACE_DESIGN",
                 "POST_PLACE_POWER_OPT_DESIGN",
@@ -80,18 +91,40 @@ def normalize_run_steps(settings: Any) -> None:
             ],
         ),
     ):
-        for step in steps:
-            step_setting: Union[Dict[str, Any], List[str]] = run_settings.steps.get(step, {}) or {}
+        for step in names:
+            step_setting: Union[Dict[str, Any], List[str]] = steps.get(step, {}) or {}
             if isinstance(step_setting, list):
                 step_setting = {k: None for k in step_setting}
             assert isinstance(step_setting, dict)
             for sub in ["ARGS", "TCL"]:
                 if step_setting.get(sub) is None:
                     step_setting[sub] = {}
-            run_settings.steps[step] = step_setting
+            steps[step] = step_setting
+
+    synth_design = synth["SYNTH_DESIGN"]
+    assert isinstance(synth_design, dict)
+    if settings.flatten_hierarchy:
+        synth_design["flatten_hierarchy"] = settings.flatten_hierarchy
+    if out_of_context:
+        args = synth_design.get("ARGS", {})
+        args_more = args.get("MORE", {})
+        assert isinstance(args_more, dict), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
+        args_more_options = args.get("OPTIONS", [])
+        if isinstance(args_more_options, str):
+            args_more_options = [args_more_options]
+        assert isinstance(
+            args_more_options, list
+        ), f"SYNTH_DESIGN.ARGS.OPTIONS: {args_more_options} must be a list/str"
+        args_more_options.append("-mode out_of_context")
+        args_more["OPTIONS"] = args_more_options
+        args["MORE"] = args_more
+        synth_design["ARGS"] = args
+    return synth, impl
 
 
-def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
+def post_step_hooks(
+    flow: Any, settings: Any, synth_steps: Dict[str, Any], impl_steps: Dict[str, Any]
+) -> List[Path]:
     """A generated `TCL.POST` hook for each step of a project-mode run that xeda follows, which
     Vivado's run sources after the step, in the run's own directory. Each sources the user's own
     `TCL.POST` for the step, if any, then writes the step's reports under `reports/<step>/` and
@@ -100,18 +133,19 @@ def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
     (`write_netlist`), and the timing netlist and the SDF corners (`write_timing_netlist`) after
     `route_design`; with a bitstream requested, the `write_bitstream` step's
     hook copies the bitstream Vivado wrote to its path. Returns the hooks, which the project's
-    `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
+    `utils_1` fileset has to hold. Attaches each hook to its step in the `synth_steps` and
+    `impl_steps` it is given (`run_steps`), not in the settings."""
     hooks: List[Path] = []
     # absolute, since the runs source the hooks in their own directories
     outputs = {
         label: flow.run_path / path for label, path in project_outputs(flow, settings).items()
     }
-    impl_steps = ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]
+    hooked_impl_steps = ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]
     if BITSTREAM in outputs:
-        impl_steps.append("WRITE_BITSTREAM")
-    for run_settings, steps in ((settings.synth, ["SYNTH_DESIGN"]), (settings.impl, impl_steps)):
+        hooked_impl_steps.append("WRITE_BITSTREAM")
+    for run_steps_, steps in ((synth_steps, ["SYNTH_DESIGN"]), (impl_steps, hooked_impl_steps)):
         for step in steps:
-            step_settings = run_settings.steps.get(step)
+            step_settings = run_steps_.get(step)
             assert isinstance(step_settings, dict)
             tcl_settings = step_settings.get("TCL")
             assert isinstance(tcl_settings, dict)
@@ -689,30 +723,10 @@ class VivadoSynth(VivadoImplementation):
         """Run Vivado synthesis and collect requested artifacts."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
-        normalize_run_steps(settings)
+        synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
 
         if not self.design.rtl.clocks:
             log.warning("No clocks specified for top RTL design.")
-
-        assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
-        if settings.flatten_hierarchy:
-            settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
-        if settings.out_of_context:
-            args = settings.synth.steps["SYNTH_DESIGN"].get("ARGS", {})
-            args_more = args.get("MORE", {})
-            assert isinstance(
-                args_more, dict
-            ), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
-            args_more_options = args.get("OPTIONS", [])
-            if isinstance(args_more_options, str):
-                args_more_options = [args_more_options]
-            assert isinstance(
-                args_more_options, list
-            ), f"SYNTH_DESIGN.ARGS.OPTIONS: {args_more_options} must be a list/str"
-            args_more_options.append("-mode out_of_context")
-            args_more["OPTIONS"] = args_more_options
-            args["MORE"] = args_more
-            settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
 
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
 
@@ -733,7 +747,7 @@ class VivadoSynth(VivadoImplementation):
         self.artifacts.update(outputs)
         declare_outputs(self, {name: outputs.get(label) for name, label in OUTPUT_LABELS.items()})
 
-        tcl_files += post_step_hooks(self, settings)
+        tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)
         xdc_files = constraint_files(self, settings)
 
         log.debug("XDC files: %s", ", ".join(str(s) for s in xdc_files))
@@ -743,6 +757,8 @@ class VivadoSynth(VivadoImplementation):
             "vivado_synth.tcl",
             xdc_files=xdc_files,
             tcl_files=tcl_files,
+            synth_steps=synth_steps,
+            impl_steps=impl_steps,
             generics=vivado_synth_generics(self.design.rtl.parameters),
             impl_to_step="write_bitstream" if BITSTREAM in outputs else "route_design",
             run_status_file=run_status,

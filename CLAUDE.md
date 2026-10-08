@@ -729,8 +729,13 @@ message. `tests/test_written_paths.py` checks each named form is absolute once e
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
 rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
-The same goes for anything that depends on several settings: `Flow.Settings.is_quiet` is `quiet`
-unless `verbose` or `debug` is set. A flow setting's *field* validator never reads another
+The Vivado step tables follow it: `synth_design_options` (`vivado_alt_synth`) and `run_steps`
+(`vivado_synth`, `vivado_project`) return copies that hold what the settings derive
+(`-mode out_of_context`, `flatten_hierarchy`, the step hooks), and `expand_run_options` copies
+the module's strategy table, so a run writes into neither its settings nor a table that the next
+run of the process reads (`tests/test_vivado_step_tables.py`). The same goes for anything that
+depends on several settings: `Flow.Settings.is_quiet` is `quiet` unless `verbose` or `debug` is
+set. A flow setting's *field* validator never reads another
 setting (`info.data`): it runs only when its own field is validated, so its result would depend
 on the order settings were given in. `tests/test_model_invariants.py` checks every flow.
 

@@ -12,7 +12,7 @@ from xeda import Design
 from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoSim, VivadoSynth
-from xeda.flows.vivado.vivado_synth import parse_hier_util, vivado_synth_generics
+from xeda.flows.vivado.vivado_synth import parse_hier_util, run_steps, vivado_synth_generics
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -27,10 +27,13 @@ def test_vivado_synth_template(tmp_path: Path) -> None:
     run_dir = tmp_path / "vivado_synth_run"
     run_dir.mkdir()
     flow = VivadoSynth(settings, design, run_dir)  # type: ignore
+    steps = run_steps(settings)
     tcl_file = flow.copy_from_template(
         "vivado_synth.tcl",
         xdc_files=[],
         tcl_files=[],
+        synth_steps=steps[0],
+        impl_steps=steps[1],
         generics=vivado_synth_generics(design.rtl.parameters),
         impl_to_step="route_design",
         run_status_file=run_dir / "run_status.txt",
@@ -218,7 +221,7 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
     """`num_critical_paths` drives how many paths every critical path report asks
     for, in both the project-based and the alternate synthesis flow."""
     from xeda.flows import VivadoAltSynth
-    from xeda.flows.vivado.vivado_alt_synth import flatten_options
+    from xeda.flows.vivado.vivado_alt_synth import flatten_options, synth_design_options
 
     design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     assert VivadoSynth.Settings(fpga=FPGA(part="abcd"), clock_period=5.5).num_critical_paths == 100  # type: ignore
@@ -247,7 +250,11 @@ def test_num_critical_paths_setting_reaches_the_templates() -> None:
         alt_flow.init()  # registers the vivado_generics / vivado_defines filters
         alt_flow.add_template_filter("flatten_options", flatten_options)
         alt = tmp_dir / alt_flow.copy_from_template(
-            "vivado_alt_synth.tcl", xdc_files=[], tcl_files=[], generics=[]
+            "vivado_alt_synth.tcl",
+            xdc_files=[],
+            tcl_files=[],
+            generics=[],
+            synth_options=synth_design_options(alt_settings),
         )
         assert "set num_max_paths 7" in alt.read_text()
 

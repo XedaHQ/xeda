@@ -67,7 +67,7 @@ set_property generic {{generics|tcl_word}} [current_fileset]
 
 {# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 {# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
-{%- for step,options in settings.synth.steps.items() %}
+{%- for step,options in synth_steps.items() %}
 {%- for name,value in options.items() %}
 {% if value is mapping %}
 {%- for k,v in value.items() %}
@@ -79,7 +79,7 @@ set_property {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} {{value|tcl_word}} [get
 {%- endfor %}
 {%- endfor %}
 
-{%- for step,options in settings.impl.steps.items() %}
+{%- for step,options in impl_steps.items() %}
 {%- for name,value in options.items() %}
 {% if value is mapping %}
 {%- for k,v in value.items() %}

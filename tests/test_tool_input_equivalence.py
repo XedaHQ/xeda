@@ -105,6 +105,12 @@ _SYNTH_DELTAS = {
     "what it wrote before",
     f"{_SYNTH}/results/outputs": "`vivado_synth`'s declared outputs, recorded "
     "with their digests; the files they name are the ones recorded under `files`",
+    **{
+        f"{_SYNTH}/effective_flow_settings/{run}/steps": "a run writes nothing it derives into "
+        "its settings: the empty `ARGS` and `TCL` of each step, `flatten_hierarchy` and the "
+        "hooks it attaches are in the script and the hooks, which stay compared under `files`"
+        for run in ("synth", "impl")
+    },
     f"{_SYNTH}/files/<RUN>/sim/vivado_synth/post_route_design_hook.tcl": "The "
     "route hook writes the netlist, the timing netlist with its SDF and the constraints in "
     "blocks of their own; it writes the same files in the same order",

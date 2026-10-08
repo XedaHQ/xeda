@@ -68,7 +68,7 @@ read_xdc {{xdc_file|tcl_list}}
 {%- endfor %}
 
 puts "\n===========================( RTL Synthesize and Map )==========================="
-synth_design -part $fpga_part -top {{design.rtl.top|tcl_word}} {{settings.synth.steps.synth|flatten_options}} {{design.rtl.parameters|vivado_generics}} {{design.rtl.defines|vivado_defines}}
+synth_design -part $fpga_part -top {{design.rtl.top|tcl_word}} {{synth_options|flatten_options}} {{design.rtl.parameters|vivado_generics}} {{design.rtl.defines|vivado_defines}}
 
 {%- if settings.synth.strategy == "Debug" %}
 set_property KEEP_HIERARCHY true [get_cells -hier * ]

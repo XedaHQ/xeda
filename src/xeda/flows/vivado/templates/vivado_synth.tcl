@@ -88,8 +88,8 @@ set_property generic {{generics|join(" ")|tcl_word}} [current_fileset]
 
 {# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 {# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
-{%- for run,run_name in [(settings.synth, "synth_1"), (settings.impl, "impl_1")] %}
-{%- for step,options in run.steps.items() %}
+{%- for steps,run_name in [(synth_steps, "synth_1"), (impl_steps, "impl_1")] %}
+{%- for step,options in steps.items() %}
 {%- for name,value in options.items() %}
 {% if value is mapping %}
 {%- for k,v in value.items() %}

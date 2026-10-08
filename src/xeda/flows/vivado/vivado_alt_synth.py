@@ -1,4 +1,5 @@
 import logging
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -14,7 +15,6 @@ from .vivado_synth import (
     SDF,
     XDC_EXPORTED,
     RunOptions,
-    StepsValType,
     VivadoSynth,
     _VivadoSynthOutputs,
     constraint_files,
@@ -349,7 +349,9 @@ def expand_run_options(run: str, value: RunOptions) -> RunOptions:
 
     A copy: this runs in a `mode="after"` validator, so `value` may be the caller's own
     `RunOptions` instance, and expanding the strategy in place would grow the caller's `steps`
-    mapping.
+    mapping. The steps of the strategy are copied as well: they are the module's, and whoever
+    gets the options owns them (the model happens to copy a mapping it validates; this does not
+    depend on it).
     """
     value = value.model_copy(deep=True)
     if value.strategy:
@@ -357,13 +359,28 @@ def expand_run_options(run: str, value: RunOptions) -> RunOptions:
         if strategy_steps is None:
             raise ValueError(f"Unknown strategy: {value.strategy}")
         value.steps = {
-            **strategy_steps,
+            **deepcopy(strategy_steps),
             **value.steps,
         }
     for step in RUN_STEPS[run]:
         if step not in value.steps:
             value.steps[step] = None
     return value
+
+
+def synth_design_options(settings: Any) -> Dict[str, Any]:
+    """The options of `synth_design`: the `synth` step of the settings, and what the settings
+    derive, `-mode out_of_context` and `-flatten_hierarchy`. A copy, computed where the script is
+    rendered: the settings, and the module's strategies behind them, are not written."""
+    steps = settings.synth.steps.get("synth")
+    options: Dict[str, Any] = (
+        {step: None for step in steps} if isinstance(steps, list) else deepcopy(steps or {})
+    )
+    if settings.out_of_context:
+        options["mode"] = "out_of_context"
+    if settings.flatten_hierarchy:
+        options["flatten_hierarchy"] = settings.flatten_hierarchy
+    return options
 
 
 def flatten_options(d) -> str:
@@ -468,32 +485,14 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        synth_steps: Optional[StepsValType] = ss.synth.steps.get("synth")
-        if synth_steps is None:
-            synth_steps = {}
-        if isinstance(synth_steps, list):
-            synth_steps = {s: None for s in synth_steps}
-        assert isinstance(synth_steps, dict), f"synth_steps: {synth_steps} is not a dict"
-
-        if ss.out_of_context:
-            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
-                if isinstance(ss.synth.steps["synth"], dict):
-                    ss.synth.steps["synth"]["mode"] = "out_of_context"
-                else:
-                    ss.synth.steps["synth"].append("-mode out_of_context")
-
-            # always need a synth step?
-            ss.synth.steps["synth"] = synth_steps
-        if ss.flatten_hierarchy:
-            synth_steps["flatten_hierarchy"] = ss.flatten_hierarchy
-        ss.synth.steps["synth"] = synth_steps
+        synth_options = synth_design_options(ss)
 
         def steps_to_str(steps):
             return "\n " + "\n ".join(
                 f"{name}: {flatten_options(step)}" for name, step in steps.items() if step
             )
 
-        log.debug("Synthesis steps:%s", steps_to_str(ss.synth.steps))
+        log.debug("Synthesis steps:%s", steps_to_str({**ss.synth.steps, "synth": synth_options}))
         log.debug("Implementation steps:%s", steps_to_str(ss.impl.steps))
         self.add_template_filter(
             "flatten_options",
@@ -502,6 +501,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         script_path = self.copy_from_template(
             "vivado_alt_synth.tcl",
             xdc_files=constraint_files(self, ss),
+            synth_options=synth_options,
         )
         # These are written by `vivado_alt_synth.tcl` whenever the setting that enables them is
         # on (`write_checkpoint`/`write_netlist`/`write_timing_netlist`); record them here, since
