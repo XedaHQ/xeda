@@ -55,6 +55,7 @@ CONTENTS = {
     ".v": "module top(input clk, output q); assign q = clk; endmodule\\n",
     ".edf": "(edif top)\\n",
     ".bsv": "package Top; endpackage\\n",
+    ".vhd": "entity top is end;\\narchitecture a of top is begin end;\\n",
 }
 root = Path(os.environ["DESIGN_ROOT"])
 with open(sys.argv[1], "a") as counter:
@@ -114,6 +115,13 @@ REFUSALS = {
         "vivado_synth",
         XILINX,
         "vivado_synth cannot read the design's Bluespec source",
+    ),
+    "a language the simulator cannot read": (
+        ["gen/top.vhd"],
+        {},
+        "verilator",
+        {},
+        "verilator cannot read the design's Vhdl source",
     ),
     "a testbench without its top": (
         ["gen/top.v"],
