@@ -946,13 +946,27 @@ class FlowLauncher:
         flow_request: FlowRequest | None = None,
         binding_layers: Sequence[BindingLayer] = (),
     ) -> Plan:
-        """Resolve one request without constructing a flow, probing tools or writing files."""
+        """Resolve one request without constructing a flow, probing tools or writing files.
+
+        A request composes its files itself and passes them as `origins`, lowest precedence
+        first (`_request`: the project's sections, then the design's; the remote runner the
+        same). A launch that is only handed a built design (`run_flow`, `launch_flow`, a direct
+        call) composes none, and then the design's own `flows` sections are its file origin, the
+        sections it was handed come after them, and the settings after those. So planning a
+        design and launching it from the same arguments resolve the same plan."""
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
+        direct = not origins
+        design_label = f"the design {design.name}"
         # Capture reserved keys before settings composition: `inputs` is wiring the resolver
         # selects edges by, never a setting.
-        layers = list(binding_layers)
+        layers: list[BindingLayer] = []
         clean_origins = []
+        if direct:
+            clean, bindings = split_bindings(deepcopy(design.flow), location=design_label)
+            clean_origins.append((design_label, clean))
+            layers.append(bindings)
+        layers.extend(binding_layers)
         for location, values in origins:
             clean, bindings = split_bindings(values, location=location)
             clean_origins.append((location, clean))
@@ -962,6 +976,8 @@ class FlowLauncher:
         )
         if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
             layers.append(bindings)
+        if direct:
+            clean_origins.append(("the supplied flow sections", all_flows_settings))
         clean_cli, bindings = split_bindings(
             command_line or {}, location="the command line", kind="cli"
         )
@@ -2058,9 +2074,12 @@ class FlowLauncher:
         all_flows_settings: Union[Dict, None] = None,
         plan: Plan | None = None,
     ) -> Optional[Flow]:
-        """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
-        into `flow_settings` exactly as `run()` composes the design's and project's sections
-        (`compose_flow_settings`); a `Flow.Settings` instance is taken as final."""
+        """Launch `flow_class` on `design`, which the caller has built. Its settings come from the
+        layers `run()` composes, lowest first: the design's own `flows` sections, then
+        `all_flows_settings` (more `flows` sections, composed into `flow_settings` by
+        `compose_flow_settings`), then `flow_settings`; a `Flow.Settings` instance is taken as
+        final. `run()` and `plan()` also read a project file. A built design names none, so hand
+        its sections in as `all_flows_settings`."""
         if plan is None and depender is None:
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections, section_bindings = split_bindings(

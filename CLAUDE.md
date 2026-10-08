@@ -358,6 +358,19 @@ removed before the run, so an earlier success never stands for a run that died
   design file; `--` ends the options. Local runs, remote runs and producers all use
   `merge_layers`. Declared edges agree shared leaves in the resolver. A producer's `debug`, and a
   `verbose` level above 1, carry over from its consumer (`carry_diagnostics`).
+  **Every way to launch a flow takes the same layers.** `_request` (`run`, `plan`, `dse`) and the
+  remote runner load the files and pass the project's and the design's sections to
+  `FlowLauncher.resolve` as `origins`. A launch that is only handed a built design
+  (`run_flow`, `launch_flow`, `Dse.run_flow`, a direct `resolve`) passes none, and `resolve` then
+  makes the design's own `flows` sections (the target's folded in) its file origin, below the
+  `all_flows_settings` it was handed and the settings: it used to ignore them, so a device
+  written only in `flows.vivado_synth` failed `run_flow(VivadoPower, ...)` while `plan` named it.
+  Only `run`, `plan` and `--remote` read a project file; a built design names none, so its
+  caller hands the project's sections in.
+  `tests/test_launch_origins.py` plans a design that writes its device in one section only, then
+  resolves and launches it through every door (`run`, `run_flow`, `launch_flow`, `resolve`, the
+  command line, `Dse`, and `--remote` in `test_remote_run.py`) and compares the nodes and their
+  identities with the plan's.
 
 - **There is one dependency mechanism: declared inputs and outputs.** No flow registers a
   dependency, nests another flow's settings or reads another flow's state: `add_dependency`,

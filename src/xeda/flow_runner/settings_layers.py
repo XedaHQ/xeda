@@ -16,6 +16,11 @@ so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` s
 of replacing the whole section. Any other value -- a list included -- is replaced whole by a
 higher layer. Local and remote runs, and the settings of every producer, all go through
 `merge_layers`, so they cannot disagree about precedence.
+
+Every way to launch a flow takes the same layers. `run`, `plan` and the remote runner load the
+files and hand them to `FlowLauncher.resolve` as origins. A launch that is given a built design
+instead (`run_flow`, `launch_flow`) hands none, and `resolve` takes layers 3 and 4 from the
+design itself. Only `run`, `plan` and the remote runner read a project file.
 """
 
 import difflib
