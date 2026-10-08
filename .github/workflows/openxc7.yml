@@ -76,8 +76,13 @@ jobs:
           fi
           cat "$list"
           sudo apt-get update
-          xargs -a "$list" sudo env DEBIAN_FRONTEND=noninteractive \
-            apt-get install --yes --no-install-recommends
+          if ! xargs -a "$list" sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-install-recommends 2>&1 | tee "$RUNNER_TEMP/apt.log"; then
+            if grep -q 'Unable to locate package' "$RUNNER_TEMP/apt.log"; then
+              echo "::error::The list names a package that the archive no longer has. Raise RECIPE to make a new list."
+            fi
+            exit 1
+          fi
 
       - name: Get the installer and install its system packages
         # Everything the installer lists, to build the tools.
@@ -124,7 +129,9 @@ jobs:
             # A script, or a static executable, has no libraries, and ldd exits with 1.
             output="$(ldd "$executable" 2>&1)" || continue
             if grep -q 'not found' <<< "$output"; then
-              echo "::warning::$executable needs a library that ldd does not find: $(grep 'not found' <<< "$output")"
+              echo "::error::$executable needs a shared library that is missing:"
+              grep 'not found' <<< "$output"
+              exit 1
             fi
             awk '$2 == "=>" && $3 ~ /^\// { print $3 } $1 ~ /^\// { print $1 }' <<< "$output" >> "$libraries"
           done
@@ -147,18 +154,11 @@ jobs:
           test -s "$list"
           cat "$list"
 
-      - name: Save the openXC7 installation
-        # Before the tests, so that a failing test does not discard the build.
-        if: steps.toolchain.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/openxc7/bin
-            ~/openxc7/lib
-            ~/openxc7/share
-          key: ${{ steps.toolchain.outputs.cache-primary-key }}
-
       - name: Check the installation
+        # Before the save, so that a tree with a missing library is not cached. After the
+        # installation of the listed packages on a hit: they are all that a hit has.
+        env:
+          CACHE_HIT: ${{ steps.toolchain.outputs.cache-hit }}
         run: |
           set -euo pipefail
           echo "$HOME/openxc7/bin" >> "$GITHUB_PATH"
@@ -171,6 +171,9 @@ jobs:
             if [ -n "$missing" ]; then
               echo "$tool needs a shared library that is missing:" >&2
               echo "$missing" >&2
+              if [ "$CACHE_HIT" = true ]; then
+                echo "::error::The installed packages are the ones in the list of the cache. Raise RECIPE to make a new list."
+              fi
               exit 1
             fi
           done
@@ -178,6 +181,17 @@ jobs:
           nextpnr-himbaechel --version
           du -sh "$HOME"/openxc7/{bin,lib,share}
           df -h /
+
+      - name: Save the openXC7 installation
+        # Before the tests, so that a failing test does not discard the build.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/openxc7/bin
+            ~/openxc7/lib
+            ~/openxc7/share
+          key: ${{ steps.toolchain.outputs.cache-primary-key }}
 
       - uses: actions/setup-python@v6
         with:
@@ -192,11 +206,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --editable . pytest
           # Artix-7 builds only: the cache holds the Project X-Ray data of that family alone. The
-          # STLV7325 case of the board test needs Kintex-7 data, so it is left out.
+          # STLV7325 case of the board test needs Kintex-7 data, so it is left out. The order of
+          # the cases is free: they share one run root, and the Basys 3 makes a second chip
+          # database in it, so it comes first here, the order that once broke the Arty tests.
           python -m pytest -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openxc7-tests.xml" \
-            tests/test_openxc7_real.py \
+            "tests/test_board_basys3_stlv7325.py::test_the_board_builds_a_bitstream_with_openxc7[basys_3]" \
             tests/test_fpga_chains.py::test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7 \
-            "tests/test_board_basys3_stlv7325.py::test_the_board_builds_a_bitstream_with_openxc7[basys_3]"
+            tests/test_openxc7_real.py
           # A skipped test builds nothing. Without this check, a renamed opt-in variable or a
           # changed probe in tests/tool_utils.py would leave the job green with no build.
           python - "$RUNNER_TEMP/openxc7-tests.xml" <<'PY'
