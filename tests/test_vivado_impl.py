@@ -28,6 +28,7 @@ from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import FlowFatalError, FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs
+from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
 
@@ -201,8 +202,17 @@ def test_a_listed_edif_netlist_replaces_the_synthesis(tmp_path) -> None:
     assert [node.name for node in plan.nodes] == ["vivado_impl"]
     netlist = next(i for i in plan.node("vivado_impl").inputs if i.name == "netlist")
     assert (netlist.origin, netlist.sources) == ("source", (tmp_path / "d" / "given.edf",))
-    # ... unless a chain asks for the synthesis
-    chained = _plan(tmp_path, "yosys_fpga+vivado_impl", design)
+    # a chain that asks for the synthesis needs a source to synthesize: here there is none
+    with pytest.raises(NoReadableSource, match="yosys_fpga reads none of the design's sources"):
+        _plan(tmp_path, "yosys_fpga+vivado_impl", design)
+    # with one, the listed netlist still replaces the synthesis, unless a chain asks for it
+    both = _design(
+        tmp_path / "e",
+        sources=("blinky.v", {"file": "given.edf", "type": "Edif"}, "pins.xdc"),
+        flows={"vivado_impl": SETTINGS},
+    )
+    assert [node.name for node in _plan(tmp_path, "vivado_impl", both).nodes] == ["vivado_impl"]
+    chained = _plan(tmp_path, "yosys_fpga+vivado_impl", both)
     assert [node.name for node in chained.nodes] == ["yosys_fpga", "vivado_impl"]
 
 
