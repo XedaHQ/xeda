@@ -47,6 +47,7 @@ from ..design import (
     DESIGN_NAME,
     DESIGN_PARTS,
     Design,
+    deferring_load_side_effects,
     loading_in_run_root,
     names_a_design_file,
     refusing_load_side_effects,
@@ -1034,6 +1035,7 @@ class FlowLauncher:
         api_overrides: Mapping[str, Mapping[str, Any]] | None = None,
         flow_request: FlowRequest | None = None,
         binding_layers: Sequence[BindingLayer] = (),
+        identify_design: bool = True,
     ) -> Plan:
         """Resolve one request without constructing a flow, probing tools or writing files.
 
@@ -1095,17 +1097,19 @@ class FlowLauncher:
             debug=self.settings.debug,
             flow_request=flow_request,
             binding_layers=layers,
+            identify_design=identify_design,
         )
-        # The resolver validates final agreed settings. The original request may contain
-        # partial shared values that become valid only along a declared edge.
-        self._plans[id(plan)] = (
-            plan,
-            recorded_settings,
-            recorded_sections,
-        )
+        if identify_design:
+            # The resolver validates final agreed settings. The original request may contain
+            # partial shared values that become valid only along a declared edge.
+            self._plans[id(plan)] = (
+                plan,
+                recorded_settings,
+                recorded_sections,
+            )
         return plan
 
-    def _resolve_request(self, request: _Request) -> Plan:
+    def _resolve_request(self, request: _Request, identify_design: bool = True) -> Plan:
         return self.resolve(
             request.flow_class,
             request.design,
@@ -1116,6 +1120,7 @@ class FlowLauncher:
             api_overrides=request.api_overrides,
             flow_request=request.flow_request,
             binding_layers=request.binding_layers,
+            identify_design=identify_design,
         )
 
     def _validate_plan(
@@ -2367,7 +2372,7 @@ class FlowLauncher:
         # What does need it is listed there, and refused below, once the request is resolved.
         if not self.accepts_bindings:
             self._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
-        request = self._request(
+        request, plan = self._judged_request(
             flow,
             design,
             xedaproject,
@@ -2379,12 +2384,7 @@ class FlowLauncher:
             design_remove_fields,
             target=target,
         )
-        plan = self._resolve_request(request)
-        if not self.accepts_bindings and (
-            len(request.flow_request.elements) > 1
-            or any(i.binding_origin for n in plan.nodes for i in n.inputs)
-        ):
-            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+        self._refuse_unaccepted_plan(request, plan)
         #: the plan this run follows, for reporting
         self.last_plan = plan
         previous, self._request_context = self._request_context, request
@@ -2415,21 +2415,25 @@ class FlowLauncher:
         """Plan what run() would execute, refusing side-effecting design loading, and what
         run() would refuse before anything runs (a run directory a flow refuses, `--outputs-to`
         a programmer)."""
-        plan = self._resolve_request(
-            self._request(
-                flow,
-                design,
-                xedaproject,
-                flow_settings,
-                flow_overrides,
-                select_design_in_project,
-                design_overrides,
-                design_allow_extra,
-                design_remove_fields,
-                target=target,
-                _planning=True,
-            )
+        _request, plan = self._judged_request(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+            target=target,
+            planning=True,
         )
+        self._refuse_planned(plan)
+        return plan
+
+    def _refuse_planned(self, plan: Plan) -> None:
+        """What a launch refuses of a resolved plan before anything runs, which a plan reports
+        too: a run directory a flow cannot work in, `--outputs-to` a programmer."""
         # the launch refuses these too, where it decides the directory (`_run_identity`)
         for node in plan.nodes:
             node.flow_class.check_run_directory(node.settings, node.run_path)
@@ -2437,7 +2441,77 @@ class FlowLauncher:
             _refuse_outputs_to_a_programmer(
                 plan, plan.node(plan.requested), self.settings.outputs_to
             )
-        return plan
+
+    def _refuse_unaccepted_plan(self, request: _Request, plan: Plan) -> None:
+        """A launcher that takes no chain or binding (`Dse`) refuses a request whose plan has
+        one, once the plan shows it."""
+        if not self.accepts_bindings and (
+            len(request.flow_request.elements) > 1
+            or any(i.binding_origin for n in plan.nodes for i in n.inputs)
+        ):
+            raise FlowSettingsException(LOCAL_REQUESTS_ONLY)
+
+    def _judged_request(
+        self,
+        flow: type[Flow] | str | FlowRequest,
+        design: str | Path | Design | dict[str, Any] | None,
+        xedaproject: str | None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
+        select_design_in_project,
+        design_overrides: Iterable[str] | dict[str, Any] | None,
+        design_allow_extra: bool,
+        design_remove_fields: list[str],
+        *,
+        target: str | None,
+        planning: bool = False,
+    ) -> tuple[_Request, Plan]:
+        """Load and resolve a request, refusing first what needs only the design's declarations.
+
+        A load that would run a generator or fetch a Git dependency is done twice. The first
+        load does neither (`design.deferring_load_side_effects`) and gives the declared design,
+        which is resolved and refused as the launch would refuse it (`_refuse_planned`,
+        `_refuse_unaccepted_plan`): a source of a language a flow cannot read, a missing
+        testbench top, a wrong setting, a run directory a flow refuses -- before the generator
+        starts. The second is the full load, as before; a plan still refuses to start a
+        generator or fetch. A load with nothing to defer is loaded once. A declared design that
+        lacks what only the deferred work can tell (a Git dependency's sources, top and
+        testbench; a source pattern whose suffix gives no type), or that does not load before
+        its generator runs (another file the generator writes), is not judged early: the full
+        load and its plan judge it, as they always did."""
+        if design_overrides is not None and not isinstance(design_overrides, dict):
+            design_overrides = list(design_overrides)  # read by both loads
+        arguments = (
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+        )
+        declared: _Request | None = None
+        with deferring_load_side_effects() as deferred:
+            try:
+                declared = self._request(*arguments, target=target)
+            except Exception:
+                # `_request` names the design once it has loaded it: what fails after that is
+                # the request's own refusal, which the full load would make too
+                loaded = self.design_name is not None
+                if not deferred.deferred or (loaded and deferred.complete):
+                    raise
+                log.debug("Not judged before %s: %s", deferred.deferred[0], "loading failed")
+        if not deferred.deferred:
+            assert declared is not None
+            return declared, self._resolve_request(declared)
+        if declared is not None and deferred.complete:
+            plan = self._resolve_request(declared, identify_design=False)
+            self._refuse_unaccepted_plan(declared, plan)
+            self._refuse_planned(plan)
+        request = self._request(*arguments, target=target, _planning=planning)
+        return request, self._resolve_request(request)
 
     def _request(
         self,

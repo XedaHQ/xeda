@@ -18,7 +18,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property
 from glob import escape as glob_escape
@@ -1732,6 +1732,68 @@ def refusing_load_side_effects() -> Iterator[None]:
         _planning_load.reset(token)
 
 
+@dataclass
+class DeferredLoad:
+    """What a design load left undone (`deferring_load_side_effects`): the generators it did not
+    run and the Git dependencies it did not fetch, each described, and whether the design it
+    loaded still describes the design a full load gives (`complete`)."""
+
+    deferred: List[str] = field(default_factory=list)
+    #: False once the load left out something only the deferred work can tell: a Git
+    #: dependency's sources, top and testbench, or a source pattern whose files have no type
+    #: before the generator writes them
+    complete: bool = True
+
+    def defer(self, what: str, complete: bool = True) -> None:
+        self.deferred.append(what)
+        self.complete = self.complete and complete
+
+
+_deferred_load: ContextVar[Optional[DeferredLoad]] = ContextVar("deferred_load", default=None)
+
+
+@contextmanager
+def deferring_load_side_effects() -> Iterator[DeferredLoad]:
+    """Load designs without running a generator that would run or fetching a Git dependency,
+    and say what was left undone. A load with nothing to defer is a full load. One with a
+    deferred generator gives the *declared* design: the sources the generator writes are listed
+    as the design declares them, with their types, whether or not they exist yet (as
+    `{ path = ... }`), so whatever needs only the design's declarations can be judged before
+    the generator runs. Nothing is run, fetched, created, locked or written."""
+    record = DeferredLoad()
+    token = _deferred_load.set(record)
+    try:
+        yield record
+    finally:
+        _deferred_load.reset(token)
+
+
+def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
+    """`rtl.sources` as the design declares them, for a load that defers their generator: every
+    file named as a `{ path = ... }`, which need not exist yet, with its type, and a pattern as
+    itself when its suffix gives the type of every file it can match. A pattern without one says
+    nothing about its files before they exist, so it is left out and the load is incomplete."""
+    if isinstance(sources, (str, os.PathLike, Mapping)):
+        sources = [sources]
+    if not isinstance(sources, (list, tuple)):
+        return sources  # the sources validator reports it
+    declared: List[Any] = []
+    for src in sources:
+        if isinstance(src, (str, os.PathLike)):
+            if isinstance(src, str) and _is_source_pattern(src):
+                try:
+                    source_type_of(Path(src))
+                except ValueError:
+                    record.complete = False
+                    continue
+            declared.append({"path": str(src)})
+        elif isinstance(src, Mapping) and "file" in src:
+            declared.append({"path": src["file"], **{k: v for k, v in src.items() if k != "file"}})
+        else:
+            declared.append(src)
+    return declared
+
+
 @contextmanager
 def loading_in_run_root(
     provider: Callable[[bool], Optional[Path]], rebuild_all: bool = False
@@ -2551,8 +2613,16 @@ class Design(XedaBaseModel):
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
         generator = rtl.pop("generator", None)
+        deferring = _deferred_load.get()
+
+        def defer(what: str) -> None:
+            """Leave the generator for the load that follows the declared one."""
+            assert deferring is not None
+            deferring.defer(what)
+            rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
+
         if generator:
-            if _planning_load.get():
+            if _planning_load.get() or deferring is not None:
                 generator_lease: AbstractContextManager[None] = nullcontext()
             else:
                 from .flow_runner.run_lock import generator_design_lock
@@ -2563,6 +2633,8 @@ class Design(XedaBaseModel):
                 # own paths: replacing whatever the shell exports, which is another directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
                 if isinstance(generator, str):
+                    if deferring is not None:
+                        return defer(f"generator command `{generator}`")
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     log.info("Running generator command: %s", generator)
@@ -2595,7 +2667,7 @@ class Design(XedaBaseModel):
                         declared = generator.generated_sources or rtl.get("sources", [])
                         return _source_paths_as_given(declared, design_root)
 
-                    planning = _planning_load.get()
+                    planning = _planning_load.get() or deferring is not None
                     context = load_context.get()
                     design_name = data.get("name")
                     description = generator.describe(
@@ -2617,6 +2689,8 @@ class Design(XedaBaseModel):
                                 description,
                             )
                         else:
+                            if deferring is not None:
+                                return defer(description)
                             if planning:
                                 raise ValueError("Cannot plan a design that needs a generator")
                             if generator.cwd is None:
@@ -2631,6 +2705,8 @@ class Design(XedaBaseModel):
                             generator.run()
                             generation.produced()
                 else:
+                    if deferring is not None:
+                        return defer(f"generator `{_describe_generator(generator)}`")
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     args = generator
@@ -2739,7 +2815,12 @@ class Design(XedaBaseModel):
                     validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
                 ) from e
 
+            deferring = _deferred_load.get()
             for dep in self.dependencies:
+                if deferring is not None and isinstance(dep, GitReference):
+                    # its sources, top and testbench are known only once it is fetched
+                    deferring.defer(f"Git dependency {redacted_url(dep.repo_url)}", complete=False)
+                    continue
                 try:
                     dep_design = dep.fetch_design()
                 except ValueError as e:

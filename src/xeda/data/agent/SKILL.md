@@ -324,7 +324,9 @@ and `switched_on` optional outputs. It runs no tools and changes no run root, ma
 delivery. Conflicting settings and impossible targets produce the usual failure document.
 
 A design that would run a generator or fetch a Git dependency while loading is refused before
-side effects. Materialize it first; the library can plan an already materialized `Design`.
+side effects. Every launch path (`run`, `--dry-run`, `--remote`, `dse`) first judges the request on
+the declared design (the generator's sources as `rtl.sources` declares them, typed, existing or
+not), so a refusal that needs only declarations comes before the generator runs. Materialize it first; the library can plan an already materialized `Design`.
 Freshness is not evaluated in a plan.
 `--dry-run --remote` is refused.
 

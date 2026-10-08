@@ -1077,6 +1077,22 @@ launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`
 generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
+**What needs only the design's declarations is refused before a generator runs.** Every launch
+path -- `FlowLauncher._judged_request` (`run`, `plan`, so `dse` too) and the remote runner's
+`load`/`preflight` -- loads first under `design.deferring_load_side_effects()`: a generator that
+would run is not run and a Git dependency is not fetched (`DeferredLoad` lists each), and the
+generator's `rtl.sources` become `{ path = ... }` entries with their types (`_declared_sources`;
+a pattern keeps its own path when its suffix gives a type). Nothing deferred: that load is the
+load, used once. Otherwise the declared request is resolved with `identify_design=False` (no
+content hash; `PlanContext.design_hash` is empty and the plan is never registered, so
+`_validate_plan` refuses it) and refused as a launch would refuse it (`_refuse_planned`,
+`_refuse_unaccepted_plan`; the remote's preflight), then the design is loaded in full. Not
+judged early, so judged after generation as before: an untyped pattern or a Git dependency
+(`DeferredLoad.complete` false: either can add sources, a top or a testbench), and a declared
+design that fails to load (another generated file named as a `file`) -- a failure after the load
+(`_request` named the design) is the request's own and is raised. A plan still refuses to
+generate, after the declared checks. `tests/test_checks_before_generation.py` counts generator
+runs on every path.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
 symbolic link on the way, not even one that stays inside), shared by the chip databases, the
 generator records and the Git dependency clones (see below). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.

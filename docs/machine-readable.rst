@@ -478,7 +478,9 @@ Invalid settings, shared-setting conflicts, missing required inputs and impossib
 produce the usual ``success: false`` / ``error`` document.
 
 Planning changes no run roots, markers, locks, results or deliveries and probes no tools.
-Loading that needs a generator or a Git dependency fetch is refused before those side effects;
+A request that the design's declarations already rule out is refused first, before a generator
+runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
+refused before those side effects;
 materialize sources first, or pass an already materialized ``Design`` to ``DefaultRunner.plan``.
 ``--dry-run --remote`` is refused.
 

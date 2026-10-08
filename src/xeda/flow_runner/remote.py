@@ -37,6 +37,7 @@ from ..design import (
     DesignSource,
     DVSettings,
     FileResource,
+    deferring_load_side_effects,
     loading_in_run_root,
     names_a_design_file,
 )
@@ -65,6 +66,7 @@ from .default_runner import (
     get_flow_class,
     print_results,
 )
+from .resolver import Plan
 from .run_lock import run_dir_lock
 from .settings_layers import (
     COMMAND_LINE_ORIGIN,
@@ -907,137 +909,179 @@ class RemoteRunner(FlowLauncher):
             )
         # the design file given, when `design` names one: never an output's destination
         given_file = Path(design) if isinstance(design, (str, Path)) else None
-        project_flow_settings: Mapping[str, Any] | None = None
         if design_overrides is None:
             design_overrides = {}
         elif not isinstance(design_overrides, Mapping):
             design_overrides = settings_to_dict(list(design_overrides))
 
-        # As a local launch does: a git dependency without a directory of its own is cloned
-        # into the run root, which is asked for only then.
-        # A remote flow is always executed fresh remotely (`clean=True`), but the local design
-        # generator is loaded before shipping and follows the caller's explicit rebuild request.
-        # Do not let RemoteRunner's default clean setting force it on every remote invocation.
-        with loading_in_run_root(self.load_run_root, self.settings.rebuild_all):
-            if isinstance(design, (str, Path)):
-                design_path = Path(design)
-                # The local runner's rule: a design-file suffix means a file, which then loads or
-                # is reported as it is, never a design name to look up in a project.
-                standalone = names_a_design_file(design_path)
-                project_path = resolve_project_file(xedaproject)
-                project = None
-                if project_path is not None:
-                    project = XedaProject.from_file(
-                        project_path,
-                        skip_designs=standalone,
-                        design_overrides=dict(design_overrides),
-                        design_allow_extra=design_allow_extra,
-                    )
-                    project_flow_settings = project.flows
-
-                if standalone:
-                    design = Design.from_file(
-                        design_path,
-                        overrides=dict(design_overrides),
-                        allow_extra=design_allow_extra,
-                        target=target,
-                    )
-                elif project is not None:
-                    selected = project.get_design(str(design), target)
-                    if selected is None:
-                        raise ValueError(
-                            f"Design {str(design)!r} not found in {project_path}. Available designs: "
-                            f"{', '.join(project.design_names)}"
+        def load(design: Union[str, Path, Design]) -> tuple[Design, Optional[Path], Any]:
+            """The design and the project's flow sections, loaded as a local launch loads
+            them."""
+            project_path: Optional[Path] = None
+            project_flow_settings: Mapping[str, Any] | None = None
+            # As a local launch does: a git dependency without a directory of its own is cloned
+            # into the run root, which is asked for only then.
+            # A remote flow is always executed fresh remotely (`clean=True`), but the local
+            # design generator is loaded before shipping and follows the caller's explicit
+            # rebuild request. Do not let RemoteRunner's default clean setting force it on every
+            # remote invocation.
+            with loading_in_run_root(self.load_run_root, self.settings.rebuild_all):
+                if isinstance(design, (str, Path)):
+                    design_path = Path(design)
+                    # The local runner's rule: a design-file suffix means a file, which then
+                    # loads or is reported as it is, never a design name to look up in a project.
+                    standalone = names_a_design_file(design_path)
+                    project_path = resolve_project_file(xedaproject)
+                    project = None
+                    if project_path is not None:
+                        project = XedaProject.from_file(
+                            project_path,
+                            skip_designs=standalone,
+                            design_overrides=dict(design_overrides),
+                            design_allow_extra=design_allow_extra,
                         )
-                    design = selected
+                        project_flow_settings = project.flows
+
+                    if standalone:
+                        design = Design.from_file(
+                            design_path,
+                            overrides=dict(design_overrides),
+                            allow_extra=design_allow_extra,
+                            target=target,
+                        )
+                    elif project is not None:
+                        selected = project.get_design(str(design), target)
+                        if selected is None:
+                            raise ValueError(
+                                f"Design {str(design)!r} not found in {project_path}. "
+                                f"Available designs: {', '.join(project.design_names)}"
+                            )
+                        design = selected
+                    else:
+                        raise FileNotFoundError(
+                            f"Design file {design_path} does not exist and no xedaproject was found"
+                        )
                 else:
-                    raise FileNotFoundError(
-                        f"Design file {design_path} does not exist and no xedaproject was found"
-                    )
-            else:
-                project_path = resolve_project_file(xedaproject)
-                if project_path is not None:
-                    project = XedaProject.from_file(project_path, skip_designs=True)
-                    project_flow_settings = project.flows
-        assert isinstance(design, Design)
-        self.target = design.target
-        self.design_name = design.name
-        # where a project's settings come from, named in messages even when there is none
-        project_label = project_path or Path(PROJECT_FILE_NAMES[0])
-        flow_class = get_flow_class(flow_name)
-        flow_name = flow_class.name
+                    project_path = resolve_project_file(xedaproject)
+                    if project_path is not None:
+                        project = XedaProject.from_file(project_path, skip_designs=True)
+                        project_flow_settings = project.flows
+            assert isinstance(design, Design)
+            return design, project_path, project_flow_settings
 
-        def flow_class_if_known(name: str):
+        def preflight(
+            design: Design,
+            project_path: Optional[Path],
+            project_flow_settings: Any,
+            flow_name: str,
+            flow_settings: Any,
+            identify_design: bool = True,
+        ) -> tuple[type[Flow], str, Plan, Flow.Settings, dict[str, Any]]:
+            """Compose, resolve and check the request before anything is shipped."""
+            self.target = design.target
+            self.design_name = design.name
+            # where a project's settings come from, named in messages even when there is none
+            project_label = project_path or Path(PROJECT_FILE_NAMES[0])
+            flow_class = get_flow_class(flow_name)
+            flow_name = flow_class.name
+
+            def flow_class_if_known(name: str):
+                try:
+                    return get_flow_class(name)
+                except FlowNotFoundError:
+                    return None
+
+            # The same layering as a local run: the command line wins over the design file.
+            cli_sections, flow_settings = command_line_sections(
+                flow_settings, flow_class, flow_class_for=flow_class_if_known
+            )
+            # Bindings are taken out of every origin exactly as a local run does, before Settings
+            # sees them. A remote run cannot carry them yet: one the request reaches is refused
+            # below, once its graph is known; one saved for another flow is simply not used.
+            project_sections, project_bindings = split_bindings(
+                project_flow_settings or {}, location="the project file"
+            )
+            design_sections, design_bindings = split_bindings(design.flow, location="the design")
+            command_line, cli_bindings = split_bindings(
+                merge_flow_sections(
+                    cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
+                ),
+                location=COMMAND_LINE_ORIGIN,
+                kind="cli",
+            )
+            binding_layers = [project_bindings, design_bindings, cli_bindings]
+            cli_sections, _cli_only = split_bindings(cli_sections, location=COMMAND_LINE_ORIGIN)
+            flow_settings = {key: value for key, value in flow_settings.items() if key != "inputs"}
+            origins = [project_sections, design_sections, cli_sections]
+            sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
+            flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
+            # Agree and validate before identity, input/delivery preflight and shipping.
+            plan = self.resolve(
+                flow_class,
+                design,
+                flow_settings,
+                sections,
+                origins=[
+                    (str(project_label.absolute()), origins[0]),
+                    (str(given_file.absolute()) if given_file else "the design", origins[1]),
+                ],
+                command_line=command_line,
+                identify_design=identify_design,
+            )
+            require_no_bindings(binding_layers, [node.node_key for node in plan.nodes])
+            input_settings = plan.node(flow_name).settings
+            sections = {
+                **sections,
+                **{node.name: as_recorded(node.settings) for node in plan.nodes},
+            }
+            flow_settings = as_recorded(input_settings)
+            # Hashed exactly as a local run would be, from the validated settings.
+            # Here, not on the remote: a path the flow writes that leads out of its run directory, a
+            # missing setting, and a design the flow cannot run are known before anything is
+            # shipped -- and a remote on an older release may not check them.
+            problems = written_path_problems(input_settings)
+            if problems:
+                raise FlowSettingsError(
+                    [(key, message, None, "value_error") for key, message in problems],
+                    flow_class.Settings,
+                )
+            flow_class.check_required_settings(input_settings)
+            flow_class.check_design_supported(design)
+            located = deliverable_locations(input_settings)
+            if located:
+                key, path = located[0]
+                raise DeliveryError(
+                    f"`{key}` names a location ({path}): with --remote, leave it a name in the run "
+                    "directory (or unset) and receive the outputs with --outputs-to DIR"
+                )
+            # the output names, checked as a local launch checks them: none xeda keeps (the remote's
+            # own `results.json`), no two outputs under one name; no location is left to split
+            split_deliveries(input_settings, design.name)
+            outputs_to = self.settings.outputs_to
+            if outputs_to is not None:
+                # before the mirror, the run root or a connection, as a local launch refuses it
+                _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
+            return flow_class, flow_name, plan, input_settings, sections
+
+        # What needs only the design's declarations is refused before a generator runs, as a
+        # local launch refuses it (`FlowLauncher._judged_request`): the declared design is
+        # checked first when the load would run a generator.
+        loaded: tuple[Design, Optional[Path], Any] | None = None
+        with deferring_load_side_effects() as deferred:
             try:
-                return get_flow_class(name)
-            except FlowNotFoundError:
-                return None
-
-        # The same layering as a local run: the command line wins over the design file.
-        cli_sections, flow_settings = command_line_sections(
-            flow_settings, flow_class, flow_class_for=flow_class_if_known
+                loaded = load(design)
+            except Exception:
+                if not deferred.deferred:
+                    raise
+        if deferred.deferred:
+            if loaded is not None and deferred.complete:
+                preflight(*loaded, flow_name, flow_settings, identify_design=False)
+            loaded = load(design)
+        assert loaded is not None
+        design, project_path, project_flow_settings = loaded
+        flow_class, flow_name, plan, input_settings, sections = preflight(
+            design, project_path, project_flow_settings, flow_name, flow_settings
         )
-        # Bindings are taken out of every origin exactly as a local run does, before Settings
-        # sees them. A remote run cannot carry them yet: one the request reaches is refused
-        # below, once its graph is known; one saved for another flow is simply not used.
-        project_sections, project_bindings = split_bindings(
-            project_flow_settings or {}, location="the project file"
-        )
-        design_sections, design_bindings = split_bindings(design.flow, location="the design")
-        command_line, cli_bindings = split_bindings(
-            merge_flow_sections(
-                cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
-            ),
-            location=COMMAND_LINE_ORIGIN,
-            kind="cli",
-        )
-        binding_layers = [project_bindings, design_bindings, cli_bindings]
-        cli_sections, _cli_only = split_bindings(cli_sections, location=COMMAND_LINE_ORIGIN)
-        flow_settings = {key: value for key, value in flow_settings.items() if key != "inputs"}
-        origins = [project_sections, design_sections, cli_sections]
-        sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)
-        flow_settings = compose_flow_settings(flow_class, origins, flow_settings)
-        # Agree and validate before identity, input/delivery preflight and shipping.
-        plan = self.resolve(
-            flow_class,
-            design,
-            flow_settings,
-            sections,
-            origins=[
-                (str(project_label.absolute()), origins[0]),
-                (str(given_file.absolute()) if given_file else "the design", origins[1]),
-            ],
-            command_line=command_line,
-        )
-        require_no_bindings(binding_layers, [node.node_key for node in plan.nodes])
-        input_settings = plan.node(flow_name).settings
-        sections = {
-            **sections,
-            **{node.name: as_recorded(node.settings) for node in plan.nodes},
-        }
-        flow_settings = as_recorded(input_settings)
-        # Hashed exactly as a local run would be, from the validated settings.
-        # Here, not on the remote: a path the flow writes that leads out of its run directory, a
-        # missing setting, and a design the flow cannot run are known before anything is
-        # shipped -- and a remote on an older release may not check them.
-        problems = written_path_problems(input_settings)
-        if problems:
-            raise FlowSettingsError(
-                [(key, message, None, "value_error") for key, message in problems],
-                flow_class.Settings,
-            )
-        flow_class.check_required_settings(input_settings)
-        flow_class.check_design_supported(design)
-        located = deliverable_locations(input_settings)
-        if located:
-            key, path = located[0]
-            raise DeliveryError(
-                f"`{key}` names a location ({path}): with --remote, leave it a name in the run "
-                "directory (or unset) and receive the outputs with --outputs-to DIR"
-            )
-        # the output names, checked as a local launch checks them: none xeda keeps (the remote's
-        # own `results.json`), no two outputs under one name; no location is left to split
-        split_deliveries(input_settings, design.name)
         # The mirror is named by the requested node's identity, as a local hashed run
         # directory is: the plan's, which counts its settings and where its inputs come from
         # (so two configurations of a producer are two mirrors). The remote resolves the same
@@ -1047,9 +1091,6 @@ class RemoteRunner(FlowLauncher):
         # as a local run counts the design: by the parts the flow reads
         design_hash = design.parts_hash(flow_class.design_parts)
         outputs_to = self.settings.outputs_to
-        if outputs_to is not None:
-            # before the mirror, the run root or a connection, as a local launch refuses it
-            _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
         # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
         # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's
         run_path = self.get_flow_run_path(

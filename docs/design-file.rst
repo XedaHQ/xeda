@@ -363,6 +363,18 @@ sidecar and does not create the run root early. The per-identity record lock sti
 record. This does not coordinate different design roots writing to the same external output, and
 Windows follows the existing no-interprocess-lock policy. Planning takes no lock.
 
+Before a generator runs, xeda judges the request on the design as the design declares it. The
+sources that the generator writes are in ``rtl.sources`` with their types, whether they exist yet
+or not, so what these declarations already rule out is refused first, and the generator does not
+run: a flow that reads none of the design's sources, a source in a language that the flow cannot
+read, a testbench without its top, a setting that the flow does not have, a run directory that the
+flow cannot work in. This holds for ``xeda run``, ``--dry-run``, ``--remote`` and ``xeda dse``.
+Some designs say too little before their generator has run, and xeda then judges the request
+after the generator, as it did before: a design with a pattern in ``rtl.sources`` whose suffix
+gives no type (``gen/*``), a design with a Git dependency (the dependency can bring sources, a top
+and a testbench), and a design that does not load before its generator runs (it lists another
+file that the generator writes, such as a testbench, as a file that must exist).
+
 A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
 declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
 it judged.
