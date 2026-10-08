@@ -159,6 +159,13 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
             else "the one the bitstream is for"
         )
         sentences.append(f"Check that the board on the cable is {which}.")
+        # the loader opens the first cable that matches, unless the cable index names another
+        # (ftdipp_mpsse.cpp:50-53, main.cpp:289); it never compares the FPGA it finds with the
+        # part of the board it was given (main.cpp:216-219 uses the part for the flash only)
+        sentences.append(
+            "The loader uses the first cable that matches unless the `cable_index` setting "
+            "names another, so with several boards connected it can program the wrong one."
+        )
     if crc_error:
         sentences.append(
             "The configuration logic reports a CRC error: the bitstream is damaged or incomplete."

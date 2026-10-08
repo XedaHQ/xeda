@@ -184,6 +184,8 @@ def test_the_basys_3_log_is_a_failure_the_loader_did_not_exit_with():
     assert "did not finish configuration" in message and "DONE signal stayed low" in message
     assert "ID error" in message and "ID code in the bitstream" in message
     assert "board basys_3, part xc7a35tcpg236-1" in message  # which board the flow was told
+    # two boards on the cable, the loader takes the first: say how to choose
+    assert "`cable_index`" in message and "several boards" in message
     # the decisive lines, as the loader printed them
     assert failure.evidence == (
         DONE_LOW,
@@ -193,6 +195,13 @@ def test_the_basys_3_log_is_a_failure_the_loader_did_not_exit_with():
     for line in failure.evidence:
         assert line in message
     assert "CRC" not in message
+    # a CRC error says nothing of boards
+    crc = loader_failure(
+        owner_log("basys3-id-error.txt").replace(
+            "ID Error        ID error", "ID Error        No ID error"
+        )
+    )
+    assert crc is not None and "cable_index" not in crc.message()
 
 
 def test_the_arty_log_of_a_load_that_ended_with_done_high_passes():
