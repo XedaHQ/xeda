@@ -996,8 +996,8 @@ def settings_to_dict(
 def flows_table_problems(table: Any, *, layers: bool = False) -> List[Tuple[str, str]]:
     """What is wrong with the shape of a `flows` table, as `(key path, problem)` pairs.
 
-    A `flows` table maps flow names to mappings of that flow's settings. The table and each of its
-    sections are mappings, and an absent one (`None`) is empty. Nothing else is read as one: text,
+    A `flows` table maps flow names, as text, to mappings of that flow's settings. The table and each
+    of its sections are mappings, and an absent one (`None`) is empty. Nothing else is read as one: text,
     numbers and lists are refused, empty ones included. So a mistake such as `flows: []` or
     `-s flows.verilator=3` is reported where it was made, by every origin that writes a table (a
     design, a target, a project, the command line, the API), instead of being ignored or ending
@@ -1022,11 +1022,20 @@ def flows_table_problems(table: Any, *, layers: bool = False) -> List[Tuple[str,
             and all(isinstance(item, str) and "=" in item for item in section)
         )
 
-    return [
-        (f"flows.{name}", f"must be a mapping of settings, not {section!r:.60}")
-        for name, section in table.items()
-        if not acceptable(section)
-    ]
+    problems = []
+    for name, section in table.items():
+        if not isinstance(name, str):  # a file or `-s` always gives text; code may not
+            problems.append(
+                (
+                    "flows",
+                    f"has the key {name!r:.60}, which is no flow name: a key is a flow's name",
+                )
+            )
+        elif not acceptable(section):
+            problems.append(
+                (f"flows.{name}", f"must be a mapping of settings, not {section!r:.60}")
+            )
+    return problems
 
 
 _xeda_varprog = None

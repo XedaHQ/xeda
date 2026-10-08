@@ -293,6 +293,30 @@ def test_a_flow_section_that_is_no_mapping_is_refused_naming_the_section(tmp_pat
         _plan_with_flows(tmp_path, origin, "section", NOT_MAPPINGS[origin])
 
 
+#: Keys of a `flows` table that name no flow. A file or `-s` always writes text; code may not.
+NOT_FLOW_NAMES = [3, None, 1.5, ("verilator",)]
+
+
+@pytest.mark.parametrize("key", NOT_FLOW_NAMES, ids=repr)
+@pytest.mark.parametrize("door", ["plan", "run_flow", "launch_flow"])
+def test_a_flows_key_that_is_no_flow_name_is_refused_naming_it(tmp_path, door, key):
+    """Code can give a `flows` table whose key is not text; it is refused like any other
+    malformed table, never left to fail deeper in the merge."""
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design_file = _write_design(tmp_path / "d")
+    with pytest.raises(XedaException, match=r"`flows` has the key .*, which is no flow name"):
+        if door == "plan":
+            runner.plan("verilator", design_file, flow_settings={"flows": {key: {}}})
+        elif door == "run_flow":
+            runner.run_flow(
+                "verilator", Design.from_file(design_file), {}, all_flows_settings={key: {}}
+            )
+        else:
+            runner.launch_flow(
+                "verilator", Design.from_file(design_file), {}, all_flows_settings={key: {}}
+            )
+
+
 #: What no origin takes as a table or a section, an empty list included. Code may give a flow's
 #: section as `KEY=VALUE` text (see below), so the API's section is left out for the two lists of
 #: such text.

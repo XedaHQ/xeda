@@ -477,7 +477,7 @@ def merge_flow_sections(
 
     Every table is also judged for its shape here (`flows_table_problems`): the table and each
     flow's section are mappings, or a section is `KEY=VALUE` text, which is how code gives a
-    layer. A table that is not is a `FlowSettingsError` naming it, and `location` the origin it
+    layer, and each key is a flow's name, as text. A table that is not is a `FlowSettingsError` naming it, and `location` the origin it
     came from. Nothing in a table is read before it passes.
     """
     normalized_sections: list[dict[str, dict[str, Any]]] = []
