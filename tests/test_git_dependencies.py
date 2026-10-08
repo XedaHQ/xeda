@@ -1,8 +1,10 @@
 """Git dependencies are cloned into the run root, never into the start directory."""
 
+import ast
 import hashlib
 import itertools
 import json
+import logging
 import os
 import re
 import subprocess
@@ -13,14 +15,17 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+import xeda.design
 from xeda import Design
 from xeda.design import (
     DEPENDENCY_CLONES,
+    DesignReference,
     DesignValidationError,
     GitReference,
     clone_location,
     clone_name_parts,
     loading_in_run_root,
+    redacted_url,
 )
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectory, RunDirectoryError
@@ -520,3 +525,270 @@ def test_a_clone_directory_outside_a_cache_under_the_run_root_is_refused_too(tmp
     monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
     with pytest.raises(ValueError, match="outside the clone cache"):
         clone_location(root / DEPENDENCY_CLONES, URI, None, None, owner=owner)
+
+
+# ---------------------------------------------------------------- credentials in a URL
+
+SECRET = "s3cret-token"
+#: A URL with credentials in each of the ways they are written, and the same URL without them.
+CREDENTIALED = [
+    pytest.param(f"https://user:{SECRET}@example.com/u/lib.git", id="user-and-password"),
+    pytest.param(f"https://{SECRET}@example.com/u/lib.git", id="a-token-as-the-user"),
+    pytest.param(f"https://user:{SECRET}@example.com:8443/u/lib.git", id="with-a-port"),
+    pytest.param(f"https://us%40er:{SECRET}@example.com/u/lib.git", id="an-encoded-at-sign"),
+    pytest.param(f"https://user:p@{SECRET}@example.com/u/lib.git", id="a-raw-at-sign"),
+]
+
+
+def _without_credentials(url: str) -> str:
+    return url.replace(url[url.index("//") + 2 : url.rindex("@") + 1], "")
+
+
+@pytest.mark.parametrize("url", CREDENTIALED)
+def test_the_credentials_of_a_url_are_no_part_of_a_clone_directory_name(url):
+    """They would show in every path and log that names the clone."""
+    host, name = clone_name_parts(url, None, None)
+    plain_host, plain_name = clone_name_parts(_without_credentials(url), None, None)
+    assert SECRET not in host + name and "user" not in host + name
+    assert host == plain_host, "the host and its port, as for the URL without credentials"
+    # the readable part is the same too; only the digest of what is cloned tells them apart
+    assert name.rpartition("_")[0] == plain_name.rpartition("_")[0]
+    assert name != plain_name
+
+
+def test_urls_that_differ_only_in_their_credentials_are_cloned_apart():
+    one = clone_name_parts("https://one:pw@h/u/lib.git", None, None)
+    other = clone_name_parts("https://other:pw@h/u/lib.git", None, None)
+    assert one != other and one[0] == other[0]
+    assert clone_name_parts("https://h/u/lib.git", None, None) not in (one, other)
+
+
+def _credentialed_design(root: Path, url: str) -> Path:
+    (root / "top.v").write_text("module top; endmodule\n")
+    (root / "d.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top"},
+                "dependencies": [f"git+{url}#lib.toml"],
+            }
+        )
+    )
+    return root / "d.yaml"
+
+
+@pytest.mark.parametrize("url", CREDENTIALED[:3])
+def test_a_clone_is_given_its_credentials_and_none_is_shown(
+    tmp_path, monkeypatch, clones, caplog, url
+):
+    """Git is handed the URL as written, since the clone needs it; no path, log line (down to
+    the debug dump of the design) or message holds the secret."""
+    import git.repo
+
+    handed = []
+    clone = git.repo.Repo.clone_from
+
+    def clone_from(url, to_path, **kwargs):
+        handed.append(url)
+        return clone(url, to_path, **kwargs)
+
+    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with caplog.at_level(logging.DEBUG), loading_in_run_root(runner.load_run_root):
+        Design.from_file(_credentialed_design(tmp_path, url))
+    assert handed == [url]
+    assert "Cloning git repository" in caplog.text and "Design data" in caplog.text
+    assert SECRET not in caplog.text
+    assert [p for p in (tmp_path / "xeda_run").rglob("*") if SECRET in str(p)] == []
+    assert [str(p) for p in clones if SECRET in str(p)] == []
+
+
+def test_an_error_does_not_show_the_credentials_of_the_url_it_names(tmp_path, monkeypatch):
+    url = f"https://user:{SECRET}@example.com/u/lib.git"
+    ref = GitReference(repo_url=url, design_file="lib.toml")
+    with pytest.raises(ValueError, match="needs a directory") as no_directory:
+        ref.fetch_design()
+    monkeypatch.setattr("xeda.design.clone_name_parts", lambda *_: ("..", "elsewhere"))
+    with pytest.raises(ValueError, match="outside the clone cache") as outside:
+        clone_location(tmp_path, url, None, None)
+    with pytest.raises(ValueError, match="no repository path") as no_path:
+        clone_name_parts(f"https://user:{SECRET}@example.com/", None, None)
+    named = (url, url, f"https://user:{SECRET}@example.com/")
+    for error, given in zip((no_directory, outside, no_path), named):
+        # the message names the URL, with its credentials masked
+        assert SECRET not in str(error.value) and redacted_url(given) in str(error.value)
+
+
+def test_a_url_is_shown_without_its_credentials():
+    assert redacted_url(f"https://user:{SECRET}@h:8443/u/lib.git?branch=a#f.toml") == (
+        "https://***@h:8443/u/lib.git?branch=a#f.toml"
+    )
+    assert redacted_url(f"https://us@er:{SECRET}@h/u/lib.git") == "https://***@h/u/lib.git"
+    for plain in (
+        "https://h/u/lib.git",
+        "https://h/u@x/lib.git",
+        "git@h:org/lib.git",
+        "/srv/x.git",
+    ):
+        assert redacted_url(plain) == plain
+
+
+#: The names a Git URL, or a value taken from a reference's URI, goes by in `design.py`: the
+#: path `DesignReference.fetch_design` makes of it is one.
+URL_NAMES = {"repo_url", "uri", "uri_str", "design_path"}
+
+
+def _names_a_url(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Name)
+        and node.id in URL_NAMES
+        or (isinstance(node, ast.Attribute) and node.attr in URL_NAMES)
+    )
+
+
+def test_no_message_in_design_py_shows_a_git_url_as_it_is():
+    """An f-string or a log call that formats a URL says so through `redacted_url`: the sweep that
+    keeps a message added later from showing credentials a clone directory name no longer does."""
+    source = Path(xeda.design.__file__)
+    shown: list[str] = []
+    for node in ast.walk(ast.parse(source.read_text())):
+        values: list[ast.AST] = []
+        if isinstance(node, ast.JoinedStr):
+            values = [part.value for part in node.values if isinstance(part, ast.FormattedValue)]
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "log"
+        ):
+            values = list(node.args[1:])  # the arguments a message is formatted with
+        shown += [f"line {value.lineno}" for value in values if _names_a_url(value)]
+    assert shown == [], f"{source.name} shows a URL without `redacted_url`: {shown}"
+
+
+# ------------------------------------- a reference shows its URL without the credentials, always
+TOKEN_URL = f"https://user:{SECRET}@example.com/org/lib.git#design.yaml"
+
+
+def _dependency_design(root: Path, dependency) -> Path:
+    (root / "top.v").write_text("module top; endmodule\n")
+    (root / "d.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top"},
+                "dependencies": [dependency],
+            }
+        )
+    )
+    return root / "d.yaml"
+
+
+@pytest.mark.parametrize(
+    "dependency", [TOKEN_URL, {"uri": TOKEN_URL}], ids=["a-string", "a-mapping"]
+)
+def test_a_url_without_git_is_refused_naming_the_git_spelling(tmp_path, monkeypatch, dependency):
+    """Without `git+` and `repo_url` a dependency is a local design file, and a URL is none. The
+    reference of the base class took it for a path that did not exist, and printed it."""
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DesignValidationError) as refused:
+        Design.from_file(_dependency_design(tmp_path, dependency))
+    message = str(refused.value)
+    assert "git+https://***@example.com/org/lib.git#design.yaml" in message
+    assert SECRET not in message
+
+
+def test_a_url_without_git_is_refused_on_the_command_line_without_the_credentials(
+    tmp_path, monkeypatch
+):
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        cli, ["run", "yosys", str(_dependency_design(tmp_path, TOKEN_URL)), "--json"]
+    )
+    assert result.exit_code != 0
+    assert "git+https://***@example.com" in result.output
+    assert SECRET not in result.output
+
+
+def test_a_local_design_file_is_still_a_dependency_by_its_path():
+    assert DesignReference(uri="lib/lib.toml").uri == "lib/lib.toml"
+    assert DesignReference.from_data("../lib/lib.toml").uri == "../lib/lib.toml"
+    assert DesignReference.from_data(r"C:\lib\lib.toml").uri == r"C:\lib\lib.toml"
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda: GitReference(uri=TOKEN_URL),
+        lambda: GitReference(
+            repo_url=f"https://user:{SECRET}@example.com/org/lib.git", design_file="design.yaml"
+        ),
+        lambda: DesignReference.from_data(f"git+{TOKEN_URL}"),
+    ],
+    ids=["uri", "repo_url", "from_data"],
+)
+def test_a_reference_is_shown_without_the_credentials_of_its_url(make):
+    reference = make()
+    for text in (
+        repr(reference),
+        str(reference),
+        f"{reference}",
+        f"{reference!r}",
+        "%s" % (reference,),
+        repr([reference]),
+        repr({"dependencies": [reference]}),
+    ):
+        assert SECRET not in text and "https://***@example.com/org/lib.git" in text, text
+    # what the clone needs is still in it
+    assert SECRET in reference.uri and SECRET in reference.repo_url  # type: ignore[attr-defined]
+
+
+def test_a_reference_that_is_a_path_is_shown_as_it_is():
+    assert "lib/lib.toml" in repr(DesignReference(uri="lib/lib.toml"))
+
+
+def test_the_debug_dump_masks_the_references_an_api_caller_gives(
+    tmp_path, monkeypatch, clones, caplog
+):
+    monkeypatch.chdir(tmp_path)
+    reference = GitReference(
+        uri=f"https://user:{SECRET}@example.com/u/lib.git#lib.toml", local_cache=tmp_path / "cache"
+    )
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    with caplog.at_level(logging.DEBUG):
+        Design(
+            name="d",
+            design_root=tmp_path,
+            rtl={"sources": ["top.v"], "top": "top"},
+            dependencies=[reference],
+        )
+    assert "Design data" in caplog.text and clones
+    assert SECRET not in caplog.text
+
+
+def test_a_failed_clone_does_not_show_the_credentials(tmp_path, monkeypatch):
+    """GitPython hides the user name and the password in the command line it reports."""
+    import git.exc
+    import git.repo
+
+    def clone_from(url, to_path, **kwargs):
+        raise git.exc.GitCommandError(
+            ["git", "clone", "-v", "--", url, str(to_path)], 128, "fatal: repository not found"
+        )
+
+    monkeypatch.setattr(git.repo.Repo, "clone_from", staticmethod(clone_from))
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    url = f"https://user:{SECRET}@example.com/u/l.git"
+    with (
+        loading_in_run_root(runner.load_run_root),
+        pytest.raises(git.exc.GitCommandError) as failed,
+    ):
+        Design.from_file(_credentialed_design(tmp_path, url))
+    # GitPython masks the credentials in its own way; the rest of the URL is still named
+    assert SECRET not in str(failed.value) and url.partition("@")[2] in str(failed.value)

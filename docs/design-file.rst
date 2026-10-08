@@ -61,7 +61,8 @@ Top level
      - Per-flow settings. See `flows`_.
    * - ``dependencies``
      - no
-     - Other designs this one depends on.
+     - Other designs this one depends on: the path of a design file, or a Git repository written
+       ``git+<url>#<design file in the repository>``. A URL without ``git+`` is refused.
    * - ``license``, ``version``, ``url``
      - no
      - Metadata, not used by any flow.

@@ -11,6 +11,8 @@ flatten
 {%- endif %}
 
 {% include "post_rtl.tcl" %}
+{#- as in the `.ys` script, `stop_after == "rtl"` simply omits the rest #}
+{%- if settings.stop_after != "rtl" %}
 
 {%- if not settings.nosynth %}
 log -stdout "Running synthesis"
@@ -96,3 +98,4 @@ blackbox =A:whitebox
 {% include "write_netlist.tcl" %}
 
 log -stdout "***** Synthesis Completed *****"
+{%- endif %}

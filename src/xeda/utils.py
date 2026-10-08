@@ -1146,6 +1146,9 @@ class ToolException(XedaException):
 
 
 class NonZeroExitCode(ToolException):
+    """A command ended with a nonzero exit code. `args` is what the tool reported, if the caller
+    knows it, shown after the code."""
+
     def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
         if isinstance(command_args, (list, tuple)):
             command_args = " ".join(map(str, command_args))
@@ -1154,7 +1157,8 @@ class NonZeroExitCode(ToolException):
         super().__init__(*args)
 
     def __str__(self) -> str:
-        return f"Command '{self.command_args}' exited with code {self.exit_code}!"
+        message = f"Command '{self.command_args}' exited with code {self.exit_code}!"
+        return " ".join([message, *map(str, self.args)])
 
 
 class ExecutableNotFound(ToolException):

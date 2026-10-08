@@ -393,8 +393,8 @@ def test_each_rtl_command_is_a_line_of_its_own(
 ) -> None:
     """An including template may strip the whitespace after `post_rtl`, and a block that left
     its last command without a newline then joined it to the next command: `write_verilog
-    "rtl.v"yosys opt_clean -purge`, or `exityosys opt_clean -purge`. Each command is a whole
-    line, and `exit` -- a `.tcl` script's way to stop, which a `.ys` script has not -- another."""
+    "rtl.v"yosys opt_clean -purge`. Each command is a whole line. A script that stops after the
+    RTL has no `exit` in either format: it omits what follows."""
     script = _rtl_script(flow, outputs, stop, script_format, tmp_path)
     lines = [line.strip() for line in script.splitlines()]
     prefix = "(?:yosys )?" if script_format == "tcl" else ""
@@ -403,11 +403,11 @@ def test_each_rtl_command_is_a_line_of_its_own(
             pattern = prefix + " ".join(f'"?{re.escape(word)}"?' for word in words)
             found = [line for line in lines if re.fullmatch(pattern, line)]
             assert len(found) == 1, f"{words}: {found}\n{script}"
-    assert lines.count("exit") == (1 if stop and script_format == "tcl" else 0), script
+    assert "exit" not in lines, script
 
 
 #: Runs a script as a yosys with TCL support would, but every command only records itself. `exit`
-#: ends the script as it would end yosys, so the commands after it do not run.
+#: ends the script as it would end yosys, so a script that has one is seen to.
 TCL_HARNESS = """\
 set ::calls {}
 proc yosys {args} {lappend ::calls $args}
@@ -425,7 +425,7 @@ def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
     """The `.tcl` script runs under `tclsh`, which parses it as yosys' TCL does: a glued command
     is a syntax error (`extra characters after close-quote`) or a command name that does not
     exist, and shows in the commands yosys would be handed. The RTL outputs come in order, and
-    `exit` ends the script when `stop_after` asks for it, and only then."""
+    the script ends with them when `stop_after` asks for it, and only then."""
     require_tclsh()
     script = tmp_path / "script.tcl"
     script.write_text(_rtl_script(flow, outputs, stop, "tcl", tmp_path))
@@ -444,11 +444,9 @@ def test_the_tcl_script_hands_yosys_each_rtl_command_and_stops_where_it_should(
     if expected:
         start = calls.index(expected[0])
         assert calls[start : start + len(expected)] == expected, calls
-        assert bool(calls[start + len(expected) :]), "the script ended with the RTL outputs"
-    assert (calls[-1:] == [["exit"]]) is bool(stop), calls
-    assert calls.count(["exit"]) == (1 if stop else 0), calls
-    if stop and expected:
-        assert calls[-1 - len(expected) : -1] == expected, calls
+        # a full script goes on to synthesize; a stopped one has nothing after the RTL outputs
+        assert bool(calls[start + len(expected) :]) is not bool(stop), calls
+    assert ["exit"] not in calls, calls
 
 
 # yosys commands that expand a file name as a glob pattern, so their file arguments go through

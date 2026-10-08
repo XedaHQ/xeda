@@ -476,8 +476,51 @@ def test_another_tool_error_is_not_blamed_on_a_parser_warning(tmp_path, monkeypa
     _failing_with_log(
         flow, monkeypatch, PARSER_WARNING + "ERROR: Unable to place cell 'x', no BELs remaining\n"
     )
-    with pytest.raises(NonZeroExitCode):
+    with pytest.raises(NonZeroExitCode) as error:
         flow.run()
+    # still the tool's failure, now saying what the tool said: the log's error lines of this run
+    message = str(error.value)
+    assert "exited with code 1" in message
+    assert "nextpnr error: Unable to place cell 'x', no BELs remaining" in message
+    assert "-name" not in message and "ignoring unsupported" not in message
+
+
+def test_the_error_lines_of_an_unclassified_failure_are_listed_once_and_not_without_end(
+    tmp_path, monkeypatch
+):
+    """A bus of unplaceable ports gives one error line per port, some of them twice: the message
+    keeps the first few, once each, and says where the rest are."""
+    from xeda.tool import NonZeroExitCode
+
+    flow, _ = make_flow(tmp_path, monkeypatch)
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    lines = [f"ERROR: Unable to place cell 'led[{n}]', no BELs remaining\n" for n in range(9)]
+    _failing_with_log(flow, monkeypatch, "".join(lines[:2] + lines))
+    with pytest.raises(NonZeroExitCode) as error:
+        flow.run()
+    message = str(error.value)
+    assert message.count("led[0]") == 1 and "led[4]" in message and "led[5]" not in message
+    assert "and 4 more in nextpnr.log" in message
+
+
+def test_an_earlier_run_s_log_is_not_quoted_in_this_run_s_failure(tmp_path, monkeypatch):
+    from xeda.tool import NonZeroExitCode
+
+    flow, _ = make_flow(tmp_path, monkeypatch)
+    flow.prepare_inputs()
+    flow.run_path.mkdir()
+    (flow.run_path / "nextpnr.log").write_text("ERROR: left from the run before\n")
+    flow.start_run()  # the launcher's snapshot: what is there now is an earlier run's
+
+    def fail(self, *args, env=None):
+        raise NonZeroExitCode(args, 1)  # this run wrote no log
+
+    monkeypatch.setattr(NextpnrTool, "run", fail)
+    with pytest.raises(NonZeroExitCode) as error:
+        flow.run()
+    assert "left from the run before" not in str(error.value)
+    assert str(error.value).endswith("exited with code 1!")
 
 
 def test_a_parser_error_on_a_line_is_still_translated(tmp_path, monkeypatch):

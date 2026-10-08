@@ -432,9 +432,10 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
     sim_dir = power.run_path.parent / "vivado_postsynth_sim"
     checkpoint = _recorded_output(synth_dir, "checkpoint_route")
     activity = _recorded_output(sim_dir, "timing_saif")
-    assert activity == sim_dir / "activity.saif"
+    assert activity == sim_dir / "outputs" / "sqrt.saif", "the conventional name"
+    assert activity.is_file()
     # the simulation, on the fake Vivado, records the activity file it writes
-    assert ["open_saif", "activity.saif"] in fake_calls(sim_dir)
+    assert ["open_saif", "outputs/sqrt.saif"] in fake_calls(sim_dir)
     calls = fake_calls(power.run_path)
     assert ["open_checkpoint", str(checkpoint)] in calls
     assert ["read_saif", "-verbose", str(activity)] in calls

@@ -364,9 +364,12 @@ xeda run vivado_synth blinky.yaml -s bitstream=$PWD/blinky.bit
 xeda run vivado_synth blinky.yaml --outputs-to ./out
 ```
 
-A delivery never replaces a directory, a design source, or a file the run itself reads. An
-existing file at the destination is replaced without asking only if it is xeda's own earlier,
-unchanged delivery; otherwise rerun with `--overwrite-outputs`, or answer the interactive prompt.
+A delivery never replaces a directory, a design source, or a file the run itself reads. Two
+outputs never go to one destination: a request that names one file twice (two settings, or a
+setting and `--outputs-to`; in other letters where the file system ignores case; or one inside
+the other) is refused, naming both. An existing file at the destination is
+replaced without asking only if it is xeda's own earlier, unchanged delivery; otherwise rerun with
+`--overwrite-outputs`, or answer the interactive prompt.
 
 ## Rebuilds are make-like by default
 
@@ -417,7 +420,7 @@ an older protocol, before shipping, with an upgrade error. The remote flow alway
 | `ReportedFailure` | The cause, in a node's `results.json` (and quoted by its consumers): the flow's own reports or checks failed with no tool error (a missing declared output is `MissingOutput`) | Read the log and reports in that node's run directory |
 | `NoSuccessfulRun` | A DSE search found no successful run | Inspect the attempted runs and relax or correct the search settings |
 | `RunRootError` | The run root holds files but no marker xeda created, or cannot be written | Move it aside, or create `<dir>/.xeda-run-root` to hand it to xeda |
-| `DeliveryError` | A named output could not be delivered: the run did not write it, or the destination is an input, a directory, or inside a run root | Check the setting's value and that it does not point at an input or a run root |
+| `DeliveryError` | A named output could not be delivered: the run did not write it, or the destination is an input, a directory, inside a run root, or named by two outputs | Check the setting's value, and that it points at no input or run root and no other output's destination |
 | `OutputExistsError` | The destination holds a file that is not xeda's own unchanged earlier delivery | Rerun with `--overwrite-outputs`, or confirm the interactive prompt |
 
 Flow names are forgiving - `vivado_synth`, `vivado-synth` and `VivadoSynth` all work. Setting

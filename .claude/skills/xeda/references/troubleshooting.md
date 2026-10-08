@@ -173,12 +173,13 @@ from.
 
 A setting or `--outputs-to` named a location xeda could not deliver the output to: the run did not
 write the file the setting expects, or the destination is an input the launch reads (a
-dependency's, or the design's own), a directory where a file was expected, or a path inside a run
-root. The role -- *working* or *deliverable* -- belongs to the setting itself, not to the value you
-gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a *working* setting
-always stays a bare name inside the run directory, whatever it is given, and is never delivered
-anywhere; only a *deliverable* setting given a location -- a path under `$PWD`, `$DESIGN_ROOT`
-or `$DESIGN_DIR`, or an absolute path -- is copied out.
+dependency's, or the design's own), a directory where a file was expected, a path inside a run
+root, or a destination that two outputs of the launch name, or one inside another (the message
+names both settings: give each its own path). The role -- *working* or *deliverable* -- belongs to the setting itself, not to
+the value you gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a
+*working* setting always stays a bare name inside the run directory, whatever it is given, and is
+never delivered anywhere; only a *deliverable* setting given a location -- a path under `$PWD`,
+`$DESIGN_ROOT` or `$DESIGN_DIR`, or an absolute path -- is copied out.
 
 ### `OutputExistsError`
 
@@ -225,6 +226,8 @@ settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin f
 - "timing constraints are not met: Max frequency ... (FAIL at ...)": relax the clock, or set
   `timing_allow_fail` to keep the result.
 - "nextpnr constraint error" names the original constraint file and line.
+- A `NonZeroExitCode` of nextpnr ends with "nextpnr error: ...", the first error lines this run's
+  log holds (an unplaceable cell, for example); more are in `nextpnr.log`.
 
 ## Reading numbers correctly
 

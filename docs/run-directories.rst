@@ -241,7 +241,8 @@ records:
   own modules when it is defined outside Xeda;
 - the programs it started, each as a file record (below) of the resolved executable -- size,
   mtime, inode change time, inode and content hash -- so a program replaced during the run is
-  caught the same way any other input is; a container image is recorded by its ID alone;
+  caught the same way any other input is; a program whose record from the previous run still
+  vouches for it (see below) is not read again; a container image is recorded by its ID alone;
 - its **inputs**, recorded *as the run found them when it started*: every file the design's
   ``rtl`` and ``tb`` name (sources, and a parameter or define given as a file, such as
   ``$readmemh`` data), every existing file a path-typed setting names (a relative path under both
@@ -563,7 +564,17 @@ dependency's input, a later sibling's), inside a directory a setting of any of t
 library or include directory such as ``lib_paths``: every file under it is an input, so a
 destination there is refused -- ``--outputs-to`` naming one up front -- even where no file is yet),
 or inside any run root -- a bare name would otherwise put an output back into its own run
-directory. An existing file at the destination is replaced without
+directory. Two outputs never go to one destination. When two deliverable settings name the same
+file -- two settings of one flow, or of two flows of the launch -- Xeda refuses the launch before
+any tool runs, and the message names both settings. ``--outputs-to`` follows the same rule.
+Before the run, Xeda expects it to deliver the files that the requested flow's last run made, and
+refuses the launch then if one of them would land on a destination another output names. A file
+that only this run reveals is compared once the requested flow has run, before Xeda copies
+anything. Names are compared as the file system compares them: ``Out.v`` and ``out.v``
+are one destination in a directory that ignores letter case (the default on macOS and Windows),
+and a destination inside another (``x`` and ``x/y``) is refused too. If two names still reach one
+file, Xeda finds it when it delivers the second: it says that two settings name the file, and the
+first delivery stays. An existing file at the destination is replaced without
 asking only when it is Xeda's own earlier delivery there, unchanged (its digest and inode still
 match what Xeda wrote, tracked in a delivery record kept beside the run directory, in the run
 root -- which survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda

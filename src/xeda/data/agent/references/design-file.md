@@ -31,7 +31,7 @@ in one list entry. TOML and JSON files remain supported.
 | `authors` (`author`) | no | One `"Name <email>"` string or a list of them. |
 | `language` (`hdl`) | no | Language standards. |
 | `flows` | no | Per-flow settings. |
-| `dependencies` | no | Other designs this one depends on. |
+| `dependencies` | no | Other designs this one depends on: the path of a design file, or a Git repository written `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
 | `license`, `version`, `url` | no | Metadata; no flow reads these. |
 | `design_root` | no | Base for relative paths. Defaults to the design file's directory - almost always right. |
 

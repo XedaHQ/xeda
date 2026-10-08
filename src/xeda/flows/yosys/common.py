@@ -29,6 +29,54 @@ MINIMUM_YOSYS: YosysRelease = (0, 63)
 NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
 
 
+#: What the stages after the RTL ones write, by the setting that asks for it. `stop_after: rtl`
+#: runs none of those stages, so none of these exists when it ends.
+AFTER_RTL = {
+    "netlist_json": "a JSON netlist",
+    "netlist_verilog": "a Verilog netlist",
+    "netlist_graph": "a netlist graph",
+    "write_blif": "a BLIF netlist",
+    "sta": "a timing report",
+    "ltp": "a longest-path report",
+}
+
+#: The description of `stop_after`, which `yosys` and `yosys_fpga` have and `yosys_sim` has not.
+STOP_AFTER_DESCRIPTION = (
+    'Stop the flow after this stage. "rtl" elaborates the design and writes the RTL outputs '
+    "without synthesizing, so it writes no netlist and no report. A setting that asks for one is "
+    "refused: `netlist_json`, `netlist_verilog`, `netlist_graph`, `write_blif`, `sta` and `ltp` "
+    "must be null or false."
+)
+
+
+def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """Each setting that asks for a result of a stage the run stops before, with why it is
+    refused and how to turn it off: `(setting, message)`. A stop that the user asked for succeeds
+    with the outputs it wrote (the RTL outputs), so what it cannot write is refused when the
+    settings are checked, before anything runs, instead of failing the run or being listed as a
+    result that does not exist. Both flows that stop (`yosys`, `yosys_fpga`) refuse by one rule:
+    by the setting's value, whether or not it was written, as a default is a request too."""
+    if getattr(settings, "stop_after", None) != "rtl":  # `yosys_sim` has no `stop_after`
+        return []
+    problems = []
+    for name, what in AFTER_RTL.items():
+        value = getattr(settings, name)
+        if value:
+            off = (
+                ("false", f"-s {name}=false")
+                if isinstance(value, bool)
+                else ("null", f"-s {name}=")
+            )
+            problems.append(
+                (
+                    name,
+                    f"`stop_after: rtl` stops before synthesis, which writes {what}, and `{name}` "
+                    f"asks for it: set `{name}` to {off[0]} (`{off[1]}`)",
+                )
+            )
+    return problems
+
+
 def yosys_release(yosys: Tool) -> YosysRelease:
     """The release of `yosys`, e.g. (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
     parts = [re.match(r"\d+", part) for part in yosys.version[:2]]
@@ -481,6 +529,20 @@ class YosysBase(Flow):
                     else:
                         value[attr] = format_attribute_value(attr_val)
             return value
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """A flow that takes an output of this one asks for it. A flow stopped after the RTL
+        (`stop_after`) writes none, so the ask is refused, saying that no flow which takes it can
+        follow. Telling the user to turn the netlist settings off (`stop_after_conflicts`) would
+        send them in a circle: this ask turns them back on."""
+        if getattr(settings, "stop_after", None) == "rtl":  # `yosys_sim` has no `stop_after`
+            raise ValueError(
+                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
+                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
+                "out the flow that takes it"
+            )
+        super().enable_output(settings, name, design_name=design_name)
 
     @property
     def script_ext(self) -> str:

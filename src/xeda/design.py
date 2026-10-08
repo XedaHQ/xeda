@@ -180,7 +180,11 @@ class DesignValidationError(AnyDesignValidationException):
             # the design file `from_file` attaches: the one thing that says where to look
             f' in "{self.file}"' if self.file else "",
             "\n".join(f"{fmt_loc(loc)}{msg}\n" for loc, msg, _, _ in self.errors),
-        ) + (f"\nDesign:\n{pformat(self.data)}\n" if self.data and self.design_in_msg else "")
+        ) + (
+            f"\nDesign:\n{pformat(_shown_dependencies(self.data))}\n"
+            if self.data and self.design_in_msg
+            else ""
+        )
 
 
 #: The format a design file is read in, by its suffix. The one rule for what a design file is:
@@ -1610,6 +1614,29 @@ class DesignReference(XedaBaseModel):
     #: A directory the user configures here is theirs to direct: xeda clones and pulls there.
     local_cache: Optional[Path] = None
 
+    @field_validator("uri")
+    @classmethod
+    def _a_plain_reference_is_a_design_file(cls, value: str) -> str:
+        """A reference of this class names a design file on disk. A URL names a Git repository,
+        which is written `git+<url>`: refused here, naming that spelling, instead of being taken
+        for a path that does not exist."""
+        if cls is DesignReference and _URL_SCHEME.match(value):
+            shown = redacted_url(value)
+            raise ValueError(
+                f"the design dependency {shown!r} is a URL, not the path of a design file: "
+                f"write a Git repository as `git+{shown}`"
+            )
+        return value
+
+    def __repr_args__(self) -> Iterator[tuple[Optional[str], Any]]:
+        """The one text form of a reference, for `repr`, `str`, f-strings, log lines and every
+        container that holds one: its URL without the credentials (`redacted_url`). The fields
+        keep the URL as written, since the clone needs it."""
+        for name, value in super().__repr_args__():
+            if name in ("uri", "repo_url") and isinstance(value, str):
+                value = redacted_url(value)
+            yield name, value
+
     @staticmethod
     def from_data(data) -> DesignReference:
         if isinstance(data, DesignReference):
@@ -1641,7 +1668,7 @@ class DesignReference(XedaBaseModel):
     def fetch_design(self) -> Design:
         design_path = Path(self.uri)
         if not design_path.exists():
-            raise ValueError(f"file {design_path} does not exist!")
+            raise ValueError(f"file {redacted_url(str(design_path))} does not exist!")
         return Design.from_file(design_path)
 
 
@@ -1652,6 +1679,45 @@ CLONE_DIGEST_LENGTH = 16
 CLONE_NAME_LIMIT = 80
 #: A drive (`C:`) at the start of a path component: on Windows it replaces the path before it.
 _DRIVE_PREFIX = re.compile(r"[A-Za-z]:")
+
+
+#: The user name and password of a URL's authority (`scheme://user:password@host`), up to its
+#: last `@`.
+_URL_USERINFO = re.compile(r"(?<=//)[^/?#]*(?=@)")
+
+
+#: The start of a URL: a scheme and `//`. A design file's path has none.
+_URL_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+
+
+def redacted_url(url: str) -> str:
+    """`url` as a log line or an error message may show it: the user name and the password of
+    its authority replaced by `***`. A token is given as either, so neither is kept."""
+    return _URL_USERINFO.sub("***", url)
+
+
+def _shown_dependencies(data: Mapping[str, Any]) -> Mapping[str, Any]:
+    """`data`, a design's mapping, as a log line may show it: the URL of each dependency (a
+    string, or the `uri` or `repo_url` of a mapping) without its credentials."""
+    dependencies = data.get("dependencies")
+    if not isinstance(dependencies, (list, tuple)):
+        return data
+
+    def shown(entry: Any) -> Any:
+        if isinstance(entry, str):
+            return redacted_url(entry)
+        if isinstance(entry, Mapping):
+            return {
+                key: (
+                    redacted_url(value)
+                    if key in ("uri", "repo_url") and isinstance(value, str)
+                    else value
+                )
+                for key, value in entry.items()
+            }
+        return entry
+
+    return {**data, "dependencies": [shown(entry) for entry in dependencies]}
 
 
 def _clone_name_text(what: str, text: str, *, drive: bool = True) -> str:
@@ -1698,15 +1764,17 @@ def clone_name_parts(
     The host, the path, the commit and the branch are refused if they name a place outside the
     cache (`_clone_name_text`), and the path may not be empty, whatever they are folded into.
     The host and its port (`h:8443`) fold into one token, so a host that reads as a drive is not
-    refused.
+    refused. The user name and the password of a URL (`https://user:password@host/...`) are no
+    part of a name, which shows in paths and logs; the digest still covers the whole URL, so URLs
+    that differ only in them are cloned apart.
     """
     uri = urlparse(repo_url)
     if not uri.netloc:
-        raise ValueError(f"invalid URL: {uri}")
-    host = _clone_name_text("host", uri.netloc, drive=False)
+        raise ValueError(f"invalid URL: {redacted_url(repo_url)}")
+    host = _clone_name_text("host", uri.netloc.rpartition("@")[2], drive=False)
     path = _clone_name_text("repository path", uri.path.lstrip("/"))
     if not path:
-        raise ValueError(f"the Git URL {repo_url!r} names no repository path")
+        raise ValueError(f"the Git URL {redacted_url(repo_url)!r} names no repository path")
     if commit:
         reference = "commit=" + _clone_name_text("commit", commit)
     elif branch:
@@ -1746,7 +1814,8 @@ def clone_location(
         contained = False
     if not contained:
         raise ValueError(
-            f"{repo_url} would be cloned to {location}, outside the clone cache {cache}"
+            f"{redacted_url(repo_url)} would be cloned to {location}, outside the clone cache "
+            f"{cache}"
         )
     return owner.unlinked(location) if owner is not None else location
 
@@ -1791,7 +1860,7 @@ class GitReference(DesignReference):
             # <scheme>://<netloc>/<path>;<params>?<query>#<fragment>
             uri = urlparse(uri_str)
             if not uri.scheme or not uri.netloc:
-                raise ValueError(f"invalid git URL: {uri}")
+                raise ValueError(f"invalid git URL: {redacted_url(uri_str)}")
             # git design file path should be relative to root
             design_file_path = uri.fragment.lstrip("/.")  # Removes /, ../, etc.
             if not design_file_path:
@@ -1868,9 +1937,9 @@ class GitReference(DesignReference):
                     owner = RunDirectory(run_root, run_root)
             if cache is None:
                 raise ValueError(
-                    f"{self.repo_url} needs a directory to be cloned into: give its `clone_dir` "
-                    "(or `local_cache`), or load the design through xeda run / a launcher, which "
-                    "clones into its run root"
+                    f"{redacted_url(self.repo_url)} needs a directory to be cloned into: give "
+                    "its `clone_dir` (or `local_cache`), or load the design through xeda run / "
+                    "a launcher, which clones into its run root"
                 )
             clone_dir = clone_location(cache, self.repo_url, self.commit, self.branch, owner=owner)
         repo = None
@@ -1888,7 +1957,7 @@ class GitReference(DesignReference):
         if repo is None:
             log.info(
                 "Cloning git repository url:%s branch:%s commit:%s",
-                self.repo_url,
+                redacted_url(self.repo_url),
                 self.branch,
                 self.commit,
             )
@@ -2379,7 +2448,7 @@ class Design(XedaBaseModel):
     @classmethod
     def process_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         data = cls.process_compatibility(data)
-        log.debug("Design data: %s", data)
+        log.debug("Design data: %s", _shown_dependencies(data))
         cls.process_generation(data)
         return data
 

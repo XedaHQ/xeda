@@ -33,6 +33,7 @@ from ..deliver import (
     OUTPUTS_TO,
     Conflict,
     ConfirmedReplacements,
+    DeliveredFiles,
     Deliveries,
     Delivery,
     DeliveryError,
@@ -40,6 +41,7 @@ from ..deliver import (
     deliverable_setting_names,
     outputs_to_deliveries,
     recorded_artifacts,
+    refuse_shared_destinations,
     split_deliveries,
 )
 from ..design import (
@@ -846,6 +848,7 @@ class FlowLauncher:
         self._launch_inputs: List[Path] = []
         #: every file the flows of the current launch read (`xeda.deliver.ReadInputs`)
         self._read_inputs = ReadInputs()
+        self._delivered_files = DeliveredFiles()
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
@@ -1153,6 +1156,7 @@ class FlowLauncher:
             # every file the flows of this launch read: the requested flow registers the
             # settings of the whole plan, and each flow the files it prepares
             self._read_inputs = ReadInputs(self._launch_inputs)
+            self._delivered_files = DeliveredFiles()
             self._pending_deliveries = []
         self._launch_depth += 1
         try:
@@ -1240,15 +1244,19 @@ class FlowLauncher:
         """Make now the checks that every flow of the plan makes of its deliveries when its turn
         comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
         earlier flow. First comes what no answer could allow (`--outputs-to`, and
-        `Deliveries.refuse`), for every flow, the requested flow included; then the questions
-        of the producers, in the order they run, each asked once. The requested flow asks its own
-        at its turn: that is the start of its own launch, before it launches its producers, so
-        before any tool runs. A producer keeps the object it checked and
-        checks again with it at its turn: that finds the record this check anchored, so the
-        destination is read once in the launch. At its turn, under its lock, the producer reads
-        the delivery record again if another launch wrote it meanwhile."""
+        `Deliveries.refuse`), for every flow, the requested flow included -- and a destination
+        that two deliveries name, or one inside another (`refuse_shared_destinations`: every
+        destination known before the run, which is every named delivery of the launch and the
+        files `--outputs-to` is expected to deliver from the requested flow's last run; the
+        files that only this run reveals are compared once it has run); then the questions of
+        the producers, in the order they run, each asked once. The requested flow asks its own at its turn: that is the start of
+        its own launch, before it launches its producers, so before any tool runs. A producer
+        keeps the object it checked and checks again with it at its turn: that finds the record
+        this check anchored, so the destination is read once in the launch. At its turn, under
+        its lock, the producer reads the delivery record again if another launch wrote it
+        meanwhile."""
         outputs_to = self.settings.outputs_to
-        own = self._deliveries_of(run_path, deliveries)
+        own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)
         predicted = (
             outputs_to_deliveries(
@@ -1259,19 +1267,26 @@ class FlowLauncher:
         )
         own.refuse(predicted)
         ahead: dict[NodeKey, Deliveries] = {}
+        copies: list[tuple[str, Delivery, Path]] = []  # in the order the flows run
         for planned in plan.nodes:
-            if planned.node_key != requested.node_key:
-                named = split_deliveries(planned.settings, design.name)
-                if named:
-                    ahead[planned.node_key] = self._deliveries_of(planned.run_path, named)
+            if planned.node_key == requested.node_key:
+                known = [*deliveries, *predicted]
+            else:
+                known = split_deliveries(planned.settings, design.name)
+                if known:
+                    ahead[planned.node_key] = self._deliveries_of(
+                        planned.run_path, known, planned.name
+                    )
+            copies += [(planned.name, d, d.destination) for d in known]
         for producer in ahead.values():
             producer.refuse()
+        refuse_shared_destinations(copies, before_run=True)
         for producer in ahead.values():
             producer.check()
         self._deliveries_ahead = ahead
 
-    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery]) -> Deliveries:
-        """The deliveries `named` of the flow that runs in `run_path`, for this launch."""
+    def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
+        """The deliveries `named` of the flow `owner` that runs in `run_path`, for this launch."""
         return Deliveries(
             run_path,
             self.run_root,
@@ -1279,6 +1294,8 @@ class FlowLauncher:
             inputs=self._read_inputs,  # the launch's
             overwrite=self.settings.overwrite_outputs,
             confirm=self._confirm_replacing,
+            owner=owner,
+            files=self._delivered_files,  # the launch's
         )
 
     def _entered(self, run_path: Path) -> bool:
@@ -1384,7 +1401,7 @@ class FlowLauncher:
             outputs_to = self.settings.outputs_to if depender is None else None
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:
-                delivery = self._deliveries_of(run_path, deliveries)
+                delivery = self._deliveries_of(run_path, deliveries, flow_name)
             else:
                 # made ready before this lock was taken: the record may have been written since
                 delivery.reread_record()
@@ -1561,7 +1578,9 @@ class FlowLauncher:
                     # Recorded once the run has written everything, `results.json` included, and
                     # before the clean-up, which may remove files the trace names (a depfile).
                     # The clean-up only removes files: the trace is the last thing a run writes.
-                    trace = build_trace(expected, flow, programs, snapshot, input_settings)
+                    trace = build_trace(
+                        expected, flow, programs, snapshot, input_settings, previous
+                    )
                     write_trace(run_path, trace)
                     flow.run_id = trace.run_id
                 else:
@@ -1603,6 +1622,16 @@ class FlowLauncher:
         delivery.collect(flow.run_path, outputs_to_deliveries(artifacts, flow.run_path, outputs_to))
         if not delivery.pending:
             return
+        # what only a run reveals -- `--outputs-to`'s artifacts, the files of a directory output --
+        # is compared with every copy noted so far, before any copy is made
+        refuse_shared_destinations(
+            (
+                (other.name, named, destination)
+                for other, noted in [*self._pending_deliveries, (flow, delivery)]
+                for named, _source, destination, _sha in noted.pending
+            ),
+            before_run=False,
+        )
         self._pending_deliveries.append((flow, delivery))
 
     def _input_settings(

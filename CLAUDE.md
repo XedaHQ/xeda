@@ -382,8 +382,10 @@ nonempty default or an explicit value. A deliverable switch (`vivado_synth`'s `b
 its conventional name, `outputs/<design>.<ext>`, the name the run writes when the setting names a
 location: `Flow.enable_output(settings, name, design_name=...)` takes the design's name for it,
 so one output has one name however it is asked for
-(`test_one_dependency_mechanism.py::naming_problems`; `vivado_postsynth_sim.saif`, still
-`activity.saif` in the reviewed tool-input goldens, is its one listed exception). The flow chooses
+(`test_one_dependency_mechanism.py::naming_problems`, which lists no exception:
+`vivado_postsynth_sim`'s `saif`, which a consumer or a timing request asks for, is
+`outputs/<design>.saif` too, and `VivadoSim.run` makes the directory; the reviewed tool-input
+goldens still say `activity.saif`, which `REVIEWED_RENAMES` maps). The flow chooses
 its output paths inside its run directory.
 
 - **One plan drives execution.** `flow_runner/resolver.py` resolves effective settings, input
@@ -520,8 +522,9 @@ placement dump, yosys's a mapped-primitive footprint (`yosys_fpga.xilinx_lut_foo
 `RAM<d>X<w>[SD]`, SRL and LUT primitive); neither is certified comparable with Vivado's.
 `clock_port` is reported only when the reported domain is itself a top-level port. A failed
 nextpnr is reported by the `ERROR:` lines of this run's log (`Nextpnr._failure`: a constraint
-error at its origin, a missed timing constraint, else the tool's failure) -- a warning is never
-the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
+error at its origin, a missed timing constraint, else the tool's failure, a `NonZeroExitCode`
+whose message ends with the first `ERRORS_SHOWN` distinct error lines: `NonZeroExitCode`'s extra
+arguments are shown after its exit code) -- a warning is never the cause. `fpga_pack` packs into `.xeda-pack-*` scratch in its run directory (removing one a
 killed run left) and publishes with `replacing_copy` only a nonempty file of a packer that
 exited 0. `fpga-as` is given the part's own Project X-Ray directory (`<family>/<part>/part.json`)
 when the database has it; else the directory of the lowest speed grade of the same device and
@@ -752,8 +755,10 @@ atomically after a successful run (`write_trace`) and removed before the next ru
 (`xeda_code_digest`, once per process: an editable install keeps its version across edits) and of a
 plugin flow's own modules (`flow_code_digest`), the programs it started as `FileRecord`s of the
 resolved executable (`ProgramRecord.file`: size, mtime, inode change time, inode, content hash --
-a program is checked exactly as any other input; a container image is recorded by its ID alone,
-`ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
+a program is checked exactly as any other input, and a successful run keeps the previous
+trace's record of an unchanged program (`trace_inputs._programs`: `FileRecord.trusted` against that
+trace's `outputs_recorded_ns`, never an `unknown` record) instead of hashing the binary again; a
+container image is recorded by its ID alone, `ProgramRecord.path`), and every file as a `FileRecord` (`size, mtime_ns, ctime_ns, inode, sha`,
 `digest.record_file`): its **inputs** -- the design's files (`design_files`: one walker over the
 parts the flow reads, `rtl` and, for `design_parts` with `tb`, `tb`, so a file-valued parameter
 counts), every existing file a path-typed setting names
@@ -883,7 +888,22 @@ the audit hook records no violation of xeda's own, the canary sweep sees only th
 token, and the repository path with the commit (else the branch) folded into one readable token,
 then `_` and a 16-digit digest of the whole identity, the repository URL, the branch and the commit.
 Folding cannot keep `a/b` and `a_b` apart; the digest does, so references that select different
-clones never share a directory, and one reference always has the same. `tests/test_git_dependencies.py`
+clones never share a directory, and one reference always has the same. **The user name and password
+of a URL (`https://user:token@host/...`) are no part of a name** (the host token is what follows the
+last `@` of the authority), since a name shows in paths and logs; the digest still covers the whole
+URL, so URLs that differ only in their credentials are cloned apart (the digest protects nothing:
+whoever can read the directory's name can read its `.git/config`, where git keeps the URL as it
+was given, and the design file and the recorded settings are the user's own copies). Every log
+line and error message that prints a URL goes through `design.redacted_url` (`***` for the
+credentials), and a reference has one text form, `DesignReference.__repr_args__` (`uri` and
+`repo_url` redacted, while the fields keep the URL, which the clone needs): a reference in a
+message, a log line, a container or the debug dump of the design (`_shown_dependencies` masks the
+string and mapping forms of a dependency too) is masked. **A dependency is the path of a design
+file or `git+<url>`**: the base `DesignReference` refuses a URL (a scheme and `//`), naming the
+`git+` spelling, instead of reading it as a path that does not exist and printing it.
+`tests/test_git_dependencies.py` runs each route that prints with a credentialed URL, and scans
+`design.py` for a URL, or a path made from one (`design_path`), formatted into a message without
+`redacted_url`. `tests/test_git_dependencies.py`
 pins a name: changing the identity re-clones everything, and moves the `design_hash` of every design
 with a Git dependency (its sources count by path). A clone is one directory below its host's, so
 none lies inside another. A path, branch or commit with a `.` or `..` component, a drive such as
@@ -1023,9 +1043,20 @@ not (whether a tool reads it cannot be known before the run; `--outputs-to` into
 up front). The requested flow also checks the named deliveries of every flow of the plan when the
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
-allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`), and
-only then asks the producers' questions; its own question comes at its turn, the start of its
-own launch and before it launches its producers, so still before any tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`) --
+a destination two deliveries name, or one inside another, is one of them
+(`deliver.refuse_shared_destinations`: every destination known before the run -- every named
+delivery of the launch and the files `--outputs-to` is expected to deliver, the requested flow's
+last-run artifacts (`predicted`) -- with its flow, in the order the flows run, naming both
+settings as `flows.<flow>.<key>`; **names are compared as their
+file system compares them**, `_compared`: located, and each name casefolded when the directory it
+lies in ignores letter case, which `_ignores_case` finds by looking, never by writing -- an entry
+of the directory asked for in the other case, else the directory's own name in its parent on the
+same device, else its parent's answer, and "keeps case" when nothing can be asked -- so
+`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4) -- and only then
+asks the producers' questions; its own question comes at
+its turn, the start of its own launch and before it launches its producers, so still before any
+tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
 a launch; that second check records what it found (`Deliveries.checked`). The object read its
 delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
@@ -1050,8 +1081,16 @@ would deliver on the remote host, so the error names the producer's own request 
 (`xeda run --remote fpga_pack ... --outputs-to DIR`).
 Each node notes what it
 delivers, with every file's digest, as its own run completes (`Deliveries.collect`, under its run
-directory's lock); the copies themselves are made in `_finish_launch`, before the deferred
-clean-ups, once every flow of the graph has registered its reads -- a dependency's output could
+directory's lock), and compares what it noted with every copy noted before it
+(`refuse_shared_destinations` again, in `_defer_delivery`): the artifacts this run adds to
+`--outputs-to`'s and a directory output's files are known only now, and a destination two of them
+share is refused before the first copy, a `DeliveryError` that is no `before_run` one, since the tools ran. What no
+comparison of names sees (a file system that takes two Unicode forms for one name, a link made
+during the run) is found by the file: `DeliveredFiles` holds, by inode, what the launch's
+deliveries made, and a delivery whose destination is one of them reports that two deliveries name
+it (the first stays), never "changed while the run went on". The copies themselves are made in
+`_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its
+reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
 has even run. An existing file at a destination is replaced without asking only when it is xeda's
 own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
@@ -1653,6 +1692,22 @@ dependency must also share `custom_boards_file`.
   renders the three flows' scripts over every combination of RTL outputs and `stop_after`,
   checks each command is a line of its own, and runs the `.tcl` ones under `tclsh` with stub
   commands (`require_tclsh`); each glue fix has a revert that fails it.
+
+  **`stop_after: rtl` is a stop the user asked for, so the run succeeds with the RTL outputs.**
+  The two flows that have it (`yosys`, `yosys_fpga`; a flow that gains `stop_after` needs a recipe
+  in `FLOWS` of `tests/test_yosys_stop_after.py`) leave every stage after the RTL one out of the
+  script, the `.ys` and the `.tcl` template alike (no `exit`: the including template renders
+  nothing after `post_rtl`), so the run writes no netlist and no report, and `utilization_report`
+  is not registered as an artifact: an artifact listed on a success must exist. What asks for a
+  result of those stages is refused when the settings are checked, before anything runs, by the
+  setting's value (`common.stop_after_conflicts`, from each flow's `check_settings_supported`):
+  `netlist_json` and `netlist_verilog` (both on by default, so the stop needs `-s netlist_json=
+  netlist_verilog=`), `netlist_graph`, `write_blif`, `sta` and `ltp`. One rule for the declared
+  output (`netlist`, which would fail as a missing output) and the plain artifacts alike. A flow
+  that takes the netlist (`nextpnr`, `openroad`) cannot follow a stopped flow: its demand switches
+  the netlist back on, so `YosysBase.enable_output` refuses it, and the resolver's message names the
+  consumer (`yosys_fpga.netlist is required by nextpnr: ...`) -- the advice to turn the netlist off
+  would be circular there, and stays for a stopped flow run alone.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).

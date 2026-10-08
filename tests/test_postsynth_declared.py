@@ -39,7 +39,7 @@ def _legacy_settings():
 def test_a_consumer_can_enable_activity_without_giving_a_filename(name):
     settings = VivadoPostsynthSim.Settings.from_input(_legacy_settings())
     VivadoPostsynthSim.enable_output(settings, name, design_name="d")
-    assert settings.saif == Path("activity.saif")
+    assert settings.saif == Path("outputs/d.saif"), "the name a located saif is written under"
     assert settings.timing_sim is (name == "timing_saif")
 
 
@@ -131,7 +131,8 @@ def test_results_record_exactly_the_enabled_activity_names(tmp_path, monkeypatch
         {"timing_saif"} if timing_sim else set()
     )
     for recorded in outputs.values():
-        assert recorded["path"].endswith("activity.saif")
+        # the name asked for, else the conventional one a demand (or a timing request) gives
+        assert recorded["path"].endswith("activity.saif" if saif else "outputs/sim.saif")
         assert len(recorded["sha"]) == 32
     if timing_sim and saif:
         assert outputs["timing_saif"] == outputs["saif"]

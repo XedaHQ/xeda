@@ -183,7 +183,11 @@ class VivadoSim(Vivado, SimFlow):
         # directory. So is the SAIF, which `open_saif` does not replace.
         self.run_directory.remove("xsim.dir")
         if ss.saif:
-            self.run_directory.remove(self.run_directory.writable(ss.saif))
+            saif = self.run_directory.writable(ss.saif)
+            self.run_directory.remove(saif)
+            # `open_saif` makes no directory: the conventional name is below `outputs/`, which
+            # only a located setting has made by now (the launcher, for a delivery)
+            saif.parent.mkdir(parents=True, exist_ok=True)
         self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
         self.run_directory.writable(RUNTIME_LOG)
         process_log = self.run_directory.writable(self.vivado.redirect_stdout or PROCESS_LOG)
