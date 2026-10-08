@@ -32,6 +32,7 @@ from xeda.flows import FpgaPack
 from . import tool_utils
 
 PART = "xc7a100tcsg324-1"
+FABRIC = "xc7a100t"  # the die of the part, and the name of its chip database
 
 # openXC7 demo-projects' blinky-digilent-arty, verbatim (its Makefile names the A7-35T part)
 BLINKY = """\
@@ -150,7 +151,20 @@ def _results(run_root: Path, design: Design, flow: str) -> dict[str, Any]:
 
 
 def _chipdbs(run_root: Path) -> list[Path]:
-    return sorted((run_root / ".cache/xilinx-chipdb").glob("*/*.bin"))
+    """The chip databases of the Arty's fabric: one entry of the cache holds one fabric's."""
+    return sorted((run_root / ".cache/xilinx-chipdb").glob(f"*/{FABRIC}.bin"))
+
+
+def test_the_chip_database_of_the_arty_is_the_one_its_fabric_names(tmp_path):
+    """The run root is shared with the tests of other boards, which build other fabrics (the
+    Basys 3 needs the xc7a50t) and make a chip database of their own in an entry of their own.
+    The tests here read the Arty's, whatever else the root holds and whichever test came first."""
+    entries = tmp_path / ".cache/xilinx-chipdb"
+    for identity, fabric in (("0a", "xc7a50t"), ("1b", "xc7a100t"), ("2c", "xc7k325t")):
+        (entries / identity).mkdir(parents=True)
+        (entries / identity / f"{fabric}.bin").write_bytes(b"")
+        (entries / identity / "manifest.yaml").write_text("")
+    assert _chipdbs(tmp_path) == [entries / "1b" / "xc7a100t.bin"]
 
 
 def test_the_arty_blinky_builds_to_a_bitstream(built, run_root):
@@ -161,7 +175,7 @@ def test_the_arty_blinky_builds_to_a_bitstream(built, run_root):
     assert flow.inputs.config.stat().st_size > 1000
     routed = _results(run_root, design, "nextpnr")
     assert routed["success"] and routed["timing_met"] is True and routed["Fmax"] > 100
-    assert routed["device"] == PART and routed["fabric"] == "xc7a100t"
+    assert routed["device"] == PART and routed["fabric"] == FABRIC
     assert (routed["ff"], routed["bram"], routed["dsp"], routed["io"]) == (25, 0, 0, 2)
     # a 25-bit counter: carry chains with their LUTs, counted as occupied LUT locations
     assert 25 <= routed["lut"] <= routed["SLICE_LUTX"]

@@ -1,0 +1,236 @@
+name: openXC7
+
+# The real openXC7 toolchain builds Artix-7 designs, an Arty A7-100T and a Basys 3
+# (tests/test_openxc7_real.py and the cases named in the test step): yosys, nextpnr-himbaechel
+# with the Xilinx backend, and fpga-as. No package has the layout xeda reads, so this job builds
+# the three tools once with openXC7's own installer and caches the installation, with the list of
+# the system packages that the tools load (made from the tools, not by hand). A cache miss installs
+# the packages the installer needs and builds for 16 to 27 minutes, and the job takes 20 to 33.
+# A cache hit restores the tools in seconds and installs only the listed packages (15 names, about
+# 20 seconds), and the job takes 3 to 5 minutes. This is a separate workflow, so it runs beside the
+# tox legs in ci.yml, and a build delays none of them.
+on:
+  push:
+    branches: ["main", "release/*"]
+  pull_request:
+    branches: ["main", "release/*"]
+  schedule:
+    # GitHub deletes a cache that no run has used for seven days. Two runs a week keep it.
+    - cron: "17 4 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # Pinned, not ubuntu-latest: the cached tools link against the libraries of this image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # The one pin: a commit of openXC7/toolchain-installer. It fixes the versions of yosys,
+      # nextpnr, the Project X-Ray database, fpga-assembler and Bazel together. To change it, edit
+      # it in a pull request, which runs this job, and read the installer's diff first.
+      INSTALLER_REV: efe9e07330e88434a831f2c52bee72739da0f0a5
+      # Change it when this workflow changes what the installation holds.
+      RECIPE: "2"
+      # Where the installation lists the system packages its tools load (inside the cached part).
+      RUNTIME_PACKAGES: share/xeda-ci/runtime-packages.txt
+    steps:
+      # Full history: xeda's version is derived from the git tags.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Restore the openXC7 installation
+        id: toolchain
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ~/openxc7/bin
+            ~/openxc7/lib
+            ~/openxc7/share
+          # No restore-keys: an installation made from another installer commit must not stand in.
+          key: openxc7-ubuntu-24.04-${{ runner.arch }}-${{ env.INSTALLER_REV }}-r${{ env.RECIPE }}
+
+      # The package mirror of the runners fails downloads for minutes at a time. apt retries a
+      # failed download and stops waiting for a silent mirror after 30 s. The limit of each step
+      # that installs packages ends what is left.
+      - name: Make apt retry
+        run: |
+          printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' |
+            sudo tee /etc/apt/apt.conf.d/80-xeda-ci > /dev/null
+
+      - name: Install the system packages that the cached tools load
+        # Only these: the packages the build needed (compilers, headers, Java) are 70 packages
+        # and 100 MB, and the mirror fails some of them. The tools need a handful of libraries
+        # (Boost, Tcl). The list was made when they were built.
+        if: steps.toolchain.outputs.cache-hit == 'true'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          list="$HOME/openxc7/$RUNTIME_PACKAGES"
+          if [ ! -s "$list" ]; then
+            echo "::error::$list is missing. The cache entry was made by another recipe: raise RECIPE."
+            exit 1
+          fi
+          cat "$list"
+          sudo apt-get update
+          if ! xargs -a "$list" sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-install-recommends 2>&1 | tee "$RUNNER_TEMP/apt.log"; then
+            if grep -q 'Unable to locate package' "$RUNNER_TEMP/apt.log"; then
+              echo "::error::The list names a package that the archive no longer has. Raise RECIPE to make a new list."
+            fi
+            exit 1
+          fi
+
+      - name: Get the installer and install its system packages
+        # What the installer lists, to build the tools, less two packages for tools that this job
+        # does not build: Java (the parser of the FASM files, made with prjxray) and pypy3 (the
+        # chip databases of the upstream makefiles; xeda makes its own). They are 62 of the 106 MB
+        # to download, and the mirror of the runners fails some of those downloads. The build step
+        # runs the same file, so it asks for no more. If a revision of the installer lays out its
+        # list another way, the edit changes nothing and the full list is installed.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          git clone --quiet https://github.com/openXC7/toolchain-installer.git "$RUNNER_TEMP/installer"
+          git -C "$RUNNER_TEMP/installer" checkout --quiet --detach "$INSTALLER_REV"
+          sed -i '/^APT_DEPENDENCIES=(/,/)$/ { s/ default-jre-headless//; s/ pypy3//; }' \
+            "$RUNNER_TEMP/installer/toolchain-sources-builder.sh"
+          git -C "$RUNNER_TEMP/installer" diff --stat
+          # Sourcing the script defines its functions. It does not build anything.
+          # shellcheck source=/dev/null
+          source "$RUNNER_TEMP/installer/toolchain-sources-builder.sh"
+          check_dependencies
+
+      - name: Build yosys, nextpnr-himbaechel and fpga-as
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # The installer clones the sources into the current directory.
+          mkdir "$RUNNER_TEMP/openxc7-build"
+          cd "$RUNNER_TEMP/openxc7-build"
+          INSTALL_PREFIX="$HOME/openxc7" JOBS="$(nproc)" \
+            bash "$RUNNER_TEMP/installer/toolchain-sources-builder.sh" yosys nextpnr fpga-as
+          # Keep out of the cache what the tests do not use: Bazel, and the Project X-Ray data of
+          # the families other than Artix-7.
+          rm -f "$HOME/openxc7/bin/bazel"
+          rm -rf "$HOME/openxc7/share/nextpnr/prjxray-db"/{kintex7,spartan7,virtex7,zynq7}
+          df -h /
+
+      - name: Record the system packages that the installed tools load
+        # Read from the tools just built, so that nobody keeps the list by hand: the shared
+        # libraries of every executable of bin/ (ldd lists those that the libraries load too), and
+        # the Debian package that owns each. The installation's own libraries have no package.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          prefix="$HOME/openxc7"
+          list="$prefix/$RUNTIME_PACKAGES"
+          mkdir -p "$(dirname "$list")"
+          libraries="$RUNNER_TEMP/libraries.txt"
+          : > "$libraries"
+          ls -l "$prefix/bin"
+          for executable in "$prefix"/bin/*; do
+            # A script, or a static executable, has no libraries, and ldd exits with 1.
+            output="$(ldd "$executable" 2>&1)" || continue
+            if grep -q 'not found' <<< "$output"; then
+              echo "::error::$executable needs a shared library that is missing:"
+              grep 'not found' <<< "$output"
+              exit 1
+            fi
+            awk '$2 == "=>" && $3 ~ /^\// { print $3 } $1 ~ /^\// { print $1 }' <<< "$output" >> "$libraries"
+          done
+          if [ ! -s "$libraries" ]; then
+            echo "::error::No executable in $prefix/bin loads a shared library. Is the installation empty?"
+            exit 1
+          fi
+          # The files of the packages are in /usr/lib, and dpkg does not know them by the names
+          # that ldd prints, in /lib, which is a link to it.
+          xargs -a "$libraries" readlink -f | { grep -v "^$prefix/" || true; } | sort -u > "$libraries.system"
+          test -s "$libraries.system"  # the C library at least is the system's
+          if ! xargs -a "$libraries.system" dpkg -S > "$libraries.owners" 2> "$libraries.errors"; then
+            echo "::error::No Debian package owns a library that an installed tool loads:"
+            cat "$libraries.errors"
+            exit 1
+          fi
+          # "zlib1g:amd64: /usr/lib/x86_64-linux-gnu/libz.so.1.3", or "a:amd64, b:amd64: /path"
+          awk -F': ' '$1 !~ /^diversion/ && $2 ~ /^\// { print $1 }' "$libraries.owners" |
+            tr ',' '\n' | sed -E 's/^ +//; s/:.*$//' | sort -u > "$list"
+          test -s "$list"
+          cat "$list"
+
+      - name: Check the installation
+        # Before the save, so that a tree with a missing library is not cached. After the
+        # installation of the listed packages on a hit: they are all that a hit has.
+        env:
+          CACHE_HIT: ${{ steps.toolchain.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          echo "$HOME/openxc7/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/openxc7/bin:$PATH"
+          for tool in yosys nextpnr-himbaechel bbasm fpga-as; do
+            path="$(readlink -f "$(command -v "$tool")")"
+            # tests/tool_utils.py requires the tools to share one bin directory.
+            test "$(dirname "$path")" = "$(readlink -f "$HOME/openxc7/bin")"
+            missing="$(ldd "$path" 2>&1 | grep 'not found' || true)"
+            if [ -n "$missing" ]; then
+              echo "$tool needs a shared library that is missing:" >&2
+              echo "$missing" >&2
+              if [ "$CACHE_HIT" = true ]; then
+                echo "::error::The installed packages are the ones in the list of the cache. Raise RECIPE to make a new list."
+              fi
+              exit 1
+            fi
+          done
+          yosys -V
+          nextpnr-himbaechel --version
+          du -sh "$HOME"/openxc7/{bin,lib,share}
+          df -h /
+
+      - name: Save the openXC7 installation
+        # Before the tests, so that a failing test does not discard the build.
+        if: steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/openxc7/bin
+            ~/openxc7/lib
+            ~/openxc7/share
+          key: ${{ steps.toolchain.outputs.cache-primary-key }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Install xeda and run the openXC7 tests
+        env:
+          XEDA_TESTS_OPENXC7: "1"
+        run: |
+          set -euo pipefail
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --editable . pytest
+          # Artix-7 builds only: the cache holds the Project X-Ray data of that family alone. The
+          # STLV7325 case of the board test needs Kintex-7 data, so it is left out. The order of
+          # the cases is free: they share one run root, and the Basys 3 makes a second chip
+          # database in it, so it comes first here, the order that once broke the Arty tests.
+          python -m pytest -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openxc7-tests.xml" \
+            "tests/test_board_basys3_stlv7325.py::test_the_board_builds_a_bitstream_with_openxc7[basys_3]" \
+            tests/test_fpga_chains.py::test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7 \
+            tests/test_openxc7_real.py
+          # A skipped test builds nothing. Without this check, a renamed opt-in variable or a
+          # changed probe in tests/tool_utils.py would leave the job green with no build.
+          python - "$RUNNER_TEMP/openxc7-tests.xml" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          suites = list(ET.parse(sys.argv[1]).getroot().iter("testsuite"))
+          tests = sum(int(suite.get("tests")) for suite in suites)
+          skipped = sum(int(suite.get("skipped")) for suite in suites)
+          print(f"{tests} tests, {skipped} skipped")
+          if tests == 0 or skipped:
+              sys.exit("Every openXC7 test must run: none may be skipped.")
+          PY

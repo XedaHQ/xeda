@@ -857,7 +857,8 @@ def require_openxc7() -> Path:
     generates a chip database, a minute and gigabytes of memory), and then insist on it: the
     installation prefix `PATH` selects, with its yosys, nextpnr-himbaechel with the Xilinx
     backend, chip database generator, Project X-Ray database and fpga-as. Its own variable,
-    not `XEDA_TESTS_REQUIRE_TOOLS`: CI requires the general tools and has no openXC7.
+    not `XEDA_TESTS_REQUIRE_TOOLS`: the tox legs of CI require the general tools and have no
+    openXC7. Only the workflow `openxc7.yml` sets this variable.
     `openFPGALoader` is not looked for: nothing here programs a device."""
     if not _opted_in("XEDA_TESTS_OPENXC7"):
         pytest.skip("set XEDA_TESTS_OPENXC7=1 to run the tests that run the openXC7 toolchain")
