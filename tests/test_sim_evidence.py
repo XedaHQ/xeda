@@ -7,8 +7,11 @@ Power is not in this sweep: it reports power and relies on its declared activity
 producer to pass the simulation evidence rule before hand-over.
 """
 
+from pathlib import Path
+
 import pytest
 
+from xeda.design import SourceType
 from xeda.flow import registered_flows
 from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 
@@ -50,6 +53,20 @@ def test_every_simulator_flow_requires_evidence_without_an_exemption():
         and cls.has_evidence_adapter is not SimFlow.has_evidence_adapter
     }
     assert adapters == converted
+
+
+def _readable_source(flow_class: type[SimFlow], root: Path) -> str:
+    """Write into `root` a source that `flow_class` reads, and return its name: VHDL when the
+    simulator reads it, else SystemVerilog. A flow built directly is refused a design with
+    no source it reads."""
+    root.mkdir(exist_ok=True)
+    reads = flow_class.reads_sources
+    if reads is None or SourceType.Vhdl in reads:
+        name, text = "unit.vhd", "entity unit is end;\n"
+    else:
+        name, text = "unit.sv", "module unit; endmodule\n"
+    (root / name).write_text(text)
+    return name
 
 
 class _Stub:
@@ -195,10 +212,11 @@ def test_verilator_never_takes_a_previous_runs_end_record(tmp_path, monkeypatch)
     from xeda import Design
     from xeda.flows import Verilator
 
+    root = tmp_path / "design"
     design = Design(
         name="tb",
-        design_root=tmp_path,
-        rtl={"sources": [], "top": "tb"},
+        design_root=root,
+        rtl={"sources": [_readable_source(Verilator, root)], "top": "tb"},
         tb={"sources": [], "top": "tb"},
     )
     outcomes = {}
@@ -261,9 +279,9 @@ def _normalized_flow(tmp_path):
     from xeda import Design
     from xeda.flows import Verilator
 
-    return Verilator(
-        {}, Design(name="tb", design_root=tmp_path, rtl={"sources": [], "top": "tb"}), tmp_path
-    )
+    root = tmp_path / "design"
+    rtl = {"sources": [_readable_source(Verilator, root)], "top": "tb"}
+    return Verilator({}, Design(name="tb", design_root=root, rtl=rtl), tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -464,10 +482,11 @@ def test_cocotb_keeps_priority_over_hdl_evidence(flow_name, content, passes, tmp
 
     monkeypatch.chdir(tmp_path)
     cls = get_flow_class(flow_name)
+    root = tmp_path / "design"
     design = Design(
         name="coco",
-        design_root=tmp_path,
-        rtl={"sources": [], "top": "tb"},
+        design_root=root,
+        rtl={"sources": [_readable_source(cls, root)], "top": "tb"},
         tb={"sources": [], "cocotb": True},
     )
     flow = cls(minimal_settings(cls), design, tmp_path)

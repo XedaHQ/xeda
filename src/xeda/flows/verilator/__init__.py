@@ -116,6 +116,18 @@ class Verilator(SimFlow):
 
     cocotb_sim_name = "verilator"
 
+    #: Verilator compiles the Verilog, SystemVerilog and C++ sources, and finds a header through
+    #: the directory it lies in (`-I`).
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Cpp,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+        }
+    )
+
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
@@ -555,9 +567,11 @@ class Verilator(SimFlow):
         for vlib in ss.verilog_libs:
             args += ["-v", str(vlib)]
 
-        sources: List[Any] = self.design.sources_of_type(
-            SourceType.Verilog, SourceType.SystemVerilog, SourceType.Cpp, rtl=True, tb=True
-        )
+        sources: List[Any] = [
+            src
+            for src in self.sources_read(tb=True)
+            if src.type in (SourceType.Verilog, SourceType.SystemVerilog, SourceType.Cpp)
+        ]
 
         if self.cocotb:
             lib_dir = self.cocotb.lib_dir

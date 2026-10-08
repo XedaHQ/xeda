@@ -8,8 +8,11 @@ a flow constructed directly. It keys on the testbench's sources in those languag
 all name no such top to be missed. A simulator that knows what to run without `tb.top`
 (`SimFlow.runs_without_testbench_top`) is not refused: GHDL finds a VHDL testbench's top, and
 Verilator and `yosys_sim` run a C++ driver of the design's own, whatever HDL sources the testbench
-also has (a bound checker, a model). A simulator that declares the types it reads
-(`Flow.reads_sources`) refuses a language it cannot read by name first, with or without the top.
+also has (a bound checker, a model).
+
+A simulator that declares the types it reads (`Flow.reads_sources`) refuses a source in another
+language before it asks for `tb.top`, so each case here is a design in a language the simulator
+reads: the RTL and the testbench are written in it.
 """
 
 import re
@@ -41,14 +44,46 @@ HDL_TESTBENCHES = {
     "bluespec": ("tb.bsv", "package tb; endpackage\n"),
     "chisel": ("tb.sc", "object Tb\n"),
 }
+#: the `SourceType` of each language above
+HDL_TYPES = {
+    "verilog": SourceType.Verilog,
+    "systemverilog": SourceType.SystemVerilog,
+    "vhdl": SourceType.Vhdl,
+    "bluespec": SourceType.Bluespec,
+    "chisel": SourceType.Chisel,
+}
 #: a design's own C++ driver
 DRIVER = ("main.cpp", "int main() { return 0; }\n")
 
 
-def _design(tmp_path: Path, *testbench: str, **tb) -> Design:
-    """A design whose testbench sources are the named `HDL_TESTBENCHES` and, for "driver", a C++
-    driver; none: no testbench sources."""
-    (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
+def _languages_read_by(flow_class: type[SimFlow]) -> list[str]:
+    """The `HDL_TESTBENCHES` languages `flow_class` reads: all of them for a simulator that
+    declares no types, and so chooses its inputs itself."""
+    reads = flow_class.reads_sources
+    return [
+        language for language in HDL_TESTBENCHES if reads is None or HDL_TYPES[language] in reads
+    ]
+
+
+#: every simulator with each language it reads
+READABLE = [
+    (name, language)
+    for name in SIM_FLOW_NAMES
+    for language in _languages_read_by(get_flow_class(name))
+]
+
+
+def _design(tmp_path: Path, *testbench: str, rtl: str = "systemverilog", **tb) -> Design:
+    """A design whose RTL is a unit in the language `rtl`, and whose testbench sources are the
+    named `HDL_TESTBENCHES` and, for "driver", a C++ driver; none: no testbench sources."""
+    rtl_name, rtl_text = {
+        "verilog": ("dut.v", "module dut; endmodule\n"),
+        "systemverilog": ("dut.sv", "module dut; endmodule\n"),
+        "vhdl": ("dut.vhd", "entity dut is end entity;\n"),
+        "bluespec": ("dut.bsv", "package dut; endpackage\n"),
+        "chisel": ("dut.sc", "object Dut\n"),
+    }[rtl]
+    (tmp_path / rtl_name).write_text(rtl_text)
     sources = []
     for kind in testbench:
         name, text = DRIVER if kind == "driver" else HDL_TESTBENCHES[kind]
@@ -57,7 +92,7 @@ def _design(tmp_path: Path, *testbench: str, **tb) -> Design:
     return Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["dut.sv"], "top": "dut"},
+        rtl={"sources": [rtl_name], "top": "dut"},
         tb={**({"sources": sources} if sources else {}), **tb},
     )
 
@@ -117,21 +152,14 @@ def test_one_predicate_says_whether_a_design_has_a_cpp_driver(tmp_path):
         assert flow.own_driver() is expected
 
 
-@pytest.mark.parametrize("flow_name", SIM_FLOW_NAMES, ids=str)
-@pytest.mark.parametrize("language", sorted(HDL_TESTBENCHES))
+@pytest.mark.parametrize(("flow_name", "language"), READABLE)
 @pytest.mark.parametrize("driver", [False, True], ids=["no_driver", "own_driver"])
 def test_every_simulator_refuses_an_hdl_testbench_without_a_top(
     flow_name, language, driver, tmp_path
 ):
     flow_class = get_flow_class(flow_name)
-    design = _design(tmp_path, language, *(["driver"] if driver else []))
+    design = _design(tmp_path, language, *(["driver"] if driver else []), rtl=language)
     assert not design.tb.top
-    reads = flow_class.reads_sources
-    if reads is not None and SourceType.from_str(language) not in reads:
-        # a simulator refuses a language it cannot read by that name, before the missing top
-        with pytest.raises(FlowException, match=rf"{flow_name} cannot read the design's .* source"):
-            flow_class.check_design_supported(design)
-        return
     if flow_class.runs_without_testbench_top(design):
         flow_class.check_design_supported(design)
         return
@@ -142,16 +170,19 @@ def test_every_simulator_refuses_an_hdl_testbench_without_a_top(
 @pytest.mark.parametrize("flow_name", SIM_FLOW_NAMES, ids=str)
 def test_every_simulator_accepts_what_names_no_hdl_top_to_miss(flow_name, tmp_path):
     flow_class = get_flow_class(flow_name)
+    language = _languages_read_by(flow_class)[0]
     # the testbench's top is named
-    named = _design(_in_new_directory(tmp_path, "named"), "systemverilog", top="tb")
+    named = _design(_in_new_directory(tmp_path, "named"), language, rtl=language, top="tb")
     flow_class.check_design_supported(named)
     # no testbench at all: the RTL top is simulated by design
-    flow_class.check_design_supported(_design(_in_new_directory(tmp_path, "bare")))
+    bare = _design(_in_new_directory(tmp_path, "bare"), rtl=language)
+    flow_class.check_design_supported(bare)
     # a design's own C++ driver, which has no top
-    flow_class.check_design_supported(_design(_in_new_directory(tmp_path, "cpp"), "driver"))
+    driver = _design(_in_new_directory(tmp_path, "cpp"), "driver", rtl=language)
+    flow_class.check_design_supported(driver)
     if flow_class.cocotb_sim_name:
         # a cocotb testbench drives the RTL top unless it names another toplevel
-        cocotb = _design(_in_new_directory(tmp_path, "cocotb"), "systemverilog", cocotb=True)
+        cocotb = _design(_in_new_directory(tmp_path, "cocotb"), language, rtl=language, cocotb=True)
         flow_class.check_design_supported(cocotb)
 
 

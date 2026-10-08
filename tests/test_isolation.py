@@ -33,7 +33,7 @@ import xeda
 from xeda import Design
 from xeda.cli import cli
 from xeda.flow import SimFlow
-from xeda.design import loading_in_run_root
+from xeda.design import SourceType, loading_in_run_root
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
@@ -89,7 +89,23 @@ PLAIN_TB = """library ieee; use ieee.std_logic_1164.all;
 entity tb_sqrt_plain is end;
 architecture sim of tb_sqrt_plain is begin end;
 """
+#: sqrt's cocotb testbench on a Verilog stand-in for the unit (`SQRT_VERILOG`), for the cocotb
+#: simulators that do not read VHDL (they refuse a design with a VHDL source at launch)
+SQRT_VERILOG = "module sqrt_stand_in(input clk); endmodule\n"
+SQRT_VERILOG_DESIGN = (
+    {"sources": ["sqrt_stand_in.v"], "top": "sqrt_stand_in", "clock": {"port": "clk"}},
+    SQRT_DESIGN[1],
+)
 DESIGNS = {"bsc": GCD_DESIGN, "bsc_sim": GCD_DESIGN}
+DESIGNS.update(
+    (cls.name, SQRT_VERILOG_DESIGN)
+    for cls, _ in flow_classes()
+    if issubclass(cls, SimFlow)
+    and cls.cocotb_sim_name
+    and cls.reads_sources is not None
+    and SourceType.Vhdl not in cls.reads_sources
+    and cls.name not in DESIGNS
+)
 DESIGNS.update(
     (cls.name, PLAIN_TB_DESIGN)
     for cls, _ in flow_classes()
@@ -189,6 +205,7 @@ def _world(parent: Path) -> World:
     for name in ("sqrt.vhdl", "tb_sqrt.py"):
         shutil.copy(SQRT / name, work / name)
     (work / "tb_sqrt_plain.vhdl").write_text(PLAIN_TB)
+    (work / "sqrt_stand_in.v").write_text(SQRT_VERILOG)
     for part in ("rtl", "tb"):
         shutil.copytree(GCD / part, work / part)
     for name in CANARIES:
