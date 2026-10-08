@@ -10,6 +10,7 @@ from typing import get_args
 import pytest
 
 from xeda import Design
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
@@ -758,3 +759,48 @@ def test_yosys_finds_a_header_listed_after_the_verilog_source(tmp_path):
     )
     flow = DefaultRunner(tmp_path / "runs").run_flow(Yosys, design, {})
     assert flow is not None and flow.succeeded
+
+
+@pytest.mark.parametrize("flow", ["yosys", "yosys_sim"])
+def test_a_design_with_no_source_the_flow_reads_is_refused_when_planned(flow, tmp_path):
+    """A netlist in a format yosys does not read is passed to no command: the script would
+    read nothing, and `hierarchy` would fail inside the tool. Planning refuses it by name."""
+    _write(tmp_path / "top.edf", "(edif top)\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.edf"], "top": "top"})
+    with pytest.raises(FlowSettingsException, match=rf"{flow} reads none of the design's sources"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize("flow", ["yosys", "yosys_sim"])
+@pytest.mark.parametrize(
+    ("unread", "language"), [("Top.bsv", "Bluespec"), ("Top.sc", "Chisel")], ids=["bsv", "chisel"]
+)
+def test_a_language_the_flow_cannot_read_is_refused_by_name_when_planned(
+    flow, unread, language, tmp_path
+):
+    """Passed over, a Bluespec source among Verilog ones would leave a design without its
+    modules, and the synthesis would go on with what is left."""
+    _write(tmp_path / "top.v", "module top; endmodule\n")
+    _write(tmp_path / unread, "// not for yosys\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["top.v", unread], "top": "top"}
+    )
+    with pytest.raises(
+        FlowSettingsException,
+        match=rf"{flow} cannot read the design's {language} source\(s\) .*{unread}",
+    ):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize("flow", ["yosys", "yosys_sim"])
+def test_a_design_of_the_types_the_flow_reads_is_planned_whatever_else_it_lists(flow, tmp_path):
+    """Verilog, SystemVerilog, VHDL and their headers are read; a constraint file or a memory
+    image beside them is passed over, not refused."""
+    names = ["defs.vh", "pkg.svh", "a.v", "b.sv", "c.vhd", "top.sdc", "rom.mem"]
+    for name in names:
+        _write(tmp_path / name, "// a source\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": names, "top": "a"})
+    planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
+    assert [node.name for node in planned.nodes] == [flow]

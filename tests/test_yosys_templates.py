@@ -17,6 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.design import SourceType
 from xeda.flow import FPGA
 from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
@@ -607,3 +608,28 @@ def test_a_verilog_top_listed_after_a_vhdl_file_still_gets_chparam(flow_cls, tmp
         rtl={"sources": sources, "top": "top", "clock_port": "clk", "parameters": {"W": 5}},
     )
     assert "chparam -set W 5 top" in _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
+
+
+@BOTH_FLOWS
+@BOTH_FORMATS
+def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
+    flow_cls, script_format, tmp_path: Path, monkeypatch
+) -> None:
+    """A flow takes the design's sources through `sources_read`, which `reads_sources` decides:
+    one that reads no VHDL and no headers passes none to yosys, though the design lists them.
+    (A launch refuses the flow's unread languages first; this shows the selection itself.)"""
+    root = tmp_path / "d"
+    root.mkdir()
+    names = ["defs.vh", "top.v", "pkg.sv", "inv.vhd"]
+    for name in names:
+        (root / name).write_text("// a source\n")
+    design = Design(
+        name="top", design_root=root, rtl={"sources": names, "top": "top", "clock_port": "clk"}
+    )
+    monkeypatch.setattr(flow_cls, "reads_sources", frozenset({SourceType.Verilog}))
+    script = _render(
+        flow_cls, _settings_for(flow_cls, script_format=script_format), tmp_path, design
+    )
+    assert "top.v" in script
+    for passed_over in ("defs.vh", "pkg.sv", "inv.vhd", "ghdl", " -I"):
+        assert passed_over not in script, passed_over

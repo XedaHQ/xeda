@@ -9,7 +9,7 @@ from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
 from ...tool import NonZeroExitCode
-from .common import YosysBase, process_parameters
+from .common import READ_SOURCE_TYPES, YosysBase, process_parameters
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,9 @@ class YosysSim(YosysBase, SimFlow):
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
+    # The design's C++ driver is compiled with the model.
+    reads_sources = READ_SOURCE_TYPES | {SourceType.Cpp}
+
     _end_record: Path | None = None
     _events_record: Path | None = None
     _driver_exit_code: int | None = None
@@ -155,7 +158,7 @@ class YosysSim(YosysBase, SimFlow):
         if ss.cxxrtl.header:
             self.artifacts["cxxrtl_header"] = cxxrtl_cpp.with_suffix(".h")
         cxx_args: List[Any] = [cxxrtl_cpp] + [
-            f.path for f in self.design.sim_sources_of_type(SourceType.Cpp)
+            src.path for src in self.sources_read(rtl=True, tb=True) if src.type is SourceType.Cpp
         ]
         sim_bin_file = cxxrtl_cpp.with_suffix("")
         cxx_args += ["-std=c++14"]

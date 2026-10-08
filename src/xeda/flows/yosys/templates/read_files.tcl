@@ -4,7 +4,7 @@ yosys echo on
 {% endif -%}
 
 {% set include_tb = read_tb_sources|default(false) -%}
-{% set sources = design.sources_of_type("*", rtl=true, tb=include_tb) -%}
+{% set sources = sources_read(rtl=true, tb=include_tb) -%}
 {% set top = hierarchy_top|default(design.rtl.top) -%}
 {% set vhdl_top = ghdl_top|default(design.rtl.top) -%}
 {% set include_dirs=namespace(i=[]) %}
@@ -17,7 +17,7 @@ yosys echo on
 yosys plugin -i {{plugin|tcl_word}}
 {% endfor -%}
 
-{% set sv_files = design.sources_of_type("SystemVerilog", rtl=true, tb=include_tb) -%}
+{% set sv_files = sources|selectattr("type.name", "equalto", "SystemVerilog")|list -%}
 {% set uhdm_plugin = (settings.systemverilog == "uhdm") and sv_files -%}
 {% if uhdm_plugin and "systemverilog" not in settings.plugins -%}
 yosys plugin -i systemverilog
@@ -49,7 +49,7 @@ yosys read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{define
 {% endif -%}
 {% endfor -%}
 
-{% set vhdl_files = design.sources_of_type("Vhdl", rtl=true, tb=include_tb) | list -%}
+{% set vhdl_files = sources|selectattr("type.name", "equalto", "Vhdl")|list -%}
 {% if vhdl_files -%}
 yosys log -stdout "** Elaborating VHDL files **"
 yosys plugin -i ghdl

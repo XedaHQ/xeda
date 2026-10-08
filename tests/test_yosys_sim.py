@@ -6,10 +6,18 @@ import json
 import pytest
 
 from xeda import Design
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.yosys.cxx_rtl import YosysSim
 
 from .tool_utils import require_c_toolchain, require_yosys
+
+
+def _design_with_a_source(root):
+    """A design a `YosysSim` can be built on, for a test of its settings: the flow needs a source
+    it reads."""
+    (root / "d.v").write_text("module d; endmodule\n")
+    return Design(name="d", design_root=root, rtl={"sources": ["d.v"], "top": "d"})
 
 
 def _driver_design(tmp_path, body="return 0;", *, rtl=None, header=True):
@@ -90,11 +98,7 @@ def test_driver_stop_time_is_rejected_before_compilation(tmp_path, monkeypatch, 
 
     called = []
     monkeypatch.setattr(YosysBase, "init", lambda self: called.append(True))
-    flow = YosysSim(
-        YosysSim.Settings(stop_time=stop),
-        Design(name="d", rtl={"sources": [], "top": "d"}),
-        tmp_path,
-    )
+    flow = YosysSim(YosysSim.Settings(stop_time=stop), _design_with_a_source(tmp_path), tmp_path)
     with pytest.raises(FlowSettingsException, match="stop_time.*driver"):
         flow.init()
     assert not called
@@ -286,7 +290,7 @@ def test_yosys_sim_runs_the_cxxrtl_example(tmp_path):
 
 
 def test_cxxrtl_backend_settings_are_rendered(tmp_path):
-    design = Design(name="d", rtl={"sources": [], "top": "d"})
+    design = _design_with_a_source(tmp_path)
     settings = YosysSim.Settings(
         cxxrtl={
             "filename": "sim.cpp",
@@ -318,7 +322,7 @@ def test_cxxrtl_backend_settings_are_rendered(tmp_path):
 
 
 def test_flatten_is_a_separate_command_in_both_script_formats(tmp_path):
-    design = Design(name="d", rtl={"sources": [], "top": "d"})
+    design = _design_with_a_source(tmp_path)
     flow = YosysSim(YosysSim.Settings(flatten=True), design, tmp_path)
     flow.init()
     for template, command in (
@@ -391,3 +395,31 @@ def test_simulation_top_and_hdl_testbench_source_are_used(tmp_path, capfd):
     assert "struct p_sim__top : public module" in (flow.run_path / "model.h").read_text()
     assert "Executing CHECK pass" in capfd.readouterr().out
     assert not (flow.run_path / "yosys.log").exists()
+
+
+def test_a_testbench_source_the_flow_cannot_read_is_refused_when_planned(tmp_path):
+    """The testbench is read as the RTL is: a Bluespec testbench beside SystemVerilog RTL would
+    be passed over, and the model would be built and run without it."""
+    (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
+    (tmp_path / "Tb.bsv").write_text("package Tb; endpackage\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["Tb.bsv"]},
+    )
+    with pytest.raises(FlowSettingsException, match=r"yosys_sim cannot read .* Bluespec source"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan("yosys_sim", design)
+
+
+def test_a_cpp_driver_beside_the_rtl_is_planned(tmp_path):
+    (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
+    (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["main.cpp"]},
+    )
+    planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan("yosys_sim", design)
+    assert [node.name for node in planned.nodes] == ["yosys_sim"]

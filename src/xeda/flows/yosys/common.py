@@ -29,6 +29,20 @@ MINIMUM_YOSYS: YosysRelease = (0, 63)
 NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
 
 
+#: The design sources the shared read templates (`read_files.ys`, `read_files.tcl`) hand to
+#: yosys: Verilog and SystemVerilog to a reader (yosys' own, or a plugin's), VHDL to the GHDL
+#: plugin, and a header by its directory, as an include directory (`-I`).
+READ_SOURCE_TYPES = frozenset(
+    {
+        SourceType.Verilog,
+        SourceType.SystemVerilog,
+        SourceType.Vhdl,
+        SourceType.VerilogHeader,
+        SourceType.SVHeader,
+    }
+)
+
+
 #: What the stages after the RTL ones write, by the setting that asks for it. `stop_after: rtl`
 #: runs none of those stages, so none of these exists when it ends.
 AFTER_RTL = {
@@ -187,6 +201,8 @@ class YosysBase(Flow):
 
     # Generic synthesis retains its historical minimum; FPGA pass flags have a separate floor.
     minimum_yosys: Optional[YosysRelease] = (0, 21)
+
+    reads_sources = READ_SOURCE_TYPES
 
     class Settings(Flow.Settings):
         log_file: Optional[Path] = Field(
