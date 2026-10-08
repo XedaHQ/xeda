@@ -353,10 +353,11 @@ def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
             data = b""
         text = decoder.decode(data, final=not data)
         if text:
-            stream.write(text)
-            stream.flush()
+            # the log first, as for the lines of a pipe: it keeps what a failing terminal missed
             *ended, pending = _LINE_ENDS.split(pending + text)
             _write_log_lines(log_file, ended)
+            stream.write(text)
+            stream.flush()
         if not data:
             break
     _write_log_lines(log_file, [pending])

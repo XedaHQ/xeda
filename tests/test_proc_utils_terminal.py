@@ -179,6 +179,33 @@ def test_a_tool_past_its_time_limit_is_stopped_as_before(terminal, tmp_path):
     assert time.monotonic() - started < 30
 
 
+def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypatch, tmp_path):
+    """The log is written before the terminal, as the lines of a pipe are: a terminal that is gone
+    (a closed ssh session) raises, the tool is stopped, and the log has what came before."""
+
+    class GoneTerminal:
+        def isatty(self) -> bool:
+            return True
+
+        def fileno(self) -> int:
+            return 1
+
+        def write(self, text: str) -> int:
+            raise OSError(5, "the terminal is gone")
+
+        def flush(self) -> None:
+            pass
+
+    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
+    log = tmp_path / "tool.log"
+    code = "import time; print('first', flush=True); time.sleep(60)"
+    started = time.monotonic()
+    with pytest.raises(OSError, match="the terminal is gone"):
+        run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert time.monotonic() - started < 30  # the tool did not run on
+    assert log_lines(log) == ["first"]
+
+
 def test_what_a_tool_writes_in_pieces_arrives_whole(terminal, tmp_path):
     """A character of more than a byte, cut in two by the tool's own writes, and a line that
     ends only after a pause: the log has them whole."""
