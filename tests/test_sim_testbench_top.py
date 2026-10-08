@@ -8,7 +8,8 @@ a flow constructed directly. It keys on the testbench's sources in those languag
 all name no such top to be missed. A simulator that knows what to run without `tb.top`
 (`SimFlow.runs_without_testbench_top`) is not refused: GHDL finds a VHDL testbench's top, and
 Verilator and `yosys_sim` run a C++ driver of the design's own, whatever HDL sources the testbench
-also has (a bound checker, a model).
+also has (a bound checker, a model). A simulator that declares the types it reads
+(`Flow.reads_sources`) refuses a language it cannot read by name first, with or without the top.
 """
 
 import re
@@ -18,7 +19,7 @@ import pytest
 
 import xeda.flows  # noqa: F401  (registers every flow)
 from xeda import Design
-from xeda.design import LANGUAGE_TYPES
+from xeda.design import LANGUAGE_TYPES, SourceType
 from xeda.flow import FlowException, SimFlow
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
@@ -125,6 +126,12 @@ def test_every_simulator_refuses_an_hdl_testbench_without_a_top(
     flow_class = get_flow_class(flow_name)
     design = _design(tmp_path, language, *(["driver"] if driver else []))
     assert not design.tb.top
+    reads = flow_class.reads_sources
+    if reads is not None and SourceType.from_str(language) not in reads:
+        # a simulator refuses a language it cannot read by that name, before the missing top
+        with pytest.raises(FlowException, match=rf"{flow_name} cannot read the design's .* source"):
+            flow_class.check_design_supported(design)
+        return
     if flow_class.runs_without_testbench_top(design):
         flow_class.check_design_supported(design)
         return
