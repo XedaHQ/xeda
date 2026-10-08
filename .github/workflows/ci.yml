@@ -97,23 +97,26 @@ jobs:
   #     link): test_trace_directories, test_run_directory, test_run_dir_safety, test_run_root,
   #     test_isolation
   macos:
-    runs-on: macos-latest
+    # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
+    # tests when this line does, and not on the day GitHub moves the label.
+    runs-on: macos-26
     timeout-minutes: 15
     steps:
       # Full history: xeda's version is derived from the git tags.
       - uses: actions/checkout@v5
         with:
-          submodules: true
           fetch-depth: 0
       - name: Set up Python 3.11
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      # These files need nothing but pytest and its parallel runner. (jsonschema and the cocotb
+      # of the examples are for tests that this job does not run.)
       - name: Install dependencies
         run: |
           python -VV
           python -m pip install --upgrade pip
-          python -m pip install --editable . pytest pytest-xdist jsonschema -r examples/requirements.txt
+          python -m pip install --editable . pytest pytest-xdist
       - name: Run the operating-system-sensitive tests
         run: >-
           python -m pytest -n auto
