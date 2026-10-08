@@ -1907,10 +1907,13 @@ dependency must also share `custom_boards_file`.
   its `NonZeroExitCode`. The failure is the node's `ReportedFailure` with the flow's own message in
   plain sentences and the quoted lines. The file:line citations are in the module's comment: add a
   sign there with its citation and a log in `tests/test_openfpgaloader_verdict.py`. The fake loader
-  prints `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`;
+  prints `XEDA_FAKE_FPGA_LOADER_STDOUT`/`_STDERR` and exits with `XEDA_FAKE_FPGA_LOADER_STATUS`,
+  and rejects an option outside `LOADER_OPTIONS` (the v1.1.1 table, from `src/main.cpp`) as the real
+  parser does: a new loader setting needs its option in that table, and
+  `test_every_setting_of_the_loader_is_an_option_the_loader_has` sets every setting at once;
   `tests/resources/openfpgaloader/*.txt` are real v1.1.1 logs (a failed Basys 3 load, a good Arty
-  load; `.log` is git-ignored). That file also sweeps that every flow with an `action_reason`
-  judges its tool's output (`unjudged_actions`).
+  load; `.log` is git-ignored). `tests/test_openfpgaloader_verdict.py` also sweeps that every flow
+  with an `action_reason` judges its tool's output (`unjudged_actions`).
 - **A change that a user can see adds a changelog fragment; nobody edits `CHANGELOG.md`'s
   `[Unreleased]` section**, so no two pull requests touch the same lines. One file per entry,
   `changelog.d/<slug>.<type>.md`: `<slug>` is kebab-case (the pull request number is not known
