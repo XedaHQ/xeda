@@ -265,6 +265,7 @@ name: prebuilt_demo
 rtl:
   top: top
   sources:
+    - top.v
     - file: top.json
       type: JsonNetlist
 flows:
@@ -325,6 +326,10 @@ which flow produced the file:
 
 **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;
 `Fmax` is the maximum that was *achieved*. Reporting one as the other is a real error.
+
+**`Fmax` is per tool.** Each tool times a design with its own model. On one design with a block RAM
+and a DSP, nextpnr reported 429 and 453 MHz for two netlists that Vivado timed at 232 and 241 MHz
+after its own place and route. Compare `Fmax` only between runs of the same tool.
 
 Declared outputs appear under the CLI's `results.outputs` and `results.json`'s top-level `outputs`:
 each name maps to `{"path": ..., "sha": ...}`

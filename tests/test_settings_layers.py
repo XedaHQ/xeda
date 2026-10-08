@@ -639,7 +639,8 @@ def test_dse_candidates_keep_all_flow_sections_for_dependencies(tmp_path):
                 run_path=None,
             )
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    (tmp_path / "top.v").write_text("module top; endmodule\n")  # `yosys_fpga` reads a source
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     outcome, index = Executioner(
         Launcher(tmp_path / "run"),
         design,
@@ -748,9 +749,10 @@ def test_fmax_uses_the_deterministic_main_when_multiple_clocks_are_not_named_mai
 
 
 def test_running_a_design_mapping_does_not_modify_the_callers_mapping(tmp_path, launched):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
     design = {
         "name": "d",
-        "rtl": {"sources": [], "top": "top"},
+        "rtl": {"sources": [str(tmp_path / "top.v")], "top": "top"},
     }
     before = deepcopy(design)
 

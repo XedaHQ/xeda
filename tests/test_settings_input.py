@@ -472,7 +472,8 @@ def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
     from xeda.flow_runner import DefaultRunner
     from xeda.flows import VivadoSynth
 
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "top": "top"})
     settings = VivadoSynth.Settings(fpga="xc7a100t")
     settings.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
 

@@ -1,22 +1,27 @@
 """A flow that hands its tool the design's sources itself reads the types it declares
 (`Flow.reads_sources`), and only those: a source of another type is passed over -- a `.lpf` in a
 design built by Vivado -- or, when it is a language the flow cannot read, refused by name at
-launch. No source becomes a tool command by its type's name (Quartus's `XDC_FILE`,
-`MEMORYFILE_FILE`), and no source crashes a template: the sweep runs every such flow's
-scripts under the fake tools with one source of every type."""
+launch. A design none of whose sources the flow reads is refused too. No source becomes a tool
+command by its type's name (Quartus's `XDC_FILE`, `MEMORYFILE_FILE`), and no source crashes a
+template: the sweep runs every such flow's scripts under the fake tools with one source of every
+type."""
 
 import re
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
 import xeda
 from xeda import Design
+from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
-from xeda.flow import Flow, FlowSettingsException
+from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flows import Nextpnr
 
+from .settings_samples import flow_classes
 from .test_tcl_paths import needs_tclsh
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -201,6 +206,240 @@ def test_a_language_the_flow_cannot_read_is_refused_at_launch(
         )
     assert str(source) in str(raised.value)
     assert not list((tmp_path / "xeda_run").rglob("settings.json")), "nothing was set up"
+
+
+# ---------------------------------------------------------- a flow that reads none of the sources
+
+PRODUCT_FLOWS = [cls for cls, _name in flow_classes() if cls.__module__.startswith("xeda.")]
+#: The flows that hand their tool the design's sources themselves, and so declare what they read.
+READING_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is not None]
+#: The flows that choose their inputs in their own code, or declare them as inputs.
+CHOOSING_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is None]
+READS_ONE_TYPE = [(cls, member) for cls in READING_FLOWS for member in sorted(cls.reads_sources)]
+
+
+#: What the refusal of a default producer adds: the source that would have replaced the node.
+SKIPPED_BY_A_NETLIST = "a JsonNetlist source would supply nextpnr's netlist and skip yosys_fpga"
+
+
+def _edif_only(root: Path) -> Design:
+    """A design whose only source is a netlist that no flow reads."""
+    root.mkdir(exist_ok=True)
+    (root / "top.edf").write_text("(edif top)\n")
+    return Design(name="d", design_root=root, rtl={"sources": ["top.edf"], "top": "top"})
+
+
+def test_the_flows_that_read_the_designs_sources_are_the_eight_with_a_contract():
+    assert sorted(cls.name for cls in READING_FLOWS) == sorted(EXPECTED_READS)
+    assert CHOOSING_FLOWS, "the flows that choose their inputs themselves are not covered"
+
+
+@pytest.mark.parametrize("flow_class", READING_FLOWS, ids=lambda cls: cls.name)
+def test_a_flow_that_reads_sources_refuses_a_design_with_none_it_reads(flow_class, tmp_path):
+    design = _edif_only(tmp_path)
+    with pytest.raises(FlowSettingsException) as raised:
+        flow_class.check_design_supported(design)
+    message = str(raised.value)
+    assert message.startswith(f"{flow_class.name} reads none of the design's sources"), message
+    assert f"{tmp_path / 'top.edf'} (Edif)" in message
+    for member in flow_class.reads_sources:
+        assert member.name in message
+
+
+@pytest.mark.parametrize("flow_class", CHOOSING_FLOWS, ids=lambda cls: cls.name)
+def test_a_flow_that_chooses_its_inputs_itself_is_not_refused_by_that_rule(flow_class, tmp_path):
+    flow_class.check_design_supported(_edif_only(tmp_path))
+
+
+def test_the_refusal_names_what_the_design_lists_and_what_the_flow_reads(tmp_path):
+    design = _edif_only(tmp_path)
+    with pytest.raises(FlowSettingsException) as raised:
+        registered_flows["yosys_fpga"][1].check_design_supported(design)
+    assert str(raised.value) == (
+        "yosys_fpga reads none of the design's sources: "
+        f"rtl.sources has {tmp_path / 'top.edf'} (Edif); "
+        "yosys_fpga reads SVHeader, SystemVerilog, Verilog, VerilogHeader, Vhdl"
+    )
+    empty = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "top"})
+    with pytest.raises(FlowSettingsException) as raised:
+        registered_flows["vivado_project"][1].check_design_supported(empty)
+    # `vivado_project` reads the testbench too, so the message names both parts
+    assert str(raised.value).startswith(
+        "vivado_project reads none of the design's sources: "
+        "rtl.sources has none, tb.sources has none; vivado_project reads "
+    )
+
+
+@pytest.mark.parametrize(
+    ("flow_class", "member"), READS_ONE_TYPE, ids=lambda x: getattr(x, "name", x)
+)
+def test_a_design_with_one_source_of_a_type_the_flow_reads_is_not_refused(
+    flow_class, member, tmp_path
+):
+    """The rule is that the flow reads none: one source it reads, whichever type, is enough. A
+    source that does not exist yet (`{path: ...}`, which a generator writes) counts too."""
+    path = tmp_path / f"source.{_suffix(member)}"
+    path.write_text("# a source\n")
+    for entry in (
+        {"file": str(path), "type": member.name},
+        {"path": str(path), "type": member.name},
+    ):
+        rtl = {"sources": [entry], "top": "top"}
+        flow_class.check_design_supported(Design(name="d", design_root=tmp_path, rtl=rtl))
+    if "tb" in flow_class.design_parts:
+        design = Design(
+            name="d",
+            design_root=tmp_path,
+            rtl={"sources": [], "top": "top"},
+            tb={"sources": [{"file": str(path), "type": member.name}], "top": "tb"},
+        )
+        flow_class.check_design_supported(design)
+
+
+@pytest.mark.parametrize("flow", ["vivado_synth", "yosys_fpga", "nextpnr"])
+def test_a_design_with_nothing_the_flow_reads_is_refused_at_launch(flow, tmp_path, monkeypatch):
+    """`nextpnr` plans a `yosys_fpga` synthesis of a design that has no source for it: that
+    node is the one refused."""
+    root = tmp_path / "design"
+    design = _edif_only(root)
+    settings = (
+        {"fpga": {"part": "LFE5U-25F-6BG381C"}} if flow == "nextpnr" else _settings(root, flow)
+    )
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(FlowSettingsException, match="reads none of the design's sources") as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
+            registered_flows[flow][1], design, settings
+        )
+    assert str(raised.value).startswith("yosys_fpga" if flow == "nextpnr" else flow)
+    assert str(root / "top.edf") in str(raised.value)
+    # only `nextpnr` takes a source in place of the producer it plans by default
+    assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is (flow == "nextpnr")
+    assert not list((tmp_path / "xeda_run").rglob("settings.json")), "nothing was set up"
+
+
+@pytest.mark.parametrize(
+    ("request_text", "hinted"),
+    [
+        ("yosys_fpga", False),
+        # `nextpnr` reaches `yosys_fpga` by default, so a netlist source would replace it ...
+        ("nextpnr", True),
+        # ... and a chain binds the producer: no source replaces it, so none is suggested
+        ("yosys_fpga+nextpnr", False),
+    ],
+)
+def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(
+    request_text, hinted, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    design = _edif_only(tmp_path / "design")
+    with pytest.raises(
+        FlowSettingsException, match="yosys_fpga reads none of the design's sources"
+    ) as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            request_text, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        )
+    assert (SKIPPED_BY_A_NETLIST in str(raised.value)) is hinted
+    if hinted:
+        assert str(raised.value).endswith(f"; {SKIPPED_BY_A_NETLIST}")
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.fixture
+def private_registry():
+    """A flow that a test defines does not leak into the sweeps of other tests."""
+    saved = dict(registered_flows)
+    yield
+    registered_flows.clear()
+    registered_flows.update(saved)
+
+
+def _reads_nextpnr_and_the_netlist():
+    """A test flow with two inputs: `nextpnr`'s configuration, which it takes from the default
+    producer, and a netlist that has no default and that a saved binding takes from `yosys_fpga`."""
+
+    class _ReadsNextpnrAndTheNetlist(Flow):
+        """Read a configuration from nextpnr and a netlist from yosys_fpga."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        required_settings = Nextpnr.required_settings
+
+        class Settings(WithFpgaBoardSettings, Flow.Settings):
+            """No setting of its own."""
+
+        class Inputs(Flow.Inputs):
+            config: Path = In(
+                SourceType.EcpConfig,
+                producer="nextpnr",
+                output="config",
+                description="The configuration nextpnr writes.",
+            )
+            netlist: Path = In(SourceType.JsonNetlist, description="A synthesized netlist.")
+
+        def run(self):
+            self.results["read"] = self.inputs.netlist.read_text()
+
+    return _ReadsNextpnrAndTheNetlist
+
+
+def _own_refusal(flow: str, design: Design) -> str:
+    """What the flow says about the design when it is launched alone: no producer, no note."""
+    with pytest.raises(FlowSettingsException) as refused:
+        registered_flows[flow][1].check_design_supported(design)
+    return str(refused.value)
+
+
+def test_a_producer_that_another_input_binds_is_not_said_to_leave_the_plan(
+    tmp_path, monkeypatch, private_registry
+):
+    """`nextpnr` reaches `yosys_fpga` by default, but another flow's input is bound to it by a
+    saved binding: a netlist source would replace the first edge only, so the plan would keep
+    `yosys_fpga` and refuse again. The refusal suggests nothing."""
+    monkeypatch.chdir(tmp_path)
+    taker = _reads_nextpnr_and_the_netlist()
+    design = _edif_only(tmp_path / "design")
+    design.flow[taker.name] = {"inputs": {"netlist": "yosys_fpga.netlist"}}
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            taker, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+        )
+    assert str(raised.value) == _own_refusal("yosys_fpga", design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_with_one_source(
+    tmp_path, monkeypatch
+):
+    """`vivado_power` and `vivado_postsynth_sim` take their inputs from `vivado_synth`, every one
+    by default: no one source replaces it, so the refusal suggests none."""
+    monkeypatch.chdir(tmp_path)
+    design = _edif_only(tmp_path / "design")
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            "vivado_power", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 10.0}
+        )
+    assert str(raised.value) == _own_refusal("vivado_synth", design)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+@pytest.mark.parametrize(
+    ("flow", "source", "plan"),
+    [
+        # a typed netlist replaces the synthesis that would have no source to read
+        ("nextpnr", {"file": "top.json", "type": "JsonNetlist"}, ["nextpnr"]),
+        ("openfpgaloader", {"file": "top.bit", "type": "Bitstream"}, ["openfpgaloader"]),
+    ],
+)
+def test_a_source_of_a_later_stage_stands_in_for_the_flow_that_would_read_none(
+    flow, source, plan, tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / source["file"]).write_text("{}\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [source], "top": "top"})
+    planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+        flow, design, flow_settings={"fpga": {"part": "LFE5U-25F-6BG381C"}}
+    )
+    assert [node.name for node in planned.nodes] == plan
 
 
 @needs_tclsh

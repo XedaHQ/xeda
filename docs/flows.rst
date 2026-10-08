@@ -340,6 +340,7 @@ without them. They matter when they differ from what the sources or defaults wou
     rtl:
       top: top
       sources:
+        - top.v
         - file: top.json
           type: JsonNetlist
     flows:
@@ -520,9 +521,9 @@ defaults are refused too. On the command line the empty list is ``-s read_verilo
 empty value). The text ``[]`` is refused, as it is for every list setting.
 
 The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
-selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,
-an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not add that
-clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
+selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay (described below).
+In pass-only mode, an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not
+add that clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
 either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
 ``flow3mfs``. Script names are taken from the installed Yosys build. The legacy ``flow3`` setting
 is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
@@ -536,6 +537,21 @@ both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9
       systemverilog=default abc9_script=flow2
     xeda run fpga_pack blinky.yaml -s flows.yosys_fpga.synth_pass_only=true \
       flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
+
+The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
+as the delay target of the LUT mapping (the ``-D`` option of ABC's ``&if`` command). The Yosys log
+shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a target only when
+the mapped logic can meet it. If the target is lower than the least delay that ABC9 can reach,
+ABC9 maps for that least delay, as it does with no target, and the netlist does not change. ABC
+then prints ``ABC: Warning: Cannot meet the target required times (4000.00). Mapping continues
+anyway.`` in the Yosys log. If the target is higher, ABC9 spends the slack on area: the mapping can
+change, and it can get smaller. It can also keep its LUT count and change only the mix of LUT
+sizes. So the netlist changes with ``clock.period`` only when the clock is slow for the design.
+With Yosys 0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps to one netlist
+for every period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns the mapping has
+two more logic levels and 24 fewer LUTs than that netlist. A small design with two levels of logic
+(a block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10 ns. A netlist
+that does not change with the clock period is therefore expected.
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
 them, match the Yosys version and target, source paths and order, parameters, synthesis-pass
@@ -581,6 +597,43 @@ and reads no ``CHIPDB_DIR``-style environment variable. A design for the Arty A7
 openfpgaloader blinky.yaml`` builds the same bitstream if it is not up to date and loads it.
 The part is given once: ``fpga`` is shared along the declared edges.
 
+.. warning::
+
+   Some builds of openXC7's ``nextpnr-himbaechel`` write wrong bits and print no error: the
+   build succeeds, the timing is met, and the bitstream can behave differently from the design.
+   The openXC7 1.0 release and ``1.0.0-41-g3e5c2cdd`` (2026-10-05), which the openXC7 toolchain
+   installer pinned, have none of the fixes below. At least these defects are known. Each item
+   says what the design contains, and what goes wrong:
+
+   * A multiplication that Yosys maps to a ``DSP48E1``: the DSP ignores its A operand (issue 39,
+     pull request 66).
+   * A memory with initial contents that Yosys maps to ``RAM32M`` or ``RAM64M``: every LUT of the
+     memory is 0 (pull request 70).
+   * A shift register on the falling clock edge: it shifts on the rising edge (pull request 70).
+   * A block RAM with an initial value or a reset value on its output register: the register
+     starts at 0, and a reset loads 0. A simple dual-port memory that is 64 bits wide, in one
+     ``RAMB36E1``, gets the wrong write width (pull request 69).
+   * An ``ODDR`` that drives the T input of an ``OBUFT`` or ``IOBUF``: the tri-state is not
+     registered. An ``ODDR`` with no ``INIT`` starts high instead of low (pull request 72).
+   * An ``MMCME2`` or ``PLLE2``: the loop filter, power and fractional-divide registers, the duty
+     cycle and a negative phase differ from Vivado's (pull request 68).
+   * The differential and drive settings of a pad: a ``TMDS_33`` input is programmed as
+     ``LVDS_25``, an ``LVDS_25`` or ``TMDS_33`` output on a high-range bank gets a bit that
+     Vivado does not set, ``LVCMOS33`` with ``DRIVE 16`` gets 12 mA, and the internal stages of an
+     ``IDDR`` start with the wrong values (pull request 71).
+   * A memory of 64K words by 1 bit or deeper, which Yosys maps to cascaded ``RAMB36E1`` pairs:
+     the router usually fails, and a pair that does route has the wrong address bit and is not
+     marked as the lower block (pull request 67).
+   * An output of a high-performance bank that an ``ODDR`` or an ``OSERDESE2`` drives: the pad is
+     driven around the register (pull request 78).
+
+   The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization
+   report cannot show these defects. Only a test of the bitstream itself can. Use a build of the
+   ``main`` branch of openXC7/nextpnr at commit ``26f5e17a5`` (``1.0.0-75-g26f5e17a``) or later:
+   that commit has every fix in this list. ``nextpnr-himbaechel --version`` names the build. Xeda
+   does not check the build. The authors of the fixes compared the bitstreams with Vivado's for
+   the same netlist; none of the pull requests reports a test on a board.
+
 ``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
 (``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
 before synthesis. ``board: arty_a7_100t`` or ``arty_a7_35t`` fills it in (``xeda list-boards``).
@@ -594,7 +647,9 @@ Digilent's master XDC and keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0
 ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...). They contain no
 clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
 one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
-and Xeda says so.
+and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It ignores
+``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the second
+form gets no pull-up. The bundled pin files use neither form; a pin file of your own may.
 
 The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
 buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
@@ -643,7 +698,8 @@ placement occupies -- a location whose two outputs are both used counts once, an
 distributed RAM or shift registers are included -- while ``yosys_fpga`` estimates it from the
 mapped primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two differ for
 one design, and neither is certified comparable with Vivado's utilization report: compare a
-design against itself across settings or seeds with one toolchain, not across toolchains.
+design against itself across settings or seeds with one toolchain, not across toolchains. The same
+holds for ``Fmax``: nextpnr's timing model is not Vivado's (see :ref:`flow-results`).
 
 **Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
 database and the part, into a scratch file in its run directory, and publishes the bitstream
@@ -809,6 +865,8 @@ See ``examples/bluespec/`` for self-checking designs in both BSV and BH, includi
 multi-package design, one sized by macros, one importing Verilog with ``import "BVI"``, and one
 mixing BSV and BH.
 
+.. _flow-results:
+
 Results
 =======
 
@@ -840,6 +898,15 @@ The original keys are kept, so nothing that already reads ``results.json`` break
 .. note::
    ``clock_frequency`` is deliberately *not* aliased to ``Fmax``. It is the frequency that was
    *constrained*, not the maximum that was *achieved*.
+
+.. note::
+   Every tool times a design with its own model, so compare ``Fmax`` only between runs of the
+   same tool. ``nextpnr`` and Vivado, which place and route with different models, show it. For
+   one Artix-7 design with a block RAM and a multiply-accumulate, ``nextpnr`` reported 453 MHz
+   for the netlist from Yosys and 429 MHz for the netlist from Vivado. Vivado placed and routed
+   the same two netlists and reported 241 MHz and 232 MHz. On a counter that drives LEDs, Vivado
+   timed ``nextpnr``'s own placement and routing, and its result differed from the report of
+   ``nextpnr`` by 0.14 ns.
 
 Simulation results
 ==================

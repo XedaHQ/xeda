@@ -552,7 +552,8 @@ def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[
 COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     # timing
     "Fmax": "Maximum achievable clock frequency in MHz, derived from the constrained period and "
-    "the worst negative slack. This is the achieved result, unlike `clock_frequency`.",
+    "the worst negative slack. This is the achieved result, unlike `clock_frequency`. Each tool "
+    "times a design with its own model: compare `Fmax` only between runs of the same tool.",
     "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
     "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
     "given to the tool, not the achieved maximum -- see `Fmax`.",
@@ -773,21 +774,32 @@ class Flow(metaclass=ABCMeta):
         """Fail a launch on a design this flow cannot run, before anything is set up for the run
         or shipped to a remote; checked wherever `check_required_settings` is. A flow that reads
         the design's sources itself (`reads_sources`) refuses a source in a language it cannot
-        read, naming it; a flow may refuse more by overriding this (and calling it)."""
+        read, naming it, and a design none of whose sources it reads, naming what the design
+        lists; a flow may refuse more by overriding this (and calling it)."""
         if cls.reads_sources is None:
             return
+        by_part = {part: getattr(design, part).sources for part in sorted(cls.design_parts)}
+        listed = [src for sources in by_part.values() for src in sources]
+        reads = ", ".join(sorted(member.name for member in cls.reads_sources))
         unread = [
             src
-            for part in sorted(cls.design_parts)
-            for src in getattr(design, part).sources
+            for src in listed
             if src.type in LANGUAGE_TYPES and src.type not in cls.reads_sources
         ]
         if unread:
             kinds = sorted({src.type.name for src in unread})
             raise FlowSettingsException(
                 f"{cls.name} cannot read the design's {' and '.join(kinds)} source(s) "
-                f"{', '.join(str(src.file) for src in unread)}; it reads "
-                f"{', '.join(sorted(member.name for member in cls.reads_sources))}"
+                f"{', '.join(str(src.file) for src in unread)}; it reads {reads}"
+            )
+        if not any(src.type in cls.reads_sources for src in listed):
+            has = ", ".join(
+                f"{part}.sources has "
+                + (", ".join(f"{src.file} ({src.type.name})" for src in sources) or "none")
+                for part, sources in by_part.items()
+            )
+            raise NoReadableSource(
+                f"{cls.name} reads none of the design's sources: {has}; {cls.name} reads {reads}"
             )
 
     class Inputs(FlowInputs):
@@ -1490,6 +1502,12 @@ class FlowSettingsException(FlowException):
     """Validation of settings failed
     This is a fatal error and the flow should not be run.
     """
+
+
+class NoReadableSource(FlowSettingsException):
+    """A flow that reads the design's sources (`Flow.reads_sources`) has none of a type it reads.
+    The resolver adds, for a producer that a consumer reached by default, the source that would
+    have replaced it."""
 
 
 class FlowSettingsError(FlowSettingsException):

@@ -614,6 +614,23 @@ producer runs. Known limit: an in-place change of the installed Project X-Ray da
 directory for the exact part (a tool's own installed files are never flow inputs; `--rebuild-all`
 packs again). A `prjxray_db` the user sets is tracked as a setting's directory, as before.
 
+**openXC7 `nextpnr` builds before `26f5e17a5` (main, 2026-10-07) can write wrong bits with no
+error.** The 1.0 release and `3e5c2cdd` (the installer's pin when this was written) have none of
+the fixes, all merged between 2026-10-05 and 2026-10-07, each checked only against Vivado's
+bitstream ("Not validated: silicon"). By openXC7/nextpnr pull request: 66 an inferred `DSP48E1`
+multiply ignores its A operand (issue 39); 70 an initialized `RAM32M`/`RAM64M` is all zeros
+(`pack_dram.cc` read `INITA` for `INIT_A`), and a falling-edge `SRL16E`/`SRLC32E` shifts on the
+rising edge; 69 `INIT_A/B` and `SRVAL_A/B` of a block RAM are ignored; 72 an `ODDR` on a
+tri-state T input is unregistered, and a missing `ODDR` `INIT` starts high; 68 MMCM/PLL registers;
+71 a `TMDS_33` input is programmed as `LVDS_25`, `LVCMOS33` `DRIVE 16` as 12 mA, and the `IDDR`
+Q3/Q4 starts are wrong; 67 cascaded `RAMB36E1` pairs (64K x 1 and deeper); 78 high-performance
+bank pads driven by an `ODDR`/`OSERDESE2`. `26f5e17a5` contains all of them and `3e5c2cdd` none
+(`gh api repos/openXC7/nextpnr/compare/<a>...<b>`). `yosys_fpga+nextpnr+fpga_pack` is hit, and
+none of it shows in timing or utilization. `docs/flows.rst` and the skill's
+troubleshooting say what to use. No code checks the build: raise the floor once an openXC7 release
+has all of them. `nextpnr` also ignores `set_property PULLUP true` without a warning and reads
+`PULLTYPE PULLUP`; the bundled pin files use neither.
+
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML
 or YAML, chosen by its suffix and read through the strict loader (`board.read_board_database`).
@@ -736,7 +753,9 @@ After `parse_reports` and `check_results`, the runner calls
 names per `Flow.results_canonical_aliases` (`Fmax` <- `f_max`/`maximum_frequency`, `lut` <- `LUT`,
 `ff` <- `FF`). Nothing is renamed or removed.
 Note `clock_frequency` is deliberately *not* aliased to `Fmax` - it is the constrained frequency,
-not the achieved one.
+not the achieved one. `Fmax` is also per tool: nextpnr's and Vivado's timing models differ (one
+design with block RAM and DSP paths: nextpnr 429 to 453 MHz, Vivado 232 to 241 MHz, for the same
+netlists), so compare it only within one tool.
 
 Declared output records are bookkeeping, like `artifacts`, not `COMMON_RESULT_DESCRIPTIONS`
 keys; they are omitted from the printed result table. See `docs/machine-readable.rst`.
@@ -1602,8 +1621,22 @@ dependency must also share `custom_boards_file`.
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
   never reorder the historical ordinals. Script flows declare `reads_sources` and
   `design_parts`, then iterate `sources_read()` in code/templates. Every consumed part
-  rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. Headers need an
-  actual include/search path, and source type names must never become tool commands.
+  rejects unsupported `LANGUAGE_TYPES`; other types are deliberately skipped. A design none of
+  whose sources the flow reads (an `.edf`-only design, or none at all) is refused too:
+  `Flow.check_design_supported` raises `NoReadableSource`, naming each part's sources with their
+  types and the types the flow reads. It runs for every planned node, so `nextpnr`'s default
+  `yosys_fpga` producer is refused, and the resolver adds which source would replace a producer
+  (`a JsonNetlist source would supply nextpnr's netlist and skip yosys_fpga`) when that is all it
+  takes: one input of the plan reaches the producer, and by default. A producer that is bound (a
+  chain, a saved, command-line or API binding) or that a second input reaches stays in the plan
+  whatever the design lists, so its refusal adds nothing (`_replaceable_by_a_source`). A typed
+  `JsonNetlist` that displaces the producer plans. The rule covers the eight flows that declare
+  `reads_sources` (`tests/test_source_contracts.py` sweeps every flow); a flow that chooses its
+  inputs in its own code (`reads_sources` is None) is not covered. One source of any type the flow
+  reads is enough, a constraint or header file included: an `.edf` with an `.xdc` still plans for
+  `vivado_synth`, because requiring a language source would refuse a Tcl-only design whose script
+  reads its own RTL. Headers need an actual include/search path, and source type names must never
+  become tool commands.
 - **Compare a source's type with `SourceType`, never with free text**: `src.type is
   SourceType.Xdc` in Python, `src.type.name == "Vhdl"` in a template. A `SourceType` equals only
   its own name, so `src.type == 'verilog'` is silently never true -- ModelSim compiled no source
@@ -1793,6 +1826,25 @@ dependency must also share `custom_boards_file`.
   script selection to the pass, and unset preserves mode-specific defaults. Reject a request that sets both `abc9_script`
   and `flow3`; do not treat `flow3` as a pass-only stage conflict. The one `Settings.abc9_scratchpad()`
   emits these choices, while `synth_command()` emits the target pass's version-specific flags.
+
+  **The clock-derived delay reaches ABC9, and ABC9 often ignores it.** The full recipe writes
+  `scratchpad -set abc9.D <period_ps / 1.5>` before the pass. `abc9_exe` reads `abc9.D` (in
+  picoseconds) and puts `-D <value>` where the script has `{D}`: the four `&if` calls of `flow3`,
+  and the `&if` of the default scripts. The Yosys log shows it (`ABC: + &if -W 300 -D
+  6666.666666666668`), on Xilinx, ECP5, iCE40, Nexus and Gowin. ABC takes the value as the required
+  time of its LUT mapping, not as a goal it must reach: a target below the least delay it can reach
+  is replaced by that delay, which is also what it uses with no target, and ABC says so in the log
+  (`ABC: Warning: Cannot meet the target required times (4000.00). Mapping continues anyway.`).
+  The netlist is then the one written with the `abc9.D` line deleted. Only a target the logic can
+  meet changes the mapping: ABC spends the slack on area, so the mapping can get smaller and
+  deeper, or keep its LUT count and change only its mix of LUT sizes (a three-operand 32-bit adder:
+  63 LUTs at 2, 8 and 50 ns, LUT3/LUT4/LUT6 32/26/5 at 2 ns and 32/31/0 from 8 ns). Measured with
+  Yosys 0.69+156 on picosoc: every period from 2.5 to 8.5 ns writes one netlist, equal to the
+  no-delay one (ABC's least delay is 5.7 ns, so it can meet the target from a period of 8.6 ns); 9
+  and 10 ns map with 1 and 2 more levels and 27 and 24 fewer LUTs (3,094 and 3,097 against 3,121).
+  A design with nothing to trade (macram, whose logic is two levels deep) writes one netlist for
+  every period. So a netlist that does not move with `clock.period` is not a lost setting: look for
+  `-D` in the log. Add no workaround that scales the delay.
 
   **Reads affect generated names.** Each `read_verilog` advances Yosys' `autoidx`, and ABC9 maps
   by generated cell names; an extra primitive-library read can therefore change a netlist. The

@@ -169,6 +169,8 @@ A canonical key names a quantity, not one way of measuring it. ``lut`` is report
 and per stage: the open-source FPGA flows add ``LUT:STAGE`` (``mapped`` for ``yosys_fpga``,
 ``placed and routed`` for ``nextpnr``) and ``LUT:METHOD`` beside it. Counts from different
 toolchains or stages are not certified comparable, with Vivado's utilization report in particular.
+``Fmax`` is the same: each tool times a design with its own model, so compare it only between
+runs of the same tool (see :ref:`flow-results`).
 
 Validating a design file
 ========================

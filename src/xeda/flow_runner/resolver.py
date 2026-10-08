@@ -25,7 +25,7 @@ from ..board import WithFpgaBoardSettings
 from ..dataclass import BaseModel
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
-from ..flow.flow import written_path_problems
+from ..flow.flow import NoReadableSource, written_path_problems
 from ..flow.fpga import FPGA
 from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow.synth import PhysicalClock
@@ -692,6 +692,30 @@ def _unreached(
     return found
 
 
+def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> str:
+    """`; a <Type> source would supply <consumer>'s <input> and skip <producer>`, when that one
+    source takes `producer` out of the plan: exactly one input of the plan reaches it, and by
+    default, which a typed source of a type the input takes replaces. Otherwise the plan keeps
+    `producer` whatever source the design adds -- an input bound to it (a chain, a saved binding,
+    the command line or the API) keeps it, and so does any other input that reaches it -- and the
+    refusal adds nothing."""
+    edges = [
+        (consumer, name)
+        for consumer in requests
+        for name, reached in consumer.producers.items()
+        if any(child is producer for child, _output in reached)
+    ]
+    if len(edges) != 1:
+        return ""
+    consumer, name = edges[0]
+    assert consumer.settings is not None
+    selected = next((item for item in consumer.inputs if item.name == name), None)
+    if selected is None or selected.binding_origin is not None:
+        return ""
+    kinds = "/".join(kind.name for kind in selected_types(consumer.cls, consumer.settings, name))
+    return f"; a {kinds} source would supply {consumer.label}'s {name} and skip {producer.label}"
+
+
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
     """Use the flow-name checks of `settings_layers` while preserving per-layer single-clock input syntax."""
     normalized = merge_flow_sections(values, flow_class_for=registered_flow)
@@ -1134,9 +1158,14 @@ def resolve(
                         )
     for request in requests:
         assert request.settings is not None
-        check_launchable(
-            request.cls, request.settings, design, _unreached(request, requests, layers)
-        )
+        try:
+            check_launchable(
+                request.cls, request.settings, design, _unreached(request, requests, layers)
+            )
+        except NoReadableSource as refusal:
+            raise NoReadableSource(
+                f"{refusal}{_replaceable_by_a_source(request, requests)}"
+            ) from None
 
     # The final settings select the very same sources and producer formats as discovery.
     for request in requests:

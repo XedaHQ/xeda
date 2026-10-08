@@ -235,10 +235,33 @@ settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin f
 - A `NonZeroExitCode` of nextpnr ends with "nextpnr error: ...", the first error lines this run's
   log holds (an unplaceable cell, for example); more are in `nextpnr.log`.
 
+### A 7-series bitstream builds but computes the wrong result
+
+Some openXC7 `nextpnr-himbaechel` builds write wrong bits with no error and with timing met. The
+openXC7 1.0 release and `1.0.0-41-g3e5c2cdd` have none of the fixes. At least these defects are
+known (openXC7/nextpnr pull request in brackets): an inferred multiplier (`DSP48E1`) that ignores
+its A operand (66, issue 39); an initialized `RAM32M`/`RAM64M`, whose LUTs read 0 (70); a
+falling-edge shift register that shifts on the rising edge (70); a block RAM with an initial or
+reset value on its output register (69); an `ODDR` on the T input of a tri-state (72); an `MMCME2`
+or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR` (71); a memory of 64K x 1 or
+deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad that an `ODDR` or an
+`OSERDESE2` drives (78). A timing or utilization report cannot show them; only a test of the
+bitstream itself can. Use a build of `main` at `26f5e17a5` (`1.0.0-75-g26f5e17a`, from
+`nextpnr-himbaechel --version`) or later: that commit has all of them. Xeda does not check the
+build. The authors compared bitstreams with Vivado's and tested none
+on a board.
+
+Also, nextpnr ignores `set_property PULLUP true` without a warning. Write `set_property PULLTYPE
+PULLUP` for a pull-up. The bundled pin files use neither.
+
 ## Reading numbers correctly
 
 - **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;
   `Fmax` is the maximum that was *achieved*.
+- **`Fmax` is per tool.** nextpnr's timing model is not Vivado's. On one design with a block RAM
+  and a DSP they reported 429 to 453 MHz and 232 to 241 MHz for the same two netlists; on a counter
+  Vivado's timing of nextpnr's own routing differed from nextpnr's report by 0.14 ns. Compare
+  `Fmax` only between runs of the same tool.
 - Canonical keys `Fmax`, `lut` and `ff` are added by the runner alongside whatever the flow
   reported (`f_max`, `maximum_frequency`, `LUT`, `FF`), so prefer the canonical ones.
 - Keys beginning with `_` are internal and may change without notice.

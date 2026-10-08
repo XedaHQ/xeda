@@ -144,8 +144,14 @@ just the `.bit` file) is what `openfpgaloader` programs, with nothing built.
 Source-consumption contracts apply to `vivado_synth`, `vivado_alt_synth`, `vivado_project`,
 `quartus`, `diamond_synth`, `ise_synth`, `dc` and `yosys_fpga`: other non-language types are
 skipped (an `Lpf` in a Vivado design), but an unsupported language fails before the flow runs
-(a Bluespec source for `vivado_synth`). Contracts check `rtl.sources`; `vivado_project` also
-checks `tb.sources`. Headers reach include/search paths; no source type name becomes a tool command.
+(a Bluespec source for `vivado_synth`), and so does a design with no source the flow reads at all
+(a design whose only netlist is an `.edf`, for `vivado_synth`, `yosys_fpga` or the `yosys_fpga`
+that `nextpnr` plans): the error lists the design's sources with their types and the types the
+flow reads; for the `yosys_fpga` that `nextpnr` plans, and only when nothing else in the plan needs
+it, the error adds that a `JsonNetlist` source would replace it. One source of a type the flow reads
+is enough, a constraint file included, so an `.edf` with an `.xdc` still plans for `vivado_synth`.
+Contracts check `rtl.sources`; `vivado_project` also checks `tb.sources`. Headers reach
+include/search paths; no source type name becomes a tool command.
 
 The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
 with a settings error naming the file to rename.
