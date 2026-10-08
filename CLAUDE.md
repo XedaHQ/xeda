@@ -381,7 +381,8 @@ removed before the run, so an earlier success never stands for a run that died
   returns anywhere in the package. Every flow goes through the resolver, as a one-node plan when it
   declares nothing (`bsc`, `ghdl_sim`, `dc`, ...); there is no `is_declared` and no `declared`
   key in `list-flows --json` or in a plan node. OpenROAD declares its `netlist` input from
-  `yosys.netlist` and reads only `self.inputs.netlist` in `run()`; its platform copies and its
+  `yosys.netlist` and an optional `sdc` input (the design's `Sdc` sources), and reads only
+  `self.inputs` in `run()`; its platform copies and its
   own `merged.lib` are written in `run()`, so a fresh launch writes no flow output. A flow's
   `required_settings` are the settings a model may not require (`dc`'s `target_libraries`): a
   layer holds only some settings, and validating one that lacks a required field fails, so
@@ -1670,9 +1671,18 @@ dependency must also share `custom_boards_file`.
   takes: one input of the plan reaches the producer, and by default. A producer that is bound (a
   chain, a saved, command-line or API binding) or that a second input reaches stays in the plan
   whatever the design lists, so its refusal adds nothing (`_replaceable_by_a_source`). A typed
-  `JsonNetlist` that displaces the producer plans. The rule covers the eight flows that declare
-  `reads_sources` (`tests/test_source_contracts.py` sweeps every flow); a flow that chooses its
-  inputs in its own code (`reads_sources` is None) is not covered. One source of any type the flow
+  `JsonNetlist` that displaces the producer plans. **Every flow that reads the design's sources
+  declares `reads_sources` and selects with `sources_read()`**, the one selection (it raises a
+  `TypeError` for a flow that declares none); `reads_sources = None` means the flow reads only its
+  declared inputs (`fpga_pack`, `nextpnr`, `openfpgaloader`, `openroad` -- its `Sdc` sources come
+  through its optional `sdc` input, as `nextpnr`'s do -- and `vivado_power`).
+  `tests/test_source_contracts.py` scans each flow's code (its MRO's classes and their modules'
+  module-level code, minus `JUDGING_METHODS`: `check_design_supported` and what it asks) and the
+  templates it renders (`test_design_parts.reachable_templates`): a flow with a read of the design's
+  sources must declare, a declaring flow must call `sources_read`, and any other read
+  (`sources_of_type`, `sim_sources`, `.rtl.sources`, ...) must be in `REVIEWED_DIRECT_READS` --
+  except `header_dirs` in a flow that declares both header types (it is their include path). The
+  same file plans every example for every flow its sections name. One source of any type the flow
   reads is enough, a constraint or header file included: an `.edf` with an `.xdc` still plans for
   `vivado_synth`, because requiring a language source would refuse a Tcl-only design whose script
   reads its own RTL. Headers need an actual include/search path, and source type names must never

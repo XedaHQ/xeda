@@ -229,20 +229,25 @@ skips synthesis for ``nextpnr``, an ``Edif`` netlist skips it for ``vivado_impl`
         - {file: build/top.bit, type: Bitstream}   # or just build/top.bit: typed by its suffix
       top: top
 
-Source-consumption contracts apply to ``vivado_synth``, ``vivado_alt_synth``, ``vivado_project``,
-``quartus``, ``diamond_synth``, ``ise_synth``, ``dc`` and ``yosys_fpga``. They read only the types
-they declare: ``vivado_synth`` passes over an ``Lpf`` source, for example. A source in an
-unsupported language (a Bluespec source for ``vivado_synth``) is an error naming it before the
-flow runs. So is a design with no source that the flow reads: a design whose only netlist is an
-``.edf`` file, for example, gives ``yosys_fpga`` and ``vivado_synth`` nothing to read. The error
+Every flow that reads the design's sources declares the types it reads, and reads only those:
+``vivado_synth`` passes over an ``Lpf`` source, for example. A source in a language that the flow
+cannot read is an error naming it before the flow runs: a Bluespec source for ``vivado_synth``, a
+VHDL source for ``verilator``, a SystemVerilog source for ``ghdl_sim`` or ``nvc``. So is a design
+with no source that the flow reads: a design whose only netlist is an ``.edf`` file, for example,
+gives ``yosys_fpga``, ``vivado_synth`` and every simulator nothing to read. The error
 names the sources the design lists, with their types, and the types the flow reads. It also
 stops ``nextpnr``, because the ``yosys_fpga`` synthesis that ``nextpnr`` would plan has no source
 to read. When nothing else in the plan needs the synthesis, the error adds that a ``JsonNetlist``
 source would replace it. The rule has a limit: one source of a type the flow reads is enough, a
 constraint file included. An ``.edf`` file together with an ``.xdc`` file therefore still plans
-for ``vivado_synth``, which reads only the constraints. Contracts cover ``rtl.sources``;
-``vivado_project`` also checks ``tb.sources``. Headers reach include/search paths; no template
-turns a source type's name into a tool command.
+for ``vivado_synth``, which reads only the constraints. A flow that reads the testbench (every
+simulator, ``bsc`` and ``vivado_project``) checks ``tb.sources`` too; the others check
+``rtl.sources``. A C or C++ file is never refused: it is a driver or a helper that another flow
+may read. ``nextpnr``, ``openroad``, ``fpga_pack``, ``openfpgaloader`` and ``vivado_power`` read
+no design source themselves: each takes what it reads through its declared inputs, from a
+producer or from a typed source (``openroad`` and ``nextpnr`` take the design's ``Sdc`` files
+that way). Headers reach include/search paths; no template turns a source type's name into a
+tool command.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files; it rejects a ``.bh``

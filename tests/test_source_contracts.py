@@ -1,12 +1,19 @@
-"""A flow that hands its tool the design's sources itself reads the types it declares
+"""A flow that hands its tool the design's sources reads the types it declares
 (`Flow.reads_sources`), and only those: a source of another type is passed over -- a `.lpf` in a
 design built by Vivado -- or, when it is a language the flow cannot read, refused by name at
 launch. A design none of whose sources the flow reads is refused too. No source becomes a tool
 command by its type's name (Quartus's `XDC_FILE`, `MEMORYFILE_FILE`), and no source crashes a
 template: the sweep runs every such flow's scripts under the fake tools with one source of every
-type."""
+type.
 
+Every flow is held to it by a scan of its code and of the templates it renders: a flow that reads
+the design's sources declares what it reads, and selects it with `Flow.sources_read()`, so the
+declaration is what the tool gets. A flow that declares nothing reads only its declared inputs."""
+
+import ast
+import inspect
 import re
+import sys
 from pathlib import Path
 from typing import ClassVar
 
@@ -18,10 +25,12 @@ from xeda.board import WithFpgaBoardSettings
 from xeda.design import LANGUAGE_TYPES, SOURCE_SUFFIXES, SourceType
 from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.flow import registered_flows
+from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 
-from .settings_samples import flow_classes
+from .settings_samples import flow_classes, minimal_settings
+from .test_design_parts import _mro, reachable_templates
 from .test_tcl_paths import needs_tclsh
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -90,13 +99,27 @@ EXPECTED_READS = {
     "diamond_synth": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader MemoryFile Sdc Lpf",
     "dc": "Verilog SystemVerilog Vhdl Sdc Tcl",
     "yosys_fpga": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader",
+    "yosys": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader",
+    "yosys_sim": "Verilog SystemVerilog Vhdl VerilogHeader SVHeader Cpp",
+    "verilator": "Verilog SystemVerilog VerilogHeader SVHeader Cpp",
+    "ghdl_sim": "Vhdl",
+    "ghdl_synth": "Vhdl",
+    "nvc": "Vhdl",
+    "modelsim": "Verilog SystemVerilog Vhdl",
+    "vcs": "Verilog SystemVerilog Vhdl",
+    "vivado_sim": "Verilog SystemVerilog Vhdl",
+    "vivado_postsynth_sim": "Verilog SystemVerilog Vhdl",
+    "bsc": "Bluespec Verilog SystemVerilog",
+    "bsc_sim": "Bluespec Verilog SystemVerilog C Cpp ObjectFile",
 }
+#: The flows that read none of the design's sources: each reads only its declared inputs.
+READS_NO_SOURCE = ["fpga_pack", "nextpnr", "openfpgaloader", "openroad", "vivado_power"]
 REFUSED = [
     (flow, member, part)
     for flow, accepted in EXPECTED_READS.items()
     for member in sorted(LANGUAGE_TYPES, key=lambda m: m.name)
     if member.name not in accepted.split()
-    for part in (("rtl", "tb") if flow == "vivado_project" else ("rtl",))
+    for part in sorted(registered_flows[flow][1].design_parts)
 ]
 FLOWS_DIR = Path(xeda.__file__).parent / "flows"
 
@@ -108,6 +131,8 @@ def _suffix(member: SourceType) -> str:
 
 def _settings(root: Path, flow: str) -> dict:
     """The least `flow` runs with here."""
+    if flow not in FLOWS:
+        return minimal_settings(registered_flows[flow][1])
     if flow == "dc":
         lib = root / "pdk" / "cells.db"
         lib.parent.mkdir(parents=True, exist_ok=True)
@@ -152,12 +177,10 @@ def _every_type(
     return design, files
 
 
-def test_every_contract_flow_declares_what_it_reads():
-    for flow in FLOWS + ["yosys_fpga"]:
-        reads = registered_flows[flow][1].reads_sources
-        assert reads == frozenset(SourceType[name] for name in EXPECTED_READS[flow].split()), flow
-        parts = registered_flows[flow][1].design_parts
-        assert parts == (frozenset({"rtl", "tb"}) if flow == "vivado_project" else {"rtl"}), flow
+@pytest.mark.parametrize("flow", sorted(EXPECTED_READS))
+def test_every_contract_flow_declares_what_it_reads(flow):
+    reads = registered_flows[flow][1].reads_sources
+    assert reads == frozenset(SourceType[name] for name in EXPECTED_READS[flow].split()), flow
 
 
 @needs_tclsh
@@ -189,10 +212,12 @@ def test_a_language_the_flow_cannot_read_is_refused_at_launch(
     flow_class = registered_flows[flow][1]
     root = tmp_path / "design"
     root.mkdir()
-    (root / "top.v").write_text("module top; endmodule\n")
+    # a source the flow reads, so the unsupported language is what it refuses
+    read = min(LANGUAGE_TYPES & flow_class.reads_sources, key=lambda m: m.name)
+    (root / f"top.{_suffix(read)}").write_text("a source the flow reads\n")
     source = root / f"unsupported.{_suffix(member)}"
     source.write_text("a source\n")
-    rtl = {"sources": ["top.v"], "top": "top"}
+    rtl = {"sources": [f"top.{_suffix(read)}"], "top": "top"}
     tb = {"sources": [], "top": "tb"}
     (rtl if part == "rtl" else tb)["sources"].append({"file": str(source), "type": member.name})
     design = Design(name="d", design_root=root, rtl=rtl, tb=tb)
@@ -211,10 +236,10 @@ def test_a_language_the_flow_cannot_read_is_refused_at_launch(
 # ---------------------------------------------------------- a flow that reads none of the sources
 
 PRODUCT_FLOWS = [cls for cls, _name in flow_classes() if cls.__module__.startswith("xeda.")]
-#: The flows that hand their tool the design's sources themselves, and so declare what they read.
+#: The flows that hand their tool the design's sources, and so declare what they read.
 READING_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is not None]
-#: The flows that choose their inputs in their own code, or declare them as inputs.
-CHOOSING_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is None]
+#: The flows that read none of the design's sources, only their declared inputs.
+INPUT_ONLY_FLOWS = [cls for cls in PRODUCT_FLOWS if cls.reads_sources is None]
 READS_ONE_TYPE = [(cls, member) for cls in READING_FLOWS for member in sorted(cls.reads_sources)]
 
 
@@ -229,9 +254,11 @@ def _edif_only(root: Path) -> Design:
     return Design(name="d", design_root=root, rtl={"sources": ["top.edf"], "top": "top"})
 
 
-def test_the_flows_that_read_the_designs_sources_are_the_eight_with_a_contract():
+def test_every_flow_either_declares_what_it_reads_or_reads_only_its_inputs():
     assert sorted(cls.name for cls in READING_FLOWS) == sorted(EXPECTED_READS)
-    assert CHOOSING_FLOWS, "the flows that choose their inputs themselves are not covered"
+    assert sorted(cls.name for cls in INPUT_ONLY_FLOWS) == READS_NO_SOURCE
+    for cls in INPUT_ONLY_FLOWS:
+        assert declared_inputs(cls), f"{cls.name} reads no source and declares no input"
 
 
 @pytest.mark.parametrize("flow_class", READING_FLOWS, ids=lambda cls: cls.name)
@@ -246,8 +273,8 @@ def test_a_flow_that_reads_sources_refuses_a_design_with_none_it_reads(flow_clas
         assert member.name in message
 
 
-@pytest.mark.parametrize("flow_class", CHOOSING_FLOWS, ids=lambda cls: cls.name)
-def test_a_flow_that_chooses_its_inputs_itself_is_not_refused_by_that_rule(flow_class, tmp_path):
+@pytest.mark.parametrize("flow_class", INPUT_ONLY_FLOWS, ids=lambda cls: cls.name)
+def test_a_flow_that_reads_only_its_inputs_is_not_refused_by_that_rule(flow_class, tmp_path):
     flow_class.check_design_supported(_edif_only(tmp_path))
 
 
@@ -666,3 +693,260 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
             assert any(p.suffix == ".vhd" and p.read_bytes() == path.read_bytes() for p in added)
         else:
             assert _read_call(flow, member, path, calls), (flow, member, calls)
+
+
+# ------------------------------------------------- what a flow's code and templates read, scanned
+
+#: The one selection: what a flow reads of the design's sources is what it declares.
+SELECTION = "sources_read"
+#: Calls and attributes that read the design's sources around the declaration.
+DIRECT_CALLS = frozenset({"sources_of_type", "sim_sources_of_type", "header_dirs"})
+DIRECT_ATTRIBUTES = frozenset({"sources", "sim_sources"})
+#: Methods that judge a design instead of choosing what a tool reads: the contract's own checks
+#: (`check_design_supported` and what it asks) and the selection itself. A read in one of them
+#: hands nothing to a tool.
+JUDGING_METHODS = frozenset(
+    {"check_design_supported", "runs_without_testbench_top", "has_cpp_driver", SELECTION}
+)
+#: The types `Design.header_dirs` reads: the include search path of a flow that declares both.
+HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
+#: Reads around the declaration, as `<module:qualified name, or template name>: <what>`, each
+#: with why it hands the tool nothing the flow does not declare. A new one fails
+#: `test_a_flow_selects_what_it_reads_only_through_sources_read` until it is reviewed here, and
+#: an entry whose read is gone fails `test_every_reviewed_direct_read_is_still_there`.
+REVIEWED_DIRECT_READS: dict[str, str] = {
+    "xeda.flows.vivado.vivado_synth:constraint_files: sources": "the Xdc and Sdc sources, "
+    "which both flows that call it (`vivado_synth`, `vivado_alt_synth`) declare",
+}
+
+TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
+TEMPLATE_DIRECT = re.compile(
+    r"\b(sources_of_type|sim_sources_of_type|sim_sources|header_dirs)\b|\.sources\b"
+)
+
+
+def python_source_reads(source: str, skip_classes=()) -> list[tuple[str, int, str]]:
+    """Where the Python in `source` reads the design's sources, as `(qualified name, line,
+    what)`, `what` being `SELECTION` or the name of a direct read. Reads inside a
+    `JUDGING_METHODS` method are not counted; top-level classes in `skip_classes` (other flows'
+    classes in the same module) are not visited."""
+    tree = ast.parse(source)
+    found: list[tuple[str, int, str]] = []
+    skip = set(skip_classes)
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.scope: list[str] = []
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            if node in tree.body and node.name in skip:
+                return
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        def visit_FunctionDef(self, node) -> None:
+            if node.name in JUDGING_METHODS:
+                return
+            self.scope.append(node.name)
+            self.generic_visit(node)
+            self.scope.pop()
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def _hit(self, node: ast.AST, what: str) -> None:
+            found.append((".".join(self.scope) or "<module>", node.lineno, what))
+
+        def visit_Attribute(self, node: ast.Attribute) -> None:
+            if node.attr in DIRECT_ATTRIBUTES:
+                self._hit(node, node.attr)
+            self.generic_visit(node)
+
+        def visit_Call(self, node: ast.Call) -> None:
+            func = node.func
+            name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+            if name == SELECTION:
+                self._hit(node, SELECTION)
+            elif name in DIRECT_CALLS:
+                self._hit(node, name)
+            if isinstance(func, ast.Attribute):
+                # the callee is a read already counted by name; visit its receiver only
+                self.visit(func.value)
+            for child in [*node.args, *node.keywords]:
+                self.visit(child)
+
+    Visitor().visit(tree)
+    return found
+
+
+def template_source_reads(text: str) -> list[tuple[int, str]]:
+    """Where a template reads the design's sources, as `(line, what)`."""
+    found = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if TEMPLATE_SELECTION.search(line):
+            found.append((number, SELECTION))
+        for match in TEMPLATE_DIRECT.finditer(line):
+            found.append((number, match.group(0).lstrip(".")))
+    return found
+
+
+def source_reads(cls: type[Flow]) -> list[tuple[str, int, str]]:
+    """Every read of the design's sources by `cls`'s code -- the classes of its MRO and the code
+    of their modules outside any class -- and by the templates it can render, as `(where, line,
+    what)`: `where` is `module:qualified name`, or `template <name>`."""
+    names_by_module: dict[str, set[str]] = {}
+    for klass in _mro(cls):
+        names_by_module.setdefault(klass.__module__, set()).add(klass.__name__)
+    found = []
+    for module_name, names in sorted(names_by_module.items()):
+        source = inspect.getsource(sys.modules[module_name])
+        defined = {node.name for node in ast.parse(source).body if isinstance(node, ast.ClassDef)}
+        found += [
+            (f"{module_name}:{where}", line, what)
+            for where, line, what in python_source_reads(source, defined - names)
+        ]
+    for name, text in sorted(reachable_templates(cls).items()):
+        found += [(f"template {name}", line, what) for line, what in template_source_reads(text)]
+    return found
+
+
+def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
+    """The teeth of the scan: a scan that finds nothing proves nothing."""
+    reads = {
+        "rtl.sources": ("def run(self): return self.design.rtl.sources", "sources"),
+        "tb.sources": ("def run(self): return [s for s in self.design.tb.sources]", "sources"),
+        "a part by name": ("def run(d, p): return getattr(d, p).sources", "sources"),
+        "sim_sources": ("def run(self): return self.design.sim_sources", "sim_sources"),
+        "sources_of_type": ("def run(d): return d.sources_of_type('*')", "sources_of_type"),
+        "sim_sources_of_type": ("def f(d): return d.sim_sources_of_type(1)", "sim_sources_of_type"),
+        "header_dirs": ("def run(d): return d.header_dirs(tb=True)", "header_dirs"),
+        "the selection": ("def run(self): return self.sources_read(tb=True)", SELECTION),
+    }
+    for what, (source, expected) in reads.items():
+        assert [hit[2] for hit in python_source_reads(source)] == [expected], what
+    nested = "class F:\n    def run(self):\n        return self.design.rtl.sources\n"
+    assert python_source_reads(nested) == [("F.run", 3, "sources")]
+    clean = {
+        "a judging method": "class F:\n    def check_design_supported(cls, d):\n"
+        "        return d.tb.sources\n",
+        "a skipped class": "class Other:\n    def run(self): return self.design.rtl.sources\n",
+        "no read": "def run(self): return self.design.rtl.top",
+    }
+    for what, source in clean.items():
+        assert not python_source_reads(source, skip_classes=["Other"]), what
+
+    assert template_source_reads("{% for s in sources_read(rtl=true, tb=true) %}") == [
+        (1, SELECTION)
+    ]
+    for line, expected in [
+        ("{% for s in design.sim_sources %}", "sim_sources"),
+        ("{% for s in design.rtl.sources %}", "sources"),
+        ("{% set v = design.sources_of_type('Vhdl', rtl=true) %}", "sources_of_type"),
+    ]:
+        assert template_source_reads(line) == [(1, expected)], line
+    assert not template_source_reads("{{ design.rtl.top }} {{ settings.sdc_files }}")
+
+
+def test_the_scan_reaches_a_flow_s_templates_and_its_bases_code():
+    """`dc` selects in its template only, `vivado_project` in its code and its template; the
+    contract's own selection and checks, in `Flow`, count for no flow."""
+    dc = source_reads(registered_flows["dc"][1])
+    assert {where for where, _, _ in dc} == {"template dc_script.tcl"}
+    project = {where for where, _, _ in source_reads(registered_flows["vivado_project"][1])}
+    assert "template vivado_project.tcl" in project
+    assert any(where.startswith("xeda.flows.vivado.vivado_project:") for where in project)
+    assert not any(where.startswith("xeda.flow.flow:") for where in project)
+
+
+@pytest.mark.parametrize(("cls", "name"), flow_classes(), ids=[n for _, n in flow_classes()])
+def test_a_flow_that_reads_the_design_s_sources_declares_what_it_reads(cls, name):
+    """A flow that reads the design's sources, in code or in a template, declares the types it
+    reads, and a flow that declares them selects with `sources_read()`: a declaration that
+    selects nothing would refuse designs for a flow that reads none of their sources."""
+    if not cls.__module__.startswith("xeda."):
+        pytest.skip("a flow outside the package")
+    reads = source_reads(cls)
+    listing = "\n".join(f"{where}:{line}: {what}" for where, line, what in reads)
+    if cls.reads_sources is None:
+        assert not reads, f"{name} reads the design's sources and declares no reads_sources:\n" + (
+            listing
+        )
+    else:
+        assert any(
+            what == SELECTION for _, _, what in reads
+        ), f"{name} declares reads_sources and never selects with sources_read():\n{listing}"
+
+
+@pytest.mark.parametrize(("cls", "name"), flow_classes(), ids=[n for _, n in flow_classes()])
+def test_a_flow_selects_what_it_reads_only_through_sources_read(cls, name):
+    """Whatever a flow hands its tool of the design's sources goes through `sources_read()`, so
+    its declaration is what the tool gets: no other read of the design's sources, unless it is
+    reviewed in `REVIEWED_DIRECT_READS` as choosing nothing a tool reads."""
+    if not cls.__module__.startswith("xeda."):
+        pytest.skip("a flow outside the package")
+    headers = cls.reads_sources is not None and HEADER_TYPES <= cls.reads_sources
+    direct = [
+        f"{where}:{line}: {what}"
+        for where, line, what in source_reads(cls)
+        if what != SELECTION and f"{where}: {what}" not in REVIEWED_DIRECT_READS
+        # the include search path of the headers the flow declares
+        and not (what == "header_dirs" and headers)
+    ]
+    assert not direct, (
+        f"{name} reads the design's sources around its declaration; select with "
+        "sources_read() (Flow.reads_sources):\n" + "\n".join(direct)
+    )
+
+
+def test_every_reviewed_direct_read_is_still_there():
+    places = {
+        f"{where}: {what}" for cls, _ in flow_classes() for where, _, what in source_reads(cls)
+    }
+    gone = sorted(set(REVIEWED_DIRECT_READS) - places)
+    assert not gone, f"reviewed reads that are gone, delete their entries: {gone}"
+
+
+# ------------------------------------------------------------- the examples and the flows they name
+
+EXAMPLES = Path(__file__).parent.parent / "examples"
+EXAMPLE_FILES = sorted(
+    path
+    for path in EXAMPLES.rglob("*")
+    if path.suffix in (".yaml", ".yml", ".toml", ".json") and "xeda_run" not in path.parts
+)
+
+
+def _example_requests(path: Path):
+    """Each design `path` holds, with every flow its sections or its project's name and the
+    project's section for that flow."""
+    from xeda.xedaproject import XedaProject
+
+    if path.stem == "xedaproject":
+        project = XedaProject.from_file(path)
+        designs = [project.get_design(i) for i in range(len(project.designs))]
+        shared = project.flows or {}
+    else:
+        designs, shared = [Design.from_file(path)], {}
+    for design in designs:
+        assert design is not None
+        for flow in sorted(set(design.flow or {}) | set(shared)):
+            yield design, flow, shared.get(flow, {})
+
+
+@pytest.mark.parametrize("path", EXAMPLE_FILES, ids=lambda p: str(p.relative_to(EXAMPLES)))
+def test_every_example_plans_for_every_flow_it_names(path, tmp_path, monkeypatch):
+    """No example is refused by a flow it is meant for: each plans, its producers included, for
+    every flow a section of the design or of its project names."""
+    monkeypatch.chdir(path.parent)
+    requests = list(_example_requests(path))
+    for design, flow, settings in requests:
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        runner.plan(flow, design, flow_settings=settings)
+    assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
+
+
+def test_the_examples_name_flows_of_every_kind():
+    """The sweep above covers simulators, synthesis and a chain: an oracle over few flows
+    proves little."""
+    named = {flow for path in EXAMPLE_FILES for _, flow, _ in _example_requests(path)}
+    assert {"verilator", "ghdl_sim", "yosys_sim", "bsc_sim", "openroad", "nextpnr"} <= named

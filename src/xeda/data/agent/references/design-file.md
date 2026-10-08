@@ -142,17 +142,20 @@ or `IceAsc` configuration is packed by `fpga_pack` without placing, and a `Bitst
 (`{file: build/top.bit, type: Bitstream}`, or just the `.bit` file) is what `openfpgaloader`
 programs, with nothing built.
 
-Source-consumption contracts apply to `vivado_synth`, `vivado_alt_synth`, `vivado_project`,
-`quartus`, `diamond_synth`, `ise_synth`, `dc` and `yosys_fpga`: other non-language types are
-skipped (an `Lpf` in a Vivado design), but an unsupported language fails before the flow runs
-(a Bluespec source for `vivado_synth`), and so does a design with no source the flow reads at all
+Every flow that reads the design's sources declares the types it reads (`reads_sources`): other
+non-language types are skipped (an `Lpf` in a Vivado design), but an unsupported language fails
+before the flow runs (a Bluespec source for `vivado_synth`, VHDL for `verilator`, SystemVerilog
+for `ghdl_sim`/`nvc`), and so does a design with no source the flow reads at all
 (a design whose only netlist is an `.edf`, for `vivado_synth`, `yosys_fpga` or the `yosys_fpga`
 that `nextpnr` plans): the error lists the design's sources with their types and the types the
 flow reads; for the `yosys_fpga` that `nextpnr` plans, and only when nothing else in the plan needs
 it, the error adds that a `JsonNetlist` source would replace it. One source of a type the flow reads
 is enough, a constraint file included, so an `.edf` with an `.xdc` still plans for `vivado_synth`.
-Contracts check `rtl.sources`; `vivado_project` also checks `tb.sources`. Headers reach
-include/search paths; no source type name becomes a tool command.
+Flows that read the testbench (simulators, `bsc`, `vivado_project`) also check `tb.sources`.
+C/C++ files are never refused. `nextpnr`, `openroad`, `fpga_pack`, `openfpgaloader` and
+`vivado_power` read no design source directly, only their declared inputs (a producer's output or
+a typed source, such as `Sdc` files). Headers reach include/search paths; no source type name
+becomes a tool command.
 
 The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
 with a settings error naming the file to rename.

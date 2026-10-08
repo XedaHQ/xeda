@@ -691,8 +691,13 @@ class Flow(metaclass=ABCMeta):
     #: other settings ask of it says so in `required_settings_for`, which is checked instead.
     required_settings: Dict[str, str] = {}
 
-    #: Types this flow hands its tools directly. None keeps selection in the flow's own code.
-    #: Unsupported languages are refused; other unconsumed types belong to another flow.
+    #: The types of the design's sources this flow hands its tools, in the parts it reads
+    #: (`design_parts`). A flow that reads the design's sources declares them here and selects
+    #: what it reads with `sources_read()`, the one selection, so the declaration is what the tool
+    #: gets. `check_design_supported` refuses a language (`LANGUAGE_TYPES`) the flow does not
+    #: read, and a design with no source it reads; a source of another type belongs to another
+    #: flow. None: the flow reads none of the design's sources, only its declared `Inputs`
+    #: (`tests/test_source_contracts.py` checks the code and the templates of every flow).
     reads_sources: ClassVar[frozenset[SourceType] | None] = None
 
     #: The parts of the design this flow reads (`design.DESIGN_PARTS`: `rtl`, `tb`). They are
@@ -1326,10 +1331,14 @@ class Flow(metaclass=ABCMeta):
 
     def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
         """The design's sources this flow reads (`reads_sources`), in design order: what its
-        scripts hand the tool. `rtl`, `tb`: which parts (`Design.sources_of_type`)."""
-        sources = self.design.sources_of_type("*", rtl=rtl, tb=tb)
+        code and scripts hand the tool. `rtl`, `tb`: which parts (`Design.sources_of_type`). A
+        flow that declares no `reads_sources` reads no source, and asking is an error."""
         if self.reads_sources is None:
-            return sources
+            raise TypeError(
+                f"{self.name} declares no `reads_sources`, so it reads none of the design's "
+                "sources: declare the types it reads"
+            )
+        sources = self.design.sources_of_type("*", rtl=rtl, tb=tb)
         return [src for src in sources if src.type in self.reads_sources]
 
     def copy_from_template(
