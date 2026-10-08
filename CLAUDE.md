@@ -1678,15 +1678,19 @@ dependency must also share `custom_boards_file`.
   installer, pinned to one commit (`INSTALLER_REV`), builds yosys, nextpnr-himbaechel and
   `fpga-as` into `~/openxc7`, and `actions/cache` keeps that installation under a key of the
   commit, a `RECIPE` counter and the runner image. The chip database is generated on every run.
-  A cache miss installs everything the installer needs to build, then lists the Debian packages
-  that the built tools load (`ldd` of every executable of `bin/`, then `dpkg -S`) in the cached
-  prefix, `share/xeda-ci/runtime-packages.txt`; a hit installs that list only, not the build
-  dependencies (the mirror of the runners fails some of those downloads). Raise `RECIPE` when
-  the workflow changes what the cache holds. The job runs the Artix-7 cases only (the cache
-  holds that family's Project X-Ray data), and it fails when any of them skips: a renamed opt-in
-  variable would otherwise leave it green with nothing run. Bump `INSTALLER_REV` in a pull
-  request that runs the workflow, after reading the installer's diff: a new yosys or nextpnr can
-  move the counts `tests/test_openxc7_real.py` pins.
+  A cache miss installs what the installer needs to build (its list, less Java and pypy3, which
+  serve tools this job does not build: the workflow edits them out of the installer's clone), then
+  lists the Debian packages that the built tools load (`ldd` of every executable of `bin/`, then
+  `dpkg -S`) in the cached prefix, `share/xeda-ci/runtime-packages.txt`; a hit installs that list
+  only, not the build dependencies (the mirror of the runners fails some of those downloads).
+  The check of the installation runs before the cache is saved, so a broken tree is not cached.
+  Raise `RECIPE` when the workflow changes what the cache holds, or when a hit fails because the
+  list names a package that is gone. The job runs the Artix-7 cases only (the cache holds that
+  family's Project X-Ray data), and it fails when any of them skips: a renamed opt-in variable
+  would otherwise leave it green with nothing run. The cases share one run root and each reads
+  the chip database of its own fabric (`tests/test_openxc7_real.py` names `xc7a100t`), so their
+  order is free. Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading the
+  installer's diff: a new yosys or nextpnr can move the counts `tests/test_openxc7_real.py` pins.
   `XEDA_TESTS_ASAP7_PLATFORM` names an asap7 `config.toml` whose liberty files are present (the
   package ships the description only): `tests/test_yosys_asic.py` then checks, with the real
   yosys, that `yosys` alone and `openroad`'s dependency hand abc identical inputs for

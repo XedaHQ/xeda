@@ -5,7 +5,7 @@ name: openXC7
 # with the Xilinx backend, and fpga-as. No package has the layout xeda reads, so this job builds
 # the three tools once with openXC7's own installer and caches the installation, with the list of
 # the system packages that the tools load (made from the tools, not by hand). A cache miss installs
-# all the packages the installer needs and builds for 16 to 27 minutes, and the job takes 20 to 33.
+# the packages the installer needs and builds for 16 to 27 minutes, and the job takes 20 to 33.
 # A cache hit restores the tools in seconds and installs only the listed packages (15 names, about
 # 20 seconds), and the job takes 3 to 5 minutes. This is a separate workflow, so it runs beside the
 # tox legs in ci.yml, and a build delays none of them.
