@@ -716,11 +716,30 @@ the log that show it. Xeda looks for these signs:
   of each board, and ``Undefined`` where the part is missing): the flow then gives the loader the
   part from ``fpga`` (``--fpga-part``) in place of the board's name.
 
-Xeda requires no sign of success, because the other families and versions print other words or
-nothing. A load that fails in another way, with status 0 and none of these signs, passes: read the
-log. A run without a log of its own fails, because it leaves no evidence that the device was
+A flash write on a Xilinx FPGA must also say that it finished, and Xeda fails the run when it does
+not. The loader can stop before it writes without any message, and exit with status 0: a flash of
+the SST26VF family that stays locked after the loader unlocked it does this. The flash then holds
+its old data, or only part of the file when a write stopped half way. A write that finished ends
+with a progress bar and the word ``Done``:
+
+.. code-block:: text
+
+   Writing: [==================================================] 100.00%
+   Done
+
+With ``verbose_level: -1`` the loader prints ``Writing: Done`` instead. Xeda looks for these lines
+once for each flash chip it writes (twice with ``target_flash: both``). It checked the loader's
+source from 0.13.1 to 1.1.1 for them. A later release that prints another bar fails every Xilinx
+flash write: the error says what Xeda looked for, so read the log. ``verify: true`` makes the
+loader read the flash back after a write that finished, and it prints ``Verification failed at``
+and an address if the flash holds other data than the file. The loader does not read the flash
+back when the write stopped, so the lines above are the only check for that.
+
+Xeda requires no other sign of success, because the other families and versions print other words
+or nothing. A load that fails in another way, with status 0 and none of these signs, passes: read
+the log. A run without a log of its own fails, because it leaves no evidence that the device was
 programmed. A Lattice load needs no sign in the log, because the loader exits with a nonzero
-status when it fails.
+status when it fails. An SRAM load needs none either.
 
 What is not noticed: an in-place change of the installed Project X-Ray database alone, with
 ``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads

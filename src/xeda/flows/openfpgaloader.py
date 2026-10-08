@@ -62,19 +62,35 @@ def _loader_part(fpga: FPGA) -> str:
 #   `program_bpi` throws.) One failure prints nothing that tells it: `SPIFlash::global_unlock`
 #   (spiFlash.cpp:1199-1217, for the SST26VF) returns false when a sector stays locked after the
 #   unlock. Its write enable and its wait print signs; only the final check of the lock registers
-#   is silent.
+#   is silent. A flash write on a Xilinx FPGA therefore has to report that it finished (below).
 # * Lattice (ECP5, lattice.cpp). `program` throws when a step failed (lines 1073-1082): status 1.
 # * Gowin and iCE40 print `FAIL` or `Fail` for a failed step and return (gowin.cpp:385-426,
 #   ice40.cpp:104-149): status 0.
 # * `printError` writes to stderr. `printInfo`, `printWarn`, `printSuccess`, `printf` and
 #   `std::cout` write to stdout (display.cpp:23-65). The flow merges the two into one log.
 #
-# The verdict looks for signs of failure and requires no sign of success. The loader is at least
-# release 0.13.1 (`MIN_OPENFPGALOADER_VERSION`), the first one that prints the readback of the
-# DONE signal and says so in its version. The other families print other words or nothing, so a
-# required marker would fail good runs of other families and of releases that change a line. A
-# load that fails without one of the signs below passes. Its whole output is in the log in the
-# run directory.
+# The verdict looks for signs of failure. The loader is at least release 0.13.1
+# (`MIN_OPENFPGALOADER_VERSION`), the first one that prints the readback of the DONE signal and
+# says so in its version. It requires one sign of success, of a flash write on a Xilinx FPGA, and
+# of nothing else: the other families print other words or nothing, so a required marker would
+# fail good runs of other families and of releases that change a line. A load that fails without
+# one of the signs below passes. Its whole output is in the log in the run directory.
+#
+# The sign of success. `SPIFlash::erase_and_prog` makes its `Writing` progress bar after
+# everything that can stop it without a message, `prepare_flash` and so `global_unlock` among
+# them (spiFlash.cpp:392-395, 531-535 and, for an `.mcs` file, 483-500; v0.13.1: 364 and 437), and
+# ends the bar with `done()` only when no page write returned -1 (550, 518; v0.13.1: 452; a wait
+# that times out returns another value, and prints `wait: Error`, a sign above). `done()` prints
+# the bar at its end and `Done`: `Writing: [<50 columns>] 100.00%`, then `Done` (progressBar.cpp:
+# 21-60; `Writing: Done` when `_verbose < 0`). A bar that an update shows at 100.00% before
+# `done()` is not followed by `Done` at once. The progress bar code is the same in v0.13.1,
+# v1.0.0, v1.1.0 and v1.1.1, except that a pipe gets a line end after a percent from v1.0.0 on,
+# which the split into lines drops. The BPI flash writer of v1.1.0 and later uses the same label
+# (bpiFlash.cpp:449). The loader never sets a locale, so the point of `100.00%` is the same
+# everywhere. A later release that prints another bar fails every Xilinx flash write, loudly: the
+# run says what it looked for and where the log is. `SPIInterface::write` verifies only after a
+# write that succeeded (`if (_spif_verify && ret)`, spiInterface.cpp:219; v0.13.1: 192), so
+# `verify` does not report a write that stopped.
 
 #: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
 _DONE_READBACK = re.compile(
@@ -135,12 +151,13 @@ class LoaderFailure:
 
     summary: tuple[str, ...]
     evidence: tuple[str, ...] = ()
+    evidence_heading: str = "The loader printed:"
 
     def message(self, log_file: Optional[Path] = None) -> str:
         """The text for a person: what happened, then the lines that show it."""
         text = list(self.summary)
         if self.evidence:
-            text.append("The loader printed:")
+            text.append(self.evidence_heading)
             text.extend(f"    {line}" for line in self.evidence)
         if log_file is not None:
             text.append(f"Its whole output is in {log_file}.")
@@ -227,14 +244,77 @@ def _reported_failures(lines: list[str]) -> list[str]:
     return list(dict.fromkeys(reported))
 
 
-def loader_failure(text: str, target: Optional[str] = None) -> Optional[LoaderFailure]:
+#: The progress bar of a flash write at its end (progressBar.cpp:21-51); `done()` follows it with
+#: a line `Done`. With quiet bars (`verbose_level: -1`) `done()` prints `Done` after `Writing: `.
+_WRITE_BAR_AT_ITS_END = re.compile(r"Writing: \[=+\] 100\.00%")
+_WRITE_DONE_QUIET = re.compile(r"(?:^|\s)Writing: Done$")
+#: The most lines of the end of the output that a message quotes for a flash that was not written.
+MAX_LAST_LINES = 3
+
+
+def _finished_flash_writes(lines: list[str]) -> int:
+    """How many flash writes the lines report as finished: a `Writing` bar at its end that `Done`
+    follows at once, or `Writing: Done` (see the comment above)."""
+    finished = 0
+    for index, line in enumerate(lines):
+        if _WRITE_DONE_QUIET.search(line):
+            finished += 1
+        elif _WRITE_BAR_AT_ITS_END.fullmatch(line) and lines[index + 1 : index + 2] == ["Done"]:
+            finished += 1
+    return finished
+
+
+def _unwritten_flash(lines: list[str], finished: int, expected: int, verify: bool) -> LoaderFailure:
+    """The failure of a flash write that the output does not report as finished: the sentences and
+    the end of the output, which shows where the loader stopped."""
+    ends = "a progress bar `Writing: [...] 100.00%` and the word `Done`"
+    sentences = [
+        "openFPGALoader exited with status 0, but it did not report that it wrote the flash."
+    ]
+    if expected == 1:
+        sentences.append(f"A flash write ends with {ends}. The log has no such lines.")
+    else:
+        sentences.append(
+            f"It has to write {expected} flash chips, and each write ends with {ends}. "
+            f"The log shows {finished} finished write{'' if finished == 1 else 's'}."
+        )
+    sentences.append(
+        "The loader can stop before it writes, and print nothing, when the flash stays locked "
+        "after its unlock. A flash of the SST26VF family does this."
+    )
+    sentences.append("The flash may hold its old data, or only part of the file.")
+    if not verify:
+        sentences.append(
+            "Set `verify: true` as well. After a write that finished, the loader then reads the "
+            "flash back and compares it with the file."
+        )
+    return LoaderFailure(
+        tuple(sentences),
+        tuple(lines[-MAX_LAST_LINES:]),
+        evidence_heading="The last lines it printed:",
+    )
+
+
+def loader_failure(
+    text: str,
+    target: Optional[str] = None,
+    *,
+    flash_writes: int = 0,
+    verify: bool = False,
+) -> Optional[LoaderFailure]:
     """The failure that the output `text` of the loader shows (see above), or None if it shows
-    none. `target`, when known, names the board or part that the flow is set up to program."""
+    none. `target`, when known, names the board or part that the flow is set up to program.
+    `flash_writes` is the number of flash writes that the loader has to report as finished (a
+    flash write on a Xilinx FPGA: one for each flash chip), and `verify` tells whether it was
+    asked to read the flash back."""
     lines = _output_lines(text)
     sentences, evidence = _unfinished_load(lines, target)
     reported = [line for line in _reported_failures(lines) if line not in evidence]
     if not sentences and not reported:
-        return None
+        finished = _finished_flash_writes(lines)
+        if finished >= flash_writes:
+            return None
+        return _unwritten_flash(lines, finished, flash_writes, verify)
     if not sentences:
         sentences = ["openFPGALoader exited with status 0, but it reported a failure."]
     if any(_NO_PART_FOR_THE_BRIDGE in line for line in reported):
@@ -320,8 +400,9 @@ class Openfpgaloader(FpgaSynthFlow):
     fails when the loader exits with a nonzero status, and also when its output shows that the
     device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID
     or CRC error the FPGA reports), a step that printed FAIL, or an error message, such as a flash
-    that does not answer. The flow always runs, since it changes a device rather than a file, and
-    it is the only flow here that touches hardware.
+    that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that
+    it wrote the flash. The flow always runs, since it changes a device rather than a file, and it
+    is the only flow here that touches hardware.
     """
 
     #: the device only to program the flash (`required_settings_for`)
@@ -451,6 +532,16 @@ class Openfpgaloader(FpgaSynthFlow):
         ]
         return ", ".join(named) or None
 
+    def _flash_writes(self) -> int:
+        """How many flash writes the loader has to report as finished: one for each flash chip it
+        writes on a Xilinx FPGA, two with `target_flash: both` (`loader_failure`). Other families
+        and SRAM loads have none to report."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if not ss.write_flash or ss.fpga is None or ss.fpga.vendor != "xilinx":
+            return 0
+        return 2 if ss.target_flash == "both" else 1
+
     def parse_reports(self) -> bool:
         """The verdict: a nonzero exit status failed the run already (`run()` raised it). A run
         also fails when this run's log shows a failure (`loader_failure`), or when there is no log
@@ -470,7 +561,13 @@ class Openfpgaloader(FpgaSynthFlow):
             )
         else:
             text = report.read_text(encoding="utf-8", errors="replace")
-            failure = loader_failure(text, target=self._target())
+            assert isinstance(self.settings, self.Settings)
+            failure = loader_failure(
+                text,
+                target=self._target(),
+                flash_writes=self._flash_writes(),
+                verify=self.settings.verify,
+            )
         if failure is None:
             return True
         message = failure.message(log_file)

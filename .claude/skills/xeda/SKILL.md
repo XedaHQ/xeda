@@ -192,8 +192,10 @@ refuses an older one; release 0.13.0 prints 0.12.1). It fails on a nonzero exit,
 does that): DONE low after a Xilinx load (`ir: ... done 0`, with the ID or CRC error the FPGA
 reports), a step that printed `FAIL`, an `Error:` message, a flash write that failed (`Read ID
 failed`, `Can't program SPI flash: missing device-package information`, `Verification failed
-at ...`). The error is `ReportedFailure`; it quotes the lines. A load that fails in another way
-passes: read the log.
+at ...`). A Xilinx `write_flash` also needs the log to show that the write finished (`Writing:
+[...] 100.00%`, then `Done`): the loader can stop before it writes and exit 0, and `verify` does
+not report that. The error is `ReportedFailure`; it quotes the lines. A load that fails in
+another way passes: read the log.
 A `flows.open_xc7` section fails as the removed flow's own name does, naming the replacement.
 
 Put pin constraints in `rtl.sources` as typed `Lpf`, `Pcf`, `Pdc` or `Xdc` files. nextpnr

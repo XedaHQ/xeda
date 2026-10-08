@@ -176,6 +176,70 @@ Parse file DONE
 Can't program SPI flash: missing device-package information
 """
 
+#: The progress bars of a Xilinx flash write are 50 columns wide; these are the bar at half and at
+#: the end, and the colors the loader writes in a terminal (display.cpp:13-21).
+HALF = "=" * 25 + " " * 25
+FULL = "=" * 50
+BLUE, GREEN, OFF = "\x1b[94m", "\x1b[32m", "\x1b[0m"
+
+#: What a Xilinx flash write prints before it erases, once the loader has found the flash (the load
+#: of its bridge is left out). The SST26VF032B has its whole flash locked at power-up, so the loader
+#: unlocks it first (`SPIFlash::global_unlock`, spiFlash.cpp:1199) and prints `Non Volatile`.
+FLASH_FOUND = """\
+write to flash
+empty
+Jtag frequency : requested 6.00MHz   -> real 6.00MHz
+Open file DONE
+Parse file DONE
+Use: /usr/local/share/openFPGALoader/spiOverJtag_xc7a35tcpg236.bit.gz
+JEDEC ID: 0xbf2642
+Detected: microchip SST26VF032B 64 sectors size: 32Mb
+Non Volatile
+"""
+
+#: The same log when the flash stays locked after the unlock: `global_unlock` returns false and
+#: prints nothing (spiFlash.cpp:1212-1215), `prepare_flash` returns false, the loader erases and
+#: writes nothing, and the exit status is 0.
+FLASH_LOCKED = FLASH_FOUND
+
+#: What the erase and the write print when they finish, byte for byte, as the progress bar code of
+#: the loader prints them (progressBar.cpp and display.cpp): a program that links those two files of
+#: the tag and nothing else printed them to a pipe and to a terminal. No loader ran. The lines of
+#: the first bar are an update after a second, the others are `done()`. A terminal turns each `\n`
+#: into `\r\n` by itself, so the terminal forms here have the loader's own `\n` only. v0.13.1
+#: writes no line end after a percent in a pipe (v1.0.0 and later do), and its `Done` follows at
+#: once; `verbose_level: -1` makes the bars quiet.
+FLASH_BARS_0_13_1_PIPE = (
+    "start addr: 00000000, end_addr: 00010000\n"
+    f"\rErasing: [{HALF}] 50.00%\rErasing: [{FULL}] 100.00%\nDone\n"
+    f"\rWriting: [{HALF}] 50.00%\rWriting: [{FULL}] 100.00%\nDone\n"
+)
+FLASH_BARS_1_1_1_PIPE = (
+    "start addr: 00000000, end_addr: 00010000\n"
+    f"\rErasing: [{HALF}] 50.00%\n\rErasing: [{FULL}] 100.00%\n\nDone\n"
+    f"\rWriting: [{HALF}] 50.00%\n\rWriting: [{FULL}] 100.00%\n\nDone\n"
+)
+FLASH_BARS_1_1_1_TERMINAL = (
+    "start addr: 00000000, end_addr: 00010000\n"
+    f"{BLUE}\rErasing: [{OFF}{HALF}{BLUE}] 50.00%{OFF}"
+    f"{BLUE}\rErasing: [{OFF}{FULL}{BLUE}] 100.00%{OFF}{GREEN}\nDone{OFF}\n"
+    f"{BLUE}\rWriting: [{OFF}{HALF}{BLUE}] 50.00%{OFF}"
+    f"{BLUE}\rWriting: [{OFF}{FULL}{BLUE}] 100.00%{OFF}{GREEN}\nDone{OFF}\n"
+)
+FLASH_BARS_QUIET_PIPE = "start addr: 00000000, end_addr: 00010000\nErasing: Done\nWriting: Done\n"
+FLASH_BARS_QUIET_TERMINAL = (
+    "start addr: 00000000, end_addr: 00010000\n"
+    f"{BLUE}Erasing: {OFF}{GREEN}Done{OFF}\n{BLUE}Writing: {OFF}{GREEN}Done{OFF}\n"
+)
+#: Each form, with the name of its test case.
+FINISHED_FLASH_WRITES = {
+    "pipe-0.13.1": FLASH_BARS_0_13_1_PIPE,
+    "pipe-1.1.1": FLASH_BARS_1_1_1_PIPE,
+    "terminal-1.1.1": FLASH_BARS_1_1_1_TERMINAL,
+    "quiet-pipe": FLASH_BARS_QUIET_PIPE,
+    "quiet-terminal": FLASH_BARS_QUIET_TERMINAL,
+}
+
 #: A load into an ECP5 (Lattice) that worked: the loader has no readback to print, and a failed
 #: load is a thrown exception there, so its exit status is nonzero.
 ECP5_LOADED = """\
@@ -369,6 +433,74 @@ def test_every_sign_names_the_place_in_the_loader_s_source_that_prints_it():
         for message, where in table.items():
             assert place.search(where), f"{message!r} has no citation: {where!r}"
     assert not set(FAILURE_PREFIXES) & set(FAILURE_ENDINGS)
+
+
+@pytest.mark.parametrize("form", FINISHED_FLASH_WRITES.values(), ids=FINISHED_FLASH_WRITES)
+def test_a_flash_write_the_loader_reports_finished_meets_the_requirement(form):
+    assert loader_failure(FLASH_FOUND + form, flash_writes=1) is None
+
+
+def test_a_flash_that_stays_locked_is_no_finished_write():
+    """The silent failure: nothing the loader prints says that it failed, and it exits with 0."""
+    assert loader_failure(FLASH_LOCKED) is None  # an SRAM load, or a family that throws
+    failure = loader_failure(FLASH_LOCKED, flash_writes=1)
+    assert failure is not None
+    message = failure.message()
+    assert "exited with status 0, but it did not report that it wrote the flash" in message
+    assert "Writing: [...] 100.00%" in message and "`Done`" in message
+    assert "SST26VF" in message and "stays locked" in message
+    assert "may hold its old data, or only part of the file" in message
+    # where the output ends, as the loader printed it
+    assert failure.evidence == (
+        "JEDEC ID: 0xbf2642",
+        "Detected: microchip SST26VF032B 64 sectors size: 32Mb",
+        "Non Volatile",
+    )
+    # the flash is read back only after a write that finished: say so, and ask for it
+    assert "Set `verify: true`" in message
+    assert (
+        "Set `verify: true`"
+        not in loader_failure(FLASH_LOCKED, flash_writes=1, verify=True).message()
+    )
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        f"\rWriting: [{HALF}] 50.00%\n",  # the write stopped half way
+        f"\rErasing: [{FULL}] 100.00%\n\nDone\n",  # erased, never written
+        f"\rWriting: [{FULL}] 100.00%\n",  # a bar at the end that `done()` did not finish
+        f"\rWriting: [{FULL}] 100.00%\n\rWriting: [{HALF}] 50.00%\n\nDone\n",  # not the end
+        "Writing: \n",  # quiet bars that did not finish
+    ],
+    ids=["half", "erase-only", "no-done", "done-after-half", "quiet-unfinished"],
+)
+def test_only_a_bar_at_the_end_followed_by_done_is_a_finished_write(tail):
+    log = FLASH_FOUND + "start addr: 00000000, end_addr: 00010000\n" + tail
+    failure = loader_failure(log, flash_writes=1)
+    assert failure is not None and "did not report that it wrote the flash" in failure.message()
+
+
+def test_a_flash_write_of_two_chips_needs_two_finished_writes():
+    one = FLASH_FOUND + FLASH_BARS_1_1_1_PIPE
+    assert loader_failure(one, flash_writes=1) is None
+    assert loader_failure(one + FLASH_BARS_1_1_1_PIPE, flash_writes=2) is None
+    failure = loader_failure(one, flash_writes=2)
+    assert failure is not None
+    assert "has to write 2 flash chips" in failure.message()
+    assert "shows 1 finished write" in failure.message()
+
+
+def test_a_sign_of_failure_leads_and_the_missing_report_is_not_added_to_it():
+    log = FLASH_FOUND + "start addr: 00000000, end_addr: 00010000\nwait: Error\n"
+    failure = loader_failure(log, flash_writes=1)
+    assert failure is not None and failure.evidence == ("wait: Error",)
+    assert "did not report" not in failure.message()
+    # a finished write does not excuse a sign, either
+    failure = loader_failure(
+        FLASH_FOUND + FLASH_BARS_1_1_1_PIPE + "Read ID failed\n", flash_writes=1
+    )
+    assert failure is not None and "Read ID failed" in failure.evidence
 
 
 def test_a_failed_verify_quotes_the_address_that_follows_the_fail_line():
@@ -671,10 +803,13 @@ def test_a_flash_write_with_no_part_for_the_bridge_fails_and_says_how_to_give_on
     ]
 
 
-def test_a_cable_gives_the_flash_write_the_part_the_board_name_lacks(tmp_path, fake_loader):
+def test_a_cable_gives_the_flash_write_the_part_the_board_name_lacks(
+    tmp_path, fake_loader, monkeypatch
+):
     """The advice of the message above: with a `cable` the flow passes no board name and gives the
     part, without its speed grade, which names a bridge the loader ships
-    (`spiOverJtag_xc7k325tffg676.bit.gz`)."""
+    (`spiOverJtag_xc7k325tffg676.bit.gz`). The loader then writes the flash and says so."""
+    printing(monkeypatch, stdout=FLASH_FOUND + FLASH_BARS_1_1_1_PIPE)
     flow = program(tmp_path, flash_settings(tmp_path, cable="digilent"))
     assert flow.succeeded
     (call,) = _calls(tmp_path, "openfpgaloader")
@@ -687,6 +822,133 @@ def test_a_cable_gives_the_flash_write_the_part_the_board_name_lacks(tmp_path, f
         "xc7k325tffg676",
         "--write-flash",
     ]
+
+
+# ------------------------------------------------- a Xilinx flash write has to report that it wrote
+
+
+def xilinx_flash(**more) -> dict:
+    """The settings of a flash write on a Xilinx board (the Basys 3 is bundled)."""
+    return {"board": "basys_3", "write_flash": True, **more}
+
+
+@pytest.mark.parametrize(
+    "form,more",
+    [
+        (FLASH_BARS_0_13_1_PIPE, {}),
+        (FLASH_BARS_1_1_1_PIPE, {}),
+        (FLASH_BARS_QUIET_PIPE, {"verbose_level": -1}),
+    ],
+    ids=["pipe-0.13.1", "pipe-1.1.1", "quiet-pipe"],
+)
+def test_a_xilinx_flash_write_the_loader_reports_finished_passes(
+    tmp_path, fake_loader, monkeypatch, form, more
+):
+    printing(monkeypatch, stdout=FLASH_FOUND + form)
+    flow = program(tmp_path, xilinx_flash(**more))
+    assert flow.succeeded
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"][2:5] == ["--board", "basys3", "--write-flash"]
+    assert not call["stdout_is_terminal"]  # the loader wrote its bars to a pipe
+    results = recorded(tmp_path)
+    assert results["success"] is True and "error" not in results
+
+
+@pytest.mark.parametrize("verify", [False, True])
+def test_a_xilinx_flash_write_that_stops_before_writing_fails_although_the_loader_exits_with_0(
+    tmp_path, fake_loader, monkeypatch, verify
+):
+    printing(monkeypatch, stdout=FLASH_LOCKED)
+    flow = program(tmp_path, xilinx_flash(verify=verify))
+    assert not flow.succeeded
+    error = recorded(tmp_path)["error"]
+    assert error["type"] == "ReportedFailure"
+    message = error["message"]
+    assert "did not report that it wrote the flash" in message
+    assert "Non Volatile" in message and str(tmp_path / "run/top/openfpgaloader") in message
+    # the loader reads the flash back only after a write that it reports as done
+    assert ("Set `verify: true`" in message) is not verify
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert ("--verify" in call["argv"]) is verify
+
+
+def test_a_report_is_required_of_a_xilinx_flash_write_only(tmp_path, fake_loader, monkeypatch):
+    """The log of a loader that stopped, from an SRAM load of a Xilinx board and from a flash write
+    of an ECP5 board: the first has no flash to write, and the loader of the second throws when a
+    step fails (lattice.cpp:1073-1082), so its status tells."""
+    printing(monkeypatch, stdout=FLASH_LOCKED)
+    assert program(tmp_path, {"board": "basys_3"}).succeeded
+    assert program(tmp_path, {"board": "ulx3s_85f", "write_flash": True}).succeeded
+
+
+def test_a_xilinx_flash_write_of_two_chips_is_reported_for_each(tmp_path, fake_loader, monkeypatch):
+    """Two flash chips exist on a few UltraScale boards only, and the loader wants the image of the
+    second one (xilinx.cpp:319-324, main.cpp:1186-1194): the device is one of those three, and
+    `--secondary-bitstream` comes from `extra_args`."""
+    both = {
+        "fpga": "xcku040-ffva1156",
+        "write_flash": True,
+        "target_flash": "both",
+        "extra_args": ["--secondary-bitstream", "second.bit"],
+    }
+    printing(monkeypatch, stdout=FLASH_FOUND + FLASH_BARS_1_1_1_PIPE)
+    flow = program(tmp_path, both)
+    assert not flow.succeeded
+    assert "has to write 2 flash chips" in recorded(tmp_path)["error"]["message"]
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["argv"] == [
+        "--bitstream",
+        str(tmp_path / "design/given.bit"),
+        "--fpga-part",
+        "xcku040-ffva1156",
+        "--write-flash",
+        "--target-flash",
+        "both",
+        "--secondary-bitstream",
+        "second.bit",
+    ]
+    printing(monkeypatch, stdout=FLASH_FOUND + FLASH_BARS_1_1_1_PIPE + FLASH_BARS_1_1_1_PIPE)
+    assert program(tmp_path, both).succeeded
+    printing(monkeypatch, stdout=FLASH_FOUND + FLASH_BARS_1_1_1_PIPE)
+    assert program(tmp_path, {**both, "target_flash": "primary"}).succeeded
+
+
+@pytest.mark.skipif(os.name != "posix", reason="a pseudo-terminal is POSIX")
+@pytest.mark.parametrize(
+    "stdout,passes",
+    [
+        (FLASH_FOUND + FLASH_BARS_1_1_1_TERMINAL, True),
+        (FLASH_FOUND + FLASH_BARS_QUIET_TERMINAL, True),
+        (FLASH_LOCKED, False),
+    ],
+    ids=["finished", "finished-quiet", "stopped"],
+)
+def test_a_xilinx_flash_write_is_judged_the_same_when_the_loader_runs_in_a_terminal(
+    tmp_path, fake_loader, monkeypatch, stdout, passes
+):
+    """In a terminal the loader writes colors and redraws its bars with `\\r`; the log keeps the
+    text, one line for each redraw, so the verdict reads the same lines."""
+    terminal = Terminal()
+    monkeypatch.setattr(proc_utils, "_tool_output", terminal.stream)
+    monkeypatch.setattr("xeda.tool.console", Console(force_terminal=True, color_system="standard"))
+    printing(monkeypatch, stdout=stdout)
+    try:
+        flow = program(tmp_path, xilinx_flash())
+        log = (tmp_path / "run/top/openfpgaloader" / LOADER_LOG).read_text()
+        shown = terminal.shown()
+    finally:
+        terminal.close()
+    assert flow.succeeded is passes
+    (call,) = _calls(tmp_path, "openfpgaloader")
+    assert call["stdout_is_terminal"] and call["stderr_is_terminal"]
+    lines = log.splitlines()
+    assert "\x1b" not in log and "\r" not in log
+    if passes:
+        assert lines[-2:] == [f"Writing: [{FULL}] 100.00%", "Done"] or lines[-1] == "Writing: Done"
+    else:
+        assert lines[-1] == "Non Volatile"
+        assert "did not report that it wrote the flash" in recorded(tmp_path)["error"]["message"]
+    assert "Detected: microchip SST26VF032B" in shown  # the terminal got the output too
 
 
 def test_the_command_line_exits_with_1_and_the_message_in_the_json(tmp_path):

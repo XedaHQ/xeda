@@ -114,8 +114,10 @@ wrote no netlist, for instance; `openfpgaloader` when its log shows DONE low, `F
 message or another failed flash write, with the lines quoted in `error.message`: an ID error means
 the bitstream is for another device than the one on the cable, so check the board; `Can't program
 SPI flash: missing device-package information` means the loader's own list gives the board no
-part, so set `cable` as well). A declared output that xeda finds missing
-after the flow's own checks passed is `MissingOutput` instead. The names differ on purpose:
+part, so set `cable` as well; a Xilinx `write_flash` whose log lacks `Writing: [...] 100.00%` and
+`Done` did not finish the write, for instance when a locked SST26VF flash stopped it before it
+wrote, and the flash holds its old data or part of the file). A declared output that xeda finds
+missing after the flow's own checks passed is `MissingOutput` instead. The names differ on purpose:
 `FlowFailed` is the top of the document, what happened to the request; `ReportedFailure` is inside
 a node, why it failed. Its consumers quote the message ("dependency yosys_fpga failed: ..."), and the
 top-level `--json` document of the request carries `FlowDependencyFailure` (a producer failed) or
