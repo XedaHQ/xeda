@@ -31,7 +31,7 @@ jobs:
       # Authenticating the read-only release lookup avoids the shared-runner API rate limit.
       - uses: YosysHQ/setup-oss-cad-suite@v4
         with:
-          version: "2026-09-15"
+          version: "2026-10-08"
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: nickg/setup-nvc@v1
         with:
