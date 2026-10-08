@@ -200,6 +200,7 @@ from xeda.flow_runner import remote
 
 class FakeRunner:
     target = None
+    design_name = "sqrt"
     def __init__(self, *a, **k): pass
     def run_remote(
         self,
@@ -237,6 +238,7 @@ def test_remote_status_comes_from_the_remote_results(remote_success, expected_ex
     document = json_stdout(proc)
     assert proc.returncode == expected_exit
     assert document["success"] is remote_success
+    assert document["design"] == "sqrt" and document["design_file"] == str(SQRT)
     assert document["run_path"] == "/tmp/remote-run"
     assert document["results"]["success"] is remote_success
     if not remote_success:

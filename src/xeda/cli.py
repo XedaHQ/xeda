@@ -52,6 +52,7 @@ from .flow_runner.resolver import Plan
 from .flows import __builtin_flows__
 from .introspect import (
     boards_info,
+    design_info,
     design_schema,
     flow_chain_cells,
     flows_info,
@@ -91,15 +92,25 @@ CONTEXT_SETTINGS = dict(
 )
 
 
-class LoggerContextFilter(logging.Filter):
-    def filter(self, record):
-        record.name = removeprefix(record.name, "xeda.")
-        # Don't filter the record.
-        return 1
+class ShortLoggerNames(logging.Formatter):
+    """Shows a log record with its logger's name shortened (`xeda.flow` as `flow`) by formatting a
+    copy of it. The record itself, which every other handler of the process is given as well,
+    keeps the name of its logger."""
+
+    def __init__(self, formatter: logging.Formatter) -> None:
+        super().__init__()
+        self.formatter = formatter
+
+    def format(self, record: logging.LogRecord) -> str:
+        shown = logging.makeLogRecord(record.__dict__)
+        shown.name = removeprefix(record.name, "xeda.")
+        return self.formatter.format(shown)
 
 
 def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
-    logging.getLogger().setLevel(log_level)
+    root = logging.getLogger()
+    root.setLevel(log_level)
+    before = list(root.handlers)
     coloredlogs.install(
         level=log_level,
         fmt=(
@@ -110,8 +121,10 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         logger=log.root,
     )
     if detailed_logs:
-        for handler in logging.getLogger().handlers:
-            handler.addFilter(LoggerContextFilter())
+        # only the handler installed here: another party's handler shows names as it likes
+        for handler in root.handlers:
+            if handler not in before and handler.formatter is not None:
+                handler.setFormatter(ShortLoggerNames(handler.formatter))
     if log_to_file:
         add_file_logger(log_to_file)
 
@@ -513,11 +526,13 @@ def _run_document(
     nodes: Iterable[Flow] = (),
     plan: Optional[Plan] = None,
     target: str | None = None,
+    loaded: str | None = None,
 ) -> Dict[str, Any]:
-    """The machine-readable summary emitted by `xeda run --json`."""
+    """The machine-readable summary emitted by `xeda run --json`. `design` is what the command
+    line gave for the design, `loaded` the name of the design the launcher loaded."""
     document: Dict[str, Any] = {
         "flow": flow_name,
-        "design": str(design),
+        **design_info(design, loaded),
         "target": target,
         "success": success,
         "results": {},
@@ -875,7 +890,7 @@ def run(
             emit_structured(
                 {
                     "flow": flow,
-                    "design": None,
+                    **design_info(None),
                     "target": target,
                     "success": False,
                     "results": {},
@@ -931,7 +946,14 @@ def run(
             if json_flag:
                 emit_structured(
                     _remote_document(
-                        flow, design, remote, None, False, error=e, target=rl.target or target
+                        flow,
+                        design,
+                        remote,
+                        None,
+                        False,
+                        error=e,
+                        target=rl.target or target,
+                        loaded=rl.design_name,
                     ),
                     "json",
                 )
@@ -944,7 +966,14 @@ def run(
             log.critical("%s", _error_message(e))
             emit_structured(
                 _remote_document(
-                    flow, design, remote, None, False, error=e, target=rl.target or target
+                    flow,
+                    design,
+                    remote,
+                    None,
+                    False,
+                    error=e,
+                    target=rl.target or target,
+                    loaded=rl.design_name,
                 ),
                 "json",
             )
@@ -957,12 +986,24 @@ def run(
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
         if json_flag:
             emit_structured(
-                _remote_document(flow, design, remote, remote_results, success, target=rl.target),
+                _remote_document(
+                    flow,
+                    design,
+                    remote,
+                    remote_results,
+                    success,
+                    target=rl.target,
+                    loaded=rl.design_name,
+                ),
                 "json",
             )
         sys.exit(0 if success else 1)
 
     launcher: Optional[DefaultRunner] = None
+
+    def loaded_design() -> Optional[str]:
+        """The name of the design the launcher loaded, if it got that far."""
+        return launcher.design_name if launcher is not None else None
 
     def emit_failure(error_type: str, message: str, exc: Exception) -> None:
         """Report a failed run identically whether the caller wants text or JSON: with every
@@ -972,7 +1013,7 @@ def run(
             emit_structured(
                 {
                     "flow": flow,
-                    "design": str(design),
+                    **design_info(design, loaded_design()),
                     "target": (launcher.target if launcher is not None else None) or target,
                     "success": False,
                     "results": {},
@@ -1022,7 +1063,7 @@ def run(
             emit_structured(
                 {
                     "flow": flow,
-                    "design": str(design),
+                    **design_info(design, loaded_design()),
                     "target": plan.context.target,
                     "success": True,
                     "dry_run": True,
@@ -1070,6 +1111,7 @@ def run(
                 launcher.launched,
                 launcher.last_plan,
                 launcher.target,
+                launcher.design_name,
             )
             document["request"] = request_info(request)
             emit_structured(document, "json")
@@ -1107,11 +1149,13 @@ def _remote_document(
     success: bool,
     error: Optional[BaseException] = None,
     target: str | None = None,
+    loaded: str | None = None,
 ) -> Dict[str, Any]:
-    """The machine-readable summary emitted by `xeda run --remote --json`."""
+    """The machine-readable summary emitted by `xeda run --remote --json`. `design` is what the
+    command line gave for the design, `loaded` the name of the design the runner loaded."""
     document: Dict[str, Any] = {
         "flow": flow_name,
-        "design": str(design),
+        **design_info(design, loaded),
         "target": target,
         "remote": host,
         "success": success,
@@ -1325,7 +1369,9 @@ def dse(
             emit_structured(
                 {
                     "flow": flow,
-                    "design": str(design or design_name),
+                    **design_info(
+                        design or design_name, dse.design_name if dse is not None else None
+                    ),
                     "target": (dse.target if dse is not None else None) or target,
                     "optimizer": optimizer,
                     "success": False,
@@ -1358,8 +1404,12 @@ def dse(
     # when it starts, once its settings have validated -- one log per exploration.
     setup_logger(log_level, detailed_logs)
 
-    opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
-    dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
+    try:
+        opt_settings = settings_to_dict(optimizer_settings, hierarchical_keys=True)
+        dse_settings_dict = settings_to_dict(dse_settings, hierarchical_keys=True)
+    except XedaException as e:  # a key given as a value and as a table
+        dse_failure(type(e).__name__, _error_message(e), e)
+        raise  # unreachable: dse_failure exits
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
@@ -1402,7 +1452,7 @@ def dse(
     if json_flag:
         document = {
             "flow": flow,
-            "design": str(design or design_name),
+            **design_info(design or design_name, dse.design_name),
             "target": dse.target,
             "optimizer": optimizer,
             "success": best is not None,

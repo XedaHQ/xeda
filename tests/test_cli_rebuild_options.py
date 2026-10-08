@@ -137,6 +137,7 @@ class _RecordingRemoteRunner:
 
     settings_seen: list = []
     target = None  # what `RemoteRunner` records of the design it loaded
+    design_name = None  # likewise
 
     def __init__(self, run_root, **settings):
         self.settings_seen.append(settings)

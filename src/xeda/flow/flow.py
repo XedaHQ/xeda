@@ -23,6 +23,7 @@ from typing import (
     Mapping,
     NamedTuple,
     Optional,
+    Sequence,
     Tuple,
     Type,
     Union,
@@ -34,6 +35,7 @@ from typing import (
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
+from pydantic_core import InitErrorDetails
 
 from ..dataclass import (
     DELIVERABLE_ROLE,
@@ -41,10 +43,12 @@ from ..dataclass import (
     WORKING_ROLE,
     BaseModel,
     Field,
+    ListLiteralText,
     PrivateAttr,
     ValidationError,
     XedaBaseModel,
     annotation_args,
+    comma_separated_items,
     conventional_output,
     field_annotation,
     field_validator,
@@ -180,6 +184,20 @@ def _is_comma_separated_list(annotation: Any) -> bool:
     """A list setting that does not also accept a plain string, so a string must be a list."""
     accepted = annotation_args(annotation)
     return str not in accepted and any((get_origin(a) or a) is list for a in accepted)
+
+
+def _list_literal_error(
+    model: type, refused: Sequence[Tuple[str, ListLiteralText, Any]]
+) -> ValidationError:
+    """The validation error of `model` for the list settings `refused`, each a `(key, error,
+    value)`: one error per setting, so that every one is reported at once."""
+    return ValidationError.from_exception_data(
+        model.__name__,
+        [
+            InitErrorDetails(type=error.validation_error(key), loc=(key,), input=value)
+            for key, error, value in refused
+        ],
+    )
 
 
 def map_path_leaves(value: Any, annotation: Any, fn: Callable[[Any], Any]) -> Any:
@@ -875,10 +893,11 @@ class Flow(metaclass=ABCMeta):
             """One flow setting's input conveniences:
 
             1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
-               Spaces around items and empty items are dropped, so `""` is an empty list. A
-               setting that also accepts plain text keeps the text whole. Likewise an optional
-               path given as `""` is unset (`-s textcfg=`): as a `Path` it would name the
-               current directory.
+               Spaces around items and empty items are dropped, so `""` is an empty list, and
+               text spelled `[...]` is refused (`dataclass.comma_separated_items`, the one rule,
+               which the lists of nested models take text by too). A setting that also accepts
+               plain text keeps the text whole. Likewise an optional path given as `""` is
+               unset (`-s textcfg=`): as a `Path` it would name the current directory.
             2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
@@ -887,7 +906,7 @@ class Flow(metaclass=ABCMeta):
             if annotation is None:
                 return value
             if isinstance(value, str) and _is_comma_separated_list(annotation):
-                value = [item.strip() for item in value.split(",") if item.strip()]
+                value = comma_separated_items(name, value)
             if value == "" and _is_optional_path(annotation):
                 return None
             if value is None or not (
@@ -960,16 +979,25 @@ class Flow(metaclass=ABCMeta):
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
             names = input_names(cls)
+            refused: List[Tuple[str, ListLiteralText, Any]] = []
             for key, value in values.items():
                 if key in names:
-                    values[key] = cls._normalize_flow_setting(names[key], value, roots)
+                    try:
+                        values[key] = cls._normalize_flow_setting(names[key], value, roots)
+                    except ListLiteralText as error:
+                        refused.append((key, error, value))
+            if refused:
+                raise _list_literal_error(cls, refused)
             return values
 
         def __setattr__(self, name: str, value: Any) -> None:
             if name in type(self).model_fields:
-                value = type(self)._normalize_flow_setting(
-                    name, value, self._path_roots(self.context)
-                )
+                try:
+                    value = type(self)._normalize_flow_setting(
+                        name, value, self._path_roots(self.context)
+                    )
+                except ListLiteralText as error:
+                    raise _list_literal_error(type(self), [(name, error, value)]) from None
             super().__setattr__(name, value)
 
         def conventional_output(self, field: str, design: str) -> Optional[PurePath]:

@@ -132,6 +132,7 @@ def split_bindings(
             for name, values in sections.items()
         },
         flow_class_for=registered_flow,
+        location=location,
     )
     entries = []
     invalid_inputs = []

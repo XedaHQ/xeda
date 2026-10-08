@@ -17,7 +17,7 @@ import time
 import tomllib
 import unittest
 from collections import OrderedDict, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -79,6 +79,8 @@ __all__ = [
     "first_value",
     "first_key",
     "settings_to_dict",
+    "flows_table_problems",
+    "ConflictingKeys",
     "XedaException",
     "ToolException",
     "NonZeroExitCode",
@@ -725,21 +727,49 @@ def get_hierarchy(dct: Dict[str, Any], path: Union[str, List[str]]) -> Optional[
         return None
 
 
-def set_hierarchy(dct: Dict[str, Any], path, value):
-    if isinstance(path, str):
-        path = re.split(SEP, path)
-    k = path[0]
-    if len(path) == 1:
-        if isinstance(value, (dict)):
-            new_value: Dict[str, Any] = {}
-            for k2, v2 in value.items():
-                set_hierarchy(new_value, k2, v2)
-            value = new_value
-        dct[k] = value
+def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
+    """Set `value` in `dct` at `path`, a dotted key (`"clock.period"`) or its parts, making a
+    table of each key before the last. A dict `value` is set key by key, so a dotted key in it is
+    a path too.
+
+    A key is a value or a table, never both: one that holds a value cannot have keys inside it
+    (`timing=true` then `timing.x=1`), and one that has keys inside it is not given a value
+    (`timing.x=1` then `timing=true`). Either order is a `ConflictingKeys` naming both keys, not a
+    traceback in the one and a table lost in the other. A key left empty (`None`) is no value, so
+    a table follows it. Setting a key again replaces its value, and a table replaces a table.
+    """
+    parts = re.split(SEP, path) if isinstance(path, str) else list(path)
+    _set_hierarchy(dct, parts, value, ())
+
+
+def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tuple[Any, ...]):
+    """`set_hierarchy` for the table `dct`, which lies under the keys `above` (named in full in
+    an error)."""
+    key = parts[0]
+    here = (*above, key)
+    if len(parts) > 1:
+        if dct.get(key) is None:
+            dct[key] = {}
+        elif not isinstance(dct[key], MutableMapping):
+            raise ConflictingKeys(here, (*above, *parts))
+        _set_hierarchy(dct[key], parts[1:], value, here)
+        return
+    if isinstance(value, dict):
+        held = dct.get(key)
+        if value and held is not None and not isinstance(held, MutableMapping):
+            # a whole table after a value is the same mistake as a dotted key inside it
+            raise ConflictingKeys(here, (*here, next(iter(value))))
+        table: Dict[str, Any] = {}
+        for k, v in value.items():
+            _set_hierarchy(table, re.split(SEP, k) if isinstance(k, str) else [k], v, here)
+        value = table
     else:
-        if k not in dct:
-            dct[k] = {}
-        set_hierarchy(dct[k], path[1:], value)
+        held = dct.get(key)
+        if isinstance(held, MutableMapping) and held:
+            if value is None:  # nothing to set: the keys inside it stay
+                return
+            raise ConflictingKeys(here, (*here, next(iter(held))))
+    dct[key] = value
 
 
 def append_flag(flag_list: List[str], flag: str) -> List[str]:
@@ -967,6 +997,51 @@ def settings_to_dict(
     raise TypeError(f"Unsupported type: {type(settings)}")
 
 
+def flows_table_problems(table: Any, *, layers: bool = False) -> List[Tuple[str, str]]:
+    """What is wrong with the shape of a `flows` table, as `(key path, problem)` pairs.
+
+    A `flows` table maps flow names, as text, to mappings of that flow's settings. The table and each
+    of its sections are mappings, and an absent one (`None`) is empty. Nothing else is read as one: text,
+    numbers and lists are refused, empty ones included. So a mistake such as `flows: []` or
+    `-s flows.verilator=3` is reported where it was made, by every origin that writes a table (a
+    design, a target, a project, the command line, the API), instead of being ignored or ending
+    in a traceback deeper in a merge. This is the one rule they all use.
+
+    With `layers`, a section may also be a list or tuple of `KEY=VALUE` text (empty ones too),
+    which is how code gives a layer of settings (`settings_to_dict`, and the command line's `-s`).
+    The merge of every origin's table (`settings_layers.merge_flow_sections`) takes it, since
+    code reaches it that way; a file never does.
+    """
+    if table is None:
+        return []
+    if not isinstance(table, Mapping):
+        return [("flows", f"must be a mapping of flow names to their settings, not {table!r:.60}")]
+
+    def acceptable(section: Any) -> bool:
+        if section is None or isinstance(section, Mapping):
+            return True
+        return (
+            layers
+            and isinstance(section, (list, tuple))
+            and all(isinstance(item, str) and "=" in item for item in section)
+        )
+
+    problems = []
+    for name, section in table.items():
+        if not isinstance(name, str):  # a file or `-s` always gives text; code may not
+            problems.append(
+                (
+                    "flows",
+                    f"has the key {name!r:.60}, which is no flow name: a key is a flow's name",
+                )
+            )
+        elif not acceptable(section):
+            problems.append(
+                (f"flows.{name}", f"must be a mapping of settings, not {section!r:.60}")
+            )
+    return problems
+
+
 _xeda_varprog = None
 
 
@@ -1139,6 +1214,28 @@ class XedaException(Exception):
     """Super-class of all xeda exceptions
     should be caught by CLI and handled appropriately
     """
+
+
+class ConflictingKeys(XedaException, ValueError):
+    """A key given as a value and as a table: `value_key` holds a value, and `child_key` sets a key
+    inside it, whichever came first. A `XedaException`, so the command line reports it, and a
+    `ValueError`, so a validator that expands a key reports it as the field's error."""
+
+    def __init__(self, value_key: Any, child_key: Any) -> None:
+        self.value_key = _dotted(value_key)
+        self.child_key = _dotted(child_key)
+        super().__init__(
+            f"`{self.value_key}` is set to a value, and `{self.child_key}` sets a key inside it: "
+            "give one of them"
+        )
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.value_key, self.child_key))
+
+
+def _dotted(key: Any) -> str:
+    """A key given as its parts, in the dotted form it is written in."""
+    return ".".join(map(str, key)) if isinstance(key, (tuple, list)) else str(key)
 
 
 class ToolException(XedaException):

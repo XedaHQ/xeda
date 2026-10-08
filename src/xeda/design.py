@@ -58,11 +58,13 @@ from .generation import judging_generation
 from .proc_utils import tool_output_redirect
 from .run_dir import RunDirectory
 from .utils import (
+    ConflictingKeys,
     NonZeroExitCode,
     WorkingDirectory,
     XedaException,
     expand_env_vars,
     expand_hierarchy,
+    flows_table_problems,
     hierarchical_merge,
     location_free,
     removesuffix,
@@ -2012,6 +2014,20 @@ def _as_list(value: Any) -> list[Any]:
     return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
+def _flows_table(value: Any) -> dict[str, Any]:
+    """The `flows` table of a design, or of a target's overlay, as the design holds it: a dotted
+    key is a section's setting, and a section left empty (`None`) is dropped. A table of the wrong
+    shape (`flows_table_problems`) is a `ValueError` naming it. The design validator, the design
+    judged before a target is merged into it and every target's overlay all read a table by this
+    one function."""
+    if isinstance(value, Mapping):
+        value = settings_to_dict(value)
+    problems = flows_table_problems(value)
+    if problems:
+        raise ValueError("; ".join(f"`{path}` {problem}" for path, problem in problems))
+    return {k: v for k, v in (value or {}).items() if v is not None}
+
+
 def _spell_as(base: dict[str, Any], overlay: dict[str, Any], model: type[XedaBaseModel]) -> None:
     """Rename `overlay`'s keys to the spelling `base` uses for the same field of `model`
     (`flow`/`flows`, `parameters`/`generics`), so the two meet when merged."""
@@ -2110,12 +2126,7 @@ class Design(XedaBaseModel):
     @field_validator("flow", mode="before")
     @classmethod
     def _flow_settings(cls, value):
-        if value:
-            value = settings_to_dict(value)
-            value = {k: v for k, v in value.items() if v is not None}
-        else:
-            value = {}
-        return value
+        return _flows_table(value)
 
     @field_validator("dependencies", mode="before")
     @classmethod
@@ -2239,6 +2250,16 @@ class Design(XedaBaseModel):
             base = cls.process_compatibility(deepcopy(data))
         except ValueError as e:
             raise invalid("", str(e)) from e
+        # The merge below replaces a value that is no mapping by the overlay's mapping, which
+        # would hide a mistake in the design's own table for this target alone. So the table is
+        # judged first, as the design validator judges it: the design is as valid as it is,
+        # whichever target is selected.
+        for key, value in base.items():
+            if input_names(cls).get(key) == "flow":
+                try:
+                    _flows_table(value)
+                except ValueError as e:
+                    raise invalid(key, str(e)) from e
         for part, model in (("rtl", RtlSettings), ("tb", TbSettings)):
             ours, theirs = base.get(part), overlay.get(part)
             if isinstance(ours, dict) and isinstance(theirs, dict):
@@ -2268,7 +2289,10 @@ class Design(XedaBaseModel):
                 "a target is a table of the design's own keys (`sources`, `defines`, `rtl`, "
                 f"`tb`, `flows`, ...), got {type(overlay).__name__}",
             )
-        overlay = expand_hierarchy(dict(overlay))
+        try:
+            overlay = expand_hierarchy(dict(overlay))
+        except ConflictingKeys as e:
+            raise invalid(None, str(e)) from e
         known = {*input_names(cls), *FLAT_RTL_KEYS, "test", "tests"} - TARGET_FORBIDDEN_KEYS
         for key in overlay:
             if key in TARGET_FORBIDDEN_KEYS:
@@ -2290,6 +2314,12 @@ class Design(XedaBaseModel):
                     "not a key of a design, so not of a target either"
                     + (f" (did you mean `{close[0]}`?)" if close else ""),
                 )
+        for key, value in overlay.items():
+            if input_names(cls).get(key) == "flow":
+                try:
+                    _flows_table(value)
+                except ValueError as e:
+                    raise invalid(key, str(e)) from e
         try:
             return cls.process_compatibility(overlay, defaults=False)
         except ValueError as e:
@@ -2602,7 +2632,12 @@ class Design(XedaBaseModel):
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         design_dict = _read_design_file(design_file)
-        design_dict = expand_hierarchy(design_dict)
+        try:
+            design_dict = expand_hierarchy(design_dict)
+        except ConflictingKeys as e:  # a key given as a value and as a table
+            raise DesignValidationError(
+                [(e.value_key, str(e), "", "value_error")], file=str(design_file.absolute())
+            ) from e
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:

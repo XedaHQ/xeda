@@ -136,6 +136,193 @@ def test_a_list_setting_may_be_given_as_comma_separated_text(flow, extra, settin
     assert getattr(assigned, setting) == expected, "assignment must behave like construction"
 
 
+@pytest.mark.parametrize("given", ["[]", "[a,b]", "[ x ]", " [] "], ids=repr)
+def test_a_list_setting_written_as_a_list_literal_is_refused_naming_the_right_spellings(given):
+    """`-s compile_args=[]` is text, and the text `[]` is not a list: refused, instead of becoming
+    the one-item list `["[]"]`. The message names the spelling of the empty list and of a list."""
+    with pytest.raises(FlowSettingsError) as refused:
+        _flow("verilator").Settings.from_input({"compile_args": given})
+    message = str(refused.value)
+    assert "compile_args" in message and "is text, not a list" in message
+    assert "`compile_args=` for the empty list" in message
+    assert "`compile_args=a,b`" in message
+
+    assigned = _flow("verilator").Settings()
+    with pytest.raises(ValidationError, match="is text, not a list"):
+        assigned.compile_args = given  # type: ignore[assignment]
+    assert assigned.compile_args == [], "a refused assignment changes nothing"
+
+
+def test_every_list_setting_written_as_a_list_literal_is_refused_alike_everywhere():
+    """The rule is the settings' own, so every list setting of every flow has it, wherever it is
+    written: construction and assignment agree (see also `test_model_invariants`)."""
+    from xeda.flow_runner import get_flow_class
+    from xeda.flow.flow import _is_comma_separated_list
+
+    from .settings_samples import flow_classes, minimal_settings
+
+    unrefused = []
+    for cls, _name in flow_classes():
+        for name, info in cls.Settings.model_fields.items():
+            if name.endswith("_") or not _is_comma_separated_list(info.annotation):
+                continue
+            try:
+                cls.Settings.from_input({**minimal_settings(cls), name: "[]"})
+            except FlowSettingsError:
+                continue
+            unrefused.append(f"{cls.name}.{name}")
+    assert not unrefused, unrefused
+    assert get_flow_class("verilator")  # the sweep found list settings to judge
+
+
+def _nested_list_fields() -> "list[tuple[type, str]]":
+    """Every list field of every model nested in a flow's settings (`cocotb`, `platform`,
+    `cxxrtl`, `ghdl`, ...), as `(model, field)`, each once, found by walking the annotations."""
+    import types
+    from typing import Annotated, Union, get_args, get_origin
+
+    from xeda.dataclass import XedaBaseModel
+
+    from .settings_samples import flow_classes
+
+    def models_in(annotation):
+        if get_origin(annotation) is Annotated:
+            yield from models_in(get_args(annotation)[0])
+        elif isinstance(annotation, type) and issubclass(annotation, XedaBaseModel):
+            yield annotation
+        else:
+            for arg in get_args(annotation):
+                yield from models_in(arg)
+
+    def is_list(annotation):
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            return is_list(get_args(annotation)[0])
+        if origin in (Union, types.UnionType):
+            return any(is_list(arg) for arg in get_args(annotation))
+        return origin is list
+
+    found: "dict[tuple[type, str], None]" = {}
+    visited: "set[type]" = set()
+
+    def walk(model, nested):
+        if model in visited:
+            return
+        visited.add(model)
+        for name, info in model.model_fields.items():
+            if name.endswith("_"):
+                continue
+            if nested and is_list(info.annotation):
+                found[(model, name)] = None
+            for sub in models_in(info.annotation):
+                walk(sub, True)
+
+    for cls, _name in flow_classes():
+        walk(cls.Settings, False)
+    return sorted(found, key=lambda pair: (pair[0].__qualname__, pair[1]))
+
+
+def _nested_base(model) -> dict:
+    """What `model` needs besides the field under test. A model that cannot be built from its
+    defaults gets its base here: a new one fails the sweep below until it has one."""
+    from xeda.platforms.asics import AsicsPlatform
+
+    if model is AsicsPlatform:
+        return AsicsPlatform.from_setting("asap7").model_dump()
+    return {}
+
+
+NESTED_LIST_FIELDS = _nested_list_fields()
+
+
+def test_the_sweep_finds_the_nested_models_with_list_fields():
+    models = {model.__name__ for model, _ in NESTED_LIST_FIELDS}
+
+    assert {"CocotbSettings", "AsicsPlatform", "CxxRtl"} <= models
+
+
+@pytest.mark.parametrize(
+    ("model", "field"),
+    NESTED_LIST_FIELDS,
+    ids=[f"{model.__qualname__}.{field}" for model, field in NESTED_LIST_FIELDS],
+)
+def test_a_nested_model_takes_text_for_a_list_by_the_one_rule_or_not_at_all(model, field):
+    """A list field of a model nested in a flow's settings either refuses text (a list is written
+    as a list) or takes it as the flow's own settings do: comma separated, empty items dropped,
+    and text spelled `[...]` refused. A second rule for text, kept beside the first, gave
+    `cocotb.testcase=[]` the one item `[]`."""
+    base = _nested_base(model)
+
+    def built(text):
+        try:
+            return getattr(model(**{**base, field: text}), field)
+        except ValidationError as e:
+            assert any(
+                error["loc"][:1] == (field,) for error in e.errors()
+            ), f"{model.__qualname__}({field}={text!r}) fails for another reason: {e}"
+            return REFUSED
+
+    REFUSED = object()
+    taken = built("a,b")
+    if taken is REFUSED or isinstance(taken, str) or [str(item) for item in taken] == ["a,b"]:
+        return  # no convenience: text is refused, or it is one item of the field's own
+    assert taken == ["a", "b"], taken
+    assert built(" a , b ,,") == ["a", "b"]
+    assert built("") == []
+    assert built("[]") is REFUSED
+    assert built("[x, y]") is REFUSED
+
+
+def test_cocotb_takes_its_lists_as_text_by_the_one_rule():
+    from xeda.cocotb import CocotbSettings
+
+    assert CocotbSettings(testcase="a, b,,").testcase == ["a", "b"]
+    assert CocotbSettings(testcase="").testcase == []
+    assert CocotbSettings(gpi_extra=" lib.so ").gpi_extra == ["lib.so"]
+    with pytest.raises(ValidationError, match="`testcase=` for the empty list") as refused:
+        CocotbSettings(testcase="[]")
+    assert [error["loc"] for error in refused.value.errors()] == [("testcase",)]
+    with pytest.raises(ValidationError, match="`gpi_extra=a,b`"):
+        CocotbSettings(gpi_extra="[a,b]")
+
+
+def test_cocotb_text_for_a_list_is_refused_the_same_through_a_flow():
+    with pytest.raises(FlowSettingsError, match="is text, not a list"):
+        _flow("ghdl_sim").Settings.from_input({"cocotb": {"testcase": "[]"}})
+
+
+@pytest.mark.parametrize(
+    ("flow", "setting", "section", "key"),
+    [
+        ("ghdl_sim", {"cocotb": {"testcase": "[]"}}, "cocotb", "testcase"),
+        ("yosys", {"ghdl": {"compiler_flags": "[a]"}}, "ghdl", "compiler_flags"),
+    ],
+    ids=["cocotb", "nested flow settings"],
+)
+def test_the_message_for_a_nested_list_names_the_key_as_the_command_line_writes_it(
+    flow, setting, section, key
+):
+    """The spellings a message gives are the ones to write after `-s`: with the section."""
+    with pytest.raises(FlowSettingsError) as refused:
+        _flow(flow).Settings.from_input(setting)
+
+    ((location, message, _, kind),) = refused.value.errors
+    assert location == f"{section} -> {key}" and kind == "list_text"
+    assert f"write `{section}.{key}=` for the empty list and `{section}.{key}=a,b`" in message
+
+
+def test_a_setting_that_also_accepts_text_keeps_a_list_literal_as_text():
+    """`ghdl_sim.vpi` takes text or a list: the text is its own, whatever it looks like."""
+    assert _flow("ghdl_sim").Settings(vpi="[a]").vpi == "[a]"
+
+
+@pytest.mark.parametrize("given", ["-DX=[1],-y", "a[0],b[1]", "[a", "a]", "x,[]"], ids=repr)
+def test_brackets_inside_a_list_item_are_just_text(given):
+    """Only a text spelled as a whole list literal is refused."""
+    settings = _flow("verilator").Settings(compile_args=given)
+    assert settings.compile_args == [item for item in given.split(",") if item]
+
+
 # ---------------------------------------------------------------------------------------------
 # Path variables
 # ---------------------------------------------------------------------------------------------

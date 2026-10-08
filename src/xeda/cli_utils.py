@@ -11,6 +11,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    NoReturn,
     Optional,
     Sequence,
     Tuple,
@@ -53,12 +54,14 @@ __all__ = [
     "DeclaredEnvvarsCommand",
     "FlowChoice",
     "OptionEatAll",
+    "XedaCommand",
     "XedaHelpGroup",
     "emit_structured",
     "machine_readable_mode",
     "output_format_option",
     "print_flow_settings",
     "requested_output_format",
+    "reraise_suggesting_visible",
     "wants_machine_readable",
 ]
 
@@ -276,7 +279,42 @@ class _DeclaredEnvvarsContext(ColorizedContext):
         self.auto_envvar_prefix = None
 
 
-class DeclaredEnvvarsCommand(ColorizedCommand):
+def reraise_suggesting_visible(
+    command: click.Command, ctx: click.Context, error: click.NoSuchOption
+) -> NoReturn:
+    """Raise `error` again, with the close matches of the mistyped option taken from the options
+    the help of `command` lists.
+
+    click suggests from every option a command has. A hidden option exists only to say what
+    replaced a removed one (`--xeda-run-dir`), so a suggestion must never lead to it. Every
+    command and group of xeda calls this, so the rule holds for each of them.
+    """
+    if not error.possibilities:  # nothing was close, or a short option: nothing to leave out
+        raise error
+    # click suggests from the long names: a short one (`-s`) is not among them
+    visible = [
+        name
+        for param in command.get_params(ctx)
+        if isinstance(param, click.Option) and not param.hidden
+        for name in (*param.opts, *param.secondary_opts)
+        if len(name) > 2
+    ]
+    raise click.NoSuchOption(
+        error.option_name, error.message, possibilities=visible, ctx=error.ctx
+    ) from error
+
+
+class XedaCommand(ColorizedCommand):
+    """The command class of xeda's own commands: it suggests only options its help lists."""
+
+    def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
+        try:
+            return super().parse_args(ctx, args)
+        except click.NoSuchOption as error:
+            reraise_suggesting_visible(self, ctx, error)
+
+
+class DeclaredEnvvarsCommand(XedaCommand):
     """A command whose options read only the environment variables they declare (`envvar=`).
 
     With the group's `auto_envvar_prefix`, every option has a hidden second name: a leftover
@@ -298,6 +336,14 @@ class DeclaredEnvvarsCommand(ColorizedCommand):
 
 class XedaHelpGroup(ColorizedGroup):
     """How to display CLI help"""
+
+    command_class = XedaCommand
+
+    def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
+        try:
+            return super().parse_args(ctx, args)
+        except click.NoSuchOption as error:
+            reraise_suggesting_visible(self, ctx, error)
 
     def format_usage(self, ctx: click.Context, formatter: click.HelpFormatter):
         ConsoleLogo.print()

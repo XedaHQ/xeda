@@ -100,7 +100,8 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
     assert proc.returncode == 0, proc.stderr
     assert document == {
         "flow": "nextpnr",
-        "design": str(design),
+        "design": "blink",
+        "design_file": str(design),
         "target": None,
         "success": True,
         "dry_run": True,

@@ -8,7 +8,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 from xml.etree import ElementTree
 
-from .dataclass import Field, XedaBaseModel, deliverable, field_validator
+from .dataclass import (
+    Field,
+    ListLiteralText,
+    XedaBaseModel,
+    comma_separated_items,
+    deliverable,
+    field_validator,
+)
 from .design import Design, SourceType
 from .tool import Tool
 
@@ -83,9 +90,13 @@ class CocotbSettings(XedaBaseModel):
 
     @field_validator("testcase", "gpi_extra", mode="before")
     @classmethod
-    def str_to_list(cls, value):
+    def str_to_list(cls, value, info):
+        """A list given as text, by the one rule every setting takes text for a list by."""
         if isinstance(value, str):
-            value = [s.strip() for s in value.split(",")]
+            try:
+                value = comma_separated_items(info.field_name, value)
+            except ListLiteralText as error:
+                raise error.validation_error() from None
         return value
 
 

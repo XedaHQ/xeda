@@ -203,6 +203,13 @@ would otherwise corrupt the JSON. Rich output moves with `console.redirect_conso
 normal runs are unaffected). `Design.Generator.run_cmd` and the remote runner's `RemoteLogger`
 both do; a new one that does not will corrupt `--json` output.
 
+In a `run` or `dse` document, `design` is always the design's name and `design_file` the design
+file the request named (absolute; `null` for a project's design or none): `introspect.design_info`
+builds both for every document -- success, failure, dry run, `--remote` -- from the request's
+design argument and the name the launcher recorded as `design_name` (beside `target`, reset at the
+start of each request). A failure before the design loads has no name to give for a file: `design`
+is `null`, and `design_file` still says which file was named.
+
 Every failure path must still emit a JSON document. That includes argument errors:
 `XedaHelpGroup.main` runs click with `standalone_mode=False` when the invocation asked for
 machine-readable output, so a `UsageError` becomes `{"success": false, "error": {...}}` on stdout
@@ -246,7 +253,11 @@ Four orthogonal abstractions, deliberately decoupled:
   needs no selection; several without one, an unknown one, a name that is a flow's, and a
   written `target` key are `DesignValidationError`s at `targets...`. The oracle
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
-  field, hash and dump but `target`. `design_schema()` adds `targets` to the input syntax only
+  field, hash and dump but `target`. The design's own `flows` table is judged before a target is merged into it, and every
+  target's overlay is judged at `targets.<name>.flows` whether it is selected or not
+  (`design._flows_table`, the design validator's own function): the merge replaces a value that
+  is no mapping by the overlay's mapping, and would otherwise hide a mistake in the table for
+  that target alone. `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
   carry it as `PlanContext.target`, which names where every node runs: a run directory is
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
@@ -347,6 +358,19 @@ removed before the run, so an earlier success never stands for a run that died
   design file; `--` ends the options. Local runs, remote runs and producers all use
   `merge_layers`. Declared edges agree shared leaves in the resolver. A producer's `debug`, and a
   `verbose` level above 1, carry over from its consumer (`carry_diagnostics`).
+  **Every way to launch a flow takes the same layers.** `_request` (`run`, `plan`, `dse`) and the
+  remote runner load the files and pass the project's and the design's sections to
+  `FlowLauncher.resolve` as `origins`. A launch that is only handed a built design
+  (`run_flow`, `launch_flow`, `Dse.run_flow`, a direct `resolve`) passes none, and `resolve` then
+  makes the design's own `flows` sections (the target's folded in) its file origin, below the
+  `all_flows_settings` it was handed and the settings: it used to ignore them, so a device
+  written only in `flows.vivado_synth` failed `run_flow(VivadoPower, ...)` while `plan` named it.
+  Only `run`, `plan` and `--remote` read a project file; a built design names none, so its
+  caller hands the project's sections in.
+  `tests/test_launch_origins.py` plans a design that writes its device in one section only, then
+  resolves and launches it through every door (`run`, `run_flow`, `launch_flow`, `resolve`, the
+  command line, `Dse`, and `--remote` in `test_remote_run.py`) and compares the nodes and their
+  identities with the plan's.
 
 - **There is one dependency mechanism: declared inputs and outputs.** No flow registers a
   dependency, nests another flow's settings or reads another flow's state: `add_dependency`,
@@ -393,7 +417,15 @@ round-trip used to make it and `yosys_sim` unrunnable. A removed flow's names ar
 "`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program"), and so is its
 section in any `flows` table -- a design's, a project's, `-s flows.open_xc7.*`, the API's --
 by `merge_flow_sections`, the one place they are all merged; a section for a flow that is merely
-unknown (a plugin that is not installed) is still left alone. `xeda scrub` alone takes a removed flow's name
+unknown (a plugin that is not installed) is still left alone. That function also judges the
+shape of every table by one rule (`utils.flows_table_problems`, which the design validator and the
+project loader apply as well): the table and each flow's section are mappings, an absent one
+(`None`) is empty, and text, a number or a list is a `FlowSettingsError` naming the key and the
+origin, an empty list or text included (`-s flows=3`, `flows: []`); only code may give a section
+as a list of `KEY=VALUE` text, as `-s` takes it. Naming one flow twice in a table (`ghdl` and
+`ghdl_sim`) is a `FlowSettingsError` too. The malformed-input sweep feeds every structural kind
+of value to a table and a section from the command line, the API, a design file, a target and a
+project file. `xeda scrub` alone takes a removed flow's name
 (`FlowChoice(removed=True)`): it only removes directories. `get_flow_class` normalizes dashes, retries
 case-insensitively, and raises `FlowNotFoundError` with close-match suggestions. `flows/__init__.py` `walk_packages()`s the subpackages to populate `__builtin_flows__`,
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
@@ -589,7 +621,13 @@ or YAML, chosen by its suffix and read through the strict loader (`board.read_bo
 Every flow declares a nested `class Settings(<Base>.Settings)`. Settings are pydantic models
 (`XedaBaseModel`) with `extra = forbid`, so an unknown key in a design/CLI override is a hard error -
 this is intentional and surfaces as `FlowSettingsError`. CLI `-s key=value` supports dotted
-hierarchical keys.
+hierarchical keys, which every origin expands with the one function `utils.set_hierarchy`. A key is
+a value or a table, never both: `-s timing=true timing.x=1` and `-s timing.x=1 timing=true` are a
+`ConflictingKeys` naming both keys, a `XedaException` (the command line reports it) and a
+`ValueError` (a validator turns it into the field's error). `design.from_file` and a target's
+overlay report it as a `DesignValidationError`, and `dse` as its error document.
+`tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
+to every origin.
 
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
@@ -611,7 +649,16 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
    items and empty items are dropped, so `""` is `[]`). A setting that also accepts plain text
-   keeps it whole.
+   keeps it whole. Text spelled `[...]` is refused, naming `key=` (the empty list) and `key=a,b`
+   (`dataclass.comma_separated_items`): `-s flags=[]` used to become the one item `"[]"`.
+   Construction reports it as the field's `list_text` error, and an assignment raises the same
+   `ValidationError`, so the two cannot differ (`settings_samples.PROBES` holds `[]` and
+   `[x, y]` for the sweeps). It is the one rule for a list given as text, so a model nested in a
+   flow's settings that takes text for a list calls it too (`CocotbSettings.testcase` and
+   `gpi_extra` do) and reports the refusal as `ListLiteralText.validation_error`;
+   `validation_errors` words it with the key from the top (`cocotb.testcase=`, the spelling to
+   write after `-s`). `tests/test_settings_input.py` walks every list field of every nested model
+   and fails one that takes text by another rule.
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
@@ -1081,8 +1128,10 @@ not (whether a tool reads it cannot be known before the run; `--outputs-to` into
 up front). The requested flow also checks the named deliveries of every flow of the plan when the
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
-allow first, for every flow and for `--outputs-to` (`Deliveries.refuse`, `check_outputs_to`) --
-a destination two deliveries name, or one inside another, is one of them
+allow first, for every flow: a file of the design or one a setting reads that lies in the flow's
+own run directory (`_refuse_inputs_inside`, which each flow checks again at its turn for a file
+made since), `--outputs-to` and the deliveries (`Deliveries.refuse`, `check_outputs_to`) -- and a
+destination two deliveries name, or one inside another
 (`deliver.refuse_shared_destinations`: every destination known before the run -- every named
 delivery of the launch and the files `--outputs-to` is expected to deliver, the requested flow's
 last-run artifacts (`predicted`) -- with its flow, in the order the flows run, naming both
@@ -1091,13 +1140,16 @@ file system compares them**, `_compared`: located, and each name casefolded when
 lies in ignores letter case, which `_ignores_case` finds by looking, never by writing -- an entry
 of the directory asked for in the other case, else the directory's own name in its parent on the
 same device, else its parent's answer, and "keeps case" when nothing can be asked -- so
-`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4) -- and only then
-asks the producers' questions; its own question comes at
-its turn, the start of its own launch and before it launches its producers, so still before any
-tool. A producer keeps the `Deliveries` it checked (`_deliveries_ahead`) and checks again with it
+`Same.out` and `same.out` are one destination on APFS and NTFS and two on ext4). Only then does it
+ask the producers' questions, in the order they run, and its own, last: so a launch has asked
+everything before any tool runs, before it scrubs older runs (`--scrub`, whose `scrub_runs` also
+asks) and before it takes the lock of its run directory. A launch the user declines has removed
+nothing, and a question that waits for the user holds up no other launch or scrub of that
+directory. Each flow, the requested one included, keeps the `Deliveries` it checked
+(`_deliveries_ahead`) and checks again with it
 at its turn, which finds the record the first check anchored, so its destination is read once in
 a launch; that second check records what it found (`Deliveries.checked`). The object read its
-delivery record before the producer's lock was taken, so the turn, once it holds the lock, reads
+delivery record before the flow's lock was taken, so the turn, once it holds the lock, reads
 the record again if its file changed (`Deliveries.reread_record`, by the file's `_state`):
 another launch of the run directory may have delivered meanwhile, and this one would otherwise
 find its file not xeda's, or write the old record back over the other launch's entry. A yes holds for the
@@ -1146,9 +1198,9 @@ read at a moment that very content was verified, and only when it is really sett
 (`FileRecord.settled_before`). So the delivery xeda just copied, racy by construction, is read
 once, by the first check after it has settled, whose read anchors it (`_copy` then reads
 nothing), and never again by a check or a copy; a launch still inside the racy window anchors
-nothing, and its check and its copy each read the destination, as every launch did before. No
-clock to read (a read-only directory, a file system that refuses): no anchor, and every check
-reads the content, exactly as before. A destination found on another device than its anchor was
+nothing, and each of its checks (the one made when the launch starts and the one at the flow's
+turn) and its copy read the destination. No clock to read (a read-only directory, a file system
+that refuses): no anchor, and every check reads the content. A destination found on another device than its anchor was
 read on has that anchor discarded (`deliver._recorded_anchor`), is read once, and is anchored
 afresh to the clock of the file system it is on now. See `docs/run-directories.rst`'s "Outputs where you
 name them" for the user-facing rules (never onto an input nor into a read directory, never a
@@ -1325,6 +1377,19 @@ dependency must also share `custom_boards_file`.
 - **Two parameters must never share a destination.** click >= 8.5 warns on every invocation when
   they do, and one silently overwrites the other. `xeda run` hit this with the positional
   `DESIGN` argument and `--design-file`; the option now uses `design_file_opt`.
+- **A hidden option is never suggested.** click suggests the close matches of a mistyped option
+  from every option a command has, the hidden ones that only say what replaced a removed option
+  (`--xeda-run-dir`, `--cwd`, ...) included. `XedaCommand` (the default `command_class` of
+  `XedaHelpGroup`, so `@cli.command` takes it) and `XedaHelpGroup` re-raise click's
+  `NoSuchOption` with the matches taken from the visible long options
+  (`cli_utils.reraise_suggesting_visible`). A command built with another class loses the rule:
+  `tests/test_hidden_options.py` sweeps the whole command tree for both.
+- **A log record is never changed for one handler's sake.** Every handler of the process gets
+  the same `LogRecord`, so what the detailed logs show of a logger name (`xeda.flow` as `flow`)
+  is a formatter of the CLI's own handler (`cli.ShortLoggerNames`), which formats a copy.
+  `setup_logger` wraps only the handler it installed, never another party's (pytest's, an API
+  user's); `tests/test_cli_logging.py` logs through the CLI's setup with a handler before and one
+  after it.
 - **cocotb integration sets `GPI_USERS` itself.** Xeda builds the simulator environment by hand
   rather than going through `cocotb_tools.runner`, so anything the runner sets has to be mirrored
   in `Cocotb.env()`. From cocotb 2.1 the GPI library no longer finds its Python entry point on its
@@ -1673,8 +1738,8 @@ dependency must also share `custom_boards_file`.
   reload; omitting a setting and writing its default are the same) and from settings alone, never
   from the design's sources, so the check stays pure and class-level. The defaults (`-sv`, the
   slang plugin) are Xeda's own and so are refused: the mode needs `read_verilog_flags: []` and
-  `systemverilog: default` written (`-s read_verilog_flags=` on the command line: `=[]` is the one
-  flag `[]`). A `.sv` source is then read with the template's own `read_verilog -sv`, as yosys
+  `systemverilog: default` written (`-s read_verilog_flags=` on the command line: the text `[]`
+  is refused). A `.sv` source is then read with the template's own `read_verilog -sv`, as yosys
   does. `READER_SETTINGS` in `tests/test_yosys_recipe.py` holds a decision for every `settings.*`
   the reader templates render, plus the `defines` and `ghdl_args` variables (a new one fails the
   sweep until decided); `use_slang_plugin` is unreachable under the mode (it only gates loading the

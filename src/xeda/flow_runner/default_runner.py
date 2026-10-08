@@ -852,8 +852,10 @@ class FlowLauncher:
         #: the deliveries of the current launch's flows, made when it has finished
         self._pending_deliveries: List[Tuple[Flow, Deliveries]] = []
         self._request_context: _Request | None = None
-        #: the selected target of the design last loaded for a request, for documents to report
+        #: the selected target and the name of the design last loaded for a request, for
+        #: documents to report; None until a request has loaded one
         self.target: str | None = None
+        self.design_name: str | None = None
         self._plans: dict[int, tuple[Plan, Any, Any]] = {}
         self._planned_completed: dict[tuple[int, NodeKey], Flow] = {}
         self.last_plan: Plan | None = None
@@ -944,13 +946,27 @@ class FlowLauncher:
         flow_request: FlowRequest | None = None,
         binding_layers: Sequence[BindingLayer] = (),
     ) -> Plan:
-        """Resolve one request without constructing a flow, probing tools or writing files."""
+        """Resolve one request without constructing a flow, probing tools or writing files.
+
+        A request composes its files itself and passes them as `origins`, lowest precedence
+        first (`_request`: the project's sections, then the design's; the remote runner the
+        same). A launch that is only handed a built design (`run_flow`, `launch_flow`, a direct
+        call) composes none, and then the design's own `flows` sections are its file origin, the
+        sections it was handed come after them, and the settings after those. So planning a
+        design and launching it from the same arguments resolve the same plan."""
         recorded_settings = as_recorded(flow_settings or {})
         recorded_sections = as_recorded(all_flows_settings or {})
+        direct = not origins
+        design_label = f"the design {design.name}"
         # Capture reserved keys before settings composition: `inputs` is wiring the resolver
         # selects edges by, never a setting.
-        layers = list(binding_layers)
+        layers: list[BindingLayer] = []
         clean_origins = []
+        if direct:
+            clean, bindings = split_bindings(deepcopy(design.flow), location=design_label)
+            clean_origins.append((design_label, clean))
+            layers.append(bindings)
+        layers.extend(binding_layers)
         for location, values in origins:
             clean, bindings = split_bindings(values, location=location)
             clean_origins.append((location, clean))
@@ -960,6 +976,8 @@ class FlowLauncher:
         )
         if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
             layers.append(bindings)
+        if direct:
+            clean_origins.append(("the supplied flow sections", all_flows_settings))
         clean_cli, bindings = split_bindings(
             command_line or {}, location="the command line", kind="cli"
         )
@@ -1140,7 +1158,9 @@ class FlowLauncher:
         Outputs the user named (`xeda.deliver`) are checked before any tool of the launch runs.
         The requested flow checks the deliveries of every flow of the plan when the launch
         starts (`_check_deliveries_ahead`): first what no answer could allow, then the
-        questions. They are noted when their flow succeeded or was found up to date, and
+        questions, the requested flow's own last. All of it comes before the launch scrubs older
+        runs (`scrub_old_runs`) and before it takes the lock of its run directory. Deliveries are
+        noted when their flow succeeded or was found up to date, and
         delivered once the whole launch has finished -- only when the requested flow succeeded
         or was found up to date: a launch that raised, or whose requested flow reports failure,
         delivers nothing, not even a successful dependency's outputs (`_finish_launch`).
@@ -1243,18 +1263,31 @@ class FlowLauncher:
     ) -> None:
         """Make now the checks that every flow of the plan makes of its deliveries when its turn
         comes (`Deliveries.check`), so that a refusal, or a question, never follows the run of an
-        earlier flow. First comes what no answer could allow (`--outputs-to`, and
-        `Deliveries.refuse`), for every flow, the requested flow included -- and a destination
-        that two deliveries name, or one inside another (`refuse_shared_destinations`: every
-        destination known before the run, which is every named delivery of the launch and the
-        files `--outputs-to` is expected to deliver from the requested flow's last run; the
-        files that only this run reveals are compared once it has run); then the questions of
-        the producers, in the order they run, each asked once. The requested flow asks its own at its turn: that is the start of
-        its own launch, before it launches its producers, so before any tool runs. A producer
-        keeps the object it checked and checks again with it at its turn: that finds the record
-        this check anchored, so the destination is read once in the launch. At its turn, under
-        its lock, the producer reads the delivery record again if another launch wrote it
-        meanwhile."""
+        earlier flow. First comes what no answer could allow (a file a flow reads that lies in
+        its own run directory, `--outputs-to`, and `Deliveries.refuse`), for every flow, the
+        requested flow included -- and a destination that two deliveries name, or one inside
+        another (`refuse_shared_destinations`: every destination known before the run, which is
+        every named delivery of the launch and the files `--outputs-to` is expected to deliver
+        from the requested flow's last run; the files that only this run reveals are compared
+        once it has run); then the questions of the producers, in the order they run, each asked
+        once, and last the requested flow's
+        own, which runs last. So the launch has asked everything before any tool runs, before it
+        scrubs older runs (`--scrub`) and before it takes the lock of its run directory: a launch
+        the user declines has removed nothing, and a question that waits for the user holds up no
+        other launch or scrub of that directory. Each flow keeps the object it checked, and
+        checks again with it at its turn: that finds the record this check anchored, so the
+        destination is read once in the launch, and asks again only about a file that changed
+        meanwhile. At its turn, under its lock, the flow reads the delivery record again if
+        another launch wrote it meanwhile."""
+        # What no answer could allow comes first, for every flow of the plan: a file a flow reads
+        # that lies in its own run directory, which xeda empties and rewrites. A flow checks it
+        # again at its turn, for a file made since.
+        for planned in plan.nodes:
+            _refuse_inputs_inside(
+                planned.run_path,
+                planned.name,
+                [*design_files(design), *setting_files(planned.settings)],
+            )
         outputs_to = self.settings.outputs_to
         own = self._deliveries_of(run_path, deliveries, requested.name)
         own.check_outputs_to(outputs_to)
@@ -1283,6 +1316,8 @@ class FlowLauncher:
         refuse_shared_destinations(copies, before_run=True)
         for producer in ahead.values():
             producer.check()
+        own.check(predicted)
+        ahead[requested.node_key] = own
         self._deliveries_ahead = ahead
 
     def _deliveries_of(self, run_path: Path, named: Sequence[Delivery], owner: str) -> Deliveries:
@@ -1395,9 +1430,11 @@ class FlowLauncher:
         with run_dir_lock(run_path, self.run_root), ExitStack() as read_leases:
             run_path.mkdir(parents=True, exist_ok=True)
             run_directory = RunDirectory.claimed(run_path, self.run_root)
-            # the deliveries, checked before `--clean`, before this flow's `init()` and before
-            # any producer is launched: the requested flow asks its own question here, so before
-            # any tool of the plan runs
+            # the deliveries, checked again before `--clean`, before this flow's `init()` and
+            # before any producer is launched, so before any tool of the plan runs. Each flow,
+            # the requested one included, was asked about its files before the scrub above and
+            # before this lock was taken (`_check_deliveries_ahead`): a file that changed since
+            # is asked about again
             outputs_to = self.settings.outputs_to if depender is None else None
             delivery = self._deliveries_ahead.pop(node.node_key, None)
             if delivery is None:
@@ -2037,9 +2074,12 @@ class FlowLauncher:
         all_flows_settings: Union[Dict, None] = None,
         plan: Plan | None = None,
     ) -> Optional[Flow]:
-        """Launch `flow_class` on `design`. `all_flows_settings` (`flows` sections) are composed
-        into `flow_settings` exactly as `run()` composes the design's and project's sections
-        (`compose_flow_settings`); a `Flow.Settings` instance is taken as final."""
+        """Launch `flow_class` on `design`, which the caller has built. Its settings come from the
+        layers `run()` composes, lowest first: the design's own `flows` sections, then
+        `all_flows_settings` (more `flows` sections, composed into `flow_settings` by
+        `compose_flow_settings`), then `flow_settings`; a `Flow.Settings` instance is taken as
+        final. `run()` and `plan()` also read a project file. A built design names none, so hand
+        its sections in as `all_flows_settings`."""
         if plan is None and depender is None:
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections, section_bindings = split_bindings(
@@ -2308,6 +2348,9 @@ class FlowLauncher:
         """
         Flexible API for launching flows.
         """
+        # nothing is loaded yet: a request that fails before its design loads reports none
+        self.target = None
+        self.design_name = None
         # The request is read from the flow alone, before anything is loaded: a design with a git
         # dependency is cloned into the run root as it loads, and the command line parses the
         # request first too.
@@ -2404,6 +2447,7 @@ class FlowLauncher:
 
         settings_instance = isinstance(flow_settings, Flow.Settings)
         self.target = design.target if isinstance(design, Design) else None
+        self.design_name = design.name if isinstance(design, Design) else None
         if isinstance(flow_settings, Flow.Settings):
             explicit_flow_settings = _explicit(flow_settings)
             flow_settings = flow_settings.model_dump()

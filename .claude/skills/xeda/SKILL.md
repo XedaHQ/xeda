@@ -34,7 +34,8 @@ xeda list-results vivado_synth --json
 xeda run vivado_synth sqrt.yaml -s clock.period=5.0 --json
 ```
 
-`xeda run --json` emits one object: `success`, `results`, `run_path`, `results_json`,
+`xeda run --json` emits one object: `design` (the design's name) and `design_file` (the design
+file you named, absolute, or `null`), `success`, `results`, `run_path`, `results_json`,
 `settings_json` - or `success: false` plus an `error` object. Exit status is non-zero on failure.
 
 ```bash

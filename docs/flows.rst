@@ -93,6 +93,13 @@ of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are 
 when ``nextpnr`` is the requested flow; giving both different values is an error. A flow that is
 not part of the run is an error too, with the close matches suggested.
 
+A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
+file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
+and so is each ``flows.<flow>``. Text, a number or a list in either place is an error that names
+the key and where it was written (``-s flows=3`` and ``-s flows.nextpnr=3`` are errors, and so is
+``flows: []`` in a file), even when it is empty. Only the API also takes a flow's settings as a
+list of ``KEY=VALUE`` text, as ``-s`` does.
+
 ``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first
 token that is not ``KEY=VALUE``, so it never takes the design file for a setting; ``--`` ends the
 options.
@@ -100,6 +107,16 @@ options.
 Command-line settings take dotted keys for nested values, and several can be given at once::
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+
+A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
+``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
+target, ``--design-overrides`` and a ``flows`` table.
+
+A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
+empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
+that names these two spellings: it would be one item, not a list. A setting that also takes plain
+text keeps the text as it is. The lists of the ``cocotb`` section (``testcase``, ``gpi_extra``)
+take text the same way.
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
 silently ignored would produce a result that looks fine and is not what you asked for.
@@ -500,7 +517,7 @@ under it and an identifier without it). ``systemverilog`` defaults to ``slang``,
 ``read_slang`` is not what ``yosys file.sv`` runs; ``default`` is Yosys' built-in
 ``read_verilog -sv``, which a ``.sv`` source is read with. They are refused by value, so the
 defaults are refused too. On the command line the empty list is ``-s read_verilog_flags=`` (an
-empty value); ``-s "read_verilog_flags=[]"`` is the single flag ``[]``.
+empty value). The text ``[]`` is refused, as it is for every list setting.
 
 The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
 selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay. In pass-only mode,

@@ -474,7 +474,10 @@ One design file can describe the design for several boards. Each entry of ``targ
   design's alone. An unknown key is an error, as it is in the design.
 - **Merging.** Mappings merge key by key, at every depth (``defines``, ``parameters``, each
   ``flows.<flow>`` section). ``sources`` (``rtl`` and ``tb``) are appended after the design's, in
-  order. Any other list replaces the design's.
+  order. Any other list replaces the design's. A ``flows`` table is checked before it is merged,
+  the design's own and every target's, selected or not: each is a mapping of flow names to
+  mappings, and a mistake is an error whichever target you select (a target's is reported at
+  ``targets.<name>.flows``).
 - **A target overrides the design.** A target is the design author saying "for this board, these
   values", so where the design and the target write the same key, the target's value wins, key by
   key: a target's ``flows.nextpnr.board`` replaces the design's ``flows.nextpnr.board`` without an

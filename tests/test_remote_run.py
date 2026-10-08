@@ -199,7 +199,7 @@ def test_declared_remote_ships_a_producers_settings_only_file(
         flow={"__input_maker": {"input_file": str(input_path)}},
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    expected = runner.resolve(_InputTaker, design, {}, design.flow)
+    expected = runner.resolve(_InputTaker, design, {})
     results = runner.run_remote(design, _InputTaker.name, "fake")
     assert results and results["success"] and results["read"] == "from settings\n"
     producer = _remote_run_dir(remote_host, "__input_maker")
@@ -207,6 +207,36 @@ def test_declared_remote_ships_a_producers_settings_only_file(
     input_file = Path(settings["flow_settings"]["input_file"])
     assert input_file.is_relative_to(remote_host) and input_file.read_text() == "from settings\n"
     assert settings["flowrun_hash"] == expected.node("__input_maker").flowrun_hash
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [{"__place": {"fpga": "LFE5U-25F-6BG256C"}}, {"__synth": {"fpga": "LFE5U-25F-6BG256C"}}],
+    ids=["requested", "producer"],
+)
+def test_a_remote_run_runs_the_nodes_planning_names(tmp_path, remote_host, monkeypatch, sections):
+    """The device is written in one section of the design only, the requested flow's or its
+    producer's: the remote runs the nodes, with the identities, that `plan` names here."""
+    from .io_flows import _Place
+
+    monkeypatch.setattr(
+        remote_module,
+        "REMOTE_PROBE",
+        f"import sys\nsys.path.insert(0, {str(TESTS_DIR.parent)!r})\nimport tests.io_flows\n"
+        + remote_module.REMOTE_PROBE,
+    )
+    root = tmp_path / "design"
+    root.mkdir()
+    design = Design(name="d", design_root=root, rtl={"sources": [], "top": "t"}, flow=sections)
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    planned = runner.plan(_Place, design)
+
+    results = runner.run_remote(design, _Place.name, "fake")
+
+    assert results and results["success"]
+    assert results["flow_hash"] == planned.node(_Place.name).flowrun_hash
+    producer = json.loads((_remote_run_dir(remote_host, "__synth") / "settings.json").read_text())
+    assert producer["flowrun_hash"] == planned.node("__synth").flowrun_hash
 
 
 @pytest.mark.parametrize("source", [False, True])
@@ -1900,7 +1930,7 @@ def test_the_mirror_of_a_declared_flow_is_named_by_its_plan_identity(tmp_path, m
             flow={"__maker": {"text": text}},
         )
         runner = RemoteRunner(tmp_path / "mirror")
-        planned = runner.resolve(_Taker, design, {}, design.flow).node(_Taker.name)
+        planned = runner.resolve(_Taker, design, {}).node(_Taker.name)
         with pytest.raises(_Named) as named_as:
             runner.run_remote(design, _Taker.name, "fake")
         assert str(named_as.value) == planned.flowrun_hash
