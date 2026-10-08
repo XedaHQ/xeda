@@ -7,11 +7,18 @@ from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel
 from ...design import SourceType
-from ...flow import FpgaSynthFlow
+from ...flow import Flow, FpgaSynthFlow
 from ...utils import HierDict, parse_xml
 from ..vivado import Vivado
 from ..vivado.vivado_sim import VivadoSim
-from ..vivado.vivado_synth import VivadoSynth, constraint_files, post_step_hooks, run_steps
+from ..vivado.vivado_synth import (
+    VivadoSynth,
+    constraint_files,
+    post_step_hooks,
+    project_mode_conflicts,
+    refuse_conflicts,
+    run_steps,
+)
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +78,13 @@ class VivadoProject(Vivado, FpgaSynthFlow):
             False,
             description="Open the created project in the Vivado GUI, which needs a display.",
         )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        refuse_conflicts(cls.Settings, project_mode_conflicts(settings))
 
     def init(self):
         """Set up Vivado project execution and optional GUI mode."""

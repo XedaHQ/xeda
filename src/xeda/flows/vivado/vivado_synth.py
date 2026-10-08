@@ -10,7 +10,14 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
-from ...flow import Flow, FlowFatalError, FpgaSynthFlow, Out, describe_results
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsError,
+    FpgaSynthFlow,
+    Out,
+    describe_results,
+)
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -65,6 +72,87 @@ def vivado_synth_generics(parameters: dict) -> List[str]:
     return generics
 
 
+#: The mode of `synth_design` that the `out_of_context` setting asks for.
+OUT_OF_CONTEXT = "out_of_context"
+#: Where a project-mode flow takes the extra options of `synth_design` (the property
+#: `STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS` of the synthesis run), as the settings name it.
+MORE_OPTIONS_KEY = "synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS"
+MORE_OPTIONS_PROPERTY = "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS"
+
+
+def is_mode_switch(word: str) -> bool:
+    """Whether Vivado 2024.2 reads `word`, a word of the options of `synth_design`, as its
+    `-mode`. It takes the switch in lower case only, and an abbreviation that no other switch
+    shares (`-mod`, `-mo`; `-m` is `max_bram` and others too), and neither `-mode=...` nor
+    `--mode`."""
+    return word.startswith("-") and 2 <= len(word) - 1 <= 4 and "mode".startswith(word[1:])
+
+
+def synth_design_modes(options: str) -> List[Tuple[str, str]]:
+    """The modes that `options`, the text of options of `synth_design`, gives: each `-mode`
+    switch as written, with its value (empty text for a switch that ends the options)."""
+    words = options.split()
+    return [
+        (word, words[i + 1] if i + 1 < len(words) else "")
+        for i, word in enumerate(words)
+        if is_mode_switch(word)
+    ]
+
+
+def out_of_context_conflicts(where: str, options: str) -> List[Tuple[str, str]]:
+    """The conflict, as (setting, why), between `out_of_context` and `options`, the text of
+    options of `synth_design` that the settings write at `where`: they give a mode of their own.
+    `-mode out_of_context` is no conflict (the flow adds none then). Vivado reads the value of a
+    mode in either letter case."""
+    others = [
+        f"{switch} {value}".rstrip()
+        for switch, value in synth_design_modes(options)
+        if value.lower() != OUT_OF_CONTEXT
+    ]
+    if not others:
+        return []
+    return [
+        (
+            where,
+            f"`out_of_context` asks for `-mode {OUT_OF_CONTEXT}`, and `{where}` gives "
+            f"`{others[0]}`: Vivado would get two modes. Remove `{others[0]}` there, or turn "
+            "`out_of_context` off",
+        )
+    ]
+
+
+def refuse_conflicts(settings_class: Any, problems: List[Tuple[str, str]]) -> None:
+    """Raise the problems of a check of settings as one `FlowSettingsError`."""
+    if problems:
+        raise FlowSettingsError(
+            [(key, message, None, "value_error") for key, message in problems], settings_class
+        )
+
+
+def project_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What, in the settings of a project-mode flow, gives a mode beside `out_of_context`: the
+    extra options of the synthesis step, and the property of the run that `set_synth_properties`
+    sets after the steps (the same property, so the later one holds)."""
+    if not settings.out_of_context:
+        return []
+    texts: List[Tuple[str, str]] = []
+    step = settings.synth.steps.get("SYNTH_DESIGN")
+    args = step.get("ARGS") if isinstance(step, dict) else None
+    more = args.get("MORE") if isinstance(args, dict) else None
+    if isinstance(more, dict) and more.get("OPTIONS") is not None:
+        options = more["OPTIONS"]
+        texts.append(
+            (
+                MORE_OPTIONS_KEY,
+                " ".join(map(str, options)) if isinstance(options, list) else str(options),
+            )
+        )
+    for name, value in settings.set_synth_properties.items():
+        if name.upper() == MORE_OPTIONS_PROPERTY:
+            texts.append((f"set_synth_properties[{name}]", str(value)))
+    return [conflict for where, text in texts for conflict in out_of_context_conflicts(where, text)]
+
+
 def run_steps(
     settings: Any, *, out_of_context: bool = False
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -115,7 +203,11 @@ def run_steps(
         assert isinstance(
             more_options, list
         ), f"SYNTH_DESIGN.ARGS.MORE.OPTIONS: {more_options} must be a list or text"
-        more_options.append("-mode out_of_context")
+        # the planning check's judgment again: a flow built directly is not planned
+        text = " ".join(map(str, more_options))
+        refuse_conflicts(type(settings), out_of_context_conflicts(MORE_OPTIONS_KEY, text))
+        if not synth_design_modes(text):
+            more_options.append(f"-mode {OUT_OF_CONTEXT}")
         args_more["OPTIONS"] = more_options
         args["MORE"] = args_more
         synth_design["ARGS"] = args
@@ -653,7 +745,9 @@ class VivadoSynth(VivadoImplementation):
         )
         out_of_context: bool = Field(
             False,
-            description="Use out-of-context flow for synthesis",
+            description="Use out-of-context flow for synthesis: `synth_design` gets `-mode "
+            "out_of_context`. The synthesis options may hold that mode (it is kept once), but "
+            "no other `-mode`: that is refused before the run.",
         )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
         impl: RunOptions = Field(
@@ -710,6 +804,19 @@ class VivadoSynth(VivadoImplementation):
             description="The routed design's SDF timing annotation for the fast corner (min "
             "delays); `sdf` is the slow corner's.",
         )
+
+    @classmethod
+    def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
+        """What in the settings gives `synth_design` a mode beside `out_of_context`, as
+        (setting, why). A flow with another way to write the options overrides this."""
+        return project_mode_conflicts(settings)
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        refuse_conflicts(cls.Settings, cls.mode_conflicts(settings))
 
     def init(self):
         super().init()

@@ -1,17 +1,18 @@
 import logging
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import FpgaSynthFlow
+from ...flow import Flow, FpgaSynthFlow
 from .vivado_synth import (
     CHECKPOINT_PLACE,
     CHECKPOINT_ROUTE,
     CHECKPOINT_SYNTH,
     NETLIST,
     NETLIST_TIMING,
+    OUT_OF_CONTEXT,
     SDF,
     XDC_EXPORTED,
     RunOptions,
@@ -19,6 +20,9 @@ from .vivado_synth import (
     _VivadoSynthOutputs,
     constraint_files,
     declare_outputs,
+    out_of_context_conflicts,
+    refuse_conflicts,
+    synth_design_modes,
 )
 
 log = logging.getLogger(__name__)
@@ -368,19 +372,40 @@ def expand_run_options(run: str, value: RunOptions) -> RunOptions:
     return value
 
 
+#: Where the settings write the options of `synth_design` in `vivado_alt_synth`.
+SYNTH_STEP_KEY = "synth.steps.synth"
+
+
+def synth_step_options(settings: Any) -> Dict[str, Any]:
+    """The `synth` step of the settings as a mapping of options: a copy, with a list of options
+    as the mapping of its items."""
+    steps = settings.synth.steps.get("synth")
+    return {step: None for step in steps} if isinstance(steps, list) else deepcopy(steps or {})
+
+
 def synth_design_options(settings: Any) -> Dict[str, Any]:
     """The options of `synth_design`: the `synth` step of the settings, and what the settings
     derive, `-mode out_of_context` and `-flatten_hierarchy`. A copy, computed where the script is
     rendered: the settings, and the module's strategies behind them, are not written."""
-    steps = settings.synth.steps.get("synth")
-    options: Dict[str, Any] = (
-        {step: None for step in steps} if isinstance(steps, list) else deepcopy(steps or {})
-    )
+    options = synth_step_options(settings)
     if settings.out_of_context:
-        options["mode"] = "out_of_context"
+        # the planning check's judgment again: a flow built directly is not planned
+        text = flatten_options(options)
+        refuse_conflicts(type(settings), out_of_context_conflicts(SYNTH_STEP_KEY, text))
+        if not synth_design_modes(text):
+            options["mode"] = OUT_OF_CONTEXT
     if settings.flatten_hierarchy:
         options["flatten_hierarchy"] = settings.flatten_hierarchy
     return options
+
+
+def alt_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What in the `synth` step of the settings gives `synth_design` a mode beside
+    `out_of_context`."""
+    if not settings.out_of_context:
+        return []
+    text = flatten_options(synth_step_options(settings))
+    return out_of_context_conflicts(SYNTH_STEP_KEY, text)
 
 
 def flatten_options(d) -> str:
@@ -479,6 +504,11 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
             "messages are not printed and never trigger `fail_critical_warning`.",
         )
+
+    @classmethod
+    def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
+        """The options of `synth_design` are the `synth` step here, not a run property."""
+        return alt_mode_conflicts(settings)
 
     def run(self):
         """Render and execute the non-project Vivado synthesis steps."""
