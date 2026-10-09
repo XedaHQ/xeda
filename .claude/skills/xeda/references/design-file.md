@@ -126,15 +126,24 @@ A path string suffices when its extension identifies a type:
 | `.blif` / `.edf`, `.edif` | `Blif` / `Edif` |
 | `.sdf` / `.spef` / `.saif` | `Sdf` / `Spef` / `Saif` |
 | `.vcd` / `.fst` / `.ghw` / `.vpd` / `.fsdb` | `Vcd` / `Fst` / `Ghw` / `Vpd` / `Fsdb` |
-| `.dcp` / `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Checkpoint` / `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
+| `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
 
 Every source has a type. Suffixes match as written (`TOP.VHD` is an error naming `.vhd`).
-`.json`, `.bin`, `.cfg`, `.config` and any suffix not in the table need `type: "..."`;
-`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `Chipdb` and `Data` are only given
-that way. `Data` has no automatic HDL frontend; a flow or the design can still read it.
+`.json`, `.bin`, `.cfg`, `.config`, `.dcp` and any suffix not in the table need `type: "..."`;
+`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`, `SynthCheckpoint`,
+`RoutedCheckpoint`, `Chipdb` and `Data` are only given that way. `Data` has no automatic HDL
+frontend; a flow or the design can still read it.
 An invalid explicit `type` is an error naming the closest types. Explicit type names are
 case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type: VerilogNetlist`;
 otherwise its inferred type is `Verilog`.
+
+Netlists and checkpoints are typed by stage: `VerilogNetlist` is a standard-cell netlist
+(`openroad` reads it), `FpgaNetlist` a Verilog netlist of FPGA primitives as Vivado writes it
+(`vivado_postsynth_sim` simulates it), `SynthCheckpoint` and `RoutedCheckpoint` a Vivado
+checkpoint after synthesis and after routing (`vivado_power` takes only the routed one). A source
+of the wrong one of these types is not taken in its place, and a Vivado netlist or `.dcp` typed
+`VerilogNetlist` or `Checkpoint` feeds no flow. `Checkpoint` (no stated stage) is kept for old
+settings files.
 
 A source of a later stage's type stands in for the flows that would build it: a `JsonNetlist`
 skips synthesis for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig`

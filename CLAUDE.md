@@ -496,6 +496,19 @@ its output paths inside its run directory.
   are the last flow's; `--json` adds `request` (`introspect.request_info`) and per-node
   `node`/`inputs` (`introspect.inputs_info`), and after a failure the planned nodes never
   entered as `"state": "not run"` (from `FlowLauncher.last_plan`, the plan the run followed).
+- **Netlists and checkpoints are typed by stage, not by file format** (`SourceType`, appended):
+  `VerilogNetlist` is a standard-cell netlist (`yosys.netlist`, read by `openroad`), `FpgaNetlist`
+  a Verilog netlist of FPGA primitives (`vivado_synth`/`vivado_alt_synth` `netlist` and
+  `netlist_timing`, read by `vivado_postsynth_sim`), `SynthCheckpoint` and `RoutedCheckpoint` the
+  Vivado `.dcp` after synthesis and after routing (`vivado_power` takes only the routed one).
+  `Checkpoint` (no stage) is taken by no flow and kept for old `settings.json` files; `.dcp` is an
+  `AMBIGUOUS_SUFFIXES` entry, so a `.dcp` source needs its `type` instead of silently feeding
+  nothing. All four are `TYPE_ONLY`. An output of a netlist or checkpoint kind gets the type of
+  what it is. `tests/test_stage_types.py` sweeps every edge `fitting_outputs` accepts between two
+  netlist kinds or two checkpoint kinds: each is either its consumer's default wiring or in
+  `REVIEWED_EDGES` with a reason, so a new edge fails until reviewed. Known limit, listed there:
+  the functional and the timing FPGA netlist share a type. (`sdf` and `sdf_min`, two corners of one
+  stage, share `Sdf` too.)
 - **A chain is validated, suggested, listed and completed by one predicate.**
   `chains._check_chain` judges a request (action last, repeat, edge) and
   `validate_chain` appends `Did you mean ...` with whole corrected requests that pass the same
@@ -660,8 +673,9 @@ the `-pvector bra` in `write_netlist.{ys,tcl}`; no EDIF unless flat; the netlist
 RAM contents with `x` bits. The script is `vivado_impl.tcl` (non-project: `read_xdc`, `read_edif`,
 `link_design`, `opt_design`) plus `implementation.tcl`, the tail it shares with
 `vivado_alt_synth.tcl`: its `write_checkpoint`/`write_netlist`/`write_timing_netlist` blocks are
-`is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`, until
-stage-typed checkpoint and netlist types exist), and the includer makes `reports/post_place`
+`is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`; the
+stage types for a checkpoint and a netlist exist now, but declaring them here also needs the
+`write_*` settings and an output check in the fake), and the includer makes `reports/post_place`
 (Vivado makes no directory for a report; the fake Vivado fails as it does, `[Common 17-37]`).
 `VivadoImplementation` (`vivado_synth.py`) holds what `vivado_synth`, `vivado_alt_synth` and
 `vivado_impl` share: the implementation settings, the bitstream's `enable_output` and the timing

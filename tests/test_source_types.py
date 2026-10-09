@@ -30,6 +30,7 @@ MEMBERS = [
     "VerilogNetlist", "VhdlNetlist", "Blif", "Edif", "Ucf", "Xcf", "Qsf", "Ldc", "Fdc",
     "Sdf", "Spef", "Saif", "Vcd", "Fst", "Ghw", "Vpd", "Fsdb", "Checkpoint",
     "Liberty", "Def", "Odb", "Gds", "Cdl", "Chipdb", "C", "CHeader", "ObjectFile", "Vlt", "Data",
+    "FpgaNetlist", "SynthCheckpoint", "RoutedCheckpoint",
 ]
 # fmt: on
 

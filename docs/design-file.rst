@@ -203,18 +203,28 @@ A path string suffices when its extension identifies a type:
      - ``Sdf`` / ``Spef`` / ``Saif``
    * - ``.vcd`` / ``.fst`` / ``.ghw`` / ``.vpd`` / ``.fsdb``
      - ``Vcd`` / ``Fst`` / ``Ghw`` / ``Vpd`` / ``Fsdb``
-   * - ``.dcp`` / ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
-     - ``Checkpoint`` / ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
+   * - ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
+     - ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
 
 Every source has a type. A suffix is matched exactly as written: ``TOP.VHD`` is not inferred (the
-error names ``.vhd``). ``.json``, ``.bin``, ``.cfg`` and ``.config`` name several kinds of file,
-and a suffix not in the table names nothing xeda knows, so a source with one needs its ``type``;
-``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``Chipdb`` and ``Data`` are
-only ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
+error names ``.vhd``). ``.json``, ``.bin``, ``.cfg``, ``.config`` and ``.dcp`` name several kinds
+of file, and a suffix not in the table names nothing xeda knows, so a source with one needs its
+``type``; ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
+``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb`` and ``Data`` are only ever given that way.
+Explicit type names are case-tolerant; suffixes are not. ``Data``
 is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
 design can still read it. An invalid explicit ``type`` is an error naming the closest types.
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
 ``{file: net.v, type: VerilogNetlist}``.
+
+A netlist and a checkpoint are typed by what they are, not only by their file format. A
+``VerilogNetlist`` is a standard-cell netlist, which ``openroad`` reads. An ``FpgaNetlist`` is a
+Verilog netlist of FPGA primitives, as Vivado writes it, which ``vivado_postsynth_sim``
+simulates. A Vivado checkpoint (``.dcp``) is written after synthesis (``SynthCheckpoint``) and
+after routing (``RoutedCheckpoint``), and ``vivado_power`` reports power only on the routed one.
+So the ``.dcp`` suffix needs its ``type``, and a netlist or checkpoint of the other type is never
+taken in place of the right one. The type ``Checkpoint``, for a checkpoint of no stated stage, is
+kept for old settings files and no flow takes it.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
 skips synthesis for ``nextpnr``, an ``Edif`` netlist skips it for ``vivado_impl``, a ``Fasm``,
