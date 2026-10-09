@@ -565,3 +565,26 @@ def test_a_search_leaves_no_log_handler_on_the_process(tmp_path, monkeypatch):
     size = log_file.stat().st_size
     logging.getLogger("xeda.after").warning("a record of the process, after the search")
     assert log_file.stat().st_size == size
+
+
+def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_path, monkeypatch):
+    """A second Ctrl+C while the pool is joined ends the search from inside its clean-up. The
+    handler of the search's log is gone all the same."""
+    import logging
+
+    from xeda.flow_runner.dse import dse_runner
+
+    class SecondInterrupt(Exception):
+        pass
+
+    def join(self):
+        raise SecondInterrupt
+
+    monkeypatch.setattr(dse_runner.ProcessPool, "join", join)
+    root = logging.getLogger()
+    before = list(root.handlers)
+    with pytest.raises(SecondInterrupt):
+        _idle_search(tmp_path, monkeypatch)
+    left = [handler for handler in root.handlers if handler not in before]
+    root.handlers[:] = before  # a handler that was left must not outlive this test
+    assert left == []

@@ -654,23 +654,26 @@ class Dse(FlowLauncher):
             log.exception("Received exception: %s", e)
             traceback.print_exc()
         finally:
-            if pool:
-                pool.close()
-                pool.join()
-            if optimizer.best:
-                print_results(
-                    results=optimizer.best.results,
-                    title="Best results",
-                    subset=results_sub,
+            try:
+                if pool:
+                    pool.close()
+                    pool.join()
+                if optimizer.best:
+                    print_results(
+                        results=optimizer.best.results,
+                        title="Best results",
+                        subset=results_sub,
+                    )
+                    log.info("Best result were written to %s", best_json_path)
+                else:
+                    log.error("No successful runs!")
+                log.info(
+                    "Total execution time: %s  Number of iterations: %d",
+                    timer.timedelta,
+                    num_iterations,
                 )
-                log.info("Best result were written to %s", best_json_path)
-            else:
-                log.error("No successful runs!")
-            log.info(
-                "Total execution time: %s  Number of iterations: %d",
-                timer.timedelta,
-                num_iterations,
-            )
-            # the search's log is the search's: a later search of the process has its own
-            remove_file_logger(file_handler)
+            finally:
+                # the search's log is the search's: a later search of the process has its own, and
+                # this runs however the clean-up above ends
+                remove_file_logger(file_handler)
         return optimizer.best
