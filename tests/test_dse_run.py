@@ -485,7 +485,7 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock_port": "clk"}
+        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock": "clk"}
     )
     runner = Dse(
         _IdleFmax,
@@ -495,7 +495,9 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
         **dse_settings,
     )
     runner.run(
-        "vivado_alt_synth", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 5.0}
+        "vivado_alt_synth",
+        design,
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.0}},
     )
     return runner
 

@@ -17,7 +17,7 @@ from xeda.flows import VivadoSynth
 from .test_vivado_step_tables import PART, _design
 from .tool_utils import use_fake_tools
 
-SETTINGS = {"fpga": PART, "clock_period": 5.5}
+SETTINGS = {"fpga": PART, "clock": {"period": 5.5}}
 NAMES = ("", "xeda", "xeda.flow_runner", "xeda.flows.vivado", "not.xeda")
 
 
@@ -27,13 +27,17 @@ def levels() -> dict:
 
 @pytest.fixture(autouse=True)
 def quiet_process() -> Iterator[None]:
-    """An application that logs warnings and up, and puts its logging back after the test."""
+    """An application that logs warnings and up, and puts its logging (levels and the root
+    logger's handlers) back after the test."""
     root = logging.getLogger()
     saved = {name: logging.getLogger(name).level for name in NAMES}
+    handlers = list(root.handlers)
     root.setLevel(logging.WARNING)
     for name in NAMES[1:]:
         logging.getLogger(name).setLevel(logging.NOTSET)
     yield
+    # the command line installs a handler on the root logger (`setup_logger`)
+    root.handlers[:] = handlers
     for name, level in saved.items():
         logging.getLogger(name).setLevel(level)
 
@@ -168,7 +172,7 @@ def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) 
     from xeda.design import Design
 
     design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock_port": "clk"}
+        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock": "clk"}
     )
     runner = Dse(
         Watching,
@@ -178,7 +182,9 @@ def test_a_direct_search_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) 
         debug=True,
     )
     runner.run_flow(
-        "vivado_alt_synth", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 5.0}
+        "vivado_alt_synth",
+        design,
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.0}},
     )
     assert seen == [True]
     assert logging.getLogger("xeda").level == logging.NOTSET

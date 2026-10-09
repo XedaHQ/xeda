@@ -1205,11 +1205,19 @@ def test_a_flow_selects_what_it_reads_only_through_sources_read(cls, name):
 #: The code a flow calls besides its own classes, whose reads of the design's sources the
 #: sweep below holds to the same review: every module of the flows and of their base classes,
 #: and cocotb's.
+def _holds_code(name: str) -> bool:
+    """False for a module with no source text: the empty `templates` packages that only name a
+    directory of data, and which any test that walks the packages imports."""
+    path = getattr(sys.modules[name], "__file__", None)
+    return bool(path) and bool(Path(path).read_text(encoding="utf-8").strip())
+
+
 HELPER_MODULES = sorted(
     {
         name
         for name in sys.modules
-        if name.startswith(("xeda.flows.", "xeda.flow.")) or name == "xeda.cocotb"
+        if (name.startswith(("xeda.flows.", "xeda.flow.")) or name == "xeda.cocotb")
+        and _holds_code(name)
     }
 )
 

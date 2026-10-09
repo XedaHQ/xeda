@@ -39,7 +39,7 @@ def test_a_launch_of_an_edited_design_records_the_hash_of_what_it_ran(
     shutil.copytree(RESOURCES, tmp_path / "resources")
     work = tmp_path / "resources" / "design0"
     monkeypatch.chdir(work)
-    settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
+    settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
     root = tmp_path / "run"
     design = Design.from_file(work / "design0.toml")
     first = DefaultRunner(root, display_results=False).launch_flow(VivadoSynth, design, settings)
