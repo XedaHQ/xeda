@@ -321,6 +321,14 @@ def test_clock_port_was_removed_wherever_it_is_written(tmp_path, value, where, a
     assert "`clock_port` was removed: use `clock: <port>`" in str(raised.value), raised.value
 
 
+def test_clock_port_was_removed_also_beside_an_rtl_section(tmp_path):
+    data = {**BASE, "clock_port": "CLK"}
+    with pytest.raises(
+        DesignValidationError, match="`clock_port` was removed: use `clock: <port>`"
+    ):
+        Design.from_file(write_design(tmp_path, data))
+
+
 @pytest.mark.parametrize("overrides", [{"clock_port": "CLK"}, {"rtl": {"clock_port": "CLK"}}])
 def test_clock_port_was_removed_in_the_design_overrides(tmp_path, overrides):
     with pytest.raises(DesignValidationError, match="`clock_port` was removed"):

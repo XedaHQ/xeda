@@ -2313,7 +2313,12 @@ class Design(XedaBaseModel):
         """Fold the flat top-level form into `rtl` and `tb`. A target's overlay is folded by this
         very function, with `defaults=False`: only the keys it wrote, so it overrides no more
         than it says."""
-        if "rtl" not in data:
+        if "rtl" in data:
+            # beside an `rtl` section the flat keys are no longer folded, but a removed one
+            # still says what replaced it, instead of "extra inputs are not permitted"
+            for _, message in RtlSettings.removed_input_problems(data):
+                raise ValueError(message)
+        else:
             # A removed input is folded too: `rtl` is where its removal is reported.
             given = {
                 name: data.pop(name)

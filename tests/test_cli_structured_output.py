@@ -128,7 +128,8 @@ def test_list_settings_includes_common_settings_and_aliases():
     assert by_name["nthreads"]["common"] is True
     assert by_name["nthreads"]["alias"] == "ncpus"
     assert by_name["dockerized"]["common"] is True
-    assert by_name["clock_period"]["common"] is False
+    assert by_name["clock"]["common"] is False
+    assert "clock_period" not in by_name  # removed
 
 
 def test_list_settings_preserves_optional_literal_choices():
