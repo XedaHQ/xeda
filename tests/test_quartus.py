@@ -80,7 +80,7 @@ def _test_parse_reports():
     root_dir = Path("/Users/kamyar/src/xeda/examples/vhdl/pipeline")
     design = Design.from_file(root_dir / "pipelined_adder.yaml")
     run_path = root_dir / "xeda_run/pipelined_adder/quartus"
-    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock_period=15)  # type: ignore
+    settings = Quartus.Settings(fpga={"part": "10CL016YU256C6G"}, clock={"period": 15})  # type: ignore
     flow = Quartus(settings, design, run_path=run_path)
     flow.init()
     flow.parse_reports()
@@ -190,7 +190,7 @@ def test_quartus_synth_py(monkeypatch) -> None:
     use_fake_tools(monkeypatch)
     assert path.exists()
     design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
-    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock_period=6, dockerized=False)
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock={"period": 6}, dockerized=False)
     with tempfile.TemporaryDirectory() as run_dir:
         print("Xeda run dir: ", run_dir)
         xeda_runner = DefaultRunner(run_dir, debug=True)

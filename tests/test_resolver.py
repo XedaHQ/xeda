@@ -111,7 +111,7 @@ def test_the_plan_is_immutable(tmp_path):
 
 
 def test_a_shared_setting_given_for_the_consumer_reaches_its_producer(tmp_path):
-    plan = _plan(tmp_path, _Place, {"fpga": {"part": PART}, "clock_period": 10.0})
+    plan = _plan(tmp_path, _Place, {"fpga": {"part": PART}, "clock": {"period": 10.0}})
     for name in ("__synth", "__place"):
         settings = plan.node(name).settings
         assert settings.fpga.part == PART and settings.clocks["main_clock"].period == 10.0
@@ -227,7 +227,7 @@ def test_section_locations_and_origin_precedence_are_retained(tmp_path):
 
 @pytest.mark.parametrize(
     "cli_clock",
-    [{"clock_period": 4}, {"clock": {"freq": "250MHz"}}, {"clocks": {"core": {"freq": 250}}}],
+    [{"clock": {"period": 4}}, {"clock": {"freq": "250MHz"}}, {"clocks": {"core": {"freq": 250}}}],
 )
 def test_cli_clock_leaf_preserves_other_clocks_and_attributes(tmp_path, cli_clock):
     design = {
@@ -265,14 +265,14 @@ def test_disjoint_cli_leaves_combine_across_nodes(tmp_path):
 
 
 def test_conflicting_cli_clock_aliases_are_an_error(tmp_path):
-    cli = {"__place": {"fpga": PART, "clock_period": 4}, "__synth": {"clock": {"freq": 200}}}
+    cli = {"__place": {"fpga": PART, "clock": {"period": 4}}, "__synth": {"clock": {"freq": 200}}}
     with pytest.raises(FlowSettingsError, match=re.escape(COMMAND_LINE_ORIGIN)):
         _plan(tmp_path, _Place, compose_flow_settings(_Place, [cli]), command_line=cli)
 
 
 def test_equivalent_frequency_and_period_agree(tmp_path):
     sections = {
-        "__place": {"fpga": PART, "clock_period": "5ns"},
+        "__place": {"fpga": PART, "clock": {"period": "5ns"}},
         "__synth": {"clock": {"freq": "200MHz"}},
     }
     plan = _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
@@ -874,7 +874,7 @@ def test_malformed_shared_and_nested_inputs_never_disappear_or_escape(tmp_path, 
 
 
 def test_clock_model_defaults_are_not_new_explicit_contributions(tmp_path):
-    values = {"fpga": PART, "clock_period": 5}
+    values = {"fpga": PART, "clock": {"period": 5}}
     mapping = _plan(tmp_path, _Place, values)
     model = _plan(tmp_path, _Place, _Place.Settings.from_input(values))
     assert [n.flowrun_hash for n in mapping.nodes] == [n.flowrun_hash for n in model.nodes]
@@ -883,7 +883,7 @@ def test_clock_model_defaults_are_not_new_explicit_contributions(tmp_path):
 
 def test_synthesized_clock_name_does_not_override_an_explicit_name(tmp_path):
     sections = {
-        "__place": {"fpga": PART, "clock_period": 5},
+        "__place": {"fpga": PART, "clock": {"period": 5}},
         "__synth": {"clocks": {"main_clock": {"period": 5, "name": "design_clock"}}},
     }
     given = compose_flow_settings(_Place, [sections])
@@ -940,7 +940,7 @@ def test_cli_shorthand_targets_named_clock_supplied_by_producer(tmp_path):
         "__place": {"fpga": PART},
         "__synth": {"clocks": {"core": {"period": 10, "port": "clk"}}},
     }
-    cli = {"__synth": {"clock_period": 4}}
+    cli = {"__synth": {"clock": {"period": 4}}}
     plan = _plan(tmp_path, _Place, origins=[("design.toml", design)], command_line=cli)
     for node in plan.nodes:
         assert list(node.settings.clocks) == ["core"]
@@ -1175,3 +1175,32 @@ def test_one_corner_spelled_as_a_list_agrees_and_two_corners_conflict(tmp_path):
     files["yosys"]["corner"] = "FF"
     with pytest.raises(FlowSettingsError, match="corner"):
         _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
+
+
+def test_a_flow_section_with_a_null_clock_plans(tmp_path):
+    """A flow section that writes `clock: null` gives no clock, and another layer's clock is
+    the flow's. The resolver used to record the null as a clock input and fail on it with an
+    `AttributeError`."""
+    from xeda.flows.yosys import YosysFpga
+
+    root = tmp_path / "d"
+    root.mkdir(exist_ok=True)
+    (root / "top.v").write_text("module top(); endmodule\n")
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top"},
+    )
+    plan = resolve(
+        YosysFpga,
+        design,
+        settings={"clock": {"period": "10ns"}},
+        origins=[("the design file", {"yosys_fpga": {"clock": None, "fpga": "xc7a35tcpg236-1"}})],
+        runner_cwd=tmp_path,
+        run_root=tmp_path / "run",
+        hashed_run_dirs=False,
+        run_path=lambda design_name, node, identity, target=None: (
+            tmp_path / "run" / design_name / node
+        ),
+    )
+    assert plan.node("yosys_fpga").settings.clock.period == 10.0

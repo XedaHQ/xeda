@@ -43,7 +43,7 @@ def _hash(design_root: Path, runner_cwd: Path, **settings) -> str:
 def _design(root: Path) -> Design:
     return Design(
         name="sqrt",
-        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clock_port": "clk"},
+        rtl={"sources": ["sqrt.vhdl"], "top": "sqrt", "clock": "clk"},
         design_root=root,
     )
 
@@ -73,7 +73,9 @@ def test_an_identical_copy_of_the_design_elsewhere_hashes_the_same(tmp_path, xdc
 
 def test_a_different_setting_is_a_different_run(tmp_path):
     design = _design_copy(tmp_path / "d")
-    assert _hash(design, tmp_path, clock_period=5.0) != _hash(design, tmp_path, clock_period=4.0)
+    assert _hash(design, tmp_path, clock={"period": 5.0}) != _hash(
+        design, tmp_path, clock={"period": 4.0}
+    )
     assert _hash(design, tmp_path, xdc_files=["c.xdc"]) != _hash(design, tmp_path)
 
 
@@ -229,15 +231,15 @@ def test_behavior_affecting_design_metadata_is_part_of_the_hash(tmp_path):
             rtl={"sources": ["top.v"], "top": "top", **rtl},
         )
 
-    original = design(clock_port="clk")
-    assert original.rtl_hash != design(clock_port="other_clk").rtl_hash
+    original = design(clock="clk")
+    assert original.rtl_hash != design(clock="other_clk").rtl_hash
     assert original.rtl_hash != design(attributes={"keep": {"top": True}}).rtl_hash
     assert (
         original.rtl_hash
         != Design(
             name="d",
             design_root=root,
-            rtl={"sources": ["top.v"], "top": "top", "clock_port": "clk"},
+            rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
             hdl={"verilog": "2005"},
         ).rtl_hash
     )
@@ -265,7 +267,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     """A run whose inputs did not change is reused, not repeated -- also when xeda is started
     from another directory, which used to change the settings' hash."""
     design = Design.from_file(SQRT / "sqrt.yaml")
-    settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
+    settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
     runner = DefaultRunner(tmp_path / "xeda_run")
 
     monkeypatch.chdir(_design_copy(tmp_path / "start_one"))
@@ -275,7 +277,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
 
     assert first is not None and second is not None and first.succeeded
     assert second.results.timestamp == first.results.timestamp, "the second run was repeated"
-    changed = runner.run_flow(VivadoSynth, design, {**settings, "clock_period": 4.5})
+    changed = runner.run_flow(VivadoSynth, design, {**settings, "clock": {"period": 4.5}})
     assert changed is not None and changed.results.timestamp != first.results.timestamp
 
 
@@ -284,7 +286,7 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
     and records the run -- is never modified, whatever the flow does to its copy."""
     design = Design.from_file(SQRT / "sqrt.yaml")
     given = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5, "bitstream": "sqrt.bit"},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}, "bitstream": "sqrt.bit"},
         design_root=design.root_path,
     )
     before = given.model_dump()
@@ -302,7 +304,7 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
 def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
     design = Design.from_file(SQRT / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
-        VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock_period": 5.5}
+        VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
     )
     assert flow is not None
     recorded = json.loads((flow.run_path / "settings.json").read_text())

@@ -66,7 +66,7 @@ class _DeclaredOptimizer(Optimizer):
             for delta in (
                 {"tag": "one"},
                 {"tag": "two"},
-                {"tag": "clock", "clock_period": 12.0},
+                {"tag": "clock", "clock": {"period": 12.0}},
             )
         ]
 
@@ -87,12 +87,10 @@ def test_worker_deltas_do_not_replay_serialized_path_defaults():
 
 def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
-    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -123,12 +121,10 @@ class _DseLeaf(FpgaSynthFlow):
 
 def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
-    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -143,9 +139,7 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
     not improve, once their outcome is in. It is not the launch-wide purge of `xeda run`, which
     would delete the best run too: each launch of the exploration leaves its run directory."""
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
-    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(
         _DeclaredOptimizer,
         run_root=tmp_path / "run",
@@ -153,7 +147,9 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
         max_workers=1,
         post_cleanup_purge=True,
     )
-    runner.run(_DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0})
+    runner.run(
+        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+    )
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     best = outcomes["one"].run_path
     assert best is not None and best.is_dir(), "the best run is kept"
@@ -425,12 +421,10 @@ class _PromotingOptimizer(_DeclaredOptimizer):
 
 def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
-    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
     )
     assert len(runner.optimizer.outcomes) == 2
     assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
@@ -459,9 +453,7 @@ class _ObservedFmax(FmaxOptimizer):
 
 def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    design = Design(
-        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
-    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(
         _ObservedFmax,
         optimizer_settings={
@@ -475,7 +467,7 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
         max_failed_iters_with_best=1,
     )
     assert runner.run(
-        _FmaxPlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}
+        _FmaxPlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
     )
     assert len(runner.optimizer.outcomes) >= 2
 

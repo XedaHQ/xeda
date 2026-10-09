@@ -256,6 +256,8 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
                 "optional": d.optional,
                 "producer": d.producer,
                 "output": d.output,
+                "same_producer_as": d.same_producer_as,
+                "via": d.via,
                 "description": d.description,
             }
             for d in declared_inputs(cls).values()
@@ -287,7 +289,11 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
     for item in info["inputs"]:
         name = item["name"] + ("..." if item["cardinality"] == "many" else "")
         name = f"[{name}]" if not item["required"] else name
-        takes.append(f"{name} ({kinds(item)})")
+        related = ""
+        if item["same_producer_as"]:
+            related = f"; same producer as {item['same_producer_as']}"
+            related += f" via {item['via']}" if item["via"] else ""
+        takes.append(f"{name} ({kinds(item)}{related})")
     makes = []
     for item in info["outputs"]:
         name = item["name"] + ("..." if item["cardinality"] == "many" else "")
@@ -748,7 +754,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
                 k: v for k, v in deepcopy(definitions[name]).items() if k != "required"
             }
 
-    # `clock` and `clock_port` name the design's first clock and change it key by key, so a
+    # `clock` names the design's first clock and changes it key by key, so a
     # target's `clock` may leave out the port; `clocks` replaces the list, so its clocks are whole.
     if "Clock" in definitions:
         definitions["ClockOverlay"] = {

@@ -42,7 +42,7 @@ def _run(tmp_path: Path, monkeypatch, fail: list[str] | None = None, **settings)
     if fail:
         monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", " ".join(fail))
     flow = DefaultRunner(tmp_path / "run").run_flow(
-        VivadoSynth, Design.from_file(SQRT), {"fpga": PART, "clock_period": 5.5, **settings}
+        VivadoSynth, Design.from_file(SQRT), {"fpga": PART, "clock": {"period": 5.5}, **settings}
     )
     assert isinstance(flow, VivadoSynth)
     return flow

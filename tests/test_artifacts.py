@@ -171,18 +171,18 @@ def test_a_failed_run_reports_only_the_artifacts_that_exist(passes, tmp_path, ca
 #: writes its outputs (`XEDA_FAKE_TOOL_FAIL`), after the flow has declared them.
 FAKE_TOOL_FLOWS = {
     "vivado_synth": (
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": "o/top.bit"},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "bitstream": "o/top.bit"},
         "launch_runs",
     ),
     "vivado_alt_synth": (
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "write_netlist": True},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "write_netlist": True},
         "synth_design",
     ),
     # the first command of `compile.tcl` (the fake records `qexit -error` rather than exiting)
-    "quartus": ({"fpga": "10CL016YU256C6G", "clock_period": 10.0}, "load_package"),
-    "ise_synth": ({"fpga": "xc6slx9-2-tqg144", "clock_period": 10.0}, "{Implement Design}"),
-    "diamond_synth": ({"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0}, "prj_run"),
-    "dc": ({"target_libraries": ["cells.db"], "clock_period": 10.0}, "elaborate"),
+    "quartus": ({"fpga": "10CL016YU256C6G", "clock": {"period": 10.0}}, "load_package"),
+    "ise_synth": ({"fpga": "xc6slx9-2-tqg144", "clock": {"period": 10.0}}, "{Implement Design}"),
+    "diamond_synth": ({"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}, "prj_run"),
+    "dc": ({"target_libraries": ["cells.db"], "clock": {"period": 10.0}}, "elaborate"),
     "vivado_sim": ({"vcd": "wave.vcd", "saif": "power.saif"}, "xvhdl"),
 }
 
@@ -343,7 +343,11 @@ def test_a_successful_vivado_synth_overwrites_an_earlier_bitstream_with_an_early
     use_fake_tools(monkeypatch)
     design = Design.from_file(EXAMPLE)
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    settings = {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": "outputs/top.bit"}
+    settings = {
+        "fpga": "xc7a12tcsg325-1",
+        "clock": {"period": 10.0},
+        "bitstream": "outputs/top.bit",
+    }
     first = runner.launch_flow("vivado_synth", design, settings)
     bitstream = first.run_path / "outputs" / "top.bit"
     bitstream.write_text("an earlier run's, on a lagging clock\n")
@@ -622,7 +626,7 @@ def test_a_successful_vivado_synth_accepts_its_bitstream_on_a_file_system_whose_
     flow = runner.launch_flow(
         "vivado_synth",
         Design.from_file(EXAMPLE),
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0, "bitstream": str(delivered)},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "bitstream": str(delivered)},
     )
 
     assert flow.succeeded

@@ -612,6 +612,15 @@ class SourceType(str, Enum):
     ObjectFile = "ObjectFile"
     Vlt = "Vlt"
     Data = "Data"
+    # Types by stage. `FpgaNetlist` is a Verilog netlist of FPGA primitives (what Vivado writes),
+    # where `VerilogNetlist` is a standard-cell netlist, and `FpgaTimingNetlist` is the timing
+    # netlist of the same design, which is simulated with an SDF. A checkpoint is written at
+    # several stages and only the stage says what reads it, so `Checkpoint` (no stage) is taken
+    # by no flow and `.dcp` names no type.
+    FpgaNetlist = "FpgaNetlist"
+    SynthCheckpoint = "SynthCheckpoint"
+    RoutedCheckpoint = "RoutedCheckpoint"
+    FpgaTimingNetlist = "FpgaTimingNetlist"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -687,7 +696,6 @@ SOURCE_SUFFIXES: dict[str, tuple[SourceType, str | None]] = {
     "ghw": (SourceType.Ghw, None),
     "vpd": (SourceType.Vpd, None),
     "fsdb": (SourceType.Fsdb, None),
-    "dcp": (SourceType.Checkpoint, None),
     "lib": (SourceType.Liberty, None),
     "def": (SourceType.Def, None),
     "odb": (SourceType.Odb, None),
@@ -708,6 +716,7 @@ AMBIGUOUS_SUFFIXES: dict[str, tuple[SourceType, ...]] = {
     "bin": (SourceType.Bitstream, SourceType.Chipdb),
     "cfg": (SourceType.EcpConfig,),
     "config": (SourceType.EcpConfig,),
+    "dcp": (SourceType.SynthCheckpoint, SourceType.RoutedCheckpoint),
 }
 
 #: Members no suffix infers: given by an explicit `type` only (or, later, by a declared output).
@@ -719,6 +728,11 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.VhdlNetlist,
         SourceType.Chipdb,
         SourceType.Data,
+        SourceType.FpgaNetlist,
+        SourceType.FpgaTimingNetlist,
+        SourceType.Checkpoint,
+        SourceType.SynthCheckpoint,
+        SourceType.RoutedCheckpoint,
     }
 )
 
@@ -1065,8 +1079,8 @@ class DVSettings(XedaBaseModel):
         return sources
 
 
-#: The three spellings of a design's clock, which are one setting.
-CLOCK_SPELLINGS = ("clock", "clock_port", "clocks")
+#: The two spellings of a design's clock, which are one setting.
+CLOCK_SPELLINGS = ("clock", "clocks")
 
 
 class Clock(XedaBaseModel):
@@ -1383,13 +1397,28 @@ class RtlSettings(DVSettings):
             - value is the actual value of the attribute
         """,
     )
-    # The only stored representation of design clock ports. ``clock`` and ``clock_port`` are
-    # input/API compatibility shorthands exposed as derived properties below.
+    # The only stored representation of design clock ports. ``clock`` is an input/API shorthand
+    # for the first of them, exposed as a derived property below.
     clocks: List[Clock] = []
+
+    #: Inputs that no longer exist, with what replaced them. Giving one is an error that says
+    #: so, instead of "extra inputs are not permitted". The design's equivalent of
+    #: `Flow.Settings.removed_settings`: a flat top-level key, a target's key and
+    #: `--design-overrides` reach the same check, since each is folded into `rtl` first.
+    removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
+
+    @classmethod
+    def removed_input_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, str]]:
+        """The removed inputs `values` writes, each with its error message."""
+        return [
+            (name, f"`{name}` was removed: use {replacement}")
+            for name, replacement in cls.removed_inputs.items()
+            if name in values
+        ]
 
     @classmethod
     def __get_pydantic_json_schema__(cls, core_schema, handler):
-        """Advertise the accepted single-clock shorthands without storing duplicate state."""
+        """Advertise the accepted single-clock shorthand without storing duplicate state."""
         schema = handler(core_schema)
         properties = schema.setdefault("properties", {})
         clock_item = deepcopy(properties["clocks"]["items"])
@@ -1397,12 +1426,6 @@ class RtlSettings(DVSettings):
             "anyOf": [clock_item, {"type": "string"}, {"type": "null"}],
             "description": "Single design clock shorthand. Prefer an object with `port`. "
             "`null` means no clock.",
-            "x-xeda-input-only": True,
-        }
-        properties["clock_port"] = {
-            "anyOf": [{"type": "string"}, {"type": "null"}],
-            "deprecated": True,
-            "description": "Compatibility shorthand for `clock.port`; prefer `clock.port`.",
             "x-xeda-input-only": True,
         }
         return schema
@@ -1416,10 +1439,24 @@ class RtlSettings(DVSettings):
             # unrelated assignments must not reconstruct or detach the established list.
             return values
 
+        for name, message in cls.removed_input_problems(values):
+            # reported at the key as written, as a wrong form of a clock is
+            raise ValidationError.from_exception_data(
+                cls.__name__,
+                [
+                    InitErrorDetails(
+                        type=PydanticCustomError(
+                            "removed_input", "{message}", {"message": message}
+                        ),
+                        loc=(name,),
+                        input=values[name],
+                    )
+                ],
+            )
         present = [name for name in CLOCK_SPELLINGS if name in values]
         if len(present) > 1:
             raise ValueError(
-                "Specify only one of `clock`, `clock_port`, or `clocks`; prefer `clock` for "
+                "Specify only one of `clock` or `clocks`; prefer `clock` for "
                 "one clock and `clocks` for several"
             )
         if present:
@@ -1428,7 +1465,7 @@ class RtlSettings(DVSettings):
                 value = values.pop(spelling)
                 if cls.clock_mistake(spelling, value):
                     # reported at the key as written, not at the `clocks` it would become
-                    what = cls.clock_expected(spelling)
+                    what = cls.clock_expected()
                     raise ValidationError.from_exception_data(
                         cls.__name__,
                         [
@@ -1455,10 +1492,10 @@ class RtlSettings(DVSettings):
     def clock_tables(cls, spelling: str, value: Any) -> list[Any]:
         """The clocks that `value`, written as `spelling` of the design's clock, gives, each as
         the table it stands for. The validators read a clock by this function, and so does the
-        merge of a target over its design (`merge_inputs`). `clock: null`, `clock: ""` and
-        `clock_port: ""` mean no clock. An item that is no form of a clock is kept as it is,
-        for validation to report: only a text or a table is one (a number is not). A `clocks` that
-        is no list, and a `clock_port` that is no text, are a `ValueError`."""
+        merge of a target over its design (`merge_inputs`). `clock: null` and `clock: ""`
+        mean no clock. An item that is no form of a clock is kept as it is, for validation to
+        report: only a text or a table is one (a number is not). A `clocks` that is no list is a
+        `ValueError`."""
         if spelling == "clocks":
             if value is None:
                 return []
@@ -1467,13 +1504,6 @@ class RtlSettings(DVSettings):
             if not isinstance(value, list):
                 raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
             items = value
-        elif spelling == "clock_port":
-            # A port name, and nothing else: a table is `clock`'s form.
-            if value is not None and not isinstance(value, str):
-                raise ValueError(f"`clock_port` is a port name, not {value!r:.60}")
-            # Historically an empty compatibility string meant that the design had no declared
-            # clock; keep that instead of constructing a clock with an unusable empty port.
-            return [Clock.as_mapping(value)] if value else []
         else:
             items = [value]
         # an empty table, like `null` and `""`, says nothing: there is no clock
@@ -1484,14 +1514,14 @@ class RtlSettings(DVSettings):
         ]
 
     @classmethod
-    def clock_expected(cls, spelling: str) -> str:
-        """What the design's `clock` or `clock_port` takes, in words."""
-        return "a port name" if spelling == "clock_port" else "a port name or a table"
+    def clock_expected(cls) -> str:
+        """What the design's `clock` takes, in words."""
+        return "a port name or a table"
 
     @classmethod
     def clock_mistake(cls, spelling: str, value: Any) -> bool:
         """Whether `value`, written as `spelling` of the design's clock, is no clock: a clock is
-        a port name or a table (`clock_tables`), and a `clock_port` is a port name."""
+        a port name or a table (`clock_tables`)."""
         try:
             tables = cls.clock_tables(spelling, value)
         except ValueError:
@@ -1500,8 +1530,8 @@ class RtlSettings(DVSettings):
 
     @classmethod
     def form_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, Any]]:
-        """The clock spellings of `values` that are no clock, as they are written: `clock` and
-        `clock_port` are no fields, so `shape_problems` asks here."""
+        """The clock spellings of `values` that are no clock, as they are written: `clock` is no
+        field, so `shape_problems` asks here."""
         return [
             (spelling, values[spelling])
             for spelling in CLOCK_SPELLINGS
@@ -1510,11 +1540,11 @@ class RtlSettings(DVSettings):
 
     @classmethod
     def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
-        """A design's clock is `clock`, `clock_port` or `clocks`: three spellings of the one
-        list of clocks. Where `values` (the higher layer) writes one of them and `merged` has one
-        below, the two meet as lists of tables. `clocks`, in any form, replaces the list below.
-        `clock` and `clock_port` name the first design clock (as the `clock` property does) and
-        refine it key by key; `clock: null` and `clock_port: ""` mean no clock, which replaces.
+        """A design's clock is `clock` or `clocks`: two spellings of the one list of clocks.
+        Where `values` (the higher layer) writes one of them and `merged` has one below, the two
+        meet as lists of tables. `clocks`, in any form, replaces the list below. `clock` names
+        the first design clock (as the `clock` property does) and refines it key by key;
+        `clock: null` means no clock, which replaces.
         A layer that writes two spellings, or a clock that is no form of one, is left as it is,
         so validation reports it: a lower clock that is no form of one is kept, and the clock of
         the higher layer is dropped."""
@@ -1565,17 +1595,6 @@ class RtlSettings(DVSettings):
             self.clocks = [Clock(port=value)] if value else []
         else:
             self.clocks = [Clock.model_validate(value)]
-
-    @property
-    def clock_port(self) -> Optional[str]:
-        """Compatibility access to the first design clock's port, or ``None`` when there is none."""
-        clock = self.clock
-        return clock.port if clock is not None else None
-
-    @clock_port.setter
-    def clock_port(self, value: Optional[str]) -> None:
-        """Assigning replaces `clocks` with the single-clock shorthand, same as the `clock` setter."""
-        self.clock = value
 
 
 class CocotbTestbench(XedaBaseModel):
@@ -2133,7 +2152,6 @@ FLAT_RTL_KEYS = (
     "sources",
     "top",
     "clock",
-    "clock_port",
     "clocks",
     "parameters",
     "generics",
@@ -2311,8 +2329,18 @@ class Design(XedaBaseModel):
         """Fold the flat top-level form into `rtl` and `tb`. A target's overlay is folded by this
         very function, with `defaults=False`: only the keys it wrote, so it overrides no more
         than it says."""
-        if "rtl" not in data:
-            given = {name: data.pop(name) for name in FLAT_RTL_KEYS if name in data}
+        if "rtl" in data:
+            # beside an `rtl` section the flat keys are no longer folded, but a removed one
+            # still says what replaced it, instead of "extra inputs are not permitted"
+            for _, message in RtlSettings.removed_input_problems(data):
+                raise ValueError(message)
+        else:
+            # A removed input is folded too: `rtl` is where its removal is reported.
+            given = {
+                name: data.pop(name)
+                for name in (*FLAT_RTL_KEYS, *RtlSettings.removed_inputs)
+                if name in data
+            }
             # Multiple spellings written together (`parameters` and `generics`, the clock
             # inputs) are all kept: the corresponding model validator then reports the
             # ambiguity instead of silently choosing one.
@@ -2489,6 +2517,8 @@ class Design(XedaBaseModel):
         except ConflictingKeys as e:
             raise invalid(None, str(e)) from e
         known = {*input_names(cls), *FLAT_RTL_KEYS, "test", "tests"} - TARGET_FORBIDDEN_KEYS
+        for name, message in RtlSettings.removed_input_problems(overlay):
+            raise invalid(name, message)
         for key in overlay:
             if key in TARGET_FORBIDDEN_KEYS:
                 raise invalid(
@@ -2519,14 +2549,17 @@ class Design(XedaBaseModel):
             folded = cls.process_compatibility(overlay, defaults=False)
         except ValueError as e:
             raise invalid(None, str(e)) from e
+        if isinstance(folded.get("rtl"), Mapping):
+            for name, message in RtlSettings.removed_input_problems(folded["rtl"]):
+                raise invalid(f"rtl.{name}", message)
         # A value that is no table where one is expected is the target's own mistake, reported
         # where it is written whether or not the target is selected.
         for path, value in shape_problems(cls, folded):
             if input_names(cls).get(path[0]) != "flow":  # a `flows` table is judged on its own
                 # the design's clock, not any key of that name (an `rtl.attributes` entry)
                 takes = (
-                    RtlSettings.clock_expected(path[-1])
-                    if path in (("rtl", "clock"), ("rtl", "clock_port"))
+                    RtlSettings.clock_expected()
+                    if path == ("rtl", "clock")
                     else "a table or a short form of one"
                 )
                 raise invalid(".".join(path), f"takes {takes}, not {value!r:.60}")

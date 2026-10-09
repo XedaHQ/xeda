@@ -81,7 +81,7 @@ A short form means exactly the table it stands for, in every merge. ``fpga: xc7a
 ``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote as
 text. ``-s fpga=<part>`` over a design's ``fpga`` table changes the part and keeps the other keys
 the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. The aliases of a setting
-(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock_period``, ``clock``,
+(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock`` and
 ``clocks``) are read in each layer on its own, so a layer above changes what a layer below wrote
 whichever spelling each used. A value that is no table where a table is expected (``synth: 3``)
 is an error, whatever a higher layer writes over it.
@@ -378,6 +378,47 @@ split out of each origin before the settings are validated, so ``flows.nextpnr.i
 collides with a ``nextpnr`` setting. What a node's inputs come from does change its identity: the
 same flow with the same settings has another hashed run directory when another producer feeds it
 (see :doc:`run-directories`).
+
+**Related inputs.** Some inputs of one flow belong together. ``vivado_postsynth_sim`` reads a
+netlist and the SDF that annotates it, so its ``netlist``, ``netlist_timing`` and ``sdf`` have to
+come from one producer. ``vivado_power`` reports power on a routed checkpoint with the activity of
+a simulation, so its ``checkpoint`` has to come from the synthesis whose netlist that simulation
+read. A flow declares such a relation on the input (``xeda list-flows --json`` shows it as
+``same_producer_as``, with ``via`` when the relation goes through the flow that makes the other
+input). A plan that takes the related inputs from different producers is refused before anything
+runs. The error names the inputs, where each comes from and the
+``-s flows.<flow>.inputs.<input>=<producer>.<output>`` bindings that make them agree. The rule
+compares what xeda generates: a file that you list in ``rtl.sources`` is your own choice and is
+not compared. A chain request is judged on declarations only, so ``vivado_alt_synth`` is listed
+before ``vivado_power`` and ``vivado_alt_synth.checkpoint_route+vivado_power`` passes the chain
+check, but planning then refuses it until the simulation's inputs are bound too. To report power
+on the alternative synthesis, bind the inputs of both flows to it:
+
+.. code-block:: yaml
+
+    # alt_power.yaml
+    name: alt_power
+    rtl:
+      sources: [top.v]
+      top: top
+      clock:
+        port: clk
+    tb:
+      sources: [tb.sv]
+      top: tb
+      uut: dut
+    flows:
+      vivado_alt_synth:
+        fpga: {part: xc7a35tcpg236-1}
+        clock: {period: 5.0}
+      vivado_postsynth_sim:
+        inputs:
+          netlist: vivado_alt_synth.netlist
+          netlist_timing: vivado_alt_synth.netlist_timing
+          sdf: vivado_alt_synth.sdf
+      vivado_power:
+        inputs:
+          checkpoint: vivado_alt_synth.checkpoint_route
 
 **Where a binding can be given.** From the lowest rank to the highest: a project file, the
 design file, the command line (a chain, ``-s flows.<consumer>.inputs.<input>=<reference>``, or

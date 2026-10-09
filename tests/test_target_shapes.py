@@ -79,29 +79,20 @@ KNIGHT_TB = {"top": "knight_tb", "sources": ["knight_tb.v"]}
 #: (id, the design's fragment, the target's fragment, the flat fragment).
 # fmt: off
 SHAPES = [
-    # ---- the design's clock: a port name, a table, `clock_port`, or `clocks`
+    # ---- the design's clock: a port name, a table, or `clocks`
     ("clock: name then table", rtl(clock="CLK"), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
     ("clock: table then name", rtl(clock={"port": "CLK", "name": "sys"}), rtl(clock="CLK2"), rtl(clock={"port": "CLK2", "name": "sys"})),
     ("clock: table then table", rtl(clock={"port": "CLK"}), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
     ("clock: name then name", rtl(clock="CLK"), rtl(clock="CLK2"), rtl(clock="CLK2")),
-    ("clock: name then clock_port", rtl(clock="CLK"), rtl(clock_port="CLK2"), rtl(clock="CLK2")),
-    ("clock: clock_port then name", rtl(clock_port="CLK"), rtl(clock="CLK2"), rtl(clock="CLK2")),
-    ("clock: clock_port then clock_port", rtl(clock_port="CLK"), rtl(clock_port="CLK2"), rtl(clock_port="CLK2")),
-    ("clock: clock_port then table", rtl(clock_port="CLK"), rtl(clock={"name": "sys"}), rtl(clock={"port": "CLK", "name": "sys"})),
-    ("clock: table then clock_port", rtl(clock={"port": "CLK", "name": "sys"}), rtl(clock_port="CLK2"), rtl(clock={"port": "CLK2", "name": "sys"})),
     ("clock: name then clocks", rtl(clock="CLK"), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
     ("clock: table then clocks", rtl(clock={"port": "CLK"}), rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "A"}, {"port": "B"}])),
-    ("clock: clock_port then clocks", rtl(clock_port="CLK"), rtl(clocks=[{"port": "A"}]), rtl(clocks=[{"port": "A"}])),
     ("clock: clocks then clocks", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clocks=[{"port": "C"}]), rtl(clocks=[{"port": "C"}])),
     # the target's singular spelling refines the design's first clock, as a flow's `clock` does
     ("clock: clocks then name", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock="C"), rtl(clocks=[{"port": "C"}, {"port": "B"}])),
-    ("clock: clocks then clock_port", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock_port="C"), rtl(clocks=[{"port": "C"}, {"port": "B"}])),
     ("clock: table then null", rtl(clock={"port": "CLK"}), rtl(clock=None), rtl(clock=None)),
     ("clock: table then empty table", rtl(clock={"port": "CLK"}), rtl(clock={}), rtl(clocks=[])),
     ("clock: clocks then empty clocks", rtl(clocks=[{"port": "A"}]), rtl(clocks=[{}]), rtl(clocks=[])),
     ("clock: clocks then null", rtl(clocks=[{"port": "A"}, {"port": "B"}]), rtl(clock=None), rtl(clocks=[])),
-    ("clock: name then empty clock_port", rtl(clock="CLK"), rtl(clock_port=""), rtl(clock_port="")),
-    ("clock: clocks then empty clock_port", rtl(clocks=[{"port": "A"}]), rtl(clock_port=""), rtl(clocks=[])),
     ("clock: null then name", rtl(clock=None), rtl(clock="CLK"), rtl(clock="CLK")),
     ("clock: one clocks then table", rtl(clocks=[{"port": "A"}]), rtl(clock={"name": "sys"}), rtl(clocks=[{"port": "A", "name": "sys"}])),
     # ---- the testbench: top, cocotb, and the `test`/`tests` spellings
@@ -214,11 +205,11 @@ FLOW_SHAPES = [
     ("threads: ncpus then nthreads", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
     ("threads: nthreads then ncpus", VivadoSynth, {"fpga": PART, "nthreads": 2}, {"ncpus": 4}, {"fpga": PART, "nthreads": 4}),
     ("warnings: warn_error then werror", GhdlSim, {"warn_error": True}, {"werror": False}, {"werror": False}),
-    ("clock: period then table", VivadoSynth, {"fpga": PART, "clock_period": 10}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
-    ("clock: table then period", VivadoSynth, {"fpga": PART, "clock": {"freq": "200MHz"}}, {"clock_period": 5}, {"fpga": PART, "clock_period": 5}),
+    ("clock: period then freq", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
+    ("clock: freq then period", VivadoSynth, {"fpga": PART, "clock": {"freq": "200MHz"}}, {"clock": {"period": 5}}, {"fpga": PART, "clock": {"period": 5}}),
     ("clock: clock then clocks", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clocks": {"main_clock": {"uncertainty": "100ps"}}}, {"fpga": PART, "clock": {"period": 10, "uncertainty": "100ps"}}),
     ("clock: clocks then clock", VivadoSynth, {"fpga": PART, "clocks": {"sys": {"port": "clk", "period": 10}}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clocks": {"sys": {"port": "clk", "freq": "200MHz"}}}),
-    ("clock: period then period", VivadoSynth, {"fpga": PART, "clock_period": 10}, {"clock_period": 5}, {"fpga": PART, "clock_period": 5}),
+    ("clock: period then period", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"period": 5}}, {"fpga": PART, "clock": {"period": 5}}),
 ]
 # fmt: on
 
@@ -288,35 +279,60 @@ def test_a_null_clocks_below_is_reported_whatever_the_layer_above_writes(tmp_pat
 
 
 @pytest.mark.parametrize("clock", [0, False, [], 3, ["x"], True])
-@pytest.mark.parametrize("spelling", ["clock", "clock_port"])
-def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(
-    tmp_path, spelling, clock
-):
-    """A number silently meant no clock, because falsy clocks were dropped. `clock_port` takes a
-    port name alone, but an empty one (`""`, `null`) is no clock."""
+def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(tmp_path, clock):
+    """A number silently meant no clock, because falsy clocks were dropped."""
     with pytest.raises(DesignValidationError) as raised:
-        Design.from_file(write_design(tmp_path, overlay(BASE, rtl(**{spelling: clock}))))
-    assert f"rtl.{spelling}:" in str(raised.value), raised.value
+        Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clock=clock))))
+    assert "rtl.clock:" in str(raised.value), raised.value
 
 
+@pytest.mark.parametrize("value", ["CLK", "", None, {"port": "A"}])
 @pytest.mark.parametrize(
-    "clock_port", [{"port": "A"}, {"name": "n", "port": "A"}, {}, {"port": ""}]
+    "where, at",
+    [
+        ("design", "rtl.clock_port"),
+        ("flat design", "rtl.clock_port"),
+        ("selected target", "targets.bad.rtl.clock_port"),
+        ("unselected target", "targets.bad.rtl.clock_port"),
+        ("flat target", "targets.bad.clock_port"),
+        ("dotted target", "targets.bad.rtl.clock_port"),
+    ],
 )
-@pytest.mark.parametrize("where", ["design", "selected target", "unselected target"])
-def test_a_clock_port_is_a_port_name_and_no_table(tmp_path, clock_port, where):
-    """A table is `clock`'s form: `clock_port` is the compatibility spelling of a port name, as
-    the schema and the message say."""
-    key = "clock_port"
+def test_clock_port_was_removed_wherever_it_is_written(tmp_path, value, where, at):
+    """The design's `clock_port` is refused with its replacement, at the key as written, in the
+    design, in its flat form and in a target's overlay, selected or not."""
     if where == "design":
-        data, target, at = overlay(BASE, rtl(**{key: clock_port})), None, "rtl"
+        data = overlay(BASE, rtl(clock_port=value))
+    elif where == "flat design":
+        data = {**BASE, "clock_port": value}
+        data.pop("rtl", None)
+        data.update(BASE["rtl"])
     else:
-        data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": rtl(**{key: clock_port})}}
-        target = "bad" if where == "selected target" else "good"
-        at = "targets.bad.rtl"
+        bad = (
+            {"clock_port": value}
+            if where == "flat target"
+            else {"rtl.clock_port": value} if where == "dotted target" else rtl(clock_port=value)
+        )
+        data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": bad}}
+    target = "good" if where == "unselected target" else "bad" if "target" in where else None
     with pytest.raises(DesignValidationError) as raised:
         Design.from_file(write_design(tmp_path, data), target=target)
-    assert f"{at}.{key}:" in str(raised.value), raised.value
-    assert "a port name" in str(raised.value), raised.value
+    assert f"{at}:" in str(raised.value), raised.value
+    assert "`clock_port` was removed: use `clock: <port>`" in str(raised.value), raised.value
+
+
+def test_clock_port_was_removed_also_beside_an_rtl_section(tmp_path):
+    data = {**BASE, "clock_port": "CLK"}
+    with pytest.raises(
+        DesignValidationError, match="`clock_port` was removed: use `clock: <port>`"
+    ):
+        Design.from_file(write_design(tmp_path, data))
+
+
+@pytest.mark.parametrize("overrides", [{"clock_port": "CLK"}, {"rtl": {"clock_port": "CLK"}}])
+def test_clock_port_was_removed_in_the_design_overrides(tmp_path, overrides):
+    with pytest.raises(DesignValidationError, match="`clock_port` was removed"):
+        Design.from_file(write_design(tmp_path, BASE), overrides=overrides)
 
 
 @pytest.mark.parametrize("clocks", [[False], [0], [[]], [{"port": "A"}, False], 3, False])
@@ -337,12 +353,12 @@ def test_an_empty_table_is_no_clock(tmp_path, fragment):
     assert design.rtl.clocks == [] and design.rtl.clock is None
 
 
-@pytest.mark.parametrize("spelling", ["clock", "clock_port", "clocks"])
+@pytest.mark.parametrize("spelling", ["clock", "clocks"])
 @pytest.mark.parametrize("selected", [False, True], ids=["unselected", "selected"])
 def test_a_target_clock_that_is_no_clock_is_reported_at_the_key_written_in_the_target(
     tmp_path, spelling, selected
 ):
-    """`clock` and `clock_port` are no fields, but a target's overlay is judged as the design is:
+    """`clock` is no field, but a target's overlay is judged as the design is:
     where it is written, whether or not the target is selected."""
     value = [False] if spelling == "clocks" else 3
     data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": rtl(**{spelling: value})}}
@@ -369,10 +385,9 @@ def test_a_target_s_parameters_given_as_generics_are_reported_as_written(tmp_pat
     assert "targets.bad.rtl.generics:" in str(raised.value), raised.value
 
 
-@pytest.mark.parametrize("spelling", ["clock", "clock_port"])
 @pytest.mark.parametrize("none", [None, ""])
-def test_an_absent_clock_is_no_clock(tmp_path, spelling, none):
-    design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(**{spelling: none}))))
+def test_an_absent_clock_is_no_clock(tmp_path, none):
+    design = Design.from_file(write_design(tmp_path, overlay(BASE, rtl(clock=none))))
     assert design.rtl.clocks == [] and design.rtl.clock is None
 
 
@@ -664,7 +679,7 @@ FLOW_OVERRIDES = [
     ("fpga: speed over a part", VivadoSynth, {"fpga": PART}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
     ("fpga: part over a table", VivadoSynth, {"fpga": {"part": PART, "speed": -2}}, {"fpga": "xc7a100tcsg324-1"}, {"fpga": {"part": "xc7a100tcsg324-1", "speed": -2}}),
     ("threads: nthreads over ncpus", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
-    ("clock: table over a period", VivadoSynth, {"fpga": PART, "clock_period": 10}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
+    ("clock: freq over a period", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
 ]
 # fmt: on
 
