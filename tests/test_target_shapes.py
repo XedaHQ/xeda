@@ -278,6 +278,15 @@ def test_a_malformed_lower_layer_is_reported_whatever_the_layer_above_writes(tmp
         composed(VivadoSynth, design, {key: higher})
 
 
+def test_a_null_clocks_below_is_reported_whatever_the_layer_above_writes(tmp_path):
+    """`clocks` takes a table, and `null` is no form of one: it is reported at `clocks`, not
+    replaced by the table of a layer above."""
+    section = {"fpga": PART, "clocks": None}
+    design = Design.from_file(write_design(tmp_path, {**BASE, "flows": {"vivado_synth": section}}))
+    with pytest.raises(FlowSettingsError, match="clocks"):
+        composed(VivadoSynth, design, {"clocks": {"main": {"period": 10}}})
+
+
 @pytest.mark.parametrize("clock", [0, False, [], 3, ["x"], True])
 @pytest.mark.parametrize("spelling", ["clock", "clock_port"])
 def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(

@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from collections.abc import Mapping
-from typing import Annotated, Any, Callable, ClassVar, Dict, Optional, Union
+from typing import Annotated, Any, Dict, Optional, Union
 
-from ..dataclass import Field, XedaBaseModel, field_validator, model_validator, unspecified
+from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
 from ..design import Clock, Design
 from ..units import convert_unit
 from ..utils import first_key, first_value
@@ -212,8 +211,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         """base Synthesis flow settings"""
 
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
-
-        field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"clocks": unspecified}
 
         @classmethod
         def __get_pydantic_json_schema__(cls, core_schema, handler):

@@ -353,8 +353,9 @@ WHOLE = _Whole()
 
 def unspecified(value: Any) -> Any:
     """A `field_shorthands` entry for a field that takes `None` to say that nothing is given
-    (`flows:` with no table, `clocks: null`): the value is `WHOLE`, so it replaces what is below
-    it as it always has."""
+    (`flows:` with no table): the value is `WHOLE`, so it replaces what is below it as it always
+    has. A field that does not take `None` declares none: a `None` there is no form of a table,
+    and is reported."""
     return WHOLE if value is None else None
 
 

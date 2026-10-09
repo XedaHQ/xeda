@@ -35,6 +35,7 @@ from xeda.dataclass import (
     nested_model,
     shape_problems,
     table_entries,
+    unspecified,
 )
 from xeda.design import DesignValidationError, RtlSettings
 from xeda.flow import FlowSettingsError
@@ -153,6 +154,16 @@ def problems_of_the_forms() -> list[str]:
                     "reads as a mistake: add its `as_mapping` or `field_shorthands` entry"
                 )
                 continue
+            if (
+                value is None
+                and mapping_form(model, name, None) is WHOLE
+                and outcome[0] == "refused"
+            ):
+                problems.append(
+                    f"{model.__qualname__}.{name} reads `None` as a valid form ({where}), and the "
+                    "field refuses it: a layer above would hide it"
+                )
+                continue
             form = mapping_form(model, name, value)
             if isinstance(form, Mapping):
                 again = validated(model, name, dict(form))
@@ -185,6 +196,15 @@ def test_the_sweep_finds_a_form_that_has_no_table(monkeypatch):
     monkeypatch.setattr(dataclass_module, "mapping_form", forgetting_the_part_number)
     monkeypatch.setattr(sys.modules[__name__], "mapping_form", forgetting_the_part_number)
     assert any("fpga" in problem and "accepts" in problem for problem in problems_of_the_forms())
+
+
+def test_the_sweep_finds_a_null_that_is_declared_valid_and_refused(monkeypatch):
+    """`unspecified` is for a field that takes `None`: `clocks` takes a table alone."""
+    from xeda.dataclass import unspecified
+
+    monkeypatch.setattr(SynthFlow.Settings, "field_shorthands", {"clocks": unspecified})
+    found = [problem for problem in problems_of_the_forms() if "clocks" in problem]
+    assert found and all("reads `None` as a valid form" in problem for problem in found), found
 
 
 def test_the_sweep_finds_a_field_shorthand_that_was_dropped(monkeypatch):
@@ -337,7 +357,13 @@ def test_no_module_converts_a_part_number_or_a_port_by_itself():
     assert not spelled, f"use FPGA.as_mapping or Clock.as_mapping: {spelled}"
 
 
-class _SettingsWithAForm(SynthFlow.Settings):
+class _SettingsWithABaseForm(SynthFlow.Settings):
+    """A flow's settings that declare the form of `clocks` (a flow's own would not)."""
+
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {"clocks": unspecified}
+
+
+class _SettingsWithAForm(_SettingsWithABaseForm):
     """A flow's settings that declare a form of their own and repeat none of their base's."""
 
     table: Dict[str, Any] = Field({}, description="a table that takes a text as its one key")
@@ -357,7 +383,7 @@ class _Rtl(RtlSettings):
 
 
 def test_a_subclass_adds_its_forms_to_those_of_its_bases():
-    """`SynthFlow` declares the form of `clocks`: a subclass that declares another keeps it."""
+    """A base declares the form of `clocks`: a subclass that declares another keeps it."""
     assert mapping_form(_SettingsWithAForm, "clocks", None) is WHOLE
     assert mapping_form(_SettingsWithAForm, "table", "x") == {"text": "x"}
     assert set(field_shorthands_of(_SettingsWithAForm)) == {"clocks", "table"}
