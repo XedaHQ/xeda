@@ -67,7 +67,7 @@ for name in sys.argv[2:]:
     path.write_text(CONTENTS[path.suffix])
 """
 
-XILINX = {"fpga": "xc7a12tcsg325-1", "clock_period": 10.0}
+XILINX = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}}
 
 
 class Generated:
@@ -83,7 +83,7 @@ class Generated:
             "rtl": {
                 "sources": writes if sources is None else sources,
                 "top": "top",
-                "clock_port": "clk",
+                "clock": "clk",
                 "generator": {
                     "executable": sys.executable,
                     "args": ["gen.py", str(self.counter), *writes],

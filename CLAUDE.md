@@ -1132,8 +1132,8 @@ a pattern keeps its own path when its suffix gives a type). Nothing deferred: th
 load, used once. Otherwise the declared request is resolved with `identify_design=False` (no
 content hash; `PlanContext.design_hash` is empty and the plan is never registered, so
 `_validate_plan` refuses it) and refused as a launch would refuse it (`_refuse_planned`,
-`_refuse_unaccepted_plan`; the remote's preflight, which judges no run directory: the remote
-builds), then the design is loaded in full. Not judged early, so judged after generation as
+`_refuse_unaccepted_plan`; the remote's preflight, which judges no run directory because the
+remote builds), then the design is loaded in full. Not judged early, so judged after generation as
 before (`DeferredLoad.complete` false): an untyped source pattern, which can add source files only
 (its files have no type until they exist), and a Git dependency, which can add sources, a top and
 a testbench. A declared design that fails to load is loaded in full only when a file it names was

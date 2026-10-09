@@ -335,9 +335,9 @@ Every launch path (`run`, `--dry-run`, `--remote`, `dse`) first judges the reque
 declared design (the generator's sources as `rtl.sources` declares them, typed, existing or
 not), so a refusal that needs only declarations comes before the generator runs. This holds when
 the declared design is complete. If it is not (an untyped source pattern, a Git dependency, or a
-file that only the generator writes), the request is judged after the generator, as before. A file
-that a setting names and that xeda reads to check it (`custom_boards_file`, a platform file) must
-exist before the generator runs.
+file that only the generator writes), the request is judged after the generator, as before. When
+the declared design is complete, a file that a setting names and that xeda reads to check it
+(`custom_boards_file`, a platform file) must exist before the generator runs.
 Freshness is not evaluated in a plan.
 `--dry-run --remote` is refused.
 

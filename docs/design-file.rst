@@ -381,7 +381,8 @@ read, a testbench without its top, a setting that the flow does not have, a run 
 flow cannot work in. This holds for ``xeda run``, ``--dry-run``, ``--remote`` and ``xeda dse``
 (with ``--remote``, the build is on the remote host, so xeda does not judge a run directory).
 A setting that names a file that xeda reads to check the setting (``custom_boards_file``, a
-platform file) is checked at this point too, so that file must exist before the generator runs.
+platform file) is checked at this point too, so that file must exist before the generator runs
+(for a design that says enough before its generator has run; see the cases below).
 The generator may still rewrite that file, but it cannot be the only step that creates it.
 Some designs say too little before their generator has run, and xeda then judges the request
 after the generator, as it did before: a design with a pattern in ``rtl.sources`` whose suffix
