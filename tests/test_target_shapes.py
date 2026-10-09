@@ -351,6 +351,17 @@ def test_a_target_clock_that_is_no_clock_is_reported_at_the_key_written_in_the_t
     assert f"targets.bad.rtl.{spelling}:" in str(raised.value), raised.value
 
 
+@pytest.mark.parametrize("name", ["clock", "clock_port"])
+def test_a_target_attribute_named_like_a_clock_gets_the_generic_message(tmp_path, name):
+    """The wording of a clock's error is chosen by where the key is, not by its last word."""
+    data = {**BASE, "targets": {"bad": rtl(attributes={name: 3})}}
+    with pytest.raises(DesignValidationError) as raised:
+        Design.from_file(write_design(tmp_path, data), target="bad")
+    message = str(raised.value)
+    assert f"targets.bad.rtl.attributes.{name}:" in message, message
+    assert "takes a table or a short form of one" in message, message
+
+
 def test_a_target_s_parameters_given_as_generics_are_reported_as_written(tmp_path):
     data = {**BASE, "targets": {"good": {}, "bad": rtl(generics=None)}}
     with pytest.raises(DesignValidationError) as raised:

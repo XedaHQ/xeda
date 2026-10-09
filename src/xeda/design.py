@@ -2521,9 +2521,10 @@ class Design(XedaBaseModel):
         # where it is written whether or not the target is selected.
         for path, value in shape_problems(cls, folded):
             if input_names(cls).get(path[0]) != "flow":  # a `flows` table is judged on its own
+                # the design's clock, not any key of that name (an `rtl.attributes` entry)
                 takes = (
                     RtlSettings.clock_expected(path[-1])
-                    if path[-1] in ("clock", "clock_port")
+                    if path in (("rtl", "clock"), ("rtl", "clock_port"))
                     else "a table or a short form of one"
                 )
                 raise invalid(".".join(path), f"takes {takes}, not {value!r:.60}")
