@@ -1675,9 +1675,13 @@ dependency must also share `custom_boards_file`.
   declares `reads_sources` and selects with `sources_read()`**, the one selection (it raises a
   `TypeError` for a flow that declares none); `reads_sources = None` means the flow reads only its
   declared inputs (`fpga_pack`, `nextpnr`, `openfpgaloader`, `openroad` -- its `Sdc` sources come
-  through its optional `sdc` input, as `nextpnr`'s do -- and `vivado_power`).
-  `tests/test_source_contracts.py` scans each flow's code (its MRO's classes and their modules'
-  module-level code, minus `JUDGING_METHODS`: `check_design_supported` and what it asks) and the
+  through its optional `sdc` input, as `nextpnr`'s do -- `vivado_impl` -- its `Xdc` and `Sdc`
+  sources come through its optional `constraints` input, its netlist through `netlist` -- and
+  `vivado_power`). `tests/test_source_contracts.py` scans each flow's code (its MRO's classes, the
+  module-level statements of their modules, and the module-level helpers that code reaches by name,
+  through imports and through other helpers: `flow_source_reads`. A helper that the flow never
+  calls is not its code: `vivado_impl` shares a module with `vivado_synth` and does not call its
+  `constraint_files`. Minus `JUDGING_METHODS`: `check_design_supported` and what it asks) and the
   templates it renders (`test_design_parts.reachable_templates`): a flow with a read of the design's
   sources must declare, a declaring flow must call `sources_read`, and any other read
   (`sources_of_type`, `sim_sources`, `.rtl.sources`, ..., called or taken as a method) must be

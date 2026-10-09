@@ -11,6 +11,7 @@ the design's sources declares what it reads, and selects it with `Flow.sources_r
 declaration is what the tool gets. A flow that declares nothing reads only its declared inputs."""
 
 import ast
+import importlib.util
 import inspect
 import re
 import sys
@@ -113,7 +114,14 @@ EXPECTED_READS = {
     "bsc_sim": "Bluespec Verilog SystemVerilog C Cpp ObjectFile",
 }
 #: The flows that read none of the design's sources: each reads only its declared inputs.
-READS_NO_SOURCE = ["fpga_pack", "nextpnr", "openfpgaloader", "openroad", "vivado_power"]
+READS_NO_SOURCE = [
+    "fpga_pack",
+    "nextpnr",
+    "openfpgaloader",
+    "openroad",
+    "vivado_impl",
+    "vivado_power",
+]
 REFUSED = [
     (flow, member, part)
     for flow, accepted in EXPECTED_READS.items()
@@ -726,7 +734,7 @@ HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
 #: an entry whose read is gone fails `test_every_reviewed_direct_read_is_still_there`.
 REVIEWED_DIRECT_READS: dict[str, str] = {
     "xeda.flows.vivado.vivado_synth:constraint_files: sources": "the Xdc and Sdc sources, "
-    "which both flows that call it (`vivado_synth`, `vivado_alt_synth`) declare",
+    "which every flow that calls it (`vivado_synth`, `vivado_alt_synth`, `vivado_project`) declares",
     "xeda.flows.bsc:BscSim._tb_top: sources": "whether the design has a testbench at all, which "
     "decides the module simulated",
     "xeda.flows.bsc:BscSim.run: sources": "which of the Bluespec sources `sources_read` selected "
@@ -744,24 +752,36 @@ REVIEWED_DIRECT_READS: dict[str, str] = {
     "tell a VHDL `std.env.stop` in the log from a Verilog `$stop`",
 }
 
+DEFINITIONS = (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+
 TEMPLATE_SELECTION = re.compile(r"\bsources_read\s*\(")
 TEMPLATE_DIRECT = re.compile(
     r"\b(sources_of_type|sim_sources_of_type|sim_sources|header_dirs)\b|\.sources\b"
 )
 
 
-def python_source_reads(source: str, skip_classes=()) -> list[tuple[str, int, str]]:
+def python_source_reads(
+    source: str, skip_classes=(), skip_functions=(), module_level: bool = True
+) -> list[tuple[str, int, str]]:
     """Where the Python in `source` reads the design's sources, as `(qualified name, line,
     what)`, `what` being `SELECTION` or the name of a direct read. Reads inside a
     `JUDGING_METHODS` method are not counted; top-level classes in `skip_classes` (other flows'
-    classes in the same module) are not visited."""
+    classes in the same module) and top-level functions in `skip_functions` (helpers the flow
+    does not reach) are not visited, and neither are the module's other top-level statements
+    unless `module_level`."""
     tree = ast.parse(source)
     found: list[tuple[str, int, str]] = []
     skip = set(skip_classes)
+    skip_defs = set(skip_functions)
 
     class Visitor(ast.NodeVisitor):
         def __init__(self) -> None:
             self.scope: list[str] = []
+
+        def visit_Module(self, node: ast.Module) -> None:
+            for statement in node.body:
+                if module_level or isinstance(statement, DEFINITIONS):
+                    self.visit(statement)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
             if node in tree.body and node.name in skip:
@@ -771,7 +791,7 @@ def python_source_reads(source: str, skip_classes=()) -> list[tuple[str, int, st
             self.scope.pop()
 
         def visit_FunctionDef(self, node) -> None:
-            if node.name in JUDGING_METHODS:
+            if node.name in JUDGING_METHODS or (node in tree.body and node.name in skip_defs):
                 return
             self.scope.append(node.name)
             self.generic_visit(node)
@@ -808,23 +828,172 @@ def template_source_reads(text: str) -> list[tuple[int, str]]:
     return found
 
 
+def _package(module_name: str) -> str:
+    """The package that a relative import in `module_name` is relative to."""
+    module = sys.modules.get(module_name)
+    if module is not None:
+        return module.__package__ or ""
+    return module_name.rpartition(".")[0]
+
+
+def _loaded_source(module_name: str) -> str | None:
+    """The source of an imported module of the package, or None for any other."""
+    module = sys.modules.get(module_name)
+    if module is None or not module_name.startswith("xeda."):
+        return None
+    try:
+        return inspect.getsource(module)
+    except (OSError, TypeError):
+        return None
+
+
+class _Module:
+    """One parsed module: its top-level functions and what it imports."""
+
+    def __init__(self, name: str, source: str, load) -> None:
+        self.name = name
+        self.tree = ast.parse(source)
+        self.functions = {
+            node.name: node
+            for node in self.tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        #: a name the module imports -> the module and the name it imports it as
+        self.names: dict[str, tuple[str, str]] = {}
+        #: a name the module gives to another module of the package: `from . import helpers`
+        self.modules: dict[str, str] = {}
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.ImportFrom):
+                base = self._absolute(node)
+                for alias in node.names if base else ():
+                    local = alias.asname or alias.name
+                    if load(f"{base}.{alias.name}") is not None:
+                        self.modules[local] = f"{base}.{alias.name}"
+                    else:
+                        self.names[local] = (base, alias.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.asname and load(alias.name) is not None:
+                        self.modules[alias.asname] = alias.name
+
+    def _absolute(self, node: ast.ImportFrom) -> str:
+        if not node.level:
+            return node.module or ""
+        try:
+            return importlib.util.resolve_name(
+                "." * node.level + (node.module or ""), _package(self.name)
+            )
+        except (ImportError, ValueError):
+            return ""
+
+
+def _uses(node: ast.AST):
+    """What the code of `node` refers to, as `(qualifier, name)`: `(None, "f")` for `f`,
+    `("m", "f")` for `m.f`. A `JUDGING_METHODS` method hands no tool anything, so what only it
+    calls is not reached."""
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            if current.name in JUDGING_METHODS:
+                continue
+        if isinstance(current, ast.Name):
+            yield None, current.id
+        elif isinstance(current, ast.Attribute) and isinstance(current.value, ast.Name):
+            yield current.value.id, current.attr
+        stack.extend(ast.iter_child_nodes(current))
+
+
+def flow_source_reads(
+    sources: dict[str, str], classes: dict[str, set[str]], load=_loaded_source
+) -> list[tuple[str, int, str]]:
+    """Every read of the design's sources by the Python of one flow, as `(module:qualified
+    name, line, what)`. `sources` maps the modules of the flow's classes to their text and
+    `classes` to the names of those classes in them. The flow's code is its classes, the
+    module-level statements of their modules (which run when the module is imported), and the
+    module-level functions that code reaches: by their name, through the module's own functions
+    and through the modules it imports them from (`load` gives an imported module's text), and
+    through the functions those call. Another flow's class in a flow's module, and a helper that
+    no code of the flow reaches (`VivadoSynth` calls `constraint_files`, `VivadoImpl` in the
+    same module does not), are no part of it."""
+    parsed: dict[str, _Module | None] = {}
+
+    def module(name: str) -> _Module | None:
+        if name not in parsed:
+            text = sources[name] if name in sources else load(name)
+            parsed[name] = _Module(name, text, load) if text is not None else None
+        return parsed[name]
+
+    reached: dict[str, set[str]] = {}
+    pending: list[tuple[str, ast.AST]] = []
+
+    def reach(owner: str, node: ast.AST) -> None:
+        """Mark what the code of `node`, in module `owner`, calls, and queue it."""
+        here = module(owner)
+        assert here is not None
+        for qualifier, name in _uses(node):
+            target: tuple[str, str] | None = None
+            if qualifier is None and name in here.functions:
+                target = (owner, name)
+            elif qualifier is None and name in here.names:
+                target = here.names[name]
+            elif qualifier in here.modules:
+                target = (here.modules[qualifier], name)
+            there = module(target[0]) if target else None
+            if there is None or target is None or target[1] not in there.functions:
+                continue
+            if target[1] not in reached.setdefault(target[0], set()):
+                reached[target[0]].add(target[1])
+                pending.append((target[0], there.functions[target[1]]))
+
+    for name in sources:
+        here = module(name)
+        assert here is not None
+        for statement in here.tree.body:
+            if isinstance(statement, ast.ClassDef):
+                if statement.name in classes.get(name, ()):
+                    reach(name, statement)
+            elif not isinstance(statement, DEFINITIONS):
+                reach(name, statement)
+    while pending:
+        owner, node = pending.pop()
+        reach(owner, node)
+
+    found = []
+    for name in sorted({*sources, *reached}):
+        here = module(name)
+        assert here is not None
+        text = sources[name] if name in sources else load(name)
+        assert text is not None
+        own = classes.get(name, set())
+        found += [
+            (f"{name}:{where}", line, what)
+            for where, line, what in python_source_reads(
+                text,
+                skip_classes={
+                    n.name
+                    for n in here.tree.body
+                    if isinstance(n, ast.ClassDef) and n.name not in own
+                },
+                skip_functions=set(here.functions) - reached.get(name, set()),
+                module_level=name in sources,
+            )
+        ]
+    return found
+
+
 def source_reads(cls: type[Flow]) -> list[tuple[str, int, str]]:
-    """Every read of the design's sources by `cls`'s code -- the classes of its MRO and the code
-    of their modules outside any class -- and by the templates it can render, as `(where, line,
-    what)`: `where` is `module:qualified name`, or `template <name>`. `Flow` itself, which holds
-    the contract (the selection, its template global and the check), is no flow's code."""
+    """Every read of the design's sources by `cls`'s code -- the classes of its MRO, the code
+    of their modules outside any class, and the helpers that code reaches
+    (`flow_source_reads`) -- and by the templates it can render, as `(where, line, what)`:
+    `where` is `module:qualified name`, or `template <name>`. `Flow` itself, which holds the
+    contract (the selection, its template global and the check), is no flow's code."""
     names_by_module: dict[str, set[str]] = {}
     for klass in _mro(cls):
         if klass is not Flow:
             names_by_module.setdefault(klass.__module__, set()).add(klass.__name__)
-    found = []
-    for module_name, names in sorted(names_by_module.items()):
-        source = inspect.getsource(sys.modules[module_name])
-        defined = {node.name for node in ast.parse(source).body if isinstance(node, ast.ClassDef)}
-        found += [
-            (f"{module_name}:{where}", line, what)
-            for where, line, what in python_source_reads(source, defined - names)
-        ]
+    sources = {name: inspect.getsource(sys.modules[name]) for name in names_by_module}
+    found = flow_source_reads(sources, names_by_module)
     for name, text in sorted(reachable_templates(cls).items()):
         found += [(f"template {name}", line, what) for line, what in template_source_reads(text)]
     return found
@@ -870,6 +1039,114 @@ def test_the_scan_sees_each_way_of_reading_the_design_s_sources():
     ]:
         assert template_source_reads(line) == [(1, expected)], line
     assert not template_source_reads("{{ design.rtl.top }} {{ settings.sdc_files }}")
+
+
+HELPERS = """
+def reads(design):
+    return design.rtl.sources
+
+
+def reads_through(design):
+    return reads(design)
+
+
+def reads_unused(design):
+    return design.tb.sources
+
+
+class Calling:
+    def run(self):
+        return reads(self.design)
+
+
+class Chained:
+    def run(self):
+        return reads_through(self.design)
+
+
+class Idle:
+    def run(self):
+        return self.design.rtl.top
+
+
+class Judging:
+    @classmethod
+    def check_design_supported(cls, design):
+        return reads(design)
+"""
+
+
+def test_the_scan_counts_a_module_helper_for_the_flows_that_reach_it_only():
+    """A helper in a flow's module is that flow's code only if the flow's code reaches it, so
+    one flow in a module does not answer for another's helper, and a flow that does call it is
+    still held to the review."""
+
+    def reads_of(name: str) -> list[tuple[str, int, str]]:
+        return flow_source_reads({"m": HELPERS}, {"m": {name}}, load=lambda _: None)
+
+    assert reads_of("Calling") == [("m:reads", 3, "sources")]
+    assert reads_of("Chained") == [("m:reads", 3, "sources")], "through another helper"
+    assert reads_of("Idle") == []
+    assert reads_of("Judging") == [], "a judging method hands a tool nothing"
+    # a module-level statement runs on import, so what it calls is reached
+    statement = HELPERS + "TABLE = {'read': reads}\n"
+    assert flow_source_reads({"m": statement}, {"m": {"Idle"}}) == [("m:reads", 3, "sources")]
+
+
+def test_the_scan_follows_a_helper_through_the_module_it_is_imported_from():
+    helpers = "def reads(design):\n    return design.rtl.sources\n\n\ndef idle(design):\n    return design.tb.sources\n"
+    modules = {"pkg.helpers": helpers, "pkg.sub.other": "def reads(design):\n    return 1\n"}
+    for importing, calling in {
+        "from ..helpers import reads": "reads(self.design)",
+        "from ..helpers import reads as read": "read(self.design)",
+        "from .. import helpers": "helpers.reads(self.design)",
+        "import pkg.helpers as helpers": "helpers.reads(self.design)",
+    }.items():
+        flow = f"{importing}\n\n\nclass Calling:\n    def run(self):\n        return {calling}\n"
+        found = flow_source_reads(
+            {"pkg.sub.flow": flow}, {"pkg.sub.flow": {"Calling"}}, modules.get
+        )
+        assert found == [("pkg.helpers:reads", 2, "sources")], importing
+    # the same name in a module the flow does not import from is not its helper
+    flow = "from .other import reads\n\n\nclass Calling:\n    def run(self):\n        return reads(1)\n"
+    assert not flow_source_reads({"pkg.sub.flow": flow}, {"pkg.sub.flow": {"Calling"}}, modules.get)
+
+
+def test_a_helper_of_a_shared_module_is_the_code_of_the_flows_that_call_it():
+    """`VivadoSynth`, `VivadoAltSynth` and `VivadoProject` call `constraint_files`, which reads
+    the Xdc and Sdc sources; `VivadoImpl` shares a module and a base class with the first, calls
+    it not, and takes its constraints through a declared input."""
+    helper = "xeda.flows.vivado.vivado_synth:constraint_files"
+    for name, calls in {
+        "vivado_synth": True,
+        "vivado_alt_synth": True,
+        "vivado_project": True,
+        "vivado_impl": False,
+    }.items():
+        places = {where for where, _, _ in source_reads(registered_flows[name][1])}
+        assert (helper in places) is calls, name
+
+
+def test_a_flow_that_gains_a_call_of_that_helper_is_found_again():
+    """The converse, on the real code: `VivadoImpl` with a class that calls `constraint_files`
+    reads the design's sources, and so would need to declare what it reads."""
+    cls = registered_flows["vivado_impl"][1]
+    names: dict[str, set[str]] = {}
+    for klass in _mro(cls):
+        if klass is not Flow:
+            names.setdefault(klass.__module__, set()).add(klass.__name__)
+    sources = {name: inspect.getsource(sys.modules[name]) for name in names}
+    assert not flow_source_reads(sources, names)
+    module = cls.__module__
+    sources[module] += (
+        "\n\nfrom .vivado_synth import constraint_files\n\n\n"
+        "class Probe:\n    def run(self):\n        return constraint_files(self, self.settings)\n"
+    )
+    names[module].add("Probe")
+    found = flow_source_reads(sources, names)
+    assert [(where, what) for where, _, what in found] == [
+        ("xeda.flows.vivado.vivado_synth:constraint_files", "sources")
+    ]
 
 
 def test_the_scan_reaches_a_flow_s_templates_and_its_bases_code():

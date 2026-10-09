@@ -152,10 +152,10 @@ flow reads; for the `yosys_fpga` that `nextpnr` plans, and only when nothing els
 it, the error adds that a `JsonNetlist` source would replace it. One source of a type the flow reads
 is enough, a constraint file included, so an `.edf` with an `.xdc` still plans for `vivado_synth`.
 Flows that read the testbench (simulators, `bsc`, `vivado_project`) also check `tb.sources`.
-C/C++ files are never refused. `nextpnr`, `openroad`, `fpga_pack`, `openfpgaloader` and
-`vivado_power` read no design source directly, only their declared inputs (a producer's output or
-a typed source, such as `Sdc` files). Headers reach include/search paths; no source type name
-becomes a tool command.
+C/C++ files are never refused. `nextpnr`, `openroad`, `fpga_pack`, `openfpgaloader`, `vivado_impl`
+and `vivado_power` read no design source directly, only their declared inputs (a producer's output
+or a typed source, such as `Sdc` or `Xdc` files). Headers reach include/search paths; no source
+type name becomes a tool command.
 
 The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
 with a settings error naming the file to rename.

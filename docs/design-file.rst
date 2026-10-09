@@ -243,11 +243,11 @@ constraint file included. An ``.edf`` file together with an ``.xdc`` file theref
 for ``vivado_synth``, which reads only the constraints. A flow that reads the testbench (every
 simulator, ``bsc`` and ``vivado_project``) checks ``tb.sources`` too; the others check
 ``rtl.sources``. A C or C++ file is never refused: it is a driver or a helper that another flow
-may read. ``nextpnr``, ``openroad``, ``fpga_pack``, ``openfpgaloader`` and ``vivado_power`` read
-no design source themselves: each takes what it reads through its declared inputs, from a
-producer or from a typed source (``openroad`` and ``nextpnr`` take the design's ``Sdc`` files
-that way). Headers reach include/search paths; no template turns a source type's name into a
-tool command.
+may read. ``nextpnr``, ``openroad``, ``fpga_pack``, ``openfpgaloader``, ``vivado_impl`` and
+``vivado_power`` read no design source themselves: each takes what it reads through its declared
+inputs, from a producer or from a typed source (``openroad`` and ``nextpnr`` take the design's
+``Sdc`` files that way, and ``vivado_impl`` its ``Xdc`` and ``Sdc`` files). Headers reach
+include/search paths; no template turns a source type's name into a tool command.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files; it rejects a ``.bh``
