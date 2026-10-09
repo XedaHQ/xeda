@@ -154,7 +154,7 @@ def test_remote_mirrors_into_hashed_run_directories(sqrt, monkeypatch):
     result, document = _run(str(sqrt), "--remote", "host", "--json")
     assert result.exit_code == 0 and document["success"]
     assert _RecordingRemoteRunner.settings_seen == [
-        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": False}
+        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": False, "debug": False}
     ]
 
 
@@ -165,7 +165,7 @@ def test_remote_rebuild_all_is_a_local_generator_escape(sqrt, monkeypatch):
     result, document = _run(str(sqrt), "--remote", "host", "--rebuild-all", "--json")
     assert result.exit_code == 0 and document["success"]
     assert _RecordingRemoteRunner.settings_seen == [
-        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": True}
+        {"outputs_to": None, "overwrite_outputs": False, "rebuild_all": True, "debug": False}
     ]
 
 

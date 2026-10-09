@@ -6,6 +6,7 @@ a later launcher without `debug` did not put it back.
 """
 
 import logging
+from pathlib import Path
 from collections.abc import Iterator
 
 import pytest
@@ -60,8 +61,9 @@ def _launch_recording(tmp_path, monkeypatch, debug: bool, fail: bool = False) ->
     runner = DefaultRunner(tmp_path / "run", display_results=False, debug=debug)
     try:
         runner.launch_flow(VivadoSynth, _design(), dict(SETTINGS))
-    except RuntimeError:
-        assert fail
+    except RuntimeError as error:
+        # the one the patched `run()` raises: any other is a failure of the launch itself
+        assert fail and str(error) == "the flow stops here", error
     return seen
 
 
@@ -201,3 +203,57 @@ def test_a_remote_launch_logs_at_debug_when_asked(tmp_path, monkeypatch) -> None
         runner.run_remote(_design(), "vivado_synth", "nowhere")
     assert seen == [True]
     assert logging.getLogger("xeda").level == logging.NOTSET
+
+
+class _RecordingLauncher:
+    """Stands in for a launcher the command line builds: it records the settings it is given."""
+
+    given: list = []
+    target = None
+    design_name = None
+
+    def __init__(self, *args, **settings):
+        self.given.append(settings)
+
+    def run_remote(self, *args, **kwargs):
+        return {"success": True, "run_path": "/remote/run"}
+
+    def run(self, *args, **kwargs):
+        return None
+
+
+@pytest.mark.parametrize("where", ["command", "group"])
+def test_the_command_line_hands_its_debug_option_to_the_remote_runner(
+    where, tmp_path, monkeypatch
+) -> None:
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+    from xeda.flow_runner import remote
+
+    sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(remote, "RemoteRunner", _RecordingLauncher)
+    _RecordingLauncher.given = []
+    args = ["run", "vivado_synth", str(sqrt), "--remote", "host", "--json"]
+    args = ["--debug", *args] if where == "group" else [*args, "--debug"]
+    CliRunner().invoke(cli, args, catch_exceptions=False)
+    assert [given.get("debug") for given in _RecordingLauncher.given] == [True]
+
+
+@pytest.mark.parametrize("where", ["command", "group"])
+def test_the_command_line_hands_its_debug_option_to_the_search(
+    where, tmp_path, monkeypatch
+) -> None:
+    from click.testing import CliRunner
+
+    from xeda import cli as cli_module
+
+    sqrt = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_module, "Dse", _RecordingLauncher)
+    _RecordingLauncher.given = []
+    args = ["dse", "vivado_synth", "--design", str(sqrt), "--json"]
+    args = ["--debug", *args] if where == "group" else [*args, "--debug"]
+    CliRunner().invoke(cli_module.cli, args, catch_exceptions=False)
+    assert [given.get("debug") for given in _RecordingLauncher.given] == [True]

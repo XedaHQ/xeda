@@ -927,6 +927,7 @@ def run(
             outputs_to=outputs_to,
             overwrite_outputs=overwrite_outputs,
             rebuild_all=rebuild_all,
+            debug=debug,
         )
         if _interactive(json_flag):
             rl.confirm_overwrite = _prompt_overwrite
@@ -1396,10 +1397,8 @@ def dse(
         )
 
     if log_level is None:
-        log_level = (
-            logging.WARNING if options.quiet else logging.DEBUG if options.debug else logging.INFO
-        )
-    if options.debug:
+        log_level = logging.WARNING if options.quiet else logging.DEBUG if debug else logging.INFO
+    if debug:
         detailed_logs = True
     # No log file here: the exploration logs into its run root (`<root>/Logs`), which it makes
     # when it starts, once its settings have validated -- one log per exploration.
@@ -1433,7 +1432,7 @@ def dse(
             optimizer_class=optimizer,
             optimizer_settings=opt_settings,
             run_root=run_root,
-            debug=options.debug,
+            debug=debug,
             **dse_settings_dict,
         )
         best = dse.run(
