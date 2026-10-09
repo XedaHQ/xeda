@@ -32,6 +32,7 @@ from ..default_runner import (
     add_file_logger,
     get_flow_class,
     print_results,
+    remove_file_logger,
     run_directory_names,
 )
 from ..settings_layers import merge_layers
@@ -469,7 +470,7 @@ class Dse(FlowLauncher):
         # once the settings have validated and no deliverable names a location: an exploration
         # that fails at its input leaves none.
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        add_file_logger(self.run_root / "Logs", timestamp)
+        file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         best_json_path = self.run_root / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
         log.info("Best results are saved to %s", best_json_path)
 
@@ -668,4 +669,6 @@ class Dse(FlowLauncher):
                 timer.timedelta,
                 num_iterations,
             )
+            # the search's log is the search's: a later search of the process has its own
+            remove_file_logger(file_handler)
         return optimizer.best

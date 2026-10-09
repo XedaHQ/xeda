@@ -489,6 +489,7 @@ class _IdleFmax(FmaxOptimizer):
 
 
 def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     monkeypatch.chdir(tmp_path)
     (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
     design = Design(
@@ -549,3 +550,18 @@ def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
     assert optimizer.process_outcome(outcome, 0)
     assert optimizer.variations["synth.strategy"][0] == "Timing"  # the search promoted it
     assert FmaxOptimizer.default_variations == pristine  # ... in its own copy
+
+
+def test_a_search_leaves_no_log_handler_on_the_process(tmp_path, monkeypatch):
+    """The search logs to a file of its run root while it goes on. A handler left on the root
+    logger would take every later record of the process into that file, and keep it open."""
+    import logging
+
+    root = logging.getLogger()
+    before = list(root.handlers)
+    _idle_search(tmp_path / "one", monkeypatch)
+    assert root.handlers == before
+    (log_file,) = (tmp_path / "one" / "run" / "Logs").glob("xeda_*.log")
+    size = log_file.stat().st_size
+    logging.getLogger("xeda.after").warning("a record of the process, after the search")
+    assert log_file.stat().st_size == size
