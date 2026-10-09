@@ -414,6 +414,11 @@ def _identity(path: Path, follow: bool = True) -> Optional[tuple[int, int]]:
     return (st.st_dev, st.st_ino)
 
 
+def _reached_files(source: Path) -> set[tuple[int, int]]:
+    """The files a delivery of `source` reaches: the file at that name and the file it leads to."""
+    return {i for i in (_identity(source, follow=False), _identity(source)) if i is not None}
+
+
 class ReadInputs:
     """Every file the flows of a launch read: the design's files, the design
     and project file the launch was given, the file each read setting of any of its flows names
@@ -948,7 +953,22 @@ class Deliveries:
                 pairs = [(source, delivery.destination)]
             self.pending += [(delivery, src, dest, content_digest(src)) for src, dest in pairs]
 
-    def deliver(self, *, move: bool = False) -> list[Delivered]:
+    @staticmethod
+    def sources_reached(deliveries: Iterable[Deliveries]) -> Counter[tuple[int, int]]:
+        """How many noted files, over `deliveries` (those of every flow of a launch), reach each
+        file. A noted file reaches the file it is and the file it leads to (device and inode, so
+        two spellings of one name are one file): a file and a link to it count as one file, even
+        when the link is in another flow's run directory."""
+        return Counter(
+            file
+            for delivery in deliveries
+            for _delivery, src, _dest, _sha in delivery.pending
+            for file in _reached_files(src)
+        )
+
+    def deliver(
+        self, *, move: bool = False, reached: Optional[Counter[tuple[int, int]]] = None
+    ) -> list[Delivered]:
         """Copy each file `collect` noted to where it was named. A destination that is an input
         -- of any flow of the launch, all known by now -- is refused; one checked before the run
         that changed since is not replaced (`DeliveryError`, once the others are made); a file
@@ -961,9 +981,12 @@ class Deliveries:
         `move`: the caller deletes the run directory right after this call, so a file may leave it
         by rename instead of being copied (`_copy`). The caller decides it for each flow, never for
         the launch: a flow found up to date keeps its directory, and its trace vouches for its
-        outputs there. Only a file that no other delivery names is moved (`_movable`)."""
+        outputs there. Only a file that no other delivery names is moved (`_movable`). `reached` is
+        the count of the whole launch (`sources_reached`): a file that another flow's delivery
+        reaches, a link to it in that flow's run directory, is copied. Without it, only this
+        node's deliveries are counted."""
         self.delivered = []
-        movable = self._movable() if move else set()
+        movable = self._movable(reached) if move else set()
         changed: list[str] = []
         shared: list[str] = []
         late: list[tuple[Conflict, Path, _State, str]] = []
@@ -1028,18 +1051,20 @@ class Deliveries:
             )
         return self.delivered
 
-    def _movable(self) -> set[Path]:
+    def _movable(self, reached: Optional[Counter[tuple[int, int]]] = None) -> set[Path]:
         """The sources of the noted files that `deliver` may move: those that only one delivery
-        reaches. A file that two deliveries reach is copied every time: moving it for one would
-        leave nothing for the other. Each source counts by the file it is and by the file it leads
-        to (device and inode, so two spellings of one name are one source), which makes a file
-        and a link to it in the run directory one file."""
-        reached = [
-            (src, {i for i in (_identity(src, follow=False), _identity(src)) if i is not None})
+        reaches, in the whole launch (`reached`, `sources_reached`) or, without it, among this
+        node's. A file that two deliveries reach is copied every time: moving it for one would
+        leave nothing for the other, whichever flow's delivery is made first. Each source counts by
+        the file it is and by the file it leads to, which makes a file and a link to it one
+        file."""
+        if reached is None:
+            reached = Deliveries.sources_reached([self])
+        return {
+            src
             for _delivery, src, _dest, _sha in self.pending
-        ]
-        count = Counter(file for _src, files in reached for file in files)
-        return {src for src, files in reached if files and all(count[f] == 1 for f in files)}
+            if (files := _reached_files(src)) and all(reached[f] == 1 for f in files)
+        }
 
     def _move_into(self, source: Path, temporary: Path) -> bool:
         """Rename `source` over `temporary`, the placeholder `mkstemp` made in the destination's

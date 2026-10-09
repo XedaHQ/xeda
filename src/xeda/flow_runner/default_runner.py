@@ -1320,10 +1320,16 @@ class FlowLauncher:
             if policy.purges
         }
         first_error: Optional[Exception] = None
+        # A file moves only if exactly one delivery of the whole launch reaches it, so the files
+        # are counted before the first delivery is made: one flow's move must not leave another
+        # flow's artifact, a link to that file, nothing to read.
+        reached = (
+            Deliveries.sources_reached(d for _flow, d in deliveries) if deliver and purged else None
+        )
         for flow, delivery in deliveries if deliver else []:
             try:
                 with run_dir_lock(flow.run_path, self.run_root):
-                    flow.deliveries = delivery.deliver(move=id(flow) in purged)
+                    flow.deliveries = delivery.deliver(move=id(flow) in purged, reached=reached)
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
                 # `deliver()` records, and reports through `delivery.delivered`, whatever it
                 # copied before raising (an `OSError` partway through), so a `--json` reader still

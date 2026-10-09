@@ -1324,8 +1324,11 @@ stays true; `Deliveries.deliver(move=True)`): `_copy` renames the run's file ove
 placeholder (`_move_into`), then makes the copy's re-checks and digest check, then the final
 rename. A failure after the first rename puts the file back (`_discard`), never unlinks it; if
 that fails too, the error names the temporary. Only a regular file with `st_nlink == 1`, whose
-parent resolves inside the run directory and that no other delivery of the node names
-(`_movable`, by device and inode of the file and of what a link leads to) moves; anything else, and any `OSError` of the first rename
+parent resolves inside the run directory and that no other delivery of the whole launch reaches
+(`_movable`, by device and inode of the file and of what a link leads to, counted over every
+pending source of every flow before the first delivery: `Deliveries.sources_reached`, handed to
+`deliver(reached=)` by `_finish_launch`, so a consumer's link to a producer's delivered file
+makes the producer copy) moves; anything else, and any `OSError` of the first rename
 (another file system), copies. The remote runner copies (`run_remote` has no clean-up step and
 the CLI hands it neither option, so its local mirror is never purged), and `dse` delivers nothing. An existing file at a destination is replaced without asking only when it is
 xeda's own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode

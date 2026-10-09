@@ -1341,6 +1341,31 @@ def test_a_file_delivered_twice_is_copied_each_time(world):
     assert named.stat().st_ino != copied.stat().st_ino and not flow.run_path.exists()
 
 
+@pytest.mark.parametrize("link", ["absolute", "relative"])
+def test_a_file_that_a_later_flow_s_delivery_reaches_is_copied_by_the_flow_that_made_it(
+    world, link
+):
+    """A move is allowed only for a file that exactly one delivery of the whole launch reaches.
+    The consumer's artifact is a link to the file its producer delivers to a located destination.
+    The producer is delivered first, so moving its file would leave the consumer's delivery
+    nothing to read."""
+
+    def link_to_the_producer_s_file(wrapper):
+        produced = Path(os.path.abspath(wrapper.inputs.netlist))
+        target = produced if link == "absolute" else os.path.relpath(produced, wrapper.run_path)
+        (wrapper.run_path / "link.v").symlink_to(target)
+        wrapper.artifacts["linked"] = "link.v"
+
+    DURING_WRAPPER.append(link_to_the_producer_s_file)
+    launcher = _purging(world, outputs_to=world.user / "got")
+    flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
+    reached = world.user / "got" / "link.v"
+    assert (world.user / "net.v").read_text() == "net\n"
+    assert reached.read_text() == "net\n" and not reached.is_symlink()
+    assert {d.state for d in flow.deliveries} == {"delivered"}
+    assert not flow.run_path.exists() and not flow.producers[0].run_path.exists()
+
+
 @pytest.fixture
 def unit(tmp_path):
     """A run directory under a run root, and a directory to deliver into, without a launch."""

@@ -636,7 +636,8 @@ wrong or the run directory stays:
 * The file is in a directory outside the run directory, which a link inside the run directory
   leads to. A move would remove a file outside the run directory.
 * Two outputs reach the same file, for example a setting and ``--outputs-to``, or a file and a link
-  to it. Xeda copies it for each of them.
+  to it. Xeda copies it for each of them. This holds for the whole launch: when an output of one
+  flow is a link to a file that another flow delivers, both are copies.
 * The flow was found up to date. Its run directory is not deleted, and its trace still names the
   output there.
 
