@@ -74,15 +74,9 @@ def try_float(s: str):
 class Quartus(FpgaSynthFlow):
     """FPGA synthesis using Intel Quartus"""
 
-    quartus_sh = Tool(
-        executable="quartus_sh",
-        docker=Docker(
-            command=["quartus_wrapper", "quartus_sh"],
-            image="alterafpga/quartuspro-v25.3",
-            tag="20.1.0",
-            platform="linux/amd64",
-        ),  # pyright: ignore
-    )
+    #: made for each flow in `init()`: a tool holds the flow's settings (`dockerized`) and what it
+    #: learned about the program, neither of which belongs to the class
+    quartus_sh: Tool
 
     results_description = describe_results(
         "Fmax",
@@ -201,7 +195,16 @@ class Quartus(FpgaSynthFlow):
         )
 
     def init(self) -> None:
-        # FIXME only a proof of concept. Tool instantiation/invocation needs to change!
+        self.quartus_sh = Tool(
+            executable="quartus_sh",
+            flow=self,
+            docker=Docker(
+                command=["quartus_wrapper", "quartus_sh"],
+                image="alterafpga/quartuspro-v25.3",
+                tag="20.1.0",
+                platform="linux/amd64",
+            ),  # pyright: ignore
+        )
         if self.quartus_sh.docker:
             # Nothing of the design goes into `mounts`, which are mounted writable: a tool built
             # in a flow mounts the design read-only, per run (`Tool.execute`).

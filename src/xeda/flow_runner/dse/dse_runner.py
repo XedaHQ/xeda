@@ -32,7 +32,9 @@ from ..default_runner import (
     add_file_logger,
     get_flow_class,
     print_results,
+    remove_file_logger,
     run_directory_names,
+    with_debug_logging,
 )
 from ..settings_layers import merge_layers
 from ..resolver import Plan
@@ -93,12 +95,23 @@ class Optimizer:
         self.max_failed_iters: int = 2
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
-        self.variations: Dict[str, List[str]] = {}
+        self._variations: Dict[str, List[Any]] = {}
 
         self.settings = settings if settings else self.Settings(**kwargs)
         self.improved_idx: Optional[int] = None  # ATM only used as a bool
         self.failed_fmax: Optional[float] = None  # failed due to negative slack
         self.best: Optional[FlowOutcome] = None
+
+    @property
+    def variations(self) -> Dict[str, List[Any]]:
+        """The choices the search tries for each setting, best first: the search promotes the
+        choices of a better run in place. It owns these lists: they are a copy of what it was
+        given (the class's default table, the caller's mapping), which stay as they were."""
+        return self._variations
+
+    @variations.setter
+    def variations(self, value: Dict[str, List[Any]]) -> None:
+        self._variations = deepcopy(value)
 
     def next_batch(self) -> Union[None, List[Dict[str, Any]]]: ...
 
@@ -267,6 +280,7 @@ class Dse(FlowLauncher):
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
 
+    @with_debug_logging
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -458,15 +472,14 @@ class Dse(FlowLauncher):
         # once the settings have validated and no deliverable names a location: an exploration
         # that fails at its input leaves none.
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        add_file_logger(self.run_root / "Logs", timestamp)
         best_json_path = self.run_root / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
-        log.info("Best results are saved to %s", best_json_path)
-
         flow_setting_hashes = set()
-
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         iterate = True
+        # nothing between opening the log and the `try` that closes it
+        file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         try:
+            log.info("Best results are saved to %s", best_json_path)
             with ProcessPool(max_workers=optimizer.max_workers) as pool:
                 while iterate:
                     cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())
@@ -640,21 +653,26 @@ class Dse(FlowLauncher):
             log.exception("Received exception: %s", e)
             traceback.print_exc()
         finally:
-            if pool:
-                pool.close()
-                pool.join()
-            if optimizer.best:
-                print_results(
-                    results=optimizer.best.results,
-                    title="Best results",
-                    subset=results_sub,
+            try:
+                if pool:
+                    pool.close()
+                    pool.join()
+                if optimizer.best:
+                    print_results(
+                        results=optimizer.best.results,
+                        title="Best results",
+                        subset=results_sub,
+                    )
+                    log.info("Best result were written to %s", best_json_path)
+                else:
+                    log.error("No successful runs!")
+                log.info(
+                    "Total execution time: %s  Number of iterations: %d",
+                    timer.timedelta,
+                    num_iterations,
                 )
-                log.info("Best result were written to %s", best_json_path)
-            else:
-                log.error("No successful runs!")
-            log.info(
-                "Total execution time: %s  Number of iterations: %d",
-                timer.timedelta,
-                num_iterations,
-            )
+            finally:
+                # the search's log is the search's: a later search of the process has its own, and
+                # this runs however the clean-up above ends
+                remove_file_logger(file_handler)
         return optimizer.best

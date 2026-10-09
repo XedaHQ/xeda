@@ -20,7 +20,6 @@ from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import cached_property
 from glob import escape as glob_escape
 from glob import glob
 from os.path import isfile
@@ -463,9 +462,12 @@ class FileResource:
     def path(self) -> Path:
         return self.file
 
-    @cached_property
+    @property
     def content_hash(self) -> str:
         """Hash of the file's content -- what a design is identified by.
+
+        The file is read each time: the content of a file that an application edits between two
+        launches of the same `Design` is the content at the launch, never the first one's.
 
         A file that is not there has no content and so no identity: the design cannot be
         hashed, cached or run. `{ path = ... }` defers the *check*, it does not waive it; by the

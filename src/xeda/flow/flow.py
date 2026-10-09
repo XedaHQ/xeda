@@ -1186,6 +1186,9 @@ class Flow(metaclass=ABCMeta):
             if design.get("design_root") is None:
                 design["design_root"] = run_path
             design = Design(**design)
+        else:
+            # the flow's own copy, as a launched flow gets: some flows edit their design
+            design = design.model_copy(deep=True) if isinstance(design, Design) else design
         assert isinstance(design, Design), "design is not a Design object"
 
         self.design: Design = design
@@ -1207,6 +1210,9 @@ class Flow(metaclass=ABCMeta):
             settings = self.Settings.from_input(
                 settings, design_root=design.root_path, runner_cwd=runner_cwd
             )
+        elif isinstance(settings, Flow.Settings):
+            # the flow completes its settings (paths, clocks): the caller's are not its to change
+            settings = settings.model_copy(deep=True)
 
         assert isinstance(settings, self.Settings)
         if runner_cwd is None:

@@ -9,6 +9,7 @@ from xeda.flow import FPGA
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Quartus
 from xeda.flows.quartus import parse_csv, try_num
+from xeda.tool import Tool
 
 from .tool_utils import fake_calls, use_fake_tools
 
@@ -127,6 +128,61 @@ def test_quartus_records_bitstream_as_artifact(tmp_path, monkeypatch) -> None:
     assert not any("PROJECT_OUTPUT_DIRECTORY" in arg for call in calls for arg in call)
     assert (flow.run_path / "fake_quartus_sh.calls").exists(), "the project is in the run directory"
     assert flow.artifacts.bitstream == f"{design.name}.sof"
+
+
+def _quartus_processes(tmp_path, monkeypatch, **settings) -> list:
+    """The processes a launch of `quartus` starts, as (program, arguments): every start is
+    recorded and none is made, so what is judged is where the flow sends its tool."""
+    started: list = []
+
+    def record(executable, args=(), **kwargs):
+        started.append((executable, [str(a) for a in args]))
+        return ""
+
+    monkeypatch.setattr("xeda.tool.run_process", record)
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    flow = DefaultRunner(tmp_path / "run", display_results=False).launch_flow(
+        Quartus, design, dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0), **settings)
+    )
+    assert flow is not None and flow.quartus_sh is not None
+    return started
+
+
+def test_quartus_runs_its_tool_in_the_container_when_the_flow_is_dockerized(
+    tmp_path, monkeypatch
+) -> None:
+    """`dockerized` reaches `quartus_sh`: the tool is the flow's, made for its settings."""
+    started = _quartus_processes(tmp_path, monkeypatch, dockerized=True)
+    assert not [s for s in started if s[0] == "quartus_sh"], "quartus_sh ran natively"
+    in_container = [
+        args for program, args in started if program == "docker" and "quartus_wrapper" in args
+    ]
+    assert in_container and all("alterafpga/quartuspro-v25.3:20.1.0" in a for a in in_container)
+    assert any("-t" in args for args in in_container)
+
+
+def test_quartus_runs_its_tool_natively_when_the_flow_is_not_dockerized(
+    tmp_path, monkeypatch
+) -> None:
+    started = _quartus_processes(tmp_path, monkeypatch, dockerized=False)
+    assert [args for program, args in started if program == "quartus_sh"]
+    assert not [s for s in started if s[0] == "docker"]
+
+
+def test_every_launch_of_quartus_has_its_own_tool(tmp_path, monkeypatch) -> None:
+    """A tool holds what it learned about the program (its version, a container's CPU count): one
+    shared by every launch of the process would carry that from launch to launch."""
+    assert not isinstance(vars(Quartus).get("quartus_sh"), Tool)
+    monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
+    design = Design.from_file(EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml")
+    settings = dict(fpga=FPGA("10CL016YU256C6G"), clock=dict(period=6.0))
+    first = DefaultRunner(tmp_path / "one", display_results=False).launch_flow(
+        Quartus, design, settings
+    )
+    second = DefaultRunner(tmp_path / "two", display_results=False).launch_flow(
+        Quartus, design, settings
+    )
+    assert first.quartus_sh is not second.quartus_sh
 
 
 def test_quartus_synth_py(monkeypatch) -> None:

@@ -65,6 +65,7 @@ from .default_runner import (
     _refuse_outputs_to_a_programmer,
     get_flow_class,
     print_results,
+    with_debug_logging,
 )
 from .resolver import Plan
 from .run_lock import run_dir_lock
@@ -879,6 +880,7 @@ class RemoteRunner(FlowLauncher):
         #: local run in the default layout
         hashed_run_dirs: Literal[True] = True
 
+    @with_debug_logging
     def run_remote(
         self,
         design: Union[str, Path, Design],

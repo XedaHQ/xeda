@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import difflib
+import functools
 import importlib
 import json
 import logging
 import os
+import threading
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
@@ -161,6 +163,7 @@ __all__ = [
     "FlowRunner",
     "ProjectFileError",
     "add_file_logger",
+    "remove_file_logger",
     "get_flow_class",
     "print_results",
 ]
@@ -898,6 +901,72 @@ def _drop_unwritten_artifacts(flow: Flow) -> None:
     )
 
 
+class _DebugLogging:
+    """The launches of the process that run at DEBUG now, and the level of the `xeda` logger from
+    before the first of them. The state is the process's, so launchers on several threads share
+    it: the level is DEBUG from the first debug launch to the end of the last one."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.active = 0
+        #: the level to put back; `None` when no launch changed it (it was DEBUG or lower already)
+        self.previous: Optional[int] = None
+
+    def enter(self) -> None:
+        package = logging.getLogger("xeda")
+        with self.lock:
+            if self.active == 0:
+                level = package.level
+                if level == logging.NOTSET or level > logging.DEBUG:
+                    self.previous = level
+                    package.setLevel(logging.DEBUG)
+            self.active += 1
+
+    def leave(self) -> None:
+        package = logging.getLogger("xeda")
+        with self.lock:
+            self.active -= 1
+            if self.active == 0:
+                # a level the application set meanwhile is the application's: only ours is undone
+                if self.previous is not None and package.level == logging.DEBUG:
+                    package.setLevel(self.previous)
+                self.previous = None
+
+
+_DEBUG_LOGGING = _DebugLogging()
+
+
+@contextmanager
+def xeda_debug_logging(enabled: bool) -> Iterator[None]:
+    """DEBUG records from xeda's own loggers (`xeda.*`) while the block runs, when `enabled`, and
+    the logger's level as it was after. Nothing else changes: not the root logger, not the
+    handlers, so the logging of an application that embeds xeda stays its own. A block that is
+    not `enabled` touches nothing."""
+    if not enabled:
+        yield
+        return
+    _DEBUG_LOGGING.enter()
+    try:
+        yield
+    finally:
+        _DEBUG_LOGGING.leave()
+
+
+_Method = TypeVar("_Method", bound=Callable[..., Any])
+
+
+def with_debug_logging(method: _Method) -> _Method:
+    """A launcher method that logs at DEBUG for the length of the call when the launcher was
+    given `debug` (`xeda_debug_logging`)."""
+
+    @functools.wraps(method)
+    def wrapper(self: FlowLauncher, *args: Any, **kwargs: Any) -> Any:
+        with xeda_debug_logging(self.settings.debug):
+            return method(self, *args, **kwargs)
+
+    return cast(_Method, wrapper)
+
+
 class FlowLauncher:
     """
     Manage running flows and their dependencies, make-like: see `launch_flow`.
@@ -962,9 +1031,6 @@ class FlowLauncher:
             ensure_run_root(self._run_root, start=self._start, create=False) is not None
         )
         log.debug("%s run_root=%s", self.__class__.__name__, self._run_root)
-        if self.settings.debug:
-            log.setLevel(logging.DEBUG)
-            log.root.setLevel(logging.DEBUG)
         self.debug = self.settings.debug
         #: every flow launched through this launcher, dependencies included, in completion order
         self.launched: List[Flow] = []
@@ -1082,6 +1148,7 @@ class FlowLauncher:
         self.run_root
         return self.run_path_of(design_name, node_name, identity, target=target)
 
+    @with_debug_logging
     def resolve(
         self,
         flow_class: type[Flow],
@@ -1253,6 +1320,7 @@ class FlowLauncher:
                 raise FlowFatalError("The plan does not match this request's identity or path")
         return node
 
+    @with_debug_logging
     def launch_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -2237,6 +2305,7 @@ class FlowLauncher:
                     prune(run_path)
                 log.warning("Removed the following files: %s", " ".join(str(p) for p in removed))
 
+    @with_debug_logging
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
@@ -2403,6 +2472,7 @@ class FlowLauncher:
                 )
         require_no_bindings(layers, [NodeKey(requested.name)])
 
+    @with_debug_logging
     def run(
         self,
         flow: Union[Type[Flow], str],
@@ -2458,6 +2528,7 @@ class FlowLauncher:
         finally:
             self._request_context = previous
 
+    @with_debug_logging
     def plan(
         self,
         flow: type[Flow] | str,
@@ -2805,7 +2876,9 @@ class DefaultRunner(FlowRunner):
     """Executes a flow and its dependencies and then reports selected results"""
 
 
-def add_file_logger(logdir: Union[Path, str], timestamp: Union[str, datetime, None] = None):
+def add_file_logger(
+    logdir: Union[Path, str], timestamp: Union[str, datetime, None] = None
+) -> logging.Handler:
     if timestamp is None:
         timestamp = datetime.now()
     if not isinstance(timestamp, str):
@@ -2821,6 +2894,15 @@ def add_file_logger(logdir: Union[Path, str], timestamp: Union[str, datetime, No
     )
     fileHandler.setFormatter(logFormatter)
     log.root.addHandler(fileHandler)
+    return fileHandler
+
+
+def remove_file_logger(handler: Optional[logging.Handler]) -> None:
+    """Take a handler `add_file_logger` made off the root logger, and close its file: a search
+    that was given one for its run must not leave it to every later log record of the process."""
+    if handler is not None:
+        log.root.removeHandler(handler)
+        handler.close()
 
 
 class XedaOptions(XedaBaseModel):

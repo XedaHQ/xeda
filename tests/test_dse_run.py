@@ -6,6 +6,7 @@ launching real flow runs, the Fmax search, `best.json` written as the search imp
 `--json` document -- and checks what comes out is one consistent, re-runnable record.
 """
 
+import copy
 import json
 import os
 import shutil
@@ -469,3 +470,135 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
         _FmaxPlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
     )
     assert len(runner.optimizer.outcomes) >= 2
+
+
+class _IdleFmax(FmaxOptimizer):
+    """The Fmax search, stopped before its first batch: it has taken its variations, and no run
+    has started."""
+
+    def next_batch(self):
+        return None
+
+
+def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["a.v"], "top": "a", "clock": "clk"}
+    )
+    runner = Dse(
+        _IdleFmax,
+        optimizer_settings={"init_freq_low": 100.0, "init_freq_high": 200.0},
+        run_root=tmp_path / "run",
+        max_workers=1,
+        **dse_settings,
+    )
+    runner.run(
+        "vivado_alt_synth",
+        design,
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.0}},
+    )
+    return runner
+
+
+def test_a_search_reorders_its_own_variations_never_the_default_table(tmp_path, monkeypatch):
+    """A search promotes the choices of its best run to the front of its lists. The table of
+    default variations is the class's, and the next search in the process starts from it."""
+    pristine = copy.deepcopy(FmaxOptimizer.default_variations)
+    # on a copy of the table: a search that wrote to the real one would hand that to later tests
+    monkeypatch.setattr(FmaxOptimizer, "default_variations", copy.deepcopy(pristine))
+    runner = _idle_search(tmp_path, monkeypatch)
+    variations = runner.optimizer.variations
+    assert variations == pristine["vivado_alt_synth"]
+    for choices in variations.values():
+        choices.reverse()
+    assert FmaxOptimizer.default_variations == pristine
+    assert runner.optimizer.variations != pristine["vivado_alt_synth"]
+
+
+def test_a_search_reorders_its_own_variations_never_the_callers(tmp_path, monkeypatch):
+    given = {"synth.strategy": ["Timing", "ExtraTiming", "ExtraTimingAlt"]}
+    runner = _idle_search(tmp_path, monkeypatch, variations=given)
+    for choices in runner.optimizer.variations.values():
+        choices.reverse()
+    assert given == {"synth.strategy": ["Timing", "ExtraTiming", "ExtraTimingAlt"]}
+    assert runner.settings.variations == given
+
+
+def test_a_promotion_leaves_the_default_table_as_it_was(monkeypatch):
+    """The promotion itself: the best run's choices move to the front of the search's lists."""
+    from xeda.flow import Flow
+    from xeda.flow_runner.dse.dse_runner import FlowOutcome
+
+    pristine = copy.deepcopy(FmaxOptimizer.default_variations)
+    monkeypatch.setattr(FmaxOptimizer, "default_variations", copy.deepcopy(pristine))
+    optimizer = FmaxOptimizer(max_workers=2, init_freq_low=100.0, init_freq_high=200.0)
+    optimizer.variations = FmaxOptimizer.default_variations["vivado_alt_synth"]
+    optimizer.num_variations = 2  # reached when a search stalls
+    optimizer.variation_choices = [{"synth.strategy": 2, "impl.strategy": 3}]
+    results = Flow.Results()
+    results["Fmax"] = 150.0
+    results.success = True
+    outcome = FlowOutcome(settings=Flow.Settings(), results=results, timestamp=None, run_path=None)
+    assert optimizer.process_outcome(outcome, 0)
+    assert optimizer.variations["synth.strategy"][0] == "Timing"  # the search promoted it
+    assert FmaxOptimizer.default_variations == pristine  # ... in its own copy
+
+
+def test_a_search_leaves_no_log_handler_on_the_process(tmp_path, monkeypatch):
+    """The search logs to a file of its run root while it goes on. A handler left on the root
+    logger would take every later record of the process into that file, and keep it open."""
+    import logging
+
+    root = logging.getLogger()
+    before = list(root.handlers)
+    _idle_search(tmp_path / "one", monkeypatch)
+    assert root.handlers == before
+    (log_file,) = (tmp_path / "one" / "run" / "Logs").glob("xeda_*.log")
+    size = log_file.stat().st_size
+    logging.getLogger("xeda.after").warning("a record of the process, after the search")
+    assert log_file.stat().st_size == size
+
+
+def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_path, monkeypatch):
+    """A second Ctrl+C while the pool is joined ends the search from inside its clean-up. The
+    handler of the search's log is gone all the same."""
+    import logging
+
+    from xeda.flow_runner.dse import dse_runner
+
+    class SecondInterrupt(Exception):
+        pass
+
+    def join(self):
+        raise SecondInterrupt
+
+    monkeypatch.setattr(dse_runner.ProcessPool, "join", join)
+    root = logging.getLogger()
+    before = list(root.handlers)
+    with pytest.raises(SecondInterrupt):
+        _idle_search(tmp_path, monkeypatch)
+    left = [handler for handler in root.handlers if handler not in before]
+    root.handlers[:] = before  # a handler that was left must not outlive this test
+    assert left == []
+
+
+def test_a_search_removes_its_log_handler_when_its_set_up_fails(tmp_path, monkeypatch):
+    """The log is opened once the settings are valid; what the search sets up after that can
+    fail too, and the handler is not left behind by it."""
+    import logging
+
+    import psutil
+
+    def cpu_count(*args, **kwargs):
+        raise RuntimeError("no count of the processors")
+
+    monkeypatch.setattr(psutil, "cpu_count", cpu_count)
+    root = logging.getLogger()
+    before = list(root.handlers)
+    with pytest.raises(RuntimeError, match="no count of the processors"):
+        _idle_search(tmp_path, monkeypatch)
+    left = [handler for handler in root.handlers if handler not in before]
+    root.handlers[:] = before  # a handler that was left must not outlive this test
+    assert left == []

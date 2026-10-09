@@ -67,17 +67,14 @@ class Vcs(SimFlow):
         r"^(Information[:-])(.+)$": fg.GREEN + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
     }
 
-    vlogan = Tool("vlogan", version_flag=None, highlight_rules=highlight_rules)
-    vhdlan = Tool("vhdlan", version_flag=None, highlight_rules=highlight_rules)
-    vcs = Tool("vcs", highlight_rules=highlight_rules)
-    fsdb2vcd = Tool("fsdb2vcd", version_flag=None, highlight_rules=highlight_rules)
-    vpd2vcd = Tool(
-        "vpd2vcd",
-        default_args=["-full64", "-q"],
-        version_flag=None,
-        highlight_rules=highlight_rules,
-    )
-    simv = Tool("./simv", version_flag=None)
+    #: made for each flow in `init()`: a tool holds the flow's settings (`dockerized`, the
+    #: container) and what it learned about the program, neither of which belongs to the class
+    vlogan: Tool
+    vhdlan: Tool
+    vcs: Tool
+    fsdb2vcd: Tool
+    vpd2vcd: Tool
+    simv: Tool
 
     class Settings(SimFlow.Settings):
         simv_flags: List[str] = Field(
@@ -226,11 +223,28 @@ class Vcs(SimFlow):
             if ss.sdf_instance is None:
                 raise FlowSettingsException("SDF instance is required when SDF file is provided")
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
-        if not ss.ucli or (ss.ucli_script is None):  # non-interactive
-            self.simv.highlight_rules = self.highlight_rules
+        rules = self.highlight_rules
+        # none of the tools is asked for its version: VCS is not verified on a licensed release,
+        # and a start of `vcs --version` is no query this adapter has checked
+        self.vlogan = Tool("vlogan", self, version_flag=None, highlight_rules=rules)
+        self.vhdlan = Tool("vhdlan", self, version_flag=None, highlight_rules=rules)
+        self.vcs = Tool("vcs", self, version_flag=None, highlight_rules=rules)
+        self.fsdb2vcd = Tool("fsdb2vcd", self, version_flag=None, highlight_rules=rules)
+        self.vpd2vcd = Tool(
+            "vpd2vcd",
+            self,
+            default_args=["-full64", "-q"],
+            version_flag=None,
+            highlight_rules=rules,
+        )
         if ss.ucli_script:
-            ss.ucli = True
+            ss.ucli = True  # a user's script runs under UCLI
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
+        # a user's script drives simv: its output is the script's, not colored
+        driven_by_user = ss.ucli and ss.ucli_script is not None
+        self.simv = Tool(
+            "./simv", self, version_flag=None, highlight_rules=None if driven_by_user else rules
+        )
 
     def run(self):
         """Compile and simulate the design with VCS."""
