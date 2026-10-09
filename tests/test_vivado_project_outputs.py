@@ -21,7 +21,7 @@ import pytest
 
 from xeda import Design
 from xeda.digest import content_digest
-from xeda.flow import FPGA, FlowFatalError
+from xeda.flow import FPGA, FlowFatalError, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoSynth
@@ -411,6 +411,33 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
     # the functional netlist instantiates UNISIM primitives, the timing one SIMPRIM primitives
     libraries = [name for flag, name in zip(xelab, xelab[1:]) if flag == "-L" and name != "work"]
     assert libraries == (["simprims_ver"] if timing_sim else ["unisims_ver", "simprims_ver"])
+
+
+def test_postsynth_sim_refuses_a_testbench_source_it_cannot_read(tmp_path, monkeypatch) -> None:
+    """The simulation reads the testbench's sources beside the synthesized netlist, so a testbench
+    source in a language the Vivado simulator cannot read is refused, naming it, although the
+    synthesis (which reads only the RTL) accepts the design."""
+    use_fake_tools(monkeypatch)
+    root = tmp_path / "design"
+    _sqrt_with_an_hdl_testbench(root)
+    (root / "gen.bsv").write_text("package Gen; endpackage\n")
+    design = Design(
+        name="sqrt",
+        design_root=root,
+        rtl={"sources": [str(SQRT.parent / "sqrt.vhdl")], "top": "sqrt", "clock": {"port": "clk"}},
+        tb={"sources": ["tb_sqrt.vhd", "gen.bsv"], "top": "tb_sqrt", "uut": "uut"},
+    )
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "run").run_flow(
+            VivadoPostsynthSim,
+            design,
+            {},
+            all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
+        )
+    message = str(raised.value)
+    assert message.startswith("vivado_postsynth_sim cannot read the design's Bluespec source(s) ")
+    assert str(root / "gen.bsv") in message
+    assert not (tmp_path / "run").exists()
 
 
 @needs_tclsh

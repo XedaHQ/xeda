@@ -14,6 +14,7 @@ import pytest
 
 import xeda.flows  # noqa: F401  (registers every flow)
 from xeda import Design
+from xeda.design import SourceType
 from xeda.flow import FlowException, SimFlow
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, get_flow_class
@@ -36,6 +37,26 @@ def cocotb_design(tmp_path):
     design = Design.from_file(root / "sqrt.yaml")
     assert design.tb.cocotb
     return design
+
+
+def _readable_by(flow_class, design: Design, cocotb: bool = True) -> Design:
+    """`design` with its testbench cocotb's or not, and its VHDL unit replaced by a Verilog one
+    if the simulator does not read VHDL: it refuses a design with a source it cannot read."""
+    reads = flow_class.reads_sources
+    root = design.design_root
+    assert root is not None
+    if reads is None or SourceType.Vhdl in reads:
+        readable = design.model_copy(deep=True)
+    else:
+        (root / "sqrt_unit.v").write_text("module sqrt; endmodule\n")
+        readable = Design(
+            name=design.name,
+            design_root=root,
+            rtl={"sources": ["sqrt_unit.v"], "top": "sqrt"},
+            tb={"sources": [str(src.file) for src in design.tb.sources], "cocotb": True},
+        )
+    readable.tb.cocotb = cocotb
+    return readable
 
 
 def _minimal_required_settings(settings_model):
@@ -72,17 +93,19 @@ def test_a_simulator_without_cocotb_names_the_ones_with_it(flow_class, cocotb_de
 def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_design, tmp_path):
     """Every simulator runs or rejects a cocotb testbench."""
     flow_class = get_flow_class(flow_name)
+    # a design the simulator reads, so what it judges is the testbench
+    design = _readable_by(flow_class, cocotb_design)
     if flow_class.cocotb_sim_name:
-        flow_class.check_design_supported(cocotb_design)
+        flow_class.check_design_supported(design)
         return
     rejected = re.escape(f"{flow_name} cannot run cocotb tests; use one of: ")
     with pytest.raises(FlowException, match=rejected):
-        flow_class.check_design_supported(cocotb_design)
+        flow_class.check_design_supported(design)
     # and constructed directly, not launched
     with pytest.raises(FlowException, match=rejected):
         flow_class(
             settings=_minimal_required_settings(flow_class.Settings),
-            design=cocotb_design,
+            design=design,
             run_path=tmp_path / "run",
         )
 
@@ -90,10 +113,8 @@ def test_every_simulator_runs_or_rejects_a_cocotb_testbench(flow_name, cocotb_de
 @pytest.mark.parametrize("flow_name", SIM_FLOW_NAMES, ids=str)
 def test_every_simulator_runs_a_design_without_a_cocotb_testbench(flow_name, cocotb_design):
     """Every simulator runs a design without a cocotb testbench."""
-    design = cocotb_design.model_copy(deep=True)
-    design.tb.cocotb = False
-
-    get_flow_class(flow_name).check_design_supported(design)
+    flow_class = get_flow_class(flow_name)
+    flow_class.check_design_supported(_readable_by(flow_class, cocotb_design, cocotb=False))
 
 
 @pytest.mark.parametrize("flow_class", [Modelsim, Vcs], ids=lambda cls: cls.name)

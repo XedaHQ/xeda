@@ -54,6 +54,12 @@ class Openroad(AsicSynthFlow):
             output="netlist",
             description="Gate-level Verilog netlist from yosys, or a typed VerilogNetlist source.",
         )
+        sdc: list[Path] = In(
+            SourceType.Sdc,
+            optional=True,
+            description="SDC timing constraints in design-source order, read before the "
+            "constraints generated from `clocks` and before `sdc_files`.",
+        )
 
     merged_lib_file = "merged.lib"  # used by floorplan (restructure)
 
@@ -458,9 +464,7 @@ class Openroad(AsicSynthFlow):
 
         # yosys doesn't support SDC so we generate it here
         clocks_sdc = self.copy_from_template("clocks.sdc")
-        sdc_files = [
-            s.path for s in self.design.sources_of_type(SourceType.Sdc, rtl=True, tb=False)
-        ]
+        sdc_files = list(self.inputs.sdc or [])
         sdc_files.append(clocks_sdc)
         sdc_files += ss.sdc_files
         ss.sdc_files = sdc_files

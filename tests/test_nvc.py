@@ -4,13 +4,14 @@ from pathlib import Path
 
 import pytest
 
+from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nvc
 from xeda.flows.nvc import NvcTool
 
-from .test_ghdl import _evidence_design
-from .tool_utils import require_nvc_evidence
+from .test_ghdl import _evidence_design, _systemverilog_design, _vhdl_inverter
+from .tool_utils import require_nvc, require_nvc_evidence
 
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
@@ -511,3 +512,71 @@ def test_nvc_evidence_records_error_below_threshold_before_native_cutoff(
     assert flow.results["sim.ended_by"] == "stop_time"
     assert flow.results["sim.errors"] == 1
     assert flow.results["sim.time"] == 5_000_000
+
+
+def test_nvc_refuses_a_systemverilog_design_when_planned(tmp_path):
+    """NVC is given VHDL. A SystemVerilog source used to be passed over, and nvc ran with no file
+    to analyze. Now the plan refuses the design, naming the source and what NVC reads."""
+    design = _systemverilog_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsException) as raised:
+        runner.plan("nvc", design)
+    message = str(raised.value)
+    assert message.startswith("nvc cannot read the design's SystemVerilog source(s) "), message
+    assert str(tmp_path / "dut.sv") in message and message.endswith("it reads Vhdl")
+    assert not (tmp_path / "xeda_run").exists()
+
+
+@pytest.fixture
+def nvc_commands(monkeypatch) -> list[list[str]]:
+    """The arguments of every `nvc` command a flow runs."""
+    commands: list[list[str]] = []
+    original_run = NvcTool.run
+
+    def recording_run(self, *args, **kwargs):
+        commands.append([str(arg) for arg in args])
+        return original_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(NvcTool, "run", recording_run)
+    return commands
+
+
+def test_nvc_on_a_systemverilog_design_starts_no_nvc(tmp_path, nvc_commands):
+    """The refusal comes before the tool: no `nvc` command runs and no run directory is made."""
+    require_nvc()
+    design = _systemverilog_design(tmp_path)
+    with pytest.raises(FlowSettingsException, match="cannot read the design's SystemVerilog"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(Nvc, design)
+    assert nvc_commands == []
+    assert not (tmp_path / "xeda_run").exists()
+
+
+@pytest.mark.parametrize("one_shot", [True, False])
+def test_nvc_analyzes_the_vhdl_sources_in_design_order(tmp_path, nvc_commands, one_shot):
+    """RTL sources, then testbench sources, in the order the design lists them, in the one-shot
+    command and in the separate analysis. A source of a type NVC is not given (a constraint file)
+    is not analyzed."""
+    require_nvc_evidence()
+    for name, entity in (("b.vhd", "unit_b"), ("a.vhd", "unit_a")):
+        (tmp_path / name).write_text(_vhdl_inverter(entity))
+    (tmp_path / "pins.xdc").write_text("# a constraint\n")
+    (tmp_path / "tb.vhd").write_text(
+        "entity tb is end; architecture sim of tb is begin\n"
+        "process begin std.env.finish; wait; end process; end;\n"
+    )
+    design = Design(
+        name="order",
+        design_root=tmp_path,
+        rtl={"sources": ["b.vhd", "a.vhd", "pins.xdc"], "top": "unit_a"},
+        tb={"sources": ["tb.vhd"], "top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(
+        Nvc, design, {"one_shot": one_shot}
+    )
+    assert flow is not None and flow.succeeded
+    (analysis,) = [command for command in nvc_commands if "-a" in command]
+    files = [str(tmp_path / name) for name in ("b.vhd", "a.vhd", "tb.vhd")]
+    start = analysis.index("-a") + 1
+    assert analysis[start : start + len(files)] == files
+    assert not any("pins.xdc" in argument for argument in analysis)

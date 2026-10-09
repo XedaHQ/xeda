@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from ...dataclass import WORKING, Field, deliverable
-from ...design import DesignValidationError
+from ...design import DesignValidationError, SourceType
 from ...flow import FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
@@ -22,6 +22,9 @@ class VivadoSim(Vivado, SimFlow):
     bound across prerun and runtime, measured from xsim's actual current time. Verified with
     Vivado 2024.2.
     """
+
+    #: `xvlog` analyzes Verilog and SystemVerilog, `xvhdl` analyzes VHDL.
+    reads_sources = frozenset({SourceType.Verilog, SourceType.SystemVerilog, SourceType.Vhdl})
 
     results_description = describe_results(
         "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings", "sim.evidence"

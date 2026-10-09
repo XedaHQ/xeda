@@ -1876,7 +1876,10 @@ def test_remote_input_bindings_are_refused_before_connecting(
     monkeypatch.setattr(remote_module, "Connection", lambda **kwargs: connected.append(kwargs))
     binding = "__maker.made"
     flow = {flow_name: {"inputs": {"made": binding}}} if origin == "design" else {}
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"}, flow=flow)
+    (tmp_path / "t.vhd").write_text("entity t is end;\n")  # a source `ghdl_sim` reads
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["t.vhd"], "top": "t"}, flow=flow
+    )
     settings = {
         "design": None,
         "command_line": {"inputs.made": binding},
@@ -2048,8 +2051,9 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     plan = runner.plan(flow_name, design, flow_settings=settings)
     expected = plan.node(flow_name).flowrun_hash
     if flow_name == "openroad":
-        (resolved,) = plan.node("openroad").inputs
-        assert resolved.name == "netlist" and resolved.producer == "yosys"
+        netlist, sdc = plan.node("openroad").inputs
+        assert netlist.name == "netlist" and netlist.producer == "yosys"
+        assert sdc.name == "sdc" and sdc.origin == "none"
     results = runner.run_remote(design, flow_name, "fake", flow_settings=settings)
     assert results and results["success"], results
     assert results["flow_hash"] == expected

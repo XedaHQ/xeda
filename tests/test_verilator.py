@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
+import json
 from pathlib import Path
 
 import pytest
 
 from xeda import Design
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 
+from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
 
 TESTS_DIR = Path(__file__).parent.absolute()
@@ -438,8 +441,6 @@ def test_a_cocotb_toplevel_other_than_the_rtl_top_is_simulated(tmp_path):
 
 
 def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
-    from xeda.flow import FlowSettingsException
-
     (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
     (tmp_path / "tb_dut.py").write_text("")
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
@@ -455,3 +456,83 @@ def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
         flow = Verilator(settings, design, tmp_path / "run")
         with pytest.raises(FlowSettingsException, match=text):
             flow.init()
+
+
+SQRT_DESIGN = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
+
+
+def test_verilator_refuses_a_vhdl_design_when_planned(tmp_path):
+    """Verilator reads Verilog and SystemVerilog. A design with VHDL sources used to be handed to
+    it with the VHDL left out, and verilator failed with "No input Verilog file specified". Now
+    the plan refuses the design, naming the VHDL source and what Verilator reads."""
+    design = Design.from_file(SQRT_DESIGN)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsException) as raised:
+        runner.plan("verilator", design)
+    message = str(raised.value)
+    assert message.startswith("verilator cannot read the design's Vhdl source(s) "), message
+    assert str(SQRT_DESIGN.parent / "sqrt.vhdl") in message
+    assert "SystemVerilog" in message and "Verilog" in message
+    assert not (tmp_path / "xeda_run").exists()
+
+
+def test_xeda_run_verilator_on_a_vhdl_design_fails_with_the_refusal_not_the_tools_error(tmp_path):
+    """The command line reports the refusal, as `FlowSettingsException`, and starts no tool: no
+    run directory is made. Before, verilator ran and its exit status was the error
+    (`NonZeroExitCode`)."""
+    require_verilator()
+    run_root = tmp_path / "xeda_run"
+    proc = run_xeda(
+        "run", "verilator", SQRT_DESIGN.name, "--json", "--run-root", str(run_root),
+        cwd=SQRT_DESIGN.parent,
+    )  # fmt: skip
+    document = json.loads(proc.stdout)
+    assert proc.returncode != 0 and document["success"] is False
+    assert document["error"]["type"] == "FlowSettingsException"
+    assert "cannot read the design's Vhdl source(s)" in document["error"]["message"]
+    assert not run_root.exists()
+
+
+@pytest.fixture
+def commands(monkeypatch) -> list[list[str]]:
+    """Every command a tool would run, instead of running it."""
+    recorded: list[list[str]] = []
+
+    def record(executable, args=None, **kwargs):
+        recorded.append([str(executable), *(str(a) for a in args or [])])
+        return "" if kwargs.get("stdout") is True else None
+
+    monkeypatch.setattr("xeda.tool.run_process", record)
+    return recorded
+
+
+def test_verilator_is_handed_the_sources_it_reads_in_design_order(tmp_path, commands):
+    """The HDL and C++ sources of the RTL, then of the testbench, are on the command line in
+    design order. A header is found through its directory (`-I`), and a source of a type that
+    Verilator is not given (a constraint file) is not on the command line."""
+    files = {
+        "inc/defs.vh": "`define W 4\n",
+        "rtl/top.v": "module top; endmodule\n",
+        "pkg.sv": "package p; endpackage\n",
+        "pins.xdc": "# a constraint\n",
+        "tb inc/tb_defs.svh": "`define N 3\n",
+        "tb.sv": "module tb; endmodule\n",
+        "main.cpp": "int main() { return 0; }\n",
+    }
+    for name, text in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(text)
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["inc/defs.vh", "rtl/top.v", "pkg.sv", "pins.xdc"], "top": "top"},
+        tb={"sources": ["tb inc/tb_defs.svh", "tb.sv", "main.cpp"], "top": "tb"},
+    )
+    DefaultRunner(tmp_path / "xeda_run", display_results=False).run_flow(Verilator, design, {})
+    (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+    on_the_line = [a for a in command if a.startswith(str(tmp_path)) and not a.startswith("-")]
+    assert on_the_line == [str(tmp_path / f) for f in ("rtl/top.v", "pkg.sv", "tb.sv", "main.cpp")]
+    assert [a for a in command if a.startswith("-I")] == [
+        f"-I{tmp_path / 'inc'}",
+        f"-I{tmp_path / 'tb inc'}",
+    ]

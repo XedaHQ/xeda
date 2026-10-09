@@ -461,3 +461,68 @@ def test_modelsim_unknown_stop_requires_a_known_vhdl_break(replacement, tmp_path
     flow, _ = _run(tmp_path, monkeypatch)
     assert flow is not None and not flow.succeeded
     assert flow.results["sim.ended_by"] == "unknown"
+
+
+def _write_sources(root: Path, sources: dict[str, str]) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    for name, text in sources.items():
+        (root / name).write_text(text)
+
+
+@needs_tclsh
+def test_a_simulation_compiles_the_sources_it_reads_in_design_order(tmp_path, monkeypatch) -> None:
+    """The RTL sources, then the testbench's, each with its compiler in design order (a
+    SystemVerilog source with `-sv`). A source of a type ModelSim is not given (a constraint
+    file) is not compiled."""
+    root = tmp_path / "design"
+    _write_sources(
+        root,
+        {
+            "b.v": "module b; endmodule\n",
+            "a.vhd": "entity a is end;\n",
+            "pins.xdc": "# a constraint\n",
+            "tb.sv": "module tb; endmodule\n",
+        },
+    )
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["b.v", "a.vhd", "pins.xdc"], "top": "a"},
+        tb={"sources": ["tb.sv"], "top": "tb"},
+    )
+    flow, calls = _run(tmp_path, monkeypatch, design=design)
+    assert flow is not None and flow.succeeded
+    compiled = [
+        (call[0], Path(call[1]).name, "-sv" in call)
+        for call in calls
+        if call[0] in ("vlog", "vcom")
+    ]
+    assert compiled == [("vlog", "b.v", False), ("vcom", "a.vhd", False), ("vlog", "tb.sv", True)]
+
+
+def test_modelsim_refuses_a_chisel_source_when_planned(tmp_path, monkeypatch) -> None:
+    """ModelSim compiles Verilog, SystemVerilog and VHDL. A Chisel source used to be passed over
+    and the simulation ran without it. Now the design is refused, naming the source, before
+    anything is set up."""
+    use_fake_tools(monkeypatch)
+    root = tmp_path / "design"
+    _write_sources(
+        root,
+        {
+            "uut.vhd": "entity uut is end;\n",
+            "gen.sc": "object Gen\n",
+            "tb.v": "module tb; endmodule\n",
+        },
+    )
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": ["uut.vhd", "gen.sc"], "top": "uut"},
+        tb={"sources": ["tb.v"], "top": "tb"},
+    )
+    with pytest.raises(FlowSettingsException) as raised:
+        DefaultRunner(tmp_path / "run").run_flow(Modelsim, design, {})
+    message = str(raised.value)
+    assert message.startswith("modelsim cannot read the design's Chisel source(s) "), message
+    assert str(root / "gen.sc") in message
+    assert not (tmp_path / "run").exists()

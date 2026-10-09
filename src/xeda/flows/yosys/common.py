@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
-from ...design import SourceType
+from ...design import LANGUAGE_TYPES, SourceType
 from ...flow import Flow, FlowException, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
@@ -27,6 +27,20 @@ MINIMUM_YOSYS: YosysRelease = (0, 63)
 #: The newest yosys release whose synthesis passes the flags xeda generates were checked
 #: against. A newer yosys, or one whose version cannot be read, is taken to be this one.
 NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
+
+
+#: The design sources the shared read templates (`read_files.ys`, `read_files.tcl`) hand to
+#: yosys: Verilog and SystemVerilog to a reader (yosys' own, or a plugin's), VHDL to the GHDL
+#: plugin, and a header by its directory, as an include directory (`-I`).
+READ_SOURCE_TYPES = frozenset(
+    {
+        SourceType.Verilog,
+        SourceType.SystemVerilog,
+        SourceType.Vhdl,
+        SourceType.VerilogHeader,
+        SourceType.SVHeader,
+    }
+)
 
 
 #: What the stages after the RTL ones write, by the setting that asks for it. `stop_after: rtl`
@@ -188,6 +202,8 @@ class YosysBase(Flow):
     # Generic synthesis retains its historical minimum; FPGA pass flags have a separate floor.
     minimum_yosys: Optional[YosysRelease] = (0, 21)
 
+    reads_sources = READ_SOURCE_TYPES
+
     class Settings(Flow.Settings):
         log_file: Optional[Path] = Field(
             Path("yosys.log"),
@@ -335,7 +351,9 @@ class YosysBase(Flow):
         )
         top_is_vhdl: Optional[bool] = Field(
             None,
-            description="set to `true` to specify top module is VHDL, or `false` to override detection based on last source.",
+            description="set to `true` to specify top module is VHDL, or `false` to override "
+            "detection based on the last source in a hardware description language that the flow "
+            "reads.",
         )
         post_synth_rename: List[str] = Field(
             [], description='Flags passed to yosys\' `rename` after synthesis, e.g. ["-hide"].'
@@ -636,7 +654,11 @@ class YosysBase(Flow):
                 self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
 
     def top_is_vhdl(self) -> bool:
-        """Whether the top unit is VHDL: `top_is_vhdl`, or else whether the last source is.
+        """Whether the top unit is VHDL: `top_is_vhdl`, or else whether the last source in a
+        hardware description language that the flow reads is.
+
+        Only a source in such a language can hold the top: a constraint file, a memory image or a
+        header listed after it does not make the top something else.
 
         A VHDL top's generics reach yosys through GHDL (`-g<name>=<value>`), and the top GHDL
         elaborates has no parameters left to `chparam`. The design's own parameters stay as they
@@ -645,8 +667,8 @@ class YosysBase(Flow):
         assert isinstance(self.settings, self.Settings)
         if self.settings.top_is_vhdl is not None:
             return self.settings.top_is_vhdl
-        sources = self.design.rtl.sources
-        return bool(sources) and sources[-1].type is SourceType.Vhdl
+        units = [src for src in self.sources_read(rtl=True, tb=False) if src.type in LANGUAGE_TYPES]
+        return bool(units) and units[-1].type is SourceType.Vhdl
 
     def verbatim_path(self, path: str | os.PathLike[str]) -> str:
         """`path` as a `.ys` token for an argument yosys takes verbatim, quotes included.

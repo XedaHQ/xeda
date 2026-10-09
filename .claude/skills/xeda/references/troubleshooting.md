@@ -208,6 +208,14 @@ Flows that enforce timing fail on negative slack by default. If timing results l
 `wns`/`whs` in `results.json` and whether `fail_timing` (Vivado) or `timing_allow_fail` (nextpnr)
 was turned off.
 
+### `<flow> cannot read the design's Vhdl source(s) ...` / `<flow> reads none of the design's sources`
+
+Every flow that reads the design's sources declares the types it reads and refuses, at
+planning, a source in another hardware language (`verilator` reads no VHDL; `ghdl_sim`, `nvc` and
+`ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog) and a design with no source it
+reads. Pick a flow that reads the design's languages, or give the source its right `type`. A
+simulator judges `tb.sources` too. C/C++ files are never refused.
+
 ### Simulation passes but nothing ran
 
 Check `results.json`'s cocotb counts: `cocotb.tests` of 0 means no test was collected. Verify the

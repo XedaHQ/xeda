@@ -17,6 +17,7 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
+from xeda.design import SourceType
 from xeda.flow import FPGA
 from xeda.flows import Yosys, YosysFpga, YosysSim
 from xeda.flows.yosys.common import NEWEST_CHECKED_YOSYS, process_parameters
@@ -42,8 +43,10 @@ TCL_RESIDUE = {
 ATTRS: dict[str, Any] = {"keep": {"top": "true"}, "ram_style": {"mem": "block"}}
 
 
-def _render(flow_cls, settings: dict[str, Any], tmp_path: Path) -> str:
-    design = Design.from_file(RESOURCES_DIR / "design0/design0.toml")
+def _render(
+    flow_cls, settings: dict[str, Any], tmp_path: Path, design: Design | None = None
+) -> str:
+    design = design or Design.from_file(RESOURCES_DIR / "design0/design0.toml")
     flow = flow_cls(flow_cls.Settings(**settings), design, tmp_path)
     flow.init()  # registers the `esc` template filter and the netlist artifacts
     flow.artifacts.utilization_report = "reports/utilization.json"
@@ -560,3 +563,73 @@ def test_a_source_name_with_pattern_characters_reaches_yosys_escaped(
             [tclsh, str(check_script)], capture_output=True, text=True, check=True
         ).stdout.strip()
         assert logged == f"** Reading {root}/top[1].v **"
+
+
+def _vhdl_design(root: Path, *others: str) -> Design:
+    """A VHDL top with a generic, then `others` (files that are not VHDL) listed after it."""
+    root.mkdir(parents=True, exist_ok=True)
+    sources = ["inv.vhd", *others]
+    for name in sources:
+        (root / name).write_text("-- a source\n")
+    return Design(
+        name="inv",
+        design_root=root,
+        rtl={"sources": sources, "top": "inv", "clock_port": "clk", "parameters": {"W": 5}},
+    )
+
+
+@BOTH_FLOWS
+@BOTH_FORMATS
+@pytest.mark.parametrize("after", ["top.sdc", "pins.lpf", "rom.mem", "defs.vh"])
+def test_a_file_listed_after_a_vhdl_top_that_holds_no_design_unit_does_not_make_it_verilog(
+    flow_cls, script_format, after, tmp_path: Path
+) -> None:
+    """A VHDL top gets its generics from GHDL (`-gW=5`), and the elaborated top has no parameter
+    left: `chparam -set W 5 inv` fails with "Module `inv' is used with parameters but is not
+    parametric". The top is the last source in a hardware language that the flow reads, not the
+    last one listed: a constraint file, a memory image or a header is no top."""
+    design = _vhdl_design(tmp_path / "d", after)
+    settings = _settings_for(flow_cls, script_format=script_format)
+    script = _render(flow_cls, settings, tmp_path, design)
+    assert "ghdl" in script
+    assert "chparam" not in script
+
+
+@BOTH_FLOWS
+def test_a_verilog_top_listed_after_a_vhdl_file_still_gets_chparam(flow_cls, tmp_path: Path):
+    root = tmp_path / "d"
+    root.mkdir()
+    sources = ["pkg.vhd", "top.v", "top.sdc"]
+    for name in sources:
+        (root / name).write_text("// a source\n")
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": sources, "top": "top", "clock_port": "clk", "parameters": {"W": 5}},
+    )
+    assert "chparam -set W 5 top" in _render(flow_cls, _settings_for(flow_cls), tmp_path, design)
+
+
+@BOTH_FLOWS
+@BOTH_FORMATS
+def test_the_scripts_hand_yosys_the_sources_the_flow_reads_and_no_others(
+    flow_cls, script_format, tmp_path: Path, monkeypatch
+) -> None:
+    """A flow takes the design's sources through `sources_read`, which `reads_sources` decides:
+    one that reads no VHDL and no headers passes none to yosys, though the design lists them.
+    (A launch refuses the flow's unread languages first; this shows the selection itself.)"""
+    root = tmp_path / "d"
+    root.mkdir()
+    names = ["defs.vh", "top.v", "pkg.sv", "inv.vhd"]
+    for name in names:
+        (root / name).write_text("// a source\n")
+    design = Design(
+        name="top", design_root=root, rtl={"sources": names, "top": "top", "clock_port": "clk"}
+    )
+    monkeypatch.setattr(flow_cls, "reads_sources", frozenset({SourceType.Verilog}))
+    script = _render(
+        flow_cls, _settings_for(flow_cls, script_format=script_format), tmp_path, design
+    )
+    assert "top.v" in script
+    for passed_over in ("defs.vh", "pkg.sv", "inv.vhd", "ghdl", " -I"):
+        assert passed_over not in script, passed_over

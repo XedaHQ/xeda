@@ -360,7 +360,8 @@ def test_yosys_release(version, release):
 def test_only_fpga_synthesis_raises_the_yosys_minimum(tmp_path, monkeypatch):
     """The FPGA flag floor must not narrow generic synthesis or CXXRTL compatibility."""
     monkeypatch.setattr("xeda.flows.yosys.common.Tool", lambda **kwargs: SimpleNamespace(**kwargs))
-    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    (tmp_path / "d.v").write_text("module d; endmodule\n")  # `YosysSim` needs a source it reads
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["d.v"], "top": "d"})
     for flow_class, settings, expected in (
         (Yosys, Yosys.Settings(), (0, 21)),
         (YosysFpga, YosysFpga.Settings(fpga=TARGETS["ecp5"]), MINIMUM_YOSYS),

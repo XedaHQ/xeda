@@ -10,7 +10,7 @@ load_feature simulator
 set analyze_flags "-work {{settings.work_lib|tcl_quote}} {%- if settings.debug %} -verbose 2 {%- endif %} {{settings.analyze_flags|join(' ')}}"
 
 puts "\n===========================( Analyzing HDL Sources )==========================="
-{%- for src in design.sim_sources %}
+{%- for src in sources_read(rtl=true, tb=true) %}
 {%- if src.type.name == "Verilog" %}
 puts "Analyzing Verilog file {{src.file|tcl_quote}}"
 if { [catch {exec xvlog {*}$analyze_flags {{src.file|tcl_word}}} error]} {

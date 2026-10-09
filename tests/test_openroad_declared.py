@@ -70,8 +70,10 @@ def test_a_typed_netlist_displaces_synthesis(tmp_path, monkeypatch):
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     plan = runner.plan(Openroad, design, flow_settings=["platform=nangate45"])
     assert len(plan.nodes) == 1
-    (resolved,) = plan.node("openroad").inputs
-    assert resolved.name == "netlist" and resolved.origin == "source"
+    netlist_input, sdc = plan.node("openroad").inputs
+    assert netlist_input.name == "netlist" and netlist_input.origin == "source"
+    # the design lists no SDC source, so the optional input is empty
+    assert sdc.name == "sdc" and sdc.origin == "none" and not sdc.sources
     flow = runner.launch_flow(Openroad, design, {"platform": "nangate45"})
     assert flow.succeeded
     assert not (flow.run_path.parent / "yosys").exists()
@@ -131,3 +133,39 @@ def test_the_cli_sends_all_moved_settings_to_real_yosys(tmp_path, monkeypatch):
     assert (root / "mac" / "openroad" / "results" / "1_synth.v").read_bytes() == (
         producer / "netlist.v"
     ).read_bytes()
+
+
+def test_the_design_s_sdc_sources_are_a_declared_input_read_before_the_generated_one(
+    tmp_path, monkeypatch
+):
+    """OpenROAD reads the design's SDC files through its declared `sdc` input, in source order,
+    then the constraints it generates from `clocks`, then `sdc_files`: it reads no design source
+    of its own."""
+    import json
+
+    from xeda.flow_runner import DefaultRunner
+
+    from .tool_utils import use_fake_asic_tools
+
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    (tmp_path / "d.v").write_text("module d(input clk, output q); assign q=clk; endmodule\n")
+    for name in ("a.sdc", "b.sdc", "extra.sdc"):
+        (tmp_path / name).write_text("set_load 0.1 [all_outputs]\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["b.sdc", "d.v", "a.sdc"], "top": "d"}
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    settings = {"platform": "nangate45", "sdc_files": [str(tmp_path / "extra.sdc")]}
+    plan = runner.plan(Openroad, design, flow_settings=settings)
+    sdc = {resolved.name: resolved for resolved in plan.node("openroad").inputs}["sdc"]
+    assert sdc.origin == "source"
+    assert list(sdc.sources) == [tmp_path / "b.sdc", tmp_path / "a.sdc"]
+    flow = runner.launch_flow(Openroad, design, settings)
+    assert flow.succeeded
+    recorded = json.loads((flow.run_path / "settings.json").read_text())
+    assert recorded["effective_flow_settings"]["sdc_files"] == [
+        str(tmp_path / "b.sdc"),
+        str(tmp_path / "a.sdc"),
+        "clocks.sdc",
+        str(tmp_path / "extra.sdc"),
+    ]
