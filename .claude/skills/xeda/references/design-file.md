@@ -267,7 +267,17 @@ targets:
 - A target takes `rtl`, `tb`, `flows` and every other design key, flat forms included (`sources`,
   `defines`, `top`, `clock`, ...); not `name` or `targets`. Unknown keys are errors.
 - Mappings merge at every depth; `sources` are appended after the design's; any other list
-  replaces the design's. Paths resolve against the design root.
+  replaces the design's. Paths resolve against the design root. A null or empty `flows` table or
+  flow section adds nothing (the design's section stays); set a key to change it.
+- A short form means its table where the design and a target meet (`clock: CLK` is `clock:
+  {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
+  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
+  refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
+  A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
+  no table) is an error whichever target is selected.
+  `--design-overrides` meet the design by the same rules, but only a target appends `sources`:
+  an override's `rtl.sources`/`tb.sources` replace the whole list, including the files a selected
+  target appended.
 - One target: no `--target` needed. Several: `--target` is required and the error lists them.
   `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
 - **A target overrides the design**, key by key: where both write a key, the target's value

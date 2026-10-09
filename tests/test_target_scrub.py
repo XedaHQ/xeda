@@ -47,6 +47,8 @@ FLOW = "vivado_synth"
 KEPT = "its run records changed after the listing (a run finished or refreshed there)"
 HASHED = f"{FLOW}_0123456789abcdef"
 OTHER_HASHED = f"{FLOW}_fedcba9876543210"
+#: A run directory beside the others that a link may lead to.
+STORE = f"{FLOW}_cccccccccccccccc"
 
 
 @pytest.fixture(autouse=True)
@@ -317,19 +319,37 @@ def test_a_run_directory_that_is_a_link_out_of_the_run_root_is_never_followed(
     assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.b)
 
 
-def test_a_run_directory_that_is_a_link_to_a_directory_beside_it_is_scrubbed_as_that(
+def test_a_run_directory_that_is_a_link_to_a_run_directory_beside_it_is_scrubbed_as_that(
     tmp_path, confirmations
 ):
-    """The existing rule: a link that resolves inside its parent in the run root is what it
-    leads to, and both are gone."""
+    """A link that leads to a run directory of the flow beside it is what it leads to, and both
+    are gone."""
     tree = Tree(tmp_path)
-    store = run_dir(tree.design / "b" / "store")
+    store = run_dir(tree.design / "b" / STORE)
     link = tree.design / "b" / f"{FLOW}_bbbbbbbbbbbbbbbb"
     link.symlink_to(store, target_is_directory=True)
     result, document = scrub(tmp_path, "--target", "b")
     assert result.exit_code == 0, result.output
     assert not link.exists() and not link.is_symlink() and not store.exists()
     assert tree.present(tree.b) == [False, False]
+    assert document["skipped"] == []
+
+
+def test_a_run_directory_that_is_a_link_to_a_directory_beside_it_with_another_name_is_left_alone(
+    tmp_path, confirmations
+):
+    """A directory beside the link that no run directory of the flow is named like is not what
+    the link stands for: scrub lists the link as skipped, and removes neither."""
+    tree = Tree(tmp_path)
+    store = run_dir(tree.design / "b" / "store")
+    link = tree.design / "b" / f"{FLOW}_bbbbbbbbbbbbbbbb"
+    link.symlink_to(store, target_is_directory=True)
+    result, document = scrub(tmp_path, "--target", "b")
+    assert result.exit_code == 0, result.output
+    assert document["skipped"] == [str(link)]
+    assert link.is_symlink() and (store / "out.txt").exists()
+    assert tree.present(tree.b) == [False, False]
+    assert sorted(document["scrubbed"]) == sorted(str(p) for p in tree.b)
 
 
 def test_two_names_of_one_directory_are_removed_once(tmp_path, confirmations):
@@ -614,7 +634,7 @@ def test_two_scrubs_that_listed_the_same_link_candidate_both_succeed(tmp_path, m
     the link and then the directory, so the other, which waited, finds the link gone and goes on
     instead of failing to lock a link that is no more."""
     tree = Tree(tmp_path)
-    store = run_dir(tree.design / "x" / "store")
+    store = run_dir(tree.design / "x" / STORE)
     link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
     link.symlink_to(store, target_is_directory=True)
     both_listed = threading.Barrier(2)
@@ -661,7 +681,7 @@ def test_a_scrub_that_listed_a_link_succeeds_while_another_is_between_its_two_re
     the lock to refuse, and that scrub fails. Whichever step is the first, the second scrub is
     run once the first is done and the second not yet."""
     tree = Tree(tmp_path)
-    store = run_dir(tree.design / "x" / "store")
+    store = run_dir(tree.design / "x" / STORE)
     link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
     link.symlink_to(store, target_is_directory=True)
     listed = threading.Event()
@@ -693,8 +713,8 @@ def test_a_scrub_that_listed_a_link_succeeds_while_another_is_between_its_two_re
     real_unlink = Path.unlink
     resolved_store = Path(os.path.realpath(store))
 
-    def delete(self):
-        real_delete(self)
+    def delete(self, *links):
+        real_delete(self, *links)
         if self.path == resolved_store:
             after_the_first_removal()
 
@@ -740,7 +760,7 @@ def test_a_link_candidate_that_changes_while_scrub_waits_for_its_lock_is_refused
     running in it, under its lock, could lose its directory. Scrub refuses the candidate, with an
     error, and removes nothing."""
     tree = Tree(tmp_path)
-    old = a_running_directory(tree.design / "x" / "old")
+    old = a_running_directory(tree.design / "x" / f"{FLOW}_dddddddddddddddd")
     link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
     link.symlink_to(old, target_is_directory=True)
     real_lock = default_runner.run_dir_lock
@@ -771,7 +791,7 @@ def test_scrub_removes_the_directory_it_locked_when_the_link_leads_elsewhere_by_
     """The link is retargeted after scrub has judged it, and before it removes anything. What it
     removes is the directory it holds the lock of, never the one the link leads to by then."""
     tree = Tree(tmp_path)
-    old = a_running_directory(tree.design / "x" / "old")
+    old = a_running_directory(tree.design / "x" / f"{FLOW}_dddddddddddddddd")
     new = a_running_directory(tree.design / "x" / "new")
     link = tree.design / "x" / f"{FLOW}_bbbbbbbbbbbbbbbb"
     link.symlink_to(old, target_is_directory=True)
@@ -797,15 +817,15 @@ def test_a_candidate_that_became_a_link_beside_it_before_scrub_chose_its_lock_is
     tmp_path, monkeypatch, said
 ):
     """The listing saw a directory. By the time scrub chooses its lock the path is a link to a
-    directory beside it, with other run records than the listing saw. The link is locked by that
-    directory, which scrub holds when it removes it: scrub keeps it, as it keeps any directory
-    whose run records changed."""
+    run directory of the flow beside it, with other run records than the listing saw. The link is
+    locked by that directory, which scrub holds when it removes it: scrub keeps it, as it keeps
+    any directory whose run records changed."""
     tree = Tree(tmp_path)
     victim, other = tree.a
 
     def ask(prompt="", *args, **kwargs):  # after the listing, before any lock is chosen
         default_runner.RunDirectory.claimed(victim, tree.root).delete()
-        victim.symlink_to(run_dir(victim.parent / "store"), target_is_directory=True)
+        victim.symlink_to(run_dir(victim.parent / STORE), target_is_directory=True)
         return "yes"
 
     monkeypatch.setattr(console, "input", ask)
@@ -816,14 +836,16 @@ def test_a_candidate_that_became_a_link_beside_it_before_scrub_chose_its_lock_is
 
 
 def test_a_link_that_leads_below_its_directory_is_left_alone(tmp_path, confirmations):
-    """A run directory is a child of the directory it is listed in, or a link to a directory beside
-    it. A link named like one that leads below it, into a target's directory, is neither: scrub
-    leaves it, and what it leads to is a candidate in its own directory."""
+    """A run directory is a child of the directory it is listed in, or a link to a run directory
+    of the flow beside it. A link named like one that leads below it, into a target's directory,
+    is neither: scrub reports it as skipped and leaves it, and what it leads to is a candidate in
+    its own directory."""
     tree = Tree(tmp_path)
     link = tree.design / f"{FLOW}_cccccccccccccccc"
     link.symlink_to(tree.a[0], target_is_directory=True)
     result, document = scrub(tmp_path)
     assert result.exit_code == 0, result.output
+    assert document["skipped"] == [str(link)]
     assert str(link) not in document["scrubbed"] and str(tree.a[0]) in document["scrubbed"]
     assert link.is_symlink() and not link.exists(), "left as it was, leading to what is now gone"
     assert tree.present(tree.everything) == [False] * len(tree.everything)
@@ -871,6 +893,11 @@ def newer_run(path: Path, tree: Tree, outside: Path) -> None:
 
 
 def link_to_a_directory_beside_it(path: Path, tree: Tree, outside: Path) -> None:
+    vacate(path, tree)
+    path.symlink_to(run_dir(path.parent / STORE), target_is_directory=True)
+
+
+def link_to_a_directory_beside_it_with_another_name(path: Path, tree: Tree, outside: Path) -> None:
     vacate(path, tree)
     path.symlink_to(run_dir(path.parent / "store"), target_is_directory=True)
 
@@ -937,6 +964,7 @@ def shape(replacement, listed: bool, outcome: str):
         shape(newer_run, True, "kept"),
         # a directory that becomes a link while scrub waits is no longer the one it locked
         shape(link_to_a_directory_beside_it, True, "refused"),
+        shape(link_to_a_directory_beside_it_with_another_name, False, "refused"),
         shape(link_below_its_directory, False, "refused"),
         shape(link_out_of_the_run_root, False, "refused"),
         shape(link_to_another_targets_run_directory, False, "refused"),
@@ -1195,17 +1223,17 @@ def test_a_launch_never_lists_its_own_run_directory_when_a_sibling_removes_it_me
     its own, and no candidate: the listing leaves it out whether or not it exists."""
     tree = Tree(tmp_path)
     own, sibling = tree.direct
-    real_judgment = default_runner._is_run_directory
+    real_judgment = default_runner.run_directory_problem
 
     def seen_then_removed(path, *args, **kwargs):
-        found = real_judgment(path, *args, **kwargs)
-        if path == own and found:
+        problem = real_judgment(path, *args, **kwargs)
+        if path == own and problem is None:
             default_runner.RunDirectory.claimed(own, tree.root).delete()  # the sibling's scrub
-        return found
+        return problem
 
-    monkeypatch.setattr(default_runner, "_is_run_directory", seen_then_removed)
+    monkeypatch.setattr(default_runner, "run_directory_problem", seen_then_removed)
     listed = default_runner._run_directories_in(FLOW, tree.design, [own], tree.root)
-    assert listed == [sibling]
+    assert listed.candidates == [sibling] and listed.skipped == []
 
 
 def test_a_directory_is_excluded_by_any_path_that_resolves_to_it(tmp_path, confirmations):

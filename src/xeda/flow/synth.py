@@ -386,7 +386,9 @@ class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
         fpga: Optional[FPGA] = Field(
             None,
             description="Target FPGA device. Accepts a full part identifier as a string "
-            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields.',
+            '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields. A part identifier '
+            "alone is `part: <identifier>` wherever layers merge, so over a mapping it changes "
+            "the part and keeps the other fields that mapping wrote (a speed grade, say).",
         )
 
 

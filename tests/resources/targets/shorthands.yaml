@@ -1,0 +1,35 @@
+# One design that writes every key in a shorthand form, and one target that writes the tables
+# (see tests/test_targets.py): the shorthand means exactly the table, so the target refines it.
+name: shorthands
+rtl:
+  top: knight
+  sources: [knight.v]
+  clock: CLK
+  parameters:
+    - {name: WIDTH, value: 8}
+    - {name: DEPTH, value: 2}
+tb:
+  top: knight_tb
+  sources: [knight_tb.v]
+  cocotb: true
+language:
+  vhdl: "08"
+flows:
+  vivado_synth:
+    fpga: xc7a35tcpg236-1
+    ncpus: 2
+    clock_period: 10
+targets:
+  tables:
+    rtl:
+      clock: {name: sys}
+      parameters: {WIDTH: 4}
+    tb:
+      cocotb: {module: m}
+    language:
+      vhdl: {synopsys: true}
+    flows:
+      vivado_synth:
+        fpga: {speed: -2}
+        nthreads: 4
+        clock: {freq: 200MHz}

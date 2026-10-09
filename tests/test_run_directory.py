@@ -4,6 +4,7 @@ under `tmp_path`."""
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import ClassVar, Optional
 
@@ -199,6 +200,44 @@ def test_a_run_directory_led_out_of_the_run_root_is_refused(tmp_path, monkeypatc
         runner.run_flow(_Probe, design, {})
     assert _files(elsewhere) == before
     assert not list(elsewhere.glob("*.lock"))
+
+
+def test_delete_removes_the_links_it_is_given_first_and_never_follows_them(tmp_path):
+    """A run directory reached by a name that is a link: the name goes with the directory, so none
+    is left leading nowhere. A link is removed as itself, whatever it leads to by then."""
+    root = tmp_path / "xeda_run"
+    run_dir = _tree(root / "d" / "flow_cccccccccccccccc")
+    link = root / "d" / "flow"
+    link.symlink_to(run_dir, target_is_directory=True)
+    other = _tree(root / "d" / "other")
+    moved = root / "d" / "flow_moved"
+    moved.symlink_to(other, target_is_directory=True)  # it leads elsewhere by now
+    owned = RunDirectory.claimed(link, root)
+    owned.delete(link, moved)
+    assert not os.path.lexists(link) and not os.path.lexists(moved) and not run_dir.exists()
+    assert _files(other) == {"a.txt": b"a\n", "sub/b.txt": b"b\n"}
+
+
+def test_delete_leaves_a_name_that_is_no_link_or_is_gone_as_it_is(tmp_path):
+    root = tmp_path / "xeda_run"
+    run_dir = _tree(root / "d" / "flow")
+    beside = _tree(root / "d" / "beside")
+    owned = RunDirectory.claimed(run_dir, root)
+    owned.delete(run_dir, beside, root / "d" / "gone")  # itself, a real directory, nothing
+    assert not run_dir.exists()
+    assert _files(beside) == {"a.txt": b"a\n", "sub/b.txt": b"b\n"}
+
+
+def test_delete_refuses_a_link_that_lies_outside_the_run_root_and_removes_nothing(tmp_path):
+    root = tmp_path / "xeda_run"
+    run_dir = _tree(root / "d" / "flow")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "name").symlink_to(run_dir, target_is_directory=True)
+    owned = RunDirectory.claimed(run_dir, root)
+    with pytest.raises(RunDirectoryError, match="outside the run root"):
+        owned.delete(outside / "name")
+    assert (outside / "name").is_symlink() and _files(run_dir)
 
 
 def test_a_design_file_in_the_flow_s_own_run_directory_is_refused(tmp_path):

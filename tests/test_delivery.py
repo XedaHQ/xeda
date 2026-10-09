@@ -1139,6 +1139,410 @@ def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):
     assert RUNS == [] and (world.user / "net.v").read_text() == "a\n"
 
 
+def _purging(world, **options) -> DefaultRunner:
+    """A launcher that deletes each run directory after the launch (`--post-cleanup-purge`),
+    with `post_cleanup` as well unless `options` say otherwise."""
+    options = {"post_cleanup": True, **options}
+    return DefaultRunner(world.root, display_results=False, post_cleanup_purge=True, **options)
+
+
+def _remember_inodes(world, name: str = "d.v") -> dict:
+    """While the deliverer runs, note the inode of the file it wrote as `outputs/<name>`: a
+    delivered file has that inode only if it is that very file, moved."""
+    seen: dict = {}
+
+    def note():
+        (written,) = world.root.glob(f"**/outputs/{name}")
+        seen[name] = written.stat().st_ino
+
+    DURING_RUN.append(note)
+    return seen
+
+
+def _leftovers(directory: Path) -> List[str]:
+    """The delivery temporaries in `directory`: none may be left."""
+    return sorted(p.name for p in directory.iterdir() if p.name.startswith(".xeda-delivery-"))
+
+
+@pytest.mark.parametrize("post_cleanup", [True, False], ids=["with-post-cleanup", "purge-alone"])
+def test_a_purged_run_delivers_by_moving_its_file_out(world, caplog, post_cleanup):
+    """The run directory is deleted right after the delivery, so the delivered file is the run's
+    own file: same inode, one name, no second copy on the disk, and no temporary left. Purging
+    needs no `post_cleanup` beside it."""
+    inodes = _remember_inodes(world)
+    destination = world.user / "out" / "net.v"
+    with caplog.at_level(logging.INFO, logger="xeda.deliver"):
+        flow = _launch(world, _purging(world, post_cleanup=post_cleanup), netlist="$PWD/out/net.v")
+    delivered = destination.stat()
+    assert (delivered.st_ino, delivered.st_nlink) == (inodes["d.v"], 1)
+    assert destination.read_text() == "net\n"
+    assert not flow.run_path.exists()
+    assert sorted(p.name for p in destination.parent.iterdir()) == ["net.v"]
+    assert [(d.destination, d.state) for d in flow.deliveries] == [(destination, "delivered")]
+    assert f"Moved {flow.run_path / 'outputs' / 'd.v'} to {destination}" in caplog.text
+
+
+def test_a_moved_file_is_xeda_s_own_delivery_and_is_replaced_without_asking(world):
+    """The delivery record names the moved file by the inode and the digest it has: the next
+    launch finds an unchanged delivery of xeda's, and replaces it."""
+    destination = world.user / "net.v"
+    _launch(world, _purging(world), netlist="$PWD/net.v", text="a\n")
+    assert destination.read_text() == "a\n"
+    flow = _launch(world, netlist="$PWD/net.v", text="b\n")
+    assert [d.state for d in flow.deliveries] == ["delivered"] and destination.read_text() == "b\n"
+
+
+@pytest.mark.parametrize("launcher", [{}, {"post_cleanup": True}], ids=["plain", "pruned"])
+def test_a_run_directory_that_stays_is_copied_from(world, launcher):
+    """Only a run directory that is deleted after the delivery gives its file away: a run that
+    is kept, or only pruned down to its artifacts, still holds its own output."""
+    inodes = _remember_inodes(world)
+    destination = world.user / "out" / "net.v"
+    runner = DefaultRunner(world.root, display_results=False, **launcher)
+    flow = _launch(world, runner, netlist="$PWD/out/net.v")
+    kept = flow.run_path / "outputs" / "d.v"
+    assert kept.read_text() == "net\n" and kept.stat().st_ino == inodes["d.v"]
+    assert destination.read_text() == "net\n" and destination.stat().st_ino != inodes["d.v"]
+
+
+def test_a_run_found_up_to_date_is_copied_from_and_stays_up_to_date(world):
+    """A purge removes the run directory of a flow that ran. A flow found up to date is not
+    purged, so its file is not given away: moving it would leave a trace that vouches for an
+    output that is not there."""
+    first = _launch(world, netlist="$PWD/out/net.v")
+    destination = world.user / "out" / "net.v"
+    kept = first.run_path / "outputs" / "d.v"
+    inode = kept.stat().st_ino
+    destination.unlink()
+    second = _launch(world, _purging(world), netlist="$PWD/out/net.v")
+    assert second.reused and [d.state for d in second.deliveries] == ["delivered"]
+    assert kept.stat().st_ino == inode and second.run_path.is_dir(), "the run is not purged"
+    assert destination.read_text() == "net\n" and destination.stat().st_ino != inode
+    third = _launch(world, netlist="$PWD/out/net.v")
+    assert third.reused and len(RUNS) == 1, "still up to date: its output is where its trace says"
+
+
+def test_a_purged_dependency_moves_its_output(world):
+    """Dependencies are purged with the launch, so a producer's delivery moves its file too."""
+    inodes = _remember_inodes(world)
+    flow = _launch(world, _purging(world), flow=_Wrapper, deliverer={"netlist": "$PWD/dep/net.v"})
+    destination = world.user / "dep" / "net.v"
+    assert destination.stat().st_ino == inodes["d.v"]
+    assert not flow.producers[0].run_path.exists() and not flow.run_path.exists()
+
+
+def test_a_move_across_file_systems_falls_back_to_a_copy(world, monkeypatch):
+    """A rename cannot cross file systems. The refusal changes nothing, and the delivery goes on
+    by copying, to the same place, with no temporary left."""
+    inodes = _remember_inodes(world)
+    moves: List[Path] = []
+    replace_file = os.replace
+
+    def replace(source, target, *args, **kwargs):
+        if Path(source).name == "d.v" and Path(target).name.startswith(".xeda-delivery-"):
+            moves.append(Path(source))
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+        return replace_file(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace)
+    destination = world.user / "out" / "net.v"
+    flow = _launch(world, _purging(world), netlist="$PWD/out/net.v")
+    assert len(moves) == 1, "it tried to move first"
+    assert destination.read_text() == "net\n" and destination.stat().st_ino != inodes["d.v"]
+    assert not flow.run_path.exists() and sorted(p.name for p in destination.parent.iterdir()) == [
+        "net.v"
+    ]
+    assert [d.state for d in flow.deliveries] == ["delivered"]
+
+
+@pytest.mark.parametrize("how", ["digest", "destination", "rename"])
+def test_a_move_that_fails_after_the_file_left_the_run_puts_it_back(world, monkeypatch, how):
+    """Two files are delivered, and the second fails after it was moved: because it changed since
+    its run, because something was put at its destination meanwhile, or because the last rename
+    failed. The first stays delivered and recorded, the second's destination is as it was, no
+    temporary is left, and the run's file is back where the run left it -- never deleted by the
+    delivery, which only ever removes its own temporary copy."""
+    monkeypatch.setattr(DefaultRunner, "_clean_up", lambda self, *args, **kwargs: None)
+    first, second = world.user / "a.v", world.user / "b.v"
+    replace_file = os.replace
+
+    def replace(source, target, *args, **kwargs):
+        if how == "rename" and Path(target) == second:
+            raise OSError(errno.EIO, "disk error")
+        replace_file(source, target, *args, **kwargs)
+        if Path(source).name == "d.rpt" and Path(target).name.startswith(".xeda-delivery-"):
+            if how == "digest":
+                Path(target).write_bytes(b"changed after the run\n")
+            elif how == "destination":
+                second.write_text("put there meanwhile\n")
+
+    monkeypatch.setattr(os, "replace", replace)
+    launcher = DefaultRunner(
+        world.root, display_results=False, post_cleanup=True, post_cleanup_purge=True
+    )
+    expected = {
+        "digest": (DeliveryError, "changed after its run"),
+        "destination": (DeliveryError, "changed while the run went on"),
+        "rename": (OSError, "disk error"),
+    }[how]
+    with pytest.raises(expected[0], match=expected[1]):
+        _launch(world, launcher, netlist="$PWD/a.v", report="$PWD/b.v")
+    flow = launcher.launched[-1]
+    assert first.read_text() == "net\n"
+    assert [d.destination for d in flow.deliveries] == [first]
+    record = json.loads(delivery_record(flow.run_path).read_text())["files"]
+    assert str(first) in record and str(second) not in record
+    assert (
+        second.read_text() == "put there meanwhile\n"
+        if how == "destination"
+        else not (second.exists())
+    )
+    assert _leftovers(world.user) == []
+    back = flow.run_path / "outputs" / "d.rpt"
+    assert back.read_text() == ("changed after the run\n" if how == "digest" else "net\n")
+    assert not (flow.run_path / "outputs" / "d.v").exists(), "the first was delivered by move"
+
+
+def test_a_move_that_cannot_be_undone_names_where_the_file_is(world, monkeypatch):
+    """If the file cannot be put back either, the error says where the run's output is."""
+    monkeypatch.setattr(DefaultRunner, "_clean_up", lambda self, *args, **kwargs: None)
+    replace_file = os.replace
+
+    def replace(source, target, *args, **kwargs):
+        if Path(target) == world.user / "net.v" or Path(target).name == "d.v":
+            raise OSError(errno.EIO, "disk error")
+        return replace_file(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(os, "replace", replace)
+    with pytest.raises(
+        DeliveryError, match=r"\.xeda-delivery-.*\bd\.v\b|\bd\.v\b.*\.xeda-delivery-"
+    ):
+        _launch(world, _purging(world), netlist="$PWD/net.v")
+    (left,) = [p for p in world.user.iterdir() if p.name.startswith(".xeda-delivery-")]
+    assert left.read_text() == "net\n", "the run's output, where the error says it is"
+
+
+def test_a_file_delivered_twice_is_copied_each_time(world):
+    """A located deliverable and `--outputs-to` both name `outputs/d.v`. Moving it for one would
+    leave nothing for the other, so both are copies and the purge removes the original."""
+    inodes = _remember_inodes(world)
+    launcher = DefaultRunner(
+        world.root,
+        display_results=False,
+        post_cleanup=True,
+        post_cleanup_purge=True,
+        outputs_to=world.user / "got",
+    )
+    flow = _launch(world, launcher, netlist="$PWD/net.v")
+    named, copied = world.user / "net.v", world.user / "got" / "outputs" / "d.v"
+    assert sorted(d.key for d in flow.deliveries) == ["--outputs-to", "netlist"]
+    assert named.read_text() == copied.read_text() == "net\n"
+    assert {named.stat().st_ino, copied.stat().st_ino}.isdisjoint({inodes["d.v"]})
+    assert named.stat().st_ino != copied.stat().st_ino and not flow.run_path.exists()
+
+
+@pytest.mark.parametrize("link", ["absolute", "relative"])
+def test_a_file_that_a_later_flow_s_delivery_reaches_is_copied_by_the_flow_that_made_it(
+    world, link
+):
+    """A move is allowed only for a file that exactly one delivery of the whole launch reaches.
+    The consumer's artifact is a link to the file its producer delivers to a located destination.
+    The producer is delivered first, so moving its file would leave the consumer's delivery
+    nothing to read."""
+
+    def link_to_the_producer_s_file(wrapper):
+        produced = Path(os.path.abspath(wrapper.inputs.netlist))
+        target = produced if link == "absolute" else os.path.relpath(produced, wrapper.run_path)
+        (wrapper.run_path / "link.v").symlink_to(target)
+        wrapper.artifacts["linked"] = "link.v"
+
+    DURING_WRAPPER.append(link_to_the_producer_s_file)
+    launcher = _purging(world, outputs_to=world.user / "got")
+    flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "$PWD/net.v"})
+    reached = world.user / "got" / "link.v"
+    assert (world.user / "net.v").read_text() == "net\n"
+    assert reached.read_text() == "net\n" and not reached.is_symlink()
+    assert {d.state for d in flow.deliveries} == {"delivered"}
+    assert not flow.run_path.exists() and not flow.producers[0].run_path.exists()
+
+
+@pytest.fixture
+def unit(tmp_path):
+    """A run directory under a run root, and a directory to deliver into, without a launch."""
+    root = tmp_path / "root"
+    run_path = root / "d" / "f"
+    run_path.mkdir(parents=True)
+    out = tmp_path / "out"
+    out.mkdir()
+    return SimpleNamespace(root=root, run_path=run_path, out=out, tmp=tmp_path)
+
+
+def _noted(unit, *pairs):
+    """The deliveries of `pairs` -- (name in the run directory, destination) -- noted as a run
+    left them, ready for `deliver`."""
+    named = [Delivery(f"key{i}", PurePath(name), to) for i, (name, to) in enumerate(pairs)]
+    deliveries = deliver.Deliveries(
+        unit.run_path, unit.root, named, inputs=deliver.ReadInputs(), owner="f"
+    )
+    deliveries.collect(unit.run_path)
+    return deliveries
+
+
+def test_deliver_moves_only_when_it_is_told_the_directory_goes(unit):
+    (unit.run_path / "a.txt").write_text("A\n")
+    (unit.run_path / "b.txt").write_text("B\n")
+    inode_a, inode_b = (os.stat(unit.run_path / n).st_ino for n in ("a.txt", "b.txt"))
+    _noted(unit, ("a.txt", unit.out / "a.txt")).deliver()
+    assert (unit.run_path / "a.txt").read_text() == "A\n"
+    assert os.stat(unit.out / "a.txt").st_ino != inode_a, "copied"
+    delivered = _noted(unit, ("b.txt", unit.out / "b.txt")).deliver(move=True)
+    assert [d.state for d in delivered] == ["delivered"]
+    assert not (unit.run_path / "b.txt").exists() and os.stat(unit.out / "b.txt").st_ino == inode_b
+    assert _leftovers(unit.out) == []
+
+
+def test_a_move_counts_again_the_deliveries_of_its_flow(unit):
+    """The launch counts what every delivery reaches before the first delivery, and a flow
+    counts its own deliveries again when it delivers. Another launch of the run directory may
+    have made one of the files a link to another since: by the launch's count, the file would
+    be moved, and the link would lead nowhere."""
+    for name in ("a.txt", "b.txt"):
+        (unit.run_path / name).write_text("same\n")
+    noted = _noted(unit, ("a.txt", unit.out / "a.txt"), ("b.txt", unit.out / "b.txt"))
+    counted = deliver.Deliveries.sources_reached([noted])
+    (unit.run_path / "b.txt").unlink()
+    (unit.run_path / "b.txt").symlink_to("a.txt")
+    delivered = noted.deliver(move=True, reached=counted)
+    assert [d.state for d in delivered] == ["delivered", "delivered"]
+    assert (unit.run_path / "a.txt").read_text() == "same\n", "copied, not moved"
+    assert (unit.out / "a.txt").read_text() == (unit.out / "b.txt").read_text() == "same\n"
+
+
+def test_a_directory_output_is_moved_file_by_file(unit):
+    tree = unit.run_path / "tree"
+    (tree / "sub").mkdir(parents=True)
+    (tree / "a.txt").write_text("A\n")
+    (tree / "sub" / "b.txt").write_text("B\n")
+    inodes = {n: os.stat(tree / n).st_ino for n in ("a.txt", "sub/b.txt")}
+    _noted(unit, ("tree", unit.out / "tree")).deliver(move=True)
+    for name, inode in inodes.items():
+        assert os.stat(unit.out / "tree" / name).st_ino == inode
+        assert not (tree / name).exists()
+
+
+def test_a_link_is_copied_never_moved(unit):
+    """A tool can leave a link as its output. The delivery is the file the link leads to, and a
+    moved link would dangle after the purge: the link and its target stay."""
+    (unit.run_path / "real.txt").write_text("R\n")
+    (unit.run_path / "link.txt").symlink_to("real.txt")
+    inode = os.stat(unit.run_path / "real.txt").st_ino
+    _noted(unit, ("link.txt", unit.out / "link.txt")).deliver(move=True)
+    delivered = unit.out / "link.txt"
+    assert delivered.read_text() == "R\n" and not delivered.is_symlink()
+    assert delivered.stat().st_ino != inode
+    assert (unit.run_path / "link.txt").is_symlink() and (unit.run_path / "real.txt").is_file()
+
+
+def test_a_file_with_another_name_is_copied_never_moved(unit):
+    """A moved file would share its inode with the other name, and a later write there would
+    change the delivered file."""
+    (unit.run_path / "a.txt").write_text("A\n")
+    os.link(unit.run_path / "a.txt", unit.tmp / "elsewhere.txt")
+    inode = os.stat(unit.run_path / "a.txt").st_ino
+    _noted(unit, ("a.txt", unit.out / "a.txt")).deliver(move=True)
+    assert (unit.run_path / "a.txt").is_file() and (unit.tmp / "elsewhere.txt").is_file()
+    assert os.stat(unit.out / "a.txt").st_ino != inode
+    assert os.stat(unit.out / "a.txt").st_nlink == 1
+
+
+def test_a_file_named_by_two_deliveries_is_copied_for_both(unit):
+    (unit.run_path / "a.txt").write_text("A\n")
+    inode = os.stat(unit.run_path / "a.txt").st_ino
+    _noted(unit, ("a.txt", unit.out / "one.txt"), ("a.txt", unit.out / "two.txt")).deliver(
+        move=True
+    )
+    assert (unit.run_path / "a.txt").read_text() == "A\n"
+    one, two = (os.stat(unit.out / n).st_ino for n in ("one.txt", "two.txt"))
+    assert one != two and inode not in (one, two)
+
+
+def test_a_file_and_a_link_to_it_that_are_both_delivered_are_both_copies(unit):
+    """The file and the link count as one source: whichever name a delivery reaches it by, moving
+    it for one would leave the other nothing to deliver."""
+    (unit.run_path / "a.txt").write_text("A\n")
+    (unit.run_path / "link.txt").symlink_to("a.txt")
+    inode = os.stat(unit.run_path / "a.txt").st_ino
+    delivered = _noted(
+        unit, ("a.txt", unit.out / "a.txt"), ("link.txt", unit.out / "link.txt")
+    ).deliver(move=True)
+    assert [d.state for d in delivered] == ["delivered", "delivered"]
+    assert (unit.run_path / "a.txt").read_text() == "A\n", "copied: the run keeps its file"
+    for name in ("a.txt", "link.txt"):
+        copy = unit.out / name
+        assert copy.read_text() == "A\n" and not copy.is_symlink() and copy.stat().st_ino != inode
+    assert _leftovers(unit.out) == []
+
+
+def test_a_directory_and_a_link_to_it_that_are_both_delivered_are_copies(unit):
+    (unit.run_path / "tree").mkdir()
+    (unit.run_path / "tree" / "a.txt").write_text("A\n")
+    (unit.run_path / "alias").symlink_to("tree", target_is_directory=True)
+    _noted(unit, ("tree", unit.out / "tree"), ("alias", unit.out / "alias")).deliver(move=True)
+    assert (unit.run_path / "tree" / "a.txt").read_text() == "A\n"
+    assert (unit.out / "tree" / "a.txt").read_text() == "A\n"
+    assert (unit.out / "alias" / "a.txt").read_text() == "A\n"
+
+
+def test_a_file_reached_through_a_link_out_of_the_run_directory_is_copied(unit):
+    """The run directory holds a link to a directory elsewhere, and the output is a file in it.
+    Moving it would delete a file outside the run directory."""
+    outside = unit.tmp / "outside"
+    outside.mkdir()
+    (outside / "a.txt").write_text("A\n")
+    (unit.run_path / "outputs").symlink_to(outside, target_is_directory=True)
+    _noted(unit, ("outputs/a.txt", unit.out / "a.txt")).deliver(move=True)
+    assert (outside / "a.txt").read_text() == "A\n", "nothing outside the run directory is removed"
+    assert (unit.out / "a.txt").read_text() == "A\n"
+    assert os.stat(unit.out / "a.txt").st_ino != os.stat(outside / "a.txt").st_ino
+
+
+def test_a_file_reached_through_a_link_inside_the_run_directory_is_moved(unit):
+    """A link that stays inside the run directory is a way to its own file."""
+    (unit.run_path / "real").mkdir()
+    (unit.run_path / "real" / "a.txt").write_text("A\n")
+    (unit.run_path / "alias").symlink_to("real", target_is_directory=True)
+    inode = os.stat(unit.run_path / "real" / "a.txt").st_ino
+    _noted(unit, ("alias/a.txt", unit.out / "a.txt")).deliver(move=True)
+    assert os.stat(unit.out / "a.txt").st_ino == inode
+    assert not (unit.run_path / "real" / "a.txt").exists()
+
+
+def test_a_destination_already_holding_the_output_leaves_the_run_file_alone(unit):
+    """ "unchanged" delivers nothing, so nothing moves."""
+    (unit.run_path / "a.txt").write_text("A\n")
+    first = _noted(unit, ("a.txt", unit.out / "a.txt"))
+    first.deliver()
+    again = _noted(unit, ("a.txt", unit.out / "a.txt"))
+    assert [d.state for d in again.deliver(move=True)] == ["unchanged"]
+    assert (unit.run_path / "a.txt").read_text() == "A\n"
+
+
+def test_a_file_in_the_way_that_is_confirmed_is_replaced_by_the_moved_file(unit):
+    """A file found at the destination only now needs a yes. With it, the moved file replaces
+    it: the user's file is replaced, never deleted first, and nothing is left beside it."""
+    (unit.run_path / "a.txt").write_text("A\n")
+    inode = os.stat(unit.run_path / "a.txt").st_ino
+    (unit.out / "a.txt").write_text("the user's\n")
+    named = [Delivery("key", PurePath("a.txt"), unit.out / "a.txt")]
+    deliveries = deliver.Deliveries(
+        unit.run_path, unit.root, named, inputs=deliver.ReadInputs(), overwrite=True
+    )
+    deliveries.collect(unit.run_path)
+    assert [d.state for d in deliveries.deliver(move=True)] == ["delivered"]
+    assert (unit.out / "a.txt").read_text() == "A\n" and os.stat(unit.out / "a.txt").st_ino == inode
+    assert not (unit.run_path / "a.txt").exists() and _leftovers(unit.out) == []
+
+
 def test_outputs_to_copies_the_requested_flow_s_artifacts_only(world):
     launcher = DefaultRunner(world.root, display_results=False, outputs_to=world.user / "got")
     flow = _launch(world, launcher, flow=_Wrapper, deliverer={"netlist": "build/net.v"})
@@ -1430,6 +1834,30 @@ def sqrt_copy(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(FAKE_TOOLS) + os.pathsep + os.environ["PATH"])
     monkeypatch.chdir(work)
     return work
+
+
+def test_post_cleanup_purge_alone_on_the_command_line_removes_the_run_and_delivers_by_move(
+    sqrt_copy, monkeypatch
+):
+    """`--post-cleanup-purge` without `--post-cleanup`: the run directory is gone, and the files
+    `--outputs-to` delivers left it by rename."""
+    moves: List[bool] = []
+    move_into = deliver.Deliveries._move_into
+    monkeypatch.setattr(
+        deliver.Deliveries,
+        "_move_into",
+        lambda self, source, temporary: moves.append(move_into(self, source, temporary))
+        or moves[-1],
+    )
+    args = ["run", "vivado_synth", "sqrt.yaml", "-s", "fpga.part=xc7a12tcsg325-1"]
+    args += ["--outputs-to", "got", "--post-cleanup-purge", "--json"]
+    document = json.loads(CliRunner().invoke(cli, args).stdout)
+    assert document["success"]
+    (node,) = document["nodes"]
+    assert not Path(node["run_path"]).exists()
+    assert node["deliveries"] and all(d["state"] == "delivered" for d in node["deliveries"])
+    assert all(Path(d["to"]).is_file() for d in node["deliveries"])
+    assert moves and all(moves), "every file delivered was moved"
 
 
 def test_outputs_to_and_overwrite_outputs_on_the_command_line(sqrt_copy):

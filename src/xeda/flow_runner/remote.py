@@ -66,7 +66,12 @@ from .default_runner import (
     print_results,
 )
 from .run_lock import run_dir_lock
-from .settings_layers import command_line_sections, compose_flow_settings, merge_flow_sections
+from .settings_layers import (
+    COMMAND_LINE_ORIGIN,
+    command_line_sections,
+    compose_flow_settings,
+    merge_flow_sections,
+)
 from .trace import remove_trace
 from .trace_inputs import design_files, register_read_settings
 from .outputs import declared_output_files
@@ -983,11 +988,11 @@ class RemoteRunner(FlowLauncher):
             merge_flow_sections(
                 cli_sections, {flow_name: flow_settings}, flow_class_for=flow_class_if_known
             ),
-            location="the command line",
+            location=COMMAND_LINE_ORIGIN,
             kind="cli",
         )
         binding_layers = [project_bindings, design_bindings, cli_bindings]
-        cli_sections, _cli_only = split_bindings(cli_sections, location="the command line")
+        cli_sections, _cli_only = split_bindings(cli_sections, location=COMMAND_LINE_ORIGIN)
         flow_settings = {key: value for key, value in flow_settings.items() if key != "inputs"}
         origins = [project_sections, design_sections, cli_sections]
         sections = merge_flow_sections(*origins, flow_class_for=flow_class_if_known)

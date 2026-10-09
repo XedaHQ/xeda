@@ -82,6 +82,7 @@ def design(request):
 LAUNCHER_OPTIONS = [
     dict(post_cleanup=True),
     dict(post_cleanup=True, post_cleanup_purge=True),
+    dict(post_cleanup_purge=True),
     dict(clean=True),
     dict(scrub_old_runs=True),
 ]
@@ -126,6 +127,19 @@ def test_post_cleanup_purge_applies_to_a_flow_with_a_dependency(tmp_path, toy_fl
     assert flow.succeeded
     (dep,) = producers_of(launcher, flow)
     assert not flow.run_path.exists() and not dep.run_path.exists()
+
+
+def test_post_cleanup_purge_alone_removes_every_run_directory(tmp_path, toy_flows, design):
+    """Purging is a clean-up after the run, so it needs no `post_cleanup`: the policy of the
+    launch makes one imply the other, for the requested flow and its dependency alike."""
+    _, top = toy_flows
+    launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup_purge=True)
+    assert launcher._run_dir_policy().post_cleanup and launcher._run_dir_policy().purges
+    flow = launcher.launch_flow(top, design, {})
+    assert flow.succeeded
+    (dep,) = producers_of(launcher, flow)
+    assert not flow.run_path.exists() and not dep.run_path.exists()
+    assert launcher.settings.post_cleanup is False, "the launcher's own settings are left alone"
 
 
 def test_post_cleanup_keeps_reported_artifacts_and_removes_other_files(tmp_path, design):
@@ -224,9 +238,9 @@ def test_post_cleanup_keeps_a_run_directory_artifact(tmp_path, design):
 def test_post_cleanup_through_run_path_alias(
     tmp_path, design, target_inside_run_root, absolute_artifact
 ):
-    """Post-cleanup of a run directory that is itself a link into the run root preserves an
-    artifact's internal target; a run directory that a link leads out of the run root is refused
-    before anything runs there, so it is never cleaned either."""
+    """Post-cleanup of a run directory that is itself a link to a run directory of the flow beside
+    it preserves an artifact's internal target; a run directory that a link leads out of the run
+    root is refused before anything runs there, so it is never cleaned either."""
 
     class LinkedFlow(Flow):
         """Report an internal symlink as an artifact."""
@@ -245,9 +259,13 @@ def test_post_cleanup_through_run_path_alias(
     try:
         launcher = DefaultRunner(tmp_path / "run", display_results=False, post_cleanup=True)
         alias = launcher.get_flow_run_path(design.name, LinkedFlow.name)
-        actual = (launcher.run_root if target_inside_run_root else tmp_path) / "actual_flow"
-        actual.mkdir()
         alias.parent.mkdir()
+        actual = (
+            alias.parent / f"{LinkedFlow.name}_cccccccccccccccc"
+            if target_inside_run_root
+            else tmp_path / "actual_flow"
+        )
+        actual.mkdir()
         alias.symlink_to(actual, target_is_directory=True)
         if not target_inside_run_root:
             with pytest.raises(RunDirectoryError, match="leads out of the run root"):

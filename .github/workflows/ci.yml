@@ -94,8 +94,8 @@ jobs:
   #     (racy timestamps, inode change times)
   #   file copying (fcopyfile): test_utils, test_delivery
   #   links, FIFOs, permissions and resolved paths (a macOS temporary directory is behind a
-  #     link): test_trace_directories, test_run_directory, test_run_dir_safety, test_run_root,
-  #     test_isolation
+  #     link): test_trace_directories, test_run_directory, test_run_directory_rule,
+  #     test_run_dir_safety, test_run_root, test_isolation
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -133,6 +133,7 @@ jobs:
           tests/test_delivery.py
           tests/test_trace_directories.py
           tests/test_run_directory.py
+          tests/test_run_directory_rule.py
           tests/test_run_dir_safety.py
           tests/test_run_root.py
           tests/test_isolation.py

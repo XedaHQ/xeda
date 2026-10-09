@@ -7,7 +7,6 @@ import importlib
 import json
 import logging
 import os
-import re
 import time
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -65,7 +64,15 @@ from ..flow.io import declared_inputs, declared_outputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
-from ..run_dir import OutputState, RunDirectory, RunDirectoryError, record_output_state
+from ..run_dir import (
+    DIR_NAME_HASH_LEN,
+    OutputState,
+    RunDirectory,
+    RunDirectoryError,
+    record_output_state,
+    run_directory_name,
+    run_directory_problem,
+)
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..tool import NonZeroExitCode
 from ..utils import (
@@ -98,6 +105,9 @@ from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
+    API_ORIGIN,
+    COMMAND_LINE_ORIGIN,
+    SUPPLIED_SECTIONS_ORIGIN,
     FlowNotFoundError,
     check_not_removed,
     command_line_sections,
@@ -131,6 +141,7 @@ from .trace_inputs import (
 )
 
 __all__ = [
+    "DIR_NAME_HASH_LEN",
     "DefaultRunner",
     "DesignNotFoundError",
     "FlowNotFoundError",
@@ -142,8 +153,6 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
-
-DIR_NAME_HASH_LEN = 16
 
 
 def print_results(
@@ -249,6 +258,11 @@ class RunDirPolicy:
     post_cleanup: bool
     post_cleanup_purge: bool
 
+    @property
+    def purges(self) -> bool:
+        """Whether the clean-up after the launch deletes the run directory (`_clean_up`)."""
+        return self.post_cleanup and self.post_cleanup_purge
+
 
 @dataclass(frozen=True)
 class _Request:
@@ -327,13 +341,17 @@ COMPLETION_DOCUMENTS = ("results.json", "trace.json")
 class ScrubResult(NamedTuple):
     """What `scrub_design` did: the directories it searched, the run directories it removed
     (none if it found none or the removal was not confirmed), the ones it kept because their run
-    records changed after the listing, and the ones that were gone already when their turn came.
-    The removed, the kept and the gone are three lists: none is in another."""
+    records changed after the listing, the ones that were gone already when their turn came, and
+    the links it did not list because they are no run directory (`run_directory_problem`). The
+    removed, the kept and the gone are three lists: none is in another, and no skipped link is in
+    any of them. A directory that has several names (links to it) is listed once, under the first
+    name, and removed under all of them."""
 
     scanned: list[Path]
     removed: list[Path]
     kept: list[Path]
     gone: list[Path]
+    skipped: list[Path]
 
 
 class _Removal(NamedTuple):
@@ -353,52 +371,70 @@ def _distinct(paths: Iterable[Path]) -> list[Path]:
     return list(first.values())
 
 
-def _name_regex(flow_name: str) -> re.Pattern[str]:
-    return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
+class _Skipped(NamedTuple):
+    """A link named like a run directory of the flow that is none (`run_directory_problem`), and
+    why. Scrub neither lists it nor follows it."""
+
+    link: Path
+    problem: str
 
 
-def _is_run_directory(path: Path, flow_name: str, parent: Path) -> bool:
-    """Whether `path` is one of `flow_name`'s run directories in `parent`, a resolved directory.
+class _Scan(NamedTuple):
+    """What `_run_directories_in` found in one directory: the run directories it lists, and the
+    links named like one that it does not."""
 
-    It is named `flow_name`, or `flow_name`, an underscore and a `DIR_NAME_HASH_LEN`-char
-    `[a-z0-9]` `flowrun_hash` (the unhashed form is what every default run creates; the hashed
-    form only appears with `hashed_run_dirs=True`). It is a directory, or a link to one, and it
-    resolves to a child of `parent`: itself, or, for a link, a directory beside it. A link that
-    leads below `parent`, to `parent` or above it, or anywhere else is no run directory in it.
-
-    This is the one rule for what scrub removes: it lists the children of a directory by it, and
-    judges each again by it once it holds the child's lock. The rule says what `path` is now and
-    keeps nothing of what it was."""
-    return (
-        _name_regex(flow_name).match(path.name) is not None
-        and path.is_dir()
-        and path.resolve().parent == parent
-    )
+    candidates: list[Path]
+    skipped: list[_Skipped]
 
 
 def _run_directories_in(
     flow_name: str, directory: Path, exclude: Sequence[Path], run_root: Path
-) -> list[Path]:
-    """`flow_name`'s run directories among the children of `directory` (`_is_run_directory`),
-    except `exclude`: a launch leaves out its own. Nothing is listed in a directory that is not
-    under `run_root`. The children are matched rather than a `f"{flow_name}_*"` glob, so the
-    unhashed directory -- which that glob can never match -- is included too. A directory is
-    excluded by where it resolves to, never by whether it exists now or has the same inode: a
-    sibling launch's scrub may remove a launch's own directory while this lists, and it is still
-    not a candidate."""
+) -> _Scan:
+    """`flow_name`'s run directories among the children of `directory`, except `exclude`: a
+    launch leaves out its own. A child is a run directory by `run_directory_problem`, the rule a
+    launch applies too. A link named like one that fails the rule is not listed, and is returned
+    with the reason. Nothing is listed in a directory that is not under `run_root`. The children
+    are matched rather than a `f"{flow_name}_*"` glob, so the unhashed directory -- which that
+    glob can never match -- is included too. A directory is excluded by where it resolves to,
+    never by whether it exists now or has the same inode: a sibling launch's scrub may remove a
+    launch's own directory while this lists, and it is still not a candidate."""
     if not directory.is_dir():
-        return []
+        return _Scan([], [])
     xr = directory.resolve()
     if not xr.is_relative_to(os.path.realpath(run_root)):
-        return []
+        return _Scan([], [])
     excluded = {Path(os.path.realpath(ex)) for ex in exclude}
-    return unique(
-        [
-            p
-            for p in sorted(directory.iterdir())
-            if _is_run_directory(p, flow_name, xr) and Path(os.path.realpath(p)) not in excluded
-        ]
-    )
+    named = run_directory_name(flow_name)
+    candidates: list[Path] = []
+    skipped: list[_Skipped] = []
+    for p in sorted(directory.iterdir()):
+        if named.match(p.name) is None:
+            continue
+        problem = run_directory_problem(p, flow_name, xr)
+        if problem is None:
+            if Path(os.path.realpath(p)) not in excluded:
+                candidates.append(p)
+        elif p.is_symlink():
+            skipped.append(_Skipped(p, problem))
+    return _Scan(unique(candidates), skipped)
+
+
+def run_directory_names(path: Path, flow_name: str, run_root: Path) -> list[Path]:
+    """Every name of `flow_name`'s run directory `path` in its directory: `path` itself, and the
+    links beside it that are run directories of the flow (`run_directory_problem`) and lead where
+    it leads -- the names scrub lists it under (`_listed`). A purge removes all of them with the
+    directory (`RunDirectory.delete`), so no name is left leading nowhere."""
+    leads_to = os.path.realpath(path)
+    beside = _run_directories_in(flow_name, path.parent, (), run_root).candidates
+    return unique([path, *(p for p in beside if os.path.realpath(p) == leads_to)])
+
+
+def _say_skipped(skipped: Iterable[_Skipped]) -> None:
+    """Say, one line each, the links scrub did not list, and why: on the console, and in the log
+    at info level, because `xeda scrub` configures no logging."""
+    for link, problem in skipped:
+        log.info("Not scrubbing %s: %s", link, problem)
+        _say(f"skipped {link}: {problem}")
 
 
 def _target_parents(design_dir: Path, run_root: Path) -> list[Path]:
@@ -425,13 +461,16 @@ class _Listed(NamedTuple):
     """A run directory as listed for removal: the path, the flow it is a run directory of, the
     resolved directory it was listed in and what the listing saw of its run records
     (`_completion_records`). Scrub judges the path again once it holds the lock
-    (`_still_a_run_directory`), by what is there then, and compares the records to find a
-    directory that a launch wrote its records to after the listing."""
+    (`_problem_now`), by what is there then, and compares the records to find a directory that a
+    launch wrote its records to after the listing. `aliases` are the other names the listing
+    found for the same directory (links to it, or the directory itself when `path` is a link):
+    scrub removes the directory under every one of its names."""
 
     path: Path
     flow_name: str
     parent: Path
     records: tuple[Optional[OutputState], ...]
+    aliases: tuple[Path, ...] = ()
 
 
 def _completion_records(path: Path) -> tuple[Optional[OutputState], ...]:
@@ -444,8 +483,23 @@ def _completion_records(path: Path) -> tuple[Optional[OutputState], ...]:
     return tuple(record_output_state(path / name) for name in COMPLETION_DOCUMENTS)
 
 
-def _listed(flow_name: str, path: Path) -> _Listed:
-    return _Listed(path, flow_name, Path(os.path.realpath(path.parent)), _completion_records(path))
+def _listed(flow_name: str, paths: Iterable[Path]) -> list[_Listed]:
+    """`paths` as run directories to remove: one for each directory they lead to, under the first
+    of its names, with the others as its `aliases`. A directory and a link to it are one
+    candidate, so the link is removed with the directory and never left leading nowhere."""
+    names: dict[str, list[Path]] = {}
+    for p in paths:
+        names.setdefault(os.path.realpath(p), []).append(p)
+    return [
+        _Listed(
+            first,
+            flow_name,
+            Path(os.path.realpath(first.parent)),
+            _completion_records(first),
+            tuple(others),
+        )
+        for first, *others in names.values()
+    ]
 
 
 def _lock_path(path: Path, run_root: Path) -> Path:
@@ -457,6 +511,25 @@ def _lock_path(path: Path, run_root: Path) -> Path:
     if path.is_symlink() and path.is_dir() and RunDirectory.lies_under(path, run_root):
         return Path(os.path.realpath(path))
     return path
+
+
+def _refuse_a_change(path: Path, c: _Listed, locked: Path, leads_to: Path) -> None:
+    """Under the lock of `locked`, judge a name of the directory again, as it is now: it still
+    leads to the directory whose lock is held (`leads_to`, where `locked` leads), and is still
+    a run directory of the flow where it was listed. Otherwise a `RunDirectoryError`, and
+    nothing is removed: a name retargeted while scrub waited, or replaced, is not what the user
+    confirmed, and scrub would remove a directory whose lock it does not hold."""
+    if Path(os.path.realpath(path)) != leads_to:
+        raise RunDirectoryError(
+            f"{path} changed while scrub waited for its lock. It no longer leads to "
+            f"{locked}, the directory whose lock scrub holds. It was not removed."
+        )
+    problem = _problem_now(c._replace(path=path))
+    if problem is not None:
+        raise RunDirectoryError(
+            f"{path} is no longer a run directory of {c.flow_name} in {c.parent}: "
+            f"{problem}. It was not removed."
+        )
 
 
 def _is_gone(path: Path) -> bool:
@@ -472,18 +545,19 @@ def _is_gone(path: Path) -> bool:
     return False
 
 
-def _still_a_run_directory(listed: _Listed) -> bool:
-    """Whether `listed.path` is a run directory of its flow in the directory it was listed in
-    (`_is_run_directory`). Scrub asks once it holds the lock, so no launch is running in it.
+def _problem_now(listed: _Listed) -> Optional[str]:
+    """Why `listed.path` is no run directory of its flow in the directory it was listed in
+    (`run_directory_problem`, the rule that listed it), or None if it is. Scrub asks once it
+    holds the lock, so no launch is running in it.
 
     What the directory held when it was listed does not matter, and nor does whether it is the
     same directory. A launch writes in its run directory, and its inode change time moves with
     every file it adds or removes. Whether it wrote the run records there since the listing is
     another question, which `_completion_records` answers."""
     try:
-        return _is_run_directory(listed.path, listed.flow_name, listed.parent)
-    except OSError:
-        return False
+        return run_directory_problem(listed.path, listed.flow_name, listed.parent)
+    except OSError as error:
+        return f"it cannot be examined ({error.strerror or error})"
 
 
 def _say(message: str) -> None:
@@ -505,13 +579,14 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
     asked again: a link retargeted, or replaced by a directory, while scrub waited) is not
     removed, and the scrub fails (`RunDirectoryError`): scrub would remove a directory whose lock
     it does not hold. What is removed is the locked directory itself, never what a link leads to
-    by then. Anything else that is no run directory of the flow -- no directory, or a link that
-    now leads anywhere but to a directory beside it -- is not removed either, and the scrub fails
-    the same way. A run directory whose run records are not what the listing saw
-    (`_completion_records`) was written to by a launch after the listing: a run ended there, or
-    a launch found its run fresh and refreshed the trace. Scrub cannot tell which, and what is
-    there is no longer what was confirmed: it is kept, and said. The rest are removed. The three
-    lists are the directories removed, kept and gone."""
+    by then. Anything else that is no run directory of the flow by `run_directory_problem` -- no
+    directory, or a link that now leads anywhere but to a run directory of the flow beside it --
+    is not removed either, and the scrub fails the same way. This holds for every name of the
+    directory (`_Listed.aliases`), and is judged before the run records. A run directory whose
+    run records are not what the listing saw (`_completion_records`) was written to by a launch after the
+    listing: a run ended there, or a launch found its run fresh and refreshed the trace. Scrub
+    cannot tell which, and what is there is no longer what was confirmed: it is kept, and said.
+    The rest are removed. The three lists are the directories removed, kept and gone."""
     if not candidates:
         return _Removal([], [], [])
     console.print(
@@ -519,32 +594,31 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
     )
     for c in candidates:
         console.print(c.path)
+        for alias in c.aliases:
+            _say(f"{alias} (another name of the same directory)")
     confirmation = console.input("Type 'yes' if you're sure you want to continue: ")
     if confirmation.lower() != "yes":
         console.print("Not confirmed. No files or folders were removed.")
         return _Removal([], [], [])
-    log.warning("Removing the following directories: %s", " ".join(str(c.path) for c in candidates))
+    log.warning(
+        "Removing the following directories: %s",
+        " ".join(str(name) for c in candidates for name in (c.path, *c.aliases)),
+    )
     done = _Removal([], [], [])
     for c in candidates:
         p = c.path
         locked = _lock_path(p, run_root)
+        leads_to = Path(os.path.realpath(locked))
         with run_dir_lock(locked, run_root):
             if _is_gone(p):
                 log.info("Not removing %s: it is gone already", p)
                 _say(f"{p} is gone already")
                 done.gone.append(p)
                 continue
-            if _lock_path(p, run_root) != locked:
-                raise RunDirectoryError(
-                    f"{p} changed while scrub waited for its lock. It no longer leads to "
-                    f"{locked}, the directory whose lock scrub holds. It was not removed."
-                )
-            if not _still_a_run_directory(c):
-                raise RunDirectoryError(
-                    f"{p} is no longer a run directory of {c.flow_name} in {c.parent}: it is no "
-                    f"directory, or a link that does not lead to a directory in {c.parent}. It "
-                    "was not removed."
-                )
+            _refuse_a_change(p, c, locked, leads_to)
+            for alias in c.aliases:  # each name of the directory, judged as the first is
+                if not _is_gone(alias):
+                    _refuse_a_change(alias, c, locked, leads_to)
             if _completion_records(p) != c.records:
                 log.info("Not removing %s: its run records changed after the listing", p)
                 _say(
@@ -553,11 +627,10 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
                 )
                 done.kept.append(p)
                 continue
-            if p.is_symlink():  # a run directory reached through a link in the run root
-                # The link first, as itself. Another scrub that listed it then finds it gone. A
-                # link to a directory that is gone is a link to nowhere, which its lock refuses.
-                p.unlink()  # the link itself, never what it leads to
-            RunDirectory.claimed(locked, run_root).delete()  # the directory whose lock is held
+            # The links first, as themselves: another scrub that listed one then finds it gone,
+            # and a link to a directory that is gone is a link to nowhere, which its lock
+            # refuses. Then the directory whose lock is held, never what a link leads to by now.
+            RunDirectory.claimed(locked, run_root).delete(p, *c.aliases)
         done.removed.append(p)
     summary = f"{len(done.removed)} folders removed"
     if done.kept:
@@ -578,10 +651,14 @@ def scrub_runs(
     the ones named `flow_name` or `flow_name_<hash>` (`_run_directories_in`), except `exclude`.
     A launch's `--scrub` scrubs its own directory this way, so it never reaches another
     target's. Each is removed as a run directory claimed under `run_root` (default: `dir`'s
-    parent), the real run root, so none that leads out of it is ever removed."""
+    parent), the real run root, so none that leads out of it is ever removed, together with the
+    links to it that the listing found (`_listed`). A link named like a run directory that is
+    none is said, and left alone."""
     if run_root is None:
         run_root = dir.parent
-    listed = [_listed(flow_name, p) for p in _run_directories_in(flow_name, dir, exclude, run_root)]
+    scan = _run_directories_in(flow_name, dir, exclude, run_root)
+    _say_skipped(scan.skipped)
+    listed = _listed(flow_name, scan.candidates)
     return bool(_remove_confirmed(listed, run_root).removed)
 
 
@@ -593,8 +670,9 @@ def scrub_design(
     ones made before targets existed) and in every target's directory below it; with one, only
     those in `<design_dir>/<target>`. What is on disk decides (`_target_parents`); no design
     file is read, so a target the design no longer names is found, and one that was never built
-    is nothing to do. A `target` that is no target name is a `RunDirectoryError`, before
-    anything is looked at."""
+    is nothing to do. A link named like a run directory that is none (`run_directory_problem`)
+    is not listed: it is said before the question, and returned as `skipped`. A `target` that is
+    no target name is a `RunDirectoryError`, before anything is looked at."""
     if target is not None:
         problem = target_name_problem(target)
         if problem is not None:
@@ -611,12 +689,12 @@ def scrub_design(
     else:
         found = [design_dir, *_target_parents(design_dir, run_root)] if design_dir.is_dir() else []
     parents = _distinct(found)
-    candidates = _distinct(
-        [p for parent in parents for p in _run_directories_in(flow_name, parent, (), run_root)]
-    )
-    listed = [_listed(flow_name, p) for p in candidates]
-    done = _remove_confirmed(listed, run_root)
-    return ScrubResult(parents, done.removed, done.kept, done.gone)
+    scans = [_run_directories_in(flow_name, parent, (), run_root) for parent in parents]
+    skipped = unique([s for scan in scans for s in scan.skipped])
+    candidates = [p for scan in scans for p in scan.candidates]
+    _say_skipped(skipped)
+    done = _remove_confirmed(_listed(flow_name, candidates), run_root)
+    return ScrubResult(parents, done.removed, done.kept, done.gone, [s.link for s in skipped])
 
 
 def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
@@ -787,7 +865,8 @@ class FlowLauncher:
         backups: bool = False
         # remove flow files except settings.json, results.json, and artifacts _after_ run:
         post_cleanup: bool = False
-        # remove flow_run folder and all of its contents _after_ running the flow:
+        # remove flow_run folder and all of its contents _after_ running the flow (it needs no
+        # `post_cleanup`: `_run_dir_policy` makes one imply the other):
         post_cleanup_purge: bool = False
         # remove previous flow directories _before_ running the flow:
         scrub_old_runs: bool = False
@@ -895,10 +974,12 @@ class FlowLauncher:
     ) -> Path:
         """`<run root>/<design>[/<target>]/<node>`, or `<node>_<identity>` with hashed run
         directories: strictly inside the run root, resolved -- a `RunDirectoryError` otherwise,
-        before anything (the lock beside it included) is written. A design selected as a target
-        runs in that target's directory, as its dependencies do; one without, as it always has.
-        `target` is the design's own (`Design.target`), never read from the launcher, which
-        may be reused for another design."""
+        before anything (the lock beside it included) is written. A link at that name is used
+        only if it is a run directory of the node by `run_directory_problem`, the rule scrub
+        lists run directories by: it leads to a directory named like one beside it. A design
+        selected as a target runs in that target's directory, as its dependencies do; one
+        without, as it always has. `target` is the design's own (`Design.target`), never read
+        from the launcher, which may be reused for another design."""
         subdir = node_name
         if self.settings.hashed_run_dirs and identity:
             subdir += f"_{identity[:DIR_NAME_HASH_LEN]}"
@@ -917,6 +998,14 @@ class FlowLauncher:
                 f"{run_path} leads out of the run root {self._run_root} (through a symbolic "
                 "link): xeda runs only inside its run root; remove the link"
             )
+        if run_path.is_symlink():  # the rule `xeda scrub` lists a run directory by
+            beside = Path(os.path.realpath(run_path.parent))
+            problem = run_directory_problem(run_path, node_name, beside)
+            if problem is not None:
+                raise RunDirectoryError(
+                    f"{run_path} cannot be the run directory of {node_name}: {problem}. Remove "
+                    f"the link, or make it lead to a run directory of {node_name} beside it."
+                )
         return run_path
 
     def get_flow_run_path(
@@ -972,20 +1061,20 @@ class FlowLauncher:
             clean_origins.append((location, clean))
             layers.append(bindings)
         all_flows_settings, bindings = split_bindings(
-            all_flows_settings or {}, location="the supplied API flow sections"
+            all_flows_settings or {}, location=SUPPLIED_SECTIONS_ORIGIN
         )
         if bindings.entries or bindings.invalid_inputs or (not origins and not binding_layers):
             layers.append(bindings)
         if direct:
-            clean_origins.append(("the supplied flow sections", all_flows_settings))
+            clean_origins.append((SUPPLIED_SECTIONS_ORIGIN, all_flows_settings))
         clean_cli, bindings = split_bindings(
-            command_line or {}, location="the command line", kind="cli"
+            command_line or {}, location=COMMAND_LINE_ORIGIN, kind="cli"
         )
         layers.append(bindings)
-        clean_api, bindings = split_bindings(api_overrides or {}, location="the API", kind="api")
+        clean_api, bindings = split_bindings(api_overrides or {}, location=API_ORIGIN, kind="api")
         layers.append(bindings)
         clean_root, bindings = split_bindings(
-            {flow_class.name: flow_settings or {}}, location="the API", kind="api"
+            {flow_class.name: flow_settings or {}}, location=API_ORIGIN, kind="api"
         )
         layers.append(bindings)
         # Preserve the context/full value of a Settings instance on ordinary direct calls.
@@ -1218,16 +1307,30 @@ class FlowLauncher:
         """At the end of a top-level launch: with `deliver` (it completed, and its requested
         flow succeeded or was up to date), the deliveries noted for its flows (`_defer_delivery`),
         each under its run directory's lock, in completion order; then the deferred clean-ups,
-        which may remove a file that is delivered. Each on its own, a failure logged and the next
+        which may remove a file that is delivered. A flow whose run directory a clean-up deletes
+        delivers by moving its files. Each on its own, a failure logged and the next
         going on. The first failure, if any."""
         self._claims = set()
         self._deliveries_ahead = {}
         deliveries, self._pending_deliveries = self._pending_deliveries, []
+        # A flow whose run directory the clean-ups below delete gives its files away by rename. A
+        # flow found up to date has no clean-up pending, so it is copied from and keeps its files.
+        purged = {
+            id(flow)
+            for flow, _settings, _results, policy in self._pending_clean_ups
+            if policy.purges
+        }
         first_error: Optional[Exception] = None
+        # A file moves only if exactly one delivery of the whole launch reaches it, so the files
+        # are counted before the first delivery is made: one flow's move must not leave another
+        # flow's artifact, a link to that file, nothing to read.
+        reached = (
+            Deliveries.sources_reached(d for _flow, d in deliveries) if deliver and purged else None
+        )
         for flow, delivery in deliveries if deliver else []:
             try:
                 with run_dir_lock(flow.run_path, self.run_root):
-                    flow.deliveries = delivery.deliver()
+                    flow.deliveries = delivery.deliver(move=id(flow) in purged, reached=reached)
             except Exception as e:  # noqa: BLE001 - every delivery gets its turn
                 # `deliver()` records, and reports through `delivery.delivered`, whatever it
                 # copied before raising (an `OSError` partway through), so a `--json` reader still
@@ -1738,11 +1841,13 @@ class FlowLauncher:
 
     def _run_dir_policy(self) -> RunDirPolicy:
         """What this launch does with its run directory: the launcher's settings, for every
-        flow alike, dependencies included."""
+        flow alike, dependencies included. Purging is a clean-up after the run, so
+        `post_cleanup_purge` alone makes `post_cleanup` true here -- the one place where the two
+        settings meet, which `_clean_up`, the pending clean-ups and the delivery by move follow."""
         return RunDirPolicy(
             clean=self.settings.clean,
             scrub_old_runs=self.settings.scrub_old_runs,
-            post_cleanup=self.settings.post_cleanup,
+            post_cleanup=self.settings.post_cleanup or self.settings.post_cleanup_purge,
             post_cleanup_purge=self.settings.post_cleanup_purge,
         )
 
@@ -2015,9 +2120,13 @@ class FlowLauncher:
         not even if the pruning is interrupted halfway."""
         if policy.post_cleanup:
             remove_trace(flow.run_path)
-            if policy.post_cleanup_purge:
+            if policy.purges:
                 log.warning("Deleting flow run path %s", flow.run_path)
-                flow.run_directory.delete()
+                # with every name of it, the link the launch named it by included, so none is
+                # left leading nowhere
+                flow.run_directory.delete(
+                    *run_directory_names(flow.run_path, flow.name, self.run_root)
+                )
             else:
                 log.warning("Cleaning up %s", flow.run_path)
                 named_run_path = Path(os.path.abspath(flow.run_path))
@@ -2083,10 +2192,10 @@ class FlowLauncher:
         if plan is None and depender is None:
             flow_cls = get_flow_class(flow_class) if isinstance(flow_class, str) else flow_class
             sections, section_bindings = split_bindings(
-                all_flows_settings or {}, location="the supplied API flow sections"
+                all_flows_settings or {}, location=SUPPLIED_SECTIONS_ORIGIN
             )
             own, own_bindings = split_bindings(
-                {flow_cls.name: flow_settings or {}}, location="the API", kind="api"
+                {flow_cls.name: flow_settings or {}}, location=API_ORIGIN, kind="api"
             )
             layers = (section_bindings, own_bindings)
             # a flow that declares no inputs has none to bind: an `inputs` key is an error
@@ -2205,7 +2314,7 @@ class FlowLauncher:
             cli_sections, {requested.name: cli_own}, flow_class_for=_get_flow_class_if_known
         )
         layers = [
-            split_bindings(cli_sections, location="the command line", kind="cli")[1],
+            split_bindings(cli_sections, location=COMMAND_LINE_ORIGIN, kind="cli")[1],
             split_bindings(
                 {
                     requested.name: (
@@ -2214,7 +2323,7 @@ class FlowLauncher:
                         else settings_to_dict(flow_overrides)
                     )
                 },
-                location="the API",
+                location=API_ORIGIN,
                 kind="api",
             )[1],
         ]
@@ -2492,10 +2601,10 @@ class FlowLauncher:
             cli_sections, {flow_class.name: cli_own}, flow_class_for=_get_flow_class_if_known
         )
         cli_sections, cli_bindings = split_bindings(
-            cli_sections, location="the command line", kind="cli"
+            cli_sections, location=COMMAND_LINE_ORIGIN, kind="cli"
         )
         api_sections, api_bindings = split_bindings(
-            {flow_class.name: flow_overrides}, location="the API", kind="api"
+            {flow_class.name: flow_overrides}, location=API_ORIGIN, kind="api"
         )
         binding_layers = (project_bindings, design_bindings, cli_bindings, api_bindings)
         effective_bindings(binding_layers, default_nodes([flow_class]), request=flow_request)

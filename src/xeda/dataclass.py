@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import Counter
+from collections.abc import Mapping
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
@@ -13,6 +15,7 @@ from typing import (
     Annotated,
     Any,
     Callable,
+    ClassVar,
     Dict,
     List,
     Optional,
@@ -56,11 +59,25 @@ __all__ = [
     "PydanticUndefined",
     "SerializeAsAny",
     "ValidationError",
+    "WHOLE",
     "BaseModel",
     "XedaBaseModel",
     "accepts_non_mapping",
     "annotation_args",
     "asdict",
+    "canonical_names",
+    "canonical_tree",
+    "appended_fields_of",
+    "annotation_form",
+    "annotation_mistake",
+    "expand_forms",
+    "field_shorthands_of",
+    "is_mistake",
+    "mapping_form",
+    "nested_model",
+    "shape_problems",
+    "table_entries",
+    "unspecified",
     "conventional_output",
     "LIST_TEXT_MESSAGE",
     "ListLiteralText",
@@ -308,6 +325,253 @@ def input_names(model: Type[BaseModel]) -> Dict[str, str]:
     return names
 
 
+# --------------------------------------------------------------------------------------------
+# shorthand forms and the tables they stand for
+#
+# A key that takes a table often takes other forms too: a clock as a port name, `fpga` as a part
+# number, `parameters` as a list of `{name, value}` objects. Each form means exactly one table.
+# When two layers meet (a target over its design, a settings layer over the one below), both
+# sides are read as the tables they stand for before it is decided to merge them key by key or
+# to replace one by the other. The one place a model says what its forms mean is its
+# `as_mapping` classmethod (or, for a field whose type is no model, its `field_shorthands`
+# entry), which the model's own validator calls too: nothing converts a form twice.
+# --------------------------------------------------------------------------------------------
+
+
+class _Whole:
+    """The type of `WHOLE`."""
+
+    def __repr__(self) -> str:
+        return "WHOLE"
+
+
+#: What `as_mapping` returns for a form that is valid but is no table, so it cannot be merged
+#: key by key: `cocotb: false` (no cocotb) and a platform's name (a whole model, read from a
+#: file). Such a form replaces what is below it, and is replaced by what is above it.
+WHOLE = _Whole()
+
+
+def unspecified(value: Any) -> Any:
+    """A `field_shorthands` entry for a field that takes `None` to say that nothing is given
+    (`flows:` with no table): the value is `WHOLE`, so it replaces what is below it as it always
+    has. A field that does not take `None` declares none: a `None` there is no form of a table,
+    and is reported."""
+    return WHOLE if value is None else None
+
+
+def field_shorthands_of(model: Type[BaseModel]) -> Dict[str, Callable[[Any], Any]]:
+    """The `field_shorthands` of `model`: its own entries and its bases', walking the MRO. A
+    subclass adds to what its bases declare, and its entry for the same field wins."""
+    table: Dict[str, Callable[[Any], Any]] = {}
+    for klass in reversed(model.__mro__):
+        table.update(vars(klass).get("field_shorthands", {}))
+    return table
+
+
+def appended_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
+    """The `appended_fields` of `model`: its own and its bases', in the order of the MRO from
+    the base."""
+    fields: Dict[str, None] = {}
+    for klass in reversed(model.__mro__):
+        fields.update(dict.fromkeys(vars(klass).get("appended_fields", ())))
+    return tuple(fields)
+
+
+def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"]], bool]:
+    """What a field's annotation says about a value written as a table: `("model", M, optional)`
+    for a field that holds the model `M`, `("dict", None, optional)` for one that holds a
+    mapping, `("other", None, optional)` for anything else, a union with another alternative
+    (`str | list | M`) included: such a field may legitimately hold a value that is no table."""
+    optional = False
+    while True:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            annotation = get_args(annotation)[0]
+            continue
+        if origin in (Union, UnionType):
+            members = [a for a in get_args(annotation) if a is not type(None)]
+            optional = optional or len(members) < len(get_args(annotation))
+            if len(members) != 1:
+                return "other", None, optional
+            annotation = members[0]
+            continue
+        break
+    if isinstance(annotation, type) and issubclass(annotation, XedaBaseModel):
+        return "model", annotation, optional
+    if origin in (dict, Mapping) or annotation in (dict, Mapping):
+        return "dict", None, optional
+    return "other", None, optional
+
+
+def nested_model(annotation: Any) -> Optional[Type["XedaBaseModel"]]:
+    """The model a table written for a field of this annotation is validated as, if the field
+    holds nothing else."""
+    kind, model, _ = annotation_kind(annotation)
+    return model if kind == "model" else None
+
+
+def table_entries(annotation: Any) -> Any:
+    """The annotation of the entries of a field that holds a dictionary whose every entry is a
+    table (`Dict[str, Dict[str, Any]]`, `Dict[str, PhysicalClock]`), or None: a field of any
+    other kind, a dictionary of values that are no tables, and one whose entries may be other
+    things (a union) are not judged entry by entry."""
+    while True:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            annotation = get_args(annotation)[0]
+            continue
+        if origin in (Union, UnionType):
+            members = [a for a in get_args(annotation) if a is not type(None)]
+            if len(members) != 1:
+                return None
+            annotation = members[0]
+            continue
+        break
+    arguments = get_args(annotation)
+    if origin not in (dict, Mapping) or len(arguments) != 2:
+        return None
+    return arguments[1] if annotation_kind(arguments[1])[0] in ("model", "dict") else None
+
+
+def canonical_names(values: Mapping[str, Any], model: Type[BaseModel]) -> Dict[str, Any]:
+    """`values`' keys at one level of `model`, each as the model spells the field (an alias and
+    its field are one setting). A field given under two spellings keeps both, as written, so
+    validation reports the ambiguity instead of one spelling silently winning."""
+    names = input_names(model)
+    targets = [names.get(key, key) for key in values]
+    duplicates = {target for target, count in Counter(targets).items() if count > 1}
+    canonical: Dict[str, Any] = {}
+    for (key, value), target in zip(values.items(), targets):
+        canonical[key if target in duplicates else target] = value
+    return canonical
+
+
+def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
+    """`canonical_names` at every level of nested models."""
+    tree = canonical_names(values, model)
+    for key, value in tree.items():
+        child = nested_model(field_annotation(model, input_names(model).get(key)))
+        if child is not None and isinstance(value, Mapping):
+            tree[key] = canonical_tree(child, value)
+    return tree
+
+
+def annotation_form(
+    annotation: Any, value: Any, shorthand: Optional[Callable[[Any], Any]] = None
+) -> Any:
+    """The table that `value`, written where `annotation` is expected, stands for: `value` when
+    it is a table; the table of a shorthand form (the `shorthand` function, else the nested
+    model's `as_mapping`); `WHOLE` for a valid form that is no table; `None` for anything else
+    (a mistake, which validation reports)."""
+    if isinstance(value, Mapping):
+        return value
+    child = nested_model(annotation)
+    if child is not None and isinstance(value, child):
+        return WHOLE  # a model already built is a whole value
+    hook = shorthand
+    if hook is None:
+        hook = child.as_mapping if child is not None else None
+    if hook is None:
+        return None
+    try:
+        return hook(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def annotation_mistake(annotation: Any, value: Any, form: Any) -> bool:
+    """Whether `value` is no table where `annotation` takes one: its `form` (`annotation_form`)
+    is no table, not `WHOLE`, and the value is not `None` for an optional annotation. An
+    annotation that takes other values than a table is never judged."""
+    kind, _, optional = annotation_kind(annotation)
+    if kind == "other":
+        return False
+    return not (isinstance(form, Mapping) or form is WHOLE or (value is None and optional))
+
+
+def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> Any:
+    """The table that `value`, written for `owner`'s field `field`, stands for: `value` when it
+    is a table; the table of a shorthand form; `WHOLE` for a valid form that is no table; `None`
+    for anything else (a mistake, which validation reports)."""
+    if isinstance(value, Mapping):
+        return value
+    if not field or field not in getattr(owner, "model_fields", {}):
+        return None
+    return annotation_form(
+        owner.model_fields[field].annotation, value, field_shorthands_of(owner).get(field)
+    )
+
+
+def expand_forms(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
+    """`values` (a table written for `model`) with every shorthand form read as the table it
+    stands for, through every level of nested models. Anything that is no form is kept as it is."""
+    names = input_names(model)
+    expanded: Dict[str, Any] = {}
+    for key, value in values.items():
+        field = names.get(key)
+        form = mapping_form(model, field, value)
+        child = nested_model(field_annotation(model, field))
+        if isinstance(form, Mapping):
+            expanded[key] = expand_forms(child, form) if child is not None else dict(form)
+        else:
+            expanded[key] = value
+    return expanded
+
+
+def is_mistake(owner: Type[BaseModel], field: str, value: Any) -> bool:
+    """Whether `value` is no table where `owner`'s `field` takes one: not a table, not a
+    shorthand form of one (`mapping_form`), not a valid form that is no table (`WHOLE`), and not
+    `None` for an optional field. A field that takes other values than a table is never judged."""
+    return annotation_mistake(
+        owner.model_fields[field].annotation, value, mapping_form(owner, field, value)
+    )
+
+
+def shape_problems(
+    model: Type[BaseModel], values: Mapping[str, Any]
+) -> List[Tuple[Tuple[str, ...], Any]]:
+    """Where `values` (a table written for `model`) holds a mistake (`is_mistake`) at a key that
+    takes a table: `(key path, value)`, the keys as they are written, through every level of
+    nested models. A key that is no field is judged only if the model says so
+    (`XedaBaseModel.form_problems`). This is a check of shape, not a validation."""
+    problems: List[Tuple[Tuple[str, ...], Any]] = [
+        ((key,), value) for key, value in model.form_problems(values)  # type: ignore[attr-defined]
+    ]
+    names = input_names(model)
+    for key, value in values.items():
+        field = names.get(key)
+        if field is None or field not in model.model_fields:
+            continue
+        if is_mistake(model, field, value):
+            problems.append(((key,), value))
+            continue
+        annotation = model.model_fields[field].annotation
+        child = nested_model(annotation)
+        form = mapping_form(model, field, value)
+        if child is not None and isinstance(form, Mapping):
+            problems += [((key, *path), v) for path, v in shape_problems(child, form)]
+        entries = table_entries(annotation)
+        if entries is not None and isinstance(form, Mapping):
+            problems += [((key, *path), v) for path, v in _entry_problems(entries, form)]
+    return problems
+
+
+def _entry_problems(
+    annotation: Any, entries: Mapping[Any, Any]
+) -> List[Tuple[Tuple[str, ...], Any]]:
+    """`shape_problems` of a dictionary whose entries are tables (`table_entries` gave their
+    `annotation`): the entries that are mistakes, and those of the entries that are models."""
+    problems: List[Tuple[Tuple[str, ...], Any]] = []
+    child = nested_model(annotation)
+    for name, entry in entries.items():
+        form = annotation_form(annotation, entry)
+        if annotation_mistake(annotation, entry, form):
+            problems.append(((str(name),), entry))
+        elif child is not None and isinstance(form, Mapping):
+            problems += [((str(name), *path), v) for path, v in shape_problems(child, form)]
+    return problems
+
+
 #: The role of a setting whose paths a flow writes, as a `json_schema_extra` marker: a
 #: *working* location (its build or report directory, its log) is a name inside the run
 #: directory; a *deliverable* is a name there, or a location it is delivered to after the run
@@ -432,6 +696,38 @@ class XedaBaseModel(BaseModel):
         # and writing its default explicitly (as a saved `settings.json` does) are the same.
         validate_default=True,
     )
+
+    #: Fields whose value is no model but has forms that stand for a table (`parameters` as a
+    #: list of `{name, value}`): field name -> function from a form to its table, or `None`
+    #: when the value is not one of the field's forms. A subclass adds its entries to its bases'
+    #: (`field_shorthands_of` walks the MRO); an entry for the same field wins.
+    field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {}
+    #: Fields that are lists which a layer adds to instead of replacing, when the merge asks for
+    #: it (`merge_layers(append=True)`, a target's merge over its design's `sources`). A subclass
+    #: adds to its bases' (`appended_fields_of`).
+    appended_fields: ClassVar[Tuple[str, ...]] = ()
+
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """The table that `value`, a form other than a table, stands for as this model: its
+        validator reads the form by this function, and a merge of two layers reads both sides
+        by it. `WHOLE` for a valid form that is no table, `None` for a value that is no form of
+        this model. A model without forms keeps this default."""
+        return None
+
+    @classmethod
+    def form_problems(cls, values: Mapping[str, Any]) -> List[Tuple[str, Any]]:
+        """The keys of `values` (a table written for this model) that hold a mistake though they
+        are no fields, as `(key, value)`: a model with input-only spellings (a design's `clock`)
+        overrides this, so that `shape_problems` judges them too. The default judges none."""
+        return []
+
+    @classmethod
+    def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
+        """Merge the keys of `values` that this model merges by its own rule into `merged`
+        (what is below them), and remove them from `values`. Both are canonical tables of this
+        model. A model whose fields have several spellings with one meaning (a design's clock)
+        overrides this; the default merges nothing."""
 
     @_pydantic_model_validator(mode="before")
     @classmethod

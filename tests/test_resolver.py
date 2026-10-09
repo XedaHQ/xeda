@@ -6,6 +6,7 @@ differently it is an error naming both places, and the command line wins for the
 and every node's identity."""
 
 import dataclasses
+import re
 from pathlib import Path
 from typing import ClassVar
 
@@ -16,7 +17,11 @@ from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.resolver import resolve
-from xeda.flow_runner.settings_layers import compose_flow_settings, transitive_dependencies
+from xeda.flow_runner.settings_layers import (
+    COMMAND_LINE_ORIGIN,
+    compose_flow_settings,
+    transitive_dependencies,
+)
 
 from .io_flows import _ChainUndeclared, _Maker, _Place, _Reader, _Taker
 
@@ -172,13 +177,13 @@ def test_two_different_command_line_values_are_an_error(tmp_path):
     settings = compose_flow_settings(
         _Place, [{"__synth": command_line["__synth"]}], command_line["__place"]
     )
-    with pytest.raises(FlowSettingsError, match="the command line"):
+    with pytest.raises(FlowSettingsError, match=re.escape(COMMAND_LINE_ORIGIN)):
         _plan(
             tmp_path,
             _Place,
             settings,
             {"__synth": command_line["__synth"]},
-            origins=[("the command line", {"__synth": command_line["__synth"]})],
+            origins=[(COMMAND_LINE_ORIGIN, {"__synth": command_line["__synth"]})],
             command_line=command_line,
         )
 
@@ -261,7 +266,7 @@ def test_disjoint_cli_leaves_combine_across_nodes(tmp_path):
 
 def test_conflicting_cli_clock_aliases_are_an_error(tmp_path):
     cli = {"__place": {"fpga": PART, "clock_period": 4}, "__synth": {"clock": {"freq": 200}}}
-    with pytest.raises(FlowSettingsError, match="the command line"):
+    with pytest.raises(FlowSettingsError, match=re.escape(COMMAND_LINE_ORIGIN)):
         _plan(tmp_path, _Place, compose_flow_settings(_Place, [cli]), command_line=cli)
 
 

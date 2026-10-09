@@ -22,7 +22,7 @@ from xeda.board import get_board_data
 from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import ChainElement, parse_request, predecessors, request_text
-from xeda.flow_runner.settings_layers import transitive_dependencies
+from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN, transitive_dependencies
 from xeda.flows import Openfpgaloader
 from xeda.introspect import boards_info
 
@@ -311,7 +311,7 @@ def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_
             flow_settings=["flows.yosys_fpga.fpga.part=xc7a35tcpg236-1"],
         )
     assert (
-        "The `fpga` in [flows.yosys_fpga] in the command line does not reach vivado_synth"
+        f"The `fpga` in [flows.yosys_fpga] in {COMMAND_LINE_ORIGIN} does not reach vivado_synth"
         in str(raised.value)
     )
 
@@ -370,7 +370,7 @@ def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
     assert "The `fpga` in [flows.yosys_fpga] in " in message, message
     assert "does not reach openfpgaloader: yosys_fpga is not part of this run" in message, message
     if origin != "API":
-        label = str(design) if origin == "design file" else "the command line"
+        label = str(design) if origin == "design file" else COMMAND_LINE_ORIGIN
         assert f"The `fpga` in [flows.yosys_fpga] in {label} does not reach" in message, message
 
 

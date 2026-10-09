@@ -135,6 +135,30 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
     assert outcomes["clock"].results["period"] == 12.0 and outcomes["one"].results["period"] == 10.0
 
 
+def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_best(
+    tmp_path, monkeypatch
+):
+    """`post_cleanup_purge` on an exploration means the exploration deletes the runs that did
+    not improve, once their outcome is in. It is not the launch-wide purge of `xeda run`, which
+    would delete the best run too: each launch of the exploration leaves its run directory."""
+    monkeypatch.chdir(tmp_path)
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock_port": "clk"}
+    )
+    runner = Dse(
+        _DeclaredOptimizer,
+        run_root=tmp_path / "run",
+        variations={},
+        max_workers=1,
+        post_cleanup_purge=True,
+    )
+    runner.run(_DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock_period": 10.0})
+    outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
+    best = outcomes["one"].run_path
+    assert best is not None and best.is_dir(), "the best run is kept"
+    assert outcomes["two"].run_path is None and outcomes["clock"].run_path is None
+
+
 def test_declared_dse_conflicts_fail_before_logs_or_worker_creation(tmp_path, monkeypatch):
     from xeda.flow import FlowSettingsError
 
@@ -341,7 +365,7 @@ def flock(fd, mode):
         print("waiting", flush=True)
     return original(fd, mode)
 run_lock.fcntl.flock = flock
-_purge_run(Path(sys.argv[1]), Path(sys.argv[2]))
+_purge_run(Path(sys.argv[1]), Path(sys.argv[2]), "worker")
 print("done", flush=True)
 """
     writer = None

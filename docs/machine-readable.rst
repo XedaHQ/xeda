@@ -262,8 +262,9 @@ asked for a fresh random seed) is never ``"fresh"``; its ``reason`` says why.
 ``deliveries`` lists every output that node's flow copied to a location the settings or
 ``--outputs-to`` named, once the whole launch finished (see :doc:`run-directories`'s "Outputs
 where you name them"): ``setting`` is the setting (or ``--outputs-to``) that asked for it,
-``from`` the file in the run directory, ``to`` where it was copied, and ``state`` either
-``"delivered"`` (a new copy was written) or ``"unchanged"`` (the destination already held exactly
+``from`` the file in the run directory, ``to`` where it was copied (or moved: see
+:doc:`run-directories`), and ``state`` either ``"delivered"`` (the file was written at the
+destination, as a new copy or by a move) or ``"unchanged"`` (the destination already held exactly
 that file). It is ``[]`` for a node with nothing to deliver, and a fresh node still lists its
 deliveries: delivery follows a node's outcome, not whether its tool ran.
 
@@ -360,8 +361,8 @@ Removing run directories
 
 ``xeda scrub <flow> <design> --json`` removes a flow's previous run directories for one design
 (see :doc:`run-directories`) and writes a single JSON object to stdout. The listing, the
-confirmation prompt and the lines about the directories scrub kept or found gone go to stderr,
-with the rest of its output:
+confirmation prompt and the lines about the directories scrub kept or found gone, and the links it
+skipped, go to stderr, with the rest of its output:
 
 .. code-block:: json
 
@@ -374,10 +375,11 @@ with the rest of its output:
       "scanned": ["/path/to/xeda_run/sqrt"],
       "scrubbed": ["/path/to/xeda_run/sqrt/vivado_synth_0123456789abcdef"],
       "kept": ["/path/to/xeda_run/sqrt/vivado_synth_fedcba9876543210"],
-      "gone": []
+      "gone": [],
+      "skipped": []
     }
 
-``target`` is the ``--target`` that was given, or ``null``. The four lists hold paths:
+``target`` is the ``--target`` that was given, or ``null``. The five lists hold paths:
 
 * ``scanned`` -- the directories scrub searched for run directories of the flow.
 * ``scrubbed`` -- the run directories it removed. The list is empty if scrub found none, or if you
@@ -389,8 +391,11 @@ with the rest of its output:
 * ``gone`` -- the run directories it listed that were not there any more when its turn came:
   another scrub or a purge removed them first. That is what scrub was asked to do, so it is no
   error.
+* ``skipped`` -- the links named like a run directory of the flow that scrub did not list,
+  because they do not lead to a run directory of the flow beside them (see :doc:`run-directories`).
+  Scrub removed neither the link nor what it leads to. It says why on stderr, one line for each.
 
-No path is in more than one of ``scrubbed``, ``kept`` and ``gone``. A failure writes
+No path is in more than one of ``scrubbed``, ``kept``, ``gone`` and ``skipped``. A failure writes
 ``{"success": false, "flow": ..., "design": ..., "target": ..., "error": {"type": ...,
 "message": ...}}`` and exits with status 1. ``error.type`` is ``RunDirectoryError`` for a design or
 target name that is not a name, or a run directory scrub refuses to remove (one that is no longer

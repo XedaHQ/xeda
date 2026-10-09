@@ -148,8 +148,16 @@ it (`.xeda-run-root`, `.gitignore`, `CACHEDIR.TAG`); keep nothing of yours there
 A run directory is `<run root>/<design>[/<target>]/<flow>` (or `<flow>_<hash>`) and nothing else:
 `get_flow_run_path` refuses a design name that is not a name (`design.DESIGN_NAME`), a target that
 is not a target name (`design.target_name_problem`) and a directory
-that leads out of the run root through a symbolic link; one that is itself a link resolving inside
-the run root is used. **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
+that leads out of the run root through a symbolic link. **One definition of a run directory serves
+the launch and scrub** (`run_dir.run_directory_problem(path, flow, parent)`, with
+`run_dir.DIR_NAME_HASH_LEN` and the name pattern `run_directory_name`): named `<flow>` or
+`<flow>_<hash>`, a directory, in `parent`; a link counts only if the end of its chain of links
+(`os.path.realpath`) is itself named so and lies in `parent`, beside it. A link to a target's
+directory, another flow's run directory, a directory below or above, out of the run root, a file or
+nowhere is none. `run_path_of` refuses a last component that is one of these links, naming the link and its end (pure:
+`lstat`/`realpath`), and scrub lists none of them. `tests/test_run_directory_rule.py` holds the
+table of link cases and the agreement oracle (scrub lists a link if and only if a launch accepts
+it). **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):
 the launcher snapshots every file and directory under the run directory right before `run()`
 (`Flow.start_run`, `run_dir.OutputSnapshot`, keyed by device and inode, so every name of an
 earlier run's file -- through a link, in another letter case -- finds that file's state; a flow
@@ -247,18 +255,50 @@ Four orthogonal abstractions, deliberately decoupled:
   before anything else sees the design: `Design.select_target(data, target)` works on the raw
   mapping -- the overlay takes the design's own keys (not `TARGET_FORBIDDEN_KEYS`), is folded by
   `process_compatibility(defaults=False)` (the design's own fold, so a key means the same in
-  both), then `hierarchical_merge`d over the design, `rtl.sources`/`tb.sources` appended -- and
-  records the name as `Design.target`, which no hash reads. `Design.from_file(path, target=)`,
+  both), then merged over the design by `settings_layers.merge_layers` with `settings_cls=Design`
+  (`Design._merge_target`: the one merge of flow settings layers, so a key means the same in
+  both; only a target passes `append=True`, which appends `rtl.sources`/`tb.sources`, the
+  model's `appended_fields`) -- and records the name as `Design.target`, which no hash reads.
+  `--design-overrides` are one more overlay: `Design.target_selected` merges them by the same
+  `_merge_target` with `append=False`, once, for a design file and for a project's entry alike
+  (`XedaProject.designs` stays as written; `design_names` applies a `name` override;
+  `Design.remove_keys` removes a key of `remove_extra` in every spelling, since a merge writes
+  field names). An override's `rtl.sources`/`tb.sources` therefore replace the whole list,
+  including the files a selected target appended, as every settings layer's list does: adding a
+  board's files is a target's job alone. `Design.from_file(path, target=)`,
   `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
   `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
   needs no selection; several without one, an unknown one, a name that is a flow's, and a
   written `target` key are `DesignValidationError`s at `targets...`. The oracle
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
-  field, hash and dump but `target`. The design's own `flows` table is judged before a target is merged into it, and every
-  target's overlay is judged at `targets.<name>.flows` whether it is selected or not
-  (`design._flows_table`, the design validator's own function): the merge replaces a value that
-  is no mapping by the overlay's mapping, and would otherwise hide a mistake in the table for
-  that target alone. `design_schema()` adds `targets` to the input syntax only
+  field, hash and dump but `target` and the spelling of a flow's section (`flows_as_read`). **A
+  shorthand means exactly the table it stands for, in every merge** -- a target over its design
+  and every settings layer over the one below (`dataclass.mapping_form`): a model with a form
+  declares it once, `XedaBaseModel.as_mapping` (`FPGA` part string, `Clock` port, `LanguageSettings`
+  standard, `CocotbTestbench` true/`WHOLE` for false, `Platform` name `WHOLE`) or, for a field that
+  is no model, `field_shorthands` (`parameters` as a list, `unspecified` for `None`), and its
+  validator calls the same function. `field_shorthands` and `appended_fields` are read along the
+  MRO (`field_shorthands_of`, `appended_fields_of`): a subclass adds to its bases' and its entry
+  for the same field wins, so it repeats none of theirs. `tests/test_shorthand_forms.py` sweeps every table-taking
+  field of the design and of each flow (a probe the field accepts must not be `is_mistake`, and
+  its table validates as it does) and scans for a second copy of a conversion. The merge reads
+  both sides by it before choosing key by key or replace; the design's clock (`clock`,
+  `clock_port`, `clocks`: `RtlSettings.merge_inputs`) is one list: a target's `clocks` replaces
+  it, its `clock`/`clock_port` refine the first clock, `clock: null`/`clock_port: ""`/an empty table mean none; a
+  clock that is neither text nor a table is refused at the key written (`RtlSettings.clock_mistake`,
+  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too);
+  `clock_port` takes a port name alone, so a table is refused there too.
+  **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
+  nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
+  target's `tb` table; `synth: 3` under `-s synth.strategy=...`), and so is an entry of a
+  dictionary whose entries are tables (`dataclass.table_entries`: `rtl.attributes`, a flow's
+  `clocks` and `set_mod_attribute`, a platform's `corner`; `settings_layers._merge_entries`,
+  and `shape_problems` judges each entry; `tests/test_shorthand_forms.py` sweeps them from the
+  models); a target's own is reported at
+  `targets.<name>.<key>`, selected or not, as its `flows` table is (`design._flows_table`). A null or
+  empty `flows` table or flow section of a target or an override adds nothing (`_flows_table` drops
+  a null section, as every layer reads `None` as empty): the design's section stays, fpga included;
+  `tests/test_target_shapes.py` pins it. `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
   carry it as `PlanContext.target`, which names where every node runs: a run directory is
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
@@ -337,7 +377,11 @@ removed before the run, so an earlier success never stands for a run that died
   its `flows.nextpnr.board` replaces the design's with no error, while a key it does not write
   stays the design's, and the project's own keys survive both. The loader folds the target into the
   design's mapping, so it is part of the design origin, below `-s` and the API
-  (`tests/test_targets.py`, the layer-order tests). **This is not the agreement rule**: agreement
+  (`tests/test_targets.py`, the layer-order tests). `fpga: P` over a table that pins other fields
+  keeps them, exactly as `-s fpga.part=P` does. `run()`/`plan()`'s `flow_settings` (`-s` items
+  or an API mapping) is the command-line layer; `flow_overrides` is the API layer. Every origin label
+  (`COMMAND_LINE_ORIGIN`, `API_ORIGIN`, `SUPPLIED_SECTIONS_ORIGIN`) is a constant of `settings_layers`,
+  in every message and `--json` origin. **This is not the agreement rule**: agreement
   is between two *nodes* of one graph (`yosys_fpga` against `nextpnr`) naming different values for
   a shared leaf, an error even when a target supplied one side; two *origins* contributing to one
   node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**:
@@ -1096,7 +1140,14 @@ its inputs from.
 `--clean` empties a flow's run directory before it runs and runs every flow ("make clean, then
 make"; it implies `--rebuild-all`). `--post-cleanup`/`--post-cleanup-purge` clean up after the
 *requested* flow completes, dependencies included but deferred to the end so a depender can still
-read a dependency's files; pruning removes the trace first, so a pruned run is not reused. A
+read a dependency's files; pruning removes the trace first, so a pruned run is not reused.
+`--post-cleanup-purge` needs no `--post-cleanup`: `FlowLauncher._run_dir_policy` is the one place
+that makes it imply the clean-up, so `_clean_up`, the pending clean-ups and the delivery by move
+all follow from the `RunDirPolicy`. An exploration is the exception: its `post_cleanup_purge`
+means that `Dse.run_flow` deletes the runs that did not improve, so its worker launcher gets
+`post_cleanup_purge` only together with `post_cleanup`. With the purge alone, each launch of the
+worker leaves its run directory and the best run stays. With both, each launch purges its own run
+directory, the best run included, as it did before the purge implied the clean-up. A
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
 takes the same exclusive lock and retains the durable lock file. **Scrub reads the disk, never
@@ -1113,11 +1164,22 @@ component is never resolved -- and a parent, or a link, leading out of the run r
 refused before anything is created) and judges it again once the lock is held. A candidate that is
 a link to a directory in the run root is locked by that directory (`_lock_path`), which stays one
 lock when another scrub has removed the link and then the directory; a link out of the run root or
-to nowhere is locked by its own path, which the lock refuses before it makes anything. Scrub removes
-the link first, as itself, and then the directory whose lock it holds: with the directory first, a
-second scrub that listed the link could ask for it between the two steps, find a link to nowhere,
-and fail on the lock's refusal, where it now finds the link gone and skips it. Once the lock
-is held, `_lock_path` is asked again: a link retargeted, or replaced by a directory, while scrub
+to nowhere is locked by its own path, which the lock refuses before it makes anything. **A
+directory is one candidate under every name the listing found for it** (`_listed`, by
+`os.path.realpath`: the first name is the candidate, the others its `aliases`, shown before the
+question, and `ScrubResult.removed` holds the first name only): `RunDirectory.delete(*links)`
+removes the links first, as themselves, and then the directory whose lock scrub holds, so no
+link is left leading nowhere, which a launch refuses and a scrub reports as skipped for good;
+every alias is judged again under the lock exactly as the first name is, before the run records
+are looked at (`_refuse_a_change`: it still leads to the directory whose lock is held and is still
+a run directory of the flow, else a `RunDirectoryError` and nothing is removed, a name already
+gone is skipped). With the directory
+first, a second scrub that listed the link could ask for it between the two steps, find a link to
+nowhere, and fail on the lock's refusal, where it now finds the link gone and skips it. Every
+deletion of a whole run directory removes every valid link to it beside it with it: scrub (its
+aliases), and the purge of `_clean_up` and DSE's `_purge_run` (`run_directory_names`, the names
+the same listing finds). Once the lock
+is held, where the name leads is asked again (`_refuse_a_change`): a link retargeted, or replaced by a directory, while scrub
 waited no longer leads to the directory whose lock is held, and is refused with a `RunDirectoryError`
 (scrub would remove a directory whose lock it does not hold, and a launch running in it could lose
 it). What is removed is the locked directory itself, never what the link leads to by then.
@@ -1125,12 +1187,14 @@ it). What is removed is the locked directory itself, never what the link leads t
 (`_remove_confirmed`), in this order: **one that is gone is skipped** (`_is_gone`: `lstat` says
 `FileNotFoundError` and nothing else, so a link, a file and an error that cannot tell are
 something): another scrub or a purge removed it while this one waited, and the scrub wanted it
-gone. One that is no run directory of the flow any more (`_still_a_run_directory`, by
-`_is_run_directory`, the one rule that listed it: named for the flow, a directory, and resolving to
-a child of the directory it was listed in -- itself or, for a link, a directory beside it, never
-one below it or above it; `_run_directories_in` lists nothing in a directory outside the run root)
-is refused with a `RunDirectoryError`. **One whose run records changed is kept**: the listing keeps
-the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`, `_completion_records`:
+gone. One that is no run directory of the flow any more (`_problem_now`, by
+`run_directory_problem`, the one rule that listed it and a launch applies; `_run_directories_in`
+lists nothing in a directory outside the run root) is refused with a `RunDirectoryError` that says
+why. A link named like a run directory of the flow that fails the rule is not listed: scrub says so
+before it asks, naming the link and why (`skipped PATH: it is a link to X, which is not a directory
+named FLOW or FLOW_<hash> in DIR`, `_say_skipped`, also logged at info level), returns it as
+`ScrubResult.skipped` and never waits for the lock of what it leads to. **One whose run records
+changed is kept**: the listing keeps the state of `results.json` and `trace.json` (`COMPLETION_DOCUMENTS`, `_completion_records`:
 identity, size and times, absent counted), and a directory where they differ, or have appeared, was
 written to by a launch after the listing. Either a run ended there (a newer run, a failed one), or
 a launch of the requested flow found its run fresh and refreshed the trace once the records it had
@@ -1153,8 +1217,8 @@ consumer that has run its producer and has not yet taken its read lease on the p
 -- scrub removes it, and the consumer's launch fails closed with a `FlowDependencyFailure` (`changed
 before acquiring its read lease`) instead of reading a directory that is going: the designed
 fail-closed behavior. Do not scrub a flow whose runs other launches are starting to use. `--json`
-reports `target`, the `scanned` directories and the `scrubbed`, `kept` and `gone` run directories,
-one document on stdout; the lines above go to stderr. Consumers hold verified
+reports `target`, the `scanned` directories and the `scrubbed`, `kept`, `gone` and `skipped` run
+directories, one document on stdout; the lines above go to stderr. Consumers hold verified
 shared leases (`flow_runner/run_lock.py`) on completed dependencies through results and trace
 writing; changed or uncertain completion evidence in the
 exclusive-to-shared acquisition gap refuses hand-over. Same-mode and exclusive-to-shared reentry
@@ -1261,8 +1325,22 @@ it (the first stays), never "changed while the run went on". The copies themselv
 `_finish_launch`, before the deferred clean-ups, once every flow of the graph has registered its
 reads -- a dependency's output could
 otherwise replace a file a later sibling or its own depender reads before that depender's `init()`
-has even run. An existing file at a destination is replaced without asking only when it is xeda's
-own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
+has even run. **A flow whose run directory the clean-ups delete delivers by rename**
+(`RunDirPolicy.purges`, read per flow from `_pending_clean_ups` in `_finish_launch`, never from the
+global setting: a flow found up to date has no clean-up pending, so it is copied from and its trace
+stays true; `Deliveries.deliver(move=True)`): `_copy` renames the run's file over its `mkstemp`
+placeholder (`_move_into`), then makes the copy's re-checks and digest check, then the final
+rename. A failure after the first rename puts the file back (`_discard`), never unlinks it; if
+that fails too, the error names the temporary. Only a regular file with `st_nlink == 1`, whose
+parent resolves inside the run directory and that no other delivery of the whole launch reaches
+(`_movable`, by device and inode of the file and of what a link leads to, counted over every
+pending source of every flow before the first delivery: `Deliveries.sources_reached`, handed to
+`deliver(reached=)` by `_finish_launch`, so a consumer's link to a producer's delivered file
+makes the producer copy; and counted again over the flow's own deliveries under its lock, since
+another launch may have made one of them a link meanwhile) moves; anything else, and any `OSError` of the first rename
+(another file system), copies. The remote runner copies (`run_remote` has no clean-up step and
+the CLI hands it neither option, so its local mirror is never purged), and `dse` delivers nothing. An existing file at a destination is replaced without asking only when it is
+xeda's own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode
 file holding exactly the delivered bytes is xeda's copy whatever touched it since, while another
 inode, or different bytes, fails closed and asks. **Whether the content must be read is decided by
 the trust rule, like every other record's** (`deliver._destination_record`): a check that
@@ -1290,8 +1368,10 @@ directory).
 
 - **The canary sweep and the audit hook**, exercised together by
   `test_nothing_outside_the_run_root_changes_but_what_was_named`: every registered flow
-  (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in four scenarios
-  (`twice`, `clean`, `purge`, `delivered` -- 100 cases) inside a `World` seeded with a canary file
+  (`FLOWS`/`settings_samples.flow_classes()`), launched under stand-in tools, in five scenarios
+  (`twice`, `clean`, `purge`, `delivered`, `purged_delivered` -- 125 cases; the last deletes the
+  run directories after delivering, so the files are moved, and the audit hook counts each move
+  against the deliveries made) inside a `World` seeded with a canary file
   at every name a template or xeda itself could write (`CANARIES`: every flow's template
   filenames, `trace.json`, `.xeda.lock`, a Vivado project, `Logs/canary.log`, ...) and a symlink
   out to a sibling `outside/` directory. `_state` snapshots every entry of the design directory's
@@ -1644,8 +1724,9 @@ dependency must also share `custom_boards_file`.
   `inside` with a `RunDirectoryError` naming the link; a link at a path's own name is removed as
   itself, never followed. `remove(*paths)`
   deletes each -- file, link (as itself) or directory tree -- inside the directory only, nothing in
-  an `unlaunched` one; `clear()` empties the whole directory; `delete()` also removes the directory
-  itself. A tool is free to replace a project or a directory by its own name inside the run
+  an `unlaunched` one; `clear()` empties the whole directory; `delete(*links)` also removes the directory
+  itself, after the symbolic links it was reached by (each removed as itself, never followed;
+  a name that is no link is left; one whose own directory lies outside the run root is refused). A tool is free to replace a project or a directory by its own name inside the run
   directory (`-force`/`-overwrite`, Diamond's and ISE's new project): the whole directory is
   xeda's, so there is nothing of the user's there for the tool to lose. **`RunDirectory` is not the
   only writer of a run directory, though**: `trace.json` (`write_trace`/`remove_trace`,

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Type, TypeVar, Union
 
 from importlib_resources import as_file, files
 
-from ..dataclass import XedaBaseModel
+from ..dataclass import WHOLE, XedaBaseModel
 from ..utils import toml_load
 
 log = logging.getLogger(__name__)
@@ -19,6 +19,13 @@ class Platform(XedaBaseModel):
     name: Optional[str] = None
     version: Optional[str] = None
     description: Optional[str] = None
+
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """A bundled platform's name or the path of a `config.toml` is a whole platform, read
+        from a file (`from_setting`): no table to merge with, so a layer that gives one replaces
+        the layers below it."""
+        return WHOLE if isinstance(value, (str, Path)) else None
 
     @classmethod
     def create(cls: Type[PlatformType], **kwargs) -> PlatformType:

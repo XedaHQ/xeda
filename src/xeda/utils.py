@@ -668,6 +668,11 @@ def hierarchical_merge(
     return rtn_dct
 
 
+def as_list(value: Any) -> List[Any]:
+    """`value` as a list: a list or tuple is its items, anything else is the one item."""
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 _T1 = TypeVar("_T1")
 _D1 = TypeVar("_D1")
 

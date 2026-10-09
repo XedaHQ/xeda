@@ -1436,11 +1436,11 @@ def test_a_remote_run_reports_partial_deliveries_before_an_oserror_re_raises(
     real_copy = xeda.deliver.Deliveries._copy
     made: list = []
 
-    def copy_then_fail_second(self, delivery, source, destination, expected, sha):
+    def copy_then_fail_second(self, delivery, source, destination, expected, sha, *rest):
         made.append(destination)
         if len(made) == 2:
             raise OSError("disk full")
-        return real_copy(self, delivery, source, destination, expected, sha)
+        return real_copy(self, delivery, source, destination, expected, sha, *rest)
 
     monkeypatch.setattr(xeda.deliver.Deliveries, "_copy", copy_then_fail_second)
     captured: dict = {}

@@ -1,0 +1,18 @@
+# shorthands.yaml with its target "tables" applied by hand.
+name: shorthands
+rtl:
+  top: knight
+  sources: [knight.v]
+  clock: {port: CLK, name: sys}
+  parameters: {WIDTH: 4, DEPTH: 2}
+tb:
+  top: knight_tb
+  sources: [knight_tb.v]
+  cocotb: {module: m}
+language:
+  vhdl: {version: "08", synopsys: true}
+flows:
+  vivado_synth:
+    fpga: {part: xc7a35tcpg236-1, speed: -2}
+    nthreads: 4
+    clock: {freq: 200MHz}

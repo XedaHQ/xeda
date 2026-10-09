@@ -45,16 +45,22 @@ class FPGA(XedaBaseModel):
         log.debug("fpga init! data=%s", data)
         super().__init__(**data)
 
+    @classmethod
+    def as_mapping(cls, value: Any) -> Any:
+        """A bare string is the part number: `fpga: "xc7a100tftg256-2L"` is `fpga: {part:
+        "xc7a100tftg256-2L"}`, in a file, on the command line and in a merge of layers."""
+        return {"part": value} if isinstance(value, str) else None
+
     # this is called before all field validators!
     @model_validator(mode="before")
     @classmethod
     @accepts_non_mapping
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
-        # A bare string is the part number: `fpga = "xc7a100tftg256-2L"` in a design file, or
-        # `-s fpga=...` on the command line, as the `fpga` settings field documents. The
-        # positional form `FPGA("xc7a...")` already accepted it; a field value never did.
-        if isinstance(values, str):
-            values = {"part": values}
+        # The positional form `FPGA("xc7a...")` always accepted the part number; a field value
+        # does by the same expansion.
+        expanded = cls.as_mapping(values)
+        if expanded is not None:
+            values = expanded
         if not isinstance(values, dict):
             return values
         # An empty mapping is checked like any other: an FPGA must identify a device. Letting

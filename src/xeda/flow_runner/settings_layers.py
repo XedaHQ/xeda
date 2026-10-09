@@ -9,7 +9,8 @@ A flow's settings are assembled from these layers, lowest precedence first:
    design's own author saying "for this build, these values", so what it writes wins over the
    design's. The loader merges it into the design before anything else sees the design, so it
    is part of the design's origin and below the command line and the API
-5. the command line (``-s KEY=VALUE``), then overrides given through the API
+5. the command line (``-s KEY=VALUE``, or the ``flow_settings`` of ``run`` and ``plan``), then
+   overrides given through the API (``flow_overrides``)
 
 The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
 so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead
@@ -24,20 +25,38 @@ design itself. Only `run`, `plan` and the remote runner read a project file.
 """
 
 import difflib
-from collections import Counter
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
-from types import UnionType
-from typing import Annotated, Any, Union, get_args, get_origin
+from typing import Any
 
-from ..dataclass import XedaBaseModel, input_names
+from ..dataclass import (
+    XedaBaseModel,
+    annotation_form,
+    annotation_mistake,
+    appended_fields_of,
+    canonical_names,
+    input_names,
+    is_mistake,
+    mapping_form,
+    nested_model,
+    table_entries,
+)
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
-from ..utils import XedaException, flows_table_problems, hierarchical_merge, settings_to_dict
+from ..utils import (
+    XedaException,
+    as_list,
+    flows_table_problems,
+    hierarchical_merge,
+    settings_to_dict,
+)
 
 __all__ = [
+    "API_ORIGIN",
+    "COMMAND_LINE_ORIGIN",
     "REMOVED_FLOWS",
+    "SUPPLIED_SECTIONS_ORIGIN",
     "FlowNotFoundError",
     "FlowRemovedError",
     "check_not_removed",
@@ -53,6 +72,15 @@ __all__ = [
     "split_flow_sections",
     "transitive_dependencies",
 ]
+
+
+#: How messages name the command-line layer. `run` and `plan` take the command line's `-s` items
+#: and the `flow_settings` an API caller gives them as one layer, so the label names both.
+COMMAND_LINE_ORIGIN = "the command line (`-s`) or `flow_settings`"
+#: The layer that the API's overrides, and the settings a launch is handed directly, form.
+API_ORIGIN = "the API"
+#: The `flows` sections that a launch with a built design is handed (`all_flows_settings`).
+SUPPLIED_SECTIONS_ORIGIN = "the supplied flow sections"
 
 
 class FlowNotFoundError(XedaException):
@@ -96,41 +124,6 @@ def check_not_removed(flow_name: str) -> None:
 
 #: One layer: a (possibly nested, possibly dotted-key) mapping, or `KEY=VALUE` strings.
 Layer = None | Mapping[str, Any] | Sequence[str]
-
-
-def _nested_model(annotation: Any) -> type[XedaBaseModel] | None:
-    """The model a mapping value of `annotation` is validated as, if it has one."""
-    origin = get_origin(annotation)
-    if origin is Annotated:
-        return _nested_model(get_args(annotation)[0])
-    if origin in (Union, UnionType):
-        for choice in get_args(annotation):
-            model = _nested_model(choice)
-            if model is not None:
-                return model
-        return None
-    if isinstance(annotation, type) and issubclass(annotation, XedaBaseModel):
-        return annotation
-    return None
-
-
-def _canonicalize_setting_names(
-    values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
-) -> dict[str, Any]:
-    """Canonicalize aliases at one model level in one precedence layer.
-
-    This happens *per layer*, so a higher layer's `nthreads` overrides a lower layer's `ncpus`.
-    If one layer gives both spellings, preserve both and let pydantic reject the ambiguity rather
-    than silently choosing one.
-    """
-    names = input_names(settings_cls)
-    targets = [names.get(key, key) for key in values]
-    duplicates = {target for target, count in Counter(targets).items() if count > 1}
-    canonical: dict[str, Any] = {}
-    for (key, value), target in zip(values.items(), targets):
-        output_key = key if target in duplicates else target
-        canonical[output_key] = value
-    return canonical
 
 
 def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
@@ -194,6 +187,9 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
     for name, raw_clock in override.items():
         new_clock = _clock_mapping(raw_clock)
         old_clock = _clock_mapping(merged.get(name))
+        if name in merged and old_clock is None:
+            # what is below is no clock: it stays, so that validation reports it
+            continue
         if new_clock is not None and old_clock is not None:
             old_clock = deepcopy(dict(old_clock))
             # A timing constraint from the higher layer replaces the lower layer's alternate
@@ -207,23 +203,74 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
     return merged
 
 
+def _merge_entries(
+    base: Mapping[Any, Any], values: Mapping[Any, Any], entries: Any, append: bool
+) -> dict[Any, Any]:
+    """Merge two dictionaries whose entries are tables (`table_entries` gave their annotation
+    `entries`), entry by entry as a field is merged. An entry of `base` that is no table where
+    one is expected is kept with nothing merged over it, so that validation reports it as it
+    would with no layer above; any other entry written twice merges key by key, as the model of
+    the entry merges, and one written once is kept."""
+    merged = deepcopy(dict(base))
+    child = nested_model(entries)
+    for name, value in values.items():
+        old_form = annotation_form(entries, merged.get(name))
+        if name in merged and annotation_mistake(entries, merged[name], old_form):
+            continue
+        new_form = annotation_form(entries, value)
+        if isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
+            merged[name] = (
+                _merge_settings_layer(old_form, new_form, child, append)
+                if child is not None
+                else hierarchical_merge(dict(old_form), dict(new_form))
+            )
+        else:
+            merged[name] = deepcopy(value)
+    return merged
+
+
 def _merge_settings_layer(
-    base: Mapping[str, Any], values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
+    base: Mapping[str, Any],
+    values: Mapping[str, Any],
+    settings_cls: type[XedaBaseModel],
+    append: bool = False,
 ) -> dict[str, Any]:
-    """Merge one already-parsed layer with model-aware aliases and nested settings."""
-    canonical = _canonicalize_setting_names(values, settings_cls)
+    """Merge one already-parsed layer with model-aware aliases and nested settings.
+
+    A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
+    table: where it meets a table, from below or above, the two merge key by key. Where it
+    meets nothing, it stays as written. A form that is no table (`WHOLE`), and a value that is
+    no form at all, replace what is below them. So does a list, unless `append` is set and the
+    model names the field in its `appended_fields`: the layer's items then follow those below."""
+    canonical = canonical_names(values, settings_cls)
     canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
     merged = deepcopy(dict(base))
+    settings_cls.merge_inputs(merged, canonical)
 
     for key, value in canonical.items():
         target = input_names(settings_cls).get(key, key)
         info = settings_cls.model_fields.get(target)
-        child_cls = _nested_model(info.annotation) if info is not None else None
+        child_cls = nested_model(info.annotation) if info is not None else None
         old = merged.get(key)
-        if child_cls is not None and isinstance(value, Mapping):
+        old_form = mapping_form(settings_cls, target, old)
+        new_form = mapping_form(settings_cls, target, value)
+        if key in merged and info is not None and is_mistake(settings_cls, target, old):
+            # What is below is no table where one is expected: it stays, with nothing merged
+            # over it, so that validation reports it as it would with no layer above.
+            continue
+        if key in appended_fields_of(settings_cls):
+            adding = append and key in merged
+            merged[key] = [*as_list(old), *as_list(value)] if adding else deepcopy(value)
+        elif child_cls is not None and isinstance(value, Mapping):
             merged[key] = _merge_settings_layer(
-                old if isinstance(old, Mapping) else {}, value, child_cls
+                old_form if isinstance(old_form, Mapping) else {}, value, child_cls, append
             )
+        elif (
+            child_cls is not None
+            and isinstance(new_form, Mapping)
+            and isinstance(old_form, Mapping)
+        ):
+            merged[key] = _merge_settings_layer(old_form, new_form, child_cls, append)
         elif key == "clocks" and _has_clock_inputs(settings_cls) and isinstance(value, Mapping):
             clock_values = dict(value)
             existing_before = merged.get("clocks")
@@ -258,26 +305,37 @@ def _merge_settings_layer(
                     ):
                         clock_values[cname] = {**cval, "name": cname}
             merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
-        elif isinstance(old, Mapping) and isinstance(value, Mapping):
-            merged[key] = hierarchical_merge(dict(old), dict(value))
+        elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
+            entries = table_entries(info.annotation) if info is not None else None
+            merged[key] = (
+                _merge_entries(old_form, new_form, entries, append)
+                if entries is not None
+                else hierarchical_merge(dict(old_form), dict(new_form))
+            )
         else:
             merged[key] = deepcopy(value)
     return merged
 
 
-def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None) -> dict[str, Any]:
+def merge_layers(
+    *layers: Layer, settings_cls: type[XedaBaseModel] | None = None, append: bool = False
+) -> dict[str, Any]:
     """Deep-merge `layers`, each one taking precedence over those before it.
 
     When `settings_cls` is known, accepted aliases are normalized within each layer before the
     merge. Thus differently-spelled names for one setting still obey layer precedence, while two
     names in the *same* layer remain an explicit validation error.
+
+    A list replaces the list below it, as every layer does. `append` makes the lists that
+    `settings_cls` names in its `appended_fields` (a design's `sources`) the one exception: a
+    target sets it, since its job is to add a board's files.
     """
     merged: dict[str, Any] = {}
     for layer in layers:
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
-                merged = _merge_settings_layer(merged, values, settings_cls)
+                merged = _merge_settings_layer(merged, values, settings_cls, append)
             else:
                 merged = hierarchical_merge(merged, values)
     return merged
@@ -315,7 +373,7 @@ def _leaves(
         if settings_cls is not None:
             target = input_names(settings_cls).get(key, key)
             info = settings_cls.model_fields.get(target)
-            child_cls = _nested_model(info.annotation) if info is not None else None
+            child_cls = nested_model(info.annotation) if info is not None else None
         if isinstance(value, Mapping) and value:
             leaves.update(_leaves(value, child_cls, (*prefix, target), (*written, key)))
         else:
@@ -334,7 +392,7 @@ def split_flow_sections(
     error naming both spellings."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
-        own.pop("flows", None), flow_class_for=flow_class_for, location="the command line"
+        own.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
     )
     flow_cls = flow_class_for(requested) if flow_class_for is not None else None
     settings_cls = flow_cls.Settings if flow_cls is not None else None

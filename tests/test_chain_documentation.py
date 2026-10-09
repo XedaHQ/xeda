@@ -30,6 +30,7 @@ from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.bindings import split_bindings
 from xeda.flow_runner.chains import complete_request, parse_request
+from xeda.flow_runner.settings_layers import COMMAND_LINE_ORIGIN
 from xeda.introspect import all_flow_classes, design_schema, flow_info, settings_info
 
 from . import tool_utils
@@ -430,7 +431,7 @@ def test_a_chain_and_a_command_line_binding_of_one_input_collide(tmp_path, kind)
     assert result.exit_code != 0 and document["success"] is False
     message = document["error"]["message"]
     assert "chain position 1 (yosys_fpga) -> 2 (nextpnr)" in message
-    assert "the command line: flows.nextpnr.inputs.netlist" in message
+    assert f"{COMMAND_LINE_ORIGIN}: flows.nextpnr.inputs.netlist" in message
     assert "even when equal" in message
     # the guide quotes this very message
     quoted = next(

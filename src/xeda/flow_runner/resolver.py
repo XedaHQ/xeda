@@ -22,7 +22,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from ..board import WithFpgaBoardSettings
-from ..dataclass import BaseModel
+from ..dataclass import BaseModel, expand_forms, nested_model
 from ..design import DESIGN_PARTS, Design
 from ..flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash, is_unset
 from ..flow.flow import NoReadableSource, written_path_problems
@@ -40,7 +40,9 @@ from .bindings import (
 )
 from .chains import FlowRequest, fitting_outputs
 from .settings_layers import (
-    _nested_model,
+    API_ORIGIN,
+    COMMAND_LINE_ORIGIN,
+    SUPPLIED_SECTIONS_ORIGIN,
     carry_diagnostics,
     check_run_flows,
     compose_flow_settings,
@@ -66,14 +68,13 @@ SHARED_SETTINGS = (
 #: Shared settings that are one value, compared and propagated whole -- never split into
 #: leaves and merged key by key with another node's: a platform is a model.
 INDIVISIBLE_SETTINGS = ("platform",)
-ORIGIN_NAMES = ("the project file", "the design file", "the command line")
 log = logging.getLogger(__name__)
 
 
 BINDING_ORIGINS = {
     "chain": "chain",
     "file": "saved binding",
-    "cli": "command line",
+    "cli": "`-s` or `flow_settings`",
     "api": "API",
 }
 
@@ -345,23 +346,14 @@ def _clock_inputs(
             result[prefix] = deepcopy(singular)
     for key, value in values.items():
         info = model.model_fields.get(key)
-        child = _nested_model(info.annotation) if info else None
+        child = nested_model(info.annotation) if info else None
         if child and isinstance(value, dict):
             result.update(_clock_inputs(value, child, (*prefix, key)))
     return result
 
 
-def _fpga_shorthands(values: dict[str, Any]) -> None:
-    for key, value in values.items():
-        if key == "fpga" and isinstance(value, str):
-            values[key] = {"part": value}
-        elif isinstance(value, dict):
-            _fpga_shorthands(value)
-
-
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
-    values = merge_layers(_explicit(raw), settings_cls=cls.Settings)
-    _fpga_shorthands(values)
+    values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
     locations = {path: _Location(label, kind) for path in _leaves(values)}
     # `settings_layers` synthesizes a name when a singular spelling creates a clock. It is not caller input.
     original = merge_layers(_explicit(raw))
@@ -748,16 +740,16 @@ def resolve(
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
     layers = [
-        (label, _sections(values), "cli" if "command line" in label else "file")
+        (label, _sections(values), "cli" if label == COMMAND_LINE_ORIGIN else "file")
         for label, values in origins
     ]
     if not layers:
-        layers.append(("the supplied flow sections", _sections(sections), "file"))
+        layers.append((SUPPLIED_SECTIONS_ORIGIN, _sections(sections), "file"))
     cli_sections = _sections(command_line) if command_line else {}
     if cli_sections:
-        layers.append(("the command line", cli_sections, "cli"))
+        layers.append((COMMAND_LINE_ORIGIN, cli_sections, "cli"))
     if api_overrides:
-        layers.append(("the API", _sections(api_overrides), "api"))
+        layers.append((API_ORIGIN, _sections(api_overrides), "api"))
 
     root_raw = _Located()
     for label, values, kind in layers:
@@ -765,7 +757,7 @@ def resolve(
     # settings is normally already composed by `settings_layers`. Preserve locations for identical leaves;
     # only additional caller edits form a final direct-API contribution.
     supplied = _located(
-        _explicit(settings) if settings is not None else {}, flow_cls, "the API", "api"
+        _explicit(settings) if settings is not None else {}, flow_cls, API_ORIGIN, "api"
     )
     known = _leaves(root_raw.values)
     normalized_known = _shared_locations(root_raw, flow_cls, context)

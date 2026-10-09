@@ -27,7 +27,13 @@ from ...utils import (
     semantic_hash,
     settings_to_dict,
 )
-from ..default_runner import FlowLauncher, add_file_logger, get_flow_class, print_results
+from ..default_runner import (
+    FlowLauncher,
+    add_file_logger,
+    get_flow_class,
+    print_results,
+    run_directory_names,
+)
 from ..settings_layers import merge_layers
 from ..resolver import Plan
 from ..run_lock import run_dir_lock
@@ -36,10 +42,13 @@ from ..trace import as_recorded
 log = logging.getLogger(__name__)
 
 
-def _purge_run(run_path: Path, run_root: Path) -> None:
-    """Delete a non-improved worker outcome only after readers finish, checking ownership."""
+def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
+    """Delete a non-improved worker outcome only after readers finish, checking ownership, with
+    every name of it (`run_directory_names`), so none is left leading nowhere."""
     with run_dir_lock(run_path, run_root):
-        RunDirectory.claimed(run_path, run_root).delete()
+        RunDirectory.claimed(run_path, run_root).delete(
+            *run_directory_names(run_path, flow_name, run_root)
+        )
 
 
 # Slotted, the `attrs` default: an outcome crosses a process boundary (the worker builds it,
@@ -419,9 +428,20 @@ class Dse(FlowLauncher):
         base_settings = adjusted_plan.node(flow_class.name).settings
         optimizer.flow_class = flow_class
         optimizer.base_settings = base_settings
+        # `post_cleanup_purge` means here that the exploration deletes the runs that did not
+        # improve, itself, once their outcome is in. A launch purges its own run directory only
+        # when `post_cleanup` asks for a clean-up too, as before the purge implied one: else the
+        # best run would go as well.
         worker = FlowLauncher(
             self._run_root,
-            **{name: getattr(self.settings, name) for name in FlowLauncher.Settings.model_fields},
+            **{
+                **{
+                    name: getattr(self.settings, name)
+                    for name in FlowLauncher.Settings.model_fields
+                },
+                "post_cleanup_purge": self.settings.post_cleanup
+                and self.settings.post_cleanup_purge,
+            },
         )
         worker._request_context = self._request_context
         worker._launch_inputs = list(self._launch_inputs)
@@ -575,7 +595,7 @@ class Dse(FlowLauncher):
                                             p,
                                         )
                                         try:
-                                            _purge_run(p, self.run_root)
+                                            _purge_run(p, self.run_root, flow_class.name)
                                         except (OSError, ValueError) as e:
                                             log.warning("Could not delete %s: %s", p, e)
                                         outcome.run_path = None
