@@ -326,3 +326,42 @@ def test_vcs_refuses_a_chisel_source_when_planned(tmp_path, monkeypatch):
     assert message.startswith("vcs cannot read the design's Chisel source(s) "), message
     assert str(root / "gen.sc") in message
     assert not (tmp_path / "run").exists()
+
+
+TOOLS = ("vlogan", "vhdlan", "vcs", "fsdb2vcd", "vpd2vcd", "simv")
+
+
+def _built_vcs(tmp_path, **settings) -> Vcs:
+    root = tmp_path / "design"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(
+        name="tb", design_root=root, rtl={"sources": [root / "tb.sv"]}, tb={"top": "tb"}
+    )
+    flow = Vcs(Vcs.Settings(**settings), design, tmp_path / "run")
+    flow.init()
+    return flow
+
+
+def test_a_vcs_flow_makes_its_own_tools(tmp_path):
+    """The flow's settings reach its tools, so a tool is made for the flow: one held by the class
+    would be every flow's, and carry what one learned (or was set to) to the next."""
+    assert not [name for name in TOOLS if isinstance(vars(Vcs).get(name), Tool)]
+    first, second = _built_vcs(tmp_path / "a"), _built_vcs(tmp_path / "b")
+    for name in TOOLS:
+        assert isinstance(getattr(first, name), Tool)
+        assert getattr(first, name) is not getattr(second, name)
+    assert first.simv.highlight_rules is not None  # non-interactive: its output is colored
+    # a change to one flow's tool is that flow's only
+    first.simv.highlight_rules = None
+    assert second.simv.highlight_rules is not None
+
+
+def test_the_settings_of_a_vcs_flow_reach_its_tools(tmp_path):
+    flow = _built_vcs(tmp_path, dockerized=True, docker="example/vcs:2026", print_commands=False)
+    for name in TOOLS:
+        tool = getattr(flow, name)
+        assert tool.dockerized and tool.docker is not None
+        assert tool.docker.image == "example/vcs:2026"
+        assert tool.print_command is False
+    assert not _built_vcs(tmp_path / "plain").vcs.dockerized
