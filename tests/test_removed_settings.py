@@ -377,3 +377,58 @@ def test_flows_yosys_on_openroad_s_command_line_reaches_its_producer(tmp_path, k
     )
     observed = getattr(plan.node("yosys").settings, replacement)
     assert observed == ([value] if key == "blocks" else value)
+
+
+# ------------------------------------------------------------------------ `clock_period`
+
+CLOCK_PERIOD_REMOVED = "`clock_period` was removed: use `clock.period` or `clock.freq`"
+
+
+def _synth_flows():
+    from xeda.flow.synth import SynthFlow
+
+    return [flow for flow in FLOWS if issubclass(flow, SynthFlow)]
+
+
+@pytest.mark.parametrize("flow", _synth_flows(), ids=lambda c: c.name)
+def test_every_synthesis_flow_refuses_clock_period_and_names_the_clock(flow, tmp_path):
+    with pytest.raises(FlowSettingsError, match=re.escape(CLOCK_PERIOD_REMOVED)):
+        flow.Settings.from_input({"clock_period": 5.0}, design_root=tmp_path, runner_cwd=tmp_path)
+
+
+@pytest.mark.parametrize("origin", ["design", "target", "project", "cli", "flows-cli", "api"])
+def test_clock_period_was_removed_at_every_origin(tmp_path, monkeypatch, origin):
+    import json
+
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "top.v").write_text("module top(input clk); endmodule\n")
+    fpga = {"part": "xc7a100tcsg324-1"}
+    data: dict = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"}}
+    if origin == "design":
+        data["flows"] = {"vivado_synth": {"fpga": fpga, "clock_period": 5.0}}
+    elif origin == "target":
+        data["targets"] = {"t": {"flows": {"vivado_synth": {"fpga": fpga, "clock_period": 5.0}}}}
+    design_file = tmp_path / "top.json"
+    design_file.write_text(json.dumps(data))
+    design = Design.from_file(design_file)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    base = ["fpga.part=xc7a100tcsg324-1"]
+    with pytest.raises(Exception, match=re.escape(CLOCK_PERIOD_REMOVED)):
+        if origin == "project":
+            project = tmp_path / "project.yaml"
+            project.write_text("flows:\n  vivado_synth:\n    clock_period: 5.0\n")
+            runner.plan("vivado_synth", design, xedaproject=str(project), flow_settings=base)
+        elif origin == "cli":
+            runner.plan("vivado_synth", design, flow_settings=[*base, "clock_period=5.0"])
+        elif origin == "flows-cli":
+            runner.plan(
+                "vivado_synth", design, flow_settings=[*base, "flows.vivado_synth.clock_period=5.0"]
+            )
+        elif origin == "api":
+            runner.plan("vivado_synth", design, flow_settings={"fpga": fpga, "clock_period": 5.0})
+        else:
+            runner.plan("vivado_synth", design, flow_settings=base)
+    assert not (tmp_path / "run").exists()

@@ -312,7 +312,7 @@ def launch_case(
 
     monkeypatch.setattr(Tool, "execute", execute)
     if case.flow == "vivado_postsynth_sim":
-        design.flow = {"vivado_synth": {"fpga": "xc7a100tcsg324-1", "clock_period": 5.0}}
+        design.flow = {"vivado_synth": {"fpga": "xc7a100tcsg324-1", "clock": {"period": 5.0}}}
     flow = DefaultRunner(work / "runs", display_results=False, rebuild_all=True).run_flow(
         flow_class, design, settings
     )

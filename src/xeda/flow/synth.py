@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABCMeta
 from pathlib import Path
-from typing import Annotated, Any, Dict, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, Optional, Union
 
 from ..dataclass import Field, XedaBaseModel, field_validator, model_validator
 from ..design import Clock, Design
@@ -146,7 +146,7 @@ class PhysicalClock(XedaBaseModel):
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
         # This is a pre=True validator, so values are still raw here: a CLI override such as
-        # `-s clock_period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
+        # `-s clock.period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
         # dividing by the raw value used to fail with "unsupported operand type(s) for /".
         # `is not None`, not truthiness, at every step: a zero frequency is a value the user
         # supplied and must reach the "must be positive" check below. Under `if freq:` it looked
@@ -210,45 +210,36 @@ class SynthFlow(Flow, metaclass=ABCMeta):
     class Settings(Flow.Settings):
         """base Synthesis flow settings"""
 
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "clock_period": "`clock.period` or `clock.freq`",
+        }
+
         clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
 
         @classmethod
         def __get_pydantic_json_schema__(cls, core_schema, handler):
-            """Advertise the two single-clock input shorthands that normalize into `clocks`."""
+            """Advertise the single-clock input shorthand that normalizes into `clocks`."""
             schema = handler(core_schema)
             properties = schema.setdefault("properties", {})
             clock_schema = PhysicalClock.model_json_schema()
             clock_schema["description"] = "Single design clock. Use `clock.period` or `clock.freq`."
             clock_schema["x-xeda-input-only"] = True
             properties["clock"] = clock_schema
-            properties["clock_period"] = {
-                "anyOf": [{"type": "number"}, {"type": "string"}],
-                "deprecated": True,
-                "description": "Compatibility shorthand for `clock.period` in nanoseconds. "
-                "Cannot be combined with `clock` or `clocks`; prefer `clock.period`.",
-                "x-xeda-input-only": True,
-            }
             return schema
 
         @model_validator(mode="before")
         @classmethod
         def _synthflow_settings_root_validator(cls, values, info):
-            """Normalize single-clock compatibility inputs into the one stored `clocks` value."""
+            """Normalize the single-clock input into the one stored `clocks` value."""
             if info.field_name is not None and info.data is None:
                 return values  # assignment to a real field; do not rebuild unrelated containers
 
             has_clock = "clock" in values
-            has_clock_period = "clock_period" in values
             has_clocks = "clocks" in values
             clock = values.pop("clock", None)
-            clock_period = values.pop("clock_period", None)
             if has_clock and has_clocks:
                 raise ValueError("Specify `clock` for one clock or `clocks` for several, not both")
-            if has_clock_period and (has_clock or has_clocks):
-                raise ValueError(
-                    "`clock_period` is a compatibility input and cannot be combined with "
-                    "`clock` or `clocks`; use `clock.period` or `clock.freq`"
-                )
             if clock is not None:
                 if isinstance(clock, PhysicalClock):
                     clock = clock.model_copy(deep=True)
@@ -256,9 +247,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     clock = PhysicalClock.model_validate(clock)
                 if not clock.name:
                     clock.name = "main_clock"
-                values["clocks"] = {clock.name: clock}
-            elif clock_period is not None:
-                clock = PhysicalClock(name="main_clock", period=clock_period)  # type: ignore[arg-type]
                 values["clocks"] = {clock.name: clock}
             return values
 
@@ -289,23 +277,6 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             if not value.name:
                 value.name = "main_clock"
             self.clocks = {value.name: value}
-
-        @property
-        def clock_period(self) -> Optional[float]:
-            """Legacy API spelling, derived from `clock.period` and never stored separately."""
-            clock = self.main_clock
-            return clock.period if clock is not None else None
-
-        @clock_period.setter
-        def clock_period(self, value: Any) -> None:
-            if value is None:
-                # ``None`` is an absent compatibility override, not a request to destroy the
-                # canonical clock topology.
-                return
-            if self.main_clock is None:
-                self.clock = {"period": value}
-            else:
-                self.main_clock.period = value
 
     def __init__(
         self,
@@ -340,7 +311,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                     if self.design.rtl.clocks:
                         msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in self.design.rtl.clocks if c and c.name)}"
                     else:
-                        described = f"'{clock_name}'" if clock_name else "set by `clock_period`"
+                        described = f"'{clock_name}'" if clock_name else "set by `clock`"
                         msg = f"No clock ports specified in 'design.rtl', while the physical clock {described} is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
                     raise FlowSettingsError(
                         [

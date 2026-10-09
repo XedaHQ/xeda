@@ -18,7 +18,7 @@ flows:
   vivado_synth:
     fpga: xc7a35tcpg236-1
     ncpus: 2
-    clock_period: 10
+    clock: {period: 10}
 targets:
   tables:
     rtl:

@@ -91,7 +91,7 @@ def test_vivado_alt_synth_derives_its_synthesis_options_where_it_renders_the_scr
 ) -> None:
     """`out_of_context` and `flatten_hierarchy` reach `synth_design`; the synthesis step of the
     settings, which the run records, is the strategy's alone."""
-    settings = {"fpga": PART, "clock_period": 5.5}
+    settings = {"fpga": PART, "clock": {"period": 5.5}}
     plain = _run(VivadoAltSynth, tmp_path / "plain", _design(), settings, monkeypatch)
     derived = _run(
         VivadoAltSynth,
@@ -125,7 +125,7 @@ def test_out_of_context_reaches_synth_design_whatever_the_form_of_the_synthesis_
         VivadoAltSynth,
         tmp_path / "run",
         _design(),
-        {"fpga": PART, "clock_period": 5.5, "out_of_context": True, "synth": synth},
+        {"fpga": PART, "clock": {"period": 5.5}, "out_of_context": True, "synth": synth},
         monkeypatch,
     )
     assert "-mode out_of_context" in _synth_design(_script(run, "vivado_alt_synth.tcl"))
@@ -154,7 +154,7 @@ def test_a_launch_after_one_that_set_every_derived_option_is_the_launch_it_would
         tmp_path,
         monkeypatch,
         _design(),
-        {"fpga": PART, "clock_period": 5.5},
+        {"fpga": PART, "clock": {"period": 5.5}},
         {
             "out_of_context": True,
             "flatten_hierarchy": "full",
@@ -200,7 +200,7 @@ def test_vivado_synth_derives_its_steps_where_it_renders_the_script(tmp_path, mo
     runs. `flatten_hierarchy`, `out_of_context`, the empty `ARGS` and `TCL` of every step and the
     hooks that the run attaches are derived: the script has them, the settings the run records
     do not."""
-    settings = {"fpga": PART, "clock_period": 5.5}
+    settings = {"fpga": PART, "clock": {"period": 5.5}}
     design = _design()
     plain = _run(VivadoSynth, tmp_path / "plain", design, settings, monkeypatch)
     derived = _run(
@@ -227,7 +227,7 @@ def test_vivado_synth_launches_do_not_leave_their_options_for_the_next(
         tmp_path,
         monkeypatch,
         _design(),
-        {"fpga": PART, "clock_period": 5.5},
+        {"fpga": PART, "clock": {"period": 5.5}},
         {
             "out_of_context": True,
             "flatten_hierarchy": "full",
@@ -254,7 +254,7 @@ def test_vivado_synth_adds_the_mode_to_the_more_options_the_design_gave(
         VivadoSynth,
         tmp_path / "run",
         _design(),
-        {"fpga": PART, "clock_period": 5.5, "out_of_context": True, "synth": more},
+        {"fpga": PART, "clock": {"period": 5.5}, "out_of_context": True, "synth": more},
         monkeypatch,
     )
     script = _script(run, "vivado_synth.tcl")
@@ -271,7 +271,7 @@ def test_vivado_project_derives_its_steps_where_it_renders_the_script(
 ) -> None:
     """As for `vivado_synth`: the script has the mode, the flattening and the hooks, and the
     settings the run records do not."""
-    settings = {"fpga": PART, "clock_period": 5.5}
+    settings = {"fpga": PART, "clock": {"period": 5.5}}
     design = _design()
     plain = _run(VivadoProject, tmp_path / "plain", design, settings, monkeypatch)
     derived = _run(
@@ -298,7 +298,7 @@ def test_vivado_project_launches_do_not_leave_their_options_for_the_next(
         tmp_path,
         monkeypatch,
         _design(),
-        {"fpga": PART, "clock_period": 5.5},
+        {"fpga": PART, "clock": {"period": 5.5}},
         {
             "out_of_context": True,
             "flatten_hierarchy": "full",
@@ -337,7 +337,7 @@ def test_vivado_project_sets_the_step_properties_that_vivado_synth_sets(
     out-of-context synthesis reach the runs in both."""
     settings = {
         "fpga": PART,
-        "clock_period": 5.5,
+        "clock": {"period": 5.5},
         "out_of_context": True,
         "flatten_hierarchy": "full",
         "synth": {

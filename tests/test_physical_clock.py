@@ -1,4 +1,4 @@
-"""Clock specification, including the CLI's `-s clock_period=...` path.
+"""Clock specification, including the CLI's `-s clock.period=...` path.
 
 Values reaching `PhysicalClock`'s pre-root-validator are raw: a CLI override arrives as the
 string "5.5". Dividing by it used to raise `unsupported operand type(s) for /: 'float' and
@@ -84,33 +84,23 @@ def test_non_positive_freq_is_rejected_with_a_clear_message(freq):
 
 @pytest.mark.parametrize("period", [0, 0.0, "0", -1, "-1"])
 def test_non_positive_clock_period_setting_is_rejected(period):
-    """A non-positive legacy `clock_period` is still validated when used alone."""
+    """A non-positive `clock.period` is rejected."""
     # a settings-level failure surfaces as FlowSettingsError, not the raw pydantic error
     with pytest.raises((FlowSettingsError, ValidationError, ValueError)) as excinfo:
         VivadoSynth.Settings(
             fpga=FPGA("xc7a12tcsg325-1"),
-            clock_period=period,
+            clock={"period": period},
         )
     assert "positive" in str(excinfo.value)
 
 
-def test_legacy_clock_period_cannot_be_combined_with_canonical_clocks():
+@pytest.mark.parametrize("extra", [{}, {"clocks": {"main_clock": {"period": 5.0}}}])
+def test_clock_period_was_removed(extra):
     with pytest.raises(
-        (FlowSettingsError, ValidationError, ValueError), match="cannot be combined"
+        (FlowSettingsError, ValidationError, ValueError),
+        match="`clock_period` was removed: use `clock.period` or `clock.freq`",
     ):
-        VivadoSynth.Settings(
-            fpga=FPGA("xc7a12tcsg325-1"),
-            clock_period=5.0,
-            clocks={"main_clock": {"period": 5.0}},
-        )
-
-
-def test_clock_period_property_is_derived_from_canonical_clocks():
-    """The legacy API property remains available when only canonical clocks are stored."""
-    settings = VivadoSynth.Settings(
-        fpga=FPGA("xc7a12tcsg325-1"), clocks={"main_clock": {"period": 5.0}}
-    )
-    assert settings.clock_period == pytest.approx(5.0)
+        VivadoSynth.Settings(fpga=FPGA("xc7a12tcsg325-1"), clock_period=5.0, **extra)
 
 
 def test_neither_period_nor_freq_is_rejected():
@@ -135,40 +125,16 @@ def test_duty_cycle_accepts_unitless_numeric_values(value):
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"clock_period": "5.5"},
+        {"clock": {"period": "5.5"}},
         {"clocks": {"main_clock": {"period": "5.5"}}},
         {"clocks": {"main_clock": {"freq": "181.818MHz"}}},
     ],
 )
 def test_synth_flow_settings_accept_string_clock_overrides(overrides):
-    """`xeda run vivado_synth <design> -s clock_period=5.5` hands settings raw strings."""
+    """`xeda run vivado_synth <design> -s clock.period=5.5` hands settings raw strings."""
     settings = VivadoSynth.Settings(fpga="xc7a100tftg256-2L", **overrides)  # type: ignore[arg-type]
-    assert settings.clock_period == pytest.approx(5.5, abs=1e-3)
     assert settings.main_clock is not None
     assert settings.main_clock.period == pytest.approx(5.5, abs=1e-3)
-
-
-def test_clock_period_setter_targets_main_clock_with_multiple_unnamed_clocks():
-    """`clock_period` assignment must agree with the `main_clock`/`clock_period` getters.
-
-    With several clocks and none named ``main_clock``, both `main_clock` and `clock_period`
-    already fall back to the first declared clock -- and so does the settings-layer merge for
-    `-s clock_period=...`. The setter used to reject this case as "ambiguous" instead of
-    matching that fallback.
-    """
-    settings = VivadoSynth.Settings.from_input(
-        {
-            "fpga": "xc7a12tcsg325-1",
-            "clocks": {"clk_a": {"period": 10.0}, "clk_b": {"period": 20.0}},
-        }
-    )
-    assert settings.main_clock is settings.clocks["clk_a"]
-
-    settings.clock_period = 5.0
-
-    assert settings.clock_period == pytest.approx(5.0)
-    assert settings.clocks["clk_a"].period == pytest.approx(5.0)
-    assert settings.clocks["clk_b"].period == pytest.approx(20.0)
 
 
 def test_period_ps_setter_converts_picoseconds_to_nanoseconds():

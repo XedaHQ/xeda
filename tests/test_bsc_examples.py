@@ -116,7 +116,7 @@ def test_the_generated_verilog_synthesizes(design_file, generated, tmp_path_fact
     netlist_design = Design(
         name=f"{design_file.stem}_verilog",
         design_root=flow.run_path,
-        rtl={"sources": list(flow.artifacts.verilog), "top": top, "clock_port": "CLK"},
+        rtl={"sources": list(flow.artifacts.verilog), "top": top, "clock": "CLK"},
     )
     synth = _run(Yosys, netlist_design, tmp_path)
     assert synth.succeeded

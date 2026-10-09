@@ -48,7 +48,6 @@ required when this flat form is used.
 | `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
 | `defines` | no | Verilog preprocessor macros. |
 | `clock` | no | Canonical single-clock description, e.g. `{port: clk}`. |
-| `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
 | `generator` | no | Command or generator class producing the sources before the flow runs. Its direct executable and its declared `sources` (a directory counts as every file in it, outside the design root too) identify its inputs; it runs again when those or its produced sources change. `generated_sources` names the sources it writes when it writes only some, and `always_runs` says its inputs cannot be judged. A POSIX lease serializes loads for the same design-root directory. The record lives under `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load. |
@@ -80,11 +79,10 @@ flows:
       period: 5.0 # nanoseconds
 ```
 
-or, equivalently, `clock.freq: "200MHz"` in the flow section. The legacy `clock_port` and
-`clock_period` inputs are accepted for compatibility. Within one settings layer, use only one
-spelling for a concept; across layers the higher-precedence spelling wins and is merged into the
-canonical `clocks` mapping. Prefer `clock` in the design and `clock.period` or `clock.freq` in
-flow settings.
+or, equivalently, `clock.freq: "200MHz"` in the flow section. The old `clock_port` (design) and
+`clock_period` (flow setting) were removed: write `clock: <port>` and `clock.period`. Within one
+settings layer, give `clock` or `clocks`, not both; across layers the higher layer's `clock` is
+merged into the canonical `clocks` mapping.
 
 Multiple clocks:
 
@@ -126,15 +124,25 @@ A path string suffices when its extension identifies a type:
 | `.blif` / `.edf`, `.edif` | `Blif` / `Edif` |
 | `.sdf` / `.spef` / `.saif` | `Sdf` / `Spef` / `Saif` |
 | `.vcd` / `.fst` / `.ghw` / `.vpd` / `.fsdb` | `Vcd` / `Fst` / `Ghw` / `Vpd` / `Fsdb` |
-| `.dcp` / `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Checkpoint` / `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
+| `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
 
 Every source has a type. Suffixes match as written (`TOP.VHD` is an error naming `.vhd`).
-`.json`, `.bin`, `.cfg`, `.config` and any suffix not in the table need `type: "..."`;
-`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `Chipdb` and `Data` are only given
-that way. `Data` has no automatic HDL frontend; a flow or the design can still read it.
+`.json`, `.bin`, `.cfg`, `.config`, `.dcp` and any suffix not in the table need `type: "..."`;
+`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`, `FpgaTimingNetlist`,
+`SynthCheckpoint`, `RoutedCheckpoint`, `Chipdb` and `Data` are only given that way. `Data` has no automatic HDL
+frontend; a flow or the design can still read it.
 An invalid explicit `type` is an error naming the closest types. Explicit type names are
 case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type: VerilogNetlist`;
 otherwise its inferred type is `Verilog`.
+
+Netlists and checkpoints are typed by stage: `VerilogNetlist` is a standard-cell netlist
+(`openroad` reads it), `FpgaNetlist` a Verilog netlist of FPGA primitives as Vivado writes it
+(`vivado_postsynth_sim` simulates it) and `FpgaTimingNetlist` its timing netlist (simulated with an
+SDF; it is Verilog, so a listed one needs `type: FpgaTimingNetlist`), `SynthCheckpoint` and `RoutedCheckpoint` a Vivado
+checkpoint after synthesis and after routing (`vivado_power` takes only the routed one). A source
+of the wrong one of these types is not taken in its place: a Vivado netlist listed as
+`VerilogNetlist` feeds `openroad` and no Vivado flow. `Checkpoint` (no stated stage) is kept for
+old settings files: no flow takes it, so a source with that type feeds nothing.
 
 A source of a later stage's type stands in for the flows that would build it: a `JsonNetlist`
 skips synthesis for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig`
@@ -271,7 +279,7 @@ targets:
   flow section adds nothing (the design's section stays); set a key to change it.
 - A short form means its table where the design and a target meet (`clock: CLK` is `clock:
   {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
-  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
+  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`
   refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
   A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
   no table) is an error whichever target is selected.

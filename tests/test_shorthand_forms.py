@@ -106,7 +106,7 @@ def validated(owner: type, name: str, value: Any) -> Any:
     if owner in flow_of_settings():  # a flow's settings
         try:
             settings = owner.from_input(
-                {**minimal_settings(flow_of_settings()[owner], clock_period=False), name: value},
+                {**minimal_settings(flow_of_settings()[owner], clock=False), name: value},
                 design_root=_ROOT,
                 runner_cwd=_ROOT,
             )

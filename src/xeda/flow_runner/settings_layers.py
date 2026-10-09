@@ -127,11 +127,13 @@ Layer = None | Mapping[str, Any] | Sequence[str]
 
 
 def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
-    """Whether this settings model has SynthFlow's canonical clock contract."""
+    """Whether this settings model has SynthFlow's clock contract: `clocks` is a table of named
+    clocks, and `clock` and `main_clock` are properties of it. (The design's `RtlSettings` has
+    `clocks` and `clock` too, but a list of ports, merged by `RtlSettings.merge_inputs`.)"""
     return (
         "clocks" in settings_cls.model_fields
         and isinstance(getattr(settings_cls, "clock", None), property)
-        and isinstance(getattr(settings_cls, "clock_period", None), property)
+        and isinstance(getattr(settings_cls, "main_clock", None), property)
     )
 
 
@@ -148,14 +150,13 @@ def _canonicalize_clock_input(
 ) -> tuple[dict[str, Any], str | None]:
     """Normalize one layer's single-clock spelling to ``clocks``.
 
-    The returned name marks a singular override. It lets the merge apply `clock_period` or
-    `clock` to an existing sole/named main clock rather than adding a second clock. Giving more
-    than one spelling in this *same* layer is intentionally left unchanged, so validation still
-    rejects the ambiguity.
+    The returned name marks a singular override. It lets the merge apply `clock` to an existing
+    sole/named main clock rather than adding a second clock. Giving both spellings in this
+    *same* layer is intentionally left unchanged, so validation still rejects the ambiguity.
     """
     if not _has_clock_inputs(settings_cls):
         return values, None
-    present = [name for name in ("clock", "clock_period", "clocks") if name in values]
+    present = [name for name in ("clock", "clocks") if name in values]
     if len(present) != 1 or present[0] == "clocks":
         return values, None
 
@@ -164,17 +165,13 @@ def _canonicalize_clock_input(
     if raw is None:
         # `None` historically meant "not specified". It must not erase a lower layer's clocks.
         return values, None
-    if spelling == "clock_period":
-        clock: Mapping[str, Any] = {"period": raw}
-        name = "main_clock"
-    else:
-        mapped = _clock_mapping(raw)
-        if mapped is None:
-            # Preserve invalid input under its original name for pydantic's field-specific error.
-            values[spelling] = raw
-            return values, None
-        clock = dict(mapped)
-        name = str(clock.get("name") or "main_clock")
+    mapped = _clock_mapping(raw)
+    if mapped is None:
+        # Preserve invalid input under its original name for pydantic's field-specific error.
+        values[spelling] = raw
+        return values, None
+    clock = dict(mapped)
+    name = str(clock.get("name") or "main_clock")
     values["clocks"] = {name: dict(clock)}
     return values, name
 
@@ -289,10 +286,9 @@ def _merge_settings_layer(
                         # lower clock instead of leaving two clocks behind.
                         old_name = next(iter(existing))
                         merged["clocks"] = {singular_clock: existing[old_name]}
-                # A singular spelling without an explicit name (`clock_period`, or `clock` with
-                # no `name`) names its clock `"main_clock"`, matching
-                # `SynthFlow.Settings._synthflow_settings_root_validator`'s direct-construction
-                # default -- but only when it creates a genuinely new clock entry. When it
+                # A singular `clock` without an explicit `name` names its clock `"main_clock"`,
+                # matching `SynthFlow.Settings._synthflow_settings_root_validator`'s
+                # direct-construction default -- but only when it creates a genuinely new clock entry. When it
                 # instead refines an already-existing clock (the redirects above, or a layer
                 # that already has a same-named clock), the existing clock's identity -- its own
                 # `name`, whatever it is -- must win, not be overwritten by the synthesized
@@ -563,7 +559,7 @@ def merge_flow_sections(
                     "duplicate_flow",
                 )
             # Keep this section as one distinct precedence layer. Canonicalizing it here would
-            # erase the fact that `clock_period`/`clock` was a single-clock shorthand before it
+            # erase the fact that `clock` was a single-clock shorthand before it
             # is compared with the lower section (and could incorrectly add a second clock
             # instead of refining the lower section's sole named clock).
             normalized[canonical_name] = settings_to_dict(values)

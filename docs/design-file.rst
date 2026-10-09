@@ -100,12 +100,9 @@ Top level
    * - ``defines``
      - no
      - Verilog preprocessor macros, as a mapping.
-   * - ``clock_port``
-     - no
-     - Compatibility shorthand for a single-clock design. Prefer ``clock: {port: "..."}``.
    * - ``clock``
      - no
-     - A single clock as ``{port: "...", name: "..."}``.
+     - A single clock, as a port name or as ``{port: "...", name: "..."}``.
    * - ``clocks``
      - no
      - A list of clocks, for multi-clock designs.
@@ -127,8 +124,8 @@ design. A single-clock design usually needs only::
 
 and then, per flow, ``clock.period`` (ns) or ``clock.freq`` (MHz), as a number or with a unit
 (``"5.5ns"``, ``"200MHz"``). Units are case-sensitive, as in SI: ``"200mhz"`` is an error that
-names ``MHz``. The legacy ``clock_port`` and ``clock_period`` inputs are accepted for
-compatibility, but cannot be combined with their canonical counterparts in the same layer.
+names ``MHz``. The old ``clock_port`` (design) and ``clock_period`` (flow setting) were removed.
+Xeda refuses them and names the replacement: write ``clock: <port>`` and ``clock.period``.
 
 .. _tb:
 
@@ -203,18 +200,31 @@ A path string suffices when its extension identifies a type:
      - ``Sdf`` / ``Spef`` / ``Saif``
    * - ``.vcd`` / ``.fst`` / ``.ghw`` / ``.vpd`` / ``.fsdb``
      - ``Vcd`` / ``Fst`` / ``Ghw`` / ``Vpd`` / ``Fsdb``
-   * - ``.dcp`` / ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
-     - ``Checkpoint`` / ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
+   * - ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
+     - ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
 
 Every source has a type. A suffix is matched exactly as written: ``TOP.VHD`` is not inferred (the
-error names ``.vhd``). ``.json``, ``.bin``, ``.cfg`` and ``.config`` name several kinds of file,
-and a suffix not in the table names nothing xeda knows, so a source with one needs its ``type``;
-``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``Chipdb`` and ``Data`` are
-only ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
+error names ``.vhd``). ``.json``, ``.bin``, ``.cfg``, ``.config`` and ``.dcp`` name several kinds
+of file, and a suffix not in the table names nothing xeda knows, so a source with one needs its
+``type``; ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
+``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb``, ``Data`` and the
+legacy ``Checkpoint`` (no flow takes it) are only ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
 is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
 design can still read it. An invalid explicit ``type`` is an error naming the closest types.
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as
 ``{file: net.v, type: VerilogNetlist}``.
+
+A netlist and a checkpoint are typed by what they are, not only by their file format. A
+``VerilogNetlist`` is a standard-cell netlist, which ``openroad`` reads. An ``FpgaNetlist`` is a
+Verilog netlist of FPGA primitives, as Vivado writes it, which ``vivado_postsynth_sim``
+simulates. An ``FpgaTimingNetlist`` is the timing netlist of the same design, which that flow
+simulates with an SDF; a timing netlist has no suffix of its own (it is Verilog), so a listed one
+needs ``type: FpgaTimingNetlist``. A Vivado checkpoint (``.dcp``) is written after synthesis (``SynthCheckpoint``) and
+after routing (``RoutedCheckpoint``), and ``vivado_power`` reports power only on the routed one.
+So the ``.dcp`` suffix needs its ``type``, and a netlist or checkpoint of the other type is never
+taken in place of the right one. A Vivado netlist that you list as ``VerilogNetlist`` feeds
+``openroad`` and no Vivado flow. The type ``Checkpoint``, for a checkpoint of no stated stage, is
+kept for old settings files: no flow takes it, so a source with that type feeds nothing.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
 skips synthesis for ``nextpnr``, an ``Edif`` netlist skips it for ``vivado_impl``, a ``Fasm``,
@@ -515,15 +525,16 @@ One design file can describe the design for several boards. Each entry of ``targ
   replaces the design's table); a flow's ``fpga: <part>`` is ``fpga: {part: <part>}``. Aliases
   (``generics`` for ``parameters``, ``version`` for ``standard``) are read the same way, at every
   depth.
-- **The design's clock.** The design's clock is ``clock``, ``clock_port`` or ``clocks``: three
-  spellings of one list of clocks. A target's ``clocks``, in any form, replaces the design's
-  list. A target's ``clock`` or ``clock_port`` names the design's first clock and changes it key
-  by key (``clock: {name: sys}`` keeps the design's port). ``clock: null``, ``clock_port: ""`` and
-  an empty table (``clock: {}``) mean no clock, in the design and in a target. A clock that is
-  neither text nor a table (``clock: 0``, ``clock: false``) is an error, reported at the key as
-  written, in a target as well (at ``targets.<name>.rtl.clock``). ``clock_port`` takes a port name
-  only: a table is an error. Two spellings in the design, or in the selected target, are an error.
-  A target that is not selected is checked only for the form of its values.
+- **The design's clock.** The design's clock is ``clock`` or ``clocks``: two spellings of one list
+  of clocks. A target's ``clocks``, in any form, replaces the design's list. A target's ``clock``
+  names the design's first clock and changes it key by key (``clock: {name: sys}`` keeps the
+  design's port). ``clock: null`` and an empty table (``clock: {}``) mean no clock, in the design
+  and in a target. A clock that is neither text nor a table (``clock: 0``, ``clock: false``) is an
+  error, reported at the key as written, in a target as well (at ``targets.<name>.rtl.clock``).
+  Two spellings in the design, or in the selected target, are an error. A target that is not
+  selected is checked only for the form of its values. The removed ``clock_port`` is an error in
+  the design, in a target (selected or not) and in ``--design-overrides``: it says to write
+  ``clock: <port>``.
 - **A table where a table is expected.** A value that is no table, and no short form of one,
   where a table is expected (``tb: 3``, or ``keep: 3`` in ``rtl.attributes``, whose entries are
   tables) is an error, whichever target you select: a target's table written over it does not

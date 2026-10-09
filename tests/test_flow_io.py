@@ -218,6 +218,8 @@ def test_list_flows_publishes_the_declarations():
             "optional": False,
             "producer": "__maker",
             "output": "made",
+            "same_producer_as": None,
+            "via": None,
             "description": "What it reads.",
         }
     ]

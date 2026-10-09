@@ -47,9 +47,11 @@ class VivadoPower(Vivado, FpgaSynthFlow):
             description="Switching activity from a successful timing-annotated simulation.",
         )
         checkpoint: Path = In(
-            SourceType.Checkpoint,
+            SourceType.RoutedCheckpoint,
             producer="vivado_synth",
             output="checkpoint_route",
+            same_producer_as="activity",
+            via="netlist_timing",
             description="The routed design checkpoint against which power is reported.",
         )
 

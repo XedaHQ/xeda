@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from xeda.flow import FlowSettingsError
+from xeda.flow import FlowSettingsError, FlowSettingsException
 from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoPostsynthSim
@@ -48,10 +48,9 @@ def test_postsynth_has_only_declared_producers():
     assert set(declared_inputs(VivadoPostsynthSim)) == {"netlist", "netlist_timing", "sdf"}
 
 
-@pytest.mark.parametrize("all_three", [False, True])
-def test_alternative_bindings_pin_the_partial_binding_hazard(tmp_path, all_three):
+def test_alternative_bindings_of_the_three_inputs_use_only_the_alternative(tmp_path):
     write_vivado_design(tmp_path)
-    names = ("netlist", "netlist_timing", "sdf") if all_three else ("netlist",)
+    names = ("netlist", "netlist_timing", "sdf")
     settings = [
         "flows.vivado_synth.fpga=xc7a12tcsg325-1",
         "flows.vivado_synth.clock.period=5.0",
@@ -65,14 +64,28 @@ def test_alternative_bindings_pin_the_partial_binding_hazard(tmp_path, all_three
     )
     assert plan is not None
     producers = [node.name for node in plan.nodes if node.name != "vivado_postsynth_sim"]
-    assert producers.count("vivado_alt_synth") == 1
-    assert producers.count("vivado_synth") == (0 if all_three else 1)
+    assert producers == ["vivado_alt_synth"]
     node = plan.node("vivado_postsynth_sim")
     for selected in node.inputs:
-        expected = "vivado_alt_synth" if selected.name in names else "vivado_synth"
         assert len(selected.references) == 1
-        assert selected.references[0].node == expected
+        assert selected.references[0].node == "vivado_alt_synth"
         assert selected.references[0].output == selected.name
+
+
+def test_a_partial_binding_is_refused_instead_of_pairing_two_runs(tmp_path):
+    write_vivado_design(tmp_path)
+    settings = [
+        "flows.vivado_synth.fpga=xc7a12tcsg325-1",
+        "flows.vivado_synth.clock.period=5.0",
+        "flows.vivado_alt_synth.fpga=xc7a12tcsg325-1",
+        "flows.vivado_alt_synth.clock.period=5.0",
+        "timing_sim=true",
+        "inputs.netlist=vivado_alt_synth.netlist",
+    ]
+    with pytest.raises(FlowSettingsException, match="must come from the same producer"):
+        DefaultRunner(tmp_path / "run", display_results=False).plan(
+            "vivado_postsynth_sim", tmp_path / "design.yaml", flow_settings=settings
+        )
 
 
 @pytest.mark.parametrize("origin", ["design", "project", "command line", "API"])
