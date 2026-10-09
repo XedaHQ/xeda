@@ -30,6 +30,22 @@ from xeda.flow_runner.remote import RemoteRunner
 from .tool_utils import use_fake_tools
 
 
+class StopBeforeConnection(Exception):
+    """Raised in place of a connection: a remote launch got as far as the transport."""
+
+
+@pytest.fixture(autouse=True)
+def no_connection(monkeypatch):
+    """No test of this file reaches a network: a remote launch that gets as far as connecting
+    fails at once with `StopBeforeConnection`."""
+    from xeda.flow_runner import remote
+
+    def connect(**_kwargs):
+        raise StopBeforeConnection
+
+    monkeypatch.setattr(remote, "Connection", connect)
+
+
 @pytest.fixture
 def clones(monkeypatch):
     """Where `git clone` was asked to clone: a stand-in that clones nothing."""
@@ -575,12 +591,11 @@ def test_a_remote_launch_loads_a_local_dependency_the_generator_writes_in_full(
         dependencies=["gen/dep.toml"],
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    # the generator runs, then the connection to the unreachable host fails
-    with pytest.raises(Exception) as raised:
+    # the generator runs, the design loads, and the launch stops where it would connect
+    with pytest.raises(StopBeforeConnection):
         runner.run_remote(
             str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
         )
-    assert not isinstance(raised.value, DesignValidationError)
     assert generated.runs == 1
 
 
