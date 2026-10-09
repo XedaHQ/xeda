@@ -498,19 +498,21 @@ its output paths inside its run directory.
   entered as `"state": "not run"` (from `FlowLauncher.last_plan`, the plan the run followed).
 - **Netlists and checkpoints are typed by stage, not by file format** (`SourceType`, appended):
   `VerilogNetlist` is a standard-cell netlist (`yosys.netlist`, read by `openroad`), `FpgaNetlist`
-  a Verilog netlist of FPGA primitives (`vivado_synth`/`vivado_alt_synth` `netlist` and
-  `netlist_timing`, read by `vivado_postsynth_sim`), `SynthCheckpoint` and `RoutedCheckpoint` the
-  Vivado `.dcp` after synthesis and after routing (`vivado_power` takes only the routed one).
-  `Checkpoint` (no stage) stays for old `settings.json` files and no flow takes it: a source typed
-  so feeds nothing, as any type no flow reads. `.dcp` is an `AMBIGUOUS_SUFFIXES` entry, so a `.dcp`
-  source needs its stage as `type` instead of silently feeding nothing. The four are `TYPE_ONLY`.
+  a Verilog netlist of FPGA primitives (`vivado_synth`/`vivado_alt_synth` `netlist`, read by
+  `vivado_postsynth_sim`), `FpgaTimingNetlist` the timing netlist of it (`netlist_timing`, simulated
+  with `sdf`; Verilog has no suffix of its own for it, so a listed one needs the `type`, and the
+  functional and timing netlists cannot be crossed in a binding), `SynthCheckpoint` and
+  `RoutedCheckpoint` the Vivado `.dcp` after synthesis and after routing (`vivado_power` takes
+  only the routed one). `Checkpoint` (no stage) stays for old `settings.json` files and no flow
+  takes it: a source typed so feeds nothing, as any type no flow reads. `.dcp` is an
+  `AMBIGUOUS_SUFFIXES` entry, so a `.dcp` source needs its stage as `type` instead of silently
+  feeding nothing. All of these are `TYPE_ONLY`.
   A Vivado netlist listed as `VerilogNetlist` is a standard-cell netlist to every flow, so it feeds
   `openroad` and no Vivado flow. An output of a netlist or checkpoint kind gets the type of what it
   is. `tests/test_stage_types.py` sweeps every edge `fitting_outputs` accepts between two netlist
   kinds or two checkpoint kinds: each is either its consumer's default wiring or in
-  `REVIEWED_EDGES` with a reason, so a new edge fails until reviewed. Known limit, listed there:
-  the functional and the timing FPGA netlist share a type. (`sdf` and `sdf_min`, two corners of one
-  stage, share `Sdf` too.)
+  `REVIEWED_EDGES` with a reason, so a new edge fails until reviewed. Known limit: `sdf` and
+  `sdf_min`, two corners of one stage, share `Sdf`.
 - **Related inputs come from one producer** (`In(same_producer_as="<input>")`, `via=` for a
   transitive relation; `flow/io.py`, `InputDeclaration`, shown in `list-flows` as
   `same_producer_as`/`via`). `flow_runner/related_inputs.check_related_inputs` is the one check,

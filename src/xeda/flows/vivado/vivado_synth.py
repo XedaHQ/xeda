@@ -380,7 +380,7 @@ class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
         description="The routed design's functional Verilog netlist.",
     )
     netlist_timing: Path | None = Out(
-        SourceType.FpgaNetlist,
+        SourceType.FpgaTimingNetlist,
         enabled_by="write_timing_netlist",
         description="The routed design's timing Verilog netlist, simulated with `sdf`.",
     )

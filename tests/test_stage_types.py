@@ -42,7 +42,7 @@ from .test_tool_input_equivalence import (
     write_vivado_design,
 )
 
-FPGA_NETLISTS = (SourceType.FpgaNetlist,)
+FPGA_NETLISTS = (SourceType.FpgaNetlist, SourceType.FpgaTimingNetlist)
 CHECKPOINTS = (SourceType.SynthCheckpoint, SourceType.RoutedCheckpoint)
 
 
@@ -118,13 +118,56 @@ def test_the_functional_netlist_of_vivado_still_binds_to_the_post_synthesis_simu
 def test_the_declarations_name_the_stage():
     for flow in (VivadoSynth, VivadoAltSynth):
         outputs = declared_outputs(flow)
-        assert outputs["netlist"].types == FPGA_NETLISTS
-        assert outputs["netlist_timing"].types == FPGA_NETLISTS
+        assert outputs["netlist"].types == (SourceType.FpgaNetlist,)
+        assert outputs["netlist_timing"].types == (SourceType.FpgaTimingNetlist,)
         assert outputs["checkpoint_synth"].types == (SourceType.SynthCheckpoint,)
         assert outputs["checkpoint_route"].types == (SourceType.RoutedCheckpoint,)
     inputs = declared_inputs(VivadoPostsynthSim)
-    assert inputs["netlist"].types == inputs["netlist_timing"].types == FPGA_NETLISTS
+    assert inputs["netlist"].types == (SourceType.FpgaNetlist,)
+    assert inputs["netlist_timing"].types == (SourceType.FpgaTimingNetlist,)
     assert declared_inputs(VivadoPower)["checkpoint"].types == (SourceType.RoutedCheckpoint,)
+
+
+@pytest.mark.parametrize("producer", ["vivado_synth", "vivado_alt_synth"])
+@pytest.mark.parametrize(
+    "crossing, wanted, given",
+    [
+        ("netlist_timing", "FpgaTimingNetlist", "FpgaNetlist"),
+        ("netlist", "FpgaNetlist", "FpgaTimingNetlist"),
+    ],
+)
+def test_the_functional_and_the_timing_netlist_cannot_be_crossed(
+    tmp_path, producer, crossing, wanted, given
+):
+    """Binding the functional netlist as the timing one (the simulation then elaborates cells of
+    the wrong library, or simulates without delays) or the other way round is refused by type."""
+    other = "netlist" if crossing == "netlist_timing" else "netlist_timing"
+    write_vivado_design(tmp_path)
+    with pytest.raises(FlowSettingsException) as error:
+        DefaultRunner(tmp_path / "run", display_results=False).plan(
+            "vivado_postsynth_sim",
+            tmp_path / "design.yaml",
+            flow_settings=[
+                *VIVADO_SETTINGS,
+                *(
+                    ["flows.vivado_alt_synth.fpga=xc7a12tcsg325-1"]
+                    if producer == "vivado_alt_synth"
+                    else []
+                ),
+                f"inputs.{crossing}={producer}.{other}",
+            ],
+        )
+    message = " ".join(str(error.value).split())
+    assert f"takes {wanted}" in message and f"makes {given}" in message
+    assert f"vivado_postsynth_sim.{crossing}" in message
+
+
+def test_the_chain_check_finds_no_edge_between_the_crossed_netlists():
+    for output, taken in (("netlist", "netlist_timing"), ("netlist_timing", "netlist")):
+        fitting, _many = fitting_outputs(
+            VivadoSynth, declared_inputs(VivadoPostsynthSim)[taken], output=output
+        )
+        assert fitting == []
 
 
 # ------------------------------------------------------------------------------ the new members
@@ -154,7 +197,7 @@ NETLIST_KINDS = frozenset(
         SourceType.VhdlNetlist,
         SourceType.Edif,
         SourceType.Blif,
-        SourceType.FpgaNetlist,
+        *FPGA_NETLISTS,
     }
 )
 CHECKPOINT_KINDS = frozenset({SourceType.Checkpoint, *CHECKPOINTS})
@@ -168,13 +211,6 @@ REVIEWED_EDGES = {
     ("vivado_alt_synth", "netlist", "vivado_postsynth_sim", "netlist"),
     ("vivado_alt_synth", "netlist_timing", "vivado_postsynth_sim", "netlist_timing"),
     ("vivado_alt_synth", "checkpoint_route", "vivado_power", "checkpoint"),
-    # Known limit: the functional and the timing netlist are both FPGA netlists, so an explicit
-    # binding can cross them. The simulation elaborates the wrong libraries and fails loudly in
-    # the simulator, or (a timing netlist as the functional one) simulates without delays.
-    ("vivado_synth", "netlist", "vivado_postsynth_sim", "netlist_timing"),
-    ("vivado_synth", "netlist_timing", "vivado_postsynth_sim", "netlist"),
-    ("vivado_alt_synth", "netlist", "vivado_postsynth_sim", "netlist_timing"),
-    ("vivado_alt_synth", "netlist_timing", "vivado_postsynth_sim", "netlist"),
 }
 
 

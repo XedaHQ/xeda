@@ -38,7 +38,7 @@ class VivadoPostsynthSim(VivadoSim):
             description="The routed functional Verilog netlist.",
         )
         netlist_timing: Path | None = In(
-            SourceType.FpgaNetlist,
+            SourceType.FpgaTimingNetlist,
             producer="vivado_synth",
             output="netlist_timing",
             description="The routed timing Verilog netlist, annotated with `sdf`.",

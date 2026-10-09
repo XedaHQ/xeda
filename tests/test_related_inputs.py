@@ -166,14 +166,14 @@ def test_the_chains_the_old_error_suggested_are_refused_with_what_to_bind(tmp_pa
 
 
 def test_a_listed_file_is_the_users_choice_and_is_not_compared_with_a_producer(tmp_path):
-    """A listed SDF with the netlist of `vivado_synth`, and a listed netlist (which fills both
-    netlist inputs) with the SDF of `vivado_synth`: the files are the user's own."""
+    """A listed SDF with the netlists of `vivado_synth`, and a listed timing netlist with the SDF
+    of `vivado_synth`: the files are the user's own."""
     delays = plan(tmp_path, "vivado_postsynth_sim", sources=[("delays.sdf", "Sdf")])
     assert producers(delays) == {"vivado_synth", "vivado_postsynth_sim"}
     other = tmp_path / "netlist"
     other.mkdir()
-    routed = plan(other, "vivado_postsynth_sim", sources=[("routed.v", "FpgaNetlist")])
-    assert producers(routed) == {"vivado_synth", "vivado_postsynth_sim"}
+    timing = plan(other, "vivado_postsynth_sim", sources=[("timing.v", "FpgaTimingNetlist")])
+    assert producers(timing) == {"vivado_synth", "vivado_postsynth_sim"}
 
 
 def test_a_listed_anchor_does_not_hide_a_mix_of_the_generated_inputs(tmp_path):
@@ -182,7 +182,7 @@ def test_a_listed_anchor_does_not_hide_a_mix_of_the_generated_inputs(tmp_path):
         tmp_path,
         "vivado_postsynth_sim",
         f"{SIM}.netlist=vivado_alt_synth.netlist",
-        sources=[("routed.v", "FpgaNetlist")],
+        sources=[("timing.v", "FpgaTimingNetlist")],
     )
     assert "netlist <- vivado_alt_synth.netlist" in message and "sdf <- vivado_synth" in message
     assert f"{SIM}.sdf=vivado_alt_synth.sdf" in message
@@ -193,7 +193,11 @@ def test_sources_for_all_related_inputs_run_no_synthesis(tmp_path):
     listed = plan(
         tmp_path,
         "vivado_postsynth_sim",
-        sources=[("routed.v", "FpgaNetlist"), ("delays.sdf", "Sdf")],
+        sources=[
+            ("routed.v", "FpgaNetlist"),
+            ("timing.v", "FpgaTimingNetlist"),
+            ("delays.sdf", "Sdf"),
+        ],
     )
     assert producers(listed) == {"vivado_postsynth_sim"}
 
@@ -209,7 +213,11 @@ def test_an_activity_simulated_from_listed_files_is_not_compared_with_the_checkp
     listed = plan(
         tmp_path,
         "vivado_power",
-        sources=[("routed.v", "FpgaNetlist"), ("delays.sdf", "Sdf")],
+        sources=[
+            ("routed.v", "FpgaNetlist"),
+            ("timing.v", "FpgaTimingNetlist"),
+            ("delays.sdf", "Sdf"),
+        ],
     )
     assert producers(listed) == {"vivado_synth", "vivado_postsynth_sim", "vivado_power"}
 

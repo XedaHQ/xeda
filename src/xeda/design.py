@@ -606,12 +606,14 @@ class SourceType(str, Enum):
     Vlt = "Vlt"
     Data = "Data"
     # Types by stage. `FpgaNetlist` is a Verilog netlist of FPGA primitives (what Vivado writes),
-    # where `VerilogNetlist` is a standard-cell netlist. A checkpoint is written at several
-    # stages and only the stage says what reads it, so `Checkpoint` (no stage) is taken by no
-    # flow and `.dcp` names no type.
+    # where `VerilogNetlist` is a standard-cell netlist, and `FpgaTimingNetlist` is the timing
+    # netlist of the same design, which is simulated with an SDF. A checkpoint is written at
+    # several stages and only the stage says what reads it, so `Checkpoint` (no stage) is taken
+    # by no flow and `.dcp` names no type.
     FpgaNetlist = "FpgaNetlist"
     SynthCheckpoint = "SynthCheckpoint"
     RoutedCheckpoint = "RoutedCheckpoint"
+    FpgaTimingNetlist = "FpgaTimingNetlist"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -720,6 +722,7 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.Chipdb,
         SourceType.Data,
         SourceType.FpgaNetlist,
+        SourceType.FpgaTimingNetlist,
         SourceType.Checkpoint,
         SourceType.SynthCheckpoint,
         SourceType.RoutedCheckpoint,
