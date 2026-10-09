@@ -1426,7 +1426,7 @@ class RtlSettings(DVSettings):
                 value = values.pop(spelling)
                 if cls.clock_mistake(spelling, value):
                     # reported at the key as written, not at the `clocks` it would become
-                    what = "a port name" if spelling == "clock_port" else "a port name or a table"
+                    what = cls.clock_expected(spelling)
                     raise ValidationError.from_exception_data(
                         cls.__name__,
                         [
@@ -1455,7 +1455,8 @@ class RtlSettings(DVSettings):
         the table it stands for. The validators read a clock by this function, and so does the
         merge of a target over its design (`merge_inputs`). `clock: null`, `clock: ""` and
         `clock_port: ""` mean no clock. An item that is no form of a clock is kept as it is,
-        for validation to report: only a text or a table is one (a number is not)."""
+        for validation to report: only a text or a table is one (a number is not). A `clocks` that
+        is no list, and a `clock_port` that is no text, are a `ValueError`."""
         if spelling == "clocks":
             if value is None:
                 return []
@@ -1465,9 +1466,12 @@ class RtlSettings(DVSettings):
                 raise ValueError(f"Expecting 'clocks' to be a list but found {value}")
             items = value
         elif spelling == "clock_port":
+            # A port name, and nothing else: a table is `clock`'s form.
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"`clock_port` is a port name, not {value!r:.60}")
             # Historically an empty compatibility string meant that the design had no declared
             # clock; keep that instead of constructing a clock with an unusable empty port.
-            return [Clock.as_mapping(value) or value] if value else []
+            return [Clock.as_mapping(value)] if value else []
         else:
             items = [value]
         # an empty table, like `null` and `""`, says nothing: there is no clock
@@ -1476,6 +1480,11 @@ class RtlSettings(DVSettings):
             for item in items
             if item is not None and item != "" and not (isinstance(item, Mapping) and not item)
         ]
+
+    @classmethod
+    def clock_expected(cls, spelling: str) -> str:
+        """What the design's `clock` or `clock_port` takes, in words."""
+        return "a port name" if spelling == "clock_port" else "a port name or a table"
 
     @classmethod
     def clock_mistake(cls, spelling: str, value: Any) -> bool:
@@ -2512,9 +2521,12 @@ class Design(XedaBaseModel):
         # where it is written whether or not the target is selected.
         for path, value in shape_problems(cls, folded):
             if input_names(cls).get(path[0]) != "flow":  # a `flows` table is judged on its own
-                raise invalid(
-                    ".".join(path), f"takes a table or a short form of one, not {value!r:.60}"
+                takes = (
+                    RtlSettings.clock_expected(path[-1])
+                    if path[-1] in ("clock", "clock_port")
+                    else "a table or a short form of one"
                 )
+                raise invalid(".".join(path), f"takes {takes}, not {value!r:.60}")
         for key, value in folded.items():
             if input_names(cls).get(key) == "flow":
                 for path, value in _flow_section_problems(_flows_table(value)):

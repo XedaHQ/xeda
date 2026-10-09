@@ -285,11 +285,29 @@ def test_a_clock_that_is_neither_text_nor_a_table_is_refused_at_the_key_written(
 ):
     """A number silently meant no clock, because falsy clocks were dropped. `clock_port` takes a
     port name alone, but an empty one (`""`, `null`) is no clock."""
-    if spelling == "clock_port" and not clock:
-        pytest.skip("an empty `clock_port` is no clock")
     with pytest.raises(DesignValidationError) as raised:
         Design.from_file(write_design(tmp_path, overlay(BASE, rtl(**{spelling: clock}))))
     assert f"rtl.{spelling}:" in str(raised.value), raised.value
+
+
+@pytest.mark.parametrize(
+    "clock_port", [{"port": "A"}, {"name": "n", "port": "A"}, {}, {"port": ""}]
+)
+@pytest.mark.parametrize("where", ["design", "selected target", "unselected target"])
+def test_a_clock_port_is_a_port_name_and_no_table(tmp_path, clock_port, where):
+    """A table is `clock`'s form: `clock_port` is the compatibility spelling of a port name, as
+    the schema and the message say."""
+    key = "clock_port"
+    if where == "design":
+        data, target, at = overlay(BASE, rtl(**{key: clock_port})), None, "rtl"
+    else:
+        data = {**BASE, "targets": {"good": {"defines": {"A": 1}}, "bad": rtl(**{key: clock_port})}}
+        target = "bad" if where == "selected target" else "good"
+        at = "targets.bad.rtl"
+    with pytest.raises(DesignValidationError) as raised:
+        Design.from_file(write_design(tmp_path, data), target=target)
+    assert f"{at}.{key}:" in str(raised.value), raised.value
+    assert "a port name" in str(raised.value), raised.value
 
 
 @pytest.mark.parametrize("clocks", [[False], [0], [[]], [{"port": "A"}, False], 3, False])
