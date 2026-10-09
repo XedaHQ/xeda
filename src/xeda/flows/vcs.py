@@ -237,13 +237,14 @@ class Vcs(SimFlow):
             version_flag=None,
             highlight_rules=rules,
         )
-        non_interactive = not ss.ucli or (ss.ucli_script is None)
-        self.simv = Tool(
-            "./simv", self, version_flag=None, highlight_rules=rules if non_interactive else None
-        )
         if ss.ucli_script:
-            ss.ucli = True
+            ss.ucli = True  # a user's script runs under UCLI
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
+        # a user's script drives simv: its output is the script's, not colored
+        driven_by_user = ss.ucli and ss.ucli_script is not None
+        self.simv = Tool(
+            "./simv", self, version_flag=None, highlight_rules=None if driven_by_user else rules
+        )
 
     def run(self):
         """Compile and simulate the design with VCS."""

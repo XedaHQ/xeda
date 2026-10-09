@@ -365,3 +365,15 @@ def test_the_settings_of_a_vcs_flow_reach_its_tools(tmp_path):
         assert tool.docker.image == "example/vcs:2026"
         assert tool.print_command is False
     assert not _built_vcs(tmp_path / "plain").vcs.dockerized
+
+
+def test_simv_is_colored_unless_a_user_script_drives_it(tmp_path):
+    """A user's `ucli_script` makes the run interactive (`ucli` is then on): its output is the
+    script's, not colored. A setting `ucli` alone adds no script, and simv's output stays colored.
+    """
+    script = tmp_path / "drive.tcl"
+    script.write_text("run\nquit\n")
+    assert _built_vcs(tmp_path / "plain").simv.highlight_rules is not None
+    assert _built_vcs(tmp_path / "ucli", ucli=True).simv.highlight_rules is not None
+    assert _built_vcs(tmp_path / "script", ucli_script=script).simv.highlight_rules is None
+    assert _built_vcs(tmp_path / "both", ucli=True, ucli_script=script).simv.highlight_rules is None
