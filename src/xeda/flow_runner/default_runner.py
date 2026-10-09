@@ -581,8 +581,9 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
     it does not hold. What is removed is the locked directory itself, never what a link leads to
     by then. Anything else that is no run directory of the flow by `run_directory_problem` -- no
     directory, or a link that now leads anywhere but to a run directory of the flow beside it --
-    is not removed either, and the scrub fails the same way. A run directory whose run records
-    are not what the listing saw (`_completion_records`) was written to by a launch after the
+    is not removed either, and the scrub fails the same way. This holds for every name of the
+    directory (`_Listed.aliases`), and is judged before the run records. A run directory whose
+    run records are not what the listing saw (`_completion_records`) was written to by a launch after the
     listing: a run ended there, or a launch found its run fresh and refreshed the trace. Scrub
     cannot tell which, and what is there is no longer what was confirmed: it is kept, and said.
     The rest are removed. The three lists are the directories removed, kept and gone."""
@@ -615,6 +616,9 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
                 done.gone.append(p)
                 continue
             _refuse_a_change(p, c, locked, leads_to)
+            for alias in c.aliases:  # each name of the directory, judged as the first is
+                if not _is_gone(alias):
+                    _refuse_a_change(alias, c, locked, leads_to)
             if _completion_records(p) != c.records:
                 log.info("Not removing %s: its run records changed after the listing", p)
                 _say(
@@ -623,9 +627,6 @@ def _remove_confirmed(candidates: Sequence[_Listed], run_root: Path) -> _Removal
                 )
                 done.kept.append(p)
                 continue
-            for alias in c.aliases:  # each name of the directory, judged as the first is
-                if not _is_gone(alias):
-                    _refuse_a_change(alias, c, locked, leads_to)
             # The links first, as themselves: another scrub that listed one then finds it gone,
             # and a link to a directory that is gone is a link to nowhere, which its lock
             # refuses. Then the directory whose lock is held, never what a link leads to by now.

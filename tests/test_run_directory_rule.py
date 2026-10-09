@@ -758,6 +758,29 @@ def test_a_directory_kept_because_a_run_ended_in_it_keeps_its_links(
     assert world.sibling.exists() and all(link.is_symlink() for link in links)
 
 
+def test_a_name_that_changed_is_refused_even_when_a_run_ended_in_the_directory(
+    tmp_path, confirmations, monkeypatch
+):
+    """Every name of the directory is judged before its run records are, as the first name is,
+    so a retargeted link is an error and not hidden behind "kept"."""
+    world = World(tmp_path)
+    links = a_directory_with_links(world, FLOW, f"{FLOW}_{LAST_HASH}")
+    real_lock = default_runner.run_dir_lock
+
+    def a_run_ends_and_a_name_changes(path, *args, **kwargs):
+        if Path(path) == world.sibling:
+            (world.sibling / "results.json").write_text('{"success": true}\n')
+            links[1].unlink()
+            links[1].symlink_to(world.other_target, target_is_directory=True)
+        return real_lock(path, *args, **kwargs)
+
+    monkeypatch.setattr(default_runner, "run_dir_lock", a_run_ends_and_a_name_changes)
+    with pytest.raises(RunDirectoryError, match="changed while scrub waited"):
+        default_runner.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    assert world.sibling.exists() and all(link.is_symlink() for link in links)
+    world.intact()
+
+
 # --------------------------------------------------------------- a purge through a link
 
 
