@@ -984,7 +984,8 @@ class DVSettings(XedaBaseModel):
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {
         "parameters": _parameters_form
     }
-    #: A target's sources come after the design's.
+    #: A target's sources come after the design's (`merge_layers(append=True)`); an override's
+    #: replace them, as every other layer's list does.
     appended_fields: ClassVar[tuple[str, ...]] = ("sources",)
 
     @property
@@ -2411,23 +2412,26 @@ class Design(XedaBaseModel):
                 except ValueError as e:
                     raise invalid(key, str(e)) from e
         try:
-            merged = cls._merge_target(base, overlay)
+            merged = cls._merge_target(base, overlay, append=True)
         except (ValueError, XedaException) as e:
             raise invalid("flows", str(e)) from e
         return {**merged, "target": target}
 
     @classmethod
-    def _merge_target(cls, base: Mapping[str, Any], overlay: Mapping[str, Any]) -> dict[str, Any]:
-        """The design `base` with the overlay of a target merged over it, both folded as
-        `process_compatibility` does. One rule for every key, the one that merges the settings
-        layers of a flow (`settings_layers.merge_layers`): each side is read as the tables its
-        shorthands stand for (a clock as its port, `parameters` as a list of objects, `vhdl` as
-        its standard) and under the field names its aliases stand for; tables merge key by key at
-        every depth, everything else the overlay writes replaces. Sources are appended, and each
-        flow's section is merged by that flow's own rules, an alias and a clock shorthand
-        included. A value of the design that is no table where one is expected is kept as it
-        is, with nothing of the overlay merged over it, so that validation reports it as it
-        would with no target."""
+    def _merge_target(
+        cls, base: Mapping[str, Any], overlay: Mapping[str, Any], *, append: bool
+    ) -> dict[str, Any]:
+        """The design `base` with an overlay (a target, or the `--design-overrides`) merged over
+        it, both folded as `process_compatibility` does. One rule for every key, the one that
+        merges the settings layers of a flow (`settings_layers.merge_layers`): each side is read
+        as the tables its shorthands stand for (a clock as its port, `parameters` as a list of
+        objects, `vhdl` as its standard) and under the field names its aliases stand for; tables
+        merge key by key at every depth, everything else the overlay writes replaces. A target
+        passes `append`: its sources come after the design's, since it adds a board's files;
+        the sources of any other overlay replace them. Each flow's section is merged by that
+        flow's own rules, an alias and a clock shorthand included. A value of the design that is
+        no table where one is expected is kept as it is, with nothing of the overlay merged over
+        it, so that validation reports it as it would with no target."""
         layers = importlib.import_module("xeda.flow_runner.settings_layers")
         base, overlay = canonical_tree(cls, base), canonical_tree(cls, overlay)
         flows: list[dict[str, Any] | None] = []
@@ -2435,7 +2439,7 @@ class Design(XedaBaseModel):
             names = [key for key in side if input_names(cls).get(key) == "flow"]
             flows.append(_flows_table(side.pop(names[0])) if len(names) == 1 else None)
         low, high = flows
-        merged = layers.merge_layers(base, overlay, settings_cls=cls)
+        merged = layers.merge_layers(base, overlay, settings_cls=cls, append=append)
         if low is None and high is None:
             return merged
         low_by_flow = _tables_by_flow(low or {})
@@ -2887,7 +2891,8 @@ class Design(XedaBaseModel):
         entry), with its target selected and then `overrides` applied: what every loader of
         written designs builds the `Design` from. Written input has no `target` key: the
         loader records the name there. The overrides are an overlay on the design like a target
-        is, and are merged by the same rule (`_merge_target`)."""
+        is, and are merged by the same rule (`_merge_target`), except that their `sources`
+        replace the design's: only a target adds its sources to the design's."""
         selected = cls.select_target(data, target)
         overrides = deepcopy(dict(overrides or {}))
         if "target" in overrides:
@@ -2907,7 +2912,9 @@ class Design(XedaBaseModel):
         try:
             # both are folded as a target and its design are, so a flat key means the same in each
             overrides = cls.process_compatibility(overrides, defaults=False)
-            return cls._merge_target(cls.process_compatibility(deepcopy(selected)), overrides)
+            return cls._merge_target(
+                cls.process_compatibility(deepcopy(selected)), overrides, append=False
+            )
         except (ValueError, XedaException) as e:
             raise DesignValidationError(
                 [("flows", str(e), "", "value_error")], data=dict(data)

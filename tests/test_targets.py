@@ -20,6 +20,7 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import merge_flow_sections, registered_flow
 from xeda.flows import VivadoSynth
+from xeda.utils import settings_to_dict
 from xeda.xedaproject import XedaProject
 
 from .tool_utils import use_fake_tools
@@ -169,6 +170,73 @@ def test_design_overrides_win_over_the_target(tmp_path):
     )
     assert design.rtl.top == "from_override"
     assert design.rtl.defines == {"A": 2, "B": 1}
+
+
+def source_names(sources) -> list[str]:
+    return [source.file.name for source in sources]
+
+
+SOURCES_DESIGN = {
+    "name": "d",
+    "rtl": {"sources": ["knight.v", "por_sync.v"], "top": "knight"},
+    "tb": {"sources": ["knight_tb.v"], "top": "knight_tb"},
+}
+SOURCES_TARGET = {"sources": ["arty.xdc"], "tb": {"sources": ["ulx3s.lpf"]}}
+
+
+@pytest.mark.parametrize("with_target", [False, True], ids=["no target", "a target"])
+@pytest.mark.parametrize(
+    "overrides, rtl_sources, tb_sources",
+    [
+        ({"rtl": {"sources": ["arty.xdc"]}}, ["arty.xdc"], None),
+        ({"sources": ["arty.xdc"]}, ["arty.xdc"], None),
+        ({"rtl": {"sources": "arty.xdc"}}, ["arty.xdc"], None),
+        ({"tb": {"sources": ["arty.xdc", "knight_tb.v"]}}, None, ["arty.xdc", "knight_tb.v"]),
+        ({"test": {"sources": ["arty.xdc"]}}, None, ["arty.xdc"]),
+        (
+            {"rtl": {"sources": ["arty.xdc"]}, "tb": {"sources": ["knight.v"]}},
+            ["arty.xdc"],
+            ["knight.v"],
+        ),
+        (settings_to_dict(["rtl.sources=arty.xdc"]), ["arty.xdc"], None),
+        (settings_to_dict(["tb.sources=arty.xdc"]), None, ["arty.xdc"]),
+    ],
+    ids=["rtl", "flat", "text", "tb", "test", "both", "-s rtl", "-s tb"],
+)
+def test_a_sources_override_replaces_the_design_s_sources(
+    tmp_path, with_target, overrides, rtl_sources, tb_sources
+):
+    """Only a target adds its sources to the design's, because its job is to add a board's
+    files. An override replaces a list, as every settings layer does, and it replaces the whole
+    list: what a selected target added with it."""
+    data = {**SOURCES_DESIGN, **({"targets": {"t": SOURCES_TARGET}} if with_target else {})}
+    path = write_design(tmp_path, data)
+    design = Design.from_file(path, overrides=overrides)
+    kept = Design.from_file(path)
+    assert source_names(kept.rtl.sources) == (
+        ["knight.v", "por_sync.v", "arty.xdc"] if with_target else ["knight.v", "por_sync.v"]
+    )
+    assert source_names(kept.tb.sources) == (
+        ["knight_tb.v", "ulx3s.lpf"] if with_target else ["knight_tb.v"]
+    )
+    if rtl_sources is None:
+        assert source_names(design.rtl.sources) == source_names(kept.rtl.sources)
+    else:
+        assert source_names(design.rtl.sources) == rtl_sources
+    if tb_sources is None:
+        assert source_names(design.tb.sources) == source_names(kept.tb.sources)
+    else:
+        assert source_names(design.tb.sources) == tb_sources
+
+
+def test_a_sources_override_replaces_a_project_design_s_sources_and_a_target_s(tmp_path):
+    project = XedaProject.from_file(
+        project_file(tmp_path), design_overrides={"rtl": {"sources": ["por_sync.v"]}}
+    )
+    design = project.get_design("knight", target="arty")
+    assert design is not None
+    assert source_names(design.rtl.sources) == ["por_sync.v"]
+    assert source_names(design.tb.sources) == ["knight_tb.v"]
 
 
 @pytest.mark.parametrize("reported_target", ["another", None])
@@ -421,6 +489,26 @@ def test_a_run_reports_the_target(tmp_path, monkeypatch):
     result, document = invoke("run", "vivado_synth", str(flat), "--run-root", "flat")
     assert result.exit_code == 0, document
     assert document["target"] is None
+
+
+def test_design_overrides_of_the_command_line_replace_the_sources_of_a_target(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    use_fake_tools(monkeypatch)
+    result, document = invoke(
+        "run",
+        "vivado_synth",
+        str(KNIGHT),
+        "--target",
+        "arty",
+        "--design-overrides",
+        "rtl.sources=por_sync.v",
+    )
+    assert result.exit_code == 0, document
+    design = json.loads(Path(document["settings_json"]).read_text())["design"]
+    assert [Path(source).name for source in design["rtl"]["sources"]] == ["por_sync.v"]
+    assert [Path(source).name for source in design["tb"]["sources"]] == ["knight_tb.v"]
 
 
 def test_a_failed_selection_is_a_document_that_names_the_targets(tmp_path, monkeypatch):

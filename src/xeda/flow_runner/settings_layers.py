@@ -198,14 +198,18 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
 
 
 def _merge_settings_layer(
-    base: Mapping[str, Any], values: Mapping[str, Any], settings_cls: type[XedaBaseModel]
+    base: Mapping[str, Any],
+    values: Mapping[str, Any],
+    settings_cls: type[XedaBaseModel],
+    append: bool = False,
 ) -> dict[str, Any]:
     """Merge one already-parsed layer with model-aware aliases and nested settings.
 
     A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
     table: where it meets a table, from below or above, the two merge key by key. Where it
     meets nothing, it stays as written. A form that is no table (`WHOLE`), and a value that is
-    no form at all, replace what is below them."""
+    no form at all, replace what is below them. So does a list, unless `append` is set and the
+    model names the field in its `appended_fields`: the layer's items then follow those below."""
     canonical = canonical_names(values, settings_cls)
     canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
     merged = deepcopy(dict(base))
@@ -222,18 +226,19 @@ def _merge_settings_layer(
             # What is below is no table where one is expected: it stays, with nothing merged
             # over it, so that validation reports it as it would with no layer above.
             continue
-        if key in appended_fields_of(settings_cls) and key in merged:
-            merged[key] = [*as_list(old), *as_list(value)]
+        if key in appended_fields_of(settings_cls):
+            adding = append and key in merged
+            merged[key] = [*as_list(old), *as_list(value)] if adding else deepcopy(value)
         elif child_cls is not None and isinstance(value, Mapping):
             merged[key] = _merge_settings_layer(
-                old_form if isinstance(old_form, Mapping) else {}, value, child_cls
+                old_form if isinstance(old_form, Mapping) else {}, value, child_cls, append
             )
         elif (
             child_cls is not None
             and isinstance(new_form, Mapping)
             and isinstance(old_form, Mapping)
         ):
-            merged[key] = _merge_settings_layer(old_form, new_form, child_cls)
+            merged[key] = _merge_settings_layer(old_form, new_form, child_cls, append)
         elif key == "clocks" and _has_clock_inputs(settings_cls) and isinstance(value, Mapping):
             clock_values = dict(value)
             existing_before = merged.get("clocks")
@@ -275,19 +280,25 @@ def _merge_settings_layer(
     return merged
 
 
-def merge_layers(*layers: Layer, settings_cls: type[XedaBaseModel] | None = None) -> dict[str, Any]:
+def merge_layers(
+    *layers: Layer, settings_cls: type[XedaBaseModel] | None = None, append: bool = False
+) -> dict[str, Any]:
     """Deep-merge `layers`, each one taking precedence over those before it.
 
     When `settings_cls` is known, accepted aliases are normalized within each layer before the
     merge. Thus differently-spelled names for one setting still obey layer precedence, while two
     names in the *same* layer remain an explicit validation error.
+
+    A list replaces the list below it, as every layer does. `append` makes the lists that
+    `settings_cls` names in its `appended_fields` (a design's `sources`) the one exception: a
+    target sets it, since its job is to add a board's files.
     """
     merged: dict[str, Any] = {}
     for layer in layers:
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
-                merged = _merge_settings_layer(merged, values, settings_cls)
+                merged = _merge_settings_layer(merged, values, settings_cls, append)
             else:
                 merged = hierarchical_merge(merged, values)
     return merged

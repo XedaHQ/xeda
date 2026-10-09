@@ -482,7 +482,8 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_the_target_writes_a
 #
 # `--design-overrides` (`overrides=` of `Design.from_file`) is an overlay on the design, as a target
 # is, and is merged by the same rule: a shorthand is read as its table, and a mistake of the
-# design is not hidden by an override table.
+# design is not hidden by an override table. The one difference is `sources`: only a target adds
+# its sources to the design's, so an override's replace them.
 
 #: (id, the design's fragment, the overrides as `settings_to_dict` gives them, the flat fragment).
 # fmt: off
@@ -501,7 +502,8 @@ OVERRIDES = [
     ("cocotb: true over a table", tb(cocotb={"module": "m"}), {"tb": {"cocotb": True}}, tb(cocotb={"module": "m"})),
     ("cocotb: table over true", tb(cocotb=True), {"tb": {"cocotb": {"module": "m"}}}, tb(cocotb={"module": "m"})),
     ("cocotb: false over a table", tb(cocotb={"module": "m"}), {"tb": {"cocotb": False}}, tb(cocotb=False)),
-    ("sources: appended", rtl(sources=["knight.v"]), {"rtl": {"sources": ["por_sync.v"]}}, rtl(sources=["knight.v", "por_sync.v"])),
+    ("sources: replaced", rtl(sources=["knight.v", "por_sync.v"]), {"rtl": {"sources": ["por_sync.v"]}}, rtl(sources=["por_sync.v"])),
+    ("sources: tb replaced", tb(**KNIGHT_TB), {"tb": {"sources": ["por_sync.v"]}}, tb(top="knight_tb", sources=["por_sync.v"])),
 ]
 # fmt: on
 

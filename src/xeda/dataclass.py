@@ -633,8 +633,9 @@ class XedaBaseModel(BaseModel):
     #: when the value is not one of the field's forms. A subclass adds its entries to its bases'
     #: (`field_shorthands_of` walks the MRO); an entry for the same field wins.
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {}
-    #: Fields that are lists a higher layer adds to instead of replacing (a design's `sources`).
-    #: A subclass adds to its bases' (`appended_fields_of`).
+    #: Fields that are lists which a layer adds to instead of replacing, when the merge asks for
+    #: it (`merge_layers(append=True)`, a target's merge over its design's `sources`). A subclass
+    #: adds to its bases' (`appended_fields_of`).
     appended_fields: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod

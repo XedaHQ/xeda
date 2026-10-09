@@ -257,12 +257,15 @@ Four orthogonal abstractions, deliberately decoupled:
   `process_compatibility(defaults=False)` (the design's own fold, so a key means the same in
   both), then merged over the design by `settings_layers.merge_layers` with `settings_cls=Design`
   (`Design._merge_target`: the one merge of flow settings layers, so a key means the same in
-  both; `appended_fields` appends `rtl.sources`/`tb.sources`) -- and
-  records the name as `Design.target`, which no hash reads. `--design-overrides` are one more
-  overlay and `Design.target_selected` merges them by the same `_merge_target`, once, for a design
-  file and for a project's entry alike (`XedaProject.designs` stays as written; `design_names`
-  applies a `name` override; `Design.remove_keys` removes a key of `remove_extra` in every
-  spelling, since a merge writes field names). `Design.from_file(path, target=)`,
+  both; only a target passes `append=True`, which appends `rtl.sources`/`tb.sources`, the
+  model's `appended_fields`) -- and records the name as `Design.target`, which no hash reads.
+  `--design-overrides` are one more overlay: `Design.target_selected` merges them by the same
+  `_merge_target` with `append=False`, once, for a design file and for a project's entry alike
+  (`XedaProject.designs` stays as written; `design_names` applies a `name` override;
+  `Design.remove_keys` removes a key of `remove_extra` in every spelling, since a merge writes
+  field names). An override's `rtl.sources`/`tb.sources` therefore replace the whole list (a
+  selected target's too), as every settings layer's list does: adding a board's files is a
+  target's job alone. `Design.from_file(path, target=)`,
   `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
   `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
   needs no selection; several without one, an unknown one, a name that is a flow's, and a

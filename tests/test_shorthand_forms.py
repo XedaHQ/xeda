@@ -285,5 +285,16 @@ def test_the_form_a_subclass_declares_for_a_field_wins_over_its_base():
 def test_a_subclass_adds_its_appended_fields_to_those_of_its_bases():
     assert appended_fields_of(RtlSettings) == ("sources",)
     assert appended_fields_of(_Rtl) == ("sources", "top")
-    merged = merge_layers({"sources": ["a"]}, {"sources": ["b"]}, settings_cls=_Rtl)
-    assert merged == {"sources": ["a", "b"]}
+    below, above = {"sources": ["a"], "top": ["x"]}, {"sources": ["b"], "top": ["y"]}
+    appended = merge_layers(below, above, settings_cls=_Rtl, append=True)
+    assert appended == {"sources": ["a", "b"], "top": ["x", "y"]}
+
+
+def test_a_layer_replaces_an_appended_field_unless_the_merge_appends():
+    """Only a target adds to the design's `sources`; a list of any other layer replaces."""
+    below, above = {"sources": ["a"], "top": "x"}, {"sources": ["b"], "top": "y"}
+    assert merge_layers(below, above, settings_cls=RtlSettings) == above
+    assert merge_layers(below, above, settings_cls=RtlSettings, append=True) == {
+        "sources": ["a", "b"],
+        "top": "y",
+    }

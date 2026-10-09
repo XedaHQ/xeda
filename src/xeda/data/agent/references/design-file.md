@@ -273,7 +273,8 @@ targets:
   `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
   refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
   A value that is no table where one is expected (`tb: 3`) is an error whichever target is selected.
-  `--design-overrides` meet the design by the same rules.
+  `--design-overrides` meet the design by the same rules, but only a target appends `sources`:
+  an override's `rtl.sources`/`tb.sources` replace the whole list (a selected target's too).
 - One target: no `--target` needed. Several: `--target` is required and the error lists them.
   `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
 - **A target overrides the design**, key by key: where both write a key, the target's value

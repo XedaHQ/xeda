@@ -526,8 +526,11 @@ One design file can describe the design for several boards. Each entry of ``targ
   required, and the error lists them. ``--target`` on a design without ``targets`` is an error.
   From Python: ``Design.from_file(path, target="ulx3s")``. ``--design-overrides`` are an overlay
   on the selected design like a target, and merge by the same rules: a short form means its
-  table, a mistake in the design is not hidden by an override, and a ``sources`` override is added
-  after the design's sources, like a target's. A project's designs take them the same way.
+  table, and a mistake in the design is not hidden by an override. One rule differs. Only a
+  target adds its ``sources`` to the design's, because its job is to add the files of a board. A
+  ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources
+  of the selected target included, as an override of any other list does. A project's designs
+  take overrides the same way.
 - **Names.** A target name starts with a letter and holds letters, digits, ``_`` and ``-``, and
   is not the name or alias of a flow. There is one spelling, ``targets.<name>``: a design file
   has no ``target`` key; the loader records the selected name, which overrides cannot change.
