@@ -70,7 +70,8 @@ ROLES = {
     ("VivadoSim.Settings", "saif"): D,
     ("VivadoSim.Settings", "xelab_log"): W,
     ("VivadoPower.Settings", "power_report_xml"): D,
-    ("VivadoSynth.Settings", "bitstream"): D,
+    ("VivadoImplementation.Settings", "bitstream"): D,
+    ("YosysFpga.Settings", "netlist_edif"): D,
     **{
         ("Nextpnr.Settings", name): D
         for name in (

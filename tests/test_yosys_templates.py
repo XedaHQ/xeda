@@ -231,6 +231,51 @@ def test_template_writes_json_without_verilog(flow_cls, script_format, tmp_path:
     assert not _command_lines(script, "write_verilog")
 
 
+@BOTH_FORMATS
+def test_a_flat_xilinx_synthesis_writes_its_edif_netlist_with_bus_ranges(
+    script_format, tmp_path: Path
+) -> None:
+    """`write_edif -pvector bra` writes every bus with its range. Without it a bus is written as
+    plain bits, which Vivado reads in the opposite order (member 0 is the most significant bit of
+    a yosys bus) and says nothing about. The EDIF is a netlist like the others: attributes are
+    gone before it is written."""
+    settings = _fpga_settings(script_format=script_format, netlist_unset_attributes=["keep"])
+    script = _render(YosysFpga, settings, tmp_path)
+    (write,) = _command_lines(script, "write_edif")
+    assert re.fullmatch(
+        r'\s*(yosys )?write_edif -pvector bra "?netlist\.edif"?', script.splitlines()[write]
+    ), script.splitlines()[write]
+    for unset in ("setattr -unset keep =*", "setattr -mod -unset keep =*"):
+        (line,) = _command_lines(script, unset)
+        assert line < write, f"{unset!r} must come before write_edif"
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"flatten": False},
+        {"keep_hierarchy": ["core"]},
+        {"stop_after": "rtl", "rtl_json": "rtl.json"},
+        {"fpga": FPGA(part="LFE5U-25F-6BG381C")},
+        {"fpga": FPGA(part="iCE40HX1K-TQ144")},
+    ],
+    ids=["no_flatten", "keep_hierarchy", "stop_after_rtl", "ecp5", "ice40"],
+)
+def test_no_edif_netlist_is_written_where_vivado_could_not_read_one(
+    override, tmp_path: Path
+) -> None:
+    """Vivado reads a flat Xilinx netlist only: no other synthesis writes one, and the other
+    netlists are written as they were."""
+    script = _render(YosysFpga, {**_fpga_settings(), **override}, tmp_path)
+    assert not _command_lines(script, "write_edif")
+    if override.get("stop_after") != "rtl":
+        assert _command_lines(script, "write_json")
+
+
+def test_the_generic_synthesis_flow_writes_no_edif_netlist(tmp_path: Path) -> None:
+    assert not _command_lines(_render(Yosys, _asic_settings(), tmp_path), "write_edif")
+
+
 @BOTH_FLOWS
 @pytest.mark.parametrize("netlist_attrs", [True, False, None])
 def test_src_is_unset_whenever_it_is_not_kept(flow_cls, netlist_attrs, tmp_path: Path) -> None:

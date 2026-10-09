@@ -427,7 +427,7 @@ consumer switching its producer's optional output on:
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
            "settings_hash": "...",
            "inputs": [], "switched_on": ["netlist"], "action_reason": null,
-           "input_types": {}, "output_types": {"netlist": ["JsonNetlist"]}},
+           "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []}},
           {"name": "nextpnr", "flow": "nextpnr",
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "settings_hash": "...",

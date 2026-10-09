@@ -7,15 +7,17 @@ from typing import Any, Dict, List, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel
 from ...design import SourceType
-from ...flow import FpgaSynthFlow
+from ...flow import Flow, FpgaSynthFlow
 from ...utils import HierDict, parse_xml
 from ..vivado import Vivado
 from ..vivado.vivado_sim import VivadoSim
 from ..vivado.vivado_synth import (
     VivadoSynth,
     constraint_files,
-    normalize_run_steps,
     post_step_hooks,
+    refuse_conflicts,
+    run_steps,
+    step_mode_conflicts,
 )
 
 log = logging.getLogger(__name__)
@@ -77,6 +79,14 @@ class VivadoProject(Vivado, FpgaSynthFlow):
             description="Open the created project in the Vivado GUI, which needs a display.",
         )
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs. Only
+        the steps count: the template renders no `set_synth_properties`."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        refuse_conflicts(cls.Settings, step_mode_conflicts(settings))
+
     def init(self):
         """Set up Vivado project execution and optional GUI mode."""
         super().init()
@@ -94,13 +104,10 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         settings = self.settings
         self.artifacts.project = f"{self.design.name}.xpr"
 
-        normalize_run_steps(settings)
-        assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
-        if settings.flatten_hierarchy:
-            settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
+        synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
         # reports are written after each major step, as `vivado_synth` writes them
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
-        tcl_files += post_step_hooks(self, settings)
+        tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)
 
         script_path = self.copy_from_template(
             "vivado_project.tcl",
@@ -112,6 +119,8 @@ class VivadoProject(Vivado, FpgaSynthFlow):
             ],
             xdc_files=constraint_files(self, settings),
             tcl_files=tcl_files,
+            synth_steps=synth_steps,
+            impl_steps=impl_steps,
             generics=" ".join(vivado_synth_generics(self.design.rtl.parameters)),
         )
         self.vivado.run("-source", script_path)

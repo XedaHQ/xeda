@@ -22,6 +22,7 @@ from .quartus import Quartus
 from .vcs import Vcs
 from .verilator import Verilator
 from .vivado.vivado_alt_synth import VivadoAltSynth
+from .vivado.vivado_impl import VivadoImpl
 from .vivado.vivado_postsynthsim import VivadoPostsynthSim
 from .vivado.vivado_power import VivadoPower
 from .vivado.vivado_project import VivadoProject
@@ -49,6 +50,7 @@ __all__ = [
     "Vcs",
     "Verilator",
     "VivadoAltSynth",
+    "VivadoImpl",
     "VivadoPostsynthSim",
     "VivadoPower",
     "VivadoProject",

@@ -1,24 +1,28 @@
 import logging
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
-from ...flow import FpgaSynthFlow
+from ...flow import Flow, FpgaSynthFlow
 from .vivado_synth import (
     CHECKPOINT_PLACE,
     CHECKPOINT_ROUTE,
     CHECKPOINT_SYNTH,
     NETLIST,
     NETLIST_TIMING,
+    OUT_OF_CONTEXT,
     SDF,
     XDC_EXPORTED,
     RunOptions,
-    StepsValType,
     VivadoSynth,
     _VivadoSynthOutputs,
     constraint_files,
     declare_outputs,
+    out_of_context_conflicts,
+    refuse_conflicts,
+    synth_design_modes,
 )
 
 log = logging.getLogger(__name__)
@@ -327,6 +331,83 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
 }
 
 
+#: The steps of each run of the non-project TCL scripts, in the order the script runs them. A step
+#: a strategy or the user does not give is `None`: the script leaves it out.
+RUN_STEPS = {
+    "synth": ["synth", "opt", "power_opt"],
+    "impl": [
+        "place",
+        "power_opt",
+        "place_opt",
+        "place_opt2",
+        "phys_opt",  # post-placement
+        "route",
+        "post_route_phys_opt",
+    ],
+}
+
+
+def expand_run_options(run: str, value: RunOptions) -> RunOptions:
+    """The options of the `run` (`synth` or `impl`) of a non-project TCL script, with the steps of
+    its strategy under the ones the user gave, and every step of the run named.
+
+    A copy: this runs in a `mode="after"` validator, so `value` may be the caller's own
+    `RunOptions` instance, and expanding the strategy in place would grow the caller's `steps`
+    mapping. The steps of the strategy are copied as well: they are the module's, and whoever
+    gets the options owns them (the model happens to copy a mapping it validates; this does not
+    depend on it).
+    """
+    value = value.model_copy(deep=True)
+    if value.strategy:
+        strategy_steps = strategies[run].get(value.strategy)
+        if strategy_steps is None:
+            raise ValueError(f"Unknown strategy: {value.strategy}")
+        value.steps = {
+            **deepcopy(strategy_steps),
+            **value.steps,
+        }
+    for step in RUN_STEPS[run]:
+        if step not in value.steps:
+            value.steps[step] = None
+    return value
+
+
+#: Where the settings write the options of `synth_design` in `vivado_alt_synth`.
+SYNTH_STEP_KEY = "synth.steps.synth"
+
+
+def synth_step_options(settings: Any) -> Dict[str, Any]:
+    """The `synth` step of the settings as a mapping of options: a copy, with a list of options
+    as the mapping of its items."""
+    steps = settings.synth.steps.get("synth")
+    return {step: None for step in steps} if isinstance(steps, list) else deepcopy(steps or {})
+
+
+def synth_design_options(settings: Any) -> Dict[str, Any]:
+    """The options of `synth_design`: the `synth` step of the settings, and what the settings
+    derive, `-mode out_of_context` and `-flatten_hierarchy`. A copy, computed where the script is
+    rendered: the settings, and the module's strategies behind them, are not written."""
+    options = synth_step_options(settings)
+    if settings.out_of_context:
+        # the planning check's judgment again: a flow built directly is not planned
+        text = flatten_options(options)
+        refuse_conflicts(type(settings), out_of_context_conflicts(SYNTH_STEP_KEY, text))
+        if not synth_design_modes(text):
+            options["mode"] = OUT_OF_CONTEXT
+    if settings.flatten_hierarchy:
+        options["flatten_hierarchy"] = settings.flatten_hierarchy
+    return options
+
+
+def alt_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What in the `synth` step of the settings gives `synth_design` a mode beside
+    `out_of_context`."""
+    if not settings.out_of_context:
+        return []
+    text = flatten_options(synth_step_options(settings))
+    return out_of_context_conflicts(SYNTH_STEP_KEY, text)
+
+
 def flatten_options(d) -> str:
     if d is None:
         return ""
@@ -406,34 +487,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         @field_validator("synth", "impl")
         @classmethod
         def validate_synth(cls, value, info):
-            # Copy: this is a `mode="after"` validator, so `value` may be the caller's own
-            # `RunOptions` instance. Expanding the strategy in place would grow the caller's
-            # `steps` mapping.
-            value = value.model_copy(deep=True)
-            if value.strategy:
-                strategy_steps = strategies[info.field_name].get(value.strategy)
-                if strategy_steps is None:
-                    raise ValueError(f"Unknown strategy: {value.strategy}")
-                value.steps = {
-                    **strategy_steps,
-                    **value.steps,
-                }
-            if info.field_name == "synth":
-                steps = ["synth", "opt", "power_opt"]
-            else:
-                steps = [
-                    "place",
-                    "power_opt",
-                    "place_opt",
-                    "place_opt2",
-                    "phys_opt",  # post-placement
-                    "route",
-                    "post_route_phys_opt",
-                ]
-            for step in steps:
-                if step not in value.steps:
-                    value.steps[step] = None
-            return value
+            return expand_run_options(info.field_name, value)
 
         suppress_msgs: List[str] = Field(
             [
@@ -451,37 +505,24 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             "messages are not printed and never trigger `fail_critical_warning`.",
         )
 
+    @classmethod
+    def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
+        """The options of `synth_design` are the `synth` step here, not a run property."""
+        return alt_mode_conflicts(settings)
+
     def run(self):
         """Render and execute the non-project Vivado synthesis steps."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
-        synth_steps: Optional[StepsValType] = ss.synth.steps.get("synth")
-        if synth_steps is None:
-            synth_steps = {}
-        if isinstance(synth_steps, list):
-            synth_steps = {s: None for s in synth_steps}
-        assert isinstance(synth_steps, dict), f"synth_steps: {synth_steps} is not a dict"
-
-        if ss.out_of_context:
-            if "synth" in ss.synth.steps and ss.synth.steps["synth"] is not None:
-                if isinstance(ss.synth.steps["synth"], dict):
-                    ss.synth.steps["synth"]["mode"] = "out_of_context"
-                else:
-                    ss.synth.steps["synth"].append("-mode out_of_context")
-
-            # always need a synth step?
-            ss.synth.steps["synth"] = synth_steps
-        if ss.flatten_hierarchy:
-            synth_steps["flatten_hierarchy"] = ss.flatten_hierarchy
-        ss.synth.steps["synth"] = synth_steps
+        synth_options = synth_design_options(ss)
 
         def steps_to_str(steps):
             return "\n " + "\n ".join(
                 f"{name}: {flatten_options(step)}" for name, step in steps.items() if step
             )
 
-        log.debug("Synthesis steps:%s", steps_to_str(ss.synth.steps))
+        log.debug("Synthesis steps:%s", steps_to_str({**ss.synth.steps, "synth": synth_options}))
         log.debug("Implementation steps:%s", steps_to_str(ss.impl.steps))
         self.add_template_filter(
             "flatten_options",
@@ -490,6 +531,7 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         script_path = self.copy_from_template(
             "vivado_alt_synth.tcl",
             xdc_files=constraint_files(self, ss),
+            synth_options=synth_options,
         )
         # These are written by `vivado_alt_synth.tcl` whenever the setting that enables them is
         # on (`write_checkpoint`/`write_netlist`/`write_timing_netlist`); record them here, since

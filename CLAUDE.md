@@ -466,10 +466,11 @@ its output paths inside its run directory.
   design, original request and run-root policy, then executes producers first without resolving
   inputs again. External supplied plans are not a supported API. Declared `init()` adds no
   dependencies, reads no inputs and writes no files; pure `check_settings_supported` validates
-  targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`); `nextpnr` declares input
-  `netlist` and optional output `config` (ECP5 textcfg, iCE40 asc or Nexus/Xilinx fasm);
-  `fpga_pack` declares input `config` and output `bitstream`; `openfpgaloader` declares input
-  `bitstream` and no output. No flow of this graph nests a producer's settings.
+  targets in planning. `yosys_fpga` declares `netlist` (`netlist_json`) and `netlist_edif` (a flat
+  Xilinx synthesis only); `nextpnr` declares input `netlist` and optional output `config` (ECP5
+  textcfg, iCE40 asc or Nexus/Xilinx fasm); `fpga_pack` declares input `config` and output
+  `bitstream`; `openfpgaloader` declares input `bitstream` and no output. No flow of this graph
+  nests a producer's settings.
 - **Binding > design source > default producer.** An explicit binding -- a chain adjacency
   (`chains.parse_request`, `a+b`), or `flows.<consumer>.inputs.<input>: producer[.output]` in
   a design or project file, on the command line or through the API -- supplies the input first
@@ -631,6 +632,40 @@ troubleshooting say what to use. No code checks the build: raise the floor once 
 has all of them. `nextpnr` also ignores `set_property PULLUP true` without a warning and reads
 `PULLTYPE PULLUP`; the bundled pin files use neither.
 
+**Vivado implements the netlist `yosys_fpga` writes** (`xeda run yosys_fpga+vivado_impl`;
+`flows/vivado/vivado_impl.py`). `yosys_fpga` declares `netlist_edif` (`Edif`, no `enabled_by`, as
+`nextpnr.config`: a consumer switches nothing on, so `yosys_fpga+nextpnr` and
+`yosys_fpga+vivado_impl` are one yosys identity and one run) and writes it, `write_edif -pvector
+bra`, whenever `YosysFpga.Settings.edif_problem()` is None: a Xilinx target, flat as far as the
+settings show (`effective_flatten`; no `keep_hierarchy`, no `keep_hierarchy` attribute in
+`set_mod_attribute` or `set_attribute`, no `black_box`), not `stop_after: rtl`. Otherwise
+`output_types` is `()` and `enable_output` raises the problem's text, so planning refuses the
+consumer naming the setting (`flatten`, ...); a non-default `netlist_edif` where none is written is
+refused too. What no setting shows (a `(* keep_hierarchy *)` in the HDL, `rtl.attributes`, a listed
+`.edf`) is in the netlist: `VivadoImpl.refuse_a_hierarchy` reads it before Vivado starts
+(`xeda/edif.py`: an instance that refers, through an external library, to a module the netlist
+defines -- how yosys writes a hierarchy) and fails naming the modules. The reader streams the file
+in chunks and keeps only the distinct cells and `(cell, library)` pairs, so its memory does not
+grow with the instances (`tests/test_edif.py` measures it with `tracemalloc`; the module doc lists
+what it holds, and the limits that bound it for text that is no EDIF). The synthesis itself never
+fails for a hierarchy: `yosys_fpga+nextpnr` places one. A black box the settings do not make (the
+HDL's, `verilog_lib`'s) looks like a primitive in the file, and Vivado stops on it. The four
+hazards of a yosys netlist in Vivado are each excluded by construction
+(`tests/test_vivado_impl.py`; only the reversed bus gives no message at all, a hierarchy and a
+misnamed file fail loudly, and block RAM `x` bits in a Verilog netlist draw one critical warning):
+the `-pvector bra` in `write_netlist.{ys,tcl}`; no EDIF unless flat; the netlist staged as
+`<rtl.top>.edif` whatever it was called (Vivado finds the top by the file's name; the fake
+`link_design` has the same rule); `netlist` takes `Edif` only, since a Verilog netlist drops block
+RAM contents with `x` bits. The script is `vivado_impl.tcl` (non-project: `read_xdc`, `read_edif`,
+`link_design`, `opt_design`) plus `implementation.tcl`, the tail it shares with
+`vivado_alt_synth.tcl`: its `write_checkpoint`/`write_netlist`/`write_timing_netlist` blocks are
+`is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`, until
+stage-typed checkpoint and netlist types exist), and the includer makes `reports/post_place`
+(Vivado makes no directory for a report; the fake Vivado fails as it does, `[Common 17-37]`).
+`VivadoImplementation` (`vivado_synth.py`) holds what `vivado_synth`, `vivado_alt_synth` and
+`vivado_impl` share: the implementation settings, the bitstream's `enable_output` and the timing
+and utilization parsing. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
+
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML
 or YAML, chosen by its suffix and read through the strict loader (`board.read_board_database`).
@@ -694,8 +729,13 @@ message. `tests/test_written_paths.py` checks each named form is absolute once e
 **Values derived from settings are computed where they are used, not stored in settings.** Yosys's
 `write_verilog_flags()` / `attributes_to_unset()` read the `netlist_*` switches when the script is
 rendered, so a switch set later (as `Yosys.init` does for `netlist_expr`) still takes effect.
-The same goes for anything that depends on several settings: `Flow.Settings.is_quiet` is `quiet`
-unless `verbose` or `debug` is set. A flow setting's *field* validator never reads another
+The Vivado step tables follow it: `synth_design_options` (`vivado_alt_synth`) and `run_steps`
+(`vivado_synth`, `vivado_project`) return copies that hold what the settings derive
+(`-mode out_of_context`, `flatten_hierarchy`, the step hooks), and `expand_run_options` copies
+the module's strategy table, so a run writes into neither its settings nor a table that the next
+run of the process reads (`tests/test_vivado_step_tables.py`). The same goes for anything that
+depends on several settings: `Flow.Settings.is_quiet` is `quiet` unless `verbose` or `debug` is
+set. A flow setting's *field* validator never reads another
 setting (`info.data`): it runs only when its own field is validated, so its result would depend
 on the order settings were given in. `tests/test_model_invariants.py` checks every flow.
 
@@ -1763,6 +1803,22 @@ dependency must also share `custom_boards_file`.
   `xedaWaitOnRun` waits either way, then requires `STATUS` "<step> Complete!" and `PROGRESS`
   "100%" (a failed run reports "<step> ERROR"), records the status (the `status` result) and
   otherwise exits 1 naming the run, its status and `<project>.runs/<run>/runme.log`.
+- **`out_of_context` adds one `-mode out_of_context` to `synth_design`, and never replaces a
+  mode.** `vivado_synth` and `vivado_project` put it in the run property
+  `STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS` (`synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS`),
+  `vivado_alt_synth` in the `synth` step. A mode the design already gives is kept once; another
+  one is refused before anything runs, by `check_settings_supported`
+  (`vivado_synth.out_of_context_conflicts`, a `FlowSettingsError` naming the setting and the
+  option), and again where the script is rendered, for a flow built directly. Without
+  `out_of_context` the design's own `-mode` goes through. `vivado_synth.tcl` also sets
+  `set_synth_properties` after the steps, so with `out_of_context` an entry for that property
+  replaces the steps' value, the mode included: it has to carry `-mode out_of_context` itself
+  (`property_mode_conflicts`). `vivado_project.tcl` renders no `set_synth_properties`, so only the
+  steps count for it (`step_mode_conflicts`). What counts as a mode is what Vivado 2024.2 reads
+  (`is_mode_switch`, checked against the real tool): the switch in lower case, or an abbreviation
+  of it no other switch shares (`-mod`; `-m` is `max_bram` too), never `-mode=default` or
+  `--mode`; the value in either letter case, never abbreviated.
+  `tests/test_vivado_out_of_context_mode.py`.
 - **Yosys FPGA synthesis options are chosen by the installed yosys release.** The `synth_*`
   passes changed their options across releases (ABC9 became the default in 0.36, Nexus moved to
   `synth_lattice` in 0.59, 0.69 made ABC9 unconditional and dropped `-retime`), so

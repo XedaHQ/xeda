@@ -40,6 +40,10 @@ BUNDLED_BOARDS = [
     or (isinstance(entry.get("fpga"), dict) and entry["fpga"].get("part"))
 ]
 CUSTOM_PART = "LFE5U-25F-6BG381C"
+#: a custom board's part for the requests that go through a flow that implements Xilinx devices
+#: only (`vivado_impl` refuses another vendor's)
+XILINX_CUSTOM_PART = "xc7a100tcsg324-1"
+XILINX_ONLY_FLOWS = ("vivado_impl",)
 #: where a board can be written for one node of a run
 ORIGINS = (
     "design",
@@ -126,7 +130,11 @@ def test_the_sweep_covers_every_board_aware_flow_and_the_vivado_chains():
     assert {"nextpnr", "fpga_pack", "openfpgaloader"} <= {cls.name for cls in BOARD_FLOWS}
     assert {"ulx3s_85f", "arty_a7_100t", "arty_a7_35t"} <= set(BUNDLED_BOARDS)
     requests = [request for request, _nodes in REQUESTS]
-    assert {"vivado_synth+openfpgaloader", "vivado_alt_synth+openfpgaloader"} <= set(requests)
+    assert {
+        "vivado_synth+openfpgaloader",
+        "vivado_alt_synth+openfpgaloader",
+        "vivado_impl+openfpgaloader",
+    } <= set(requests)
     for cls in BOARD_FLOWS:
         assert any(cls.name in nodes for _request, nodes in REQUESTS), cls.name
     assert len(list(_cases())) >= 50
@@ -162,10 +170,15 @@ def test_a_board_alone_gives_every_node_that_shares_the_device_its_part(
         kwargs["flow_settings"] = requested.Settings.from_input({"board": board}, design_root=root)
     else:  # a board of a custom database, beside the design
         root.mkdir()
-        (root / "boards.yaml").write_text(
-            f"MY_BOARD:\n  openfpgaloader_board: mine\n  fpga:\n    part: {CUSTOM_PART}\n"
+        custom_part = (
+            XILINX_CUSTOM_PART
+            if any(flow in request_.split("+") for flow in XILINX_ONLY_FLOWS)
+            else CUSTOM_PART
         )
-        board, part = "MY_BOARD", CUSTOM_PART
+        (root / "boards.yaml").write_text(
+            f"MY_BOARD:\n  openfpgaloader_board: mine\n  fpga:\n    part: {custom_part}\n"
+        )
+        board, part = "MY_BOARD", custom_part
         flows = {node: {"board": board, "custom_boards_file": "boards.yaml"}}
     design = _write_design(root, flows, targets)
 

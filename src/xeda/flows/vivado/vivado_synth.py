@@ -2,13 +2,22 @@ import itertools
 import json
 import logging
 import re
+from abc import ABCMeta
 from collections import OrderedDict
+from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import SourceType
-from ...flow import Flow, FlowFatalError, FpgaSynthFlow, Out, describe_results
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsError,
+    FpgaSynthFlow,
+    Out,
+    describe_results,
+)
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -63,13 +72,123 @@ def vivado_synth_generics(parameters: dict) -> List[str]:
     return generics
 
 
-def normalize_run_steps(settings: Any) -> None:
-    """Every step of the synthesis and implementation runs as a mapping holding its `ARGS` and
-    `TCL` mappings, so the steps' properties, and the hooks attached to them, have a place."""
-    for run_settings, steps in (
-        (settings.synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
+#: The mode of `synth_design` that the `out_of_context` setting asks for.
+OUT_OF_CONTEXT = "out_of_context"
+#: Where a project-mode flow takes the extra options of `synth_design` (the property
+#: `STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS` of the synthesis run), as the settings name it.
+MORE_OPTIONS_KEY = "synth.steps.SYNTH_DESIGN.ARGS.MORE.OPTIONS"
+MORE_OPTIONS_PROPERTY = "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS"
+
+
+def is_mode_switch(word: str) -> bool:
+    """Whether Vivado 2024.2 reads `word`, a word of the options of `synth_design`, as its
+    `-mode`. It takes the switch in lower case only, and an abbreviation that no other switch
+    shares (`-mod`, `-mo`; `-m` is `max_bram` and others too), and neither `-mode=...` nor
+    `--mode`."""
+    return word.startswith("-") and 2 <= len(word) - 1 <= 4 and "mode".startswith(word[1:])
+
+
+def synth_design_modes(options: str) -> List[Tuple[str, str]]:
+    """The modes that `options`, the text of options of `synth_design`, gives: each `-mode`
+    switch as written, with its value (empty text for a switch that ends the options)."""
+    words = options.split()
+    return [
+        (word, words[i + 1] if i + 1 < len(words) else "")
+        for i, word in enumerate(words)
+        if is_mode_switch(word)
+    ]
+
+
+def out_of_context_conflicts(where: str, options: str) -> List[Tuple[str, str]]:
+    """The conflict, as (setting, why), between `out_of_context` and `options`, the text of
+    options of `synth_design` that the settings write at `where`: they give a mode of their own.
+    `-mode out_of_context` is no conflict (the flow adds none then). Vivado reads the value of a
+    mode in either letter case."""
+    others = [
+        f"{switch} {value}".rstrip()
+        for switch, value in synth_design_modes(options)
+        if value.lower() != OUT_OF_CONTEXT
+    ]
+    if not others:
+        return []
+    return [
         (
-            settings.impl,
+            where,
+            f"`out_of_context` asks for `-mode {OUT_OF_CONTEXT}`, and `{where}` gives "
+            f"`{others[0]}`: Vivado would get two modes. Remove `{others[0]}` there, or turn "
+            "`out_of_context` off",
+        )
+    ]
+
+
+def refuse_conflicts(settings_class: Any, problems: List[Tuple[str, str]]) -> None:
+    """Raise the problems of a check of settings as one `FlowSettingsError`."""
+    if problems:
+        raise FlowSettingsError(
+            [(key, message, None, "value_error") for key, message in problems], settings_class
+        )
+
+
+def step_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What, in the steps of the settings, gives a mode beside `out_of_context`: the extra options
+    of the synthesis step, the run property that a project-mode script sets from them."""
+    if not settings.out_of_context:
+        return []
+    step = settings.synth.steps.get("SYNTH_DESIGN")
+    args = step.get("ARGS") if isinstance(step, dict) else None
+    more = args.get("MORE") if isinstance(args, dict) else None
+    if not isinstance(more, dict) or more.get("OPTIONS") is None:
+        return []
+    options = more["OPTIONS"]
+    text = " ".join(map(str, options)) if isinstance(options, list) else str(options)
+    return out_of_context_conflicts(MORE_OPTIONS_KEY, text)
+
+
+def property_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
+    """What, in `set_synth_properties`, loses or doubles the mode of `out_of_context`. The script
+    of `vivado_synth` sets those properties after the steps, so one for the options of
+    `synth_design` replaces the steps' value, the mode they add included: it has to carry
+    `-mode out_of_context` itself. Another mode in it is refused as in the steps."""
+    if not settings.out_of_context:
+        return []
+    problems: List[Tuple[str, str]] = []
+    for name, value in settings.set_synth_properties.items():
+        if name.upper() != MORE_OPTIONS_PROPERTY:
+            continue
+        where = f"set_synth_properties[{name}]"
+        text = str(value)
+        found = out_of_context_conflicts(where, text)
+        if not found and not synth_design_modes(text):
+            found = [
+                (
+                    where,
+                    f"`out_of_context` asks for `-mode {OUT_OF_CONTEXT}`, and `{where}` is set "
+                    "after the steps, so it replaces the options they give, the mode included. "
+                    f"Add `-mode {OUT_OF_CONTEXT}` to it, or give the options in `{MORE_OPTIONS_KEY}`"
+                    " and drop it",
+                )
+            ]
+        problems += found
+    return problems
+
+
+def run_steps(
+    settings: Any, *, out_of_context: bool = False
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """The steps of the synthesis run and of the implementation run of a project-mode script, as
+    the script sets their properties. They are copies of `settings.synth.steps` and
+    `settings.impl.steps` that the flow completes. A run does not write into its settings, nor
+    into the defaults and tables behind them: the next run of the process would read those.
+
+    Every step is a mapping that holds its `ARGS` and `TCL` mappings, so the steps' properties,
+    and the hooks attached to them, have a place. `SYNTH_DESIGN` holds what the settings
+    derive: `flatten_hierarchy`, and with `out_of_context` the option `-mode out_of_context`."""
+    synth = deepcopy(settings.synth.steps)
+    impl = deepcopy(settings.impl.steps)
+    for steps, names in (
+        (synth, ["SYNTH_DESIGN", "OPT_DESIGN", "POWER_OPT_DESIGN"]),
+        (
+            impl,
             [
                 "PLACE_DESIGN",
                 "POST_PLACE_POWER_OPT_DESIGN",
@@ -79,18 +198,44 @@ def normalize_run_steps(settings: Any) -> None:
             ],
         ),
     ):
-        for step in steps:
-            step_setting: Union[Dict[str, Any], List[str]] = run_settings.steps.get(step, {}) or {}
+        for step in names:
+            step_setting: Union[Dict[str, Any], List[str]] = steps.get(step, {}) or {}
             if isinstance(step_setting, list):
                 step_setting = {k: None for k in step_setting}
             assert isinstance(step_setting, dict)
             for sub in ["ARGS", "TCL"]:
                 if step_setting.get(sub) is None:
                     step_setting[sub] = {}
-            run_settings.steps[step] = step_setting
+            steps[step] = step_setting
+
+    synth_design = synth["SYNTH_DESIGN"]
+    assert isinstance(synth_design, dict)
+    if settings.flatten_hierarchy:
+        synth_design["flatten_hierarchy"] = settings.flatten_hierarchy
+    if out_of_context:
+        args = synth_design.get("ARGS", {})
+        args_more = args.get("MORE", {})
+        assert isinstance(args_more, dict), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
+        more_options = args_more.get("OPTIONS", [])
+        if isinstance(more_options, str):
+            more_options = [more_options]
+        assert isinstance(
+            more_options, list
+        ), f"SYNTH_DESIGN.ARGS.MORE.OPTIONS: {more_options} must be a list or text"
+        # the planning check's judgment again: a flow built directly is not planned
+        text = " ".join(map(str, more_options))
+        refuse_conflicts(type(settings), out_of_context_conflicts(MORE_OPTIONS_KEY, text))
+        if not synth_design_modes(text):
+            more_options.append(f"-mode {OUT_OF_CONTEXT}")
+        args_more["OPTIONS"] = more_options
+        args["MORE"] = args_more
+        synth_design["ARGS"] = args
+    return synth, impl
 
 
-def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
+def post_step_hooks(
+    flow: Any, settings: Any, synth_steps: Dict[str, Any], impl_steps: Dict[str, Any]
+) -> List[Path]:
     """A generated `TCL.POST` hook for each step of a project-mode run that xeda follows, which
     Vivado's run sources after the step, in the run's own directory. Each sources the user's own
     `TCL.POST` for the step, if any, then writes the step's reports under `reports/<step>/` and
@@ -99,18 +244,19 @@ def post_step_hooks(flow: Any, settings: Any) -> List[Path]:
     (`write_netlist`), and the timing netlist and the SDF corners (`write_timing_netlist`) after
     `route_design`; with a bitstream requested, the `write_bitstream` step's
     hook copies the bitstream Vivado wrote to its path. Returns the hooks, which the project's
-    `utils_1` fileset has to hold. Needs `normalize_run_steps`."""
+    `utils_1` fileset has to hold. Attaches each hook to its step in the `synth_steps` and
+    `impl_steps` it is given (`run_steps`), not in the settings."""
     hooks: List[Path] = []
     # absolute, since the runs source the hooks in their own directories
     outputs = {
         label: flow.run_path / path for label, path in project_outputs(flow, settings).items()
     }
-    impl_steps = ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]
+    hooked_impl_steps = ["PLACE_DESIGN", "PHYS_OPT_DESIGN", "ROUTE_DESIGN"]
     if BITSTREAM in outputs:
-        impl_steps.append("WRITE_BITSTREAM")
-    for run_settings, steps in ((settings.synth, ["SYNTH_DESIGN"]), (settings.impl, impl_steps)):
+        hooked_impl_steps.append("WRITE_BITSTREAM")
+    for run_steps_, steps in ((synth_steps, ["SYNTH_DESIGN"]), (impl_steps, hooked_impl_steps)):
         for step in steps:
-            step_settings = run_settings.steps.get(step)
+            step_settings = run_steps_.get(step)
             assert isinstance(step_settings, dict)
             tcl_settings = step_settings.get("TCL")
             assert isinstance(tcl_settings, dict)
@@ -261,81 +407,13 @@ class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
     )
 
 
-class VivadoSynth(Vivado, FpgaSynthFlow):
-    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch.
-
-    Creates a Vivado project in the run directory, runs its synthesis and implementation, and
-    reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in
-    non-project mode, and `vivado_project` to create a project to work on in Vivado.
-
-    The implementation run stops after routing; with a `bitstream` requested it goes on through
-    Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs
-    asked for are registered as artifacts (label in parentheses). `write_checkpoint`:
-    `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and
-    `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in
-    `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the
-    constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the
-    timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF
-    `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output
-    `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
-    beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
-
-    The flow fails unless each run completes the step it is launched to (Vivado's own status of
-    the run, which the `status` result records), and, with a bitstream asked for, unless the
-    bitstream is where it is registered.
-
-    Each file has its own switch, and a file is a declared output (recorded in `results.json`'s
-    `outputs` with its digest) where its setting is named here. `write_netlist` writes the
-    functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a
-    plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v`
-    (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf`
-    (`sdf_min`). `write_checkpoint` writes both
-    checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream
-    (`bitstream`).
-    """
-
-    results_description = describe_results(
-        "Fmax",
-        "clock_period",
-        "clock_frequency",
-        "wns",
-        "whs",
-        "tns",
-        "setup_violations",
-        "hold_violations",
-        "lut",
-        "ff",
-        "slice",
-        "dsp",
-        status="Vivado's own status of the last run the flow waited for: the implementation "
-        'run\'s, "route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`), '
-        'or the one that did not complete its step, e.g. "synth_design ERROR". The flow fails '
-        "unless the run completed the step it was launched to.",
-        **{
-            "lut_logic": "Number of LUTs used as logic.",
-            "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
-            "latch": "Number of latches inferred. Usually a design bug on FPGAs.",
-            "bram_RAMB36": "Number of RAMB36/FIFO36 block RAM primitives used.",
-            "bram_RAMB18": "Number of RAMB18 block RAM primitives used.",
-        },
-    )
-
-    reads_sources = frozenset(
-        {
-            SourceType.Verilog,
-            SourceType.SystemVerilog,
-            SourceType.Vhdl,
-            SourceType.VerilogHeader,
-            SourceType.SVHeader,
-            SourceType.MemoryFile,
-            SourceType.Xdc,
-            SourceType.Sdc,
-            SourceType.Tcl,
-        }
-    )
+class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
+    """What the Vivado flows that implement a design have in common: the settings of its
+    implementation and its reports, the bitstream a consumer asks for, and the timing and
+    utilization results read from the reports of the routed design."""
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
-        """Vivado synthesis settings"""
+        """Settings of a Vivado flow that implements a design"""
 
         fail_critical_warning: bool = Field(
             False,
@@ -344,30 +422,12 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         fail_timing: bool = Field(
             True, description="Flow fails if timing is not met"
         )  # pyright: ignore
-        write_checkpoint: bool = Field(
-            False,
-            description="Write Vivado design checkpoints (.dcp) after synthesis and after routing, "
-            "in `outputs/synth_design/` and `outputs/route_design/`. Required by the "
-            "`vivado_power` flow.",
-        )
-        write_netlist: bool = Field(
-            False,
-            description="Write the routed design's functional Verilog netlist and its constraints "
-            "(XDC), in `outputs/route_design/`. Required by `vivado_postsynth_sim`.",
-        )
-        write_timing_netlist: bool = Field(
-            False,
-            description="Write the routed design's timing Verilog netlist and its SDF timing "
-            "annotation (fast- and slow-corner), in `outputs/route_design/`. Required by "
-            "`vivado_postsynth_sim`.",
-        )
         bitstream: Optional[Path] = Field(
             None,
-            description="Write the FPGA bitstream to this file, through Vivado's `write_bitstream` "
-            "step, which the implementation run then goes on to; a location is delivered there "
-            "once the run succeeded. A .bin that step writes "
-            "(`impl.steps.WRITE_BITSTREAM.ARGS.BIN_FILE`) is put beside it. No bitstream is "
-            "written if unset.",
+            description="Write the FPGA bitstream to this file, through Vivado's `write_bitstream`; "
+            "a location is delivered there once the run succeeded. In project mode, a .bin that "
+            "the `write_bitstream` step writes (`impl.steps.WRITE_BITSTREAM.ARGS.BIN_FILE`) is "
+            "put beside it. No bitstream is written if unset.",
             json_schema_extra=deliverable("outputs/{design}.bit"),
         )
         extra_reports: bool = Field(
@@ -396,73 +456,7 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         default_min_output_delay: Optional[float] = Field(
             None, description="Default min delay to set on all output ports"
         )
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
-        synth: RunOptions = Field(
-            RunOptions(
-                # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout
-                # limit: 400), "Flow_AlternateRoutability", ...
-                strategy="",  # Empty for Vivado Default strategy
-                steps={
-                    "SYNTH_DESIGN": {},
-                    "OPT_DESIGN": {},
-                    "POWER_OPT_DESIGN": {},
-                },
-            ),
-            description="Synthesis run options: a Vivado `strategy` name (empty for the default) "
-            "and per-step option overrides. See `show_available_strategies`.",
-        )
-        out_of_context: bool = Field(
-            False,
-            description="Use out-of-context flow for synthesis",
-        )
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
-        impl: RunOptions = Field(
-            RunOptions(
-                # Performance strategies: "Performance_ExploreWithRemap",
-                # "Flow_RunPostRoutePhysOpt", "Flow_RunPhysOpt", "Performance_ExtraTimingOpt", ...
-                strategy="",  # Empty for Vivado Default strategy
-                steps={
-                    "PLACE_DESIGN": {},
-                    "POST_PLACE_POWER_OPT_DESIGN": {},
-                    "PHYS_OPT_DESIGN": {},
-                    "ROUTE_DESIGN": {},
-                    "WRITE_BITSTREAM": {},
-                },
-            ),
-            description="Implementation run options: a Vivado `strategy` name (empty for the "
-            "default) and per-step option overrides. See `show_available_strategies`.",
-        )
-        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
-        tcl_files: List[Union[str, Path]] = Field([], description="List of user TCL files.")
-        suppress_msgs: List[str] = Field(
-            [
-                "Synth 8-7080",  # "Parallel synthesis criteria is not met"
-                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
-            ],
-            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
-            "messages are not printed and never trigger `fail_critical_warning`.",
-        )
-        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field(
-            "rebuilt",
-            description="How synthesis flattens the design hierarchy: `full` flattens and does "
-            "not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` "
-            "preserves it throughout.",
-        )
-        show_available_strategies: bool = Field(
-            False, description="Show available synthesis and implementation strategies"
-        )
-        set_synth_properties: Dict[str, PropertyValue] = Field(
-            {},
-            description="Properties to set on the synthesis run (`synth_1`), e.g. "
-            '`{"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM" = 0}`. Values may be text, numbers or booleans.',
-        )
-        set_impl_properties: Dict[str, PropertyValue] = Field(
-            {},
-            description="Properties to set on the implementation run (`impl_1`). Values may be "
-            "text, numbers or booleans.",
-        )
-        report_power: bool = Field(False, description="Run power estimation after implementation")
 
         @field_validator("fpga")
         @classmethod
@@ -473,14 +467,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             if value is not None and not value.part:
                 raise ValueError("Vivado needs the FPGA's part number (`fpga.part`)")
             return value
-
-    class Outputs(_VivadoSynthOutputs):
-        sdf_min: Path | None = Out(
-            SourceType.Sdf,
-            enabled_by="write_timing_netlist",
-            description="The routed design's SDF timing annotation for the fast corner (min "
-            "delays); `sdf` is the slow corner's.",
-        )
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
@@ -494,86 +480,6 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
             conventional = settings.conventional_output("bitstream", design_name)
             assert conventional is not None  # the field is a deliverable with a conventional name
             settings.bitstream = Path(conventional)
-
-    def init(self):
-        super().init()
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        self.add_template_global_func(tcl_property_value)
-        # if ss.bitstream and "PROGRAM.FILE" not in ss.set_impl_properties:
-        #     ss.set_impl_properties["PROGRAM.FILE"] = str(ss.bitstream)
-
-    def run(self):
-        """Run Vivado synthesis and collect requested artifacts."""
-        assert isinstance(self.settings, self.Settings)
-        settings = self.settings
-        normalize_run_steps(settings)
-
-        if not self.design.rtl.clocks:
-            log.warning("No clocks specified for top RTL design.")
-
-        assert isinstance(settings.synth.steps["SYNTH_DESIGN"], dict)
-        if settings.flatten_hierarchy:
-            settings.synth.steps["SYNTH_DESIGN"]["flatten_hierarchy"] = settings.flatten_hierarchy
-        if settings.out_of_context:
-            args = settings.synth.steps["SYNTH_DESIGN"].get("ARGS", {})
-            args_more = args.get("MORE", {})
-            assert isinstance(
-                args_more, dict
-            ), f"SYNTH_DESIGN.ARGS.MORE: {args_more} must be a dict"
-            args_more_options = args.get("OPTIONS", [])
-            if isinstance(args_more_options, str):
-                args_more_options = [args_more_options]
-            assert isinstance(
-                args_more_options, list
-            ), f"SYNTH_DESIGN.ARGS.OPTIONS: {args_more_options} must be a list/str"
-            args_more_options.append("-mode out_of_context")
-            args_more["OPTIONS"] = args_more_options
-            args["MORE"] = args_more
-            settings.synth.steps["SYNTH_DESIGN"]["ARGS"] = args
-
-        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
-
-        if self.settings.bitstream:
-            bs_str = str(self.settings.bitstream)
-            log.debug("Bitstream path: %s", bs_str)
-            if self.runner_cwd and bs_str.startswith("$PWD/"):
-                self.settings.bitstream = self.runner_cwd / bs_str[5:]
-            self.settings.bitstream = Path(self.settings.bitstream).resolve()
-
-        outputs = project_outputs(self, settings)
-        run_status = self.run_path / RUN_STATUS_FILE
-        # What a run registers or reports is what it wrote: nothing an earlier run left there
-        stale = [*outputs.values(), run_status]
-        if BITSTREAM in outputs:
-            stale.append(bitstream_bin_file(outputs[BITSTREAM]))
-        self.run_directory.remove(*stale)
-        self.artifacts.update(outputs)
-        declare_outputs(self, {name: outputs.get(label) for name, label in OUTPUT_LABELS.items()})
-
-        tcl_files += post_step_hooks(self, settings)
-        xdc_files = constraint_files(self, settings)
-
-        log.debug("XDC files: %s", ", ".join(str(s) for s in xdc_files))
-        log.debug("TCL files: %s", ", ".join(str(s) for s in tcl_files))
-
-        script_path = self.copy_from_template(
-            "vivado_synth.tcl",
-            xdc_files=xdc_files,
-            tcl_files=tcl_files,
-            generics=vivado_synth_generics(self.design.rtl.parameters),
-            impl_to_step="write_bitstream" if BITSTREAM in outputs else "route_design",
-            run_status_file=run_status,
-        )
-        self.vivado.run("-source", script_path)
-        # The script has checked that each run completed its step (`vivado_synth.tcl`)
-        if BITSTREAM in outputs and not self.wrote_output(outputs[BITSTREAM]):
-            bitstream = self.run_path / outputs[BITSTREAM]
-            raise FlowFatalError(
-                "Vivado's implementation run completed write_bitstream, but it wrote no "
-                f"bitstream at {bitstream}"
-                + (": the file there is from before the run." if bitstream.exists() else ".")
-            )
 
     def parse_timing_report(self, reports_dir) -> bool:
         assert isinstance(self.settings, self.Settings)
@@ -746,6 +652,254 @@ class VivadoSynth(Vivado, FpgaSynthFlow):
         if "_failing_endpoints" in self.results:
             failed |= self.results["_failing_endpoints"] != 0 and self.settings.fail_timing
         return not failed
+
+
+class VivadoSynth(VivadoImplementation):
+    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch.
+
+    Creates a Vivado project in the run directory, runs its synthesis and implementation, and
+    reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in
+    non-project mode, and `vivado_project` to create a project to work on in Vivado.
+
+    The implementation run stops after routing; with a `bitstream` requested it goes on through
+    Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs
+    asked for are registered as artifacts (label in parentheses). `write_checkpoint`:
+    `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and
+    `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in
+    `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the
+    constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the
+    timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF
+    `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output
+    `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name
+    beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`).
+
+    The flow fails unless each run completes the step it is launched to (Vivado's own status of
+    the run, which the `status` result records), and, with a bitstream asked for, unless the
+    bitstream is where it is registered.
+
+    Each file has its own switch, and a file is a declared output (recorded in `results.json`'s
+    `outputs` with its digest) where its setting is named here. `write_netlist` writes the
+    functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a
+    plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v`
+    (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf`
+    (`sdf_min`). `write_checkpoint` writes both
+    checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream
+    (`bitstream`).
+    """
+
+    results_description = describe_results(
+        "Fmax",
+        "clock_period",
+        "clock_frequency",
+        "wns",
+        "whs",
+        "tns",
+        "setup_violations",
+        "hold_violations",
+        "lut",
+        "ff",
+        "slice",
+        "dsp",
+        status="Vivado's own status of the last run the flow waited for: the implementation "
+        'run\'s, "route_design Complete!" (or "write_bitstream Complete!" with a `bitstream`), '
+        'or the one that did not complete its step, e.g. "synth_design ERROR". The flow fails '
+        "unless the run completed the step it was launched to.",
+        **{
+            "lut_logic": "Number of LUTs used as logic.",
+            "lut_mem": "Number of LUTs used as memory (distributed RAM or shift registers).",
+            "latch": "Number of latches inferred. Usually a design bug on FPGAs.",
+            "bram_RAMB36": "Number of RAMB36/FIFO36 block RAM primitives used.",
+            "bram_RAMB18": "Number of RAMB18 block RAM primitives used.",
+        },
+    )
+
+    reads_sources = frozenset(
+        {
+            SourceType.Verilog,
+            SourceType.SystemVerilog,
+            SourceType.Vhdl,
+            SourceType.VerilogHeader,
+            SourceType.SVHeader,
+            SourceType.MemoryFile,
+            SourceType.Xdc,
+            SourceType.Sdc,
+            SourceType.Tcl,
+        }
+    )
+
+    class Settings(VivadoImplementation.Settings):
+        """Vivado synthesis settings"""
+
+        write_checkpoint: bool = Field(
+            False,
+            description="Write Vivado design checkpoints (.dcp) after synthesis and after routing, "
+            "in `outputs/synth_design/` and `outputs/route_design/`. Required by the "
+            "`vivado_power` flow.",
+        )
+        write_netlist: bool = Field(
+            False,
+            description="Write the routed design's functional Verilog netlist and its constraints "
+            "(XDC), in `outputs/route_design/`. Required by `vivado_postsynth_sim`.",
+        )
+        write_timing_netlist: bool = Field(
+            False,
+            description="Write the routed design's timing Verilog netlist and its SDF timing "
+            "annotation (fast- and slow-corner), in `outputs/route_design/`. Required by "
+            "`vivado_postsynth_sim`.",
+        )
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
+        synth: RunOptions = Field(
+            RunOptions(
+                # Performance strategies: "Flow_PerfOptimized_high" (no LUT combining, fanout
+                # limit: 400), "Flow_AlternateRoutability", ...
+                strategy="",  # Empty for Vivado Default strategy
+                steps={
+                    "SYNTH_DESIGN": {},
+                    "OPT_DESIGN": {},
+                    "POWER_OPT_DESIGN": {},
+                },
+            ),
+            description="Synthesis run options: a Vivado `strategy` name (empty for the default) "
+            "and per-step option overrides. See `show_available_strategies`.",
+        )
+        out_of_context: bool = Field(
+            False,
+            description="Use out-of-context flow for synthesis: `synth_design` gets `-mode "
+            "out_of_context`. The synthesis options may hold that mode (it is kept once), but "
+            "no other `-mode`: that is refused before the run.",
+        )
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug904-vivado-implementation.pdf
+        impl: RunOptions = Field(
+            RunOptions(
+                # Performance strategies: "Performance_ExploreWithRemap",
+                # "Flow_RunPostRoutePhysOpt", "Flow_RunPhysOpt", "Performance_ExtraTimingOpt", ...
+                strategy="",  # Empty for Vivado Default strategy
+                steps={
+                    "PLACE_DESIGN": {},
+                    "POST_PLACE_POWER_OPT_DESIGN": {},
+                    "PHYS_OPT_DESIGN": {},
+                    "ROUTE_DESIGN": {},
+                    "WRITE_BITSTREAM": {},
+                },
+            ),
+            description="Implementation run options: a Vivado `strategy` name (empty for the "
+            "default) and per-step option overrides. See `show_available_strategies`.",
+        )
+        # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug903-vivado-using-constraints.pdf
+        tcl_files: List[Union[str, Path]] = Field([], description="List of user TCL files.")
+        suppress_msgs: List[str] = Field(
+            [
+                "Synth 8-7080",  # "Parallel synthesis criteria is not met"
+                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
+            ],
+            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
+            "messages are not printed and never trigger `fail_critical_warning`.",
+        )
+        flatten_hierarchy: Optional[Literal["full", "rebuilt", "none"]] = Field(
+            "rebuilt",
+            description="How synthesis flattens the design hierarchy: `full` flattens and does "
+            "not rebuild, `rebuilt` flattens then restores the hierarchy for reporting, `none` "
+            "preserves it throughout.",
+        )
+        show_available_strategies: bool = Field(
+            False, description="Show available synthesis and implementation strategies"
+        )
+        set_synth_properties: Dict[str, PropertyValue] = Field(
+            {},
+            description="Properties to set on the synthesis run (`synth_1`), e.g. "
+            '`{"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM" = 0}`. Values may be text, numbers or booleans.',
+        )
+        set_impl_properties: Dict[str, PropertyValue] = Field(
+            {},
+            description="Properties to set on the implementation run (`impl_1`). Values may be "
+            "text, numbers or booleans.",
+        )
+        report_power: bool = Field(False, description="Run power estimation after implementation")
+
+    class Outputs(_VivadoSynthOutputs):
+        sdf_min: Path | None = Out(
+            SourceType.Sdf,
+            enabled_by="write_timing_netlist",
+            description="The routed design's SDF timing annotation for the fast corner (min "
+            "delays); `sdf` is the slow corner's.",
+        )
+
+    @classmethod
+    def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
+        """What in the settings gives `synth_design` a mode beside `out_of_context`, as
+        (setting, why). A flow with another way to write the options overrides this."""
+        return step_mode_conflicts(settings) + property_mode_conflicts(settings)
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        refuse_conflicts(cls.Settings, cls.mode_conflicts(settings))
+
+    def init(self):
+        super().init()
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.add_template_global_func(tcl_property_value)
+        # if ss.bitstream and "PROGRAM.FILE" not in ss.set_impl_properties:
+        #     ss.set_impl_properties["PROGRAM.FILE"] = str(ss.bitstream)
+
+    def run(self):
+        """Run Vivado synthesis and collect requested artifacts."""
+        assert isinstance(self.settings, self.Settings)
+        settings = self.settings
+        synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
+        # the planning check's judgment again: a flow built directly is not planned
+        refuse_conflicts(type(settings), property_mode_conflicts(settings))
+
+        if not self.design.rtl.clocks:
+            log.warning("No clocks specified for top RTL design.")
+
+        tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
+
+        if self.settings.bitstream:
+            bs_str = str(self.settings.bitstream)
+            log.debug("Bitstream path: %s", bs_str)
+            if self.runner_cwd and bs_str.startswith("$PWD/"):
+                self.settings.bitstream = self.runner_cwd / bs_str[5:]
+            self.settings.bitstream = Path(self.settings.bitstream).resolve()
+
+        outputs = project_outputs(self, settings)
+        run_status = self.run_path / RUN_STATUS_FILE
+        # What a run registers or reports is what it wrote: nothing an earlier run left there
+        stale = [*outputs.values(), run_status]
+        if BITSTREAM in outputs:
+            stale.append(bitstream_bin_file(outputs[BITSTREAM]))
+        self.run_directory.remove(*stale)
+        self.artifacts.update(outputs)
+        declare_outputs(self, {name: outputs.get(label) for name, label in OUTPUT_LABELS.items()})
+
+        tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)
+        xdc_files = constraint_files(self, settings)
+
+        log.debug("XDC files: %s", ", ".join(str(s) for s in xdc_files))
+        log.debug("TCL files: %s", ", ".join(str(s) for s in tcl_files))
+
+        script_path = self.copy_from_template(
+            "vivado_synth.tcl",
+            xdc_files=xdc_files,
+            tcl_files=tcl_files,
+            synth_steps=synth_steps,
+            impl_steps=impl_steps,
+            generics=vivado_synth_generics(self.design.rtl.parameters),
+            impl_to_step="write_bitstream" if BITSTREAM in outputs else "route_design",
+            run_status_file=run_status,
+        )
+        self.vivado.run("-source", script_path)
+        # The script has checked that each run completed its step (`vivado_synth.tcl`)
+        if BITSTREAM in outputs and not self.wrote_output(outputs[BITSTREAM]):
+            bitstream = self.run_path / outputs[BITSTREAM]
+            raise FlowFatalError(
+                "Vivado's implementation run completed write_bitstream, but it wrote no "
+                f"bitstream at {bitstream}"
+                + (": the file there is from before the run." if bitstream.exists() else ".")
+            )
 
 
 def parse_hier_util(

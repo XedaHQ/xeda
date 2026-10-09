@@ -576,6 +576,7 @@ def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their
     assert [e["flow"] for e in _real(loader["can_follow"])] == [
         "fpga_pack",
         "vivado_alt_synth",
+        "vivado_impl",
         "vivado_synth",
     ]
     assert flows["nextpnr"]["action_reason"] is None

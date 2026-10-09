@@ -141,7 +141,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 ### `openfpgaloader`
 
-*runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_synth` | programs a device and can only end a chain*
+*runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_impl`, `vivado_synth` | programs a device and can only end a chain*
 
 Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board database), when it has one. The FPGA part is given when the board is not named and the part is known: a Xilinx part without its speed grade, any other as it is. Without a part, openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The loader's output is kept in `openfpgaloader.log` in the run directory. It needs openFPGALoader 0.13.1 or newer, and refuses an older loader before it builds or programs anything. The run fails when the loader exits with a nonzero status, and also when its output shows that the device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error the FPGA reports), a step that printed FAIL, or an error message, such as a flash that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
 
@@ -168,6 +168,18 @@ FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A
 Required settings: `fpga`
 
 30 flow-specific settings (plus the common ones): `xeda list-settings vivado_alt_synth --json`
+
+Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
+
+### `vivado_impl`
+
+*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `openfpgaloader`*
+
+Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. Its `netlist` input is an `Edif` design source or, by default, the EDIF netlist that `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here. A generated TCL script reads the constraints and the netlist, links the design, and runs `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after placement); it reports timing and utilization, and writes a bitstream when `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`. Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies the netlist to `<top>.edif` in its run directory, whatever the file was called. The design needs `rtl.top` for that, and `fpga` and a clock as for any Vivado flow. Pin constraints are `Xdc` design sources or `xdc_files`. A netlist from another source has to be flat, and written with its buses' ranges: yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the ranges. Without them Vivado links the design with every bus reversed and says nothing.
+
+Required settings: `fpga`
+
+19 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -207,13 +219,13 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 ### `yosys_fpga`
 
-*can be followed by: `nextpnr`*
+*can be followed by: `nextpnr`, `vivado_impl`*
 
 Yosys Open SYnthesis Suite: FPGA synthesis
 
 Required settings: `fpga`
 
-72 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+73 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LUT:METHOD`, `FF`
 
