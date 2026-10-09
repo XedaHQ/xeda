@@ -93,12 +93,23 @@ class Optimizer:
         self.max_failed_iters: int = 2
         self.base_settings: Flow.Settings = Flow.Settings()
         self.flow_class: Optional[Type[Flow]] = None
-        self.variations: Dict[str, List[str]] = {}
+        self._variations: Dict[str, List[Any]] = {}
 
         self.settings = settings if settings else self.Settings(**kwargs)
         self.improved_idx: Optional[int] = None  # ATM only used as a bool
         self.failed_fmax: Optional[float] = None  # failed due to negative slack
         self.best: Optional[FlowOutcome] = None
+
+    @property
+    def variations(self) -> Dict[str, List[Any]]:
+        """The choices the search tries for each setting, best first: the search promotes the
+        choices of a better run in place. It owns these lists: they are a copy of what it was
+        given (the class's default table, the caller's mapping), which stay as they were."""
+        return self._variations
+
+    @variations.setter
+    def variations(self, value: Dict[str, List[Any]]) -> None:
+        self._variations = deepcopy(value)
 
     def next_batch(self) -> Union[None, List[Dict[str, Any]]]: ...
 
