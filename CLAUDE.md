@@ -290,7 +290,10 @@ Four orthogonal abstractions, deliberately decoupled:
   **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
   nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
   target's `tb` table; `synth: 3` under `-s synth.strategy=...`); a target's own is reported at
-  `targets.<name>.<key>`, selected or not, as its `flows` table is (`design._flows_table`). `design_schema()` adds `targets` to the input syntax only
+  `targets.<name>.<key>`, selected or not, as its `flows` table is (`design._flows_table`). A null or
+  empty `flows` table or flow section of a target or an override adds nothing (`_flows_table` drops
+  a null section, as every layer reads `None` as empty): the design's section stays, fpga included;
+  `tests/test_target_shapes.py` pins it. `design_schema()` adds `targets` to the input syntax only
   (`introspect._add_targets`); `send_design` leaves `target` out of the remote archive; plans
   carry it as `PlanContext.target`, which names where every node runs: a run directory is
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as

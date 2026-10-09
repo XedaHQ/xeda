@@ -267,7 +267,8 @@ targets:
 - A target takes `rtl`, `tb`, `flows` and every other design key, flat forms included (`sources`,
   `defines`, `top`, `clock`, ...); not `name` or `targets`. Unknown keys are errors.
 - Mappings merge at every depth; `sources` are appended after the design's; any other list
-  replaces the design's. Paths resolve against the design root.
+  replaces the design's. Paths resolve against the design root. A null or empty `flows` table or
+  flow section adds nothing (the design's section stays); set a key to change it.
 - A short form means its table where the design and a target meet (`clock: CLK` is `clock:
   {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
   `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`

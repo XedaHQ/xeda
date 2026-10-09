@@ -33,7 +33,7 @@ from xeda.utils import settings_to_dict
 from xeda.xedaproject import XedaProject
 
 from .settings_samples import PROBES
-from .test_targets import BASE, RESOURCES
+from .test_targets import BASE, RESOURCES, flows_as_read
 
 
 def write_design(tmp_path: Path, data: dict, name: str = "d.json") -> Path:
@@ -620,6 +620,62 @@ def test_a_flows_table_that_is_no_table_is_a_design_error_with_overrides(tmp_pat
         Design.from_file(
             write_design(tmp_path, {**BASE, "flows": 3}), overrides={"rtl": {"top": "knight"}}
         )
+
+
+#: A null or empty `flows` table, or flow section, adds nothing, as it does in every settings
+#: layer: the design's section stays as it is. A key set in the section changes it.
+NULL_FLOWS = [
+    ("table null", {"flows": None}),
+    ("table empty", {"flows": {}}),
+    ("flow spelling null", {"flow": None}),
+    ("section null", {"flows": {"vivado_synth": None}}),
+    ("section empty", {"flows": {"vivado_synth": {}}}),
+    ("section null, flow spelling", {"flow": {"vivado_synth": None}}),
+    ("section null by alias", {"flows": {"VivadoSynth": None}}),
+]
+
+
+@pytest.mark.parametrize("merged", ["a target", "overrides"])
+@pytest.mark.parametrize(
+    "fragment", [row[1] for row in NULL_FLOWS], ids=[row[0] for row in NULL_FLOWS]
+)
+def test_a_null_or_empty_flows_table_or_section_leaves_the_design_s_section(
+    tmp_path, merged, fragment
+):
+    design = {
+        **BASE,
+        "flows": {
+            "vivado_synth": {"fpga": PART, "clock": {"period": 10.0}},
+            "nextpnr": {"seed": 3},
+        },
+    }
+    kept = Design.from_file(write_design(tmp_path, design))
+    if merged == "a target":
+        data = {**design, "targets": {"t": {"defines": {"A": 1}, **fragment}}}
+        selected = Design.from_file(write_design(tmp_path, data, "target.json"))
+    else:
+        selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
+    assert kept.flow["vivado_synth"]["fpga"] == PART
+    assert flows_as_read(selected) == flows_as_read(kept)
+
+
+@pytest.mark.parametrize("merged", ["a target", "overrides"])
+def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_path, merged):
+    design = {
+        **BASE,
+        "flows": {
+            "vivado_synth": {"fpga": PART, "clock": {"period": 10.0}},
+            "nextpnr": {"seed": 3},
+        },
+    }
+    fragment = {"flows": {"vivado_synth": None, "nextpnr": {"board": "ulx3s_85f"}}}
+    if merged == "a target":
+        data = {**design, "targets": {"t": fragment}}
+        selected = Design.from_file(write_design(tmp_path, data))
+    else:
+        selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
+    assert selected.flow["vivado_synth"] == {"fpga": PART, "clock": {"period": 10.0}}
+    assert selected.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
 
 
 # ------------------------------------------------------------------------------ projects and removed keys

@@ -489,7 +489,8 @@ One design file can describe the design for several boards. Each entry of ``targ
   ``flows.<flow>`` section). ``sources`` (``rtl`` and ``tb``) are appended after the design's, in
   order. Any other list replaces the design's. Each ``flows.<flow>`` section is merged by the
   rules of that flow's settings layers (see :doc:`flows`): the aliases of a setting and the
-  clock spellings of the flow are read as they are there.
+  clock spellings of the flow are read as they are there. A null or empty ``flows`` table, or
+  flow section, adds nothing: the design's section stays as it is. Set a key to change it.
 - **A short form means its table.** Where the design and the target write one key in different
   forms, each is read as the table it stands for before they merge. ``clock: CLK`` is
   ``clock: {port: CLK}``; ``parameters`` as a list of ``{name, value}`` objects is the mapping
