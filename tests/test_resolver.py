@@ -1175,3 +1175,41 @@ def test_one_corner_spelled_as_a_list_agrees_and_two_corners_conflict(tmp_path):
     files["yosys"]["corner"] = "FF"
     with pytest.raises(FlowSettingsError, match="corner"):
         _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
+
+
+def test_planning_with_clock_null_in_design_and_clock_in_settings(tmp_path):
+    """Test that planning succeeds when design has clock: null and settings provide clock."""
+    from xeda.flows.yosys import YosysFpga
+
+    root = tmp_path / "d"
+    root.mkdir(exist_ok=True)
+    (root / "top.v").write_text("module top(); endmodule\n")
+
+    # Create design with clock: null
+    design = Design(
+        name="d",
+        design_root=root,
+        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top", "clock": None},
+    )
+
+    # Plan with clock and fpga settings from command line
+    plan = resolve(
+        YosysFpga,
+        design,
+        settings={
+            "clock": {"period": "10ns"},
+            "fpga": {"part": "xc7a35tcpg236-1"},
+        },
+        sections={},
+        runner_cwd=tmp_path,
+        run_root=tmp_path / "run",
+        hashed_run_dirs=False,
+        run_path=lambda design_name, node, identity, target=None: (
+            tmp_path / "run" / design_name / node
+        ),
+    )
+
+    # Should have planned successfully
+    assert plan.requested == "yosys_fpga"
+    node = plan.node("yosys_fpga")
+    assert node.settings.clock.period == 10.0

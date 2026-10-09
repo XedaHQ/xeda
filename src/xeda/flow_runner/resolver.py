@@ -339,7 +339,7 @@ def _clock_inputs(
     result: dict[tuple[str, ...], dict[str, Any]] = {}
     if "clock" in values and "clocks" not in values and "clocks" in model.model_fields:
         raw = values["clock"]
-        if raw is None or isinstance(raw, Mapping):
+        if isinstance(raw, Mapping):
             result[prefix] = {"clock": deepcopy(raw)}
     for key, value in values.items():
         info = model.model_fields.get(key)

@@ -287,8 +287,8 @@ Four orthogonal abstractions, deliberately decoupled:
   it, its `clock` refines the first clock, `clock: null`/an empty table mean none; a
   clock that is neither text nor a table is refused at the key written (`RtlSettings.clock_mistake`,
   which `form_problems` hands to `shape_problems`, so a target's overlay is judged too).
-  **The design's `clock_port` was removed** (`RtlSettings.removed_inputs`, the design's
-  `removed_settings`: the one table; `removed_input_problems` is read by the `rtl` validator and
+  **The design's `clock_port` was removed** (in `RtlSettings.removed_inputs`, the design's
+  equivalent of `Flow.Settings.removed_settings`): the one table; `removed_input_problems` is read by the `rtl` validator and
   by a target's overlay, selected or not, and the flat form is folded into `rtl` first, so every
   origin gets "`clock_port` was removed: use `clock: <port>`"). The `clock_port` *result* key
   (nextpnr, Diamond) is a different thing and stays.
