@@ -2557,14 +2557,15 @@ class FlowLauncher:
         with deferring_load_side_effects() as deferred:
             try:
                 declared = self._request(*arguments, target=target, _planning=planning)
-            except Exception:
+            except Exception as error:
                 # `_request` names the design once it has loaded it. What fails after that is
                 # the request's own refusal, which the full load makes too: it reads the
                 # design's name, target and `flows` sections, which no deferred work changes.
-                # Before that, only a missing file may be one the deferred work writes: any other
-                # failure is the full load's too, and it would run the generator to find it.
+                # Before that, only a design whose every error is a missing file may be one the
+                # deferred work cures: any other error is the full load's too, and it would run
+                # the generator to find it.
                 if (
-                    not deferred.failure_may_depend_on_deferred_output
+                    not deferred.failure_may_depend_on_deferred_output(error)
                     or self.design_name is not None
                 ):
                     raise

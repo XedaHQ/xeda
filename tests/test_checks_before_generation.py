@@ -57,6 +57,7 @@ CONTENTS = {
     ".bsv": "package Top; endpackage\\n",
     ".vhd": "entity top is end;\\narchitecture a of top is begin end;\\n",
     ".yaml": "{}\\n",
+    ".toml": "name = 'dep'\\n",
 }
 root = Path(os.environ["DESIGN_ROOT"])
 with open(sys.argv[1], "a") as counter:
@@ -282,13 +283,29 @@ def test_a_pattern_without_a_typed_suffix_leaves_the_judgement_to_the_full_load(
     assert generated.runs == 1
 
 
-def test_a_pattern_with_a_typed_suffix_is_judged_on_its_type(tmp_path, monkeypatch):
+def test_a_pattern_with_a_typed_suffix_leaves_the_judgement_to_the_full_load(tmp_path, monkeypatch):
+    """A pattern stands for the files that exist once the generator has run, so its count is not
+    known before: the declared design is not complete, whatever the suffix says."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf"])
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(FlowSettingsException, match="yosys_fpga reads none of the design's"):
         runner.run("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
-    assert generated.runs == 0
+    assert generated.runs == 1
+
+
+def test_a_pattern_and_a_file_it_matches_are_one_source_for_a_flow_that_takes_one(
+    tmp_path, monkeypatch
+):
+    """`gen/*.edf` and `gen/top.edf` are the same file once the generator has written it, so
+    `vivado_impl` (one netlist) is not refused on two declared paths."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.edf"], sources=["gen/*.edf", "gen/top.edf"])
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run("vivado_impl", str(generated.file), flow_settings=dict(XILINX))
+    assert flow is not None and flow.succeeded
+    assert generated.runs == 1
 
 
 def test_a_design_that_does_not_load_before_its_generator_runs_is_loaded_in_full(
@@ -329,7 +346,7 @@ def test_the_declared_design_lists_what_the_generator_writes_with_its_type(tmp_p
     generated = Generated(
         tmp_path,
         ["gen/top.v", "gen/top.edf"],
-        sources=["gen/top.v", {"file": "gen/top.edf", "type": "Edif"}, "gen/*.v"],
+        sources=["gen/top.v", {"file": "gen/top.edf", "type": "Edif"}],
     )
     with deferring_load_side_effects() as deferred:
         design = Design.from_file(generated.file)
@@ -337,9 +354,18 @@ def test_the_declared_design_lists_what_the_generator_writes_with_its_type(tmp_p
     assert [(src.file.name, src.type.name) for src in design.rtl.sources] == [
         ("top.v", "Verilog"),
         ("top.edf", "Edif"),
-        ("*.v", "Verilog"),
     ]
     assert generated.runs == 0 and not (generated.root / "gen").exists()
+
+
+def test_a_pattern_makes_the_declared_design_incomplete(tmp_path):
+    """A pattern stands for the files the generator writes: the declared design leaves it out."""
+    generated = Generated(tmp_path, ["gen/top.v"], sources=["gen/top.v", "gen/*.v"])
+    with deferring_load_side_effects() as deferred:
+        design = Design.from_file(generated.file)
+    assert deferred.deferred and not deferred.complete
+    assert [src.file.name for src in design.rtl.sources] == ["top.v"]
+    assert generated.runs == 0
 
 
 def test_a_load_with_nothing_to_defer_is_a_full_load(tmp_path):
@@ -519,3 +545,76 @@ def test_a_project_s_design_is_chosen_once_when_the_declared_load_fails(tmp_path
     assert asked == [None]
     assert flow.design.name == "generated"
     assert generated.runs == 1
+
+
+def test_a_local_dependency_the_generator_writes_is_loaded_after_it_runs(tmp_path, monkeypatch):
+    """The design file of a local dependency is a file the generator may write, so a launch
+    that cannot find it before the generator runs loads the design in full."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(
+        tmp_path,
+        ["gen/top.v", "gen/dep.toml"],
+        sources=["gen/top.v"],
+        dependencies=["gen/dep.toml"],
+    )
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert flow is not None and flow.succeeded
+    assert generated.runs == 1
+
+
+def test_a_remote_launch_loads_a_local_dependency_the_generator_writes_in_full(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(
+        tmp_path,
+        ["gen/top.v", "gen/dep.toml"],
+        sources=["gen/top.v"],
+        dependencies=["gen/dep.toml"],
+    )
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    # the generator runs, then the connection to the unreachable host fails
+    with pytest.raises(Exception) as raised:
+        runner.run_remote(
+            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
+        )
+    assert not isinstance(raised.value, DesignValidationError)
+    assert generated.runs == 1
+
+
+def _malformed_top(generated: Generated) -> None:
+    spec = json.loads(generated.file.read_text())
+    spec["rtl"]["top"] = 123
+    generated.file.write_text(json.dumps(spec))
+
+
+def test_a_malformed_field_beside_a_missing_generated_file_runs_no_generator(tmp_path, monkeypatch):
+    """The testbench file is missing and `rtl.top` is no name: the generator could cure only the
+    first, and the full load would fail on the second after running it."""
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(
+        tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
+    )
+    _malformed_top(generated)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(DesignValidationError, match="rtl"):
+        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert generated.runs == 0
+
+
+def test_a_remote_launch_runs_no_generator_for_a_malformed_field_beside_a_missing_file(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(
+        tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
+    )
+    _malformed_top(generated)
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    with pytest.raises(DesignValidationError, match="rtl"):
+        runner.run_remote(
+            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
+        )
+    assert generated.runs == 0

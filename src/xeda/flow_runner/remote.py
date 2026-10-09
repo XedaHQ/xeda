@@ -1070,8 +1070,8 @@ class RemoteRunner(FlowLauncher):
         with deferring_load_side_effects() as deferred:
             try:
                 loaded = load(design)
-            except Exception:
-                if not deferred.failure_may_depend_on_deferred_output:
+            except Exception as error:
+                if not deferred.failure_may_depend_on_deferred_output(error):
                     raise
         if deferred.deferred:
             if loaded is not None and deferred.complete:

@@ -385,10 +385,12 @@ platform file) is checked at this point too, so that file must exist before the 
 (for a design that says enough before its generator has run; see the cases below).
 The generator may still rewrite that file, but it cannot be the only step that creates it.
 Some designs say too little before their generator has run, and xeda then judges the request
-after the generator, as it did before: a design with a pattern in ``rtl.sources`` whose suffix
-gives no type (``gen/*``), a design with a Git dependency (the dependency can bring sources, a top
-and a testbench), and a design that does not load before its generator runs (it lists another
-file that the generator writes, such as a testbench, as a file that must exist).
+after the generator, as it did before: a design with a pattern in ``rtl.sources`` (``gen/*.v``; it
+stands for the files that exist once the generator has run), a design with a Git dependency (the dependency can bring sources, a top
+and a testbench), and a design that does not load before its generator runs because files are missing (it lists
+another file that the generator writes, such as a testbench or a local dependency's design file,
+as a file that must exist). A design that also has any other error, such as a wrong value, is
+refused at once, and its generator does not run.
 
 A generator given as a shell command (``generator: "python soc.py"``) or as a list of arguments
 declares nothing it reads, so it runs on every load. Write it as a table with ``sources`` to have
