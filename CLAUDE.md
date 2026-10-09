@@ -522,7 +522,8 @@ its output paths inside its run directory.
   An input from a source (a file the user lists) or from nothing is not compared, so a listed
   SDF or SAIF is the user's own choice. Two different producers are refused with the inputs,
   their origins and the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that repair
-  it. `vivado_postsynth_sim`'s `netlist` and `sdf` are tied to `netlist_timing` (all three come
+  it (the inputs the user bound keep their producer and every other generated input of the group
+  moves to it; bound inputs that disagree get no advice; a test applies each advice and plans). `vivado_postsynth_sim`'s `netlist` and `sdf` are tied to `netlist_timing` (all three come
   from one synthesis run: only the timing pair is read with `timing_sim`, but a half-bound trio
   also runs two synthesis flows); `vivado_power`'s `checkpoint` is tied to the synthesis behind
   `activity` (`same_producer_as="activity", via="netlist_timing"`: the producer of the

@@ -75,6 +75,8 @@ producer as another input of the flow names it in ``same_producer_as``. With ``v
 goes one step further: the input has to come from the producer of that input of the flow that makes
 the ``same_producer_as`` input (``vivado_power``'s ``checkpoint`` comes from the synthesis whose
 ``netlist_timing`` the simulation behind ``activity`` read). Both are ``null`` for most inputs.
+Only generated inputs, those with a producer in the plan, are compared: an input that comes from
+a source you list, or that is absent, is not.
 For example, ``nextpnr`` declares input ``netlist`` of type ``JsonNetlist``, default producer
 ``yosys_fpga``, output ``netlist``. Sources of an accepted type displace that default producer.
 Use the resolved plan for the producers a particular request actually needs.

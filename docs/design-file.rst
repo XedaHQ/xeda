@@ -210,8 +210,8 @@ Every source has a type. A suffix is matched exactly as written: ``TOP.VHD`` is 
 error names ``.vhd``). ``.json``, ``.bin``, ``.cfg``, ``.config`` and ``.dcp`` name several kinds
 of file, and a suffix not in the table names nothing xeda knows, so a source with one needs its
 ``type``; ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
-``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb`` and ``Data`` are only
-ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
+``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb``, ``Data`` and the
+legacy ``Checkpoint`` (no flow takes it) are only ever given that way. Explicit type names are case-tolerant; suffixes are not. ``Data``
 is for a file with no automatic HDL frontend (test vectors, a script's input); a flow or the
 design can still read it. An invalid explicit ``type`` is an error naming the closest types.
 A ``.v`` file is ``Verilog``; give a gate-level netlist explicitly as

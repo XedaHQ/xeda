@@ -93,65 +93,71 @@ def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin
     return frozenset(followed) or None
 
 
-def _moves(graph: Graph, node: Node, names: Iterable[str], target: Origin) -> list[str] | None:
-    """The `-s` items that bind each of `names` (inputs of `node`) to the one producer in
-    `target`, naming the output when it is clear: the only one that fits, or the one named like
-    the input. None when `target` is no single producer or one of them cannot supply an input."""
-    if len(target) != 1:
-        return None
-    (producer,) = target
+def _involved(graph: Graph, node: Node, declaration: InputDeclaration) -> list[tuple[Node, str]]:
+    """Every input that has to agree for the relation of `declaration` to hold: the related
+    inputs of `node` and, with `via`, that input of each node that makes the related input,
+    with the inputs of that node tied to it."""
+    anchor = declaration.same_producer_as
+    assert anchor is not None
+    members = _related(node, declaration)
+    if declaration.via is None:
+        return [(node, name) for name in (anchor, *members)]
+    involved = [(node, name) for name in members]
+    for made_by in sorted(_origin(node, anchor) or ()):
+        maker = graph[made_by]
+        tied = [
+            other.name
+            for other in declared_inputs(maker.cls).values()
+            if other.same_producer_as == declaration.via
+        ]
+        involved += [(maker, name) for name in (declaration.via, *tied)]
+    return involved
+
+
+def _binding(node: Node, name: str, producer: str) -> str | None:
+    """The `-s` item that binds input `name` of `node` to node `producer`, naming the output when
+    it is clear: the only one that fits, or the one named like the input. None when the producer
+    cannot supply the input."""
     producer_cls = registered_flow(producer)
     if producer_cls is None:
         return None
-    items = []
-    for name in names:
-        if _origin(node, name) in (target, None):  # agrees already, or is the user's own file
-            continue
-        fitting, _many = fitting_outputs(producer_cls, declared_inputs(node.cls)[name])
-        if len(fitting) != 1 and name in fitting:
-            fitting = [name]
-        if len(fitting) != 1:
-            return None
-        items.append(f"flows.{node.label}.inputs.{name}={producer}.{fitting[0]}")
-    return items
+    fitting, _many = fitting_outputs(producer_cls, declared_inputs(node.cls)[name])
+    if len(fitting) != 1 and name in fitting:
+        fitting = [name]
+    if len(fitting) != 1:
+        return None
+    return f"flows.{node.label}.inputs.{name}={producer}.{fitting[0]}"
 
 
-def _repair(
-    graph: Graph, node: Node, declaration: InputDeclaration, mine: Origin, theirs: Origin
-) -> tuple[str, list[str]] | None:
-    """The producer to take the related inputs from and the bindings that do it. The side the
-    user bound keeps its producer, and the other side moves to it; None when no side is clear."""
-    assert declaration.same_producer_as is not None
-    members = _related(node, declaration)
-    if declaration.via is None:
-        everyone = [declaration.same_producer_as, *members]
-        chosen = next((name for name in everyone if _explicit(node, name)), None)
-        target = _origin(node, chosen) if chosen is not None else None
-        moves = None if target is None else _moves(graph, node, everyone, target)
-        return (next(iter(target)), moves) if target and moves else None
-    if any(_explicit(node, name) for name in members):
-        # this input keeps its producer: the flow that makes the related input follows it
-        moves = []
-        for made_by in sorted(_origin(node, declaration.same_producer_as) or ()):
-            maker = graph[made_by]
-            dependents = [
-                other.name
-                for other in declared_inputs(maker.cls).values()
-                if other.same_producer_as == declaration.via
-            ]
-            more = _moves(graph, maker, [declaration.via, *dependents], mine)
-            if more is None:
-                return None
-            moves += more
-        return (next(iter(mine)), moves) if moves and len(mine) == 1 else None
-    moves = _moves(graph, node, members, theirs)
-    return (next(iter(theirs)), moves) if moves else None
+def _advice(graph: Graph, node: Node, declaration: InputDeclaration) -> str:
+    """What to do about a broken relation. The inputs the user bound keep their producer, and
+    every other generated input that has to agree moves to it, so adding the bindings makes the
+    plan pass. When the bound inputs themselves name different producers, no binding can
+    help without overriding one of them, and the advice says so."""
+    involved = _involved(graph, node, declaration)
+    bound = [(n, name) for n, name in involved if _explicit(n, name) and _origin(n, name)]
+    targets = {_origin(n, name) for n, name in bound}
+    if len(targets) > 1:
+        said = "; ".join(_said(n, name) for n, name in bound)
+        return f" These inputs are bound to different producers ({said}): bind them to one."
+    if len(targets) == 1:
+        (target,) = targets
+        if target is not None and len(target) == 1:
+            (producer,) = target
+            moves = []
+            for n, name in involved:
+                if _origin(n, name) in (target, None):  # agrees already, or is the user's file
+                    continue
+                move = _binding(n, name, producer)
+                if move is None:
+                    return " Take all of them from one producer."
+                moves.append(move)
+            return f" To use `{producer}` for all of them, add `-s {' '.join(moves)}`."
+    return " Take all of them from one producer."
 
 
-def _message(
-    graph: Graph, node: Node, declaration: InputDeclaration, mine: Origin, theirs: Origin
-) -> str:
-    """The refusal. `mine` and `theirs` are the two sides of a `via` relation (empty otherwise)."""
+def _message(graph: Graph, node: Node, declaration: InputDeclaration, theirs: Origin) -> str:
+    """The refusal. `theirs` is where the related input of a `via` relation is followed to."""
     anchor = declaration.same_producer_as
     assert anchor is not None
     members = _related(node, declaration)
@@ -167,12 +173,7 @@ def _message(
         )
         states = [_said(node, name) for name in (*members, anchor)]
         states.append(f"that `{declaration.via}` comes from " + ", ".join(sorted(theirs)))
-    text = f"{head}, but " + "; ".join(states) + "."
-    repair = _repair(graph, node, declaration, mine, theirs)
-    if repair is not None:
-        producer, moves = repair
-        return text + f" To use `{producer}` for all of them, add `-s {' '.join(moves)}`."
-    return text + " Take all of them from one producer."
+    return f"{head}, but " + "; ".join(states) + "." + _advice(graph, node, declaration)
 
 
 def check_related_inputs(nodes: Iterable[Node]) -> None:
@@ -187,11 +188,9 @@ def check_related_inputs(nodes: Iterable[Node]) -> None:
             if declaration.via is None:
                 names = [declaration.same_producer_as, *_related(node, declaration)]
                 if len({origin for name in names if (origin := _origin(node, name))}) > 1:
-                    raise FlowSettingsException(
-                        _message(graph, node, declaration, frozenset(), frozenset())
-                    )
+                    raise FlowSettingsException(_message(graph, node, declaration, frozenset()))
                 continue
             mine = _origin(node, declaration.name)
             theirs = _followed(graph, node, declaration)
             if mine is not None and theirs is not None and mine != theirs:
-                raise FlowSettingsException(_message(graph, node, declaration, mine, theirs))
+                raise FlowSettingsException(_message(graph, node, declaration, theirs))

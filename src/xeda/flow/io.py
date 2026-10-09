@@ -286,8 +286,8 @@ def _check_relation(
         )
     if declaration.via is not None and inputs[anchor].producer is None:
         raise TypeError(
-            f"{where} follows `{anchor}` to its producer's `{declaration.via}`, and `{anchor}` "
-            "names a default producer to look that input up in: give it a `producer`"
+            f"{where} names `via`, which looks `{declaration.via}` up in the flow that makes "
+            f"`{anchor}`: `{anchor}` needs a default `producer` to name that flow"
         )
 
 

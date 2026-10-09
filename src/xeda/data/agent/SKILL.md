@@ -89,8 +89,9 @@ Key points that are easy to get wrong:
   Prefer `clock.period` or `clock.freq` in new files. Multiple: a list under `rtl.clocks` plus a
   `clocks` mapping in the flow settings.
 - Every source needs a type: suffix inference is case-sensitive; unknown or ambiguous suffixes
-  (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) need an explicit `type`. Use `Data` for files with no
-  automatic HDL frontend (a tool or the design can still read them). Invalid explicit types fail
+  (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) need an explicit `type`; a `.dcp` is
+  `SynthCheckpoint` or `RoutedCheckpoint`. Use `Data` for files with no automatic HDL frontend (a
+  tool or the design can still read them). Invalid explicit types fail
   with suggestions; type names themselves are case-tolerant.
 - Give a source a table instead of a string when inference is not enough:
   `{file: "legacy.v", type: SystemVerilog}`. Use `path:` instead of `file:` for a source a

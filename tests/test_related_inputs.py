@@ -316,7 +316,7 @@ def declare(**kwargs):
         ({"a": declare(via="b"), "b": declare()}, "needs `same_producer_as`"),
         (
             {"a": declare(same_producer_as="b", via="c"), "b": declare()},
-            "names a default producer",
+            "needs a default `producer`",
         ),
     ],
 )
@@ -337,3 +337,180 @@ def test_the_documented_alternative_synthesis_power_report_plans(tmp_path):
     design = _stage(tmp_path, "alt_power.yaml") / "alt_power.yaml"
     planned = DefaultRunner(tmp_path / "run", display_results=False).plan("vivado_power", design)
     assert producers(planned) == {"vivado_alt_synth", "vivado_postsynth_sim", "vivado_power"}
+
+
+# ------------------------------------------------------------------------------ the advice
+
+
+def advice_of(message: str) -> list[str]:
+    """The `-s` items a refusal tells the user to add (empty when it gives none)."""
+    found = message.partition("add `-s ")[2].partition("`")[0]
+    return found.split()
+
+
+REPAIRABLE = {
+    "one input of the trio": ("vivado_postsynth_sim", [f"{SIM}.netlist=vivado_alt_synth.netlist"]),
+    "the timing netlist": (
+        "vivado_postsynth_sim",
+        [f"{SIM}.netlist_timing=vivado_alt_synth.netlist_timing"],
+    ),
+    "the sdf": ("vivado_postsynth_sim", [f"{SIM}.sdf=vivado_alt_synth.sdf"]),
+    "the checkpoint": ("vivado_power", [f"{POWER}.checkpoint=vivado_alt_synth.checkpoint_route"]),
+    "the simulation": (
+        "vivado_power",
+        [f"{SIM}.{name}=vivado_alt_synth.{name}" for name in ("netlist", "netlist_timing", "sdf")],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", REPAIRABLE)
+def test_the_bindings_a_refusal_suggests_make_the_plan_pass(tmp_path, case):
+    flow, settings = REPAIRABLE[case]
+    message = refusal(tmp_path, flow, *settings)
+    advice = advice_of(message)
+    assert advice, message
+    again = tmp_path / "again"
+    again.mkdir()
+    assert plan(again, flow, *settings, *advice) is not None
+
+
+def test_the_suggested_bindings_of_a_chain_make_the_plan_pass(tmp_path):
+    write_vivado_design(tmp_path)
+    settings = [*VIVADO_SETTINGS, *ALT]
+    request = "vivado_alt_synth.checkpoint_route+vivado_power"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    with pytest.raises(FlowSettingsException) as error:
+        runner.plan(request, tmp_path / "design.yaml", flow_settings=settings)
+    advice = advice_of(" ".join(str(error.value).split()))
+    assert advice
+    planned = runner.plan(request, tmp_path / "design.yaml", flow_settings=[*settings, *advice])
+    assert producers(planned) == {"vivado_alt_synth", "vivado_postsynth_sim", "vivado_power"}
+
+
+@pytest.mark.parametrize(
+    "flow, settings",
+    [
+        # the user chose both sides: the checkpoint of one synthesis, the netlist of the other
+        (
+            "vivado_power",
+            [
+                f"{POWER}.checkpoint=vivado_alt_synth.checkpoint_route",
+                f"{SIM}.netlist_timing=vivado_synth.netlist_timing",
+            ],
+        ),
+        (
+            "vivado_postsynth_sim",
+            [f"{SIM}.netlist=vivado_alt_synth.netlist", f"{SIM}.sdf=vivado_synth.sdf"],
+        ),
+    ],
+)
+def test_conflicting_bindings_get_no_advice_that_overrides_one_of_them(tmp_path, flow, settings):
+    message = refusal(tmp_path, flow, *settings)
+    assert not advice_of(message), message
+    assert "bound to different producers" in message
+    for item in settings:
+        name = item.partition("=")[0].rpartition(".")[2]
+        assert f"{name} <-" in message, name
+
+
+@pytest.fixture
+def groups(tmp_path):
+    """Flows with several inputs in one `via` group: a power-like consumer takes `ck1` and `ck2`
+    from the synthesis whose `net` the flow that makes its `act` reads."""
+    from xeda.flow import Out
+
+    class _SynthA(Flow):
+        """First synthesis."""
+
+        results_description = {}
+
+        class Outputs(Flow.Outputs):
+            net: Path = Out(SourceType.Data, description="x")
+            ck1: Path = Out(SourceType.Data, description="x")
+            ck2: Path = Out(SourceType.Data, description="x")
+
+        def run(self) -> None:
+            pass
+
+    class _SynthB(_SynthA):
+        """Second synthesis."""
+
+        results_description = {}
+
+    class _Sim(Flow):
+        """Reads a netlist."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            net: Path = In(SourceType.Data, producer=_SynthA.name, output="net", description="x")
+
+        class Outputs(Flow.Outputs):
+            act: Path = Out(SourceType.Data, description="x")
+
+        def run(self) -> None:
+            pass
+
+    class _Report(Flow):
+        """Reports on two checkpoints of the synthesis behind an activity."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            act: Path = In(SourceType.Data, producer=_Sim.name, output="act", description="x")
+            ck1: Path = In(
+                SourceType.Data,
+                producer=_SynthA.name,
+                output="ck1",
+                same_producer_as="act",
+                via="net",
+                description="x",
+            )
+            ck2: Path = In(
+                SourceType.Data,
+                producer=_SynthA.name,
+                output="ck2",
+                same_producer_as="act",
+                via="net",
+                description="x",
+            )
+
+        def run(self) -> None:
+            pass
+
+    from xeda import Design
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+
+    def plan_(*settings):
+        return runner.plan(_Report, design, flow_settings=list(settings))
+
+    return _SynthA.name, _SynthB.name, _Sim.name, _Report.name, plan_
+
+
+def test_the_advice_moves_every_member_of_a_via_group(groups):
+    a, b, sim, report, plan_ = groups
+    with pytest.raises(FlowSettingsException) as error:
+        plan_(f"flows.{report}.inputs.ck1={b}.ck1")
+    message = " ".join(str(error.value).split())
+    advice = advice_of(message)
+    assert f"flows.{report}.inputs.ck2={b}.ck2" in advice, message
+    assert f"flows.{sim}.inputs.net={b}.net" in advice, message
+    assert {node.name for node in plan_(f"flows.{report}.inputs.ck1={b}.ck1", *advice).nodes} == {
+        b,
+        sim,
+        report,
+    }
+
+
+def test_the_advice_never_overrides_a_binding_in_a_via_group(groups):
+    a, b, sim, report, plan_ = groups
+    with pytest.raises(FlowSettingsException) as error:
+        plan_(
+            f"flows.{report}.inputs.ck1={b}.ck1",
+            f"flows.{report}.inputs.ck2={a}.ck2",
+        )
+    message = " ".join(str(error.value).split())
+    assert not advice_of(message), message
+    assert "bound to different producers" in message
