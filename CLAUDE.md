@@ -1743,9 +1743,10 @@ dependency must also share `custom_boards_file`.
   a finished flow shares no mutable object with module or class state. So: a flow class holds no
   model instance (a `Tool` is made in `init()`: it finds its flow when it is made); `Flow.__init__`
   and `Optimizer.variations` copy what they are given; a source is hashed from its file each time
-  (`FileResource.content_hash` has no cache); a launcher's `debug` raises the level of `xeda.*`
-  loggers for the length of a launch (`default_runner.xeda_debug_logging`, on each entry point;
-  overlapping launches share one count), and a search removes the log handler it added.
+  (`FileResource.content_hash` has no cache); a launcher's `debug` raises the level of the
+  `xeda` logger, which its children inherit unless they set a level of their own, for the length
+  of a launch (`default_runner.xeda_debug_logging`, on each entry point; overlapping launches
+  share one count), and a search removes the log handler it added.
   `tests/test_shared_state.py` (`tests/state_snapshot.py`) launches every product flow under the
   stand-in tools, with its options flipped, and fails on any of it; each check has an offender
   test that it must catch, so extend the offenders with a new kind of state.
