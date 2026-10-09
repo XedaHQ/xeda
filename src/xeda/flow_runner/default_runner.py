@@ -8,6 +8,7 @@ import importlib
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -852,19 +853,55 @@ def _drop_unwritten_artifacts(flow: Flow) -> None:
     )
 
 
+class _DebugLogging:
+    """The launches of the process that run at DEBUG now, and the level of the `xeda` logger from
+    before the first of them. The state is the process's, so launchers on several threads share
+    it: the level is DEBUG from the first debug launch to the end of the last one."""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.active = 0
+        #: the level to put back; `None` when no launch changed it (it was DEBUG or lower already)
+        self.previous: Optional[int] = None
+
+    def enter(self) -> None:
+        package = logging.getLogger("xeda")
+        with self.lock:
+            if self.active == 0:
+                level = package.level
+                if level == logging.NOTSET or level > logging.DEBUG:
+                    self.previous = level
+                    package.setLevel(logging.DEBUG)
+            self.active += 1
+
+    def leave(self) -> None:
+        package = logging.getLogger("xeda")
+        with self.lock:
+            self.active -= 1
+            if self.active == 0:
+                # a level the application set meanwhile is the application's: only ours is undone
+                if self.previous is not None and package.level == logging.DEBUG:
+                    package.setLevel(self.previous)
+                self.previous = None
+
+
+_DEBUG_LOGGING = _DebugLogging()
+
+
 @contextmanager
 def xeda_debug_logging(enabled: bool) -> Iterator[None]:
     """DEBUG records from xeda's own loggers (`xeda.*`) while the block runs, when `enabled`, and
     the logger's level as it was after. Nothing else changes: not the root logger, not the
-    handlers, so the logging of an application that embeds xeda stays its own."""
-    package = logging.getLogger("xeda")
-    previous = package.level
-    if enabled and (previous == logging.NOTSET or previous > logging.DEBUG):
-        package.setLevel(logging.DEBUG)
+    handlers, so the logging of an application that embeds xeda stays its own. A block that is
+    not `enabled` touches nothing."""
+    if not enabled:
+        yield
+        return
+    _DEBUG_LOGGING.enter()
     try:
         yield
     finally:
-        package.setLevel(previous)
+        _DEBUG_LOGGING.leave()
 
 
 _Method = TypeVar("_Method", bound=Callable[..., Any])

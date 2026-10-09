@@ -34,6 +34,7 @@ from ..default_runner import (
     print_results,
     remove_file_logger,
     run_directory_names,
+    with_debug_logging,
 )
 from ..settings_layers import merge_layers
 from ..resolver import Plan
@@ -279,6 +280,7 @@ class Dse(FlowLauncher):
             max_workers=self.settings.max_workers, settings=optimizer_settings
         )
 
+    @with_debug_logging
     def run_flow(
         self,
         flow_class: Union[str, Type[Flow]],
