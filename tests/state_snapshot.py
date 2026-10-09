@@ -383,6 +383,12 @@ def process_state() -> dict[str, Any]:
     }
 
 
+def _configured(logger_state: tuple) -> bool:
+    """Whether a logger's state (level, handlers, propagate, disabled) is not a fresh logger's."""
+    level, handlers, propagate, disabled = logger_state
+    return level != logging.NOTSET or bool(handlers) or not propagate or disabled
+
+
 def process_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for key in before:
@@ -391,6 +397,13 @@ def process_changes(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
                 f"logger {name!r}: {before[key][name]} -> {after[key].get(name)}"
                 for name in before[key]
                 if before[key][name] != after[key].get(name)
+            ]
+            # A logger made during the launch is no change (importing a module makes its own);
+            # one that the launch also configured is.
+            lines += [
+                f"logger {name!r}: made and configured by the launch: {after[key][name]}"
+                for name in sorted(after[key].keys() - before[key].keys())
+                if _configured(after[key][name])
             ]
         elif key == "environment":
             lines += [

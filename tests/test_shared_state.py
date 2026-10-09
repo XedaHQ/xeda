@@ -27,6 +27,7 @@ import logging
 import os
 import sys
 import typing
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -321,25 +322,48 @@ def test_the_sweep_sees_a_flow_that_shares_the_default_of_a_setting(tmp_path, mo
     assert "is also" in said and "suppress_msgs" in said
 
 
+def _loggers() -> dict:
+    return {
+        name: logger
+        for name, logger in list(logging.root.manager.loggerDict.items())
+        if isinstance(logger, logging.Logger)
+    }
+
+
 @pytest.fixture
 def process_as_it_is():
-    """What the process offenders change, put back after the test."""
+    """What the process offenders change, put back after the test: the loggers that exist now as
+    they are, and any a test makes with no configuration."""
     root = logging.getLogger()
     level, handlers = root.level, list(root.handlers)
     named = {
-        name: logger.level
-        for name, logger in list(logging.root.manager.loggerDict.items())
-        if isinstance(logger, logging.Logger)
+        name: (logger.level, list(logger.handlers), logger.propagate, logger.disabled)
+        for name, logger in _loggers().items()
     }
     filters = list(warnings.filters)
     path = list(sys.path)
     yield
     root.setLevel(level)
     root.handlers[:] = handlers
-    for name, was in named.items():
-        logging.getLogger(name).setLevel(was)
+    for name, logger in _loggers().items():
+        logger.level, logger.handlers[:], logger.propagate, logger.disabled = named.get(
+            name, (logging.NOTSET, [], True, False)
+        )
     warnings.filters[:] = filters
     sys.path[:] = path
+
+
+def fresh_logger(kind: str) -> logging.Logger:
+    """A logger no one has asked for yet: its name is new in the process each time."""
+    return logging.getLogger(f"oracle.fresh.{kind}.{uuid.uuid4().hex[:8]}")
+
+
+def _disabled(logger: logging.Logger) -> None:
+    logger.disabled = True
+
+
+def _not_propagating(logger: logging.Logger) -> None:
+    logger.propagate = False
 
 
 PROCESS_OFFENDERS = {
@@ -351,6 +375,22 @@ PROCESS_OFFENDERS = {
     "logger of xeda": (
         lambda mp: logging.getLogger("xeda.flow_runner.default_runner").setLevel(logging.CRITICAL),
         "xeda.flow_runner.default_runner",
+    ),
+    "new logger with a level": (
+        lambda mp: fresh_logger("level").setLevel(logging.CRITICAL),
+        "oracle.fresh.level",
+    ),
+    "new logger with a handler": (
+        lambda mp: fresh_logger("handler").addHandler(logging.NullHandler()),
+        "oracle.fresh.handler",
+    ),
+    "new logger that does not propagate": (
+        lambda mp: _not_propagating(fresh_logger("propagate")),
+        "oracle.fresh.propagate",
+    ),
+    "new logger that is disabled": (
+        lambda mp: _disabled(fresh_logger("disabled")),
+        "oracle.fresh.disabled",
     ),
     "sys.path": (lambda mp: sys.path.append("/nowhere/at/all"), "sys.path"),
     "warning filter": (lambda mp: warnings.simplefilter("ignore", DeprecationWarning), "warning"),
@@ -379,6 +419,14 @@ def test_the_sweep_sees_a_launch_that_changes_the_process(
     finally:
         os.chdir(here)
     assert shown in said
+
+
+def test_the_sweep_lets_a_launch_make_a_logger_it_does_not_configure(
+    tmp_path, monkeypatch, process_as_it_is
+) -> None:
+    """Importing a module during a launch makes its logger: no change of the process."""
+    said = _victim(tmp_path, monkeypatch, lambda flow: fresh_logger("plain"))
+    assert said == ""
 
 
 def test_the_sweep_sees_a_launch_that_changes_what_the_caller_gave(tmp_path, monkeypatch) -> None:
