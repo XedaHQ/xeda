@@ -89,7 +89,7 @@ Key points that are easy to get wrong:
   Prefer `clock.period` or `clock.freq` in new files. Multiple: a list under `rtl.clocks` plus a
   `clocks` mapping in the flow settings.
 - Every source needs a type: suffix inference is case-sensitive; unknown or ambiguous suffixes
-  (`.json`, `.bin`, `.cfg`, `.config`) need an explicit `type`. Use `Data` for files with no
+  (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) need an explicit `type`. Use `Data` for files with no
   automatic HDL frontend (a tool or the design can still read them). Invalid explicit types fail
   with suggestions; type names themselves are case-tolerant.
 - Give a source a table instead of a string when inference is not enough:
@@ -256,9 +256,10 @@ one requested (`flow`, `results`, `--help-settings` and the exit status are its)
 it supplies the next one's compatible **required** inputs. A chain is a path, not waypoints: `+`
 is the only separator, each flow appears once, `FLOW.OUTPUT` picks one output of a producer
 (`nextpnr.config+fpga_pack`), and nothing searches for a missing stage. A refused chain suggests a
-valid one only when another output of the producer, or the flows that the required default
-producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
-`nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. A flow that
+request that passes the same check only when another output of the producer, or the flows that
+the required default producers name between the pair, fix it (`nextpnr+openfpgaloader` ->
+`nextpnr+fpga_pack+openfpgaloader`); otherwise the refusal carries no suggestion. The check sees
+declarations only, so planning can still refuse a request it passed (related inputs, below). A flow that
 programs a device (`openfpgaloader`) can only end a chain, and only flows with declared I/O chain
 (`xeda list-flows --json`: `can_follow`, `can_precede`); `bsc`, `bsc_sim`, `vivado_project` and
 `vivado_sim` run alone, and a chain through one is refused (no compatible output, or the next flow takes no required input). A chain is local: `--remote` and
@@ -276,6 +277,12 @@ as `-s flows.<consumer>.inputs.<input>=...`, or through the API), else a **typed
 producer**. A binding names a flow's output, never a file: give a file as a typed source.
 `inputs` is wiring for the resolver, not a setting: it is not in `xeda list-settings` or
 `settings.json`.
+
+Related inputs of one flow come from one producer: `xeda list-flows --json` shows a relation as
+`same_producer_as` (and `via`) on the input. `vivado_postsynth_sim`'s `netlist` and `sdf` agree with
+its `netlist_timing`, and so does `vivado_power`'s `checkpoint` with the synthesis behind its
+`activity`. Binding one of them to `vivado_alt_synth` alone is refused, naming the `-s` bindings
+that make the plan agree. A file you list in `rtl.sources` is your own choice and is not compared.
 
 ```yaml
 # prebuilt_demo.yaml: `xeda run nextpnr prebuilt_demo.yaml` skips synthesis;

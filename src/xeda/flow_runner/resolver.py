@@ -39,6 +39,7 @@ from .bindings import (
     node_identity,
 )
 from .chains import FlowRequest, fitting_outputs
+from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     _nested_model,
     carry_diagnostics,
@@ -1076,6 +1077,10 @@ def resolve(
         # A displaced producer leaves the graph, with its settings and shared leaves.
         demands()
 
+    check_related_inputs(
+        Node(request.label, request.cls, {item.name: item for item in request.inputs})
+        for request in requests
+    )
     active = {request.cls.name: request.cls for request in requests}
     default_flows = {**transitive_dependencies(flow_cls)}
     for active_cls in active.values():

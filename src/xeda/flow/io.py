@@ -70,11 +70,21 @@ def In(
     producer: str | None = None,
     output: str | None = None,
     optional: bool = False,
+    same_producer_as: str | None = None,
+    via: str | None = None,
     description: str,
 ) -> Any:
     """A declared input: the source types it accepts; `producer`, the flow (by canonical name)
     whose output feeds it when the design lists no source of those types, and `output`, which
-    of that flow's outputs; `optional` lets a `list[Path]` input be empty."""
+    of that flow's outputs; `optional` lets a `list[Path]` input be empty.
+
+    `same_producer_as` names another input of the flow that this one belongs with: the plan takes
+    both from one producer node. An input that comes from the design's sources or is absent is not
+    compared, because a file the user lists is the user's own choice. `via` moves the comparison one
+    step: it names an input of the flow that makes the other input, and this input has to come
+    from the producer of that input. `vivado_power` uses it for its checkpoint, which must come
+    from the synthesis behind the netlist that the simulation of its `activity` read (the
+    activity's own producer is a simulation, not a synthesis)."""
     marker: dict[str, Any] = {
         "kind": "input",
         "types": _type_names(types),
@@ -82,6 +92,10 @@ def In(
         "output": output,
         "optional": optional,
     }
+    if same_producer_as is not None:
+        marker["same_producer_as"] = same_producer_as
+    if via is not None:
+        marker["via"] = via
     return Field(None, description=description, json_schema_extra={IO_MARKER: marker})
 
 
@@ -113,6 +127,10 @@ class InputDeclaration:
     output: str | None
     optional: bool
     description: str
+    #: another input of the flow that this one has to come from the same producer as, and, for
+    #: a transitive relation, the input of the flow making that one whose producer this is
+    same_producer_as: str | None = None
+    via: str | None = None
 
     @property
     def required(self) -> bool:
@@ -170,6 +188,8 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
             output=marker["output"],
             optional=marker["optional"],
             description=model.model_fields[name].description or "",
+            same_producer_as=marker.get("same_producer_as"),
+            via=marker.get("via"),
         )
         for name, marker in _markers(model, "input").items()
     }
@@ -210,9 +230,13 @@ def selected_types(
 
 def check_io_declarations(flow_cls: Any) -> None:
     """Refuse a malformed declaration when the flow class is defined (a `TypeError`): every
-    field made with `In`/`Out`, annotated `Path`, `Path | None` or `list[Path]`, and an output's
-    `enabled_by` naming a setting of an output that may be absent."""
-    for input_declaration in declared_inputs(flow_cls).values():
+    field made with `In`/`Out`, annotated `Path`, `Path | None` or `list[Path]`, an output's
+    `enabled_by` naming a setting of an output that may be absent, and an input's
+    `same_producer_as` naming another input of the flow that declares none itself."""
+    inputs = declared_inputs(flow_cls)
+    for input_declaration in inputs.values():
+        _check_relation(flow_cls, input_declaration, inputs)
+    for input_declaration in inputs.values():
         if input_declaration.optional and input_declaration.cardinality != "many":
             raise TypeError(
                 f"{flow_cls.__qualname__}'s input `{input_declaration.name}` uses optional=True, "
@@ -236,6 +260,35 @@ def check_io_declarations(flow_cls: Any) -> None:
                 f"{flow_cls.__qualname__}'s output `{declaration.name}` is switched on by "
                 f"`{declaration.enabled_by}`, so it may be absent: annotate it `Path | None`"
             )
+
+
+def _check_relation(
+    flow_cls: Any, declaration: InputDeclaration, inputs: dict[str, InputDeclaration]
+) -> None:
+    """Refuse a malformed `same_producer_as`/`via` of `declaration` (a `TypeError`)."""
+    where = f"{flow_cls.__qualname__}'s input `{declaration.name}`"
+    anchor = declaration.same_producer_as
+    if anchor is None:
+        if declaration.via is not None:
+            raise TypeError(f"{where} names `via` and needs `same_producer_as` too")
+        return
+    if anchor == declaration.name:
+        raise TypeError(f"{where} is related to itself")
+    if anchor not in inputs:
+        raise TypeError(
+            f"{where} is related to `{anchor}`, which names no input of the flow "
+            f"(it declares: {', '.join(f'`{name}`' for name in inputs)})"
+        )
+    if inputs[anchor].same_producer_as is not None:
+        raise TypeError(
+            f"{where} is related to `{anchor}`, which declares one too: relate every input to "
+            "one that declares none"
+        )
+    if declaration.via is not None and inputs[anchor].producer is None:
+        raise TypeError(
+            f"{where} follows `{anchor}` to its producer's `{declaration.via}`, and `{anchor}` "
+            "names a default producer to look that input up in: give it a `producer`"
+        )
 
 
 def output_enabled(settings: Any, declaration: OutputDeclaration) -> bool:

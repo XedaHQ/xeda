@@ -501,18 +501,40 @@ its output paths inside its run directory.
   a Verilog netlist of FPGA primitives (`vivado_synth`/`vivado_alt_synth` `netlist` and
   `netlist_timing`, read by `vivado_postsynth_sim`), `SynthCheckpoint` and `RoutedCheckpoint` the
   Vivado `.dcp` after synthesis and after routing (`vivado_power` takes only the routed one).
-  `Checkpoint` (no stage) is taken by no flow and kept for old `settings.json` files; `.dcp` is an
-  `AMBIGUOUS_SUFFIXES` entry, so a `.dcp` source needs its `type` instead of silently feeding
-  nothing. All four are `TYPE_ONLY`. An output of a netlist or checkpoint kind gets the type of
-  what it is. `tests/test_stage_types.py` sweeps every edge `fitting_outputs` accepts between two
-  netlist kinds or two checkpoint kinds: each is either its consumer's default wiring or in
+  `Checkpoint` (no stage) stays for old `settings.json` files and no flow takes it: a source typed
+  so feeds nothing, as any type no flow reads. `.dcp` is an `AMBIGUOUS_SUFFIXES` entry, so a `.dcp`
+  source needs its stage as `type` instead of silently feeding nothing. The four are `TYPE_ONLY`.
+  A Vivado netlist listed as `VerilogNetlist` is a standard-cell netlist to every flow, so it feeds
+  `openroad` and no Vivado flow. An output of a netlist or checkpoint kind gets the type of what it
+  is. `tests/test_stage_types.py` sweeps every edge `fitting_outputs` accepts between two netlist
+  kinds or two checkpoint kinds: each is either its consumer's default wiring or in
   `REVIEWED_EDGES` with a reason, so a new edge fails until reviewed. Known limit, listed there:
   the functional and the timing FPGA netlist share a type. (`sdf` and `sdf_min`, two corners of one
   stage, share `Sdf` too.)
+- **Related inputs come from one producer** (`In(same_producer_as="<input>")`, `via=` for a
+  transitive relation; `flow/io.py`, `InputDeclaration`, shown in `list-flows` as
+  `same_producer_as`/`via`). `flow_runner/related_inputs.check_related_inputs` is the one check,
+  called once by `resolve` on the final graph (after source displacement), so every door that
+  plans goes through it. It compares what xeda generates: an input comes from a set of producer
+  nodes (`ResolvedInput.references`), and related inputs agree when their node sets are equal.
+  An input from a source (a file the user lists) or from nothing is not compared, so a listed
+  SDF or SAIF is the user's own choice. Two different producers are refused with the inputs,
+  their origins and the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that repair
+  it. `vivado_postsynth_sim`'s `netlist` and `sdf` are tied to `netlist_timing` (all three come
+  from one synthesis run: only the timing pair is read with `timing_sim`, but a half-bound trio
+  also runs two synthesis flows); `vivado_power`'s `checkpoint` is tied to the synthesis behind
+  `activity` (`same_producer_as="activity", via="netlist_timing"`: the producer of the
+  `netlist_timing` that the flow making `activity` reads, because the activity's own producer is
+  the simulation). `check_io_declarations` refuses a relation to itself, to an unknown input, to
+  an input that declares one, and `via` without a default producer to look the input up in;
+  `tests/test_related_inputs.py` sweeps the declarations. The chain check sees declarations only,
+  so it still lists `vivado_alt_synth` before `vivado_power` and suggests
+  `vivado_alt_synth.checkpoint_route+vivado_power`, which the resolver then refuses for its
+  activity: an error in two steps, and the second names the bindings.
 - **A chain is validated, suggested, listed and completed by one predicate.**
   `chains._check_chain` judges a request (action last, repeat, edge) and
   `validate_chain` appends `Did you mean ...` with whole corrected requests that pass the same
-  check: another output of the producer, or stages inserted along required default-producer edges
+  check (declarations only: the resolver can still refuse one for its related inputs): another output of the producer, or stages inserted along required default-producer edges
   (`_default_routes`, bounded and breadth-first; never a search over all flows, never a
   construction of a flow). `edges`/`followers`/`predecessors` are the
   same relation for `list-flows` (`can_follow`/`can_precede`/`target_dependent`, and the
@@ -1671,7 +1693,7 @@ dependency must also share `custom_boards_file`.
   boundary to protect. `tests/test_isolation.py` is the current oracle (see "Caching and
   run directories" above).
 - **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
-  table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`) or mis-cased suffixes need an
+  table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) or mis-cased suffixes need an
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
   never reorder the historical ordinals. Script flows declare `reads_sources` and

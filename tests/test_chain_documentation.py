@@ -106,7 +106,11 @@ def _stage(tmp_path: Path, *names: str) -> Path:
         text = _fixture(name)
         (root / name).write_text(text + "\n", encoding="utf-8")
         data = yaml.safe_load(text)
-        for source in (data.get("rtl") or {}).get("sources", []):
+        listed = [
+            *(data.get("rtl") or {}).get("sources", []),
+            *(data.get("tb") or {}).get("sources", []),
+        ]
+        for source in listed:
             file = source["file"] if isinstance(source, dict) else source
             body = {".v": "module top(input clk, output q); assign q = clk; endmodule\n"}.get(
                 Path(file).suffix, '{"modules": {}}\n' if file.endswith(".json") else ""

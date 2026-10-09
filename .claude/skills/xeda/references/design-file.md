@@ -141,9 +141,9 @@ Netlists and checkpoints are typed by stage: `VerilogNetlist` is a standard-cell
 (`openroad` reads it), `FpgaNetlist` a Verilog netlist of FPGA primitives as Vivado writes it
 (`vivado_postsynth_sim` simulates it), `SynthCheckpoint` and `RoutedCheckpoint` a Vivado
 checkpoint after synthesis and after routing (`vivado_power` takes only the routed one). A source
-of the wrong one of these types is not taken in its place, and a Vivado netlist or `.dcp` typed
-`VerilogNetlist` or `Checkpoint` feeds no flow. `Checkpoint` (no stated stage) is kept for old
-settings files.
+of the wrong one of these types is not taken in its place: a Vivado netlist listed as
+`VerilogNetlist` feeds `openroad` and no Vivado flow. `Checkpoint` (no stated stage) is kept for
+old settings files: no flow takes it, so a source with that type feeds nothing.
 
 A source of a later stage's type stands in for the flows that would build it: a `JsonNetlist`
 skips synthesis for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig`

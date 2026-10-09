@@ -50,6 +50,8 @@ class VivadoPower(Vivado, FpgaSynthFlow):
             SourceType.RoutedCheckpoint,
             producer="vivado_synth",
             output="checkpoint_route",
+            same_producer_as="activity",
+            via="netlist_timing",
             description="The routed design checkpoint against which power is reported.",
         )
 

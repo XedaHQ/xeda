@@ -70,15 +70,22 @@ A flow's ``inputs`` and ``outputs`` list its declared file I/O: their
 names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;
 inputs also say whether they are ``required`` (the flow cannot run without one) and whether they are
 ``optional`` (an optional list, which may be empty), and name their default ``producer`` and
-``output``; outputs name their ``enabled_by`` setting.
+``output``; outputs name their ``enabled_by`` setting. An input that has to come from the same
+producer as another input of the flow names it in ``same_producer_as``. With ``via`` the relation
+goes one step further: the input has to come from the producer of that input of the flow that makes
+the ``same_producer_as`` input (``vivado_power``'s ``checkpoint`` comes from the synthesis whose
+``netlist_timing`` the simulation behind ``activity`` read). Both are ``null`` for most inputs.
 For example, ``nextpnr`` declares input ``netlist`` of type ``JsonNetlist``, default producer
 ``yosys_fpga``, output ``netlist``. Sources of an accepted type displace that default producer.
 Use the resolved plan for the producers a particular request actually needs.
 
 ``can_precede`` lists the flows that can come directly after this one in a chain
 (``xeda run this+other``) and ``can_follow`` those it can come directly after. Both are judged by the
-validator ``xeda run`` applies, on declarations alone, so a listed relation is never refused and a
-refused chain is never advertised. Each entry has ``flow``, ``output`` (the producer output the
+validator ``xeda run`` applies, on declarations alone, so a pair that the validator refuses is
+never listed. Planning checks one more thing that declarations cannot show: related inputs of a flow
+must come from one producer. A listed pair can still be refused there, with the bindings to add
+(``vivado_alt_synth`` is listed before ``vivado_power``, whose ``activity`` still comes from
+``vivado_synth`` unless you bind the simulation too). Each entry has ``flow``, ``output`` (the producer output the
 request must name, ``null`` when the unqualified request is valid), ``binds`` (the ``input`` and
 ``output`` pairs the adjacency binds) and ``target_dependent``: true when a produced or accepted
 kind is a union that the target selects from (``nextpnr`` makes the configuration of the target's

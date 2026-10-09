@@ -223,8 +223,9 @@ Verilog netlist of FPGA primitives, as Vivado writes it, which ``vivado_postsynt
 simulates. A Vivado checkpoint (``.dcp``) is written after synthesis (``SynthCheckpoint``) and
 after routing (``RoutedCheckpoint``), and ``vivado_power`` reports power only on the routed one.
 So the ``.dcp`` suffix needs its ``type``, and a netlist or checkpoint of the other type is never
-taken in place of the right one. The type ``Checkpoint``, for a checkpoint of no stated stage, is
-kept for old settings files and no flow takes it.
+taken in place of the right one. A Vivado netlist that you list as ``VerilogNetlist`` feeds
+``openroad`` and no Vivado flow. The type ``Checkpoint``, for a checkpoint of no stated stage, is
+kept for old settings files: no flow takes it, so a source with that type feeds nothing.
 
 A source of a later stage's type stands in for the flows that would build it: a ``JsonNetlist``
 skips synthesis for ``nextpnr``, an ``Edif`` netlist skips it for ``vivado_impl``, a ``Fasm``,
