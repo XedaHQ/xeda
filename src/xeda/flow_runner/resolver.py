@@ -337,13 +337,10 @@ def _clock_inputs(
     values: dict[str, Any], model: type[BaseModel], prefix: tuple[str, ...] = ()
 ) -> dict[tuple[str, ...], dict[str, Any]]:
     result: dict[tuple[str, ...], dict[str, Any]] = {}
-    singular: dict[str, Any] = {
-        key: values[key] for key in ("clock", "clock_period") if key in values
-    }
-    if len(singular) == 1 and "clocks" not in values and "clocks" in model.model_fields:
-        raw = singular.get("clock")
+    if "clock" in values and "clocks" not in values and "clocks" in model.model_fields:
+        raw = values["clock"]
         if raw is None or isinstance(raw, Mapping):
-            result[prefix] = deepcopy(singular)
+            result[prefix] = {"clock": deepcopy(raw)}
     for key, value in values.items():
         info = model.model_fields.get(key)
         child = nested_model(info.annotation) if info else None
@@ -358,9 +355,7 @@ def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> 
     # `settings_layers` synthesizes a name when a singular spelling creates a clock. It is not caller input.
     original = merge_layers(_explicit(raw))
     singular = original.get("clock", {})
-    if "clock_period" in original or (
-        "clock" in original and isinstance(singular, Mapping) and not singular.get("name")
-    ):
+    if "clock" in original and isinstance(singular, Mapping) and not singular.get("name"):
         locations = {
             path: loc
             for path, loc in locations.items()
@@ -556,7 +551,6 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
             ordinary.pop(shared, None)
     if "clocks" in cls.Settings.model_fields:
         ordinary.pop("clock", None)
-        ordinary.pop("clock_period", None)
     return ordinary
 
 

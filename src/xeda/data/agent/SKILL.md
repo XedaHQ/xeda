@@ -81,13 +81,11 @@ Key points that are easy to get wrong:
 - **`sources` order is compilation order.** VHDL packages must precede their users.
 - **Clocks split in two.** `rtl` names the clock *port*; the *period or frequency* is a flow
   setting, because it constrains a particular build. Single clock: `clock: {port: clk}` in
-  `rtl` plus `clock.period` (ns) or `clock.freq` per flow. The legacy `clock_port` spelling is
-  accepted as compatibility input. The legacy `clock_period` spelling is also accepted for flow
-  settings. Within one settings layer, do not combine a compatibility spelling with its canonical
-  counterpart; across layers the higher-precedence spelling wins and is merged into canonical
-  `clocks`.
-  Prefer `clock.period` or `clock.freq` in new files. Multiple: a list under `rtl.clocks` plus a
-  `clocks` mapping in the flow settings.
+  `rtl` plus `clock.period` (ns) or `clock.freq` per flow. `clock_port` (design) and
+  `clock_period` (flow setting) were removed and fail with their replacement: write
+  `clock: <port>` and `clock.period`. Within one settings layer, do not give both `clock` and
+  `clocks`; across layers the higher layer's `clock` is merged into the canonical `clocks`.
+  Multiple: a list under `rtl.clocks` plus a `clocks` mapping in the flow settings.
 - Every source needs a type: suffix inference is case-sensitive; unknown or ambiguous suffixes
   (`.json`, `.bin`, `.cfg`, `.config`) need an explicit `type`. Use `Data` for files with no
   automatic HDL frontend (a tool or the design can still read them). Invalid explicit types fail

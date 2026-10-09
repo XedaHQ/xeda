@@ -748,7 +748,7 @@ def _add_targets(schema: dict[str, Any]) -> None:
                 k: v for k, v in deepcopy(definitions[name]).items() if k != "required"
             }
 
-    # `clock` and `clock_port` name the design's first clock and change it key by key, so a
+    # `clock` names the design's first clock and changes it key by key, so a
     # target's `clock` may leave out the port; `clocks` replaces the list, so its clocks are whole.
     if "Clock" in definitions:
         definitions["ClockOverlay"] = {

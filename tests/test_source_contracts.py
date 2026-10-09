@@ -145,13 +145,13 @@ def _settings(root: Path, flow: str) -> dict:
         lib = root / "pdk" / "cells.db"
         lib.parent.mkdir(parents=True, exist_ok=True)
         lib.write_text("")
-        return {"target_libraries": [str(lib)], "clock_period": 10.0}
+        return {"target_libraries": [str(lib)], "clock": {"period": 10.0}}
     fpga = {
         "quartus": "10CL016YU256C6G",
         "ise_synth": "xc6slx9-2-tqg144",
         "diamond_synth": "LFE5U-25F-6BG256C",
     }.get(flow, "xc7a12tcsg325-1")
-    return {"fpga": fpga, "clock_period": 10.0}
+    return {"fpga": fpga, "clock": {"period": 10.0}}
 
 
 def _every_type(
@@ -179,7 +179,7 @@ def _every_type(
         rtl={
             "sources": [{"file": str(p), "type": m.name} for m, p in files.items()],
             "top": "top",
-            "clock_port": "clk",
+            "clock": "clk",
         },
     )
     return design, files
@@ -461,7 +461,9 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
     )
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
-            "vivado_power", design, flow_settings={"fpga": "xc7a12tcsg325-1", "clock_period": 10.0}
+            "vivado_power",
+            design,
+            flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}},
         )
     assert str(raised.value) == _own_refusal("vivado_synth", design)
     assert not (tmp_path / "xeda_run").exists(), "a plan creates nothing"
@@ -495,7 +497,7 @@ def test_quartus_assigns_each_source_it_reads_by_the_assignment_quartus_has(tmp_
     for name in names:
         (root / name).write_text("# a source\n")
     design = Design(
-        name="d", design_root=root, rtl={"sources": names, "top": "top", "clock_port": "clk"}
+        name="d", design_root=root, rtl={"sources": names, "top": "top", "clock": "clk"}
     )
     calls = _calls("quartus", design, _settings(root, "quartus"), tmp_path, monkeypatch)
     assert ["set_global_assignment", "-name", "VERILOG_FILE", str(root / "top.v")] in calls
@@ -522,7 +524,7 @@ def test_ise_preserves_each_header_search_directory_as_a_list_element(
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": ["top.v", *headers], "top": "top", "clock_port": "clk"},
+        rtl={"sources": ["top.v", *headers], "top": "top", "clock": "clk"},
     )
     calls = _calls("ise_synth", design, _settings(root, "ise_synth"), tmp_path, monkeypatch)
     (setting,) = [
@@ -636,7 +638,7 @@ def test_vivado_project_filters_testbench_sources_in_design_order(tmp_path, monk
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [], "top": "top", "clock_port": "clk"},
+        rtl={"sources": [], "top": "top", "clock": "clk"},
         tb={"sources": entries, "top": "tb"},
     )
     calls = _calls(
@@ -691,7 +693,7 @@ def test_explicit_language_reaches_the_tool_command(flow, member, suffix, tmp_pa
         rtl={
             "sources": [{"file": str(path), "type": member.name}],
             "top": "top",
-            "clock_port": "clk",
+            "clock": "clk",
         },
     )
     if flow == "yosys_fpga":

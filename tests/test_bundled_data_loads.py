@@ -51,7 +51,7 @@ def test_asic_flow_settings_accept_every_bundled_platform(name):
     from xeda.flows.openroad import Openroad
 
     try:
-        settings = Openroad.Settings(platform=name, clock_period=5.0)
+        settings = Openroad.Settings(platform=name, clock={"period": 5.0})
     except (FileNotFoundError, ModuleNotFoundError) as e:
         pytest.skip(f"platform {name} not available: {e}")
     assert settings.platform is not None
@@ -64,7 +64,7 @@ def test_every_bundled_board_is_usable_as_a_flow_setting():
     if not boards:
         pytest.skip("no bundled boards available")
     for board in boards:
-        WithFpgaBoardSettings(board=board, clock_period=10.0)
+        WithFpgaBoardSettings(board=board, clock={"period": 10.0})
 
 
 @pytest.mark.parametrize("time_unit", ["1pF", "ps * 2", "0ps", "nS", "furlong"])

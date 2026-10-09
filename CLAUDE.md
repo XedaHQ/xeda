@@ -283,11 +283,15 @@ Four orthogonal abstractions, deliberately decoupled:
   field of the design and of each flow (a probe the field accepts must not be `is_mistake`, and
   its table validates as it does) and scans for a second copy of a conversion. The merge reads
   both sides by it before choosing key by key or replace; the design's clock (`clock`,
-  `clock_port`, `clocks`: `RtlSettings.merge_inputs`) is one list: a target's `clocks` replaces
-  it, its `clock`/`clock_port` refine the first clock, `clock: null`/`clock_port: ""`/an empty table mean none; a
+  `clocks`: `RtlSettings.merge_inputs`) is one list: a target's `clocks` replaces
+  it, its `clock` refines the first clock, `clock: null`/an empty table mean none; a
   clock that is neither text nor a table is refused at the key written (`RtlSettings.clock_mistake`,
-  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too);
-  `clock_port` takes a port name alone, so a table is refused there too.
+  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too).
+  **The design's `clock_port` was removed** (`RtlSettings.removed_inputs`, the design's
+  `removed_settings`: the one table; `removed_input_problems` is read by the `rtl` validator and
+  by a target's overlay, selected or not, and the flat form is folded into `rtl` first, so every
+  origin gets "`clock_port` was removed: use `clock: <port>`"). The `clock_port` *result* key
+  (nextpnr, Diamond) is a different thing and stays.
   **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
   nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
   target's `tb` table; `synth: 3` under `-s synth.strategy=...`), and so is an entry of a
@@ -483,9 +487,12 @@ integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock` / `clocks` wi
 `PhysicalClock` reconciliation against `design.rtl.clocks`), and its `FpgaSynthFlow` (adds `fpga: FPGA`)
 / `AsicSynthFlow` specializations.
 
-For a single physical clock, use `clock.period` or `clock.freq`; `clock_period` is a legacy input
-spelling only. Supplying it together with `clock` or `clocks` is an error. Multi-clock constraints
-use the `clocks.<name>.period`/`freq` mappings.
+For a single physical clock, use `clock.period` or `clock.freq`; the `clock_period` setting was
+removed (`SynthFlow.Settings.removed_settings`: "`clock_period` was removed: use `clock.period` or
+`clock.freq`"; the `clock_period` *result* key stays). Multi-clock constraints use the
+`clocks.<name>.period`/`freq` mappings. `removed_settings` is read along the MRO
+(`Flow.Settings.removed_setting_replacements`), so a flow with several settings bases refuses what
+each removed.
 
 ### Declared inputs and outputs, and the resolver
 

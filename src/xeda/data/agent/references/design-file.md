@@ -48,7 +48,6 @@ required when this flat form is used.
 | `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
 | `defines` | no | Verilog preprocessor macros. |
 | `clock` | no | Canonical single-clock description, e.g. `{port: clk}`. |
-| `clock_port` | no | Compatibility shorthand for a single-clock design; prefer `clock`. |
 | `clocks` | no | A list of clocks, for multi-clock designs. |
 | `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
 | `generator` | no | Command or generator class producing the sources before the flow runs. Its direct executable and its declared `sources` (a directory counts as every file in it, outside the design root too) identify its inputs; it runs again when those or its produced sources change. `generated_sources` names the sources it writes when it writes only some, and `always_runs` says its inputs cannot be judged. A POSIX lease serializes loads for the same design-root directory. The record lives under `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load. |
@@ -80,11 +79,10 @@ flows:
       period: 5.0 # nanoseconds
 ```
 
-or, equivalently, `clock.freq: "200MHz"` in the flow section. The legacy `clock_port` and
-`clock_period` inputs are accepted for compatibility. Within one settings layer, use only one
-spelling for a concept; across layers the higher-precedence spelling wins and is merged into the
-canonical `clocks` mapping. Prefer `clock` in the design and `clock.period` or `clock.freq` in
-flow settings.
+or, equivalently, `clock.freq: "200MHz"` in the flow section. The old `clock_port` (design) and
+`clock_period` (flow setting) were removed: write `clock: <port>` and `clock.period`. Within one
+settings layer, give `clock` or `clocks`, not both; across layers the higher layer's `clock` is
+merged into the canonical `clocks` mapping.
 
 Multiple clocks:
 
@@ -271,7 +269,7 @@ targets:
   flow section adds nothing (the design's section stays); set a key to change it.
 - A short form means its table where the design and a target meet (`clock: CLK` is `clock:
   {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
-  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
+  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`
   refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
   A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
   no table) is an error whichever target is selected.

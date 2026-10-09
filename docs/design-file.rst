@@ -100,12 +100,9 @@ Top level
    * - ``defines``
      - no
      - Verilog preprocessor macros, as a mapping.
-   * - ``clock_port``
-     - no
-     - Compatibility shorthand for a single-clock design. Prefer ``clock: {port: "..."}``.
    * - ``clock``
      - no
-     - A single clock as ``{port: "...", name: "..."}``.
+     - A single clock, as a port name or as ``{port: "...", name: "..."}``.
    * - ``clocks``
      - no
      - A list of clocks, for multi-clock designs.
@@ -127,8 +124,8 @@ design. A single-clock design usually needs only::
 
 and then, per flow, ``clock.period`` (ns) or ``clock.freq`` (MHz), as a number or with a unit
 (``"5.5ns"``, ``"200MHz"``). Units are case-sensitive, as in SI: ``"200mhz"`` is an error that
-names ``MHz``. The legacy ``clock_port`` and ``clock_period`` inputs are accepted for
-compatibility, but cannot be combined with their canonical counterparts in the same layer.
+names ``MHz``. The old ``clock_port`` (design) and ``clock_period`` (flow setting) were removed.
+Xeda refuses them and names the replacement: write ``clock: <port>`` and ``clock.period``.
 
 .. _tb:
 
@@ -499,15 +496,16 @@ One design file can describe the design for several boards. Each entry of ``targ
   replaces the design's table); a flow's ``fpga: <part>`` is ``fpga: {part: <part>}``. Aliases
   (``generics`` for ``parameters``, ``version`` for ``standard``) are read the same way, at every
   depth.
-- **The design's clock.** The design's clock is ``clock``, ``clock_port`` or ``clocks``: three
-  spellings of one list of clocks. A target's ``clocks``, in any form, replaces the design's
-  list. A target's ``clock`` or ``clock_port`` names the design's first clock and changes it key
-  by key (``clock: {name: sys}`` keeps the design's port). ``clock: null``, ``clock_port: ""`` and
-  an empty table (``clock: {}``) mean no clock, in the design and in a target. A clock that is
-  neither text nor a table (``clock: 0``, ``clock: false``) is an error, reported at the key as
-  written, in a target as well (at ``targets.<name>.rtl.clock``). ``clock_port`` takes a port name
-  only: a table is an error. Two spellings in the design, or in the selected target, are an error.
-  A target that is not selected is checked only for the form of its values.
+- **The design's clock.** The design's clock is ``clock`` or ``clocks``: two spellings of one list
+  of clocks. A target's ``clocks``, in any form, replaces the design's list. A target's ``clock``
+  names the design's first clock and changes it key by key (``clock: {name: sys}`` keeps the
+  design's port). ``clock: null`` and an empty table (``clock: {}``) mean no clock, in the design
+  and in a target. A clock that is neither text nor a table (``clock: 0``, ``clock: false``) is an
+  error, reported at the key as written, in a target as well (at ``targets.<name>.rtl.clock``).
+  Two spellings in the design, or in the selected target, are an error. A target that is not
+  selected is checked only for the form of its values. The removed ``clock_port`` is an error in
+  the design, in a target (selected or not) and in ``--design-overrides``: it says to write
+  ``clock: <port>``.
 - **A table where a table is expected.** A value that is no table, and no short form of one,
   where a table is expected (``tb: 3``, or ``keep: 3`` in ``rtl.attributes``, whose entries are
   tables) is an error, whichever target you select: a target's table written over it does not
