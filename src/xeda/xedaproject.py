@@ -167,11 +167,9 @@ class XedaProject:
             if renamed or "name" in d
         ]
 
-    def get_design(
-        self, name_or_idx: Union[str, int, None] = None, target: str | None = None
-    ) -> Design | None:
-        """The project's design of that name or position (the first by default), with `target`
-        selected among its `targets` as `Design.from_file` selects one; None if there is none."""
+    def design_index(self, name_or_idx: Union[str, int, None] = None) -> int | None:
+        """The position of the design of that name (the first of that name, if several have it)
+        or position (the first by default); None if there is none."""
         if name_or_idx is None:
             name_or_idx = 0
         if isinstance(name_or_idx, str):
@@ -180,8 +178,16 @@ class XedaProject:
             name_or_idx = self.design_names.index(name_or_idx)
         if len(self.designs) <= name_or_idx:
             return None
-        data = self.design_cls.target_selected(
-            self.designs[name_or_idx], target, self.design_overrides
-        )
+        return name_or_idx
+
+    def get_design(
+        self, name_or_idx: Union[str, int, None] = None, target: str | None = None
+    ) -> Design | None:
+        """The project's design of that name or position (the first by default), with `target`
+        selected among its `targets` as `Design.from_file` selects one; None if there is none."""
+        index = self.design_index(name_or_idx)
+        if index is None:
+            return None
+        data = self.design_cls.target_selected(self.designs[index], target, self.design_overrides)
         data.setdefault("design_root", self.root_path)
         return self.design_cls(**data)

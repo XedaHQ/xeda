@@ -284,8 +284,13 @@ def judging_generation(
     planning: bool = False,
     rebuild_all: bool = False,
     description: Optional[str] = None,
+    read_only: bool = False,
 ) -> Iterator[Generation]:
-    """Judge a generator under a lease for its design tree, except during read-only planning."""
+    """Judge a generator under a lease for its design tree, except during planning.
+
+    `read_only` judges as a plan does, creating and writing nothing, but still under the lease:
+    the load that judges a launch's declared design reads the generator's outputs, which another
+    generation of the tree may be writing."""
     if planning:
         with _judging_generation_unlocked(
             generator, design_root, outputs, run_root, planning, rebuild_all, description
@@ -297,7 +302,7 @@ def judging_generation(
     design_root = Path(design_root).resolve()
     with generator_design_lock(design_root):
         with _judging_generation_unlocked(
-            generator, design_root, outputs, run_root, planning, rebuild_all, description
+            generator, design_root, outputs, run_root, read_only, rebuild_all, description
         ) as generation:
             yield generation
 

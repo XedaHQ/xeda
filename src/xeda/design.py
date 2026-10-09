@@ -18,7 +18,7 @@ from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from glob import escape as glob_escape
 from glob import glob
@@ -39,7 +39,7 @@ from typing import (
 from urllib.parse import parse_qs, urlparse
 
 import yaml
-from pydantic_core import InitErrorDetails, PydanticCustomError, core_schema
+from pydantic_core import ErrorDetails, InitErrorDetails, PydanticCustomError, core_schema
 
 from .dataclass import (
     WHOLE,
@@ -150,6 +150,15 @@ class AnyDesignValidationException(XedaException):
     pass
 
 
+#: The `type` of a design validation error that says a file the design names is not there.
+MISSING_FILE_ERROR = "missing_file"
+
+
+class MissingFile(ValueError):
+    """A file the design names does not exist. A generator may write it, which is why a launch
+    that defers a generator tells this error from every other (`MISSING_FILE_ERROR`)."""
+
+
 class DesignValidationError(AnyDesignValidationException):
     def __init__(
         self,
@@ -168,6 +177,11 @@ class DesignValidationError(AnyDesignValidationException):
         self.design_name = design_name
         self.file = file
         self.design_in_msg = design_in_msg
+
+    @property
+    def only_missing_files(self) -> bool:
+        """Whether every error is a file the design names that is not there (`MissingFile`)."""
+        return bool(self.errors) and all(kind == MISSING_FILE_ERROR for *_, kind in self.errors)
 
     def __str__(self) -> str:
         """Format validation errors with their design name and field locations."""
@@ -191,6 +205,20 @@ class DesignValidationError(AnyDesignValidationException):
             if self.data and self.design_in_msg
             else ""
         )
+
+
+def _design_errors(
+    errors: List[ErrorDetails],
+) -> List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]]:
+    """`validation_errors(errors)`, an error that is a `MissingFile` typed `MISSING_FILE_ERROR`."""
+    return [
+        (
+            (loc, msg, context, MISSING_FILE_ERROR)
+            if isinstance((raw.get("ctx") or {}).get("error"), MissingFile)
+            else (loc, msg, context, kind)
+        )
+        for raw, (loc, msg, context, kind) in zip(errors, validation_errors(errors))
+    ]
 
 
 #: The format a design file is read in, by its suffix. The one rule for what a design file is:
@@ -326,7 +354,9 @@ def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[
     expanded = str(_expand_design_path(pattern, root))
     matched = _globbed_source_files(pattern, root)
     if not matched:
-        raise ValueError(
+        # a generator's own inputs are no output of it
+        error = MissingFile if what == "source" else ValueError
+        raise error(
             f"no file matches the {what} pattern '{pattern}'"
             + (f" (expanded to '{expanded}')" if expanded != pattern else "")
         )
@@ -965,7 +995,7 @@ def _normalize_parameters(value: Any) -> Any:
             except IsADirectoryError as e:
                 raise ValueError(f"parameter {key!r}: {e.filename} is a directory") from e
             except FileNotFoundError as e:
-                raise ValueError(f"parameter {key!r}: file does not exist: {e.filename}") from e
+                raise MissingFile(f"parameter {key!r}: file does not exist: {e.filename}") from e
     return value
 
 
@@ -1070,7 +1100,7 @@ class DVSettings(XedaBaseModel):
                 except IsADirectoryError as e:
                     raise ValueError(f"a source is a file, but {e.filename} is a directory") from e
                 except FileNotFoundError as e:
-                    raise ValueError(
+                    raise MissingFile(
                         f"source file does not exist: {e.filename} (a source that is generated "
                         "later is given as `{ path = ... }`)"
                     ) from e
@@ -1753,6 +1783,79 @@ def refusing_load_side_effects() -> Iterator[None]:
         _planning_load.reset(token)
 
 
+@dataclass
+class DeferredLoad:
+    """What a design load left undone (`deferring_load_side_effects`): the generators it did not
+    run and the Git dependencies it did not fetch, each described, and whether the design it
+    loaded still describes the design a full load gives (`complete`)."""
+
+    deferred: List[str] = field(default_factory=list)
+    #: False once the load left out something only the deferred work can tell: a Git
+    #: dependency's sources, top and testbench, or a source pattern whose files have no type
+    #: before the generator writes them
+    complete: bool = True
+
+    def defer(self, what: str, complete: bool = True) -> None:
+        self.deferred.append(what)
+        self.complete = self.complete and complete
+
+    def failure_may_depend_on_deferred_output(self, error: BaseException) -> bool:
+        """Whether a load that failed with `error` may load once the deferred work has run:
+        something was deferred, and every error is a file the design names that is not there
+        (`MissingFile`), which the deferred work may write. Any other error (a malformed source,
+        a wrong value) is the full load's too, and it would run the generator first."""
+        return (
+            bool(self.deferred)
+            and isinstance(error, DesignValidationError)
+            and error.only_missing_files
+        )
+
+
+_deferred_load: ContextVar[Optional[DeferredLoad]] = ContextVar("deferred_load", default=None)
+
+
+@contextmanager
+def deferring_load_side_effects() -> Iterator[DeferredLoad]:
+    """Load designs without running a generator that would run or fetching a Git dependency,
+    and say what was left undone. A load with nothing to defer is a full load. One with a
+    deferred generator gives the *declared* design: the sources the generator writes are listed
+    as the design declares them, with their types, whether or not they exist yet (as
+    `{ path = ... }`), so whatever needs only the design's declarations can be judged before
+    the generator runs. Nothing is run, fetched, created or written; the generator's tree is
+    locked as for any load, except in a plan."""
+    record = DeferredLoad()
+    token = _deferred_load.set(record)
+    try:
+        yield record
+    finally:
+        _deferred_load.reset(token)
+
+
+def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
+    """`rtl.sources` as the design declares them, for a load that defers their generator: every
+    file named as a `{ path = ... }`, which need not exist yet, with its type. A pattern stands
+    for the files that exist once the generator has run, so it is left out and the load is
+    incomplete."""
+    if isinstance(sources, (str, os.PathLike, Mapping)):
+        sources = [sources]
+    if not isinstance(sources, (list, tuple)):
+        return sources  # the sources validator reports it
+    declared: List[Any] = []
+    for src in sources:
+        if isinstance(src, (str, os.PathLike)):
+            if isinstance(src, str) and _is_source_pattern(src):
+                # the files it stands for (their number, and a duplicate of a file listed
+                # beside it) are known once the generator has written them
+                record.complete = False
+                continue
+            declared.append({"path": str(src)})
+        elif isinstance(src, Mapping) and "file" in src and "path" not in src:
+            declared.append({"path": src["file"], **{k: v for k, v in src.items() if k != "file"}})
+        else:
+            declared.append(src)
+    return declared
+
+
 @contextmanager
 def loading_in_run_root(
     provider: Callable[[bool], Optional[Path]], rebuild_all: bool = False
@@ -1832,7 +1935,7 @@ class DesignReference(XedaBaseModel):
     def fetch_design(self) -> Design:
         design_path = Path(self.uri)
         if not design_path.exists():
-            raise ValueError(f"file {redacted_url(str(design_path))} does not exist!")
+            raise MissingFile(f"file {redacted_url(str(design_path))} does not exist!")
         return Design.from_file(design_path)
 
 
@@ -2586,6 +2689,14 @@ class Design(XedaBaseModel):
         rtl = data.get("rtl", {})
         assert isinstance(rtl, dict), f"rtl must be a dictionary, but found {type(rtl)}"
         generator = rtl.pop("generator", None)
+        deferring = _deferred_load.get()
+
+        def defer(what: str) -> None:
+            """Leave the generator for the load that follows the declared one."""
+            assert deferring is not None
+            deferring.defer(what)
+            rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
+
         if generator:
             if _planning_load.get():
                 generator_lease: AbstractContextManager[None] = nullcontext()
@@ -2598,6 +2709,8 @@ class Design(XedaBaseModel):
                 # own paths: replacing whatever the shell exports, which is another directory's.
                 env = {**os.environ, "DESIGN_ROOT": str(design_root)}
                 if isinstance(generator, str):
+                    if deferring is not None:
+                        return defer(f"generator command `{generator}`")
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     log.info("Running generator command: %s", generator)
@@ -2643,6 +2756,7 @@ class Design(XedaBaseModel):
                         description=description,
                         run_root=context.run_root if context else None,
                         planning=planning,
+                        read_only=deferring is not None,
                         rebuild_all=bool(context and context.rebuild_all),
                     ) as generation:
                         if generation.reason is None:
@@ -2652,6 +2766,8 @@ class Design(XedaBaseModel):
                                 description,
                             )
                         else:
+                            if deferring is not None:
+                                return defer(description)
                             if planning:
                                 raise ValueError("Cannot plan a design that needs a generator")
                             if generator.cwd is None:
@@ -2666,6 +2782,8 @@ class Design(XedaBaseModel):
                             generator.run()
                             generation.produced()
                 else:
+                    if deferring is not None:
+                        return defer(f"generator `{_describe_generator(generator)}`")
                     if _planning_load.get():
                         raise ValueError("Cannot plan a design that needs a generator")
                     args = generator
@@ -2747,10 +2865,10 @@ class Design(XedaBaseModel):
         # design has to be turned into a `DesignValidationError` here by hand -- otherwise
         # `rtl = ["x"]` or a mistyped `design_root` escaped as a bare AssertionError,
         # FileNotFoundError or TypeError traceback instead of naming the offending key.
-        def invalid(loc: Optional[str], msg: str) -> DesignValidationError:
-            return DesignValidationError(
-                [(loc, msg, "", "value_error")], data=data, design_root=design_root
-            )
+        def invalid(
+            loc: Optional[str], msg: str, kind: str = "value_error"
+        ) -> DesignValidationError:
+            return DesignValidationError([(loc, msg, "", kind)], data=data, design_root=design_root)
 
         try:
             design_root = Path(design_root).resolve()
@@ -2771,14 +2889,20 @@ class Design(XedaBaseModel):
                 super().__init__(**data)
             except ValidationError as e:
                 raise DesignValidationError(
-                    validation_errors(e.errors()), data=data, design_root=design_root  # type: ignore
+                    _design_errors(e.errors()), data=data, design_root=design_root
                 ) from e
 
+            deferring = _deferred_load.get()
             for dep in self.dependencies:
+                if deferring is not None and isinstance(dep, GitReference):
+                    # its sources, top and testbench are known only once it is fetched
+                    deferring.defer(f"Git dependency {redacted_url(dep.repo_url)}", complete=False)
+                    continue
                 try:
                     dep_design = dep.fetch_design()
                 except ValueError as e:
-                    raise invalid("dependencies", str(e)) from e
+                    kind = MISSING_FILE_ERROR if isinstance(e, MissingFile) else "value_error"
+                    raise invalid("dependencies", str(e), kind) from e
                 log.info("adding dependency sources from %s", dep_design.name)
                 pos = dep.rtl.pos
                 sources = list(self.rtl.sources)
