@@ -273,7 +273,8 @@ targets:
   {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
   `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`/`clock_port`
   refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
-  A value that is no table where one is expected (`tb: 3`) is an error whichever target is selected.
+  A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
+  no table) is an error whichever target is selected.
   `--design-overrides` meet the design by the same rules, but only a target appends `sources`:
   an override's `rtl.sources`/`tb.sources` replace the whole list (a selected target's too).
 - One target: no `--target` needed. Several: `--target` is required and the error lists them.

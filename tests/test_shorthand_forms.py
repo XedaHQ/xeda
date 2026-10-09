@@ -24,13 +24,17 @@ from xeda import Design
 from xeda.dataclass import (
     WHOLE,
     Field,
+    annotation_form,
     annotation_kind,
+    annotation_mistake,
     appended_fields_of,
     field_shorthands_of,
     input_names,
     is_mistake,
     mapping_form,
     nested_model,
+    shape_problems,
+    table_entries,
 )
 from xeda.design import DesignValidationError, RtlSettings
 from xeda.flow import FlowSettingsError
@@ -208,6 +212,88 @@ def test_the_sweep_walks_the_fields_that_have_forms():
         assert any(
             qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
         ), expected
+
+
+def dictionaries_of_tables(root: type) -> list[tuple[type, str, Any]]:
+    """`(model, field, annotation of the entries)` for every field of `root` and of the models
+    reachable from it that holds a dictionary whose entries are tables (`rtl.attributes`, a
+    flow's `clocks`, a platform's `corner`)."""
+    found: list[tuple[type, str, Any]] = []
+    seen: set[type] = set()
+
+    def walk(model: type) -> None:
+        if model in seen:
+            return
+        seen.add(model)
+        for name, info in model.model_fields.items():
+            entries = table_entries(info.annotation)
+            if entries is not None:
+                found.append((model, name, entries))
+            child = nested_model(info.annotation)
+            if child is not None:
+                walk(child)
+            if entries is not None and nested_model(entries) is not None:
+                walk(nested_model(entries))
+
+    walk(root)
+    return found
+
+
+def every_dictionary_of_tables() -> list[tuple[type, str, Any]]:
+    found = dictionaries_of_tables(Design)
+    for flow_class, _name in flow_classes():
+        found += dictionaries_of_tables(flow_class.Settings)
+    unique = {(model, name): (model, name, entries) for model, name, entries in found}
+    return list(unique.values())
+
+
+def problems_of_the_entries() -> list[str]:
+    """What the sweep finds wrong: a dictionary of tables whose entry that is no table is hidden by
+    a table written over it in a higher layer, or goes unreported by the shape check."""
+    problems = []
+    for model, name, entries in every_dictionary_of_tables():
+        where = f"{model.__qualname__}.{name}"
+        for probe in PROBE_VALUES:
+            if not annotation_mistake(entries, probe, annotation_form(entries, probe)):
+                continue
+            below = {name: {"e": probe}}
+            merged = merge_layers(below, {name: {"e": {}}}, settings_cls=model)
+            if merged != below:
+                problems.append(f"{where}: a table over {probe!r} gives {merged!r}")
+            if shape_problems(model, below) != [((name, "e"), probe)]:
+                problems.append(f"{where}: {probe!r} as an entry is not reported by its shape")
+        well_formed = merge_layers({name: {"e": {}}}, {name: {"e": {}}}, settings_cls=model)
+        if well_formed != {name: {"e": {}}}:
+            problems.append(f"{where}: two empty tables give {well_formed!r}")
+    return problems
+
+
+def test_an_entry_that_is_no_table_is_kept_whatever_table_is_written_over_it():
+    assert problems_of_the_entries() == []
+
+
+def test_the_sweep_finds_a_table_that_replaces_a_malformed_entry(monkeypatch):
+    """The mutation check: when the merge does not know the entries are tables, the sweep names
+    the dictionaries."""
+    import xeda.flow_runner.settings_layers as layers
+
+    monkeypatch.setattr(layers, "table_entries", lambda annotation: None)
+    found = problems_of_the_entries()
+    assert any("RtlSettings.attributes" in problem for problem in found), found
+
+
+def test_the_sweep_walks_the_dictionaries_of_tables():
+    visited = {(model.__qualname__, name) for model, name, _ in every_dictionary_of_tables()}
+    for expected in [
+        ("RtlSettings", "attributes"),
+        ("Settings", "clocks"),
+        ("Settings", "set_mod_attribute"),
+        ("AsicsPlatform", "corner"),
+    ]:
+        assert any(
+            qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
+        ), expected
+    assert ("RtlSettings", "parameters") not in visited, "its entries are values, not tables"
 
 
 def test_the_forms_that_stand_for_a_table():

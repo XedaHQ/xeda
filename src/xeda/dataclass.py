@@ -68,12 +68,15 @@ __all__ = [
     "canonical_names",
     "canonical_tree",
     "appended_fields_of",
+    "annotation_form",
+    "annotation_mistake",
     "expand_forms",
     "field_shorthands_of",
     "is_mistake",
     "mapping_form",
     "nested_model",
     "shape_problems",
+    "table_entries",
     "unspecified",
     "conventional_output",
     "LIST_TEXT_MESSAGE",
@@ -406,6 +409,29 @@ def nested_model(annotation: Any) -> Optional[Type["XedaBaseModel"]]:
     return model if kind == "model" else None
 
 
+def table_entries(annotation: Any) -> Any:
+    """The annotation of the entries of a field that holds a dictionary whose every entry is a
+    table (`Dict[str, Dict[str, Any]]`, `Dict[str, PhysicalClock]`), or None: a field of any
+    other kind, a dictionary of values that are no tables, and one whose entries may be other
+    things (a union) are not judged entry by entry."""
+    while True:
+        origin = get_origin(annotation)
+        if origin is Annotated:
+            annotation = get_args(annotation)[0]
+            continue
+        if origin in (Union, UnionType):
+            members = [a for a in get_args(annotation) if a is not type(None)]
+            if len(members) != 1:
+                return None
+            annotation = members[0]
+            continue
+        break
+    arguments = get_args(annotation)
+    if origin not in (dict, Mapping) or len(arguments) != 2:
+        return None
+    return arguments[1] if annotation_kind(arguments[1])[0] in ("model", "dict") else None
+
+
 def canonical_names(values: Mapping[str, Any], model: Type[BaseModel]) -> Dict[str, Any]:
     """`values`' keys at one level of `model`, each as the model spells the field (an alias and
     its field are one setting). A field given under two spellings keeps both, as written, so
@@ -429,18 +455,19 @@ def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[st
     return tree
 
 
-def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> Any:
-    """The table that `value`, written for `owner`'s field `field`, stands for: `value` when it
-    is a table; the table of a shorthand form; `WHOLE` for a valid form that is no table; `None`
-    for anything else (a mistake, which validation reports)."""
+def annotation_form(
+    annotation: Any, value: Any, shorthand: Optional[Callable[[Any], Any]] = None
+) -> Any:
+    """The table that `value`, written where `annotation` is expected, stands for: `value` when
+    it is a table; the table of a shorthand form (the `shorthand` function, else the nested
+    model's `as_mapping`); `WHOLE` for a valid form that is no table; `None` for anything else
+    (a mistake, which validation reports)."""
     if isinstance(value, Mapping):
         return value
-    if not field or field not in getattr(owner, "model_fields", {}):
-        return None
-    child = nested_model(owner.model_fields[field].annotation)
+    child = nested_model(annotation)
     if child is not None and isinstance(value, child):
         return WHOLE  # a model already built is a whole value
-    hook = field_shorthands_of(owner).get(field)
+    hook = shorthand
     if hook is None:
         hook = child.as_mapping if child is not None else None
     if hook is None:
@@ -449,6 +476,29 @@ def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> An
         return hook(value)
     except (ValueError, TypeError):
         return None
+
+
+def annotation_mistake(annotation: Any, value: Any, form: Any) -> bool:
+    """Whether `value` is no table where `annotation` takes one: its `form` (`annotation_form`)
+    is no table, not `WHOLE`, and the value is not `None` for an optional annotation. An
+    annotation that takes other values than a table is never judged."""
+    kind, _, optional = annotation_kind(annotation)
+    if kind == "other":
+        return False
+    return not (isinstance(form, Mapping) or form is WHOLE or (value is None and optional))
+
+
+def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> Any:
+    """The table that `value`, written for `owner`'s field `field`, stands for: `value` when it
+    is a table; the table of a shorthand form; `WHOLE` for a valid form that is no table; `None`
+    for anything else (a mistake, which validation reports)."""
+    if isinstance(value, Mapping):
+        return value
+    if not field or field not in getattr(owner, "model_fields", {}):
+        return None
+    return annotation_form(
+        owner.model_fields[field].annotation, value, field_shorthands_of(owner).get(field)
+    )
 
 
 def expand_forms(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
@@ -471,11 +521,9 @@ def is_mistake(owner: Type[BaseModel], field: str, value: Any) -> bool:
     """Whether `value` is no table where `owner`'s `field` takes one: not a table, not a
     shorthand form of one (`mapping_form`), not a valid form that is no table (`WHOLE`), and not
     `None` for an optional field. A field that takes other values than a table is never judged."""
-    kind, _, optional = annotation_kind(owner.model_fields[field].annotation)
-    if kind == "other":
-        return False
-    form = mapping_form(owner, field, value)
-    return not (isinstance(form, Mapping) or form is WHOLE or (value is None and optional))
+    return annotation_mistake(
+        owner.model_fields[field].annotation, value, mapping_form(owner, field, value)
+    )
 
 
 def shape_problems(
@@ -496,10 +544,30 @@ def shape_problems(
         if is_mistake(model, field, value):
             problems.append(((key,), value))
             continue
-        child = nested_model(model.model_fields[field].annotation)
+        annotation = model.model_fields[field].annotation
+        child = nested_model(annotation)
         form = mapping_form(model, field, value)
         if child is not None and isinstance(form, Mapping):
             problems += [((key, *path), v) for path, v in shape_problems(child, form)]
+        entries = table_entries(annotation)
+        if entries is not None and isinstance(form, Mapping):
+            problems += [((key, *path), v) for path, v in _entry_problems(entries, form)]
+    return problems
+
+
+def _entry_problems(
+    annotation: Any, entries: Mapping[Any, Any]
+) -> List[Tuple[Tuple[str, ...], Any]]:
+    """`shape_problems` of a dictionary whose entries are tables (`table_entries` gave their
+    `annotation`): the entries that are mistakes, and those of the entries that are models."""
+    problems: List[Tuple[Tuple[str, ...], Any]] = []
+    child = nested_model(annotation)
+    for name, entry in entries.items():
+        form = annotation_form(annotation, entry)
+        if annotation_mistake(annotation, entry, form):
+            problems.append(((str(name),), entry))
+        elif child is not None and isinstance(form, Mapping):
+            problems += [((str(name), *path), v) for path, v in shape_problems(child, form)]
     return problems
 
 

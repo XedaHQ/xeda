@@ -508,8 +508,9 @@ One design file can describe the design for several boards. Each entry of ``targ
   written, in a target as well (at ``targets.<name>.rtl.clock``). Two spellings in one place are an
   error.
 - **A table where a table is expected.** A value that is no table, and no short form of one,
-  where a table is expected (``tb: 3``) is an error, whichever target you select: a target's
-  table written over it does not hide it. The design's own ``flows`` table and every target's
+  where a table is expected (``tb: 3``, or ``keep: 3`` in ``rtl.attributes``, whose entries are
+  tables) is an error, whichever target you select: a target's table written over it does not
+  hide it. The design's own ``flows`` table and every target's
   are checked as well, the target's at ``targets.<name>.flows``, and so is every target's
   overlay, selected or not, at ``targets.<name>.<key>``.
 - **A target overrides the design.** A target is the design author saying "for this board, these

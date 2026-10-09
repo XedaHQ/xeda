@@ -289,7 +289,11 @@ Four orthogonal abstractions, deliberately decoupled:
   which `form_problems` hands to `shape_problems`, so a target's overlay is judged too).
   **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
   nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
-  target's `tb` table; `synth: 3` under `-s synth.strategy=...`); a target's own is reported at
+  target's `tb` table; `synth: 3` under `-s synth.strategy=...`), and so is an entry of a
+  dictionary whose entries are tables (`dataclass.table_entries`: `rtl.attributes`, a flow's
+  `clocks` and `set_mod_attribute`, a platform's `corner`; `settings_layers._merge_entries`,
+  and `shape_problems` judges each entry; `tests/test_shorthand_forms.py` sweeps them from the
+  models); a target's own is reported at
   `targets.<name>.<key>`, selected or not, as its `flows` table is (`design._flows_table`). A null or
   empty `flows` table or flow section of a target or an override adds nothing (`_flows_table` drops
   a null section, as every layer reads `None` as empty): the design's section stays, fpga included;

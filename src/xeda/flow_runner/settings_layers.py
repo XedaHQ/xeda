@@ -32,12 +32,15 @@ from typing import Any
 
 from ..dataclass import (
     XedaBaseModel,
+    annotation_form,
+    annotation_mistake,
     appended_fields_of,
     canonical_names,
     input_names,
     is_mistake,
     mapping_form,
     nested_model,
+    table_entries,
 )
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
@@ -184,6 +187,9 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
     for name, raw_clock in override.items():
         new_clock = _clock_mapping(raw_clock)
         old_clock = _clock_mapping(merged.get(name))
+        if name in merged and old_clock is None:
+            # what is below is no clock: it stays, so that validation reports it
+            continue
         if new_clock is not None and old_clock is not None:
             old_clock = deepcopy(dict(old_clock))
             # A timing constraint from the higher layer replaces the lower layer's alternate
@@ -194,6 +200,32 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
             merged[name] = hierarchical_merge(old_clock, dict(new_clock))
         else:
             merged[name] = deepcopy(raw_clock)
+    return merged
+
+
+def _merge_entries(
+    base: Mapping[Any, Any], values: Mapping[Any, Any], entries: Any, append: bool
+) -> dict[Any, Any]:
+    """Merge two dictionaries whose entries are tables (`table_entries` gave their annotation
+    `entries`), entry by entry as a field is merged. An entry of `base` that is no table where
+    one is expected is kept with nothing merged over it, so that validation reports it as it
+    would with no layer above; any other entry written twice merges key by key, as the model of
+    the entry merges, and one written once is kept."""
+    merged = deepcopy(dict(base))
+    child = nested_model(entries)
+    for name, value in values.items():
+        old_form = annotation_form(entries, merged.get(name))
+        if name in merged and annotation_mistake(entries, merged[name], old_form):
+            continue
+        new_form = annotation_form(entries, value)
+        if isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
+            merged[name] = (
+                _merge_settings_layer(old_form, new_form, child, append)
+                if child is not None
+                else hierarchical_merge(dict(old_form), dict(new_form))
+            )
+        else:
+            merged[name] = deepcopy(value)
     return merged
 
 
@@ -274,7 +306,12 @@ def _merge_settings_layer(
                         clock_values[cname] = {**cval, "name": cname}
             merged[key] = _merge_clock_values(merged.get(key, {}), clock_values)
         elif isinstance(old_form, Mapping) and isinstance(new_form, Mapping):
-            merged[key] = hierarchical_merge(dict(old_form), dict(new_form))
+            entries = table_entries(info.annotation) if info is not None else None
+            merged[key] = (
+                _merge_entries(old_form, new_form, entries, append)
+                if entries is not None
+                else hierarchical_merge(dict(old_form), dict(new_form))
+            )
         else:
             merged[key] = deepcopy(value)
     return merged

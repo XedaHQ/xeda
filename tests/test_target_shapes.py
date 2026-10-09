@@ -28,7 +28,7 @@ from xeda.dataclass import shape_problems
 from xeda.design import DesignValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner.settings_layers import compose_flow_settings
-from xeda.flows import GhdlSim, VivadoSynth
+from xeda.flows import GhdlSim, VivadoSynth, Yosys
 from xeda.utils import settings_to_dict
 from xeda.xedaproject import XedaProject
 
@@ -421,6 +421,39 @@ def test_a_malformed_design_value_is_reported_whether_or_not_the_target_writes_a
     assert with_target == alone
 
 
+#: (the path of a dictionary-typed key whose entries are tables, the name of one entry, a table a
+#: target or an override can write for that entry).
+ENTRY_KEYS = [
+    (("rtl", "attributes"), "keep", {"top": True}),
+]
+
+
+@pytest.mark.parametrize("merged", ["a target", "overrides"])
+@pytest.mark.parametrize("probe", PROBE_VALUES, ids=repr)
+@pytest.mark.parametrize(
+    "path, entry, table",
+    ENTRY_KEYS,
+    ids=lambda value: ".".join(value) if isinstance(value, tuple) else "",
+)
+def test_a_malformed_entry_of_a_design_dictionary_is_reported_whatever_table_is_written_over_it(
+    tmp_path, path, entry, table, probe, merged
+):
+    """A dictionary whose entries are tables (`rtl.attributes`): an entry that is no table is the
+    design's mistake, and a table that a target or an override writes for that entry does not
+    replace it, so the error is the one the design alone has."""
+    design = overlay(BASE, written_at(path, {entry: probe}))
+    alone = error_of_design(tmp_path, design)
+    if alone is None:
+        pytest.skip("a form the entry accepts")
+    over = written_at(path, {entry: table})
+    if merged == "a target":
+        got = error_of_design(tmp_path, {**design, "targets": {"t": over}}, target="t")
+    else:
+        got = error_of_design(tmp_path, design, overrides=over)
+    assert got is not None, f"the table written over it hid: {alone}"
+    assert got == alone
+
+
 @pytest.mark.parametrize(
     "key, value, where",
     [
@@ -428,8 +461,14 @@ def test_a_malformed_design_value_is_reported_whether_or_not_the_target_writes_a
         ("language", {"vhdl": True}, "targets.bad.language.vhdl"),
         ("tb", {"cocotb": "x"}, "targets.bad.tb.cocotb"),
         ("flows", {"vivado_synth": {"fpga": 5}}, "targets.bad.flows.vivado_synth.fpga"),
+        ("rtl", {"attributes": {"keep": 3}}, "targets.bad.rtl.attributes.keep"),
+        (
+            "flows",
+            {"vivado_synth": {"clocks": {"sys": 3}}},
+            "targets.bad.flows.vivado_synth.clocks.sys",
+        ),
     ],
-    ids=["tb", "vhdl", "cocotb", "flow fpga"],
+    ids=["tb", "vhdl", "cocotb", "flow fpga", "attribute entry", "clock entry"],
 )
 def test_a_target_s_own_mistake_is_reported_where_it_is_written_selected_or_not(
     tmp_path, key, value, where
@@ -473,6 +512,33 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_the_target_writes_a
     alone = flow_error(tmp_path, flow_class, design)
     assert alone is not None, "a value that is no table is an error where a table is expected"
     target = {"flows": {name: {key: table}}}
+    with_target = flow_error(tmp_path, flow_class, {**design, "targets": {"t": target}}, target="t")
+    assert with_target is not None, f"the target's table hid: {alone}"
+    assert with_target == alone
+
+
+#: (the flow, a section it can be built from, the dictionary-typed key, an entry, a table for it).
+FLOW_ENTRY_KEYS = [
+    (VivadoSynth, {"fpga": PART}, "clocks", "sys", {"period": 5.0}),
+    (Yosys, {}, "set_mod_attribute", "top", {"keep": True}),
+]
+
+
+@pytest.mark.parametrize("probe", PROBE_VALUES, ids=repr)
+@pytest.mark.parametrize(
+    "flow_class, section, key, entry, table",
+    FLOW_ENTRY_KEYS,
+    ids=lambda v: v if isinstance(v, str) else "",
+)
+def test_a_malformed_entry_of_a_flow_dictionary_is_reported_whatever_table_a_target_writes(
+    tmp_path, flow_class, section, key, entry, table, probe
+):
+    name = flow_class.name
+    design = overlay(BASE, {"flows": {name: {**section, key: {entry: probe}}}})
+    alone = flow_error(tmp_path, flow_class, design)
+    if alone is None:
+        pytest.skip("a form the entry accepts")
+    target = {"flows": {name: {key: {entry: table}}}}
     with_target = flow_error(tmp_path, flow_class, {**design, "targets": {"t": target}}, target="t")
     assert with_target is not None, f"the target's table hid: {alone}"
     assert with_target == alone
