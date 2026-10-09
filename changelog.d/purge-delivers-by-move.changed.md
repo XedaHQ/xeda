@@ -1,2 +1,3 @@
-- With `--post-cleanup-purge`, a delivered output is moved out of the run directory instead of
-  copied, when both are on one file system. A large output no longer needs a second copy on disk.
+- With `--post-cleanup-purge`, a delivered output is moved out of the run directory, not copied,
+  when it can be: a plain file on one file system that no other delivery uses. A large output then
+  needs no second copy on disk.

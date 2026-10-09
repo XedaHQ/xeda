@@ -505,8 +505,9 @@ One design file can describe the design for several boards. Each entry of ``targ
   by key (``clock: {name: sys}`` keeps the design's port). ``clock: null``, ``clock_port: ""`` and
   an empty table (``clock: {}``) mean no clock, in the design and in a target. A clock that is
   neither text nor a table (``clock: 0``, ``clock: false``) is an error, reported at the key as
-  written, in a target as well (at ``targets.<name>.rtl.clock``). Two spellings in one place are an
-  error.
+  written, in a target as well (at ``targets.<name>.rtl.clock``). ``clock_port`` takes a port name
+  only: a table is an error. Two spellings in the design, or in the selected target, are an error.
+  A target that is not selected is checked only for the form of its values.
 - **A table where a table is expected.** A value that is no table, and no short form of one,
   where a table is expected (``tb: 3``, or ``keep: 3`` in ``rtl.attributes``, whose entries are
   tables) is an error, whichever target you select: a target's table written over it does not

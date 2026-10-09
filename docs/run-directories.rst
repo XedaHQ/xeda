@@ -494,11 +494,14 @@ looks at what is at the listed path:
 The summary line says how many directories scrub removed, kept, and found gone already. With
 ``--json``, the document lists them (see :doc:`machine-readable`). A run directory that is a link
 counts only when it leads to a run directory of the same flow beside it (see `Where it goes`_).
-Scrub lists such a directory once, whatever names it has, and shows each name before it asks.
-Under the directory's lock, it removes every link to the directory first, and then the directory,
-so no link is left leading nowhere. If one of the names no longer leads to the directory by then,
-scrub stops with an error and removes nothing. A link that is named like a run directory of the
-flow and leads anywhere else is not listed, so it is not removed, and nor is what it leads to. Scrub does not wait for the
+Scrub lists such a directory once, even if it has several names, and shows each name before it
+asks. A name is the directory itself, or a link to it, named ``<flow>`` or ``<flow>_<hash>``. A
+link with any other name is no name of a run directory: scrub does not list it, and it stays. Under
+the directory's lock, scrub removes the links first, and then the directory, so none of these links
+is left leading nowhere. If one of the names no longer leads to the directory by then, scrub stops
+with an error and removes nothing, even if a run also ended in the directory. A link that is named
+like a run directory of the flow and leads anywhere else is not listed, so scrub does not remove
+it, and nor what it leads to. Scrub does not wait for the
 lock of the run it leads to. It says so instead, before it asks, one line for each link:
 
 .. code-block:: text

@@ -263,9 +263,9 @@ Four orthogonal abstractions, deliberately decoupled:
   `_merge_target` with `append=False`, once, for a design file and for a project's entry alike
   (`XedaProject.designs` stays as written; `design_names` applies a `name` override;
   `Design.remove_keys` removes a key of `remove_extra` in every spelling, since a merge writes
-  field names). An override's `rtl.sources`/`tb.sources` therefore replace the whole list (a
-  selected target's too), as every settings layer's list does: adding a board's files is a
-  target's job alone. `Design.from_file(path, target=)`,
+  field names). An override's `rtl.sources`/`tb.sources` therefore replace the whole list,
+  including the files a selected target appended, as every settings layer's list does: adding a
+  board's files is a target's job alone. `Design.from_file(path, target=)`,
   `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
   `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
   needs no selection; several without one, an unknown one, a name that is a flow's, and a
@@ -286,7 +286,8 @@ Four orthogonal abstractions, deliberately decoupled:
   `clock_port`, `clocks`: `RtlSettings.merge_inputs`) is one list: a target's `clocks` replaces
   it, its `clock`/`clock_port` refine the first clock, `clock: null`/`clock_port: ""`/an empty table mean none; a
   clock that is neither text nor a table is refused at the key written (`RtlSettings.clock_mistake`,
-  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too).
+  which `form_problems` hands to `shape_problems`, so a target's overlay is judged too);
+  `clock_port` takes a port name alone, so a table is refused there too.
   **A lower value that is no table where one is expected (`dataclass.is_mistake`) is kept with
   nothing merged over it**, so validation reports it as with no layer above (`tb: 3` under a
   target's `tb` table; `synth: 3` under `-s synth.strategy=...`), and so is an entry of a
@@ -1144,7 +1145,9 @@ read a dependency's files; pruning removes the trace first, so a pruned run is n
 that makes it imply the clean-up, so `_clean_up`, the pending clean-ups and the delivery by move
 all follow from the `RunDirPolicy`. An exploration is the exception: its `post_cleanup_purge`
 means that `Dse.run_flow` deletes the runs that did not improve, so its worker launcher gets
-`post_cleanup_purge` only together with `post_cleanup`, and each launch of it leaves its run directory. A
+`post_cleanup_purge` only together with `post_cleanup`. With the purge alone, each launch of the
+worker leaves its run directory and the best run stays. With both, each launch purges its own run
+directory, the best run included, as it did before the purge implied the clean-up. A
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
 takes the same exclusive lock and retains the durable lock file. **Scrub reads the disk, never
@@ -1167,9 +1170,10 @@ directory is one candidate under every name the listing found for it** (`_listed
 question, and `ScrubResult.removed` holds the first name only): `RunDirectory.delete(*links)`
 removes the links first, as themselves, and then the directory whose lock scrub holds, so no
 link is left leading nowhere, which a launch refuses and a scrub reports as skipped for good;
-every alias is judged again under the lock exactly as the first name is (`_refuse_a_change`: it
-still leads to the directory whose lock is held and is still a run directory of the flow, else a
-`RunDirectoryError` and nothing is removed, a name already gone is skipped). With the directory
+every alias is judged again under the lock exactly as the first name is, before the run records
+are looked at (`_refuse_a_change`: it still leads to the directory whose lock is held and is still
+a run directory of the flow, else a `RunDirectoryError` and nothing is removed, a name already
+gone is skipped). With the directory
 first, a second scrub that listed the link could ask for it between the two steps, find a link to
 nowhere, and fail on the lock's refusal, where it now finds the link gone and skips it. Every
 deletion of a whole run directory removes every valid link to it beside it with it: scrub (its

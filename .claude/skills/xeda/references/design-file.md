@@ -276,7 +276,8 @@ targets:
   A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
   no table) is an error whichever target is selected.
   `--design-overrides` meet the design by the same rules, but only a target appends `sources`:
-  an override's `rtl.sources`/`tb.sources` replace the whole list (a selected target's too).
+  an override's `rtl.sources`/`tb.sources` replace the whole list, including the files a selected
+  target appended.
 - One target: no `--target` needed. Several: `--target` is required and the error lists them.
   `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
 - **A target overrides the design**, key by key: where both write a key, the target's value
