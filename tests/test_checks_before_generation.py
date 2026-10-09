@@ -56,6 +56,7 @@ CONTENTS = {
     ".edf": "(edif top)\\n",
     ".bsv": "package Top; endpackage\\n",
     ".vhd": "entity top is end;\\narchitecture a of top is begin end;\\n",
+    ".yaml": "{}\\n",
 }
 root = Path(os.environ["DESIGN_ROOT"])
 with open(sys.argv[1], "a") as counter:
@@ -240,6 +241,28 @@ def test_a_plan_still_starts_no_generator(tmp_path, monkeypatch):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
     with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
         runner.plan("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert generated.runs == 0
+
+
+def test_a_file_a_setting_reads_to_check_it_must_exist_before_the_generator_runs(
+    tmp_path, monkeypatch
+):
+    """The documented limit: `custom_boards_file` is read when the setting is validated, which
+    comes before the generator runs, so a generator cannot write it. With the file in place, the
+    plan goes on to the refusal to generate."""
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.v", "gen/boards.yaml"], sources=["gen/top.v"])
+    settings = {"board": "mine", "custom_boards_file": "$DESIGN_ROOT/gen/boards.yaml"}
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsException, match="Cannot read custom boards file"):
+        runner.run("nextpnr", str(generated.file), flow_settings=dict(settings))
+    assert generated.runs == 0
+    (generated.root / "gen").mkdir()
+    (generated.root / "gen" / "boards.yaml").write_text(
+        "mine:\n  fpga: {part: LFE5U-25F-6BG256C}\n"
+    )
+    with pytest.raises(DesignValidationError, match="Cannot plan a design that needs a generator"):
+        runner.plan("nextpnr", str(generated.file), flow_settings=dict(settings))
     assert generated.runs == 0
 
 

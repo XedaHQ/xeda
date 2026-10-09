@@ -369,6 +369,9 @@ or not, so what these declarations already rule out is refused first, and the ge
 run: a flow that reads none of the design's sources, a source in a language that the flow cannot
 read, a testbench without its top, a setting that the flow does not have, a run directory that the
 flow cannot work in. This holds for ``xeda run``, ``--dry-run``, ``--remote`` and ``xeda dse``.
+A setting that names a file that xeda reads to check the setting (``custom_boards_file``, a
+platform file) is checked at this point too, so that file must exist before the generator runs,
+and a generator cannot write it.
 Some designs say too little before their generator has run, and xeda then judges the request
 after the generator, as it did before: a design with a pattern in ``rtl.sources`` whose suffix
 gives no type (``gen/*``), a design with a Git dependency (the dependency can bring sources, a top

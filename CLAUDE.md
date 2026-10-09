@@ -1092,7 +1092,9 @@ judged early, so judged after generation as before: an untyped pattern or a Git 
 design that fails to load (another generated file named as a `file`) -- a failure after the load
 (`_request` named the design) is the request's own and is raised, complete or not (it reads only
 the design's name, target and `flows`). A project's design chooser is asked once
-(`_choosing_once`: the second load takes the first answer by name). A plan still refuses to
+(`_choosing_once`: the second load takes the first answer by name). A setting whose validation
+reads a file (`custom_boards_file`, a platform file) is judged there too, so that file must
+exist before generation: a generator that writes one is not supported. A plan still refuses to
 generate, after the declared checks. `tests/test_checks_before_generation.py` counts generator
 runs on every path.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
