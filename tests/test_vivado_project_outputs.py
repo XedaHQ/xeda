@@ -66,7 +66,7 @@ def _synth(tmp_path: Path, monkeypatch, design: Optional[Design] = None, **setti
     flow = DefaultRunner(tmp_path / "run").run_flow(
         VivadoSynth,
         design or Design.from_file(SQRT),
-        {"fpga": PART, "clock_period": 5.5, **settings},
+        {"fpga": PART, "clock": {"period": 5.5}, **settings},
     )
     assert isinstance(flow, VivadoSynth) and flow.succeeded
     return flow
@@ -314,7 +314,7 @@ def test_a_bitstream_given_as_a_location_is_registered_in_the_run_directory_and_
     failed = DefaultRunner(tmp_path / "run", rebuild_all=True).run_flow(
         VivadoSynth,
         Design.from_file(SQRT),
-        {"fpga": PART, "clock_period": 5.5, "bitstream": str(bitstream)},
+        {"fpga": PART, "clock": {"period": 5.5}, "bitstream": str(bitstream)},
     )
     assert failed is not None and not failed.succeeded
     assert bitstream.stat().st_ino == delivered.st_ino, "the earlier delivery is where it was"
@@ -397,7 +397,7 @@ def test_postsynth_sim_simulates_what_its_synthesis_registered(
         VivadoPostsynthSim,
         design,
         {"timing_sim": timing_sim},
-        all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
+        all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
     )
     assert sim is not None and sim.succeeded
     synth_dir = sim.run_path.parent / "vivado_synth"
@@ -432,7 +432,7 @@ def test_postsynth_sim_refuses_a_testbench_source_it_cannot_read(tmp_path, monke
             VivadoPostsynthSim,
             design,
             {},
-            all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
+            all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
         )
     message = str(raised.value)
     assert message.startswith("vivado_postsynth_sim cannot read the design's Bluespec source(s) ")
@@ -452,7 +452,7 @@ def test_power_reads_the_checkpoint_and_activity_its_dependencies_registered(
         VivadoPower,
         design,
         {},
-        all_flows_settings={"vivado_synth": {"fpga": PART, "clock_period": 5.5}},
+        all_flows_settings={"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
     )
     assert power is not None and power.succeeded
     synth_dir = power.run_path.parent / "vivado_synth"
@@ -499,7 +499,7 @@ FLOW_IDS = {VivadoSynth: "vivado_synth", VivadoAltSynth: "vivado_alt_synth"}
 def _run(flow_class, tmp_path: Path, monkeypatch, **settings):
     use_fake_tools(monkeypatch)
     flow = DefaultRunner(tmp_path / "run").run_flow(
-        flow_class, Design.from_file(SQRT), {"fpga": PART, "clock_period": 5.5, **settings}
+        flow_class, Design.from_file(SQRT), {"fpga": PART, "clock": {"period": 5.5}, **settings}
     )
     assert isinstance(flow, flow_class) and flow.succeeded
     return flow

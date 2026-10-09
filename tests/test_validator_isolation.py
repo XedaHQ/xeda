@@ -146,13 +146,15 @@ def test_clock_shorthand_normalization_does_not_mutate_input():
     assert settings.main_clock is not None and settings.main_clock.freq == 100
 
 
-def test_clock_period_and_clock_combination_fails_without_mutating_input():
+def test_the_removed_clock_period_fails_without_mutating_input():
     payload = {"clock": {"name": "c", "freq": 100}, "clock_period": 5.0}
     before = copy.deepcopy(payload)
 
     from xeda.dataclass import ValidationError
 
-    with pytest.raises(ValidationError, match="cannot be combined"):
+    with pytest.raises(
+        ValidationError, match="`clock_period` was removed: use `clock.period` or `clock.freq`"
+    ):
         YosysFpga.Settings(**payload)
     assert payload == before
 
@@ -176,7 +178,7 @@ def test_unrelated_assignment_preserves_nested_field_identities():
     """Revalidating one field must not replace unrelated models or containers."""
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clock_period=10.0,
+        clock={"period": 10.0},
     )
     fpga = settings.fpga
     clock = settings.main_clock
@@ -212,7 +214,7 @@ def test_run_options_steps_are_not_expanded_in_the_caller_object():
     before = dict(run_options.steps)
 
     settings = VivadoAltSynth.Settings(
-        fpga="xc7a100tftg256-2L", synth=run_options, clock_period=5.0
+        fpga="xc7a100tftg256-2L", synth=run_options, clock={"period": 5.0}
     )
 
     assert dict(run_options.steps) == before, "caller's RunOptions.steps was expanded in place"
@@ -303,7 +305,7 @@ def test_openroad_corner_selection_uses_an_isolated_platform_copy():
     platform = AsicsPlatform.from_resource("asap7")
     original_corner = platform.default_corner
     original_vdd = platform.pwr_nets_voltages["VDD"]
-    settings = Openroad.Settings(platform=platform, corner="FF", clock_period=5.0)
+    settings = Openroad.Settings(platform=platform, corner="FF", clock={"period": 5.0})
 
     assert settings.platform is not platform
     assert platform.default_corner == original_corner

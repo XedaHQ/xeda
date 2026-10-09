@@ -81,7 +81,7 @@ A short form means exactly the table it stands for, in every merge. ``fpga: xc7a
 ``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote as
 text. ``-s fpga=<part>`` over a design's ``fpga`` table changes the part and keeps the other keys
 the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. The aliases of a setting
-(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock_period``, ``clock``,
+(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock`` and
 ``clocks``) are read in each layer on its own, so a layer above changes what a layer below wrote
 whichever spelling each used. A value that is no table where a table is expected (``synth: 3``)
 is an error, whatever a higher layer writes over it.

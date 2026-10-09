@@ -898,6 +898,17 @@ class Flow(metaclass=ABCMeta):
             "clean": "the --clean option (clean=True on the launcher)"
         }
 
+        @classmethod
+        def removed_setting_replacements(cls) -> Dict[str, str]:
+            """Every removed setting of this class with what replaced it: the `removed_settings`
+            of the class and of all its bases, the class's own taking precedence. A flow whose
+            settings have several bases (`GhdlSynth`'s are a simulator's and a synthesis flow's)
+            is refused what each base removed, whether or not its own table repeats it."""
+            merged: Dict[str, str] = {}
+            for klass in reversed(cls.__mro__):
+                merged.update(vars(klass).get("removed_settings", {}))
+            return merged
+
         # Every flow setting shares two input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
         # normalized value: on construction and `settings.json` reload through
@@ -987,7 +998,7 @@ class Flow(metaclass=ABCMeta):
         def _normalize_flow_settings(cls, values, info):
             """Normalize each supplied flow setting before model validation."""
             if isinstance(values, dict):
-                for name, replacement in cls.removed_settings.items():
+                for name, replacement in cls.removed_setting_replacements().items():
                     if name in values:
                         raise ValueError(
                             f"`{name}` was removed: use {_removed_replacement(replacement, values[name])}"

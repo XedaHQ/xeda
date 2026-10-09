@@ -942,7 +942,7 @@ def test_a_launcher_generates_once_across_two_launches(tmp_path, monkeypatch):
     world.design_file.write_text(
         world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
     )
-    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock_period": 10.0}
+    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock": {"period": 10.0}}
     for _ in range(2):
         flow = DefaultRunner(world.run_root, display_results=False).run(
             "vivado_synth", world.design_file, flow_settings=settings
@@ -1057,7 +1057,7 @@ def test_rebuild_all_runs_the_generator_and_records_what_it_leaves(tmp_path, mon
     world.design_file.write_text(
         world.design_file.read_text().replace("  top: top\n", "  top: top\n  clock: {port: clk}\n")
     )
-    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock_period": 10.0}
+    settings = {"fpga": {"part": "xc7a35ticsg324-1L"}, "clock": {"period": 10.0}}
 
     def launch(**launcher) -> None:
         runner = DefaultRunner(world.run_root, display_results=False, **launcher)

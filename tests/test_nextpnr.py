@@ -35,9 +35,9 @@ def make_flow(tmp_path: Path, report: Any, family: str = "ecp5") -> Nextpnr:
     """A Nextpnr instance whose run directory holds `report` as its nextpnr report."""
     design = Design(
         name="dummy",
-        rtl={"sources": [], "top": "dummy", "clock_port": "clk"},  # type: ignore[arg-type]
+        rtl={"sources": [], "top": "dummy", "clock": "clk"},  # type: ignore[arg-type]
     )
-    settings = Nextpnr.Settings(fpga=FPGA(family=family), clock_period=5.0)  # type: ignore[call-arg]
+    settings = Nextpnr.Settings(fpga=FPGA(family=family), clock={"period": 5.0})  # type: ignore[call-arg]
     flow = Nextpnr(settings, design, tmp_path)
     report_path = tmp_path / str(settings.report)
     if report is not None:

@@ -179,23 +179,20 @@ def test_generator_args_may_be_one_string_or_a_list_in_the_schema_and_the_loader
         Generator(executable="py", args=3)  # type: ignore[arg-type]
 
 
-def test_clock_compatibility_shorthands_are_in_the_input_schema():
-    """The derived clock aliases remain documented without becoming stored model fields."""
+def test_the_clock_shorthand_is_in_the_input_schema_and_the_removed_clock_port_is_not():
+    """The derived `clock` alias is documented without becoming a stored model field."""
     schema = design_schema()
     rtl = schema["$defs"]["RtlSettings"]["properties"]
     root = schema["properties"]
 
     for properties in (rtl, root):
-        assert {"clock", "clock_port", "clocks"} <= set(properties)
-        for name in ("clock", "clock_port"):
-            assert properties[name].get("x-xeda-input-only") is True
-
-    assert rtl["clock_port"]["deprecated"] is True
-    assert root["clock_port"]["deprecated"] is True
+        assert {"clock", "clocks"} <= set(properties)
+        assert properties["clock"].get("x-xeda-input-only") is True
+        assert "clock_port" not in properties
 
 
-def test_flat_clock_port_is_accepted_by_the_loader_and_schema():
-    data = {"name": "d", "sources": [], "top": "t", "clock_port": "clk"}
+def test_flat_clock_is_accepted_by_the_loader_and_schema():
+    data = {"name": "d", "sources": [], "top": "t", "clock": "clk"}
 
     Design(**data)
     assert validator().is_valid(data)
@@ -204,11 +201,23 @@ def test_flat_clock_port_is_accepted_by_the_loader_and_schema():
 @pytest.mark.parametrize(
     "data",
     [
-        {"name": "d", "sources": [], "top": "t", "clock": {"port": "a"}, "clock_port": "b"},
-        {"name": "d", "sources": [], "top": "t", "clock_port": "a", "clocks": [{"port": "b"}]},
+        {"name": "d", "sources": [], "top": "t", "clock_port": "clk"},
+        {"name": "d", "rtl": {"sources": [], "top": "t", "clock_port": "clk"}},
     ],
 )
-def test_mixed_flat_clock_spellings_are_rejected_loudly(data):
+def test_clock_port_was_removed(data):
+    with pytest.raises(Exception, match="`clock_port` was removed: use `clock: <port>`"):
+        Design(**data)
+
+
+def test_mixed_flat_clock_spellings_are_rejected_loudly():
+    data = {
+        "name": "d",
+        "sources": [],
+        "top": "t",
+        "clock": {"port": "a"},
+        "clocks": [{"port": "b"}],
+    }
     with pytest.raises(Exception, match="Specify only one"):
         Design(**data)
 

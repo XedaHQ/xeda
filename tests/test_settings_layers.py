@@ -98,11 +98,11 @@ def test_two_names_for_one_setting_in_one_layer_are_still_an_error():
 @pytest.mark.parametrize(
     ("lower", "higher", "expected_period"),
     [
-        ({"clock": {"period": 5.0}}, {"clock_period": 4.0}, 4.0),
-        ({"clock_period": 5.0}, {"clock": {"freq": 250.0}}, 4.0),
+        ({"clock": {"period": 5.0}}, {"clock": {"period": 4.0}}, 4.0),
+        ({"clock": {"period": 5.0}}, {"clock": {"freq": 250.0}}, 4.0),
         (
             {"clocks": {"main_clock": {"port": "clk_i", "period": 5.0}}},
-            {"clock_period": 4.0},
+            {"clock": {"period": 4.0}},
             4.0,
         ),
     ],
@@ -117,16 +117,16 @@ def test_clock_spellings_are_one_concept_across_precedence_layers(lower, higher,
 
 
 def test_layered_clock_period_matches_direct_construction(tmp_path):
-    """`clock_period` normalized through `merge_layers` must name the clock the same way
+    """`clock.period` normalized through `merge_layers` must name the clock the same way
     `SynthFlow.Settings._synthflow_settings_root_validator` does when settings are constructed
     directly -- otherwise the two paths disagree on `clocks["main_clock"].name` and thus on
     `flowrun_hash`, even though the settings mean the same thing."""
     merged = merge_layers(
-        {"fpga": "xc7a12tcsg325-1"}, ["clock_period=5"], settings_cls=VivadoSynth.Settings
+        {"fpga": "xc7a12tcsg325-1"}, ["clock.period=5"], settings_cls=VivadoSynth.Settings
     )
     layered = VivadoSynth.Settings.from_input(merged, design_root=tmp_path, runner_cwd=tmp_path)
     direct = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a12tcsg325-1", "clock_period": 5},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5}},
         design_root=tmp_path,
         runner_cwd=tmp_path,
     )
@@ -136,13 +136,13 @@ def test_layered_clock_period_matches_direct_construction(tmp_path):
 
 
 def test_unnamed_singular_override_redirected_onto_a_named_clock_keeps_its_identity():
-    """A bare `clock_period=5` refining an existing, differently-named lower-layer clock must
+    """A bare `clock.period=5` refining an existing, differently-named lower-layer clock must
     not stamp that clock's identity to `"main_clock"` -- it targets the existing clock (by the
     `singular_clock == "main_clock"` redirect in `_merge_settings_layer`), and only a genuinely
     *new* clock entry gets the synthesized `"main_clock"` name."""
     merged = merge_layers(
         {"clocks": {"clk": {"name": "clk", "period": 10, "port": "clk_i"}}},
-        ["clock_period=5"],
+        ["clock.period=5"],
         settings_cls=VivadoSynth.Settings,
     )
 
@@ -186,7 +186,7 @@ def test_higher_clock_timing_replaces_alternate_spelling_and_preserves_other_att
 
 def test_clock_spelling_precedence_is_applied_to_the_producers_own_settings():
     merged = merge_layers(
-        {"clock_period": 10.0},
+        {"clock": {"period": 10.0}},
         {"clock": {"freq": 200.0, "port": "clk_i"}},
         settings_cls=VivadoSynth.Settings,
     )
@@ -198,18 +198,35 @@ def test_clock_spelling_precedence_is_applied_to_the_producers_own_settings():
 
 def test_mixed_clock_spellings_in_one_layer_are_still_an_error():
     merged = merge_layers(
-        {"clock": {"period": 5.0}, "clock_period": 4.0},
+        {"clock": {"period": 5.0}, "clocks": {"main_clock": {"period": 4.0}}},
         settings_cls=VivadoSynth.Settings,
     )
 
-    with pytest.raises(FlowSettingsError, match="cannot be combined"):
+    with pytest.raises(FlowSettingsError, match="not both"):
+        VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
+
+
+@pytest.mark.parametrize(
+    "layers",
+    [
+        [{"clock_period": 4.0}],
+        [{"clock": {"period": 5.0}}, {"clock_period": 4.0}],
+        [{"clock_period": 5.0}, {"clock": {"freq": 250.0}}],
+        [{"clock": {"period": 5.0}, "clock_period": 4.0}],
+        [["clock_period=4.0"]],
+    ],
+)
+def test_the_removed_clock_period_survives_layering_and_is_refused(layers):
+    merged = merge_layers(*layers, settings_cls=VivadoSynth.Settings)
+
+    with pytest.raises(FlowSettingsError, match="`clock_period` was removed"):
         VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
 
 
 def test_single_clock_override_targets_the_deterministic_main_of_a_multi_clock_layer():
     merged = merge_layers(
         {"clocks": {"clk_a": {"period": 5.0}, "clk_b": {"period": 10.0}}},
-        {"clock_period": 4.0},
+        {"clock": {"period": 4.0}},
         settings_cls=VivadoSynth.Settings,
     )
     settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged})
@@ -221,7 +238,7 @@ def test_single_clock_override_targets_the_deterministic_main_of_a_multi_clock_l
 def test_flow_sections_keep_single_clock_semantics_until_after_layering():
     merged = merge_flow_sections(
         {"vivado_synth": {"clocks": {"system": {"port": "clk_i", "period": 5.0}}}},
-        {"vivado_synth": {"clock_period": 4.0}},
+        {"vivado_synth": {"clock": {"period": 4.0}}},
         flow_class_for=lambda name: VivadoSynth if name == "vivado_synth" else None,
     )
     settings = VivadoSynth.Settings.from_input({"fpga": "xc7a100t", **merged["vivado_synth"]})
@@ -370,8 +387,8 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
 @pytest.mark.parametrize(
     ("design_clock", "override", "expected"),
     [
-        ("clock.period = 5.0", "clock_period=4.0", {"period": "4.0"}),
-        ("clock_period = 5.0", "clock.freq=250.0", {"freq": "250.0"}),
+        ("clock.period = 5.0", "clock.period=4.0", {"period": "4.0"}),
+        ("clock.period = 5.0", "clock.freq=250.0", {"freq": "250.0"}),
     ],
 )
 def test_local_run_allows_higher_clock_spelling_to_override_design_layer(
@@ -603,7 +620,7 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
         rtl={"sources": ["top.v"], "top": "top"},
         flows={
             "vivado_synth": {
-                "clock_period": 5.0,
+                "clock": {"period": 5.0},
                 "fpga": "xc7a100t",
             }
         },
@@ -617,9 +634,9 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
         max_workers=1,
     )
 
-    dse.run("vivado_synth", design, flow_settings=["clock_period=4.0"])
+    dse.run("vivado_synth", design, flow_settings=["clock.period=4.0"])
 
-    assert dse.optimizer.base_settings.clock_period == 4.0
+    assert dse.optimizer.base_settings.clock.period == 4.0
     assert design.flow == before
 
 

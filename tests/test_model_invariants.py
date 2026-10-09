@@ -90,10 +90,10 @@ def test_assigning_a_value_is_the_same_as_constructing_with_it(cls):
     """Assigning any value to valid settings accepts or rejects it exactly as constructing with it
     does, and leaves exactly the same settings behind.
 
-    The base leaves out the compatibility-only `clock_period` input where it is optional, and
-    canonical `clock`/`clocks` values must not be combined with it at construction.
+    The base leaves out the `clock` input, because a probe for `clock` or `clocks` must not be
+    combined with it at construction.
     """
-    base = minimal_settings(cls, clock_period=False)
+    base = minimal_settings(cls, clock=False)
     mismatches = []
     for name in _settings_fields(cls):
         for value in PROBES:
