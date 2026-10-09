@@ -309,8 +309,9 @@ def test_a_design_that_does_not_load_before_its_generator_runs_is_loaded_in_full
 
 def test_a_git_dependency_leaves_the_judgement_to_the_full_load(tmp_path, monkeypatch, clones):
     """A Git dependency is fetched only by the full load, and it may bring sources, a top and a
-    testbench: here the netlist-only design is completed by the dependency's Verilog, so it is
-    not refused on its declarations."""
+    testbench, so the declared design is incomplete. The netlist-only design is therefore not
+    refused on its declarations (`yosys_fpga` reads none of its sources). A plan then reaches
+    the refusal to generate, and it starts no generator and clones nothing."""
     monkeypatch.chdir(tmp_path)
     generated = Generated(
         tmp_path, ["gen/top.edf"], dependencies=["git+https://example.com/u/lib.git#lib.toml"]
@@ -377,4 +378,111 @@ def test_a_project_s_design_is_chosen_once(tmp_path, monkeypatch):
     )
     assert flow is not None and flow.succeeded
     assert asked == [None]
+    assert generated.runs == 1
+
+
+# ------------------------------------------- what the declared load must not do to the generator
+
+
+def test_a_malformed_design_is_refused_without_running_its_generator(tmp_path, monkeypatch):
+    """The declared design fails for a reason no generator output can cure (a source that is no
+    path), so the full load is not tried: it would run the generator to fail the same way."""
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.v"], sources=[1])
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(DesignValidationError):
+        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert generated.runs == 0
+
+
+def test_a_remote_launch_refuses_a_malformed_design_without_running_its_generator(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.v"], sources=[1])
+    runner = RemoteRunner(tmp_path / "mirror", display_results=False)
+    with pytest.raises(DesignValidationError):
+        runner.run_remote(
+            str(generated.file), "vivado_synth", "host.invalid", flow_settings=dict(XILINX)
+        )
+    assert generated.runs == 0
+
+
+def test_a_source_given_as_both_file_and_path_is_refused_as_it_is_without_deferral(
+    tmp_path, monkeypatch
+):
+    """`file` and `path` exclude each other: the declared design keeps both, so the error is the
+    one a load without deferral gives, and the generator does not run."""
+    monkeypatch.chdir(tmp_path)
+    both = {"file": "gen/top.v", "path": "gen/top.v"}
+    generated = Generated(tmp_path, ["gen/top.v"], sources=[both])
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(DesignValidationError, match="mutually exclusive"):
+        runner.run("vivado_synth", str(generated.file), flow_settings=dict(XILINX))
+    assert generated.runs == 0
+
+
+class _LockSpy:
+    """Records the generator-tree locks taken, in place of the real ones."""
+
+    def __init__(self, monkeypatch) -> None:
+        from xeda.flow_runner import run_lock
+
+        self.taken: list[Path] = []
+        real = run_lock.generator_design_lock
+
+        def spy(design_root):
+            self.taken.append(Path(design_root))
+            return real(design_root)
+
+        monkeypatch.setattr(run_lock, "generator_design_lock", spy)
+
+
+def test_a_launch_holds_the_generator_tree_lock_while_it_judges_the_declared_design(
+    tmp_path, monkeypatch
+):
+    """Only a plan is read-only and unlocked. A launch that judges the declared design reads the
+    generator's record as an ordinary load does, so it waits for a generation in progress."""
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.edf"])
+    spy = _LockSpy(monkeypatch)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    with pytest.raises(FlowSettingsException, match="reads none of the design's"):
+        runner.run("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
+    assert spy.taken, "the declared load took no lock"
+    spy.taken.clear()
+    with pytest.raises(FlowSettingsException, match="reads none of the design's"):
+        runner.plan("yosys_fpga", str(generated.file), flow_settings=dict(XILINX))
+    assert spy.taken == [], "a plan is unlocked"
+    assert generated.runs == 0
+
+
+def test_the_choice_among_a_project_s_designs_with_one_name_is_kept(tmp_path, monkeypatch):
+    """Two designs may have one name; the chooser's answer is replayed by position, not by the
+    name, which finds the first."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(tmp_path, ["gen/top.v"])
+    spec = json.loads(generated.file.read_text())
+    spec["design_root"] = str(generated.root)
+    first = {**spec, "rtl": {**spec["rtl"], "top": "first"}}
+    second = {**spec, "rtl": {**spec["rtl"], "top": "second"}}
+    project = tmp_path / "xedaproject.json"
+    project.write_text(json.dumps({"designs": [first, second]}))
+    asked = []
+
+    def select(project, name, target):
+        asked.append(name)
+        return project.get_design(1, target)
+
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(
+        "vivado_synth",
+        xedaproject=str(project),
+        flow_settings=dict(XILINX),
+        select_design_in_project=select,
+    )
+    assert flow is not None and flow.succeeded
+    assert asked == [None]
+    assert flow.design.rtl.top == "second"
     assert generated.runs == 1

@@ -327,6 +327,8 @@ def _expand_source_glob(pattern: str, root: Path, what: str = "source") -> List[
     expanded = str(_expand_design_path(pattern, root))
     matched = _globbed_source_files(pattern, root)
     if not matched:
+        if what == "source":  # a generator's own inputs are no output of it
+            _note_missing_file()
         raise ValueError(
             f"no file matches the {what} pattern '{pattern}'"
             + (f" (expanded to '{expanded}')" if expanded != pattern else "")
@@ -422,6 +424,7 @@ class FileResource:
         if not path.is_absolute():
             path = root / path
         if resolve and not path.exists():
+            _note_missing_file()
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), str(path))
         if resolve and not path.is_file():
             raise IsADirectoryError(errno.EISDIR, "a directory, not a file", str(path))
@@ -1743,10 +1746,26 @@ class DeferredLoad:
     #: dependency's sources, top and testbench, or a source pattern whose files have no type
     #: before the generator writes them
     complete: bool = True
+    #: True once a file the design names was not there: the deferred work may write it
+    missing_file: bool = False
 
     def defer(self, what: str, complete: bool = True) -> None:
         self.deferred.append(what)
         self.complete = self.complete and complete
+
+    @property
+    def failure_may_depend_on_deferred_output(self) -> bool:
+        """Whether a load that failed may load once the deferred work has run: something was
+        deferred, and a file the design names was missing. Any other failure (a malformed
+        source, a wrong value) is the full load's too, and it would run the generator first."""
+        return bool(self.deferred) and self.missing_file
+
+
+def _note_missing_file() -> None:
+    """Tell a load that defers work that a file the design names is not there."""
+    record = _deferred_load.get()
+    if record is not None:
+        record.missing_file = True
 
 
 _deferred_load: ContextVar[Optional[DeferredLoad]] = ContextVar("deferred_load", default=None)
@@ -1759,7 +1778,8 @@ def deferring_load_side_effects() -> Iterator[DeferredLoad]:
     deferred generator gives the *declared* design: the sources the generator writes are listed
     as the design declares them, with their types, whether or not they exist yet (as
     `{ path = ... }`), so whatever needs only the design's declarations can be judged before
-    the generator runs. Nothing is run, fetched, created, locked or written."""
+    the generator runs. Nothing is run, fetched, created or written; the generator's tree is
+    locked as for any load, except in a plan."""
     record = DeferredLoad()
     token = _deferred_load.set(record)
     try:
@@ -1787,7 +1807,7 @@ def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
                     record.complete = False
                     continue
             declared.append({"path": str(src)})
-        elif isinstance(src, Mapping) and "file" in src:
+        elif isinstance(src, Mapping) and "file" in src and "path" not in src:
             declared.append({"path": src["file"], **{k: v for k, v in src.items() if k != "file"}})
         else:
             declared.append(src)
@@ -2622,7 +2642,7 @@ class Design(XedaBaseModel):
             rtl["sources"] = _declared_sources(rtl.get("sources", []), deferring)
 
         if generator:
-            if _planning_load.get() or deferring is not None:
+            if _planning_load.get():
                 generator_lease: AbstractContextManager[None] = nullcontext()
             else:
                 from .flow_runner.run_lock import generator_design_lock
@@ -2667,7 +2687,7 @@ class Design(XedaBaseModel):
                         declared = generator.generated_sources or rtl.get("sources", [])
                         return _source_paths_as_given(declared, design_root)
 
-                    planning = _planning_load.get() or deferring is not None
+                    planning = _planning_load.get()
                     context = load_context.get()
                     design_name = data.get("name")
                     description = generator.describe(
@@ -2680,6 +2700,7 @@ class Design(XedaBaseModel):
                         description=description,
                         run_root=context.run_root if context else None,
                         planning=planning,
+                        read_only=deferring is not None,
                         rebuild_all=bool(context and context.rebuild_all),
                     ) as generation:
                         if generation.reason is None:

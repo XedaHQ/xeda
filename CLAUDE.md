@@ -1086,15 +1086,21 @@ a pattern keeps its own path when its suffix gives a type). Nothing deferred: th
 load, used once. Otherwise the declared request is resolved with `identify_design=False` (no
 content hash; `PlanContext.design_hash` is empty and the plan is never registered, so
 `_validate_plan` refuses it) and refused as a launch would refuse it (`_refuse_planned`,
-`_refuse_unaccepted_plan`; the remote's preflight), then the design is loaded in full. Not
-judged early, so judged after generation as before: an untyped pattern or a Git dependency
-(`DeferredLoad.complete` false: either can add sources, a top or a testbench), and a declared
-design that fails to load (another generated file named as a `file`) -- a failure after the load
-(`_request` named the design) is the request's own and is raised, complete or not (it reads only
-the design's name, target and `flows`). A project's design chooser is asked once
-(`_choosing_once`: the second load takes the first answer by name). A setting whose validation
+`_refuse_unaccepted_plan`; the remote's preflight, which judges no run directory: the remote
+builds), then the design is loaded in full. Not judged early, so judged after generation as
+before (`DeferredLoad.complete` false): an untyped source pattern, which can add source files only
+(its files have no type until they exist), and a Git dependency, which can add sources, a top and
+a testbench. A declared design that fails to load is loaded in full only when a file it names was
+missing (`DeferredLoad.failure_may_depend_on_deferred_output`, noted by `FileResource` and the
+source glob: another generated file named as a `file`); any other failure (a malformed source, a
+wrong value) is raised at once, with no generator run. A failure after the load (`_request` named
+the design) is the request's own and is raised, complete or not (it reads only the design's name,
+target and `flows`). The declared load of a launch is read-only but takes the generator-tree lock
+as any load does (`judging_generation(read_only=True)`); only a real plan is unlocked. A
+project's design chooser is asked once (`_choosing_once`: the second load takes the first
+answer by its position in the project, since names may repeat). A setting whose validation
 reads a file (`custom_boards_file`, a platform file) is judged there too, so that file must
-exist before generation: a generator that writes one is not supported. A plan still refuses to
+exist before generation: a generator may rewrite one, but cannot be what creates it. A plan still refuses to
 generate, after the declared checks. `tests/test_checks_before_generation.py` counts generator
 runs on every path.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no

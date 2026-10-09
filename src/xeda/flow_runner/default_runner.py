@@ -16,7 +16,19 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from pprint import PrettyPrinter
-from typing import Any, ClassVar, Dict, List, NamedTuple, Optional, Tuple, Type, TypeVar, Union
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 import yaml
 from box import Box
@@ -767,20 +779,45 @@ def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
     return None
 
 
+class _RecordingProject:
+    """A project that notes the position of the design `get_design` gave out last, whether it was
+    asked for by name or by position."""
+
+    def __init__(self, project: XedaProject) -> None:
+        self._project = project
+        self.chosen: int | None = None
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._project, name)
+
+    def get_design(
+        self, name_or_idx: str | int | None = None, target: str | None = None
+    ) -> Design | None:
+        design = self._project.get_design(name_or_idx, target)
+        if design is not None:
+            self.chosen = self._project.design_index(name_or_idx)
+        return design
+
+
 def _choosing_once(
     select: Callable[[XedaProject, Any, str | None], Design | None],
 ) -> Callable[[XedaProject, Any, str | None], Design | None]:
     """`select`, the chooser of a project's design, asked once however many times the request is
     loaded (`FlowLauncher._judged_request` loads a design twice when it would generate): the
-    later loads take the design chosen first, by its name, loaded anew."""
-    chosen: list[str] = []
+    later loads take the design chosen first, by its position in the project (names may repeat),
+    loaded anew."""
+    chosen: list[int] = []
 
     def choose(project: XedaProject, name: Any, target: str | None) -> Design | None:
         if chosen:
             return project.get_design(chosen[0], target)
-        selected = select(project, name, target)
+        recording = _RecordingProject(project)
+        selected = select(cast(XedaProject, recording), name, target)
         if selected is not None:
-            chosen.append(selected.name)
+            if recording.chosen is None:  # a chooser that built the design by itself
+                recording.chosen = project.design_index(selected.name)
+            if recording.chosen is not None:
+                chosen.append(recording.chosen)
         return selected
 
     return choose
@@ -2516,12 +2553,17 @@ class FlowLauncher:
         declared: _Request | None = None
         with deferring_load_side_effects() as deferred:
             try:
-                declared = self._request(*arguments, target=target)
+                declared = self._request(*arguments, target=target, _planning=planning)
             except Exception:
                 # `_request` names the design once it has loaded it. What fails after that is
                 # the request's own refusal, which the full load makes too: it reads the
                 # design's name, target and `flows` sections, which no deferred work changes.
-                if not deferred.deferred or self.design_name is not None:
+                # Before that, only a missing file may be one the deferred work writes: any other
+                # failure is the full load's too, and it would run the generator to find it.
+                if (
+                    not deferred.failure_may_depend_on_deferred_output
+                    or self.design_name is not None
+                ):
                     raise
                 log.debug(
                     "The design does not load before %s: judged after it", *deferred.deferred[:1]
