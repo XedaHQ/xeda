@@ -13,7 +13,7 @@ import pytest
 import xeda
 import xeda.flows
 
-MODULES = [info.name for info in pkgutil.walk_packages(xeda.__path__, "xeda.")]
+MODULES = ["xeda", *(info.name for info in pkgutil.walk_packages(xeda.__path__, "xeda."))]
 BUILTINS = [name for name in vars(builtins) if not name.startswith("_")]
 
 

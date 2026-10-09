@@ -41,6 +41,20 @@ def test_what_a_flow_does_to_its_design_and_settings_is_not_seen_by_the_caller(t
     assert (design.model_dump(), settings.model_dump()) == asked
 
 
-def test_a_flow_built_from_mappings_is_unchanged(tmp_path) -> None:
-    flow = VivadoSynth(dict(SETTINGS), _design(), tmp_path)  # type: ignore[arg-type]
+def test_a_flow_built_from_mappings_leaves_the_mappings_as_they_were(tmp_path) -> None:
+    (tmp_path / "a.v").write_text("module a(input clk); endmodule\n")
+    settings = {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": 5.5}, "suppress_msgs": []}
+    design = {
+        "name": "d",
+        "design_root": tmp_path,
+        "rtl": {"sources": ["a.v"], "top": "a", "clock_port": "clk"},
+    }
+    asked = copy.deepcopy((settings, design))
+    flow = VivadoSynth(settings, design, tmp_path / "run")  # type: ignore[arg-type]
     assert flow.settings.main_clock.period == 5.5
+    assert (settings, design) == asked  # building the flow left them as they were
+    flow.settings.suppress_msgs.append("Synth 8-0000")
+    flow.settings.clocks["extra"] = flow.settings.main_clock.model_copy()
+    flow.design.rtl.top = "something_else"
+    flow.design.rtl.sources.append(flow.design.rtl.sources[0])
+    assert (settings, design) == asked  # ... and so did what the flow does after

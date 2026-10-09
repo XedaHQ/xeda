@@ -23,6 +23,7 @@ what that one reaches (`UNREACHED` there lists the flows that stop short of `run
 
 import copy
 import enum
+import functools
 import logging
 import os
 import sys
@@ -35,7 +36,6 @@ from typing import Any, Dict, List, Optional
 import pytest
 
 from xeda import Design
-from xeda.flow import SimFlow
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.default_runner import FlowLauncher
 from xeda.flows import VivadoAltSynth, VivadoSynth
@@ -78,6 +78,9 @@ HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
     "dc": [{"__language": "2019"}, {"__language": "1993"}],
     "ise_synth": [{"__language": "2019"}],
 }
+#: The flows whose launch does not reach their `run()` in the sweep's world, and why nothing is
+#: lost. Any other that does not is a failure of the sweep: it would see nothing of it.
+NEVER_RUN = {"openroad": "the asap7 platform's liberty files are not shipped"}
 #: Settings that start a container or reach a machine: never flipped.
 NOT_FLIPPED = ("docker", "remote", "ssh", "junest", "image")
 
@@ -127,13 +130,10 @@ def _launch(flow_class, world, mp, settings: dict, launcher: dict):
         mp.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
     mp.chdir(world.work)
     rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
-    if issubclass(flow_class, SimFlow) and flow_class.name in (
-        "ghdl_sim",
-        "nvc",
-        "vivado_sim",
-        "vcs",
-    ):
+    if flow_class.name in ("ghdl_sim", "nvc", "vivado_sim", "vcs", "vivado_power"):
         rtl, tb = PLAIN_TB_DESIGN  # a plain testbench, so that the stood-in simulator is reached
+        if flow_class.name == "vivado_power":
+            tb = {**tb, "uut": "uut"}  # the post-synthesis simulation needs the unit's instance
     settings = dict(settings)
     standard = settings.pop("__language", "2008")
     design = Design(
@@ -184,12 +184,26 @@ def check_flow(flow_class, tmp_path: Path, variants: Optional[list] = None) -> L
     problems: List[str] = []
     state_before, process_before = ss.state(), ss.process_state()
     finished = []
+    started: List[str] = []  # the launches whose flow reached `run()`
     with pytest.MonkeyPatch.context() as mp:
+        run = flow_class.run
+        launching = [""]
+
+        @functools.wraps(run)
+        def counted(self, *args, **kwargs):
+            started.append(launching[0])
+            return run(self, *args, **kwargs)
+
+        mp.setattr(flow_class, "run", counted)
         for label, settings, launcher in variants:
+            launching[0] = label
             flow, changed = _launch(flow_class, world, mp, settings, launcher)
             problems += [f"{label}: {line}" for line in changed]
             if flow is not None:
                 finished.append((label, flow))
+    if flow_class.name not in NEVER_RUN and variants[0][0] not in started:
+        # a launch that fails before `run()` is judged clean by everything below: say so
+        problems.append(f"{variants[0][0]}: the launch did not reach run(), so nothing was seen")
     problems += [f"state of the package: {line}" for line in ss.changes(state_before, ss.state())]
     problems += [
         f"process: {line}" for line in ss.process_changes(process_before, ss.process_state())
@@ -346,9 +360,10 @@ def process_as_it_is():
     root.setLevel(level)
     root.handlers[:] = handlers
     for name, logger in _loggers().items():
-        logger.level, logger.handlers[:], logger.propagate, logger.disabled = named.get(
+        was, logger.handlers[:], logger.propagate, logger.disabled = named.get(
             name, (logging.NOTSET, [], True, False)
         )
+        logger.setLevel(was)  # not an assignment: `setLevel` clears the cache of `isEnabledFor`
     warnings.filters[:] = filters
     sys.path[:] = path
 
@@ -427,6 +442,22 @@ def test_the_sweep_lets_a_launch_make_a_logger_it_does_not_configure(
     """Importing a module during a launch makes its logger: no change of the process."""
     said = _victim(tmp_path, monkeypatch, lambda flow: fresh_logger("plain"))
     assert said == ""
+
+
+def test_the_sweep_says_when_a_launch_ends_before_the_run_of_its_flow(
+    tmp_path, monkeypatch
+) -> None:
+    def init(self):
+        raise RuntimeError("the flow stops in init")
+
+    monkeypatch.setattr(VivadoAltSynth, "init", init)
+    base = {**minimal_settings(VivadoAltSynth), **EXTRA_SETTINGS.get("vivado_alt_synth", {})}
+    said = "\n".join(check_flow(VivadoAltSynth, tmp_path, [("base", base, {})]))
+    assert "base: the launch did not reach run()" in said
+
+
+def test_only_flows_of_the_product_may_be_left_out_of_the_runs() -> None:
+    assert set(NEVER_RUN) <= {cls.name for cls in FLOWS}
 
 
 def test_the_sweep_sees_a_launch_that_changes_what_the_caller_gave(tmp_path, monkeypatch) -> None:
