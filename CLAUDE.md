@@ -1737,6 +1737,19 @@ dependency must also share `custom_boards_file`.
   it the same way -- there is nothing of a flow's or a user's under any of these names for that
   boundary to protect. `tests/test_isolation.py` is the current oracle (see "Caching and
   run directories" above).
+- **A launch changes nothing that outlives it.** Not a module table, class attribute, function or
+  field default of `xeda.*`; not the root logger, a handler, the working directory, the
+  environment, `sys.path` or a warning filter; not the caller's settings mapping or `Design`; and
+  a finished flow shares no mutable object with module or class state. So: a flow class holds no
+  model instance (a `Tool` is made in `init()`: it finds its flow when it is made); `Flow.__init__`
+  and `Optimizer.variations` copy what they are given; a source is hashed from its file each time
+  (`FileResource.content_hash` has no cache); a launcher's `debug` raises the level of `xeda.*`
+  loggers for the length of a call (`default_runner.xeda_debug_logging`), and a search removes the
+  log handler it added. `tests/test_shared_state.py` (`tests/state_snapshot.py`) launches every
+  product flow under the stand-in tools, with its options flipped, and fails on any of it; each
+  check has an offender test that it must catch, so extend the offenders with a new kind of state.
+  A write into the flow's own copy of its settings is allowed ("The input settings are never
+  modified", under Flow lifecycle).
 - **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
   table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`) or mis-cased suffixes need an
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
