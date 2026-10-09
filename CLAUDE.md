@@ -154,7 +154,7 @@ the launch and scrub** (`run_dir.run_directory_problem(path, flow, parent)`, wit
 `<flow>_<hash>`, a directory, in `parent`; a link counts only if the end of its chain of links
 (`os.path.realpath`) is itself named so and lies in `parent`, beside it. A link to a target's
 directory, another flow's run directory, a directory below or above, out of the run root, a file or
-nowhere is none. `run_path_of` refuses such a last component naming the link and its end (pure:
+nowhere is none. `run_path_of` refuses a last component that is one of these links, naming the link and its end (pure:
 `lstat`/`realpath`), and scrub lists none of them. `tests/test_run_directory_rule.py` holds the
 table of link cases and the agreement oracle (scrub lists a link if and only if a launch accepts
 it). **What a run wrote is told by identity, never by a clock** (`xeda/run_dir.py`):

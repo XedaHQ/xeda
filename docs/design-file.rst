@@ -511,9 +511,9 @@ One design file can describe the design for several boards. Each entry of ``targ
 - **A table where a table is expected.** A value that is no table, and no short form of one,
   where a table is expected (``tb: 3``, or ``keep: 3`` in ``rtl.attributes``, whose entries are
   tables) is an error, whichever target you select: a target's table written over it does not
-  hide it. The design's own ``flows`` table and every target's
-  are checked as well, the target's at ``targets.<name>.flows``, and so is every target's
-  overlay, selected or not, at ``targets.<name>.<key>``.
+  hide it. The design's own ``flows`` table and every target's ``flows`` table are checked as
+  well, a target's at ``targets.<name>.flows``. So is every target's overlay, selected or not, at
+  ``targets.<name>.<key>``.
 - **A target overrides the design.** A target is the design author saying "for this board, these
   values", so where the design and the target write the same key, the target's value wins, key by
   key: a target's ``flows.nextpnr.board`` replaces the design's ``flows.nextpnr.board`` without an
