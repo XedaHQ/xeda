@@ -472,15 +472,14 @@ class Dse(FlowLauncher):
         # once the settings have validated and no deliverable names a location: an exploration
         # that fails at its input leaves none.
         timestamp = datetime.now().strftime("%Y-%m-%d-%H%M%S%f")[:-3]
-        file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         best_json_path = self.run_root / f"fmax_{design.name}_{flow_class.name}_{timestamp}.json"
-        log.info("Best results are saved to %s", best_json_path)
-
         flow_setting_hashes = set()
-
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         iterate = True
+        # nothing between opening the log and the `try` that closes it
+        file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         try:
+            log.info("Best results are saved to %s", best_json_path)
             with ProcessPool(max_workers=optimizer.max_workers) as pool:
                 while iterate:
                     cpu_usage = tuple((ld / num_cpus) * 100 for ld in psutil.getloadavg())

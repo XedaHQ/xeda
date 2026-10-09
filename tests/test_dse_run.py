@@ -588,3 +588,23 @@ def test_a_search_removes_its_log_handler_when_the_cleanup_after_it_fails(tmp_pa
     left = [handler for handler in root.handlers if handler not in before]
     root.handlers[:] = before  # a handler that was left must not outlive this test
     assert left == []
+
+
+def test_a_search_removes_its_log_handler_when_its_set_up_fails(tmp_path, monkeypatch):
+    """The log is opened once the settings are valid; what the search sets up after that can
+    fail too, and the handler is not left behind by it."""
+    import logging
+
+    import psutil
+
+    def cpu_count(*args, **kwargs):
+        raise RuntimeError("no count of the processors")
+
+    monkeypatch.setattr(psutil, "cpu_count", cpu_count)
+    root = logging.getLogger()
+    before = list(root.handlers)
+    with pytest.raises(RuntimeError, match="no count of the processors"):
+        _idle_search(tmp_path, monkeypatch)
+    left = [handler for handler in root.handlers if handler not in before]
+    root.handlers[:] = before  # a handler that was left must not outlive this test
+    assert left == []
