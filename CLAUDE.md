@@ -1123,6 +1123,35 @@ launcher puts it there, `design.loading_in_run_root(provider)` (one `ContextVar`
 generator declaring no `sources`, no run root in sight (a `Design` built
 directly), or a run root whose cache cannot be written. A planning load creates, locks and writes
 nothing -- it reads an existing record, and still refuses to plan a design that must generate.
+**What needs only the design's declarations is refused before a generator runs.** Every launch
+path -- `FlowLauncher._judged_request` (`run`, `plan`, so `dse` too) and the remote runner's
+`load`/`preflight` -- loads first under `design.deferring_load_side_effects()`: a generator that
+would run is not run and a Git dependency is not fetched (`DeferredLoad` lists each), and the
+generator's `rtl.sources` become `{ path = ... }` entries with their types (`_declared_sources`;
+a pattern is left out, since it stands for the files that exist once the generator has run).
+Nothing deferred: that load is the
+load, used once. Otherwise the declared request is resolved with `identify_design=False` (no
+content hash; `PlanContext.design_hash` is empty and the plan is never registered, so
+`_validate_plan` refuses it) and refused as a launch would refuse it (`_refuse_planned`,
+`_refuse_unaccepted_plan`; the remote's preflight, which judges no run directory because the
+remote builds), then the design is loaded in full. Not judged early, so judged after generation as
+before (`DeferredLoad.complete` false): a source pattern, which can add source files only (their
+number, and a duplicate of a file listed beside it, are known once they exist), and a Git
+dependency, which can add sources, a top and a testbench. A declared design that fails to load is
+loaded in full only when every error it reports is a file it names that is not there
+(`MissingFile`, typed `MISSING_FILE_ERROR` in `DesignValidationError.errors`: another generated
+file named as a `file`, a pattern that matches nothing yet, a local dependency's design file;
+`DeferredLoad.failure_may_depend_on_deferred_output(error)`); any other error (a malformed
+source, a wrong value), alone or beside a missing file, is raised at once, with no generator run. A failure after the load (`_request` named
+the design) is the request's own and is raised, complete or not (it reads only the design's name,
+target and `flows`). The declared load of a launch is read-only but takes the generator-tree lock
+as any load does (`judging_generation(read_only=True)`); only a real plan is unlocked. A
+project's design chooser is asked once (`_choosing_once`: the second load takes the first
+answer by its position in the project, since names may repeat). A setting whose validation
+reads a file (`custom_boards_file`, a platform file) is judged there too, so that file must
+exist before generation: a generator may rewrite one, but cannot be what creates it. A plan still refuses to
+generate, after the declared checks. `tests/test_checks_before_generation.py` counts generator
+runs on every path.
 `RunDirectory.unlinked(path)` is the one rule naming anything in a cache under a run root (no
 symbolic link on the way, not even one that stays inside), shared by the chip databases, the
 generator records and the Git dependency clones (see below). `rtl.generator.run_only_if_sources_modified` was removed: use `always_runs`.

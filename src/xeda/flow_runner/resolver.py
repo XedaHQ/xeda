@@ -728,9 +728,14 @@ def resolve(
     debug: bool = False,
     flow_request: FlowRequest | None = None,
     binding_layers: Sequence[BindingLayer] = (),
+    identify_design: bool = True,
 ) -> Plan:
     """Resolve the graph (explicit bindings, then sources, then default producers), agree
-    settings, union every demand on each producer, enable outputs, validate and freeze."""
+    settings, union every demand on each producer, enable outputs, validate and freeze.
+
+    Without `identify_design`, the plan judges a declared design, whose generated sources may
+    not exist yet (`design.deferring_load_side_effects`): it is not identified by content, and
+    its empty `design_hash` is one no launch accepts (`FlowLauncher._validate_plan`)."""
     context = dict(design_root=design.root_path, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
@@ -1230,7 +1235,7 @@ def resolve(
         flow_cls.name,
         tuple(nodes),
         PlanContext(
-            design.parts_hash(DESIGN_PARTS),
+            design.parts_hash(DESIGN_PARTS) if identify_design else "",
             design.root_path,
             runner_cwd,
             run_root,

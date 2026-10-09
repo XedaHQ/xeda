@@ -225,7 +225,9 @@ outputs switched on for consumers. Add ``--json`` for a document (see :doc:`mach
 It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
 unsupported targets and shared-setting conflicts fail during planning.
 
-Loading that needs a generator or a Git dependency fetch is refused before those side effects;
+A request that the design's declarations already rule out is refused first, before a generator
+runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
+refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
 ``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
 decisions are not evaluated, and ``--dry-run --remote`` is refused.
