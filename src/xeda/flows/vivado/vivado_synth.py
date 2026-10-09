@@ -375,12 +375,12 @@ class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
     """
 
     netlist: Path | None = Out(
-        SourceType.VerilogNetlist,
+        SourceType.FpgaNetlist,
         enabled_by="write_netlist",
         description="The routed design's functional Verilog netlist.",
     )
     netlist_timing: Path | None = Out(
-        SourceType.VerilogNetlist,
+        SourceType.FpgaTimingNetlist,
         enabled_by="write_timing_netlist",
         description="The routed design's timing Verilog netlist, simulated with `sdf`.",
     )
@@ -391,12 +391,12 @@ class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
         "slow-corner (max) delays.",
     )
     checkpoint_synth: Path | None = Out(
-        SourceType.Checkpoint,
+        SourceType.SynthCheckpoint,
         enabled_by="write_checkpoint",
         description="The design checkpoint (.dcp) after synthesis.",
     )
     checkpoint_route: Path | None = Out(
-        SourceType.Checkpoint,
+        SourceType.RoutedCheckpoint,
         enabled_by="write_checkpoint",
         description="The design checkpoint (.dcp) after routing.",
     )

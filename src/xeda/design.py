@@ -610,6 +610,15 @@ class SourceType(str, Enum):
     ObjectFile = "ObjectFile"
     Vlt = "Vlt"
     Data = "Data"
+    # Types by stage. `FpgaNetlist` is a Verilog netlist of FPGA primitives (what Vivado writes),
+    # where `VerilogNetlist` is a standard-cell netlist, and `FpgaTimingNetlist` is the timing
+    # netlist of the same design, which is simulated with an SDF. A checkpoint is written at
+    # several stages and only the stage says what reads it, so `Checkpoint` (no stage) is taken
+    # by no flow and `.dcp` names no type.
+    FpgaNetlist = "FpgaNetlist"
+    SynthCheckpoint = "SynthCheckpoint"
+    RoutedCheckpoint = "RoutedCheckpoint"
+    FpgaTimingNetlist = "FpgaTimingNetlist"
 
     def __str__(self) -> str:
         return str(self.name)
@@ -685,7 +694,6 @@ SOURCE_SUFFIXES: dict[str, tuple[SourceType, str | None]] = {
     "ghw": (SourceType.Ghw, None),
     "vpd": (SourceType.Vpd, None),
     "fsdb": (SourceType.Fsdb, None),
-    "dcp": (SourceType.Checkpoint, None),
     "lib": (SourceType.Liberty, None),
     "def": (SourceType.Def, None),
     "odb": (SourceType.Odb, None),
@@ -706,6 +714,7 @@ AMBIGUOUS_SUFFIXES: dict[str, tuple[SourceType, ...]] = {
     "bin": (SourceType.Bitstream, SourceType.Chipdb),
     "cfg": (SourceType.EcpConfig,),
     "config": (SourceType.EcpConfig,),
+    "dcp": (SourceType.SynthCheckpoint, SourceType.RoutedCheckpoint),
 }
 
 #: Members no suffix infers: given by an explicit `type` only (or, later, by a declared output).
@@ -717,6 +726,11 @@ TYPE_ONLY: frozenset[SourceType] = frozenset(
         SourceType.VhdlNetlist,
         SourceType.Chipdb,
         SourceType.Data,
+        SourceType.FpgaNetlist,
+        SourceType.FpgaTimingNetlist,
+        SourceType.Checkpoint,
+        SourceType.SynthCheckpoint,
+        SourceType.RoutedCheckpoint,
     }
 )
 
