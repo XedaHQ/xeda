@@ -663,7 +663,10 @@ _PARAMETER_LIST = {
     "type": "array",
     "items": {
         "type": "object",
-        "properties": {"name": {"type": "string"}, "value": {}},
+        "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "value": {"not": {"type": "null"}},  # `0` and `""` are values; null is none
+        },
         "required": ["name", "value"],
     },
 }

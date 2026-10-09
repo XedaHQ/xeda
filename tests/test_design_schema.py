@@ -345,3 +345,28 @@ def test_the_schema_refuses_what_the_loader_refuses_in_targets(targets, tmp_path
     assert not validator().is_valid(data)
     with pytest.raises(Exception):
         Design(design_root=tmp_path, **data)
+
+
+@pytest.mark.parametrize("spelling", ["parameters", "generics"])
+@pytest.mark.parametrize(
+    "entry",
+    [{"name": "", "value": 1}, {"name": "W", "value": None}, {"name": "W"}, {"value": 1}],
+    ids=str,
+)
+def test_the_schema_refuses_a_parameter_list_entry_the_loader_refuses(spelling, entry, tmp_path):
+    """An entry of the list form needs a name and a value that is not null (`0` and `""` are
+    values), as `_parameters_as_mapping` demands."""
+    data = {"name": "d", "rtl": {"sources": [], "top": "t", spelling: [entry]}}
+    assert not validator().is_valid(data)
+    with pytest.raises(Exception):
+        Design(design_root=tmp_path, **data)
+
+
+@pytest.mark.parametrize("value", [0, "", False, "8", 3.5])
+def test_the_schema_accepts_a_parameter_list_entry_with_a_falsy_value(value, tmp_path):
+    data = {
+        "name": "d",
+        "rtl": {"sources": [], "top": "t", "parameters": [{"name": "W", "value": value}]},
+    }
+    assert validator().is_valid(data)
+    assert Design(design_root=tmp_path, **data).rtl.parameters == {"W": value}
