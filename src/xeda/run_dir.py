@@ -56,8 +56,9 @@ DIR_NAME_HASH_LEN = 16
 def run_directory_name(flow_name: str) -> re.Pattern[str]:
     """The names a run directory of `flow_name` has: `flow_name`, which every default run makes,
     or `flow_name`, an underscore and a `DIR_NAME_HASH_LEN`-char `[a-z0-9]` run hash, which
-    `hashed_run_dirs` makes."""
-    return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?$")
+    `hashed_run_dirs` makes. The pattern ends with `\\Z`, not `$`: `$` also matches before a final
+    newline, and a directory named `<flow>` and a newline is no run directory."""
+    return re.compile(f"^{re.escape(flow_name)}(_" + (r"[a-z0-9]" * DIR_NAME_HASH_LEN) + r")?\Z")
 
 
 def run_directory_problem(path: Path, flow_name: str, parent: Path) -> Optional[str]:

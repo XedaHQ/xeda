@@ -254,8 +254,26 @@ def test_a_run_directory_is_named_like_the_flow_or_like_the_flow_and_a_hash():
         f"{FLOW}.x",
         f"x{FLOW}",
         "yosys_fpga",
+        # `$` also matches before a final newline: the name is not a run directory's
+        f"{FLOW}\n",
+        f"{FLOW}_{HASH}\n",
+        f"{FLOW} ",
     ):
         assert not named.match(bad), bad
+
+
+@pytest.mark.parametrize("name", [FLOW, f"{FLOW}_{HASH}"])
+def test_a_directory_named_with_a_final_newline_is_no_run_directory_and_scrub_leaves_it(
+    tmp_path, confirmations, name
+):
+    world = World(tmp_path)
+    odd = run_dir(world.parent / f"{name}\n")
+    assert run_directory_problem(odd, FLOW, world.parent.resolve()) == (
+        f"its name is not {FLOW} or {FLOW}_<hash>"
+    )
+    result = default_runner.scrub_design(FLOW, world.design, run_root=world.root, target="a")
+    assert world.sibling in result.removed
+    assert odd not in result.removed and (odd / "out.txt").exists()
 
 
 @pytest.mark.parametrize(("case", "hashed"), table(*CASES))
