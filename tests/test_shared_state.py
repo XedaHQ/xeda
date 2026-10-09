@@ -309,16 +309,35 @@ def test_the_sweep_sees_a_flow_that_shares_a_table_with_its_settings(tmp_path, m
     assert "is also" in said and "strategies" in said
 
 
+def test_the_sweep_sees_a_flow_that_shares_the_default_of_a_setting(tmp_path, monkeypatch) -> None:
+    info = VivadoAltSynth.Settings.model_fields["suppress_msgs"]
+    default = list(info.default)
+    monkeypatch.setattr(info, "default", default)
+
+    def share(flow):
+        flow.settings.__dict__["suppress_msgs"] = default  # not a copy: a write shows in both
+
+    said = _victim(tmp_path, monkeypatch, share)
+    assert "is also" in said and "suppress_msgs" in said
+
+
 @pytest.fixture
 def process_as_it_is():
     """What the process offenders change, put back after the test."""
     root = logging.getLogger()
     level, handlers = root.level, list(root.handlers)
+    named = {
+        name: logger.level
+        for name, logger in list(logging.root.manager.loggerDict.items())
+        if isinstance(logger, logging.Logger)
+    }
     filters = list(warnings.filters)
     path = list(sys.path)
     yield
     root.setLevel(level)
     root.handlers[:] = handlers
+    for name, was in named.items():
+        logging.getLogger(name).setLevel(was)
     warnings.filters[:] = filters
     sys.path[:] = path
 

@@ -38,6 +38,7 @@ from typing import Any
 import click
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
 
 import xeda
 
@@ -329,7 +330,8 @@ def reachable(root: Any, label: str, found: dict[int, tuple[str, str]] | None = 
 
 
 def shared_objects() -> dict[int, tuple[str, str]]:
-    """Every mutable object held by a module variable, a class attribute or a function default."""
+    """Every mutable object held by a module variable, a class attribute, a function default or a
+    pydantic field's default."""
     found: dict[int, tuple[str, str]] = {}
     for module in _modules():
         for name, value in list(vars(module).items()):
@@ -342,6 +344,11 @@ def shared_objects() -> dict[int, tuple[str, str]]:
             else:
                 reachable(value, where, found)
         for name, cls in _classes_of(module):
+            for field_name, field in dict(vars(cls).get("__pydantic_fields__") or {}).items():
+                if field.default is not PydanticUndefined:
+                    reachable(
+                        field.default, f"{module.__name__}.{name}.{field_name} (default)", found
+                    )
             for attribute, held in list(vars(cls).items()):
                 if attribute.startswith("__") or isinstance(held, (type, *DESCRIPTORS)):
                     continue
