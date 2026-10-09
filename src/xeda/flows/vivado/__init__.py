@@ -34,9 +34,8 @@ def vivado_file_type(source: DesignSource) -> str:
     return SOURCE_FILE_TYPES[source.type]
 
 
-all = [
+__all__ = [
     "Vivado",
-    "VivadoSynthSettings",
     "VivadoTool",
 ]
 
