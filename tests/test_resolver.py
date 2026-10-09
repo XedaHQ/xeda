@@ -1177,30 +1177,25 @@ def test_one_corner_spelled_as_a_list_agrees_and_two_corners_conflict(tmp_path):
         _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
 
 
-def test_planning_with_clock_null_in_design_and_clock_in_settings(tmp_path):
-    """Test that planning succeeds when design has clock: null and settings provide clock."""
+def test_a_flow_section_with_a_null_clock_plans(tmp_path):
+    """A flow section that writes `clock: null` gives no clock, and another layer's clock is
+    the flow's. The resolver used to record the null as a clock input and fail on it with an
+    `AttributeError`."""
     from xeda.flows.yosys import YosysFpga
 
     root = tmp_path / "d"
     root.mkdir(exist_ok=True)
     (root / "top.v").write_text("module top(); endmodule\n")
-
-    # Create design with clock: null
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top", "clock": None},
+        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top"},
     )
-
-    # Plan with clock and fpga settings from command line
     plan = resolve(
         YosysFpga,
         design,
-        settings={
-            "clock": {"period": "10ns"},
-            "fpga": {"part": "xc7a35tcpg236-1"},
-        },
-        sections={},
+        settings={"clock": {"period": "10ns"}},
+        origins=[("the design file", {"yosys_fpga": {"clock": None, "fpga": "xc7a35tcpg236-1"}})],
         runner_cwd=tmp_path,
         run_root=tmp_path / "run",
         hashed_run_dirs=False,
@@ -1208,8 +1203,4 @@ def test_planning_with_clock_null_in_design_and_clock_in_settings(tmp_path):
             tmp_path / "run" / design_name / node
         ),
     )
-
-    # Should have planned successfully
-    assert plan.requested == "yosys_fpga"
-    node = plan.node("yosys_fpga")
-    assert node.settings.clock.period == 10.0
+    assert plan.node("yosys_fpga").settings.clock.period == 10.0
