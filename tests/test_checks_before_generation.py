@@ -486,3 +486,36 @@ def test_the_choice_among_a_project_s_designs_with_one_name_is_kept(tmp_path, mo
     assert asked == [None]
     assert flow.design.rtl.top == "second"
     assert generated.runs == 1
+
+
+def test_a_project_s_design_is_chosen_once_when_the_declared_load_fails(tmp_path, monkeypatch):
+    """The declared load of the chosen design fails (the generator also writes its testbench,
+    which the design lists as a file that must exist), so the design is loaded in full. The
+    chooser is not asked again, and it still gets what it chose."""
+    use_fake_tools(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    generated = Generated(
+        tmp_path, ["gen/top.v", "gen/tb.v"], sources=["gen/top.v"], tb={"sources": ["gen/tb.v"]}
+    )
+    spec = json.loads(generated.file.read_text())
+    spec["design_root"] = str(generated.root)
+    other = {"name": "other", "design_root": str(generated.root), "rtl": {"sources": ["gen.py"]}}
+    project = tmp_path / "xedaproject.json"
+    project.write_text(json.dumps({"designs": [other, spec]}))
+    asked = []
+
+    def select(project, name, target):
+        asked.append(name)
+        return project.get_design("generated", target)
+
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(
+        "vivado_synth",
+        xedaproject=str(project),
+        flow_settings=dict(XILINX),
+        select_design_in_project=select,
+    )
+    assert flow is not None and flow.succeeded
+    assert asked == [None]
+    assert flow.design.name == "generated"
+    assert generated.runs == 1

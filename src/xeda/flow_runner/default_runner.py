@@ -780,8 +780,8 @@ def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
 
 
 class _RecordingProject:
-    """A project that notes the position of the design `get_design` gave out last, whether it was
-    asked for by name or by position."""
+    """A project that notes the position of the design `get_design` was asked for last, by name or
+    by position, even when building that design failed."""
 
     def __init__(self, project: XedaProject) -> None:
         self._project = project
@@ -793,10 +793,10 @@ class _RecordingProject:
     def get_design(
         self, name_or_idx: str | int | None = None, target: str | None = None
     ) -> Design | None:
-        design = self._project.get_design(name_or_idx, target)
-        if design is not None:
-            self.chosen = self._project.design_index(name_or_idx)
-        return design
+        # noted before the design is built: a build that raises (a file the generator writes is
+        # not there yet) has still been chosen
+        self.chosen = self._project.design_index(name_or_idx)
+        return self._project.get_design(name_or_idx, target)
 
 
 def _choosing_once(
@@ -812,9 +812,12 @@ def _choosing_once(
         if chosen:
             return project.get_design(chosen[0], target)
         recording = _RecordingProject(project)
-        selected = select(cast(XedaProject, recording), name, target)
-        if selected is not None:
-            if recording.chosen is None:  # a chooser that built the design by itself
+        selected = None
+        try:
+            selected = select(cast(XedaProject, recording), name, target)
+        finally:  # an answer is kept when building the design failed, as it is when it did not
+            if selected is not None and recording.chosen is None:
+                # a chooser that built the design by itself
                 recording.chosen = project.design_index(selected.name)
             if recording.chosen is not None:
                 chosen.append(recording.chosen)
