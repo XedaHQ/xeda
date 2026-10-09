@@ -1332,7 +1332,8 @@ parent resolves inside the run directory and that no other delivery of the whole
 (`_movable`, by device and inode of the file and of what a link leads to, counted over every
 pending source of every flow before the first delivery: `Deliveries.sources_reached`, handed to
 `deliver(reached=)` by `_finish_launch`, so a consumer's link to a producer's delivered file
-makes the producer copy) moves; anything else, and any `OSError` of the first rename
+makes the producer copy; and counted again over the flow's own deliveries under its lock, since
+another launch may have made one of them a link meanwhile) moves; anything else, and any `OSError` of the first rename
 (another file system), copies. The remote runner copies (`run_remote` has no clean-up step and
 the CLI hands it neither option, so its local mirror is never purged), and `dse` delivers nothing. An existing file at a destination is replaced without asking only when it is
 xeda's own earlier delivery there, unchanged: inode and content digest are what decide -- a same-inode

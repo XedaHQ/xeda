@@ -1053,17 +1053,20 @@ class Deliveries:
 
     def _movable(self, reached: Optional[Counter[tuple[int, int]]] = None) -> set[Path]:
         """The sources of the noted files that `deliver` may move: those that only one delivery
-        reaches, in the whole launch (`reached`, `sources_reached`) or, without it, among this
-        node's. A file that two deliveries reach is copied every time: moving it for one would
-        leave nothing for the other, whichever flow's delivery is made first. Each source counts by
-        the file it is and by the file it leads to, which makes a file and a link to it one
-        file."""
-        if reached is None:
-            reached = Deliveries.sources_reached([self])
+        reaches, both among this node's, counted now (under the lock `deliver` holds, so a file
+        that another launch made a link to since the launch counted is seen), and in the whole
+        launch (`reached`, `sources_reached`, counted before the first delivery). A file that two
+        deliveries reach is copied every time: moving it for one would leave nothing for the
+        other, whichever flow's delivery is made first. Each source counts by the file it is and
+        by the file it leads to, which makes a file and a link to it one file."""
+        counts = [Deliveries.sources_reached([self])]
+        if reached is not None:
+            counts.append(reached)
         return {
             src
             for _delivery, src, _dest, _sha in self.pending
-            if (files := _reached_files(src)) and all(reached[f] == 1 for f in files)
+            if (files := _reached_files(src))
+            and all(count[f] == 1 for count in counts for f in files)
         }
 
     def _move_into(self, source: Path, temporary: Path) -> bool:

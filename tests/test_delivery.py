@@ -1401,6 +1401,23 @@ def test_deliver_moves_only_when_it_is_told_the_directory_goes(unit):
     assert _leftovers(unit.out) == []
 
 
+def test_a_move_counts_again_the_deliveries_of_its_flow(unit):
+    """The launch counts what every delivery reaches before the first delivery, and a flow
+    counts its own deliveries again when it delivers. Another launch of the run directory may
+    have made one of the files a link to another since: by the launch's count, the file would
+    be moved, and the link would lead nowhere."""
+    for name in ("a.txt", "b.txt"):
+        (unit.run_path / name).write_text("same\n")
+    noted = _noted(unit, ("a.txt", unit.out / "a.txt"), ("b.txt", unit.out / "b.txt"))
+    counted = deliver.Deliveries.sources_reached([noted])
+    (unit.run_path / "b.txt").unlink()
+    (unit.run_path / "b.txt").symlink_to("a.txt")
+    delivered = noted.deliver(move=True, reached=counted)
+    assert [d.state for d in delivered] == ["delivered", "delivered"]
+    assert (unit.run_path / "a.txt").read_text() == "same\n", "copied, not moved"
+    assert (unit.out / "a.txt").read_text() == (unit.out / "b.txt").read_text() == "same\n"
+
+
 def test_a_directory_output_is_moved_file_by_file(unit):
     tree = unit.run_path / "tree"
     (tree / "sub").mkdir(parents=True)
