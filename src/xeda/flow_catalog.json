@@ -1,0 +1,250 @@
+{
+  "bsc": {
+    "aliases": [],
+    "class_name": "Bsc",
+    "followers": {
+      "": []
+    }
+  },
+  "bsc_sim": {
+    "aliases": [],
+    "class_name": "BscSim",
+    "followers": {
+      "": []
+    }
+  },
+  "dc": {
+    "aliases": [],
+    "class_name": "Dc",
+    "followers": {
+      "": []
+    }
+  },
+  "diamond_synth": {
+    "aliases": [],
+    "class_name": "DiamondSynth",
+    "followers": {
+      "": []
+    }
+  },
+  "fpga_pack": {
+    "aliases": [],
+    "class_name": "FpgaPack",
+    "followers": {
+      "": [
+        "openfpgaloader"
+      ],
+      "bitstream": [
+        "openfpgaloader"
+      ]
+    }
+  },
+  "ghdl_sim": {
+    "aliases": [
+      "ghdl"
+    ],
+    "class_name": "GhdlSim",
+    "followers": {
+      "": []
+    }
+  },
+  "ghdl_synth": {
+    "aliases": [],
+    "class_name": "GhdlSynth",
+    "followers": {
+      "": []
+    }
+  },
+  "ise_synth": {
+    "aliases": [],
+    "class_name": "IseSynth",
+    "followers": {
+      "": []
+    }
+  },
+  "modelsim": {
+    "aliases": [],
+    "class_name": "Modelsim",
+    "followers": {
+      "": []
+    }
+  },
+  "nextpnr": {
+    "aliases": [],
+    "class_name": "Nextpnr",
+    "followers": {
+      "": [
+        "fpga_pack"
+      ],
+      "config": [
+        "fpga_pack"
+      ]
+    }
+  },
+  "nvc": {
+    "aliases": [],
+    "class_name": "Nvc",
+    "followers": {
+      "": []
+    }
+  },
+  "openfpgaloader": {
+    "aliases": [],
+    "class_name": "Openfpgaloader",
+    "followers": {
+      "": []
+    }
+  },
+  "openroad": {
+    "aliases": [],
+    "class_name": "Openroad",
+    "followers": {
+      "": []
+    }
+  },
+  "quartus": {
+    "aliases": [],
+    "class_name": "Quartus",
+    "followers": {
+      "": []
+    }
+  },
+  "vcs": {
+    "aliases": [],
+    "class_name": "Vcs",
+    "followers": {
+      "": []
+    }
+  },
+  "verilator": {
+    "aliases": [],
+    "class_name": "Verilator",
+    "followers": {
+      "": []
+    }
+  },
+  "vivado_alt_synth": {
+    "aliases": [],
+    "class_name": "VivadoAltSynth",
+    "followers": {
+      "": [
+        "openfpgaloader",
+        "vivado_power"
+      ],
+      "netlist": [],
+      "netlist_timing": [],
+      "sdf": [],
+      "checkpoint_synth": [],
+      "checkpoint_route": [
+        "vivado_power"
+      ],
+      "bitstream": [
+        "openfpgaloader"
+      ]
+    }
+  },
+  "vivado_impl": {
+    "aliases": [],
+    "class_name": "VivadoImpl",
+    "followers": {
+      "": [
+        "openfpgaloader"
+      ],
+      "bitstream": [
+        "openfpgaloader"
+      ]
+    }
+  },
+  "vivado_postsynth_sim": {
+    "aliases": [],
+    "class_name": "VivadoPostsynthSim",
+    "followers": {
+      "": [
+        "vivado_power"
+      ],
+      "saif": [
+        "vivado_power"
+      ],
+      "timing_saif": [
+        "vivado_power"
+      ]
+    }
+  },
+  "vivado_power": {
+    "aliases": [],
+    "class_name": "VivadoPower",
+    "followers": {
+      "": []
+    }
+  },
+  "vivado_project": {
+    "aliases": [],
+    "class_name": "VivadoProject",
+    "followers": {
+      "": []
+    }
+  },
+  "vivado_sim": {
+    "aliases": [],
+    "class_name": "VivadoSim",
+    "followers": {
+      "": []
+    }
+  },
+  "vivado_synth": {
+    "aliases": [],
+    "class_name": "VivadoSynth",
+    "followers": {
+      "": [
+        "openfpgaloader",
+        "vivado_power"
+      ],
+      "netlist": [],
+      "netlist_timing": [],
+      "sdf": [],
+      "checkpoint_synth": [],
+      "checkpoint_route": [
+        "vivado_power"
+      ],
+      "bitstream": [
+        "openfpgaloader"
+      ],
+      "sdf_min": []
+    }
+  },
+  "yosys": {
+    "aliases": [],
+    "class_name": "Yosys",
+    "followers": {
+      "": [
+        "openroad"
+      ],
+      "netlist": [
+        "openroad"
+      ]
+    }
+  },
+  "yosys_fpga": {
+    "aliases": [],
+    "class_name": "YosysFpga",
+    "followers": {
+      "": [
+        "nextpnr",
+        "vivado_impl"
+      ],
+      "netlist": [
+        "nextpnr"
+      ],
+      "netlist_edif": [
+        "vivado_impl"
+      ]
+    }
+  },
+  "yosys_sim": {
+    "aliases": [],
+    "class_name": "YosysSim",
+    "followers": {
+      "": []
+    }
+  }
+}

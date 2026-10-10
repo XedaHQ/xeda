@@ -1,95 +1,101 @@
 """Xeda Command-line interface"""
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
-from collections import OrderedDict
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
 import click
-import coloredlogs
 from click.core import ParameterSource
 from click.shell_completion import get_completion_class
-from click_extra import HelpKeywords
-from rich import box
-from rich.markup import escape
-from rich.style import Style
-from rich.table import Table
 
-from .agent_skill import SKILL_NAME, default_skill_dir, generate_flows_reference, install_skill
-from .cli_utils import (
-    DOCUMENT_FORMATS,
-    HELP_FORMATTER_SETTINGS,
-    ClickMutex,
-    DeclaredEnvvarsCommand,
+from .cli_types import (
     ChainChoice,
+    ClickMutex,
+    DOCUMENT_FORMATS,
     FlowChoice,
     OptionEatAll,
-    XedaHelpGroup,
-    emit_structured,
-    machine_readable_mode,
     output_format_option,
-    print_flow_settings,
-    resolve_format,
-    select_design_in_project,
 )
-from .console import console
-from .deliver import Conflict
-from .design import DESIGN_NAME, target_name_problem
-from .flow import Flow, FlowFatalError, registered_flows
-from .flow_runner import (
-    DefaultRunner,
-    XedaOptions,
-    add_file_logger,
-    scrub_design,
-)
-from .flow_runner.bindings import LOCAL_REQUESTS_ONLY
-from .flow_runner.chains import parse_request
-from .flow_runner.dse import Dse
-from .flow_runner.resolver import Plan
-from .flows import __builtin_flows__
-from .introspect import (
-    boards_info,
-    design_info,
-    design_schema,
-    flow_chain_cells,
-    flows_info,
-    json_safe,
-    optimizers_info,
-    inputs_info,
-    plan_info,
-    request_info,
-    platforms_info,
-    results_info,
-)
-from .run_dir import RunDirectoryError
-from .run_root import RunRootError, ensure_run_root
-from .tool import ExecutableNotFound, NonZeroExitCode
-from .utils import XedaException, removeprefix, settings_to_dict
+from .flow_catalog import flow_names
+
+# Click resolves completion before invoking command callbacks. Share the declarations below,
+# but keep execution and help-rendering dependencies out of a completion process.
+if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
+    import coloredlogs
+    from click_extra import HelpKeywords
+    from rich import box
+    from rich.markup import escape
+    from rich.style import Style
+    from rich.table import Table
+
+    from .agent_skill import SKILL_NAME, default_skill_dir, generate_flows_reference, install_skill
+    from .cli_utils import (
+        HELP_FORMATTER_SETTINGS,
+        DeclaredEnvvarsCommand,
+        XedaHelpGroup,
+        emit_structured,
+        machine_readable_mode,
+        print_flow_settings,
+        resolve_format,
+        select_design_in_project,
+    )
+    from .console import console
+    from .deliver import Conflict
+    from .design import DESIGN_NAME, target_name_problem
+    from .flow import Flow, FlowFatalError
+    from .flow_runner import (
+        DefaultRunner,
+        XedaOptions,
+        add_file_logger,
+        scrub_design,
+    )
+    from .flow_runner.bindings import LOCAL_REQUESTS_ONLY
+    from .flow_runner.chains import parse_request
+    from .flow_runner.dse import Dse
+    from .flow_runner.resolver import Plan
+    from .introspect import (
+        boards_info,
+        design_info,
+        design_schema,
+        flow_chain_cells,
+        flows_info,
+        json_safe,
+        optimizers_info,
+        inputs_info,
+        plan_info,
+        request_info,
+        platforms_info,
+        results_info,
+    )
+    from .run_dir import RunDirectoryError
+    from .run_root import RunRootError, ensure_run_root
+    from .tool import ExecutableNotFound, NonZeroExitCode
+    from .utils import XedaException, removeprefix, settings_to_dict
+
+    CONTEXT_SETTINGS: Dict[str, Any] = dict(
+        auto_envvar_prefix="XEDA",
+        help_option_names=["--help", "-h"],
+        max_content_width=console.width,
+        formatter_settings=HELP_FORMATTER_SETTINGS,
+    )
+    RUN_STYLE: Dict[str, Any] = {"excluded_keywords": HelpKeywords(cli_names={"run"})}
+else:
+    from .cli_completion import CompletionGroup as XedaHelpGroup
+    from .cli_completion import CompletionCommand as DeclaredEnvvarsCommand
+
+    CONTEXT_SETTINGS = dict(
+        auto_envvar_prefix="XEDA",
+        help_option_names=["--help", "-h"],
+        max_content_width=120,
+    )
+    RUN_STYLE = {}
 
 log = logging.getLogger(__name__)
-
-all_flows = OrderedDict(
-    sorted(
-        [
-            (name, f)
-            for f in set(__builtin_flows__).union(set(v for _, v in registered_flows.values()))
-            for name in [f.name] + f.aliases
-        ]
-    )
-)
-all_flow_names = list(all_flows.keys())
-
-CONTEXT_SETTINGS = dict(
-    auto_envvar_prefix="XEDA",
-    help_option_names=["--help", "-h"],
-    max_content_width=console.width,
-    # cloup reads the help formatter off the context and child contexts inherit these settings,
-    # so the xeda palette set here reaches every subcommand's help screen.
-    formatter_settings=HELP_FORMATTER_SETTINGS,
-)
 
 
 class ShortLoggerNames(logging.Formatter):
@@ -205,7 +211,7 @@ def list_flows(output_format: str, json_flag: bool):
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=FlowChoice(all_flow_names),
+    type=FlowChoice(flow_names),
     required=True,
 )
 @output_format_option()
@@ -233,7 +239,7 @@ def list_settings(ctx: click.Context, flow, output_format: str, json_flag: bool,
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=FlowChoice(all_flow_names),
+    type=FlowChoice(flow_names),
     required=True,
 )
 @output_format_option()
@@ -584,12 +590,12 @@ def _print_plan(plan: Plan) -> None:
     # click-extra highlights command names wherever they appear in help prose. Here the command
     # is named after an ordinary English verb, so "Don't run dependency flows" and "Flows run
     # under ..." would be painted as if they referenced the command.
-    excluded_keywords=HelpKeywords(cli_names={"run"}),
+    **RUN_STYLE,
 )
 @click.argument(
     "flow",
     metavar="FLOW[.OUTPUT][+FLOW[.OUTPUT]...]",
-    type=ChainChoice(all_flow_names),
+    type=ChainChoice(flow_names),
 )
 @click.argument(
     "design_file",
@@ -1194,7 +1200,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    type=FlowChoice(all_flow_names),
+    type=FlowChoice(flow_names),
     required=True,
 )
 @click.option(
@@ -1477,7 +1483,7 @@ def dse(
     "flow",
     metavar="FLOW_NAME",
     # canonical already; a removed flow's name too, whose run directories are still there
-    type=FlowChoice(all_flow_names, removed=True),
+    type=FlowChoice(flow_names, removed=True),
     required=True,
 )
 @click.argument(
