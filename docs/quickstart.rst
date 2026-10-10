@@ -24,6 +24,33 @@ Check the installation::
 
     xeda --version
 
+Shell completion
+================
+
+Xeda supports Bash 4.4 or newer, zsh, and fish. Generate a completion script once so a new shell
+can load it without starting Xeda.
+
+For Bash::
+
+    xeda completion bash --stdout > ~/.xeda-complete.bash
+
+Add ``. ~/.xeda-complete.bash`` to ``~/.bashrc``.
+
+For zsh::
+
+    xeda completion zsh --stdout > ~/.xeda-complete.zsh
+
+Add ``. ~/.xeda-complete.zsh`` to ``~/.zshrc`` after initializing completion with ``compinit``.
+
+For fish::
+
+    mkdir -p ~/.config/fish/completions
+    xeda completion fish --stdout > ~/.config/fish/completions/xeda.fish
+
+Command names, options, and single flow names use a lightweight completion path. Completing a
+flow chain or an output qualifier loads the flow declarations to offer only valid candidates.
+Regenerate the script after upgrading Xeda if its shell integration changes.
+
 Describe your design
 ====================
 
