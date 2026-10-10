@@ -15,6 +15,9 @@ from xeda.flow import registered_flows
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 
+pytestmark = pytest.mark.python_compat
+
+
 #: Flags that keep a shell from reading the user's startup files, and a command that must work.
 SHELL_PROBES = {
     "bash": ["--noprofile", "--norc", "-c", 'echo "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"'],

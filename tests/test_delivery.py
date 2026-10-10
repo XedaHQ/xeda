@@ -37,6 +37,9 @@ from xeda.utils import PATH_VARIABLES
 
 from .tool_utils import producers_of
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
 

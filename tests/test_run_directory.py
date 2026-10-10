@@ -18,6 +18,9 @@ from xeda.flow import Flow, registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectory, RunDirectoryError
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
 

@@ -2,10 +2,15 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 import click
 from click.testing import CliRunner
 
 from xeda.cli import cli
+
+pytestmark = pytest.mark.python_compat
+
 
 flows = ["ghdl_sim", "yosys", "nextpnr", "vivado_sim", "vivado_synth"]
 

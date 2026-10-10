@@ -29,6 +29,9 @@ from xeda.proc_utils import note_program
 
 from .tool_utils import producers_of
 
+pytestmark = pytest.mark.python_compat
+
+
 #: what the next toy run() does to simulate a concurrent edit: {kind: (path, new text, backdate)}
 EDIT: dict = {}
 

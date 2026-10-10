@@ -28,7 +28,10 @@ from xeda.proc_utils import run_process
 from xeda.tool import Tool
 from xeda.utils import NonZeroExitCode
 
-pytestmark = pytest.mark.skipif(os.name != "posix", reason="pseudo-terminals are POSIX")
+pytestmark = [
+    pytest.mark.python_compat,
+    pytest.mark.skipif(os.name != "posix", reason="pseudo-terminals are POSIX"),
+]
 
 #: Written to the terminal after the run, so that a test knows that everything before it arrived.
 END = "\x00END\x00"

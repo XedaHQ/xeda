@@ -19,6 +19,8 @@ from xeda.utils import dump_json, semantic_hash
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
+pytestmark = pytest.mark.python_compat
+
 EXAMPLES_DIR = Path(__file__).parent.parent / "examples"
 
 FLOWS = flow_classes()

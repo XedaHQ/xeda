@@ -21,6 +21,9 @@ from xeda.dataclass import ValidationError
 from xeda.design import Design, DesignValidationError
 from xeda.flow import Flow, FlowSettingsError
 
+pytestmark = pytest.mark.python_compat
+
+
 # ---------------------------------------------------------------------------------------------
 # No implicit conversion
 # ---------------------------------------------------------------------------------------------

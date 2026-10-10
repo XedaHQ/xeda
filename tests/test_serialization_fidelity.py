@@ -15,6 +15,9 @@ from xeda.dataclass import model_with_allow_extra
 from xeda.design import Design, DesignReference
 from xeda.utils import dump_json, semantic_hash
 
+pytestmark = pytest.mark.python_compat
+
+
 RTL = {"sources": [], "top": "t"}
 GIT_URI = "git+https://github.com/u/r.git?branch=main#sub/d.toml"
 

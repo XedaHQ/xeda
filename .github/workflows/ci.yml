@@ -10,12 +10,18 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   tox:
+    env:
+      FULL_PYTHON: "3.15"
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
 
     # Pinned, not ubuntu-latest: the bsc release tarball installed below is built for
     # ubuntu-24.04, and so is the tcl8.6 package it needs.
@@ -30,10 +36,12 @@ jobs:
       # release so a nightly tool change cannot alter a Python dependency PR underneath us.
       # Authenticating the read-only release lookup avoids the shared-runner API rate limit.
       - uses: YosysHQ/setup-oss-cad-suite@v4
+        if: matrix.python-version == '3.11' || matrix.python-version == env.FULL_PYTHON
         with:
           version: "2026-10-08"
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - uses: nickg/setup-nvc@v1
+        if: matrix.python-version == env.FULL_PYTHON
         with:
           version: latest
       # Bluespec Compiler (bsc): the bsc/bsc_sim flows require bsc >= 2026.07.1, installed here
@@ -46,6 +54,7 @@ jobs:
       # present on the runner. OSS CAD Suite (above) puts verilator and iverilog on PATH, which
       # is what bsc's `-vsim verilator|iverilog` link step picks up.
       - name: Install Bluespec Compiler (bsc)
+        if: matrix.python-version == env.FULL_PYTHON
         env:
           BSC_VERSION: "2026.07.1"
           BSC_SHA256: "4e69030f3a28cb819192a3780e20fd174ff7caf30cacf1cdbf2195cce913a933"
@@ -61,30 +70,35 @@ jobs:
           rm bsc.tar.gz
           echo "$BSC_DIR/bin" >> "$GITHUB_PATH"
           "$BSC_DIR/bin/bsc" -v
+      # The full-Python leg installs bash, zsh and fish with bsc above.
+      - name: Install shells for completion tests
+        if: matrix.python-version != env.FULL_PYTHON
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh fish
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
         with:
           python-version: "${{ matrix.python-version }}"
+          allow-prereleases: ${{ matrix.python-version == env.FULL_PYTHON }}
       - name: Install dependencies
         run: |
           python -VV
           python -m pip install --upgrade pip
           python -m pip install --upgrade tox tox-gh-actions
       - name: "Run tox targets for ${{ matrix.python-version }}"
-        # CI installs ghdl, yosys (oss-cad-suite), nvc and bsc, so a tool-dependent test that
-        # would skip locally must fail here instead of silently passing.
-        # XEDA_TESTS_EXTERNAL runs tests/test_bsc_external.py, which clones external Bluespec
-        # repositories at pinned commits and takes minutes: the latest Python version runs it,
-        # without its slowest test (XEDA_TESTS_EXTERNAL_SLOW, Piccolo's core).
+        # Python 3.11–3.14 run the marked compatibility set. Python 3.11 also runs a Verilator
+        # cocotb smoke. Python 3.15 runs the full tool-backed suite and pinned external bsc tests.
         env:
           XEDA_TESTS_REQUIRE_TOOLS: "1"
-          XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == '3.14' && '1' || '' }}
+          XEDA_TESTS_EXTERNAL: ${{ matrix.python-version == env.FULL_PYTHON && '1' || '' }}
         run: "python -m tox"
 
   # The tox job runs on Linux only. This job runs on macOS, with the oldest supported Python,
   # the test files whose code differs by operating system. A call that exists on Linux only, such
   # as os.waitid, fails here. No EDA tool is installed, so a test that needs one skips;
-  # XEDA_TESTS_REQUIRE_TOOLS is not set on purpose. The tox job runs the full suite.
+  # XEDA_TESTS_REQUIRE_TOOLS is not set on purpose. The full suite runs on Linux, where the EDA
+  # tools are installed.
   # Why each file is here:
   #   process groups, signals and pseudo-terminals: test_proc_utils, test_remote_streaming
   #   file locks (flock): test_read_locks (run-directory leases), test_target_scrub (scrub, which
@@ -140,7 +154,7 @@ jobs:
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only
-  # needs the documentation toolchain, not the EDA tools the tox job installs. Not in
+  # needs the documentation toolchain, not the EDA tools the full tox target installs. Not in
   # tox-gh-actions' mapping on purpose: the tox job would build it once per Python.
   docs:
     runs-on: ubuntu-24.04
@@ -160,3 +174,21 @@ jobs:
           python -m pip install --upgrade tox tox-gh-actions
       - name: Build the documentation
         run: "python -m tox -e docs"
+
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - name: Install tox
+        run: |
+          python -VV
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade tox tox-gh-actions
+      - name: Run type and lint checks
+        run: "python -m tox -e mypy,black,ruff"

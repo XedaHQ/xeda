@@ -31,6 +31,9 @@ from xeda.flow_runner.remote import (
     remote_runner,
 )
 
+pytestmark = pytest.mark.python_compat
+
+
 TimedChunks = List[Tuple[float, str]]
 
 

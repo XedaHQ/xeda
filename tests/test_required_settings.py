@@ -21,6 +21,9 @@ from xeda.flow_runner import DefaultRunner
 
 from .settings_samples import flow_classes
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
 FPGA_FLOWS = sorted(

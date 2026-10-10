@@ -5,7 +5,8 @@ Quickstart
 Install
 =======
 
-Python 3.11 or newer is required.
+Xeda supports every Python release series that has not reached end of life. Currently, that means
+Python 3.11 through 3.15.
 
 For command-line use, the preferred installation is an isolated ``uv`` tool environment::
 

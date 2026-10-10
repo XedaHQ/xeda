@@ -21,6 +21,9 @@ from xeda.xedaproject import XedaProject
 
 from .project_files import PROJECT_FILE
 
+pytestmark = pytest.mark.python_compat
+
+
 # ---------------------------------------------------------------------------------------------
 # The merge itself
 # ---------------------------------------------------------------------------------------------

@@ -9,6 +9,9 @@ from xeda.design import Design, DesignFileParseError, DesignValidationError
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
 
+pytestmark = pytest.mark.python_compat
+
+
 SCALARS = [
     *[(s, s) for s in ("NO", "yes", "no", "on", "off", "y", "n", "Y", "N")],
     ("010", 10),

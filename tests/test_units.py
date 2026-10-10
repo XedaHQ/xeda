@@ -24,6 +24,9 @@ from xeda.flow import FlowSettingsError
 from xeda.flows import VivadoSynth
 from xeda.units import CLOCK_UNITS, convert_unit
 
+pytestmark = pytest.mark.python_compat
+
+
 #: Magnitude of one of each clock unit, in nanoseconds or megahertz: given by hand, so the tests
 #: do not trust pint to define what they check it against.
 NS_PER_UNIT = {"fs": 1e-6, "ps": 1e-3, "ns": 1.0, "us": 1e3, "ms": 1e6, "s": 1e9}

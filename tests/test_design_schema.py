@@ -14,6 +14,9 @@ from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
 
+pytestmark = pytest.mark.python_compat
+
+
 jsonschema = pytest.importorskip("jsonschema")
 
 

@@ -32,6 +32,8 @@ from xeda.utils import XedaException
 from .project_files import PROJECT_FILE
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
+pytestmark = pytest.mark.python_compat
+
 #: What a malformed value may raise: the validation errors of settings (`FlowSettingsError`),
 #: designs (`DesignValidationError`) and plain models (pydantic's `ValidationError`, the only one
 #: of the three that is a `ValueError`), plus the `ValueError` that lookups such as

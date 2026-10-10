@@ -403,7 +403,9 @@ def stage_asap7(root: Path) -> Path:
             if lib.endswith(".gz"):
                 with (
                     open(path, "wb") as raw,
-                    gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped,
+                    gzip.GzipFile(
+                        filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9
+                    ) as zipped,
                 ):
                     zipped.write(text.encode())
             else:

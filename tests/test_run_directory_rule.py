@@ -43,7 +43,10 @@ from xeda.run_root import ensure_run_root
 
 from .io_flows import _Maker
 
-pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
+pytestmark = [
+    pytest.mark.python_compat,
+    pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks"),
+]
 
 FLOW = "vivado_synth"
 HASH = "0123456789abcdef"

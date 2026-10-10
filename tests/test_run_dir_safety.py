@@ -49,6 +49,9 @@ from xeda.utils import XedaException
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, producers_of, use_fake_tools
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 
 XILINX = ["-s", "fpga.part=xc7a12tcsg325-1", "clock.period=10"]

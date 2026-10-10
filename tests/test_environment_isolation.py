@@ -13,6 +13,9 @@ from pathlib import Path
 
 import pytest
 
+pytestmark = pytest.mark.python_compat
+
+
 TESTS = Path(__file__).parent
 
 #: Methods that write the mapping.

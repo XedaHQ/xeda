@@ -30,6 +30,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
@@ -37,18 +38,18 @@ classifiers = [
 ]
 dependencies = [
     "jinja2              ~= 3.1",
-    "pydantic            >= 2.13.5, < 3",
+    "pydantic            >= 2.14.0, < 3",
     "python-box[]        ~= 7.4.1",
     "attrs               ~= 26.1.0",
-    "cattrs              ~= 26.2.0",
+    "cattrs              ~= 26.2.1",
     "attrs_strict        ~= 1.0.1",
     "pathvalidate        ~= 3.3.1",
     "click               ~= 8.5.0",
     "click_extra         ~= 9.2",
     "coloredlogs         ~= 15.0",
     "rich                >= 15.0.0",
-    "pebble              ~= 5.2.1",
-    "pint                ~= 0.25.3",
+    "pebble              ~= 5.2.3",
+    "pint                >= 0.25.3",
     "importlib_resources >= 7.1.0",                      # backport of importlib.resources, replaces pkg_resources
     "simpleeval          ~= 1.0.7",
     "PyYAML              ~= 6.0",
@@ -150,6 +151,11 @@ namespaces = false
 [tool.pytest.ini_options]
 # Always report why tests were skipped/xfailed, without enabling verbose per-test output.
 addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+    "python_compat: exercises Python and dependency compatibility on every supported Python version",
+    "real_tool: marks real-tool regressions that the Python compatibility bin excludes",
+]
 
 [tool.black]
 line-length = 100
@@ -202,6 +208,7 @@ skips = [
 ]
 
 [tool.mypy]
+python_version = "3.11"
 plugins = ["pydantic.mypy"]
 follow_imports = "silent"
 warn_redundant_casts = true

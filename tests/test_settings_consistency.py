@@ -19,6 +19,9 @@ from xeda.design import Design, RtlSettings
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 
+pytestmark = pytest.mark.python_compat
+
+
 # ---------------------------------------------------------------------------------------------
 # Clocks: `clocks` is stored; `clock` is input syntax for the one clock, and a property.
 # ---------------------------------------------------------------------------------------------

@@ -750,6 +750,8 @@ import threading  # noqa: E402
 import xeda.tool as xeda_tool  # noqa: E402
 from xeda.proc_utils import _Deadline  # noqa: E402
 
+pytestmark = pytest.mark.python_compat
+
 
 class _Finished:
     """A stand-in for a process that has already ended by itself."""

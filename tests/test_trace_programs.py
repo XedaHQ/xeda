@@ -19,6 +19,8 @@ from xeda.flow_runner.trace import locate_program
 from xeda.proc_utils import DOCKER_IMAGE_PREFIX, note_program, recording_programs, run_process
 from xeda.tool import Docker
 
+pytestmark = pytest.mark.python_compat
+
 
 def test_run_process_records_what_it_starts():
     with recording_programs() as names:
