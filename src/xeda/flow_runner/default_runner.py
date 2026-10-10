@@ -301,20 +301,25 @@ def _flow_name_suggestions(flow_name: str, limit: int = 3) -> List[str]:
     return difflib.get_close_matches(flow_name, canonical, n=limit, cutoff=0.6)
 
 
+def _registered_flow_class(flow_name: str) -> Type[Flow] | None:
+    """Find a registered canonical name, class name, or alias, regardless of case."""
+    _mod, flow_class = registered_flows.get(flow_name, (None, None))
+    if flow_class is not None:
+        return flow_class
+    lowered = flow_name.lower()
+    return next(
+        (cls for name, (_mod, cls) in registered_flows.items() if name.lower() == lowered),
+        None,
+    )
+
+
 def get_flow_class(
     flow_name: str, module_name: str = "xeda.flows", package: str = __package__ or "xeda"
 ) -> Type[Flow]:
     flow_name = flow_name.strip().replace("-", "_")
     # before any lookup or import: a removed name is neither a flow nor a near miss of one
     check_not_removed(flow_name)
-    _mod, flow_class = registered_flows.get(flow_name, (None, None))
-    if flow_class is None:
-        # canonical names, class names and aliases are all registered, but the user (or an agent)
-        # may have used a different casing.
-        lowered = flow_name.lower()
-        for name, (_m, cls) in registered_flows.items():
-            if name.lower() == lowered:
-                return cls
+    flow_class = _registered_flow_class(flow_name)
     if flow_class is None:
         log.debug(
             "Flow %s was not found in registered flows. Trying to load using `importlib`.",
@@ -324,8 +329,10 @@ def get_flow_class(
             module = importlib.import_module(module_name)
         except ModuleNotFoundError as e:
             raise FlowNotFoundError(flow_name, _flow_name_suggestions(flow_name)) from e
+        # Importing the module registers aliases as well as canonical and class names.
+        flow_class = _registered_flow_class(flow_name)
         flow_class_name = snakecase_to_camelcase(flow_name)
-        if module:
+        if flow_class is None and module:
             try:
                 flow_class = getattr(module, flow_class_name)
             except AttributeError:

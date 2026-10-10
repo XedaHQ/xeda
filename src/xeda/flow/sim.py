@@ -240,6 +240,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
         otherwise the simulator would simulate `rtl.top`, which has no stimulus."""
         super().check_design_supported(design)
         if design.tb.cocotb and not cls.cocotb_sim_name:
+            # API callers may have loaded only their own simulator. Include built-ins too.
+            from importlib import import_module
+
+            import_module("xeda.flows")
             supported = sorted(
                 {
                     flow_class.name

@@ -497,6 +497,15 @@ case-insensitively, and raises `FlowNotFoundError` with close-match suggestions.
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
 `__all__`** so they appear in `xeda list-flows` and CLI completion.
 
+Single flow-name completion reads the lightweight catalog in `flow_catalog.py` without importing
+flow models. When adding a built-in flow or changing its aliases, update that catalog too.
+`tests/test_flow_catalog.py` compares it with runtime discovery in a fresh process, before the
+runtime registry can supply a missing catalog entry. `cli_types.py` contains the shared parameter
+types. The command declarations in `cli.py` serve both execution and completion; completion uses
+plain Click classes from `cli_completion.py` to avoid loading the display and runner modules.
+Package exports also load on first access. Import `xeda.flows` before inspecting the complete
+built-in registry directly; the flow resolver loads built-ins on demand.
+
 Flow base classes to inherit from (`flow/__init__.py`): `SimFlow` (adds `vcd`, `stop_time`, cocotb
 integration keyed on `cocotb_sim_name`), `SynthFlow` (adds `clock` / `clocks` with
 `PhysicalClock` reconciliation against `design.rtl.clocks`), and its `FpgaSynthFlow` (adds `fpga: FPGA`)
