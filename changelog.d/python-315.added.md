@@ -1,1 +1,2 @@
-- tox and CI now include Python 3.15, with a build-time override for the optional cocotb dependency.
+- Xeda now supports Python 3.15. The optional cocotb 2.1.0 dependency needs a build-time override
+  on Python 3.15.

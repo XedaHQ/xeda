@@ -1657,7 +1657,7 @@ dependency must also share `custom_boards_file`.
   rewriting would otherwise write its bytecode there, into the user's tree
   (`test_isolation.py::test_a_cocotb_simulation_leaves_the_design_directory_as_it_was`, real
   GHDL and nvc).
-- **pydantic 2 is pinned** (`>=2.13.5,<3`). Import `field_validator` / `model_validator` from
+- **pydantic 2 is pinned** (`>=2.14.0,<3`). Import `field_validator` / `model_validator` from
   `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not directly from `pydantic`.
   Every validator needs an explicit `@classmethod` under its decorator.
 - `XedaBaseModel.model_config` sets `validate_assignment`, `arbitrary_types_allowed`,

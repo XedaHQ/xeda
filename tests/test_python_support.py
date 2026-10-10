@@ -39,13 +39,18 @@ def test_project_python_support_matches_tox_and_github_actions():
     assert python_envs == {minor: "-compat" if minor < supported[-1] else "" for minor in supported}
 
     tox_mapping = {
-        int(minor): env
-        for minor, env in re.findall(
-            r"^\s*3\.(\d+):\s*(py\d+)(?:-compat)?\s*$", tox["gh-actions"]["python"], re.M
+        int(minor): env + (suffix or "")
+        for minor, env, suffix in re.findall(
+            r"^\s*3\.(\d+):\s*(py\d+)(-compat)?\s*$", tox["gh-actions"]["python"], re.M
         )
     }
-    assert tox_mapping == {minor: f"py3{minor}" for minor in supported}
+    assert tox_mapping == {
+        minor: f"py3{minor}-compat" if minor < supported[-1] else f"py3{minor}"
+        for minor in supported
+    }
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
-    matrix = workflow["jobs"]["tox"]["strategy"]["matrix"]["python-version"]
+    tox_job = workflow["jobs"]["tox"]
+    assert tox_job["env"]["FULL_PYTHON"] == f"3.{supported[-1]}"
+    matrix = tox_job["strategy"]["matrix"]["python-version"]
     assert matrix == [f"3.{minor}" for minor in supported]

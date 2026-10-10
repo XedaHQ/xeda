@@ -208,6 +208,7 @@ skips = [
 ]
 
 [tool.mypy]
+python_version = "3.11"
 plugins = ["pydantic.mypy"]
 follow_imports = "silent"
 warn_redundant_casts = true
