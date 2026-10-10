@@ -499,7 +499,7 @@ and also re-exports flow classes explicitly in `__all__` - **add new flows to bo
 
 Single flow-name and built-in chain completion read the generated catalog in `flow_catalog.json`
 without importing flow models. After adding a built-in flow, changing its aliases or I/O
-declarations, run `python tools/generate_flow_catalog.py` and include the updated file. Run the
+declarations or other chain-completion metadata such as `action_reason`, run `python tools/generate_flow_catalog.py` and include the updated file. Run the
 same command with `--check` to confirm the catalog is current. The generator uses runtime chain
 completion rules in a fresh process; it does not require EDA tools. The generated-catalog test
 checks freshness and compares suggestions with runtime completion. Once the flow registry has
