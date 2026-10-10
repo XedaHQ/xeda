@@ -31,6 +31,20 @@ print(json.dumps([name for name in heavy_modules if name in sys.modules]))
     assert json.loads(result.stdout) == []
 
 
+def test_package_dir_lists_lazy_exports_without_importing_them() -> None:
+    result = run_python("""
+import sys
+import xeda
+
+modules_before = set(sys.modules)
+names = dir(xeda)
+assert set(xeda.__all__) | {"cocotb", "flow", "tool"} <= set(names)
+assert set(sys.modules) == modules_before
+""")
+
+    assert result.stdout == ""
+
+
 def test_extension_simulator_rejection_includes_builtin_cocotb_simulators() -> None:
     result = run_python("""
 import sys

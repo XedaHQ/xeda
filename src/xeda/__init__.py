@@ -78,4 +78,4 @@ def __getattr__(name: str) -> Any:
 
 
 def __dir__() -> list[str]:
-    return sorted(set(globals()) | set(__all__))
+    return sorted(set(globals()) | set(__all__) | set(_LAZY_EXPORTS))
