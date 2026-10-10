@@ -20,6 +20,9 @@ from xeda.flow_runner.trace import (
     write_trace,
 )
 
+pytestmark = pytest.mark.python_compat
+
+
 OLD = 10**18  # a file time long before the trace is written
 
 

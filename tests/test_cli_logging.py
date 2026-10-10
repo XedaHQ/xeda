@@ -14,6 +14,8 @@ import pytest
 
 from xeda.cli import setup_logger
 
+pytestmark = pytest.mark.python_compat
+
 
 class _Collect(logging.Handler):
     """A handler of another party: it keeps the records it is given."""

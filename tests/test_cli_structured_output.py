@@ -22,6 +22,9 @@ from typing import List, Optional
 import pytest
 import yaml
 
+pytestmark = pytest.mark.python_compat
+
+
 TESTS_DIR = Path(__file__).parent.absolute()
 EXAMPLES_DIR = TESTS_DIR.parent / "examples"
 FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"

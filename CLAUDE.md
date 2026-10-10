@@ -8,6 +8,8 @@ Xeda is a cross-EDA automation platform: it drives simulation, synthesis, and im
 commercial and open-source EDA tools (Vivado, Quartus, Diamond, ISE, DC, VCS, ModelSim, GHDL, NVC,
 Yosys, nextpnr, OpenROAD, Verilator, Bluespec, ...) from a single declarative design description.
 The package lives in `src/xeda`; the console entry point is `xeda = "xeda.cli:cli"`.
+Xeda supports every Python release series that has not reached end of life. Currently, that means
+Python 3.11 through 3.15; keep the project metadata, tox matrix and CI aligned with this range.
 
 ## Commands
 
@@ -23,12 +25,25 @@ Tests, lint, format, type-check:
 pytest tests/ -n auto                # full test suite, one pytest-xdist worker per CPU
 pytest tests/                        # the same, serially
 pytest tests/test_vivado.py::test_vivado_synth_py -s -v   # single test
-tox                                  # CI matrix: py311-py314 + mypy + black + ruff
+tox                                  # compatibility bins + full py315 + mypy + black + ruff
+tox -e py311,py312,py313,py314,py315 # full suite on every supported Python version
+tox -e py315                         # full tool-backed suite and the packaged sdist
+tox -e py314-compat                  # marked compatibility cases, without EDA tools
+tox -e py311-compat                  # same checks plus a Verilator cocotb smoke
 tox -e mypy                          # mypy --install-types --non-interactive src - currently clean
 tox -e black                         # black --check --diff src tests tools (line-length 100) - clean
 ruff check src tests                 # .ruff.toml, line-length 120
 tox -e docs                          # Sphinx docs, warnings are errors (-W -n); also a CI job
 ```
+
+CI runs the full unfiltered suite on Python 3.15. It runs tests marked `python_compat` and not
+`real_tool` on Python 3.11 through 3.14, plus one Verilator cocotb smoke on Python 3.11. Mark cases
+that check Python or dependency compatibility with `python_compat`. Large tool and behavior sweeps
+run only in the latest-Python suite. In compatibility tests, `real_tool` excludes cases that need
+an installed EDA tool; it does not classify every tool-dependent test in the full suite. New tests
+stay in the full latest-Python suite unless they carry the compatibility marker. CI runs mypy,
+Black and Ruff once in a separate job. Bare `tox` uses the same compatibility bins and full latest
+suite; use the explicit five-version command above for exhaustive local Python coverage.
 
 CI also runs a `macos` job (`ci.yml`: macOS, Python 3.11, no EDA tool, so the tool-dependent
 tests skip) on the test files whose code differs by operating system: file locks, process
@@ -1642,7 +1657,7 @@ dependency must also share `custom_boards_file`.
   rewriting would otherwise write its bytecode there, into the user's tree
   (`test_isolation.py::test_a_cocotb_simulation_leaves_the_design_directory_as_it_was`, real
   GHDL and nvc).
-- **pydantic 2 is pinned** (`>=2.13.5,<3`). Import `field_validator` / `model_validator` from
+- **pydantic 2 is pinned** (`>=2.14.0,<3`). Import `field_validator` / `model_validator` from
   `xeda.dataclass` (which re-exports and adds `XedaBaseModel`), not directly from `pydantic`.
   Every validator needs an explicit `@classmethod` under its decorator.
 - `XedaBaseModel.model_config` sets `validate_assignment`, `arbitrary_types_allowed`,

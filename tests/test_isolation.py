@@ -46,6 +46,9 @@ from .tool_utils import (
     use_fake_tools,
 )
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 #: The Bluespec example, for the flows whose tools read Bluespec
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
@@ -599,6 +602,7 @@ def test_a_launch_needs_nothing_writable_but_its_run_root(flow_class, tmp_path, 
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root writes through file permissions")
+@pytest.mark.real_tool
 def test_bsc_sim_simulates_the_bluespec_example_on_a_read_only_tree(tmp_path, monkeypatch):
     """With the real tools: bsc compiles the `gcd` example and Bluesim
     runs its Bluespec testbench, everything but the run root read-only."""
@@ -670,6 +674,7 @@ def test_a_design_load_that_runs_a_generator_writes_only_the_sources_it_generate
 
 
 @pytest.mark.parametrize("flow, require", [("ghdl_sim", require_ghdl), ("nvc", require_nvc)])
+@pytest.mark.real_tool
 def test_a_cocotb_simulation_leaves_the_design_directory_as_it_was(
     flow, require, tmp_path, monkeypatch
 ):

@@ -23,6 +23,8 @@ from xeda.flow_runner.trace_inputs import (
 )
 from xeda.listing import directory_files
 
+pytestmark = pytest.mark.python_compat
+
 
 @pytest.fixture(scope="module")
 def hooked():

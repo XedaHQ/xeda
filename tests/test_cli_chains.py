@@ -17,6 +17,8 @@ from xeda.flow_runner.remote import RemoteRunner
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
 
+pytestmark = pytest.mark.python_compat
+
 
 @pytest.fixture(autouse=True)
 def isolate(tmp_path, monkeypatch):
