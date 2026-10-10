@@ -93,6 +93,11 @@ def _visible_options(help_output):
 
 def _modules_seen(shell, words, tmp_path):
     """Record imports after Click has handled one completion request."""
+    return _completion_and_modules_seen(shell, words, tmp_path)[1]
+
+
+def _completion_and_modules_seen(shell, words, tmp_path):
+    """Capture completion records and imported modules from the same fresh process."""
     marker = tmp_path / "completion-imports.json"
     script = (
         "import json, sys\n"
@@ -120,7 +125,8 @@ def _modules_seen(shell, words, tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
-    return json.loads(marker.read_text())
+    assert "Usage:" not in result.stdout
+    return result.stdout, json.loads(marker.read_text())
 
 
 def _assert_light_imports(modules):
@@ -152,6 +158,23 @@ def test_plain_flow_completion_includes_canonical_name_and_ghdl_alias(shell, tmp
     candidates = _candidates(shell, _complete(shell, "xeda run ghdl"))
     assert {"ghdl", "ghdl_sim"} <= set(candidates)
     _assert_light_imports(_modules_seen(shell, "xeda run ghdl", tmp_path))
+
+
+@pytest.mark.parametrize(
+    ("words", "expected"),
+    [
+        ("xeda run yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
+        ("xeda run yosys_fpga.netlist+ne", ["yosys_fpga.netlist+nextpnr"]),
+        ("xeda run nextpnr.", ["nextpnr.config"]),
+        ("xeda run yosys_fpga++", []),
+    ],
+)
+@pytest.mark.parametrize("shell", SHELLS)
+def test_builtin_chain_completion_is_exact_and_light(shell, words, expected, tmp_path):
+    output, modules = _completion_and_modules_seen(shell, words, tmp_path)
+    candidates = _candidates(shell, output)
+    assert candidates == expected
+    _assert_light_imports(modules)
 
 
 @pytest.mark.parametrize("shell", SHELLS)

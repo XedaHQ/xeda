@@ -240,9 +240,16 @@ class ChainChoice(FlowChoice):
         self, ctx: click.Context, param: click.Parameter, incomplete: str
     ) -> list[CompletionItem]:
         """Complete a flow name as `Choice` does; once the token has a `+` or a `.`, complete
-        the unfinished chain (`chains.complete_request`), each candidate the whole token."""
+        the unfinished chain, each candidate the whole token."""
         if "+" not in incomplete and "." not in incomplete:
             return super().shell_complete(ctx, param, incomplete)
+        import sys
+
+        if "xeda.flow.flow" not in sys.modules:
+            from .flow_catalog import complete_builtin_request
+
+            candidates = complete_builtin_request(incomplete)
+            return [CompletionItem(candidate) for candidate in candidates]
         from .flow_runner.chains import complete_request
         from .introspect import all_flow_classes
 

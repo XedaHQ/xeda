@@ -497,12 +497,18 @@ case-insensitively, and raises `FlowNotFoundError` with close-match suggestions.
 and also re-exports flow classes explicitly in `__all__` - **add new flows to both the import list and
 `__all__`** so they appear in `xeda list-flows` and CLI completion.
 
-Single flow-name completion reads the lightweight catalog in `flow_catalog.py` without importing
-flow models. When adding a built-in flow or changing its aliases, update that catalog too.
-`tests/test_flow_catalog.py` compares it with runtime discovery in a fresh process, before the
-runtime registry can supply a missing catalog entry. `cli_types.py` contains the shared parameter
-types. The command declarations in `cli.py` serve both execution and completion; completion uses
-plain Click classes from `cli_completion.py` to avoid loading the display and runner modules.
+Single flow-name and built-in chain completion read the generated catalog in `flow_catalog.json`
+without importing flow models. After adding a built-in flow, changing its aliases or I/O
+declarations, run `python tools/generate_flow_catalog.py` and include the updated file. Run the
+same command with `--check` to confirm the catalog is current. The generator uses runtime chain
+completion rules in a fresh process; it does not require EDA tools. The generated-catalog test
+checks freshness and compares suggestions with runtime completion. Once the flow registry has
+loaded, chain completion uses that registry so extensions and changed declarations are visible.
+Command execution still parses and validates each request at runtime. `tests/test_flow_catalog.py`
+compares names with runtime discovery before the runtime registry can supply a missing catalog
+entry. `cli_types.py` contains the shared parameter types. The command declarations in `cli.py`
+serve both execution and completion; completion uses plain Click classes from `cli_completion.py`
+to avoid loading the display and runner modules.
 Package exports also load on first access. Import `xeda.flows` before inspecting the complete
 built-in registry directly; the flow resolver loads built-ins on demand.
 
