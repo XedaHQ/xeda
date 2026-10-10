@@ -200,13 +200,38 @@ def test_a_delay_verilator_ignores_is_warned_about_not_failed(tmp_path, capfd):
     to hide it) and `ASSIGNDLY` for one on an assignment (it never did). The default
     `-Wno-fatal` keeps them warnings, so the run still passes."""
     require_verilator()
-    flow = _launch(tmp_path, "reg r; initial begin r <= #1 1'b1; #100; $finish; end", {})
+    flow = _launch(
+        tmp_path, "reg r; initial begin r <= #1 1'b1; #100; $finish; end", {"timing": False}
+    )
     captured = capfd.readouterr()
     output = captured.out + captured.err
     assert "%Warning-STMTDLY" in output
     assert "%Warning-ASSIGNDLY" in output
     assert flow.succeeded
     assert flow.results["sim.time"] == 0
+
+
+def test_verilator_enables_timing_by_default(tmp_path):
+    """A delay runs in the default mode, so `$finish` is recorded at its simulation time."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #100; $finish; end", {}, timescale="1ps/1ps")
+    assert flow.succeeded
+    assert flow.results["sim.ended_by"] == "finish"
+    assert flow.results["sim.time"] == 100
+
+
+def test_verilator_reports_an_error_at_its_default_simulation_time(tmp_path):
+    """The default mode must run delayed assertions at their stated simulation time."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        'initial begin #10; $error("late error"); end',
+        {},
+        timescale="1ps/1ps",
+    )
+    assert not flow.succeeded
+    assert flow.results["sim.ended_by"] == "error"
+    assert flow.results["sim.time"] == 10
 
 
 def test_verilator_simulates_the_designs_testbench_top(tmp_path):

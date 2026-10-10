@@ -170,11 +170,13 @@ class Verilator(SimFlow):
             "Disabling it speeds up compilation and slows down simulation.",
         )
         timing: bool = Field(
-            False,
+            True,
             description="Enable Verilator's `--timing` support for delays and non-blocking "
-            "event controls, needed by testbenches that use `#delay` or `wait`. When it is off, "
-            "Verilator ignores a delay and warns about it (`STMTDLY` for a statement, "
-            "`ASSIGNDLY` for an assignment), so a testbench's `#100; $finish` ends at time 0.",
+            "event controls. Enabled by default; requires a compiler with C++20 coroutine "
+            "support. Verilator's required C++ standard takes precedence over `-std=` in "
+            "`cflags`. When it is off, Verilator ignores a delay and warns about it "
+            "(`STMTDLY` for a statement, `ASSIGNDLY` for an assignment), so a testbench's "
+            "`#100; $finish` ends at time 0.",
         )
         model_args: List[str] = Field(
             default=[], description="Arguments to pass to the model executable"

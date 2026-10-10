@@ -422,17 +422,42 @@ def test_a_section_written_on_the_command_line_is_still_accepted(tmp_path):
     assert plan.nodes[0].settings.timing is True
 
 
-def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(tmp_path):
+@pytest.mark.parametrize(
+    ("setting", "field"),
+    [
+        ("flows=3", "`flows`"),
+        ("flows=[]", "`flows`"),
+        ("flows.verilator=3", "`flows.verilator`"),
+    ],
+)
+def test_a_flows_error_on_the_command_line_is_a_json_document_and_exit_status_1(
+    tmp_path, setting, field
+):
     design = _write_design(tmp_path)
+    run_root = tmp_path / "xeda_run"
     result = CliRunner().invoke(
-        cli, ["run", "verilator", str(design), "--dry-run", "--json", "-s", "flows=3"]
+        cli,
+        [
+            "run",
+            "verilator",
+            str(design),
+            "--dry-run",
+            "--json",
+            "--run-root",
+            str(run_root),
+            "-s",
+            setting,
+        ],
     )
     document = json.loads(result.stdout)
 
     assert result.exit_code == 1, result.output
     assert document["success"] is False
     assert document["error"]["type"] == "FlowSettingsError"
-    assert "`flows` must be a mapping" in document["error"]["message"]
+    assert field in document["error"]["message"]
+    assert "must be a mapping" in document["error"]["message"]
+    assert "Traceback" not in result.output
+    assert not run_root.exists(), "validation failed before creating a run root"
 
 
 # ---------------------------------------------------------------------------------------------
