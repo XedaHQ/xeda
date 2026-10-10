@@ -151,6 +151,11 @@ namespaces = false
 [tool.pytest.ini_options]
 # Always report why tests were skipped/xfailed, without enabling verbose per-test output.
 addopts = "-ra"
+testpaths = ["tests"]
+markers = [
+    "python_compat: exercises Python and dependency compatibility on every supported Python version",
+    "real_tool: marks real-tool regressions that the Python compatibility bin excludes",
+]
 
 [tool.black]
 line-length = 100

@@ -11,6 +11,9 @@ from click.testing import CliRunner
 from xeda.cli import cli
 from xeda.flow_runner import remote
 
+pytestmark = pytest.mark.python_compat
+
+
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 FAKE_TOOLS = Path(__file__).parent / "fake_tools"
 

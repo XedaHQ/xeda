@@ -11,8 +11,9 @@ and run-directory references.
 
 ## Installation
 
-Python 3.11 or newer is required. Xeda orchestrates EDA tools but does not install them; the tools
-needed by a selected flow must be available locally, in Docker, or on the configured remote host.
+Xeda supports every Python release series that has not reached end of life. Currently, that means
+Python 3.11 through 3.15. Xeda orchestrates EDA tools but does not install them; the tools needed by
+a selected flow must be available locally, in Docker, or on the configured remote host.
 
 For CLI use, the preferred installation is an isolated [`uv`](https://docs.astral.sh/uv/)
 tool environment:
@@ -43,9 +44,28 @@ cd xeda
 uv sync
 uv run pytest tests/          # serial
 uv run pytest tests/ -n auto  # one worker per CPU, several times faster
+uv run pytest -n auto -m "python_compat and not real_tool"  # faster cross-version check
 ```
 
+The marked command checks the compatibility cases used on Python 3.11 through 3.14 in CI. CI runs
+the full tool-backed suite on Python 3.15 and one Verilator cocotb smoke on Python 3.11. The full
+pytest commands above still run every test.
+
+Bare `tox` runs those compatibility checks, the full Python 3.15 suite, and the quality checks.
+To run the full test suite on every supported Python version, use
+`tox -e py311,py312,py313,py314,py315`.
+
 An editable pip installation also works if `uv` is unavailable.
+
+Cocotb 2.1.0, an optional dependency for the example designs, supports Python through 3.14. On
+Python 3.15, its upstream `setup.py` rejects a source build unless you set
+`COCOTB_IGNORE_PYTHON_REQUIRES=1`. To install the optional example dependencies, run:
+
+```bash
+COCOTB_IGNORE_PYTHON_REQUIRES=1 python -m pip install -r examples/requirements.txt
+```
+
+This overrides cocotb's build-time version check. It does not add upstream Python 3.15 support.
 
 Do not edit `CHANGELOG.md` to record a change. Instead, add one file to `changelog.d/` for each
 change that a user can see. At release, the maintainer folds the files into the changelog with

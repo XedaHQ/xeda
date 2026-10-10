@@ -18,6 +18,8 @@ from xeda.dataclass import Field, field_validator, model_validator
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 
+pytestmark = pytest.mark.python_compat
+
 
 class _RequiredLeaf(Flow):
     """Declares nothing, and cannot run without one setting."""

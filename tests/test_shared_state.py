@@ -56,6 +56,9 @@ from .test_isolation import (
 )
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
 
+pytestmark = pytest.mark.python_compat
+
+
 ss.import_package()
 
 FLOWS = [cls for cls, _ in flow_classes()]

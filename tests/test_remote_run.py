@@ -40,6 +40,9 @@ from xeda.xedaproject import PROJECT_FILE_NAMES
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
 from .tool_utils import require_ghdl, require_yosys
 
+pytestmark = pytest.mark.python_compat
+
+
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 
@@ -1011,6 +1014,7 @@ def test_a_failed_remote_run_keeps_only_the_artifacts_the_remote_vouched_for(vou
     assert not list(local_dir.rglob("earlier.txt"))
 
 
+@pytest.mark.real_tool
 def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remote_host):
     """With a real simulator: the testbench opens the file its `ROM` generic names, and writes
     to the one `TRACE` names -- a path the remote made a place for, not a file that traveled."""
@@ -1066,6 +1070,7 @@ def test_a_remote_simulation_reads_and_writes_its_file_parameters(tmp_path, remo
     assert list((tmp_path / "started_in").iterdir()) == [], "the start directory stays empty"
 
 
+@pytest.mark.real_tool
 def test_remote_ghdl_synth_fetches_list_artifacts(tmp_path, remote_host):
     """GHDL per-source synthesis reports a list under generated_verilog."""
     require_ghdl()
@@ -2003,6 +2008,7 @@ def _remote_runner_installed_elsewhere(channel, **kwargs):
 
 @pytest.mark.parametrize("remote", ["same install", "another install", "symlinked remote home"])
 @pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+@pytest.mark.real_tool
 def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     tmp_path, remote_host, monkeypatch, remote, flow_name
 ):

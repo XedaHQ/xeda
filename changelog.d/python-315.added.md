@@ -1,0 +1,1 @@
+- tox and CI now include Python 3.15, with a build-time override for the optional cocotb dependency.

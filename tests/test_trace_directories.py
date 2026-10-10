@@ -25,6 +25,8 @@ from xeda.flow_runner import DefaultRunner
 
 from .tool_utils import require_ghdl
 
+pytestmark = pytest.mark.python_compat
+
 
 class _ProbeLibraries(Flow):
     """Reads `pkg.txt` from the directory of its library `mylib`, as a simulator reads a compiled
@@ -161,6 +163,7 @@ def _compiled(directory: Path, k: int) -> Path:
     return directory
 
 
+@pytest.mark.real_tool
 def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp_path, monkeypatch):
     """As found: from `B`, whose `pkg.K` is 2, GHDL was "up to date and passing"."""
     require_ghdl()
@@ -186,6 +189,7 @@ def test_ghdl_sim_with_a_library_named_from_another_start_directory_is_stale(tmp
     assert flow.stale_reason.startswith("lib_paths[0][1] now names ")
 
 
+@pytest.mark.real_tool
 def test_ghdl_sim_of_another_design_tree_with_the_same_text_is_stale(tmp_path, monkeypatch):
     """As found, through the command line: `v/b/soc.toml` was "up to date"."""
     require_ghdl()
@@ -386,6 +390,7 @@ def test_a_large_library_directory_is_reported(tmp_path, monkeypatch, caplog):
     assert f"lib_paths[0][1] names {(lib / 'libs').resolve()}: its 5 files" in caplog.text
 
 
+@pytest.mark.real_tool
 def test_ghdl_sim_with_a_library_recompiled_in_place_is_stale(tmp_path, monkeypatch):
     """The in-place variant of the two above: the same `libs` recompiled with `pkg.K` = 2 -- the
     setting names the same directory -- was "up to date and passing"."""

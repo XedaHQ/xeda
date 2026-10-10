@@ -12,6 +12,8 @@ from xeda.cli import cli
 from xeda.design import SourceType
 from xeda.flow import Flow, FlowFatalError, In, Out, registered_flows
 
+pytestmark = pytest.mark.python_compat
+
 
 @pytest.fixture(scope="module")
 def toys():
