@@ -1157,7 +1157,8 @@ Defaults and limits:
   planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
   whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
   whitespace (``--run-root``).
-* Verilator 5.044 or newer is required. Since the model runs under Verilator's main, ``--coverage``
+* Verilator 5.044 or newer is required. From 5.048, a ``$finish`` in a ``final`` block does not end
+  a run that drained; on 5.044 to 5.047 it counts as the end. Since the model runs under Verilator's main, ``--coverage``
   in ``compile_args`` writes ``coverage.dat`` (a link or file left at that name is removed before the run), and, from
   Verilator 5.048, VPI start-up routines run
   with ``vpi: true``.

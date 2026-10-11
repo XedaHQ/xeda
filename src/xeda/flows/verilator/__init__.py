@@ -14,7 +14,6 @@ from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvent, SimEvidence, waveform_name
-from ...run_dir import RunDirectoryError
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...utils import replacing_copy, unique
 
@@ -714,11 +713,13 @@ class Verilator(SimFlow):
             if arg.startswith(COVERAGE_FILE_ARGUMENT)
         ]
         for name in names:
-            try:
+            if os.path.isabs(name):
+                # a location the user chose by its full path is the user's own
+                if self.run_directory.holds(name):
+                    self.run_directory.remove(name)
+            else:
+                # a name in the run directory, which is refused when a link on the way leads out
                 self.run_directory.remove(self.run_path / name)
-            except RunDirectoryError:
-                # a location the user chose outside the run directory is the user's own
-                log.debug("Leaving %s, which is not in the run directory", name)
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run

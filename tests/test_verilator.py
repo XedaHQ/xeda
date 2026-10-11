@@ -8,6 +8,7 @@ from xeda import Design
 from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
+from xeda.run_dir import RunDirectoryError
 
 from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
@@ -802,3 +803,24 @@ def test_a_link_left_at_the_coverage_file_is_never_written_through(tmp_path):
     assert flow.succeeded
     assert outside.read_text() == "not xeda's"
     assert coverage.is_file() and not coverage.is_symlink()
+
+
+def test_a_coverage_file_named_through_a_link_that_leads_out_is_refused(tmp_path):
+    """`+verilator+coverage+file+cov/results.dat` names a file in a directory of the run
+    directory. When `cov` is a link left by an earlier tool that leads out, the run is refused
+    before the model starts, and the file outside is not touched."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov/r.dat"],
+    }
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "r.dat").write_text("not xeda's")
+    (flow.run_path / "cov").symlink_to(outside)
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
+    assert (outside / "r.dat").read_text() == "not xeda's"
