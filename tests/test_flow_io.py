@@ -215,6 +215,7 @@ def test_list_flows_publishes_the_declarations():
             "cardinality": "one",
             "required": True,
             "optional": False,
+            "equivalence": False,
             "producer": "__maker",
             "output": "made",
             "same_producer_as": None,

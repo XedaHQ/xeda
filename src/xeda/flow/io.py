@@ -21,6 +21,7 @@ from typing import Any, Union, get_args, get_origin
 
 from ..dataclass import BaseModel, ConfigDict, Field
 from ..design import SourceType
+from ..equivalence import has_normalizer
 
 __all__ = [
     "FlowInputs",
@@ -72,6 +73,7 @@ def In(
     optional: bool = False,
     same_producer_as: str | None = None,
     via: str | None = None,
+    equivalence: bool = False,
     description: str,
 ) -> Any:
     """A declared input: the source types it accepts; `producer`, the flow (by canonical name)
@@ -84,7 +86,12 @@ def In(
     step: it names an input of the flow that makes the other input, and this input has to come
     from the producer of that input. `vivado_power` uses it for its checkpoint, which must come
     from the synthesis behind the netlist that the simulation of its `activity` read (the
-    activity's own producer is a simulation, not a synthesis)."""
+    activity's own producer is a simulation, not a synthesis).
+
+    `equivalence` makes the input compare what its type calls the same (`xeda.equivalence`)
+    where the content differs: a flow whose results do not depend on what the type's normalizer
+    drops (nextpnr's on the source locations of a JSON netlist) stays up to date when only that
+    differs. The input's types all need a normalizer."""
     marker: dict[str, Any] = {
         "kind": "input",
         "types": _type_names(types),
@@ -96,6 +103,8 @@ def In(
         marker["same_producer_as"] = same_producer_as
     if via is not None:
         marker["via"] = via
+    if equivalence:
+        marker["equivalence"] = True
     return Field(None, description=description, json_schema_extra={IO_MARKER: marker})
 
 
@@ -131,6 +140,8 @@ class InputDeclaration:
     #: a transitive relation, the input of the flow making that one whose producer this is
     same_producer_as: str | None = None
     via: str | None = None
+    #: whether the input compares the equivalence digest of its files (`xeda.equivalence`)
+    equivalence: bool = False
 
     @property
     def required(self) -> bool:
@@ -190,6 +201,7 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
             description=model.model_fields[name].description or "",
             same_producer_as=marker.get("same_producer_as"),
             via=marker.get("via"),
+            equivalence=bool(marker.get("equivalence")),
         )
         for name, marker in _markers(model, "input").items()
     }
@@ -246,6 +258,11 @@ def check_io_declarations(flow_cls: Any) -> None:
             raise TypeError(
                 f"{flow_cls.__qualname__}'s input `{input_declaration.name}` names an output "
                 "without a producer"
+            )
+        if input_declaration.equivalence and not has_normalizer(input_declaration.types):
+            raise TypeError(
+                f"{flow_cls.__qualname__}'s input `{input_declaration.name}` asks for "
+                "equivalence, and not every type it accepts defines one (`xeda.equivalence`)"
             )
     for declaration in declared_outputs(flow_cls).values():
         if declaration.enabled_by is None:

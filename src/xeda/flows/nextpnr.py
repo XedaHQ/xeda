@@ -543,6 +543,9 @@ class Nextpnr(FpgaSynthFlow):
             SourceType.JsonNetlist,
             producer="yosys_fpga",
             output="netlist",
+            # the results cite the source locations of the netlist this flow placed; a netlist
+            # that differs only in them is the same design
+            equivalence=True,
             description="The JSON netlist to place: a design source or yosys_fpga's netlist.",
         )
         constraints: list[Path] = In(

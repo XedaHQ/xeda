@@ -254,6 +254,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
                 "cardinality": d.cardinality,
                 "required": d.required,
                 "optional": d.optional,
+                "equivalence": d.equivalence,
                 "producer": d.producer,
                 "output": d.output,
                 "same_producer_as": d.same_producer_as,

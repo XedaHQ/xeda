@@ -235,6 +235,15 @@ decisions are not evaluated, and ``--dry-run --remote`` is refused.
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
 
+A flow is judged on the files its producers handed over, not on their runs. If a producer ran
+again and the outputs a flow takes from it have the same content as the ones it consumed, the flow
+is up to date, and the log says so. ``nextpnr`` also accepts a netlist that differs from the one it
+placed only in the ``src`` attributes of yosys's JSON netlist, the file and line each object came
+from: a comment added above the logic then re-runs ``yosys_fpga`` and leaves ``nextpnr`` and
+``fpga_pack`` up to date. The reports of such a ``nextpnr`` run cite the source locations of the
+netlist it placed. A change to any other part of the netlist, the yosys version included, runs
+``nextpnr`` again.
+
 .. _flow-chains:
 
 Flow chains and input bindings

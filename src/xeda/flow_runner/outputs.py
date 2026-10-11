@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ..digest import content_digest
+from ..equivalence import equivalence_digest
 from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_outputs, output_enabled
 from ..run_dir import RunDirectoryError
@@ -70,13 +71,17 @@ def record_outputs(flow: Flow) -> list[str]:
                     problems.append(f"{label} was not written by this run")
                     continue
                 digest = content_digest(located)
+                equivalence = equivalence_digest(located, declaration.types)
             except RunDirectoryError:
                 problems.append(f"{label} is not inside its run directory {flow.run_path}")
                 continue
             except (OSError, ValueError, RuntimeError) as error:
                 problems.append(f"{label} cannot be read: {error}")
                 continue
-            entries.append({"path": str(located), "sha": digest})
+            entry = {"path": str(located), "sha": digest}
+            if equivalence is not None:
+                entry["equivalence"] = equivalence
+            entries.append(entry)
         if len(entries) == len(paths):
             records[name] = entries if many else entries[0]
     flow.results["outputs"] = records

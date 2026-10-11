@@ -68,9 +68,9 @@ use the resolved plan for the producers a request needs.
 
 A flow's ``inputs`` and ``outputs`` list its declared file I/O: their
 names, accepted source ``types``, ``cardinality`` (``one``, ``optional``, ``many``) and descriptions;
-inputs also say whether they are ``required`` (the flow cannot run without one) and whether they are
-``optional`` (an optional list, which may be empty), and name their default ``producer`` and
-``output``; outputs name their ``enabled_by`` setting. An input that has to come from the same
+inputs also say whether they are ``required`` (the flow cannot run without one), whether they are
+``optional`` (an optional list, which may be empty) and whether they compare ``equivalence`` (see
+``results.outputs`` below), and name their default ``producer`` and ``output``; outputs name their ``enabled_by`` setting. An input that has to come from the same
 producer as another input of the flow names it in ``same_producer_as``. With ``via`` the relation
 goes one step further: the input has to come from the producer of that input of the flow that makes
 the ``same_producer_as`` input (``vivado_power``'s ``checkpoint`` comes from the synthesis whose
@@ -282,7 +282,10 @@ Declared output records appear as ``results.outputs`` in the CLI document and as
 ``outputs`` key in ``results.json``.
 Each enabled output actually produced maps its name to ``{"path": ..., "sha": ...}``; a list
 output maps to an ordered list of those records. ``path`` is absolute, inside the producer's run
-directory; ``sha`` is its 32-character content digest, not a timestamp. Recording checks readable
+directory; ``sha`` is its 32-character content digest, not a timestamp. A record of a type that
+defines one also has ``equivalence``: the digest of the file without what its type calls
+insignificant (for a JSON netlist, the ``src`` attributes), which an input that asks for it
+compares when ``sha`` differs. Recording checks readable
 files, containment and current-run writes. Hand-over checks record schema, cardinality,
 containment and content under a verified producer read lease, whether the producer ran or was
 reused. A failure to record an output uses ``MissingOutput`` and the normal failure identity; a

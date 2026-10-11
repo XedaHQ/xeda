@@ -1195,7 +1195,19 @@ and the runtime half in `tests/test_isolation.py`); a producer's undeclared file
 `results.json` and its run are no consumer input. A producer **settings** change still moves its
 consumers, through the identity (`bindings.node_identity`); the cutoff covers re-runs that keep
 the producer's identity (a source edit, a program or xeda change, `--rebuild-all` on the producer
-alone, a hand-edited output that is rebuilt). `TRACE_FORMAT` 15. What is not tracked
+alone, a hand-edited output that is rebuilt). `TRACE_FORMAT` 15. **An edge can also compare the
+equivalence digest** (`xeda/equivalence.py`): a type defines a normalizer (`NORMALIZERS`; one now,
+`JsonNetlist`, which drops the `src` key only inside the `attributes` of modules, cells, netnames
+and memories -- a port, net or cell named `src` is the design's), a producer's `record_outputs`
+adds `equivalence` beside `sha` to every output of such a type whichever consumer asks, and an
+input opts in with `In(..., equivalence=True)` (class creation refuses it for a type with none;
+`list-flows --json` shows it beside `required`). `changed_edge` falls back to `sha` unless the
+input opts in and both sides have a digest; `Freshness.equivalent` names the inputs that matched
+only so, and the launch logs it. `nextpnr`'s `netlist` opts in: its routed configuration was
+byte-identical for a netlist shifted by a comment line, and its `results.json` holds no source
+location, but its `report.json` and log cite the lines of the netlist it placed. The yosys
+version is in the file (`creator`), so another yosys is another digest. Another type gets a
+normalizer only with evidence from a real run. What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
 run directory points to, when that is a directory (the link is recorded by its target, never
 followed); programs started indirectly (a compiler under `make`, Python packages such as
