@@ -709,6 +709,8 @@ class Nextpnr(FpgaSynthFlow):
                 if board.content is not None:
                     return None  # the cache entry of a board file of the package: not made yet
                 raise FlowFatalError(self._board_file_missing(board.path))
+            if board.content is not None:
+                self._check_board_cache(board.path, board.content)
             located.append(board.path)
         if self.io_family(self.settings) == "xilinx":
             chipdb = self._locate_chipdb()
@@ -785,6 +787,12 @@ class Nextpnr(FpgaSynthFlow):
             path=root / ".cache" / "board-files" / digest / Path(name).name, content=content
         )
 
+    @staticmethod
+    def _check_board_cache(path: Path, content: bytes) -> None:
+        """A cached board file is what the package holds, or it is refused."""
+        if path.read_bytes() != content:
+            raise FlowFatalError(f"Corrupt board file cache entry {path}; remove it and rerun.")
+
     def _board_file_missing(self, path: Path) -> str:
         assert isinstance(self.settings, self.Settings)
         kind = self._constraint_kind()
@@ -810,10 +818,7 @@ class Nextpnr(FpgaSynthFlow):
             cache.path.mkdir(parents=True, exist_ok=True)
             path = cache.writable(path.name)
             if path.is_file():
-                if path.read_bytes() != board.content:
-                    raise FlowFatalError(
-                        f"Corrupt board file cache entry {path}; remove it and rerun."
-                    )
+                self._check_board_cache(path, board.content)
             else:
                 with replacing_file(path, "wb") as stream:
                     stream.write(board.content)

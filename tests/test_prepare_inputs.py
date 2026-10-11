@@ -446,3 +446,35 @@ def test_a_corrupt_cache_entry_is_unknown_to_a_dry_run_and_refused_by_a_launch(
     assert said.state == "unknown" and "Corrupt Xilinx chipdb cache entry" in said.reason, said
     with pytest.raises(FlowFatalError, match="Corrupt Xilinx chipdb cache entry"):
         _launch_cache(tmp_path, generation)
+
+
+@pytest.mark.parametrize("forced", [{"rebuild_all": True}, {"clean": True}])
+def test_a_corrupt_cache_entry_is_unknown_even_when_every_flow_is_forced_to_run(
+    tmp_path, generation, forced
+):
+    """The launch prepares inputs before it asks whether to run: what it refuses it refuses
+    under `--rebuild-all` and `--clean` too."""
+    first = _launch_cache(tmp_path, generation)
+    (Path(first.results["chipdb"]).parent / "manifest.yaml").unlink()
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(generation[1].run_root, display_results=False, **forced)
+    _, states = runner.plan_with_freshness(
+        _ChipdbTaker,
+        design,
+        flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel"},
+    )
+    assert states[_ChipdbTaker.name].state == "unknown"
+    assert "Corrupt Xilinx chipdb cache entry" in states[_ChipdbTaker.name].reason
+
+
+def test_a_cached_board_file_is_what_the_package_holds_or_it_is_refused(tmp_path):
+    """The check a dry run and a launch share, for a board file of an archive copied into the
+    run root's cache."""
+    from xeda.flows import Nextpnr
+
+    cached = tmp_path / "board.lpf"
+    cached.write_bytes(b"LOCATE COMP clk SITE A;\n")
+    Nextpnr._check_board_cache(cached, b"LOCATE COMP clk SITE A;\n")
+    cached.write_bytes(b"edited\n")
+    with pytest.raises(FlowFatalError, match="Corrupt board file cache entry"):
+        Nextpnr._check_board_cache(cached, b"LOCATE COMP clk SITE A;\n")

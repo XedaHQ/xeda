@@ -747,7 +747,8 @@ its output paths inside its run directory.
   fresh producers hand over, or a path standing for them) and **not initialized**; a flow's
   constructor starts no process (`SimFlow.cocotb` is made when first used); `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
   before and after `init()` for every flow and every value of the settings that decide it. The
-  order is the launch's: `always_runs()`, then `--clean` / `--rebuild-all` (the launch records
+  order is the launch's: the located prepared inputs (what preparation refuses is `unknown`,
+  whatever else is true), `always_runs()`, then `--clean` / `--rebuild-all` (the launch records
   "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`; a flow that always runs keeps
   its own), then the trace up to what
   the producers handed over (`check_trace(refresh=False, edge=False)`: no clock marker, no

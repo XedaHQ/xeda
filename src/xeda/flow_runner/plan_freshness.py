@@ -221,6 +221,12 @@ def judge_node(
         # a plan checks no more than the request; a launch checks the settings in the design's
         # context, as it constructs the flow, and would refuse these
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
+    # the launch prepares inputs before it asks whether the flow always runs: what preparation
+    # refuses it refuses whatever else is true, and one it can still make does not stop a run
+    try:
+        registered = flow.locate_prepared_inputs()
+    except (FlowFatalError, RunDirectoryError, ValueError, OSError) as error:
+        return NodeFreshness("unknown", f"its prepared inputs cannot be located: {error}")
     always = flow.always_runs()
     if always is not None:
         return NodeFreshness("stale", always)
@@ -228,10 +234,6 @@ def judge_node(
         return NodeFreshness("stale", EVERY_FLOW_RUNS_CLEAN)
     if rebuild_all:
         return NodeFreshness("stale", EVERY_FLOW_RUNS_REBUILD_ALL)
-    try:
-        registered = flow.locate_prepared_inputs()
-    except (FlowFatalError, RunDirectoryError, ValueError, OSError) as error:
-        return NodeFreshness("unknown", f"its prepared inputs cannot be located: {error}")
     if registered is None:
         return NodeFreshness(
             "unknown", "a prepared input is not made yet: a launch makes it before judging"
