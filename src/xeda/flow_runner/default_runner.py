@@ -35,7 +35,7 @@ import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..console import console
-from ..dataclass import DELIVERABLE_ROLE, WORKING_ROLE, XedaBaseModel, model_validator, written_role
+from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -64,11 +64,10 @@ from ..flow import (
     Flow,
     FlowDependencyFailure,
     FlowFatalError,
-    FlowSettingsError,
     FlowSettingsException,
     registered_flows,
 )
-from ..flow.io import declared_inputs, declared_outputs, selected_types
+from ..flow.io import declared_inputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..flow.flow import WrittenLeaf, map_written_leaves
 from ..proc_utils import ProcessTimeout, recording_programs
@@ -84,7 +83,6 @@ from ..run_dir import (
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..tool import NonZeroExitCode
 from ..utils import (
-    LOCATION_FORMS,
     WorkingDirectory,
     XedaException,
     backup_existing,
@@ -106,16 +104,17 @@ from .bindings import (
     require_no_bindings,
     split_bindings,
 )
+from . import launch_input, launch_report
 from .chains import ChainElement, FlowRequest, parse_request
+from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
-    drop_unwritten as _drop_unwritten_artifacts,  # looked up here: tests replace it on this module
     print_results,
     report,
     reuse_results,
     warn_outputs_to_delivered_nothing,
 )
 from .outputs import declared_output_files, handed_over, record_outputs
-from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
+from .resolver import Plan, PlanNode, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
     API_ORIGIN,
@@ -126,9 +125,7 @@ from .settings_layers import (
     command_line_sections,
     compose_flow_settings,
     merge_flow_sections,
-    settings_in_context,
     split_flow_sections,
-    suggest_dependency_node,
     transitive_dependencies,
 )
 from .trace import (
@@ -153,12 +150,14 @@ from .trace_inputs import (
     snapshot_inputs,
 )
 
-# Names defined here before the launcher was split by stage. Each stays importable from this
-# module; `tests/test_launcher_modules.py` lists them with their new homes.
-from .launch_report import artifact_rows as _artifact_rows  # noqa: E402,F401
-from .launch_report import (  # noqa: E402,F401
-    warn_outputs_to_delivered_nothing as _warn_outputs_to_delivered_nothing,
-)
+# Names that were defined in this module before the launcher was split by stage. They stay
+# importable from here; `tests/test_launcher_modules.py` lists their new homes. The launcher looks
+# `_drop_unwritten_artifacts` up here, so a test can replace it on this module.
+_artifact_rows = launch_report.artifact_rows
+_drop_unwritten_artifacts = launch_report.drop_unwritten
+_refuse_outputs_to_a_programmer = launch_input.refuse_outputs_to_a_programmer
+_setting_naming = launch_input.setting_naming
+_warn_outputs_to_delivered_nothing = launch_report.warn_outputs_to_delivered_nothing
 
 __all__ = [
     "DIR_NAME_HASH_LEN",
@@ -696,16 +695,6 @@ def _free_working_locations(flow: Flow) -> None:
     map_written_leaves(flow.settings, free)
 
 
-def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
-    """The deliverable setting of `flow_class` that names its output `output`: the one that
-    switches it on (`enabled_by`), else a setting of the output's own name."""
-    declaration = declared_outputs(flow_class).get(output)
-    for name in (declaration.enabled_by if declaration else None, output):
-        if name and written_role(flow_class.Settings, name) == DELIVERABLE_ROLE:
-            return name
-    return None
-
-
 class _RecordingProject:
     """A project that notes the position of the design `get_design` was asked for last, by name or
     by position, even when building that design failed."""
@@ -751,48 +740,6 @@ def _choosing_once(
         return selected
 
     return choose
-
-
-def _refuse_outputs_to_a_programmer(
-    plan: Plan, node: PlanNode, outputs_to: Path, *, remote: bool = False
-) -> None:
-    """`--outputs-to` copies what the requested flow writes. A flow that programs a device
-    (`Flow.action_reason`) writes no outputs, so there is nothing to deliver: a `DeliveryError`
-    before anything runs, a dry run alike, naming what would deliver the file it reads -- the
-    setting of the flow that writes it in this plan, given a location (`LOCATION_FORMS`); on a
-    `remote` run, where that setting would deliver on the
-    remote host, the request of that flow, whose own outputs come back -- or the design source it
-    is."""
-    flow_class = node.flow_class
-    if flow_class.action_reason is None:
-        return
-    producers, settings, sources = [], [], []
-    for selected in node.inputs:
-        sources += [str(path) for path in selected.sources]
-        for reference in selected.references:
-            producer = plan.node(reference.node)
-            producers.append(producer.name)
-            setting = _setting_naming(producer.flow_class, reference.output)
-            if setting is not None:
-                settings.append(f"-s flows.{producer.name}.{setting}=$PWD/<file>")
-    message = (
-        f"--outputs-to {outputs_to}: {flow_class.name} writes no outputs "
-        f"({flow_class.action_reason}), so there is nothing to deliver"
-    )
-    if remote and producers:
-        message += ". To receive the file it reads, request the flow that writes it instead: " + (
-            ", ".join(
-                f"xeda run --remote {name} ... --outputs-to {outputs_to}" for name in producers
-            )
-        )
-    elif settings:
-        message += (
-            ". To receive the file it reads, give the setting that writes it a location "
-            f"({LOCATION_FORMS}) instead: " + ", ".join(settings)
-        )
-    if sources:
-        message += ". The file it reads is a design source: " + ", ".join(sources)
-    raise DeliveryError(message, before_run=True)
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
@@ -1233,7 +1180,7 @@ class FlowLauncher:
         dependency run, goes through -- make's order: bring every prerequisite up to date, then
         judge this flow against them. Its stages, in order:
 
-        1. **input** (`_input_settings`): validate the settings in their context (design root,
+        1. **input** (`launch_input.input_settings`): validate the settings in their context (design root,
            start directory) and apply the launcher's ``--debug``. The result is the run's input,
            never modified afterwards. A missing required setting, or a design the flow cannot
            run, fails the launch here.
@@ -1525,10 +1472,10 @@ class FlowLauncher:
         )
         if depender is None and self.settings.outputs_to is not None:
             # before the run root, a lock or a producer
-            _refuse_outputs_to_a_programmer(plan, node, self.settings.outputs_to)
+            refuse_outputs_to_a_programmer(plan, node, self.settings.outputs_to)
         flow_settings = node.settings
-        input_settings = self._input_settings(
-            flow_class, flow_settings, design, runner_cwd, depender
+        input_settings = launch_input.input_settings(
+            flow_class, flow_settings, design, runner_cwd, depender, debug=self.debug
         )
         # a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
@@ -1807,44 +1754,6 @@ class FlowLauncher:
             before_run=False,
         )
         self._pending_deliveries.append((flow, delivery))
-
-    def _input_settings(
-        self,
-        flow_class: type[Flow],
-        flow_settings: dict[str, Any] | Flow.Settings | None,
-        design: Design,
-        runner_cwd: Path,
-        depender: Flow | None = None,
-    ) -> Flow.Settings:
-        """Stage 1: the run's input settings, validated in context and owned by the launcher.
-
-        Never modified afterwards: the flow works on a copy of its own (`flow.settings`), which
-        its `__init__`/`init()`/`run()` may complete with derived values, resolved paths and
-        outputs without any of that leaking into the run's identity.
-        """
-        try:
-            settings = settings_in_context(flow_class, flow_settings, design.root_path, runner_cwd)
-        except FlowSettingsError as error:
-            if depender is None:
-                suggest_dependency_node(flow_class, error)
-            raise
-        if self.debug:
-            log.debug(
-                "Flow '%s' settings: %s",
-                flow_class.name,
-                settings.model_dump_json(exclude_unset=True, indent=2),
-            )
-            settings.debug = True  # the launcher's `--debug` is part of the input
-        # a path the flow writes that leads out of its run directory, a setting the
-        # flow cannot run without, and a design it cannot run are reported now, before anything
-        # is set up for the run
-        check_launchable(flow_class, settings, design)
-        return settings
-
-    @staticmethod
-    def _suggest_dependency_node(flow_class: type[Flow], error: FlowSettingsError) -> None:
-        """Tell a setting that belongs to a dependency where it goes: `-s flows.<node>.key`."""
-        suggest_dependency_node(flow_class, error)
 
     def _run_identity(
         self,
@@ -2419,7 +2328,7 @@ class FlowLauncher:
         for node in plan.nodes:
             node.flow_class.check_run_directory(node.settings, node.run_path)
         if self.settings.outputs_to is not None:
-            _refuse_outputs_to_a_programmer(
+            refuse_outputs_to_a_programmer(
                 plan, plan.node(plan.requested), self.settings.outputs_to
             )
 
