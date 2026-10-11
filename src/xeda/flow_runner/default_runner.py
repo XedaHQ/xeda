@@ -1189,11 +1189,13 @@ class FlowLauncher:
                     with recording_programs() as programs:
                         flow.prepare_inputs()
                     prepared = registered_input_files(flow)
-                    if located_input_files(flow) != prepared:
+                    located = located_input_files(flow)
+                    if located != prepared:
                         raise FlowFatalError(
                             f"{flow.name} registered {[str(p) for p in prepared]} as its prepared "
                             f"inputs, and locate_prepared_inputs() says "
-                            f"{located_input_files(flow)}: a dry run would judge it by the latter"
+                            f"{[str(p) for p in located] if located is not None else None}: a "
+                            "dry run would judge it by the latter"
                         )
                     self._read_inputs.add(prepared)
                     refuse_inputs_inside(flow.run_path, flow.name, prepared)
