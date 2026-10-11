@@ -118,7 +118,8 @@ design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can r
 by the source's location. The design hash counts the parts of the design the flow reads: its RTL, and
 the testbench for a flow that reads one (a simulation, and ``bsc`` and ``vivado_project``, which read
 the testbench's sources too), so a synthesis flow stays up to date when only a testbench changes, and its trace records no testbench file as an input. (A flow that
-consumes another flow's outputs still runs again when that flow does.) A parameter whose value is a path
+consumes another flow's outputs runs again when those outputs change, not whenever that flow runs.
+A flow can also be judged on the types of source it takes, as ``nextpnr`` is.) A parameter whose value is a path
 under the design root, such as one given as a file relative to it, counts relative to it; one
 outside the root counts as the location it names, and a parameter file's content is not hashed.
 ``flowrun_hash`` covers settings, with a path counted as its text relative to the design
@@ -214,14 +215,16 @@ What makes a flow stale
   its own modules and templates;
 - a program it started (an executable's path, size or mtime; a container image's ID) changed, or
   was replaced while the run was going on;
-- a dependency ran again -- a dependency that re-ran always re-runs what depends on it, even if
-  nothing it produced actually changed for this consumer;
+- what a dependency handed over changed -- the files of the outputs the flow takes from it, not
+  the dependency's run: a dependency that ran again with the same outputs leaves the flow up to
+  date, and the log says so;
 - an input was added, removed, changed, or has gone missing -- a file in a directory a setting
   names too (a library recompiled in place) -- or was modified while the run that read it was
   going on, so that what the run read is unknown;
 - an output was deleted or edited (by hand, or by another tool) since the run that produced it --
   in a run directory Xeda manages, that is any file the run left there, declared as an artifact
-  or not, or the file a symbolic link there points to; the flows depending on it then re-run too;
+  or not, or the file a symbolic link there points to; the flows depending on it re-run only if
+  what they take from it changed;
 - a file appeared in a run directory Xeda manages since its run ("new file in the run
   directory"): the directory is Xeda's alone, and a depender reading it could find the file;
 - the design's metadata changed (``top``, parameters, defines, and other behavior-affecting

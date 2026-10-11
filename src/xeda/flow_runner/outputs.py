@@ -12,11 +12,13 @@ from pathlib import Path
 from typing import Any
 
 from ..digest import content_digest
+from ..equivalence import digests
 from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_outputs, output_enabled
 from ..run_dir import RunDirectoryError
+from .trace import OutputEntry
 
-__all__ = ["handed_over", "record_outputs", "declared_output_files"]
+__all__ = ["handed_entries", "handed_over", "record_outputs", "declared_output_files"]
 
 
 def declared_output_files(results: dict[str, Any]) -> list[Path]:
@@ -68,18 +70,32 @@ def record_outputs(flow: Flow) -> list[str]:
                 if not located.is_file() or not flow.wrote_output(located):
                     problems.append(f"{label} was not written by this run")
                     continue
-                digest = content_digest(located)
+                digest, equivalence = digests(located, declaration.types)
             except RunDirectoryError:
                 problems.append(f"{label} is not inside its run directory {flow.run_path}")
                 continue
             except (OSError, ValueError, RuntimeError) as error:
                 problems.append(f"{label} cannot be read: {error}")
                 continue
-            entries.append({"path": str(located), "sha": digest})
+            entry = {"path": str(located), "sha": digest}
+            if equivalence is not None:
+                entry["equivalence"] = equivalence
+            entries.append(entry)
         if len(entries) == len(paths):
             records[name] = entries if many else entries[0]
     flow.results["outputs"] = records
     return problems
+
+
+def handed_entries(producer: Flow, output: str) -> tuple[OutputEntry, ...]:
+    """The files of `producer`'s `output` as its run recorded them (`handed_over` has verified
+    them): what a consumer is handed, to be compared with what it consumed. Call it after
+    `handed_over` has accepted the output."""
+    recorded = (producer.results.get("outputs") or {})[output]
+    return tuple(
+        OutputEntry(path=entry["path"], sha=entry["sha"], equivalence=entry.get("equivalence"))
+        for entry in (recorded if isinstance(recorded, list) else [recorded])
+    )
 
 
 def handed_over(producer: Flow, output: str) -> list[Path]:

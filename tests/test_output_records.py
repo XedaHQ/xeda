@@ -294,6 +294,7 @@ def test_unreadable_outputs_fail_recording_and_hand_over(tmp_path, design, monke
         raise PermissionError(f"cannot read {path}")
 
     monkeypatch.setattr(output_module, "content_digest", unreadable)
+    monkeypatch.setattr(output_module, "digests", lambda path, types: unreadable(path))
     with pytest.raises(FlowDependencyFailure, match="cannot be read"):
         handed_over(maker, "made")
     again = _launch(tmp_path, design, {}, rebuild_all=True)

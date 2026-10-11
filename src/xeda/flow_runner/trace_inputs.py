@@ -16,8 +16,8 @@ is the run's; anywhere else, a file the run's settings, depfiles or design name 
 recorded as unknown if it changed during the run, so the next launch runs again.
 
 **What a run produced.** Every file the run left in its run directory is an output (`output_files`), declared as an artifact or not: a depender may read any of them by
-path, so a hand edit anywhere in the directory -- or a file added there -- makes the run stale,
-and its dependers follow through its new `run_id`. They are hashed once, after the run; a check
+path, so a hand edit anywhere in the directory -- or a file added there -- makes the run stale;
+its dependers follow only if what it hands them changed (`trace.changed_edge`). They are hashed once, after the run; a check
 trusts their metadata (`digest.FileRecord.trusted`) as it does an input's.
 """
 
@@ -31,18 +31,32 @@ import stat
 import time
 import uuid
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type
+from typing import (
+    Any,
+    Collection,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+)
 
 from pydantic import BaseModel
 
 from ..artifacts import iter_artifact_paths
-from ..design import DESIGN_PARTS, Design, FileResource
+from ..design import DESIGN_PARTS, Design, FileResource, SourceType
 from ..digest import (
     MODIFIED_DURING_RUN,
     UNRECORDED_BEFORE_RUN,
     FileRecord,
+    content_digest,
     digest_files,
     filesystem_time_ns,
     package_files,
@@ -61,7 +75,9 @@ from ..version import __version__
 from .run_lock import lock_file
 from .trace import (
     RESERVED_FILES,
+    DeclaredInputRecord,
     Expectation,
+    OutputEntry,
     ProgramRecord,
     Trace,
     as_recorded,
@@ -88,9 +104,14 @@ def _add(found: List[Path], path: Path) -> None:
         found.append(resolved)
 
 
-def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Path]:
+def design_files(
+    design: Design,
+    parts: Iterable[str] = DESIGN_PARTS,
+    source_types: Optional[Collection[SourceType]] = None,
+) -> List[Path]:
     """Every file the design's `parts` name, resolved (`Flow.design_parts`: the RTL, and the
-    testbench for a flow that reads it; the whole design by default): their sources, a
+    testbench for a flow that reads it; the whole design by default): their sources (only
+    those of `source_types`, if given: `Flow.design_source_types`), a
     parameter or define given as a file (`ROM = { file = "rom.mem" }`, which the design holds
     as the file's absolute path), and any other file a field of theirs refers to.
 
@@ -127,9 +148,17 @@ def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Pa
     unknown = wanted - DESIGN_PARTS
     if unknown:
         raise ValueError(f"{', '.join(sorted(unknown))} is not a part of a design")
-    visit(design.rtl)  # the RTL is always read
+
+    def visit_part(part: BaseModel) -> None:
+        for name in type(part).model_fields:
+            value = getattr(part, name)
+            if name == "sources" and source_types is not None:
+                value = [source for source in value if source.type in source_types]
+            visit(value)
+
+    visit_part(design.rtl)  # the RTL is always read
     if "tb" in wanted:
-        visit(design.tb)
+        visit_part(design.tb)
     return found
 
 
@@ -357,13 +386,6 @@ def output_files(flow: Flow) -> list[Path]:
     return sorted({*run_directory_files(flow.run_path), *outside})
 
 
-def dependency_outputs(producers: Sequence[Flow]) -> List[Path]:
-    """The outputs of the `producers` the flow consumed. A file of theirs the flow reads by path
-    is covered by their own traces: a change to it makes the producer run again, and the flow
-    with it (`dependency_runs`)."""
-    return sorted({p for producer in producers for p in artifact_files(producer)})
-
-
 def run_dir_key(run_path: Path, run_root: Path) -> str:
     """How a trace names a run directory: relative to the run root (`xeda_run`), in POSIX form;
     absolute if it lies outside it."""
@@ -439,7 +461,8 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
     prefix of a program in `programs`: internal to the tool, and xeda stays agnostic to how
     tools are installed), and those it registered in `Flow.implicit_inputs` (including the ones
     its `init()` registered, which are expected inputs already). Where a file lies decides
-    whether it is an input or the run's own (`build_trace`)."""
+    whether it is an input or the run's own (`build_trace`). A file a producer handed over is
+    neither: the edge records it."""
     prefixes = installation_prefixes(programs)
     named = [
         dep
@@ -448,7 +471,13 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
         for dep in parse_depfile(depfile, flow.run_path)
         if not any(_resolved(dep, flow.run_path).is_relative_to(prefix) for prefix in prefixes)
     ]
-    return _existing_files([*named, *flow.implicit_inputs], flow.run_path)
+    #: a file handed over by a producer is no file record of this flow, however it came to be read
+    handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
+    return [
+        path
+        for path in _existing_files([*named, *flow.implicit_inputs], flow.run_path)
+        if path not in handed
+    ]
 
 
 def _resolved(path: Path, run_path: Path) -> Path:
@@ -496,25 +525,25 @@ def candidate_inputs(
     flow: Flow,
     design: Design,
     input_settings: Flow.Settings,
-    producers: Sequence[Flow],
     run_root: Optional[Path] = None,
 ) -> List[Path]:
     """Every existing file the run would consume that can be named before it runs: the
     design's files, the files its settings name and every file under a directory they name
-    (`setting_directory_files`), its producers' outputs, and the files the flow registered in
-    `init()` or `prepare_inputs()` (`registered_input_files`) -- xeda's own bookkeeping files in its run directory
-    excepted."""
+    (`setting_directory_files`), the design sources its declared inputs take
+    (`source_input_files`), and the files the flow registered in `init()` or `prepare_inputs()`
+    (`registered_input_files`) -- xeda's own bookkeeping files in its run directory excepted.
+    What its producers handed over is no file of its own: the edge records it (`BoundProducer`)."""
     bookkeeping = bookkeeping_files(flow.run_path)
+    handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
     files = {
         # the parts of the design this flow reads, not the whole design
-        *design_files(design, type(flow).design_parts),
+        *design_files(design, type(flow).design_parts, type(flow).design_scope(input_settings)),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
-        *dependency_outputs(producers),
         *registered_input_files(flow),
-        *declared_input_files(flow),
+        *source_input_files(flow),
     }
-    return sorted(files - bookkeeping)
+    return sorted(files - bookkeeping - handed)
 
 
 def declared_input_files(flow: Flow) -> list[Path]:
@@ -524,6 +553,19 @@ def declared_input_files(flow: Flow) -> list[Path]:
         value = getattr(flow.inputs, name)
         files.extend(value if isinstance(value, list) else ([] if value is None else [value]))
     return files
+
+
+def handed_paths(records: Sequence[DeclaredInputRecord]) -> set[str]:
+    """The paths the producers handed over, as the records name them."""
+    return {entry.path for record in records for ref in record.references for entry in ref.entries}
+
+
+def source_input_files(flow: Flow) -> list[Path]:
+    """The files of the flow's declared inputs that come from the design's sources: the selected
+    paths without those a producer handed over (`handed_paths`). A file handed over is never a
+    file record of the consumer."""
+    handed = handed_paths(getattr(flow, "declared_input_records", ()))
+    return [path for path in declared_input_files(flow) if str(path) not in handed]
 
 
 def expectation(
@@ -538,8 +580,9 @@ def expectation(
     `run_root` is the launcher's run directory root, which producer runs are named under, and
     `producers` are the completed producers the launcher handed the flow's inputs from.
 
-    Includes `dependency_outputs(producers)` and `dependency_runs(producers, run_root)`, so call
-    this after the producers have run, as the launcher does. It includes the files `flow` registered
+    Includes `dependency_runs(producers, run_root)` and, in the flow's declared input records,
+    what the producers handed over, so call this after the producers have run, as the launcher
+    does. It includes the files `flow` registered
     (`registered_input_files`), so call it before `flow` runs, while those are what its `init()`
     registered, including those resolved by `prepare_inputs` after hand-over.
     """
@@ -551,13 +594,10 @@ def expectation(
         xeda_version=__version__,
         xeda_code=xeda_code_digest(),
         flow_code=flow_code_digest(type(flow)),
-        inputs=tuple(candidate_inputs(flow, design, input_settings, producers, run_root)),
+        inputs=tuple(candidate_inputs(flow, design, input_settings, run_root)),
         settings=as_recorded(input_settings),
         setting_locations=setting_locations(input_settings, flow.run_path),
         dependency_runs=dependency_runs(producers, run_root),
-        dependency_flows={
-            run_dir_key(producer.run_path, run_root): producer.name for producer in producers
-        },
         declared_inputs=getattr(flow, "declared_input_records", ()),
         settings_hash=flow.settings_hash or "",
     )
@@ -576,6 +616,37 @@ class InputSnapshot:
     #: the record of each expected input, and of each file the previous run's depfiles named,
     #: that existed when the run started
     records: Mapping[str, FileRecord]
+    #: the record of each file the producers handed over, taken as the run starts (None if it
+    #: could not be read), with the identity of every link on the way to it (`_name_state`, which
+    #: tells a link replaced and put back): a file that is not the one the producer recorded, or
+    #: that changed while the flow ran, is unknown (`_consumed`)
+    handed: Mapping[str, Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]] = (
+        dataclass_field(default_factory=dict)
+    )
+
+
+def _name_state(path: Path) -> Tuple[Tuple[int, int, int], ...]:
+    """The identity of `path` as a name, a link not followed, and of every link it leads through
+    to the file: for each, its inode, change time and mtime. A link replaced by another and put
+    back leads to the same file, with the same metadata; this tells it."""
+    states = []
+    current = path
+    for _ in range(40):  # the depth of links the system follows
+        st = os.lstat(current)
+        states.append((st.st_ino, st.st_ctime_ns, st.st_mtime_ns))
+        if not stat.S_ISLNK(st.st_mode):
+            break
+        current = Path(os.path.normpath(current.parent / os.readlink(current)))
+    return tuple(states)
+
+
+def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]:
+    """The record of a handed file (its content, through a link) and of its name, or None if
+    unreadable."""
+    try:
+        return FileRecord.of(path.stat(), content_digest(path)), _name_state(path)
+    except OSError:
+        return None
 
 
 def snapshot_inputs(
@@ -613,6 +684,10 @@ def snapshot_inputs(
         inputs_recorded_ns=inputs_recorded_ns,
         expected=inputs,
         records=records,
+        handed={
+            path: _handed_record(Path(path))
+            for path in sorted(handed_paths(expected.declared_inputs))
+        },
     )
 
 
@@ -700,6 +775,44 @@ def run_reports(flow: Flow) -> List[str]:
         if run_directory.holds(given):
             found.add(run_directory.inside(given).relative_to(run_directory.path).as_posix())
     return sorted(found)
+
+
+def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredInputRecord:
+    """`record` as the run consumed it. An entry is marked unknown, and never matches, if its
+    file was not the bytes the producer recorded when the run started, or if it may have changed
+    since: its metadata differs (written while the flow ran, even if put back as it was), or the
+    metadata is the same but too recent to vouch for it (`FileRecord.trusted`, as for every
+    input) and its content is read again."""
+    references = tuple(
+        ref.model_copy(update={"entries": tuple(_entry_consumed(e, snapshot) for e in ref.entries)})
+        for ref in record.references
+    )
+    return record.model_copy(update={"references": references})
+
+
+def _entry_consumed(entry: OutputEntry, snapshot: InputSnapshot) -> OutputEntry:
+    began = snapshot.handed.get(entry.path)
+    unknown = entry.model_copy(update={"unknown": True})
+    if began is None or began[0].sha != entry.sha:
+        return unknown
+    started, name = began
+    path = Path(entry.path)
+    try:
+        if _name_state(path) != name:
+            return unknown  # a link replaced while the flow ran, even if put back
+        now = path.stat()
+        if (now.st_size, now.st_mtime_ns, now.st_ctime_ns, now.st_ino) != (
+            started.size,
+            started.mtime_ns,
+            started.ctime_ns,
+            started.inode,
+        ):
+            return unknown  # written while the flow ran, whatever it holds now
+        if started.trusted(now, snapshot.inputs_recorded_ns):
+            return entry
+        return entry if content_digest(path) == entry.sha else unknown
+    except OSError:
+        return unknown
 
 
 def build_trace(
@@ -823,5 +936,5 @@ def build_trace(
         implicit_inputs=implicit,
         outputs=outputs,
         reports=run_reports(flow),
-        declared_inputs=list(expected.declared_inputs),
+        declared_inputs=[_consumed(record, snapshot) for record in expected.declared_inputs],
     )

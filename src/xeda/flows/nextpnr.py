@@ -280,6 +280,19 @@ class Nextpnr(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
+    #: judged on the files it takes from the design: a JSON netlist, the pin files and the SDC
+    #: files. The HDL that `yosys_fpga` reads is that flow's input, not this one's.
+    design_source_types = frozenset(
+        {
+            SourceType.JsonNetlist,
+            SourceType.Lpf,
+            SourceType.Pcf,
+            SourceType.Pdc,
+            SourceType.Xdc,
+            SourceType.Sdc,
+        }
+    )
+
     results_description = describe_results(
         "Fmax",
         "wns",
@@ -530,6 +543,9 @@ class Nextpnr(FpgaSynthFlow):
             SourceType.JsonNetlist,
             producer="yosys_fpga",
             output="netlist",
+            # the results cite the source locations of the netlist this flow placed; a netlist
+            # that differs only in them is the same design
+            equivalence=True,
             description="The JSON netlist to place: a design source or yosys_fpga's netlist.",
         )
         constraints: list[Path] = In(
@@ -548,6 +564,26 @@ class Nextpnr(FpgaSynthFlow):
             (SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm),
             description="The routed configuration: ECP5 textcfg, iCE40 asc, or Nexus/Xilinx fasm.",
         )
+
+    @staticmethod
+    def runs_a_hook(settings: Flow.Settings) -> bool:
+        """Whether a Python hook may run inside nextpnr. It can read the design's sources and the
+        source locations of the netlist (a cell's `src` attribute) to decide where to place.
+        `extra_args` can start one (`--pre-place=hook.py`, `--run`), so it counts."""
+        hooks = ("pre_pack", "pre_place", "pre_route", "post_route", "py_script", "extra_args")
+        return any(getattr(settings, hook, None) for hook in hooks)
+
+    @classmethod
+    def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
+        """The netlist is compared without its source locations unless a hook may run."""
+        if name == "netlist" and cls.runs_a_hook(settings):
+            return False
+        return super().input_equivalence(settings, name)
+
+    @classmethod
+    def design_scope(cls, settings: Flow.Settings) -> frozenset[SourceType] | None:
+        """Judged on the sources it takes, unless a hook may run, which can read any."""
+        return None if cls.runs_a_hook(settings) else super().design_scope(settings)
 
     @staticmethod
     def io_family(settings: Flow.Settings) -> str:

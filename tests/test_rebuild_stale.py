@@ -34,9 +34,8 @@ from xeda.flow_runner.run_lock import lock_file, run_dir_lock
 from .tool_utils import producers_of, require_yosys
 
 RUNS: list[str] = []
-#: why the consumer runs after its producer ran again: dependencies are named by flow and run
-#: directory, relative to `xeda_run`
-AGAIN = "toy_producer (toy/toy_producer) ran again"
+#: why the consumer runs after its producer's output changed
+CHANGED = "`produced` from `toy_producer` changed"
 #: why it runs when the producer's own settings are not what its last run consumed
 OTHER_SETTINGS = (
     "toy_producer, which makes produced, has other settings or inputs than in the last run"
@@ -68,6 +67,8 @@ def toys():
         """Copies its producer's output to outputs/consumed.txt."""
 
         results_description: ClassVar[dict[str, str]] = {}
+        #: it reads no source of the design: its producer's sources are none of its business
+        design_source_types = frozenset()
 
         class Inputs(Flow.Inputs):
             produced: Path = In(
@@ -102,6 +103,7 @@ def _run(tmp_path, cls, design, sections=None, settings=None, **launcher):
     flow = runner.launch_flow(cls, design, settings or {}, all_flows_settings=sections)
     assert flow.succeeded
     flow.producers = producers_of(runner, flow)  # type: ignore[attr-defined]
+    flow.launched = list(runner.launched)  # type: ignore[attr-defined]
     return flow, list(RUNS)
 
 
@@ -132,7 +134,7 @@ def test_a_source_edit_reruns_the_chain_and_says_why(tmp_path, toys, design):
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
     assert flow.producers[0].stale_reason.startswith("input changed:")
-    assert flow.stale_reason == AGAIN
+    assert flow.stale_reason == CHANGED
 
 
 def test_a_setting_of_the_dependency_alone_reruns_both(tmp_path, toys, design):
@@ -144,14 +146,10 @@ def test_a_setting_of_the_dependency_alone_reruns_both(tmp_path, toys, design):
     assert flow.stale_reason == OTHER_SETTINGS
 
 
-def test_a_dependency_that_ran_again_reruns_its_depender_even_with_an_identical_output(
-    tmp_path, toys, design
-):
-    """A producer setting that does not affect its output re-runs the producer, and then the
-    consumer, although the producer's declared output is byte-identical: a flow may read files
-    its dependency wrote without declaring them, so a dependency's new run is a change. (Early
-    cutoff across a dependency edge returns once flows read their dependencies' files only
-    through declared outputs; cutoff on a flow's own inputs is below.)"""
+def test_a_setting_of_the_dependency_moves_its_depender_whatever_the_output(tmp_path, toys, design):
+    """A producer's settings are part of the identity of what is made from it, so a setting that
+    does not affect its output still re-runs the consumer. (A re-run that keeps the producer's
+    identity is the cutoff cases below.)"""
     _, consumer = toys
     _run(tmp_path, consumer, design)
     flow, ran = _run(tmp_path, consumer, design, sections={"toy_producer": {"verbose": 1}})
@@ -159,16 +157,234 @@ def test_a_dependency_that_ran_again_reruns_its_depender_even_with_an_identical_
     assert flow.stale_reason == OTHER_SETTINGS
 
 
-def test_a_dependency_that_ran_again_since_is_a_change(tmp_path, toys, design):
-    """Across invocations too: the producer re-ran on its own after the consumer last ran, so
-    the consumer, finding the producer fresh, still sees a producer run it did not consume."""
+def test_a_producer_rebuilt_alone_with_the_same_output_leaves_its_consumer_fresh(
+    tmp_path, toys, design
+):
+    """Across invocations too: the producer re-ran on its own after the consumer last ran, and its
+    declared output is the one the consumer consumed, so the consumer is reused."""
     producer, consumer = toys
-    _run(tmp_path, consumer, design)
+    first, _ = _run(tmp_path, consumer, design)
     _, ran = _run(tmp_path, producer, design, rebuild_all=True)  # byte-identical output
     assert ran == ["toy_producer"]
     flow, ran = _run(tmp_path, consumer, design)
     assert flow.producers[0].reused
-    assert ran == ["toy_consumer"] and flow.stale_reason == AGAIN
+    assert ran == [] and flow.reused and flow.stale_reason is None
+    assert flow.run_id == first.run_id, "a fresh check does not rewrite the run it consumed"
+
+
+def test_a_producer_that_runs_again_in_the_launch_with_the_same_output_is_said_so(
+    tmp_path, toys, design, caplog
+):
+    """A source the producer reads and copies nothing of re-runs it; the consumer is fresh, and
+    the log says the producer ran again and what stayed the same."""
+    _, consumer = toys
+    second = design.root_path / "b.v"
+    second.write_text("module b; endmodule\n")
+    two = Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, design_root=tmp_path)
+    _run(tmp_path, consumer, two)
+    second.write_text("module b; wire edited; endmodule\n")
+    caplog.set_level("INFO")
+    flow, ran = _run(tmp_path, consumer, two)
+    assert ran == ["toy_producer"]
+    assert not flow.producers[0].reused
+    assert flow.reused and flow.stale_reason is None
+    assert (
+        "toy_consumer is up to date (toy_producer ran again; its output `produced` is unchanged)"
+        in (caplog.text)
+    )
+    caplog.clear()
+    _run(tmp_path, consumer, two)
+    assert "ran again" not in caplog.text
+
+
+@pytest.fixture
+def exact():
+    """A producer with two outputs, each the text of one of the design's sources; `x` reads the
+    first and lower-cases it, `y` reads the second, and `z` reads `x`'s copy."""
+
+    class ToyChunks(Flow):
+        """Copies the design's first two sources to two outputs."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Outputs(Flow.Outputs):
+            first: Path = Out(SourceType.Data, description="The first source.")
+            second: Path = Out(SourceType.Data, description="The second source.")
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+            (self.run_path / "outputs").mkdir(exist_ok=True)
+            for output, source in zip(("first", "second"), self.design.rtl.sources):
+                path = self.run_path / "outputs" / f"{output}.txt"
+                path.write_text(source.file.read_text())
+                setattr(self.outputs, output, path)
+
+    class ToyX(Flow):
+        """Lower-cases the first file."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            first: Path = In(
+                SourceType.Data, producer="toy_chunks", output="first", description="The text."
+            )
+
+        class Outputs(Flow.Outputs):
+            copy: Path = Out(SourceType.Data, description="The copy.")
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+            (self.run_path / "outputs").mkdir(exist_ok=True)
+            path = self.run_path / "outputs" / "copy.txt"
+            path.write_text(self.inputs.first.read_text().lower())
+            self.outputs.copy = path
+
+    class ToyY(Flow):
+        """Reads the second file."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            second: Path = In(
+                SourceType.Data, producer="toy_chunks", output="second", description="The text."
+            )
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+
+    class ToyZ(Flow):
+        """Reads x's copy."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            copy: Path = In(SourceType.Data, producer="toy_x", output="copy", description="Copy.")
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+
+    yield ToyChunks, ToyX, ToyY, ToyZ
+    _unregister(ToyChunks, ToyX, ToyY, ToyZ)
+
+
+@pytest.fixture
+def two_sources(tmp_path):
+    (tmp_path / "a.v").write_text("FIRST\n")
+    (tmp_path / "b.v").write_text("SECOND\n")
+    return Design(name="toy", rtl={"sources": ["a.v", "b.v"], "top": "a"}, design_root=tmp_path)
+
+
+def _launch_readers(tmp_path, exact, design):
+    """Launch `y` and `z` (which runs `x` first) as one would on the command line: what ran, and
+    the reasons the flows that were launched give."""
+    _, x, y, z = exact
+    ran: list[str] = []
+    reasons: dict[str, str | None] = {}
+    for cls in (z, y):
+        flow, names = _run(tmp_path, cls, design)
+        ran += names
+        reasons[cls.name] = flow.stale_reason
+        for producer in flow.producers:
+            reasons.setdefault(producer.name, producer.stale_reason)
+    return ran, reasons
+
+
+def test_an_output_that_no_reader_changed_stays_fresh_all_the_way(tmp_path, exact, two_sources):
+    _launch_readers(tmp_path, exact, two_sources)
+    assert _launch_readers(tmp_path, exact, two_sources)[0] == []
+
+
+def test_a_change_of_one_output_runs_its_reader_and_no_other(tmp_path, exact, two_sources):
+    _launch_readers(tmp_path, exact, two_sources)
+    (tmp_path / "b.v").write_text("SECOND CHANGED\n")
+    ran, reasons = _launch_readers(tmp_path, exact, two_sources)
+    assert ran == ["toy_chunks", "toy_y"]
+    assert reasons["toy_y"] == "`second` from `toy_chunks` changed"
+
+
+def test_a_reader_whose_own_output_is_unchanged_leaves_the_next_one_fresh(
+    tmp_path, exact, two_sources
+):
+    """`x` lower-cases the text: an edit of its case runs it and nothing after it."""
+    _launch_readers(tmp_path, exact, two_sources)
+    (tmp_path / "a.v").write_text("first\n")
+    ran, reasons = _launch_readers(tmp_path, exact, two_sources)
+    assert ran == ["toy_chunks", "toy_x"]
+    assert reasons["toy_x"] == "`first` from `toy_chunks` changed"
+
+
+def test_a_reader_whose_own_output_changed_runs_the_next_one(tmp_path, exact, two_sources):
+    _launch_readers(tmp_path, exact, two_sources)
+    (tmp_path / "a.v").write_text("OTHER\n")
+    ran, reasons = _launch_readers(tmp_path, exact, two_sources)
+    assert ran == ["toy_chunks", "toy_x", "toy_z"]
+    assert reasons["toy_z"] == "`copy` from `toy_x` changed"
+
+
+def test_an_output_edited_by_hand_is_rebuilt_and_its_readers_stay_fresh(
+    tmp_path, exact, two_sources
+):
+    chunks, x, y, z = exact
+    flow, _ = _run(tmp_path, z, two_sources)
+    (xflow,) = flow.producers
+    first = xflow.run_path.parent / "toy_chunks" / "outputs" / "first.txt"
+    first.write_text("hand edited")
+    flow, ran = _run(tmp_path, z, two_sources)
+    # the producer is stale (an output changed), rebuilds the original text: x and z stay fresh
+    assert ran == ["toy_chunks"] and flow.reused
+    chunks_again = next(f for f in flow.launched if f.name == "toy_chunks")
+    assert chunks_again.stale_reason == f"output changed: {first.resolve()}"
+
+
+def _depfile_consumer():
+    """A consumer whose depfile names its handed input, as a tool's does."""
+
+    class ToyDepfileConsumer(Flow):
+        """Copies its producer's output, and names it in a depfile as a tool does."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The producer's text.",
+            )
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+            (self.run_path / "deps.d").write_text(f"out: {self.inputs.produced}\n")
+            self.depfiles.append(self.run_path / "deps.d")
+
+    return ToyDepfileConsumer
+
+
+def test_a_file_handed_over_is_no_file_record_of_its_consumer_whatever_names_it(
+    tmp_path, toys, design
+):
+    """The edge records what was handed over. A consumer's depfile that names the handed file
+    does not bring a record of the file back: neither `inputs` nor `implicit_inputs` holds it, so
+    the consumer stays fresh when its producer runs again with the same bytes."""
+    producer, _ = toys
+    ToyDepfileConsumer = _depfile_consumer()
+    try:
+        flow, _ = _run(tmp_path, ToyDepfileConsumer, design)
+        handed = str(flow.inputs.produced.resolve())
+        trace = json.loads((flow.run_path / "trace.json").read_text())
+        assert handed not in trace["inputs"] and handed not in trace["implicit_inputs"]
+        assert not any(
+            "toy_producer" in name for name in {**trace["inputs"], **trace["implicit_inputs"]}
+        )
+        _run(tmp_path, producer, design, rebuild_all=True)
+        again, ran = _run(tmp_path, ToyDepfileConsumer, design)
+        assert ran == [] and again.reused
+    finally:
+        _unregister(ToyDepfileConsumer)
 
 
 def test_rewriting_a_source_with_the_same_content_runs_nothing(tmp_path, toys, design):
@@ -522,8 +738,8 @@ def test_a_producer_two_inputs_read_runs_once(tmp_path, toys, design, launcher):
 
 def test_a_producer_in_a_hashed_directory_is_told_by_it(tmp_path, toys, design):
     """The consumer tracks the producer by its run directory: in hashed directories, the name of
-    the one it consumed, so the producer running again makes it stale although the producer's
-    output is byte-identical."""
+    the one it consumed; the producer running again leaves it fresh when the producer's output is
+    byte-identical."""
     producer, consumer = toys
     flow, _ = _run(tmp_path, consumer, design, hashed_run_dirs=True)
     (first,) = flow.producers
@@ -532,8 +748,8 @@ def test_a_producer_in_a_hashed_directory_is_told_by_it(tmp_path, toys, design):
     )
     runner.launch_flow(producer, design, {})  # the producer, again
     flow, ran = _run(tmp_path, consumer, design, hashed_run_dirs=True)
-    assert ran == ["toy_consumer"]
-    assert flow.stale_reason == f"toy_producer (toy/{first.run_path.name}) ran again"
+    assert ran == [] and flow.reused and flow.producers[0].reused
+    assert flow.producers[0].run_path == first.run_path
 
 
 def test_a_failed_clean_up_does_not_stop_the_others(tmp_path, toys, design, monkeypatch, caplog):

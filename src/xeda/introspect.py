@@ -254,6 +254,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
                 "cardinality": d.cardinality,
                 "required": d.required,
                 "optional": d.optional,
+                "equivalence": d.equivalence,
                 "producer": d.producer,
                 "output": d.output,
                 "same_producer_as": d.same_producer_as,
@@ -606,7 +607,8 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
         "artifacts": "Files produced by the flow, by name.",
         "design": "Name of the design that was run.",
         "design_hash": "Hash of the parts of the design the flow reads (`design_parts`): its RTL, "
-        "and its testbench for a flow that reads it.",
+        "and its testbench for a flow that reads it; for a flow that takes only some types of "
+        "source (`design_source_types`), the design's metadata and the sources of those types.",
         "flow": "Canonical flow name.",
         "flow_hash": "The run's identity: a hash of its settings and of where each declared "
         "input comes from (a producer's identity and output, or the design's sources).",

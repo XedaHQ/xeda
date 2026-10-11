@@ -19,6 +19,7 @@ from xeda import Design
 from xeda.flow import flowrun_hash
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.trace import read_trace
 from xeda.flows import VivadoSynth
 from xeda.utils import dump_json
 
@@ -270,15 +271,24 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
     runner = DefaultRunner(tmp_path / "xeda_run")
 
+    def run_id(flow) -> str:
+        # what a run did is told by its identity, never by a clock: `results.timestamp` has a
+        # resolution of one second, so a run and its rerun can share one
+        assert flow is not None
+        recorded = read_trace(flow.run_path)
+        assert recorded is not None, f"{flow.run_path} has no trace"
+        return recorded[0].run_id
+
     monkeypatch.chdir(_design_copy(tmp_path / "start_one"))
     first = runner.run_flow(VivadoSynth, design, dict(settings))
+    assert first is not None and first.succeeded
+    first_run = run_id(first)
     monkeypatch.chdir(_design_copy(tmp_path / "start_two"))
     second = runner.run_flow(VivadoSynth, design, dict(settings))
 
-    assert first is not None and second is not None and first.succeeded
-    assert second.results.timestamp == first.results.timestamp, "the second run was repeated"
+    assert run_id(second) == first_run, "the second run was repeated"
     changed = runner.run_flow(VivadoSynth, design, {**settings, "clock": {"period": 4.5}})
-    assert changed is not None and changed.results.timestamp != first.results.timestamp
+    assert run_id(changed) != first_run, "the changed run was reused"
 
 
 def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):

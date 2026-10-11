@@ -449,6 +449,9 @@ class Openfpgaloader(FpgaSynthFlow):
     #: the device only to program the flash (`required_settings_for`)
     required_settings: dict[str, str] = {}
 
+    #: judged on the bitstream it can take from the design, nothing else
+    design_source_types = frozenset({SourceType.Bitstream})
+
     #: Static, so a chain can refuse this flow anywhere but last without constructing it.
     action_reason = "it programs a device"
 

@@ -247,3 +247,110 @@ def test_an_artifact_directory_s_files_are_listed_without_following_a_link_out(t
     files = artifact_files(flow)  # type: ignore[arg-type]
     assert (run_path / "out" / "a.txt").resolve() in files
     assert not any(p.is_relative_to(outside.resolve()) for p in files)
+
+
+def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(tmp_path):
+    """The metadata of a file edited within one tick of a coarse clock can be what it was: a
+    handed file too recent for its record to vouch for it is hashed after the run, and one
+    that is not the bytes the producer recorded is unknown (`FileRecord.trusted`)."""
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+
+    path = tmp_path / "out.txt"
+    path.write_text("A\n")
+    recorded = content_digest(path)
+    path.write_text("B\n")  # the same size; its metadata is what the snapshot below holds
+    started = FileRecord.of(path.stat(), recorded)
+    entry = OutputEntry(path=str(path), sha=recorded)
+
+    def snapshot(now_ns: int) -> InputSnapshot:
+        return InputSnapshot(
+            started_ns=0,
+            inputs_recorded_ns=now_ns,
+            expected=(),
+            records={},
+            handed={str(path): (started, _name_state(path))},
+        )
+
+    recent = started.mtime_ns + 1_000_000_000
+    assert _entry_consumed(entry, snapshot(recent)).unknown
+    settled = max(started.mtime_ns, started.ctime_ns) + 10_000_000_000
+    assert not _entry_consumed(entry, snapshot(settled)).unknown  # trusted by its metadata
+    other = OutputEntry(path=str(path), sha="f" * 32)
+    assert _entry_consumed(other, snapshot(recent)).unknown  # not what the producer recorded
+    # written while the flow ran, then put back as it was: the metadata moved
+    path.write_text("B\n")
+    started = FileRecord.of(path.stat(), content_digest(path))
+    entry = OutputEntry(path=str(path), sha=started.sha)
+    path.write_text("C\n")
+    path.write_text("B\n")
+    assert _entry_consumed(entry, snapshot(settled + 10**10)).unknown
+    # the bytes the producer recorded, and metadata that is the same but too recent to trust
+    path.write_text("A\n")
+    started = FileRecord.of(path.stat(), content_digest(path))
+    entry = OutputEntry(path=str(path), sha=started.sha)
+    assert not _entry_consumed(entry, snapshot(started.mtime_ns + 1_000_000_000)).unknown
+
+
+def test_a_handed_link_replaced_while_the_flow_ran_is_unknown_even_if_put_back(tmp_path):
+    """An internal link can be a declared output. Replaced by a link to another file and put back,
+    it leads to the same file again, with the same target metadata: the identity of the link
+    itself is what shows it."""
+    import os
+
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+
+    target, other, link = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "link.txt"
+    target.write_text("A\n")
+    other.write_text("B\n")
+    link.symlink_to(target)
+    started = FileRecord.of(link.stat(), content_digest(link))
+    entry = OutputEntry(path=str(link), sha=started.sha)
+    snapshot = InputSnapshot(
+        started_ns=0,
+        inputs_recorded_ns=started.mtime_ns + 10**11,
+        expected=(),
+        records={},
+        handed={str(link): (started, _name_state(link))},
+    )
+    assert not _entry_consumed(entry, snapshot).unknown
+    link.unlink()
+    link.symlink_to(other)
+    link.unlink()
+    link.symlink_to(target)
+    assert os.stat(link).st_ino == started.inode
+    assert _entry_consumed(entry, snapshot).unknown
+
+
+def test_a_link_in_the_chain_to_a_handed_file_replaced_and_put_back_is_unknown(tmp_path):
+    """`out.json -> current.json -> a.json`: the middle link is the one swapped, so the name the
+    flow was handed is unchanged and leads to the same file with the same metadata."""
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text("A\n")
+    b.write_text("B\n")
+    middle, outer = tmp_path / "current.json", tmp_path / "out.json"
+    middle.symlink_to(a)
+    outer.symlink_to(middle.name)
+    started = FileRecord.of(outer.stat(), content_digest(outer))
+    entry = OutputEntry(path=str(outer), sha=started.sha)
+    snapshot = InputSnapshot(
+        started_ns=0,
+        inputs_recorded_ns=started.mtime_ns + 10**11,
+        expected=(),
+        records={},
+        handed={str(outer): (started, _name_state(outer))},
+    )
+    assert len(_name_state(outer)) == 3
+    assert not _entry_consumed(entry, snapshot).unknown
+    middle.unlink()
+    middle.symlink_to(b)
+    middle.unlink()
+    middle.symlink_to(a)
+    assert _entry_consumed(entry, snapshot).unknown

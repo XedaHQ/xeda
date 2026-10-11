@@ -710,6 +710,25 @@ class Flow(metaclass=ABCMeta):
     #: (`tests/test_design_parts.py`).
     design_parts: ClassVar[frozenset[str]] = frozenset({"rtl"})
 
+    #: The types of the design's sources this flow is judged on, within `design_parts`: its
+    #: `design_hash` and the design files of its trace cover the sources of these types, in their
+    #: order, and the design's metadata (top, parameters, defines, clocks, language), but not a
+    #: source of another type. None: every source of the parts. A flow that takes its files through
+    #: declared inputs (`nextpnr`, `fpga_pack`, `openfpgaloader`, `vivado_power`) names the types
+    #: its inputs take, so an edit to a file only its producer reads leaves it alone. A type
+    #: wrongly left out is a stale reuse: the declaration holds every type the flow can take or
+    #: hand its tool, and its code and templates read no source of their own
+    #: (`tests/test_design_source_types.py`). Only the flow's own freshness is scoped; the guards
+    #: that protect the user's files keep the whole design.
+    design_source_types: ClassVar[frozenset[SourceType] | None] = None
+
+    @classmethod
+    def design_scope(cls, settings: Flow.Settings) -> frozenset[SourceType] | None:
+        """The types of source this flow is judged on given `settings`: `design_source_types`,
+        unless the settings can make the flow read other sources (nextpnr's Python hooks), and
+        then None, every source of the parts. Pure."""
+        return cls.design_source_types
+
     #: A static explanation for flows that must not appear before the end of a chain, such as a
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
     action_reason: ClassVar[str | None] = None
@@ -752,6 +771,13 @@ class Flow(metaclass=ABCMeta):
         decided for this run and not yet created. Pure, like `check_settings_supported`. The
         launcher calls it where it first knows the path, before anything is created for the run
         (the run root, the directory and its lock), and a plan calls it too."""
+
+    @classmethod
+    def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
+        """Whether input `name` compares the equivalence digest of what it is handed, given
+        `settings` (`In(..., equivalence=True)`, unless the settings make the flow depend on
+        what the digest leaves out). Pure, like `input_types`."""
+        return declared_inputs(cls)[name].equivalence
 
     @classmethod
     def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:

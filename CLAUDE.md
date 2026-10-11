@@ -481,7 +481,7 @@ removed before the run, so an earlier success never stands for a run that died
   layer holds only some settings, and validating one that lacks a required field fails, so
   `Flow.Settings` refuses a field without a default (see "Settings"). The
   launcher passes the producers a flow was handed from (`launch_producers.run_producers`) to
-  `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`). Tests find a
+  `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`, provenance only: nothing compares it). Tests find a
   flow's producers through `tool_utils.producers_of(runner, flow)`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
@@ -682,8 +682,8 @@ its output paths inside its run directory.
   freeze, `_validate_plan` (which recomputes every node and checks the plan's bound inputs
   against the request's bindings), `launch_identity.run_identity`, claims, results and traces all use it. A
   producer's settings change therefore moves its consumers' identities; where a binding was
-  written does not. The trace (`TRACE_FORMAT` 14) records each input's ordered producers
-  (`DeclaredInputRecord.references`) and its explanatory origin, and `trace.changed_binding`
+  written does not. The trace (`TRACE_FORMAT` 15) records each input's ordered producers
+  (`DeclaredInputRecord.references`, with the files each handed over) and its explanatory origin, and `trace.changed_binding`
   names the reason: "netlist now from __synth.netlist (was yosys_fpga.netlist)", or the
   producer that "has other settings or inputs than in the last run".
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
@@ -1052,13 +1052,22 @@ source's location, so re-arranging even VHDL or constraint sources changes the i
 `send_design` keeps sources under the root at their relative place for the same reason.
 **`design_parts` is a flow's *direct* scope**: a testbench edit leaves `vivado_synth` and `yosys`
 fresh and makes `ghdl_sim` stale, but a `{"rtl"}` flow downstream of a producer that reads `tb`
-still runs again with it (the dependency's new `run_id`). It scopes the design hash and the trace's
+still runs again with it if the producer's output changed (the edge, below). It scopes the design hash and the trace's
 design files and nothing else: the launcher's registered reads and refused inputs
 (`_read_inputs`, `launch_run.refuse_inputs_inside`), a remote run's read inputs and `PlanContext.design_hash`
 keep the whole design, since they protect the user's files and verify the request. A part wrongly
 left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
-scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
+scans every flow's classes and the templates it renders. **`Flow.design_source_types` narrows the
+scope further, to the sources of the types a flow takes** (`Design.parts_hash(parts,
+source_types)`, `design_files(design, parts, source_types)`; the design's metadata stays whole, the
+sources keep their order): `nextpnr` (its netlist, pin and SDC types), `fpga_pack`, `openfpgaloader`
+and `vivado_power` (their input types) are judged on those, so an edit to the HDL that only their
+producer reads leaves them alone. `None` (every other flow) is the whole parts. `Flow.design_scope(settings)` is what the launch uses: the declaration, except
+that `nextpnr` with a Python hook or `extra_args` is judged on every source (a hook can read any). The declaration
+must hold every type the flow can take or hand its tool, and the flow's code and templates read no
+source of their own (`tests/test_design_source_types.py`); `rtl_hash`, `tb_hash` and
+`settings.json` keep the design's own values. `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
 installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`: a bundled
 platform's files are the same on every installation) -- each root and each path recognized as
@@ -1113,7 +1122,8 @@ flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a
 the run directory or run root themselves where a named directory holds them; no size cap, a
 warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
 `Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
-expanded against the start directory or the environment) and the dependencies' outputs --
+expanded against the start directory or the environment) and the design sources its declared
+inputs take (`source_input_files`; what a producer handed over is the edge's, not a file record) --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record
 where `FileRecord.trusted` vouches for it), so a file edited while the run goes on no longer
@@ -1156,7 +1166,7 @@ clock) decides; on another file system nothing does, and it is recorded unknown
 last run, on another file system ...") -- yosys's own library files on another volume do that
 once after a flow's first run (`tests/tool_utils.launch_until_fresh`). It
 also carries a `run_id` for the run itself and, keyed by each dependency's run directory relative to
-the run root, the `run_id` of the dependency run it consumed (`dependency_runs`). `trace.check_trace` re-derives all of this
+the run root, the `run_id` of the dependency run it consumed (`dependency_runs`: provenance, never compared; a fresh check never rewrites it). `trace.check_trace` re-derives all of this
 (`trace_inputs.expectation`)
 and returns the first mismatch as the stale reason. A file counts as unchanged by its metadata when
 `FileRecord.trusted` says so -- size, mtime, inode change time and inode all equal, and the later of
@@ -1169,15 +1179,50 @@ hashed at every later check; in a read-only run directory it checks without refr
 A fresh launch may therefore rewrite `trace.json`: a test that claims a reuse left a run directory
 alone compares `tool_utils.run_outputs_state` (every entry but the reserved names), never a listing
 of the whole directory, and forces the refresh with `tool_utils.check_after_the_racy_window`
-rather than hoping the machine is slow enough. A dependency
-that ran again always makes its depender stale too, even if nothing it declared as an input actually
-changed -- there is no cross-edge cutoff on an unchanged output. What is not tracked
+rather than hoping the machine is slow enough. **A consumer is judged on what its producers
+handed it, not on their runs or their files** (`BoundProducer.entries`, one `OutputEntry` of
+`path`, `sha` and, for a type that defines one, `equivalence` per handed file, in order, copied
+from the producer's `results.outputs` after hand-over verified it): `trace.changed_edge` compares them
+with the producer's current record, reads no file, and is the **last** check of `check_trace`
+(after the design hash), so a consumer stale for its own reasons says so whatever its producers did.
+A producer that ran again with the same outputs leaves its consumers fresh (`ran_again_note`
+says so in the log when it ran in this launch); one whose output changed makes exactly the
+consumers of that output stale ("`netlist` from `yosys_fpga` changed"), and theirs only if their
+own outputs change. A handed file is **never a file record of the consumer** -- not in `inputs`, not
+in `implicit_inputs` (`source_input_files`, `implicit_input_files` drop it) -- so a depfile that
+names it brings nothing back; a handed file that is not the bytes the producer recorded when the run starts, or whose metadata changed
+while the consumer ran (`InputSnapshot.handed`: metadata and content digest, never a clock), is recorded
+`unknown` and never matches.
+This is sound because a flow reads only its declared inputs (`tests/test_one_dependency_mechanism.py`
+and the runtime half in `tests/test_isolation.py`); a producer's undeclared files, its
+`results.json` and its run are no consumer input. A producer **settings** change still moves its
+consumers, through the identity (`bindings.node_identity`); the cutoff covers re-runs that keep
+the producer's identity (a source edit, a program or xeda change, `--rebuild-all` on the producer
+alone, a hand-edited output that is rebuilt). `TRACE_FORMAT` 15. **An edge can also compare the
+equivalence digest** (`xeda/equivalence.py`): a type defines a normalizer (`NORMALIZERS`; one now,
+`JsonNetlist`, which drops the `src` key only inside the `attributes` of modules, cells, netnames
+and memories -- a port, net or cell named `src` is the design's), a producer's `record_outputs`
+adds `equivalence` beside `sha` to every output of such a type whichever consumer asks, and an
+input opts in with `In(..., equivalence=True)` (class creation refuses it for a type with none;
+`list-flows --json` shows it beside `required`). `changed_edge` falls back to `sha` unless the
+input opts in and both sides have a digest; `Freshness.equivalent` names the inputs that matched
+only so, and the launch logs it. `nextpnr`'s `netlist` opts in (`Flow.input_equivalence`, pure, per settings; nextpnr says no when a Python hook
+(`pre_pack`, `pre_place`, `pre_route`, `post_route`, `py_script`) runs inside it, since a hook can read a cell's `src`): its routed configuration was
+byte-identical for a netlist shifted by a comment line, and its `results.json` holds no source
+location, but its `report.json` and log cite the lines of the netlist it placed. The yosys
+version is in the file (`creator`), so another yosys is another digest. Another type gets a
+normalizer only with evidence from a real run. The evidence for `JsonNetlist` (Yosys 0.69+260,
+two Verilog designs with hierarchy, a generate loop and an inferred memory; ECP5, iCE40 and
+Xilinx 7-series passes, each flat and with `flatten: false`; four line-shifting edits each): every
+netlist was equal after the `src` attributes were dropped, and no generated name contained a line
+number. The digest of a 45 MB netlist takes 1.3 s. `tests/test_yosys_nextpnr_cutoff.py` shows the
+chain on real tools (ECP5; the Xilinx case is opt-in, `XEDA_TESTS_OPENXC7=1`). What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
 run directory points to, when that is a directory (the link is recorded by its target, never
 followed); programs started indirectly (a compiler under `make`, Python packages such as
 cocotb); environment variables; files a tool finds on its own without reporting them. A hand edit of
 any file a dependency's run left, or a file added there, makes the dependency stale, and its
-dependers follow through its new `run_id`.
+dependers follow only if what they were handed changed.
 Pin constraints fetched from a URL are not verifiable either, so a flow using them always runs.
 
 **A generator's re-run decision is content-based too** (`xeda/generation.py`), although it is
@@ -2296,7 +2341,7 @@ dependency must also share `custom_boards_file`.
   The check of the installation runs before the cache is saved, so a broken tree is not cached.
   Raise `RECIPE` when the workflow changes what the cache holds, or when a hit fails because the
   list names a package that is gone. The job runs the Artix-7 cases only (the cache holds that
-  family's Project X-Ray data), and it fails when any of them skips: a renamed opt-in variable
+  family's Project X-Ray data; they include the Arty cases of `tests/test_yosys_nextpnr_cutoff.py`), and it fails when any of them skips: a renamed opt-in variable
   would otherwise leave it green with nothing run. The cases share one run root and each reads
   the chip database of its own fabric (`tests/test_openxc7_real.py` names `xc7a100t`), so their
   order is free. Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading the

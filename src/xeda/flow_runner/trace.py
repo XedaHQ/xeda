@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import (
     Any,
     Callable,
+    Collection,
     Dict,
     Iterable,
     List,
@@ -64,7 +65,10 @@ TRACE_FILE = "trace.json"
 #: 12: programs are file records; listings hold directory entries and follow directory links;
 #: the reports a run read are recorded.
 #: 13: ordered declared-input bindings, including their source/producer provenance.
-TRACE_FORMAT = 14
+#: 14: the producers' runs a consumer consumed (`dependency_runs`) decide its freshness.
+#: 15: a consumer consumed what its producers handed over (`BoundProducer.entries`), not their
+#: files: a producer that ran again with the same outputs leaves it fresh.
+TRACE_FORMAT = 15
 
 #: The names xeda reserves at the top of a run directory, never outputs: the trace and the trace
 #: being written -- and the clock markers, named `digest.TIME_MARKER_PREFIX` + a random suffix.
@@ -82,14 +86,28 @@ class ProgramRecord(XedaBaseModel):
     file: Optional[FileRecord] = None
 
 
+class OutputEntry(XedaBaseModel):
+    """One file of a declared output as the producer's run recorded it, and as a consumer
+    consumed it: its path, its content digest and, for an output of a type that defines one
+    (`xeda.equivalence`), the digest of what its type calls equivalent. `unknown` marks a file
+    that changed while the consumer ran: it never matches."""
+
+    path: str
+    sha: str
+    equivalence: str | None = None
+    unknown: bool = False
+
+
 class BoundProducer(XedaBaseModel):
     """One producer reference of an input: the plan node, its output key, the identity of the
-    run that made it and that run's directory."""
+    run that made it, that run's directory and the files of the output as they were handed over
+    (`entries`, in order)."""
 
     producer: str
     output: str
     producer_hash: str | None = None
     producer_path: str | None = None
+    entries: tuple[OutputEntry, ...] = ()
 
 
 class DeclaredInputRecord(XedaBaseModel):
@@ -112,9 +130,15 @@ class DeclaredInputRecord(XedaBaseModel):
     references: tuple[BoundProducer, ...] = ()
     binding_origin: str | None = None
     binding_location: str | None = None
+    #: whether the input compares the equivalence digest of what it was handed (`In(...,
+    #: equivalence=True)`), not only its content digest
+    equivalence: bool = False
 
     def semantic(self) -> tuple[Any, ...]:
-        """What the binding is: its name, origin, ordered producers and ordered files."""
+        """What the binding is: its name, origin, ordered producers and the ordered files that
+        are not a producer's. What a producer handed over is the edge (`changed_edge`), judged
+        last."""
+        handed = {entry.path for ref in self.references for entry in ref.entries}
         return (
             self.name,
             self.origin,
@@ -122,7 +146,7 @@ class DeclaredInputRecord(XedaBaseModel):
                 (ref.producer, ref.output, ref.producer_hash, ref.producer_path)
                 for ref in self.references
             ),
-            self.paths,
+            tuple(path for path in self.paths if path not in handed),
         )
 
     def wiring(self) -> str:
@@ -155,6 +179,63 @@ def changed_binding(
     return None
 
 
+def changed_edge(
+    flow: str,
+    recorded: Sequence[DeclaredInputRecord],
+    current: Sequence[DeclaredInputRecord],
+) -> tuple[str | None, tuple[str, ...]]:
+    """What the producers handed over, against what the `recorded` run consumed: the first
+    output that differs, as a reason naming its input and producer (for a list input, the first
+    reference that changed), else None; and the inputs whose files differ but are equivalent by
+    the digest of their type, and so are no change for an input that compares it (`In(...,
+    equivalence=True)`). An entry the recorded run saw change while it ran never matches. Reads
+    no file: the entries are the producers' own records, which hand-over has verified."""
+    equivalent: list[str] = []
+    for old, new in zip(recorded, current):
+        for before, now in zip(old.references, new.references):
+            label = f"`{new.name}` from `{now.producer}`"
+            if len(before.entries) != len(now.entries):
+                return f"{label} changed", ()
+            same = True
+            for was, is_now in zip(before.entries, now.entries):
+                if was.unknown:
+                    return f"{label} changed while {flow} ran", ()
+                if was.path != is_now.path:
+                    return f"{label} changed", ()
+                if was.sha == is_now.sha:
+                    continue
+                if (
+                    new.equivalence
+                    and was.equivalence is not None
+                    and was.equivalence == is_now.equivalence
+                ):
+                    same = False
+                    continue
+                return f"{label} changed", ()
+            if not same and new.name not in equivalent:
+                equivalent.append(new.name)
+    return None, tuple(equivalent)
+
+
+def ran_again_note(records: Sequence[DeclaredInputRecord], ran_again: Collection[str]) -> str:
+    """Why a flow stayed fresh although a producer ran again in this launch: the producers that
+    did (`ran_again`, their run directories), each with the outputs the flow consumed of it,
+    which are unchanged (`changed_edge`). Empty if none of its producers ran again."""
+    parts = []
+    references = [ref for record in records for ref in record.references]
+    for producer in dict.fromkeys(ref.producer for ref in references):
+        if not any(
+            ref.producer == producer and ref.producer_path in ran_again for ref in references
+        ):
+            continue
+        outputs = list(
+            dict.fromkeys(f"`{ref.output}`" for ref in references if ref.producer == producer)
+        )
+        noun, verb = ("output", "is") if len(outputs) == 1 else ("outputs", "are")
+        parts.append(f"{producer} ran again; its {noun} {', '.join(outputs)} {verb} unchanged")
+    return "; ".join(parts)
+
+
 class Trace(XedaBaseModel):
     """What a successful run consumed and produced."""
 
@@ -173,7 +254,8 @@ class Trace(XedaBaseModel):
     flow_code: str
     programs: Dict[str, Optional[ProgramRecord]] = {}
     #: the `run_id` of each dependency's run this run consumed, by the dependency's run
-    #: directory relative to the run root (`xeda_run`), in POSIX form
+    #: directory relative to the run root (`xeda_run`), in POSIX form: provenance, which says
+    #: which run the files were taken from and decides nothing (`declared_inputs` does)
     dependency_runs: Dict[str, str] = {}
     #: where each path-typed setting pointed, by its key path: what binds a setting that names
     #: a directory, or nothing yet (`trace_inputs.setting_locations`)
@@ -322,8 +404,6 @@ class Expectation:
     setting_locations: Mapping[str, List[str]]
     #: the `run_id` of each dependency's run, by its run directory (as `Trace.dependency_runs`)
     dependency_runs: Mapping[str, str]
-    #: the flow of each dependency, by the same run directory, to name it in a reason
-    dependency_flows: Mapping[str, str]
     declared_inputs: tuple[DeclaredInputRecord, ...] = ()
     #: the hash of the settings alone, to tell a settings change from a change of wiring
     settings_hash: str = ""
@@ -340,6 +420,8 @@ class Freshness:
     reason: str = ""
     refreshed: Optional[Trace] = None
     run_id: Optional[str] = None
+    #: the inputs whose files differ from the ones consumed but are equivalent (`changed_edge`)
+    equivalent: tuple[str, ...] = ()
 
 
 def _flatten(value: Any, prefix: str = "") -> Dict[str, Any]:
@@ -466,17 +548,6 @@ def check_trace(
             changed_binding(trace.declared_inputs, expected.declared_inputs)
             or "declared input bindings changed (name, order or origin)",
         )
-    # A dependency that ran again may have changed files this run read without declaring them,
-    # which the comparison of its declared outputs below cannot see.
-    for run in sorted(trace.dependency_runs.keys() | expected.dependency_runs.keys()):
-        consumed, now_id = trace.dependency_runs.get(run), expected.dependency_runs.get(run)
-        if consumed != now_id:
-            dependency = expected.dependency_flows.get(run)
-            if now_id is None:
-                return Freshness(False, f"no longer depends on the run in {run}")
-            if consumed is None:
-                return Freshness(False, f"new dependency: {dependency} ({run})")
-            return Freshness(False, f"{dependency} ({run}) ran again")
     # The identity is location-free: a setting naming a directory, or nothing yet, is bound by
     # where it points -- the cause to name before any file of a directory it now names (a file
     # it names, or one under a directory, is bound by its record, checked below).
@@ -528,6 +599,11 @@ def check_trace(
             records[path] = current
     if trace.design_hash != expected.design_hash:
         return Freshness(False, "design changed (top, parameters, defines or other metadata)")
+    # last: everything above is known without the producers, so a flow stale for its own
+    # reasons says so whatever they did
+    edge, equivalent = changed_edge(expected.flow, trace.declared_inputs, expected.declared_inputs)
+    if edge is not None:
+        return Freshness(False, edge)
     checked_ns = clock[0] if clock else None
     # Refreshed, a record read now is trusted by its metadata from `checked_ns` on: worth
     # writing when it changed, or when the file has settled since -- a record that was racy
@@ -537,8 +613,8 @@ def check_trace(
     if checked_ns is None or (
         refreshed == trace and not any(record.settled_before(checked_ns) for record in read)
     ):
-        return Freshness(True, "", None, trace.run_id)
+        return Freshness(True, "", None, trace.run_id, equivalent)
     # Every record now reflects the file as it was at `checked_ns` or later.
     refreshed.inputs_recorded_ns = checked_ns
     refreshed.outputs_recorded_ns = checked_ns
-    return Freshness(True, "", refreshed, trace.run_id)
+    return Freshness(True, "", refreshed, trace.run_id, equivalent)

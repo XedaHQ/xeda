@@ -123,6 +123,7 @@ from .settings_layers import (
 from .trace import (
     as_recorded,
     check_trace,
+    ran_again_note,
     locate_program,
     previous_trace,
     remove_trace,
@@ -1220,7 +1221,19 @@ class FlowLauncher:
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
                         flow.run_id = freshness.run_id
-                        log.info("%s is up to date (%s)", flow.name, run_path)
+                        note = ran_again_note(
+                            expected.declared_inputs,
+                            {str(p.run_path) for p in producers if not p.reused},
+                        )
+                        log.info("%s is up to date (%s)", flow.name, note or run_path)
+                        for name in freshness.equivalent:
+                            log.info(
+                                "%s: `%s` differs from the one it consumed only in what its "
+                                "type ignores (for a JSON netlist, source locations): its "
+                                "results are those of the run on the earlier one",
+                                flow.name,
+                                name,
+                            )
                         report(flow, design, results_json, self.settings, record=False)
                         self._defer_delivery(flow, delivery, outputs_to)
                         return flow

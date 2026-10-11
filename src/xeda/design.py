@@ -14,7 +14,7 @@ import shlex
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from contextvars import ContextVar
 from copy import deepcopy
@@ -3242,12 +3242,19 @@ class Design(XedaBaseModel):
         log.debug("TB fingerprint: %s", fingerprint)
         return semantic_hash(fingerprint)[:32]  # 128 bits
 
-    def parts_hash(self, parts: Iterable[str]) -> str:
+    def parts_hash(
+        self, parts: Iterable[str], source_types: Collection[SourceType] | None = None
+    ) -> str:
         """The hash of the design's `parts` (`DESIGN_PARTS`: `rtl`, `tb`), each as its own hash
         (`rtl_hash`, `tb_hash`) and in a fixed order, whatever order or collection `parts` is
         given in. It is the design identity of a flow that reads exactly those parts
         (`Flow.design_parts`): what a part it does not read says never moves it. Both parts
-        make the whole design's hash."""
+        make the whole design's hash.
+
+        With `source_types` (`Flow.design_source_types`), a part's hash covers only the sources
+        of those types, in their order, and all of its metadata: a source of another type
+        moves nothing. The hash is then not the part's own (`rtl_hash`), which the design
+        records as it is."""
         wanted = frozenset(parts)
         unknown = wanted - DESIGN_PARTS
         if unknown:
@@ -3255,10 +3262,18 @@ class Design(XedaBaseModel):
                 f"{', '.join(sorted(unknown))} is not a part of a design "
                 f"(its parts are {', '.join(_DESIGN_PART_ORDER)})"
             )
+
+        def part_hash(part: str) -> str:
+            if source_types is None:
+                return getattr(self, f"{part}_hash")
+            fingerprint = dict(getattr(self, f"{part}_fingerprint"))
+            fingerprint["sources"] = [
+                entry
+                for entry, source in zip(fingerprint["sources"], getattr(self, part).sources)
+                if source.type in source_types
+            ]
+            return semantic_hash(fingerprint)[:32]
+
         return semantic_hash(
-            {
-                f"{part}_hash": getattr(self, f"{part}_hash")
-                for part in _DESIGN_PART_ORDER
-                if part in wanted
-            }
+            {f"{part}_hash": part_hash(part) for part in _DESIGN_PART_ORDER if part in wanted}
         )

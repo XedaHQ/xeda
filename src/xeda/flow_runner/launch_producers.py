@@ -18,10 +18,10 @@ from ..flow.io import declared_inputs, selected_types
 from ..run_dir import RunDirectoryError
 from .bindings import NodeKey
 from .launch_run import refuse_inputs_inside
-from .outputs import handed_over
+from .outputs import handed_entries, handed_over
 from .resolver import Plan, PlanNode
 from .run_lock import CompletedRun, run_dir_read_lock
-from .trace import BoundProducer, DeclaredInputRecord
+from .trace import BoundProducer, DeclaredInputRecord, OutputEntry
 from .trace_inputs import declared_input_files
 
 
@@ -94,6 +94,7 @@ def run_producers(
     for selected in node.inputs:
         declaration = declarations[selected.name]
         producers: list[Flow] = []
+        entries: list[tuple[OutputEntry, ...]] = []
         paths = list(selected.sources)
         # the ordered references of the plan: each producer launched once per plan,
         # its files handed over by the frozen output key, concatenated in reference order
@@ -142,6 +143,7 @@ def run_producers(
                     "has no compatible output for the selected target"
                 )
             paths.extend(handed_over(producer, reference.output))
+            entries.append(handed_entries(producer, reference.output))
             producers.append(producer)
         producer = producers[0] if producers else None
         bound_producers = tuple(
@@ -150,8 +152,9 @@ def run_producers(
                 output=reference.output,
                 producer_hash=made_by.flow_hash,
                 producer_path=str(made_by.run_path),
+                entries=handed,
             )
-            for reference, made_by in zip(selected.references, producers)
+            for reference, made_by, handed in zip(selected.references, producers, entries)
         )
         if (declaration.required and not paths) or (
             declaration.cardinality != "many" and len(paths) > 1
@@ -179,6 +182,7 @@ def run_producers(
                 references=bound_producers,
                 binding_origin=selected.binding_origin,
                 binding_location=selected.binding_location,
+                equivalence=type(flow).input_equivalence(node.settings, selected.name),
             )
         )
     flow.declared_input_records = tuple(records)

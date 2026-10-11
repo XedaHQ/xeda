@@ -39,6 +39,9 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     #: testbench: an edit to it re-runs power through its producer's new run, not its own hash.
     design_parts = frozenset({"rtl"})
 
+    #: judged on the activity and the checkpoint it can take from the design, nothing else
+    design_source_types = frozenset({SourceType.Saif, SourceType.RoutedCheckpoint})
+
     class Inputs(FpgaSynthFlow.Inputs):
         activity: Path = In(
             SourceType.Saif,
