@@ -22,8 +22,9 @@ from pathlib import Path
 from typing import Any
 
 from .design import SourceType
+from .digest import content_digest
 
-__all__ = ["NORMALIZERS", "equivalence_digest", "has_normalizer"]
+__all__ = ["NORMALIZERS", "digests", "equivalence_digest", "has_normalizer"]
 
 
 def _drop_source_location(node: Any) -> None:
@@ -32,16 +33,16 @@ def _drop_source_location(node: Any) -> None:
         node["attributes"].pop("src", None)
 
 
-def json_netlist_digest(path: Path) -> str | None:
-    """The digest of a yosys JSON netlist without the `src` attribute of its modules, cells, nets
+def json_netlist_digest(data: bytes) -> str | None:
+    """The digest of the text `data` of a yosys JSON netlist without the `src` attribute of its modules, cells, nets
     and memories, and nothing else: a port, net, cell or module that is named `src`, and a `src`
     key anywhere but in an `attributes` mapping of those four, are the design's. None for a file
     that is not a JSON object. The text is parsed and written back with sorted keys, so the
     digest does not depend on key order or spacing. The yosys version is in the file
     (`creator`): another yosys is another digest."""
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError, MemoryError):
+        document = json.loads(data.decode("utf-8"))
+    except (ValueError, RecursionError, MemoryError):
         return None
     if not isinstance(document, dict):
         return None
@@ -59,8 +60,8 @@ def json_netlist_digest(path: Path) -> str | None:
     return hashlib.sha3_256(text.encode("ascii")).hexdigest()[:32]
 
 
-#: the normalizer of each type that defines one: a path to its digest, or None
-NORMALIZERS: dict[SourceType, Callable[[Path], str | None]] = {
+#: the normalizer of each type that defines one: the content of a file to its digest, or None
+NORMALIZERS: dict[SourceType, Callable[[bytes], str | None]] = {
     SourceType.JsonNetlist: json_netlist_digest,
 }
 
@@ -76,5 +77,18 @@ def equivalence_digest(path: Path, types: Sequence[SourceType]) -> str | None:
     types define none or the file cannot be normalized."""
     if not has_normalizer(types):
         return None
-    normalizer = NORMALIZERS[types[0]]
-    return normalizer(path)
+    try:
+        return NORMALIZERS[types[0]](path.read_bytes())
+    except (OSError, MemoryError):
+        return None
+
+
+def digests(path: Path, types: Sequence[SourceType]) -> tuple[str, str | None]:
+    """The content digest of the file at `path` (`digest.content_digest`) and its equivalence
+    digest, both of the one read of the file: two reads could see two files if it is edited
+    between them. The file is read in memory only when `types` define a normalizer; otherwise it
+    is streamed, as for every file."""
+    if not has_normalizer(types):
+        return content_digest(path), None
+    data = path.read_bytes()
+    return hashlib.sha3_256(data).hexdigest()[:32], NORMALIZERS[types[0]](data)

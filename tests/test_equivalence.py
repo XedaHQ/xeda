@@ -15,7 +15,8 @@ import pytest
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.equivalence import NORMALIZERS, equivalence_digest
+from xeda.digest import content_digest
+from xeda.equivalence import NORMALIZERS, digests, equivalence_digest
 from xeda.flow import Flow, In
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -330,3 +331,33 @@ def test_a_python_hook_in_nextpnr_stops_the_comparison_without_source_locations(
     flow = launch(pre_place=str(root / "hook.py"))
     assert not flow.reused and flow.stale_reason == "`netlist` from `yosys_fpga` changed"
     assert len(calls) == 2
+
+
+def test_both_digests_are_of_the_one_read_of_the_file(tmp_path, monkeypatch):
+    """A file edited between two reads could give a content digest of one netlist and an
+    equivalence digest of another; `digests` reads the file once."""
+    import hashlib
+
+    path = _write(tmp_path, NETLIST)
+    types = (SourceType.JsonNetlist,)
+    assert digests(path, types) == (content_digest(path), equivalence_digest(path, types))
+    changed = _with(change=lambda d: d.update(creator="Yosys 1.0"))
+    other = json.dumps(changed).encode()
+    of_other, of_original = _digest(tmp_path, changed, "o.json"), _digest(tmp_path, NETLIST)
+    assert of_other != of_original
+    reads = []
+
+    def read_bytes(self):
+        reads.append(self)
+        return other
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes)
+    sha, equivalence = digests(path, types)
+    assert len(reads) == 1
+    assert sha == hashlib.sha3_256(other).hexdigest()[:32]
+    assert equivalence == of_other
+
+
+def test_a_type_without_a_normalizer_is_streamed_and_has_no_equivalence(tmp_path):
+    path = _write(tmp_path, NETLIST)
+    assert digests(path, (SourceType.Verilog,)) == (content_digest(path), None)

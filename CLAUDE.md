@@ -2302,7 +2302,7 @@ dependency must also share `custom_boards_file`.
   The check of the installation runs before the cache is saved, so a broken tree is not cached.
   Raise `RECIPE` when the workflow changes what the cache holds, or when a hit fails because the
   list names a package that is gone. The job runs the Artix-7 cases only (the cache holds that
-  family's Project X-Ray data), and it fails when any of them skips: a renamed opt-in variable
+  family's Project X-Ray data; they include the Arty cases of `tests/test_yosys_nextpnr_cutoff.py`), and it fails when any of them skips: a renamed opt-in variable
   would otherwise leave it green with nothing run. The cases share one run root and each reads
   the chip database of its own fabric (`tests/test_openxc7_real.py` names `xc7a100t`), so their
   order is free. Bump `INSTALLER_REV` in a pull request that runs the workflow, after reading the

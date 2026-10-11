@@ -7,8 +7,8 @@ logic runs all three.
 
 The ECP5 case uses the OSS CAD Suite's tools and skips without them (`XEDA_TESTS_REQUIRE_TOOLS=1`
 makes that a failure). The Xilinx case is opt-in, as in `test_openxc7_real.py`
-(`XEDA_TESTS_OPENXC7=1`, openXC7's `bin` first on `PATH`), and shares its run root and chip
-database.
+(`XEDA_TESTS_OPENXC7=1`, openXC7's `bin` first on `PATH`), and shares the run root, and so
+the chip database, of `test_fpga_chains.py`.
 """
 
 import os
@@ -88,9 +88,13 @@ def build(request, tmp_path, tmp_path_factory, monkeypatch) -> Build:
         tool_utils.require_openxc7()
         base = tmp_path_factory.getbasetemp()
         common = base.parent if os.environ.get("PYTEST_XDIST_WORKER") else base
-        run_root = common / "openxc7-run-root-cutoff"
-        shutil.rmtree(run_root / "chain_arty", ignore_errors=True)  # keep the chip database
+        run_root = common / "openxc7-run-root"  # the one chip database of the Arty's fabric
     shutil.copytree(RESOURCES, tmp_path / "design", ignore=shutil.ignore_patterns("__pycache__"))
+    # a design of its own name, so that this run root holds a run directory for it alone
+    design = tmp_path / "design" / board.file
+    design.write_text(
+        design.read_text().replace("name: chain_", f"name: cutoff_{tmp_path.name[-24:]}_", 1)
+    )
     monkeypatch.chdir(tmp_path)
     build = Build(board, tmp_path / "design", run_root)
     build.launch()

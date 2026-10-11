@@ -220,6 +220,9 @@ jobs:
           python -m pytest -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openxc7-tests.xml" \
             "tests/test_board_basys3_stlv7325.py::test_the_board_builds_a_bitstream_with_openxc7[basys_3]" \
             tests/test_fpga_chains.py::test_the_arty_chain_ending_at_the_packer_builds_a_bitstream_with_openxc7 \
+            "tests/test_yosys_nextpnr_cutoff.py::test_a_comment_at_the_end_of_a_line_runs_synthesis_and_nothing_after_it[arty]" \
+            "tests/test_yosys_nextpnr_cutoff.py::test_a_comment_line_above_the_logic_runs_synthesis_and_nothing_after_it[arty]" \
+            "tests/test_yosys_nextpnr_cutoff.py::test_an_edit_of_the_logic_runs_all_three[arty]" \
             tests/test_openxc7_real.py
           # A skipped test builds nothing. Without this check, a renamed opt-in variable or a
           # changed probe in tests/tool_utils.py would leave the job green with no build.
