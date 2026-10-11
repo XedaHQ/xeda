@@ -946,3 +946,27 @@ def test_a_flow_built_directly_refuses_a_coverage_link_it_may_not_remove(tmp_pat
         flow._free_model_outputs([])
     assert outside.read_text() == "not xeda's"
     assert (run_path / "coverage.dat").is_symlink()
+
+
+def test_a_coverage_file_behind_a_link_that_leads_out_after_an_alias_is_refused(tmp_path):
+    """`/alias/out/result.dat`: `alias` is a link to a directory of the run directory, and `out`
+    in it is a link to a directory outside. The name is in the run directory, and the link on the
+    way leads out, so the run is refused and the file outside is not touched."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    (flow.run_path / "cov").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "result.dat").write_text("not xeda's")
+    (flow.run_path / "cov" / "out").symlink_to(outside)
+    alias = tmp_path / "cov-alias"
+    alias.symlink_to(flow.run_path / "cov")
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'out' / 'result.dat'}"],
+    }
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
+    assert (outside / "result.dat").read_text() == "not xeda's"

@@ -287,23 +287,25 @@ class RunDirectory:
         return None
 
     def named_within(self, path: str | os.PathLike) -> Path | None:
-        """`path` as a name relative to this run directory, if the run directory is `path` or one
-        of its parents -- by file-system identity (`st_dev`, `st_ino`), never by comparing
-        spellings, so another letter case or an alias of the run directory's path counts -- else
-        None. `path` is judged as given, and with its directory resolved (the last component kept
-        as it is, so a link at the name is the name): a directory below this one that is reached
-        through a link is a file of the run directory. The name is what the matching spelling says
-        below that parent; it is not checked (`inside` does that)."""
+        """`path` as a name relative to this run directory, if it lies in it -- else None. Each
+        directory on the way to `path` is resolved, and the run directory is looked for among the
+        resolved directory and its parents by file-system identity (`st_dev`, `st_ino`), never by
+        comparing spellings: another letter case, an alias of the run directory's path, or a link
+        to a directory below it all count. The last component is kept as it is, so a link at the
+        name is the name. The name is what `path` says below the first directory that reaches the
+        run directory; it is not checked (`inside` does that, and refuses a link on the way that
+        leads out)."""
         try:
             own = os.stat(self.path)
         except OSError:
             return None
         given = Path(os.path.abspath(path))
-        for spelling in (given, Path(os.path.realpath(given.parent)) / given.name):
-            for parent in spelling.parents:
+        for directory in reversed(given.parents):  # from the root down
+            resolved = Path(os.path.realpath(directory))
+            for parent in (resolved, *resolved.parents):
                 try:
                     if os.path.samestat(os.stat(parent), own):
-                        return spelling.relative_to(parent)
+                        return resolved.relative_to(parent) / given.relative_to(directory)
                 except OSError:
                     continue
         return None
