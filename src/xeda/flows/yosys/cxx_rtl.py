@@ -4,7 +4,7 @@ from typing import Any, List, Literal, Optional
 
 from ...dataclass import Field, XedaBaseModel, deliverable
 from ...design import Design, SourceType
-from ...flow import FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
@@ -48,7 +48,9 @@ class YosysSim(YosysBase, SimFlow):
     _driver_exit_code: int | None = None
 
     @classmethod
-    def runs_without_testbench_top(cls, design: Design) -> bool:
+    def runs_without_testbench_top(
+        cls, design: Design, settings: Flow.Settings | None = None
+    ) -> bool:
         """The testbench is a C++ driver of the design's own, which needs no testbench top."""
         return cls.has_cpp_driver(design)
 

@@ -1955,8 +1955,11 @@ dependency must also share `custom_boards_file`.
   cocotb (`Optional[bool] = None`, the effective value computed where it is used), so a `Cpp`
   source with `main` unset is a DPI helper and links; `main: true` with cocotb, and
   `generate_systemc` without `main: false`, are refused in `init()`. Verilator's mode is judged by
-  the setting, so `Verilator` does not override `runs_without_testbench_top` (it takes the design
-  alone): an HDL testbench needs `tb.top` there in every mode.
+  the setting: `Flow.check_design_supported(design, settings=None)` and
+  `SimFlow.runs_without_testbench_top(design, settings=None)` take the flow's settings as an optional
+  second argument (every launch path passes them: resolver, DSE, remote, `SimFlow.__init__`), and
+  `Verilator` is exempt from the `tb.top` rule exactly when `main` is false (the design's C++ main
+  runs the model); with Verilator's own main, or with no settings, an HDL testbench needs `tb.top`.
   The hooks also make the model's stdout line-buffered, since it is copied through a pipe to
   `sim_dir/sim.log` (block-buffered, a timed-out model's output was lost); under cocotb nothing is
   copied, so its output keeps the terminal. The simulated top (`--top-module`) is `tb.top`, else

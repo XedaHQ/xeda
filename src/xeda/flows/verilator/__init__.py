@@ -11,7 +11,7 @@ from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tupl
 
 from ...cocotb import cocotb_toplevel
 from ...dataclass import WORKING, Field, deliverable, field_validator
-from ...design import SourceType
+from ...design import Design, SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvent, SimEvidence, waveform_name
 from ...tool import Docker, NonZeroExitCode, Tool
@@ -420,6 +420,16 @@ class Verilator(SimFlow):
                 "a directory whose path has whitespace. Use a run root (`--run-root`) and a "
                 "`sim_dir` whose paths have none."
             )
+
+    @classmethod
+    def runs_without_testbench_top(
+        cls, design: Design, settings: Flow.Settings | None = None
+    ) -> bool:
+        """The design's own C++ main runs the model, whatever HDL the testbench also holds (a
+        bound checker, a helper), when `main` is false: only the settings say. Verilator's own
+        main runs `tb.top`, or else `rtl.top`, which has no stimulus. A design checked without
+        its settings is not exempt."""
+        return isinstance(settings, cls.Settings) and settings.main is False
 
     def verilator_main(self) -> bool:
         """Whether Verilator's own `--main` runs the model: the `main` setting, which is true

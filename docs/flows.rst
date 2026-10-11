@@ -1123,8 +1123,10 @@ fatal errors.
 The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
 cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design with a
 Verilog or SystemVerilog testbench needs ``tb.top``: without it the flow refuses the design, since
-it would simulate ``rtl.top``, which has no stimulus. ``rtl.parameters`` apply only when the RTL
-top is the simulated top; ``tb.parameters`` always do.
+it would simulate ``rtl.top``, which has no stimulus. With ``main: false``, the design's own C++
+main runs the model and the flow needs no ``tb.top``, whatever HDL the testbench also holds (a
+bound checker, for example). ``rtl.parameters`` apply only when the RTL top is the simulated top;
+``tb.parameters`` always do.
 
 Waveforms follow Verilator's own rules. ``vcd``, ``fst`` and ``saif`` build the model with that
 trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one may be set. Without

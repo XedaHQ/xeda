@@ -243,9 +243,10 @@ def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     assert flow.succeeded
 
 
-def test_a_design_with_its_own_main_and_hdl_sources_runs_the_testbench_top_it_names(tmp_path):
-    """HDL among the testbench's sources (a checker bound into the design) needs `tb.top`, as for
-    every simulator. With `main: false`, the design's C++ main runs that top."""
+def test_a_design_with_its_own_main_and_hdl_sources_needs_no_testbench_top(tmp_path):
+    """HDL among the testbench's sources (a checker bound into the design) needs `tb.top`, unless
+    the design's own C++ main (`main: false`) runs the model: that main runs the RTL top. The
+    same design with `main` unset is refused, since Verilator's main would run no stimulus."""
     require_verilator()
     (tmp_path / "dut.sv").write_text(
         "`timescale 1ns/1ps\nmodule dut(input logic clk);\n"
@@ -256,25 +257,21 @@ def test_a_design_with_its_own_main_and_hdl_sources_runs_the_testbench_top_it_na
         "bind dut chk c(.clk(clk), .cnt(cnt));\n"
     )
     (tmp_path / "main.cpp").write_text(OWN_DRIVER.replace("STATUS", "0"))
-    tb: dict = {"sources": ["chk.sv", "main.cpp"]}
-    with pytest.raises(FlowSettingsException, match="`tb.top`"):
-        Verilator.check_design_supported(
-            Design(
-                name="dut",
-                design_root=tmp_path,
-                rtl={"sources": ["dut.sv"], "top": "dut"},
-                tb=tb,
-            )
-        )
     design = Design(
         name="dut",
         design_root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
-        tb={**tb, "top": "dut"},
+        tb={"sources": ["chk.sv", "main.cpp"]},
     )
-    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Verilator, design, {"timing": True, "main": False}
-    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    for settings in ({"timing": True}, {"timing": True, "main": True}):
+        with pytest.raises(FlowSettingsException, match="`tb.top`"):
+            runner.plan("verilator", design, flow_settings=settings)
+        with pytest.raises(FlowSettingsException, match="`tb.top`"):
+            runner.run_flow(Verilator, design, settings)
+    assert not (tmp_path / "runs").exists()
+    runner.plan("verilator", design, flow_settings={"timing": True, "main": False})
+    flow = runner.run_flow(Verilator, design, {"timing": True, "main": False})
     assert flow is not None and flow.succeeded
     assert flow.results["sim.ended_by"] == "exit"
 

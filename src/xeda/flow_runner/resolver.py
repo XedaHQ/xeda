@@ -206,7 +206,7 @@ def check_launchable(
             [(key, message, None, "value_error") for key, message in problems], flow_cls.Settings
         )
     flow_cls.check_required_settings(settings, unreached)
-    flow_cls.check_design_supported(design)
+    flow_cls.check_design_supported(design, settings)
     flow_cls.check_settings_supported(settings)
 
 

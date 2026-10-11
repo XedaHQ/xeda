@@ -369,7 +369,7 @@ class Dse(FlowLauncher):
         # cannot run) failed every run of the search separately and was reported only as "no
         # successful run".
         flow_class.check_required_settings(base_settings)
-        flow_class.check_design_supported(design)
+        flow_class.check_design_supported(design, base_settings)
         # every candidate runs in a sibling of this directory, under the same run root
         flow_class.check_run_directory(
             base_settings,
