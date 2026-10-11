@@ -109,8 +109,8 @@ def _restoring_by_hand(path: Path) -> list[int]:
     Scope: a tripwire, not a proof. The rule that keeps the built-in flows is to restore the
     registry with `preserved_flow_registry`. The scan recognizes the registry as the bare name
     `registered_flows`, as `<module>.registered_flows`, and as a name bound to either in the same
-    file, however many names deep (`table = m.registered_flows; alias = table`). It does no data-flow
-    analysis across functions, containers, calls or other files.
+    file, however many names deep (`table = m.registered_flows; alias = table`). It does no
+    data-flow analysis across functions, containers, calls or other files.
     """
     lines = []
     tree = ast.parse(path.read_text(), str(path))
