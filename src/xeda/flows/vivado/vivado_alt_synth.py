@@ -1,25 +1,17 @@
 import logging
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from ...dataclass import Field, field_validator
 from ...design import SourceType
 from ...flow import Flow, FpgaSynthFlow
 from .vivado_synth import (
-    CHECKPOINT_PLACE,
-    CHECKPOINT_ROUTE,
     CHECKPOINT_SYNTH,
-    NETLIST,
-    NETLIST_TIMING,
     OUT_OF_CONTEXT,
-    SDF,
-    XDC_EXPORTED,
     RunOptions,
     VivadoSynth,
     _VivadoSynthOutputs,
     constraint_files,
-    declare_outputs,
     out_of_context_conflicts,
     refuse_conflicts,
     synth_design_modes,
@@ -537,27 +529,8 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
         # on (`write_checkpoint`/`write_netlist`/`write_timing_netlist`); record them here, since
         # `VivadoAltSynth` does not override `parse_reports` (it inherits `VivadoSynth`'s, which
         # only tracks `bitstream` and the reports/log globs). Each is also a declared output.
-        paths: Dict[str, Path] = {}
+        paths = self.non_project_outputs()
         if ss.write_checkpoint:
             paths[CHECKPOINT_SYNTH] = ss.checkpoints_dir / "post_synth.dcp"
-            paths[CHECKPOINT_PLACE] = ss.checkpoints_dir / "post_place.dcp"
-            paths[CHECKPOINT_ROUTE] = ss.checkpoints_dir / "post_route.dcp"
-        if ss.write_netlist:
-            paths[NETLIST] = ss.outputs_dir / "impl_funcsim.v"
-            paths[XDC_EXPORTED] = ss.outputs_dir / "impl.xdc"
-        if ss.write_timing_netlist:
-            paths[NETLIST_TIMING] = ss.outputs_dir / "impl_timesim.v"
-            paths[SDF] = ss.outputs_dir / "impl_timesim.sdf"
-        self.artifacts.update(paths)
-        declare_outputs(
-            self,
-            {
-                "netlist": paths.get(NETLIST),
-                "netlist_timing": paths.get(NETLIST_TIMING),
-                "sdf": paths.get(SDF),
-                "checkpoint_synth": paths.get(CHECKPOINT_SYNTH),
-                "checkpoint_route": paths.get(CHECKPOINT_ROUTE),
-                "bitstream": ss.bitstream,
-            },
-        )
+        self.record_outputs(paths)
         self.vivado.run("-source", script_path)
