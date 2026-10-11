@@ -6,19 +6,25 @@
 // behaves as without them.
 //
 // The end record (JSON) says how the simulation ended:
-//   {"ended_by": "finish|stop_time|drained|error|fatal|exit", "time": T, "time_unit": "1ps",
-//    "stop_ticks": S, "exit_code": null, "events": [{"kind": ..., "file": ..., "line": ...,
-//    "time": ..., "msg": ...}, ...]}
+//   {"ended_by": "finish|drained|error|fatal|exit", "time": T, "time_unit": "1ps",
+//    "exit_code": null, "events": [{"kind": ..., "file": ..., "line": ..., "time": ...,
+//    "msg": ...}, ...]}
 // Times are in ticks of the model's time precision (`time_unit`). `$error`, a failed assertion
 // and `$stop` reach `vl_stop_maybe` with `maybe` true, `$fatal` with `maybe` false: they are
 // recorded as `stop_maybe` events with `maybe`, and the reader classifies them (error, fatal).
 // A report that ends the simulation (through `vl_stop_maybe`, `vl_stop` and `vl_fatal`) is
 // recorded once, and the record's `ended_by` names its cause: "error" for `$error`, a failed
 // assertion and `$stop`, "fatal" for `$fatal` and for Verilator's own fatal errors.
-// xeda's driver writes the record at the end; `vl_fatal` writes it before the process exits;
-// otherwise, when the process exits with no record written (a design's own driver returns), it
-// is written at exit with `ended_by` "exit" and no time: the driver's exit status is known only
-// to whoever started it.
+// `vl_fatal` writes the record before the process exits. Otherwise the record is written when the
+// process exits with none written yet:
+//   - Built with -DXEDA_VERILATOR_MAIN (Verilator's own `--main` ran the model): `ended_by` is
+//     "finish", with the time of the `$finish`, or "drained" with no time. Verilator's main
+//     leaves its loop only on `$finish` or when no event is left, and a `$finish` reaches
+//     `vl_finish` below.
+//   - Otherwise (a design's own C++ main returned): `ended_by` is "exit" with no time. The main's
+//     exit status is known only to whoever started it.
+// The record goes to the file named by the environment variable XEDA_END_RECORD; unset, none is
+// written.
 //
 // The record is written complete to `<record>.tmp`, opened without following a symbolic link,
 // and then renamed over `<record>`: a rename replaces whatever is at that name, a link as
@@ -49,9 +55,10 @@
 #define O_BINARY 0
 #endif
 
-const char* xeda_ended_by = nullptr;
-
 namespace {
+
+// What the end record says ended the simulation; null until the record is written.
+const char* g_ended_by = nullptr;
 
 struct Event {
     std::string kind;
@@ -63,15 +70,14 @@ struct Event {
 };
 
 std::vector<Event> g_events;
-std::string g_record_path;
-bool g_record_path_set = false;
-bool g_stop_requested = false;
-uint64_t g_stop_ticks = 0;
 // The simulated time and the time precision, as last read from the running model. The
 // VerilatedContext may be gone by the time the process exits, so it is never read there.
 bool g_clock_read = false;
 uint64_t g_time = 0;
 std::string g_time_unit;
+// The simulated time of the first `$finish`, once there is one.
+bool g_finished = false;
+uint64_t g_finish_time = 0;
 // Set while a report that ends the simulation, already recorded as an event, is handed on from
 // `vl_stop_maybe` to `vl_stop` and `vl_fatal`; `g_cause` is the `ended_by` the end record gets.
 bool g_reported = false;
@@ -109,7 +115,6 @@ std::string json_string(const std::string& text) {
 }
 
 std::string record_path() {
-    if (g_record_path_set) return g_record_path;
     const char* const path = std::getenv("XEDA_END_RECORD");
     return path ? path : "";
 }
@@ -130,13 +135,12 @@ bool write_all(int fd, const std::string& text) {
 }
 
 void write_record(const char* ended_by, bool with_time) {
-    xeda_ended_by = ended_by;
+    g_ended_by = ended_by;
     const std::string path = record_path();
     if (path.empty()) return;
     std::string text = "{\"ended_by\":" + json_string(ended_by);
     text += ",\"time\":" + (with_time && g_clock_read ? std::to_string(g_time) : "null");
     text += ",\"time_unit\":" + (g_clock_read ? json_string(g_time_unit) : "null");
-    text += ",\"stop_ticks\":" + (g_stop_requested ? std::to_string(g_stop_ticks) : "null");
     text += ",\"exit_code\":null,\"events\":[";
     for (size_t i = 0; i < g_events.size(); ++i) {
         const Event& event = g_events[i];
@@ -160,10 +164,21 @@ void write_record(const char* ended_by, bool with_time) {
     }
 }
 
-// At exit, when nothing wrote the record: a design's own driver has returned (or something
-// called exit()). The model and its context may be destroyed by now: nothing of theirs is read.
+// At exit, when nothing wrote the record: Verilator's own main or a design's own main has
+// returned (or something called exit()). The model and its context may be destroyed by now:
+// nothing of theirs is read.
 void write_record_at_exit() {
-    if (!xeda_ended_by) write_record("exit", false);
+    if (g_ended_by) return;
+#ifdef XEDA_VERILATOR_MAIN
+    if (g_finished) {
+        g_time = g_finish_time;  // not the time of a later event, such as one in a `final` block
+        write_record("finish", true);
+    } else {
+        write_record("drained", false);
+    }
+#else
+    write_record("exit", false);
+#endif
 }
 
 // Registered once every object above is constructed, so it runs before any is destroyed.
@@ -174,7 +189,8 @@ struct AtExit {
 // xeda copies the model's output through a pipe (into `sim.log`), where the C runtime buffers
 // stdout in blocks: what the simulation printed before a time limit, a Ctrl-C or a crash stopped
 // it would be lost, and the rest shown late. Line-buffered, as on a terminal, each line is out
-// once printed -- in xeda's driver and a design's own alike, before either prints anything.
+// once printed -- under Verilator's own main and a design's own alike, before either prints
+// anything.
 struct LineBufferedStdout {
     LineBufferedStdout() {
 #ifdef _WIN32
@@ -205,32 +221,23 @@ void print_message(const char* prefix, const char* filename, int linenum, const 
     }
 }
 
-}  // namespace
-
-void xeda_set_record_path(const char* path) {
-    g_record_path = path ? path : "";
-    g_record_path_set = true;
-}
-
-void xeda_set_stop_ticks(uint64_t ticks) {
-    g_stop_requested = true;
-    g_stop_ticks = ticks;
-}
-
-void xeda_note(const char* kind, const char* filename, int linenum, const char* msg) {
-    note_event(kind, -1, filename, linenum, msg);
-}
-
-void xeda_write_record(const char* ended_by) {
+// The end record, written now: what ended the simulation, at the current simulated time.
+void write_record_now(const char* ended_by) {
     read_clock();
     write_record(ended_by, true);
 }
+
+}  // namespace
 
 // ---- Verilator's hooks: each records, then keeps Verilator's own behavior ----
 
 void vl_finish(const char* filename, int linenum, const char* hier) {
     (void)hier;
     note_event("finish", -1, filename, linenum, "");
+    if (!g_finished) {
+        g_finished = true;
+        g_finish_time = g_time;
+    }
     VL_PRINTF("- %s:%d: Verilog $finish\n", filename, linenum);
     Verilated::threadContextp()->gotFinish(true);
 }
@@ -253,7 +260,7 @@ void vl_fatal(const char* filename, int linenum, const char* hier, const char* m
     Verilated::runFlushCallbacks();
     VL_PRINTF("Aborting...\n");
     Verilated::runFlushCallbacks();
-    xeda_write_record(ended_by);  // exit() below skips the driver's own end
+    write_record_now(ended_by);  // exit() below skips the main's own end
     Verilated::runExitCallbacks();
     // as recent Verilator releases do (older ones always abort)
     if (Verilated::debug()) {

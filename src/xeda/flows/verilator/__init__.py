@@ -7,15 +7,14 @@ from glob import escape as glob_escape
 from glob import glob
 from pathlib import Path
 from random import randint
-from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...cocotb import cocotb_toplevel
-from ...dataclass import WORKING, Field, deliverable
-from ...design import Design, SourceType
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
-from ...flow.sim import SimEvent, SimEvidence
-from ...tool import NonZeroExitCode, Tool
-from ...units import convert_unit
+from ...dataclass import WORKING, Field, deliverable, field_validator
+from ...design import SourceType
+from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow.sim import SimEvent, SimEvidence, waveform_name
+from ...tool import Docker, NonZeroExitCode, Tool
 from ...utils import replacing_copy, unique
 
 log = logging.getLogger(__name__)
@@ -90,8 +89,24 @@ def parse_end_record(path: Path) -> SimEvidence:
     )
 
 
-#: The oldest Verilator with what xeda's driver and hooks use.
-MIN_VERILATOR_VERSION = (5, 24)
+#: The oldest Verilator xeda drives. From 5.044, the main that `--main` generates passes
+#: `--threads` to the model's context; before, the model ran one thread for each CPU.
+MIN_VERILATOR_VERSION = (5, 44)
+
+#: The trace formats, by the setting that selects each (Verilator's `--trace-<format>`).
+TRACE_FORMATS = ("vcd", "fst", "saif")
+
+
+class VerilatorTool(Tool):
+    """Verilator, at least the release xeda's flows are written for."""
+
+    docker: Optional[Docker] = Docker(image="xeda-verilator")  # type: ignore
+    executable: str = "verilator"
+    minimum_version: Optional[Tuple[Union[int, str], ...]] = MIN_VERILATOR_VERSION
+    minimum_version_reason: ClassVar[str] = (
+        "Before 5.044, the main that `--main` generates runs the model with one thread for each "
+        "CPU, whatever `--threads` says."
+    )
 
 
 class Verilator(SimFlow):
@@ -99,19 +114,26 @@ class Verilator(SimFlow):
 
     Verilator compiles the design to C++ (or SystemC) and builds a native executable, which
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
-    plain C++/SystemC harnesses, and VCD/FST waveform tracing.
+    plain C++/SystemC harnesses, and VCD/FST/SAIF waveform tracing.
+
+    Three drivers run the model. By default, Verilator's own `--main` runs an HDL top (the
+    `main` setting). With `main: false`, the design's own C++ `main` or `sc_main` runs it. With
+    cocotb, cocotb's own main runs it, and cocotb's results decide the run.
 
     The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with
-    HDL testbench sources needs `tb.top`, unless it has a C++ driver of its own); with cocotb, the
-    module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are
-    `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and
-    `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the
-    simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in
-    `sim_dir`): xeda's own driver runs the model unless the design brings its own C++ driver,
-    whose end the hooks record just the same, and the run passes when it ends by `$finish` or
-    at the requested `stop_time` -- or, with the design's own driver, when that driver exits
-    with status 0 -- and nothing reported reaches `fail_severity`. An event queue that runs
-    empty without a `$finish` fails. With cocotb, cocotb's results decide the run.
+    HDL testbench sources needs `tb.top`); with cocotb, the module cocotb drives:
+    `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are `rtl.parameters` updated
+    by `tb.parameters` when the simulated top is the RTL top, and `tb.parameters` alone
+    otherwise. Without cocotb, a run passes only on evidence of how the simulation ended, which
+    xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's
+    main, the run passes when the testbench ends it with `$finish` and nothing reported reaches
+    `fail_severity`; an event queue that runs empty without a `$finish` fails. Under the design's
+    own main, the run passes when that main exits with status 0 and nothing reported reaches
+    `fail_severity`. `stop_time` is refused: end the testbench with `$finish`, or use `timeout`.
+
+    A waveform setting (`vcd`, `fst`, `saif`) builds the model with that trace format. Without
+    cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write the
+    file, and name it; xeda opens no waveform.
     """
 
     cocotb_sim_name = "verilator"
@@ -206,8 +228,8 @@ class Verilator(SimFlow):
         )
         generate_executable: bool = Field(
             True,
-            description="Generate a main() and link a standalone executable (`--exe`) rather than "
-            "a library to embed.",
+            description="Link a standalone executable (`--exe`) rather than a library to embed. "
+            "Verilator's `main` option (`main`) generates the `main()`.",
         )
         compiler: Optional[str] = Field(
             None,
@@ -237,15 +259,35 @@ class Verilator(SimFlow):
             description='How explicit assignments of X are resolved: "unique" (random per '
             'run), "0", "1", or "fast".',
         )
+        main: Optional[bool] = Field(
+            None,
+            description="Let Verilator generate the `main` that runs the model (`--main`). Unset, "
+            "it is true, unless the testbench uses cocotb, whose own main runs the model. Set "
+            "it to false when the design's C++ sources hold `main` or `sc_main`; a C++ source "
+            "with `main` unset is a helper (DPI), linked into the model. True is refused with "
+            "cocotb.",
+        )
+        vcd: Union[str, Path, None] = Field(
+            None,
+            alias="waveform",
+            description="Build the model with VCD tracing (`--trace-vcd`). `true` selects it; "
+            "without cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own "
+            "main) write and name the file, and a name or location here is refused. With cocotb, "
+            "the value is the file cocotb writes: `true` writes `dump.vcd`, a name without an "
+            "extension gets `.vcd`, and a location is delivered. Only one of `vcd`, `fst` and "
+            "`saif` may be set.",
+            json_schema_extra=deliverable("outputs/{design}.vcd"),
+        )
         fst: Union[None, str, Path] = Field(
             None,
-            description="Write an FST waveform to this file. FST is far more compact than VCD "
-            "for long simulations. See also `vcd`/`waveform`.",
+            description="Build the model with FST tracing (`--trace-fst`), far more compact than "
+            "VCD for long simulations. Used as `vcd` is: `true` selects the format.",
             json_schema_extra=deliverable("outputs/{design}.fst"),
         )
         saif: Union[None, str, Path] = Field(
             None,
-            description="Write switching activity to this SAIF file, for power estimation.",
+            description="Build the model with SAIF tracing (`--trace-saif`), for power "
+            "estimation. Used as `vcd` is: `true` selects the format.",
             json_schema_extra=deliverable("outputs/{design}.saif"),
         )
         threads: int = Field(
@@ -253,12 +295,14 @@ class Verilator(SimFlow):
             description="0: not thread-safe, 1: thread-safe single thread, 2+: multithreaded",
         )
         trace_underscore: bool = Field(
-            True, description="Include signals whose names begin with an underscore in traces."
+            False,
+            description="Include signals whose names begin with an underscore in traces "
+            "(`--trace-underscore`). Off, as in Verilator.",
         )
         trace_structs: bool = Field(
-            True,
+            False,
             description="Trace structs and packed arrays with their field names rather than as "
-            "flat vectors.",
+            "flat vectors (`--trace-structs`). Off, as in Verilator.",
         )
         trace_threads: Optional[int] = Field(
             None,
@@ -266,30 +310,69 @@ class Verilator(SimFlow):
             "default.",
         )
         trace_max_width: Optional[int] = Field(
-            2048, description="Do not trace signals wider than this many bits."
+            None,
+            description="Do not trace signals wider than this many bits. Null leaves "
+            "Verilator's default.",
         )
         trace_max_array: Optional[int] = Field(
-            2048, description="Do not trace arrays with more than this many elements."
+            None,
+            description="Do not trace arrays with more than this many elements. Null leaves "
+            "Verilator's default.",
         )
+
+        @field_validator("fst", "saif", mode="before")
+        @classmethod
+        def _validate_trace_name(cls, value, info):
+            return waveform_name(value, info.field_name)
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
         }
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse what Verilator cannot do in any mode, before anything runs: stopping at a
+        simulated time, and more than one trace format."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if settings.stop_time is not None:
+            raise FlowSettingsException(
+                "verilator cannot stop at a simulated time: end the testbench with `$finish`, or "
+                "limit the run's wall-clock time with `timeout`"
+            )
+        formats = [name for name in TRACE_FORMATS if getattr(settings, name)]
+        if len(formats) > 1:
+            raise FlowSettingsException(
+                f"verilator takes one trace format, and {', '.join(formats)} are set: "
+                "keep one of them"
+            )
+
     def init(self) -> None:
         super().init()
         assert isinstance(self.settings, self.Settings)
-        if self.settings.stop_time is not None:
-            if self.cocotb:
+        ss = self.settings
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
+        if self.cocotb:
+            if ss.main:
                 raise FlowSettingsException(
-                    "stop_time is enforced only by xeda's own Verilator driver; with cocotb, "
-                    "stop the simulation in the test"
+                    "main is true, but cocotb's own main runs the model: leave `main` unset"
                 )
-            if self.own_driver():
+            return
+        if ss.generate_systemc and self.verilator_main():
+            raise FlowSettingsException(
+                "generate_systemc needs `main: false` and the design's own `sc_main` among its "
+                "C++ sources: Verilator's `--main` generates a C++ main"
+            )
+        for name in TRACE_FORMATS:
+            value = getattr(ss, name)
+            if value is not None and Path(value) != Path(f"dump.{name}"):
                 raise FlowSettingsException(
-                    "stop_time is enforced only by xeda's own Verilator driver; with the "
-                    "design's own C++ driver, stop it there"
+                    f"`{name}` names a waveform file, but without cocotb xeda writes no "
+                    "waveform: the testbench's `$dumpfile` (or the design's own C++ main) names "
+                    f"and writes the file. Set `{name}: true` to build the model with "
+                    f"{name.upper()} tracing, and call `$dumpfile` and `$dumpvars` in the testbench"
                 )
 
     def always_runs(self) -> Optional[str]:
@@ -299,7 +382,7 @@ class Verilator(SimFlow):
         return super().always_runs()
 
     def has_evidence_adapter(self) -> bool:
-        """xeda's hooks record how the simulation ended, except under cocotb, whose own driver
+        """xeda's hooks record how the simulation ended, except under cocotb, whose own main
         runs the model and whose results decide the run."""
         return not self.cocotb
 
@@ -333,20 +416,19 @@ class Verilator(SimFlow):
                 "`sim_dir` whose paths have none."
             )
 
-    @classmethod
-    def runs_without_testbench_top(cls, design: Design) -> bool:
-        """A design with a C++ driver of its own runs the model, whatever HDL its testbench
-        sources hold (a bound checker, a model): the driver does not need a testbench top."""
-        return cls.has_cpp_driver(design)
+    def verilator_main(self) -> bool:
+        """Whether Verilator's own `--main` runs the model: the `main` setting, which is true
+        unless cocotb is used (its own main runs the model)."""
+        assert isinstance(self.settings, self.Settings)
+        return not self.cocotb and self.settings.main is not False
 
-    def own_driver(self) -> bool:
-        """Whether the design brings its own C++ driver, which runs the model in place of
-        xeda's."""
-        return self.has_cpp_driver(self.design)
+    def user_main(self) -> bool:
+        """Whether the design's own C++ `main` or `sc_main` runs the model."""
+        return not self.cocotb and not self.verilator_main()
 
     def simulation_evidence(self) -> SimEvidence | None:
         """The end record this run's model wrote (`report_file`: this run's own only). A design's
-        own driver that ended the simulation by exiting has the status it exited with."""
+        own main that ended the simulation by exiting has the status it exited with."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         path = self.report_file(self.run_path / self.settings.sim_dir / END_RECORD)
@@ -364,7 +446,7 @@ class Verilator(SimFlow):
                 for line in log_file.read_text(errors="replace").splitlines():
                     if re.match(r"\[\d+\] %Warning:", line):
                         evidence.events.append(SimEvent(kind="warning", message=line))
-        if evidence.ended_by == "exit" and evidence.exit_code is None and self.own_driver():
+        if evidence.ended_by == "exit" and evidence.exit_code is None and self.user_main():
             evidence.exit_code = self._driver_exit_code
         return evidence
 
@@ -375,24 +457,15 @@ class Verilator(SimFlow):
 
         self.rm_dep_files()
 
-        verilator = Tool(
-            "verilator",
-            docker="xeda-verilator",
-            minimum_version=MIN_VERILATOR_VERSION,
-        )
+        verilator = VerilatorTool()  # pyright: ignore[reportCallIssue]
 
         top = self.simulation_top()
         sim_dir = Path(ss.sim_dir)
         verilated_bin = os.path.join(ss.sim_dir, "top")
-        # without cocotb, xeda's hooks record how the simulation ends, in the design's own
-        # driver or else in xeda's
+        # without cocotb, xeda's hooks record how the simulation ends, under Verilator's main
+        # and under the design's own alike
         hooked = not self.cocotb
-        xeda_driver = hooked and not self.own_driver()
-        if xeda_driver and ss.generate_systemc:
-            raise FlowSettingsException(
-                "generate_systemc needs the design's own sc_main among its C++ sources: xeda's "
-                "driver runs a C++ model"
-            )
+        generated_main = self.verilator_main()
 
         compile_args = ss.compile_args
         # `rtl.parameters` are the RTL top's: they apply only when it is the simulated top
@@ -410,6 +483,9 @@ class Verilator(SimFlow):
             args += ["-sc"]
         else:
             args += ["-cc"]
+
+        if generated_main:
+            args.append("--main")
 
         if ss.generate_executable:
             args += ["--exe"]
@@ -445,11 +521,7 @@ class Verilator(SimFlow):
             args.append("--vpi")
             args.append("--public-flat-rw")
 
-        if verilator.version_gte(5):
-            if ss.timing:
-                args.append("--timing")
-            else:
-                args.append("--no-timing")
+        args.append("--timing" if ss.timing else "--no-timing")
 
         # suppress unhelpful warnings
         args += [
@@ -486,28 +558,25 @@ class Verilator(SimFlow):
                 self.cocotb.docker = cocotb_docker
 
         model_args = [*ss.model_args]
-        if ss.vcd:
-            args += [
-                "--trace-vcd",
-            ]
-        elif ss.fst:
-            args += [
-                "--trace-fst",
-            ]
-        elif ss.saif:
-            args += [
-                "--trace-saif",
-            ]
-        trace = ss.vcd or ss.fst or ss.saif
+        # at most one format is set (`check_settings_supported`)
+        for name in TRACE_FORMATS:
+            if getattr(ss, name):
+                args.append(f"--trace-{name}")
+                trace = getattr(ss, name)
+                break
+        else:
+            trace = None
         if trace:
             if self.cocotb:
-                model_args.append("--trace")
-            if self.cocotb and isinstance(trace, (str, Path)):
+                # cocotb's own main opens the file, at the name xeda gives it
                 trace = str(self.process_path(trace, subs_vars=True))
-                model_args += ["--trace-file", trace]
+                model_args += ["--trace", "--trace-file", trace]
                 log.info("Will generate trace file %s", trace)
             else:
-                log.info("Trace generation is enabled. Working directory is %s", ss.sim_dir)
+                log.info(
+                    "The model is built with tracing: the testbench's $dumpfile and $dumpvars "
+                    "write the waveform"
+                )
             if ss.trace_threads:
                 args += ["--trace-threads", ss.trace_threads]
             if ss.trace_underscore:
@@ -539,21 +608,15 @@ class Verilator(SimFlow):
                     "xeda_hooks.cpp", script_filename=sim_dir / "xeda_hooks.cpp"
                 )
             )
-            if xeda_driver:
-                hooks.append(
-                    self.copy_from_template(
-                        "verilator_main.cpp",
-                        script_filename=sim_dir / "verilator_main.cpp",
-                        prefix="Vtop",
-                        threads=ss.threads or 1,
-                    )
-                )
             for macro in HOOK_MACROS:
                 args += ["-CFLAGS", f"-D{macro}"]
+            if generated_main:
+                # at exit, the hooks then tell `$finish` from an event queue that ran empty
+                args += ["-CFLAGS", "-DXEDA_VERILATOR_MAIN"]
             # by name: make splits a flag at a space, and the model is compiled in `sim_dir`
             args += ["-CFLAGS", f"-include {header.name}"]
 
-        env = None
+        env: dict[str, str] | None = None
 
         # every header's directory, the testbench's included: Verilator compiles both
         include_dirs = unique(
@@ -582,20 +645,28 @@ class Verilator(SimFlow):
                 f"-Wl,-rpath,{lib_dir} -L{lib_dir} -lcocotbvpi_verilator",
             ]
             env = self.cocotb.env(self.design)
-            cocotb_cpp = None
+            # cocotb's own main runs the model; xeda has no copy of it to fall back on
             coco_share_dir = self.cocotb.share_dir
-            if coco_share_dir:
-                cocotb_cpp_path = Path(coco_share_dir) / "lib" / "verilator" / "verilator.cpp"
-                if cocotb_cpp_path.exists():
-                    log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
-                    sim_dir = Path(ss.sim_dir)
-                    sim_dir.mkdir(parents=True, exist_ok=True)
-                    target = self.run_directory.writable(sim_dir / "cocotb_verilator.cpp")
-                    cocotb_cpp = replacing_copy(cocotb_cpp_path, target)
-                    assert cocotb_cpp.exists()
-            if cocotb_cpp is None:
-                cocotb_cpp = self.copy_from_template("cocotb_verilator.cpp", top="top")
-            sources.append(cocotb_cpp)
+            cocotb_cpp_path = (
+                Path(coco_share_dir) / "lib" / "verilator" / "verilator.cpp"
+                if coco_share_dir
+                else None
+            )
+            if cocotb_cpp_path is None:
+                raise FlowFatalError("cocotb-config does not report cocotb's share directory")
+            if verilator.dockerized:
+                # the file is in the image, where Verilator reads it
+                sources.append(cocotb_cpp_path)
+            elif cocotb_cpp_path.exists():
+                log.debug("Using cocotb verilator.cpp from %s", cocotb_cpp_path)
+                sim_dir.mkdir(parents=True, exist_ok=True)
+                target = self.run_directory.writable(sim_dir / "cocotb_verilator.cpp")
+                sources.append(replacing_copy(cocotb_cpp_path, target))
+            else:
+                raise FlowFatalError(
+                    f"cocotb's main for Verilator, {cocotb_cpp_path}, does not exist: this cocotb "
+                    "installation does not support Verilator"
+                )
 
         verilator.run(*args, *sources, *hooks)
         if ss.random_init:
@@ -608,14 +679,8 @@ class Verilator(SimFlow):
             record = self.run_path / sim_dir / END_RECORD
             # a previous run's record (or a link a tool left at its name) is never this run's
             self.run_directory.remove(record, record.with_name(record.name + ".tmp"))
-            if xeda_driver:
-                model_args.append(f"+xeda+end_record+{record}")
-                if ss.stop_time is not None:
-                    # a bare number is nanoseconds (`SimFlow.Settings.stop_time`)
-                    stop_ps = round(convert_unit(ss.stop_time, "ps", from_unit="ns"))
-                    model_args.append(f"+xeda+stop_time_ps+{stop_ps}")
-            else:  # a design's own driver takes no arguments of xeda's
-                env = {**(env or {}), "XEDA_END_RECORD": str(record)}
+            # the model takes no argument of xeda's: the hooks read the record's path from here
+            env = {**(env or {}), "XEDA_END_RECORD": str(record)}
         model = verilator.derive(verilated_bin)
         # the model's output, copied to `sim.log` (line-buffered by the hooks, so none is lost
         # when the model is stopped); cocotb's goes straight to the terminal, keeping its colors,

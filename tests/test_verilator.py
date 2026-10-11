@@ -104,12 +104,6 @@ def _launch(
         ("initial begin $finish; end", {}, "finish", True),  # untimed, $finish at 0
         ("reg clk; initial clk = 0;", {}, "drained", False),  # nothing ever ends it
         ("initial begin #10; #10; end", {"timing": True}, "drained", False),
-        (
-            "initial begin #10; #10; end",
-            {"timing": True, "stop_time": "15ns"},
-            "stop_time",
-            True,
-        ),
         ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "error", False),
         ("initial begin #5 $stop; end", {"timing": True}, "error", False),
         pytest.param(
@@ -175,7 +169,7 @@ def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_pat
     flow = _launch(
         tmp_path,
         "initial begin #5 $finish; end",
-        {"timing": True},
+        {"timing": True, "main": False},
         extra_sources={"main.cpp": DIRECT_STOP_DRIVER},
     )
     assert flow.results["sim.ended_by"] == "error"
@@ -248,9 +242,9 @@ def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     assert flow.succeeded
 
 
-def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp_path):
-    """HDL among the testbench's sources (a checker bound into the design) does not make a design
-    with a C++ driver of its own ask for `tb.top`: the driver runs the RTL top."""
+def test_a_design_with_its_own_main_and_hdl_sources_runs_the_testbench_top_it_names(tmp_path):
+    """HDL among the testbench's sources (a checker bound into the design) needs `tb.top`, as for
+    every simulator. With `main: false`, the design's C++ main runs that top."""
     require_verilator()
     (tmp_path / "dut.sv").write_text(
         "`timescale 1ns/1ps\nmodule dut(input logic clk);\n"
@@ -261,62 +255,76 @@ def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp
         "bind dut chk c(.clk(clk), .cnt(cnt));\n"
     )
     (tmp_path / "main.cpp").write_text(OWN_DRIVER.replace("STATUS", "0"))
+    tb: dict = {"sources": ["chk.sv", "main.cpp"]}
+    with pytest.raises(FlowSettingsException, match="`tb.top`"):
+        Verilator.check_design_supported(
+            Design(
+                name="dut",
+                design_root=tmp_path,
+                rtl={"sources": ["dut.sv"], "top": "dut"},
+                tb=tb,
+            )
+        )
     design = Design(
         name="dut",
         design_root=tmp_path,
         rtl={"sources": ["dut.sv"], "top": "dut"},
-        tb={"sources": ["chk.sv", "main.cpp"]},
+        tb={**tb, "top": "dut"},
     )
     flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Verilator, design, {"timing": True}
+        Verilator, design, {"timing": True, "main": False}
     )
     assert flow is not None and flow.succeeded
     assert flow.results["sim.ended_by"] == "exit"
 
 
-@pytest.mark.parametrize("timescale", ["1ns/1ns", "1ns/1ps", "1ns/1fs", "1us/100ps"])
-def test_verilator_stops_at_stop_time_in_the_models_precision(tmp_path, timescale):
-    """The driver converts `stop_time` into ticks of the model's time precision, coarser or
-    finer than the picoseconds it is given in, and the record says which precision it is."""
+@pytest.mark.parametrize(
+    ("timescale", "ticks"),
+    [("1ns/1ns", 15), ("1ns/1ps", 15000), ("1ns/1fs", 15000000), ("1us/100ps", 150)],
+)
+def test_verilator_records_the_finish_time_in_the_models_precision(tmp_path, timescale, ticks):
+    """The `$finish` is recorded at its simulated time, in ticks of the model's time precision,
+    and the record says which precision it is."""
     require_verilator()
     flow = _launch(
-        tmp_path,
-        "initial begin #10ns; #10ns; end",
-        {"timing": True, "stop_time": "15ns"},
-        timescale=timescale,
+        tmp_path, "initial begin #15ns; $finish; end", {"timing": True}, timescale=timescale
     )
-    assert flow.results["sim.ended_by"] == "stop_time"
+    assert flow.results["sim.ended_by"] == "finish"
+    assert flow.results["sim.time"] == ticks
     assert flow.results["sim.time_unit"] == timescale.split("/")[1]
     assert flow.succeeded
 
 
-@pytest.mark.parametrize(
-    ("settings", "ended_by", "error"),
-    [
-        ({"timing": True, "stop_time": "1us"}, "stop_time", None),
-        ({"timing": True, "timeout": 2}, None, "ProcessTimeout"),
-    ],
-)
-def test_verilator_ends_a_simulation_that_never_finishes(tmp_path, settings, ended_by, error):
-    """A free-running clock never drains: the requested `stop_time` ends it (a pass), or else
-    the wall-clock `timeout` stops the model, which leaves no end record (a failure)."""
+def test_a_drained_run_fails_and_has_no_time(tmp_path):
+    """Verilator's main returns when no event is left. With no `$finish`, the hooks record
+    `drained`, which fails, and the end time is unknown."""
     require_verilator()
-    flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", settings)
-    assert flow.results.get("sim.ended_by") == ended_by
-    assert (flow.results.get("error") or {}).get("type") == error
-    assert flow.succeeded is (error is None)
+    flow = _launch(tmp_path, "initial begin #10; #10; end", {"timing": True})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert flow.results["sim.time"] is None
+    assert not flow.succeeded
 
 
-@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+def test_the_wall_clock_timeout_stops_a_simulation_that_never_finishes(tmp_path):
+    """A free-running clock never drains, and nothing stops it but the wall-clock `timeout`,
+    which leaves no end record (a failure)."""
+    require_verilator()
+    flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", {"timing": True, "timeout": 2})
+    assert "sim.ended_by" not in flow.results
+    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert not flow.succeeded
+
+
+@pytest.mark.parametrize("own_driver", [False, True], ids=["verilator_main", "own_main"])
 def test_a_timed_out_model_s_output_reaches_the_log(tmp_path, own_driver):
     """The model's output is copied through a pipe, which would leave the C runtime's stdout
     block-buffered: what a testbench printed before it hung would be lost when the time limit
-    kills it. xeda's hooks make it line-buffered, in its own driver and a design's alike."""
+    kills it. xeda's hooks make it line-buffered, under Verilator's main and a design's alike."""
     require_verilator()
     flow = _launch(
         tmp_path,
         'reg clk = 0; always #5 clk = ~clk; initial $display("printed before the hang");',
-        {"timing": True, "timeout": 3},
+        {"timing": True, "timeout": 3, **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "0")} if own_driver else None,
     )
     assert (flow.results.get("error") or {}).get("type") == "ProcessTimeout"
@@ -354,20 +362,20 @@ int main(int argc, char** argv) {
 def test_verilator_judges_the_designs_own_driver_by_its_exit(
     tmp_path, body, status, ended_by, success
 ):
-    """A design with its own C++ driver keeps it; xeda's hooks, linked into it, record its end:
-    the driver's exit (with the status it returned), or a fatal error."""
+    """A design with its own C++ main (`main: false`) keeps it; xeda's hooks, linked into it,
+    record its end: the main's exit (with the status it returned), or a fatal error."""
     require_verilator()
     flow = _launch(
         tmp_path,
         body,
-        {"timing": True},
+        {"timing": True, "main": False},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", str(status))},
     )
     assert flow.results["sim.ended_by"] == ended_by
     assert flow.succeeded is success
 
 
-@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+@pytest.mark.parametrize("own_driver", [False, True], ids=["verilator_main", "own_main"])
 def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
     """A failed model's log still supplies warnings to its failure document."""
     require_verilator()
@@ -375,7 +383,7 @@ def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
     flow = _launch(
         tmp_path,
         f'initial begin #5 $warning("before failure"); #5 {ending}; end',
-        {"timing": True, "fail_severity": "warning"},
+        {"timing": True, "fail_severity": "warning", **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "3")} if own_driver else None,
     )
     assert not flow.succeeded
@@ -393,7 +401,7 @@ def test_verilator_defaults_do_not_randomize(tmp_path):
     ss = Verilator.Settings()
     assert ss.random_init is False and ss.x_initial == "0" and ss.x_assign == "0"
     assert ss.fail_severity == "error"
-    assert MIN_VERILATOR_VERSION == (5, 24)
+    assert MIN_VERILATOR_VERSION == (5, 44)
 
 
 def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
@@ -402,7 +410,7 @@ def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
     flow = _launch(
         tmp_path,
         "initial begin #1 $finish; end",
-        {"timing": True, "vcd": "w.vcd", "random_init": True},
+        {"timing": True, "vcd": True, "random_init": True},
     )
     assert flow.settings.model_args == []
 
@@ -465,22 +473,203 @@ def test_a_cocotb_toplevel_other_than_the_rtl_top_is_simulated(tmp_path):
     assert flow.results["cocotb.tests"] == 1
 
 
-def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
+def _stop_time_designs(tmp_path):
     (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
     (tmp_path / "tb_dut.py").write_text("")
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
     cases = {
-        "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, "with cocotb"),
-        "cpp": ({"sources": ["main.cpp"]}, "design.s own C\\+\\+ driver"),
+        "hdl": ({"sources": []}, {}),
+        "cpp": ({"sources": ["main.cpp"]}, {"main": False}),
+        "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, {}),
     }
-    for name, (tb, text) in cases.items():
+    for name, (tb, settings) in cases.items():
         design = Design(
             name=name, design_root=tmp_path, rtl={"sources": ["dut.sv"], "top": "dut"}, tb=tb
         )
-        settings = Verilator.Settings.from_input({"stop_time": "10ns"}, design_root=tmp_path)
-        flow = Verilator(settings, design, tmp_path / "run")
-        with pytest.raises(FlowSettingsException, match=text):
-            flow.init()
+        yield name, design, settings
+
+
+def test_stop_time_is_refused_in_every_mode_before_anything_runs(tmp_path):
+    """Verilator's own main, the design's own main and cocotb's main cannot stop at a simulated
+    time. The plan refuses it, and so does a flow built directly."""
+    for name, design, settings in _stop_time_designs(tmp_path):
+        runner = DefaultRunner(tmp_path / f"runs-{name}", display_results=False)
+        with pytest.raises(FlowSettingsException, match=r"\$finish.*`timeout`"):
+            runner.plan("verilator", design, flow_settings={**settings, "stop_time": "10ns"})
+        assert not (tmp_path / f"runs-{name}").exists()
+        flow_settings = Verilator.Settings.from_input(
+            {**settings, "stop_time": "10ns"}, design_root=tmp_path
+        )
+        with pytest.raises(FlowSettingsException, match="cannot stop at a simulated time"):
+            Verilator(flow_settings, design, tmp_path / f"run-{name}").init()
+
+
+@pytest.mark.parametrize("pair", [("vcd", "fst"), ("vcd", "saif"), ("fst", "saif")])
+def test_two_trace_formats_are_refused(tmp_path, pair):
+    """Verilator takes one trace format; the flow no longer picks one of two in silence."""
+    (tmp_path / "d.sv").write_text("module d; endmodule\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"})
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    with pytest.raises(FlowSettingsException, match="one trace format"):
+        runner.plan("verilator", design, flow_settings={name: True for name in pair})
+
+
+def test_the_trace_formats_are_switches_that_default_to_verilators_own_options(tmp_path, commands):
+    """`true` selects a format, YAML and command line alike, and no trace option beyond the format
+    is passed unless it is set."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    for name in ("vcd", "fst", "saif"):
+        commands.clear()
+        DefaultRunner(tmp_path / f"runs-{name}", display_results=False).run_flow(
+            Verilator, design, {name: True}
+        )
+        (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+        assert f"--trace-{name}" in command
+        assert not [a for a in command if a.startswith("--trace") and a != f"--trace-{name}"]
+    commands.clear()
+    DefaultRunner(tmp_path / "runs-set", display_results=False).run_flow(
+        Verilator,
+        design,
+        {"vcd": True, "trace_underscore": True, "trace_structs": True, "trace_max_width": 64},
+    )
+    (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+    assert {"--trace-underscore", "--trace-structs"} <= set(command)
+    assert command[command.index("--trace-max-width") + 1] == "64"
+    assert "--trace-max-array" not in command
+
+
+def test_verilators_main_is_asked_for_unless_the_design_brings_its_own(tmp_path, commands):
+    """`--main` follows the `main` setting: set unless it is false."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": ["tb.sv"], "top": "tb"},
+        tb={"sources": ["main.cpp"], "top": "tb"},
+    )
+    for settings, expected in (({}, True), ({"main": True}, True), ({"main": False}, False)):
+        commands.clear()
+        DefaultRunner(
+            tmp_path / f"runs-{expected}-{len(settings)}", display_results=False
+        ).run_flow(Verilator, design, settings)
+        (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+        assert ("--main" in command) is expected
+        assert ("-CFLAGS" in command and "-DXEDA_VERILATOR_MAIN" in command) is expected
+
+
+def test_cocotb_has_its_own_main_and_the_systemc_model_needs_the_designs(tmp_path):
+    (tmp_path / "d.sv").write_text("module d; endmodule\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"}, tb={"top": "d"}
+    )
+    flow_settings = Verilator.Settings.from_input({"generate_systemc": True}, design_root=tmp_path)
+    with pytest.raises(FlowSettingsException, match="`main: false`"):
+        Verilator(flow_settings, design, tmp_path / "run").init()
+    (tmp_path / "tb_d.py").write_text("")
+    cocotb = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["d.sv"], "top": "d"},
+        tb={"sources": ["tb_d.py"], "cocotb": True},
+    )
+    flow_settings = Verilator.Settings.from_input({"main": True}, design_root=tmp_path)
+    with pytest.raises(FlowSettingsException, match="cocotb's own main"):
+        Verilator(flow_settings, cocotb, tmp_path / "run-cocotb").init()
+    flow_settings = Verilator.Settings.from_input({"main": False}, design_root=tmp_path)
+    Verilator(flow_settings, cocotb, tmp_path / "run-cocotb-false").init()
+
+
+DUMPING_BODY = (
+    "reg [3:0] n = 0;\n"
+    'initial begin $dumpfile("tb_wave.vcd"); $dumpvars(0, tb); end\n'
+    "always #5 n = n + 1;\n"
+    "initial begin #50 $finish; end"
+)
+
+
+def test_the_testbench_writes_the_waveform_that_the_setting_builds_in(tmp_path):
+    """`vcd: true` builds the model with VCD tracing; the testbench's `$dumpfile` names the file,
+    in the model's working directory (the run directory), and xeda opens none of its own."""
+    require_verilator()
+    flow = _launch(tmp_path, DUMPING_BODY, {"vcd": True})
+    assert flow.succeeded
+    wave = flow.run_path / "tb_wave.vcd"
+    assert wave.read_text().startswith("$version Generated by VerilatedVcd")
+    assert "$var" in wave.read_text()
+    assert not list(flow.run_path.rglob("dump.vcd"))
+
+
+def test_the_testbench_writes_no_waveform_when_no_format_is_set(tmp_path):
+    require_verilator()
+    flow = _launch(tmp_path, DUMPING_BODY, {})
+    assert flow.succeeded
+    assert not list(flow.run_path.rglob("*.vcd"))
+
+
+@pytest.mark.parametrize("main", [True, False], ids=["verilator_main", "own_main"])
+@pytest.mark.parametrize("given", ["name", "location"])
+def test_a_waveform_name_or_location_is_refused_before_verilator_runs(tmp_path, main, given):
+    """Without cocotb, the testbench or the design's main names the waveform file, so a name or
+    a location is refused, naming `$dumpfile`, and no model is built."""
+    if given == "location":
+        value = str(tmp_path / "out" / "w.vcd")
+    else:
+        value = "w.vcd"
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    sources = ["tb.sv"]
+    if not main:
+        (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+        sources.append("main.cpp")
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": ["tb.sv"], "top": "tb"},
+        tb={"sources": sources, "top": "tb"},
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    with pytest.raises(FlowSettingsException, match=r"`vcd` names a waveform file.*`\$dumpfile`"):
+        runner.run_flow(Verilator, design, {"vcd": value, "main": main})
+    assert not list((tmp_path / "runs").rglob("sim_build"))
+
+
+def test_cocotb_names_the_waveform_and_a_location_is_delivered(tmp_path):
+    """With cocotb, xeda names the file through cocotb's `--trace-file`: `true` writes
+    `dump.vcd`, and a location is delivered."""
+    require_verilator()
+    require_cocotb()
+    (tmp_path / "dut.sv").write_text(
+        "module dut(input logic clk, output logic [3:0] q);\n"
+        "  always_ff @(posedge clk) q <= q + 1;\n"
+        "  initial q = 0;\nendmodule\n"
+    )
+    (tmp_path / "tb_dut.py").write_text(
+        "import cocotb\n"
+        "from cocotb.clock import Clock\n"
+        "from cocotb.triggers import Timer\n"
+        "@cocotb.test()\n"
+        "async def count(dut):\n"
+        "    cocotb.start_soon(Clock(dut.clk, 10, unit='ns').start())\n"
+        "    await Timer(100, 'ns')\n"
+    )
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["tb_dut.py"], "cocotb": True},
+    )
+    flow = DefaultRunner(tmp_path / "runs-true", display_results=False).run_flow(
+        Verilator, design, {"vcd": True, "timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert "$var" in (flow.run_path / "dump.vcd").read_text()
+    delivered = tmp_path / "out" / "c.vcd"
+    flow = DefaultRunner(tmp_path / "runs-located", display_results=False).run_flow(
+        Verilator, design, {"vcd": str(delivered), "timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert "$var" in delivered.read_text()
 
 
 SQRT_DESIGN = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
@@ -561,3 +750,25 @@ def test_verilator_is_handed_the_sources_it_reads_in_design_order(tmp_path, comm
         f"-I{tmp_path / 'inc'}",
         f"-I{tmp_path / 'tb inc'}",
     ]
+
+
+DPI_HELPER = """extern "C" int xeda_add(int a, int b) { return a + b; }
+"""
+
+
+def test_a_cpp_source_with_no_main_is_a_dpi_helper_and_links(tmp_path):
+    """A `Cpp` source is not taken for a main: Verilator's own main runs the HDL testbench and
+    the helper, which the testbench calls through DPI, is linked into the model."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        'import "DPI-C" function int xeda_add(input int a, input int b);\n'
+        "initial begin\n"
+        '  if (xeda_add(2, 3) != 5) $fatal(1, "DPI helper returned the wrong sum");\n'
+        "  #10 $finish;\n"
+        "end",
+        {},
+        extra_sources={"helper.cpp": DPI_HELPER},
+    )
+    assert flow.succeeded
+    assert flow.results["sim.ended_by"] == "finish"

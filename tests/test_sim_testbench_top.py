@@ -7,8 +7,9 @@ a flow constructed directly. It keys on the testbench's sources in those languag
 (`design.LANGUAGE_TYPES`): cocotb's, a design's own C++ driver and a design with no testbench at
 all name no such top to be missed. A simulator that knows what to run without `tb.top`
 (`SimFlow.runs_without_testbench_top`) is not refused: GHDL finds a VHDL testbench's top, and
-Verilator and `yosys_sim` run a C++ driver of the design's own, whatever HDL sources the testbench
-also has (a bound checker, a model).
+`yosys_sim` runs a C++ driver of the design's own, whatever HDL sources the testbench also has (a
+bound checker, a model). Verilator is refused in every mode: whether a C++ source is a main or a
+helper is its `main` setting, which this rule does not see.
 
 A simulator that declares the types it reads (`Flow.reads_sources`) refuses a source in another
 language before it asks for `tb.top`, so each case here is a design in a language the simulator
@@ -120,7 +121,8 @@ def test_the_sweep_covers_the_simulators():
 @pytest.mark.parametrize("language", sorted(HDL_TESTBENCHES))
 def test_the_simulators_that_run_without_a_testbench_top(language, tmp_path):
     """Pinned, so that another one is a decision: GHDL finds the top of a VHDL testbench itself,
-    and a design's own C++ driver runs the model for Verilator and `yosys_sim`."""
+    and a design's own C++ driver runs the model for `yosys_sim`. Verilator's C++ source may be a
+    helper (its `main` setting says), so it is not on the list."""
 
     def running(*testbench: str) -> set[str]:
         design = _design(_in_new_directory(tmp_path, "-".join(testbench)), *testbench)
@@ -131,13 +133,13 @@ def test_the_simulators_that_run_without_a_testbench_top(language, tmp_path):
         }
 
     assert running(language) == ({"ghdl_sim"} if language == "vhdl" else set())
-    with_driver = {"verilator", "yosys_sim"} | ({"ghdl_sim"} if language == "vhdl" else set())
+    with_driver = {"yosys_sim"} | ({"ghdl_sim"} if language == "vhdl" else set())
     assert running(language, "driver") == with_driver
 
 
 def test_one_predicate_says_whether_a_design_has_a_cpp_driver(tmp_path):
-    """`verilator` (for its own use of the driver, and for the rule here) and `yosys_sim` ask
-    `SimFlow.has_cpp_driver`."""
+    """`yosys_sim` asks `SimFlow.has_cpp_driver`, for its own use of the driver and for the rule
+    here. `verilator` does not: its `main` setting says whether a C++ source holds a main."""
     for expected in (False, True):
         design = _design(
             _in_new_directory(tmp_path, f"design-{expected}"),
@@ -146,10 +148,16 @@ def test_one_predicate_says_whether_a_design_has_a_cpp_driver(tmp_path):
             top="tb",
         )
         assert SimFlow.has_cpp_driver(design) is expected
-        assert Verilator.runs_without_testbench_top(design) is expected
         assert YosysSim.runs_without_testbench_top(design) is expected
-        flow = Verilator({}, design, _in_new_directory(tmp_path, f"run-{expected}"))
-        assert flow.own_driver() is expected
+        assert Verilator.runs_without_testbench_top(design) is False
+        for setting, main in (({}, True), ({"main": True}, True), ({"main": False}, False)):
+            flow = Verilator(
+                setting,
+                design,
+                _in_new_directory(tmp_path, f"run-{expected}-{len(setting)}-{main}"),
+            )
+            assert flow.verilator_main() is main
+            assert flow.user_main() is not main
 
 
 @pytest.mark.parametrize(("flow_name", "language"), READABLE)

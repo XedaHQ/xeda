@@ -226,14 +226,7 @@ def launch_case(
             if name in ("nvc", "vsim", "vcs", "vivado"):
                 build.write_text("analysis/elaboration succeeded\n")
             assert build.exists(), f"runtime reached without a successful build: {calls}"
-            record = next(
-                (
-                    w.split("+xeda+end_record+", 1)[1]
-                    for w in words
-                    if w.startswith("+xeda+end_record+")
-                ),
-                None,
-            )
+            record = (kwargs.get("env") or {}).get("XEDA_END_RECORD")
             marker = cwd / "oracle.runtime"
             program = "from pathlib import Path\n"
             program += f"Path({str(marker)!r}).write_text('runtime executed')\n"

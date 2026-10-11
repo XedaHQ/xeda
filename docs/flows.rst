@@ -1097,15 +1097,24 @@ not run on macOS.
 Verilator
 ---------
 
-Verilator is driven by Xeda's own C++ main, and Xeda's hooks in Verilator's runtime record how the
-run ended: the ``sim.ended_by`` and ``sim.time`` result keys, among others. The run passes when it
-ends by ``$finish`` or at the requested ``stop_time`` and nothing reported reaches
-``fail_severity`` (``warning``, ``error``, ``failure`` or ``fatal``; default ``error``); an event
-queue that runs empty without a ``$finish`` fails, and ``timeout`` stops a run that does not end.
-A design with its own C++ driver keeps it, and the hooks still record how it ended: it passes when
-the driver exits with status 0 and nothing reported reaches ``fail_severity``. With cocotb,
-cocotb's results decide the run. The model's output is also copied to ``sim.log`` in ``sim_dir``,
+Verilator's own ``--main`` runs an HDL top, and Xeda's hooks in Verilator's runtime record how the
+run ended: the ``sim.ended_by`` and ``sim.time`` result keys, among others. The run passes when the
+testbench ends it with ``$finish`` and nothing reported reaches ``fail_severity`` (``warning``,
+``error``, ``failure`` or ``fatal``; default ``error``). An event queue that runs empty without a
+``$finish`` fails (``sim.ended_by`` is ``drained``, and ``sim.time`` is empty), and ``timeout``
+stops a run that does not end. The model's output is also copied to ``sim.log`` in ``sim_dir``,
 except under cocotb, whose output goes straight to the terminal.
+
+Three drivers can run the model:
+
+* Verilator's own main, by default. The ``main`` setting maps to ``--main``: it is true unless the
+  testbench uses cocotb.
+* The design's own C++ ``main`` or ``sc_main``, with ``main: false``. The hooks still record how it
+  ended: the run passes when the main exits with status 0 and nothing reported reaches
+  ``fail_severity``. A C++ source with ``main`` unset is a helper (for DPI, for example) and is
+  linked into the model.
+* cocotb's own main, when the testbench uses cocotb. cocotb's results decide the run. ``main: true``
+  is an error with cocotb.
 
 A report that ends the run is one event, and ``sim.ended_by`` names its cause: ``error`` for
 ``$error``, a failed assertion and ``$stop``, ``fatal`` for ``$fatal`` and for Verilator's own
@@ -1114,9 +1123,20 @@ fatal errors.
 The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
 cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design with a
 Verilog or SystemVerilog testbench needs ``tb.top``: without it the flow refuses the design, since
-it would simulate ``rtl.top``, which has no stimulus. A design with a C++ driver of its own needs
-none. ``rtl.parameters`` apply only when the RTL top is the simulated top; ``tb.parameters``
-always do.
+it would simulate ``rtl.top``, which has no stimulus. ``rtl.parameters`` apply only when the RTL
+top is the simulated top; ``tb.parameters`` always do.
+
+Waveforms follow Verilator's own rules. ``vcd``, ``fst`` and ``saif`` build the model with that
+trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one may be set. Without
+cocotb, Xeda writes no waveform: the testbench's ``$dumpfile`` and ``$dumpvars`` (or the design's
+own main) name and write the file, in the run directory, which is the model's working directory.
+Set the format to ``true``. A name or a location is an error before Verilator runs, because Xeda
+cannot know the name the testbench chooses. With cocotb, Xeda names the file (cocotb's
+``--trace-file``): ``true`` writes ``dump.vcd``, and a location is delivered. A testbench that
+also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
+code gives all changes to the first writer. The trace options (``trace_underscore``,
+``trace_structs``, ``trace_max_width``, ``trace_max_array``) keep Verilator's own defaults unless
+set.
 
 Defaults and limits:
 
@@ -1129,15 +1149,17 @@ Defaults and limits:
   (``#10;``) and
   ``ASSIGNDLY`` for one on an assignment. Such a warning does not fail the run, unless
   ``warnings_fatal`` is set.
-* ``stop_time`` is enforced by Xeda's own driver only: with cocotb, or with a design's own C++
-  driver, it is an error.
-* ``generate_systemc`` needs the design's own ``sc_main`` among its C++ sources: without one it is
-  an error, since Xeda's driver runs a C++ model.
+* ``stop_time`` is an error in every mode, before anything runs. End the testbench with
+  ``$finish``, or limit the run with ``timeout``.
+* ``generate_systemc`` needs ``main: false`` and the design's own ``sc_main`` among its C++
+  sources: Verilator's ``--main`` generates a C++ main.
 * A run directory whose path has whitespace is refused, before anything is created and when
   planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
   whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
   whitespace (``--run-root``).
-* Verilator 5.024 or newer is required.
+* Verilator 5.044 or newer is required. Since the model runs under Verilator's main, ``--coverage``
+  in ``compile_args`` writes ``coverage.dat``, and, from Verilator 5.048, VPI start-up routines run
+  with ``vpi: true``.
 
 Writing a new flow
 ==================

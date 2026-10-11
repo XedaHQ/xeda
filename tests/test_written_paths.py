@@ -36,6 +36,7 @@ ROLES = {
     ("Dc.Settings", "alib_dir"): W,
     ("Dc.Settings", "log_file"): W,
     ("Verilator.Settings", "sim_dir"): W,
+    ("Verilator.Settings", "vcd"): D,
     ("Verilator.Settings", "fst"): D,
     ("Verilator.Settings", "saif"): D,
     ("Vcs.Settings", "work_dir"): W,

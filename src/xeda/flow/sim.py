@@ -161,6 +161,19 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     return True
 
 
+def waveform_name(value: Any, extension: str) -> Any:
+    """A waveform setting as the name it stands for: `true` is `dump.<extension>`, `false` or an
+    empty name is none, and a name without an extension gets `.<extension>`. Anything else is
+    left as it is, for the field's own validation."""
+    if value is True:
+        return f"dump.{extension}"
+    if value is False or value == "":
+        return None
+    if isinstance(value, (str, Path)) and not Path(value).suffix:
+        return f"{value}.{extension}"
+    return value
+
+
 class SimFlow(Flow, metaclass=ABCMeta):
     """superclass of all simulation flows"""
 
@@ -208,13 +221,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         @field_validator("vcd", mode="before")
         @classmethod
         def _validate_vcd(cls, vcd):
-            if vcd is True:
-                return "dump.vcd"
-            if vcd is False or vcd == "":
-                return None
-            if isinstance(vcd, (str, Path)) and not Path(vcd).suffix:
-                return f"{vcd}.vcd"
-            return vcd
+            return waveform_name(vcd, "vcd")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
