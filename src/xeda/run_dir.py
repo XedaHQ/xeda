@@ -286,6 +286,25 @@ class RunDirectory:
                 return current
         return None
 
+    def named_within(self, path: str | os.PathLike) -> Path | None:
+        """`path` as a name relative to this run directory, if the run directory is `path` or one
+        of its parents -- by file-system identity (`st_dev`, `st_ino`), never by comparing
+        spellings, so another letter case or an alias of the run directory's path counts -- else
+        None. The name is what `path` says below that parent; it is not checked
+        (`inside` does that)."""
+        try:
+            own = os.stat(self.path)
+        except OSError:
+            return None
+        given = Path(os.path.abspath(path))
+        for parent in given.parents:
+            try:
+                if os.path.samestat(os.stat(parent), own):
+                    return given.relative_to(parent)
+            except OSError:
+                continue
+        return None
+
     def holds(self, path: str | os.PathLike) -> bool:
         """Whether `path` is inside the run directory (`inside`)."""
         try:

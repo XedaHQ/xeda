@@ -1132,8 +1132,10 @@ Waveforms follow Verilator's own rules. ``vcd``, ``fst`` and ``saif`` build the 
 trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one may be set. Without
 cocotb, Xeda writes no waveform: the testbench's ``$dumpfile`` and ``$dumpvars`` (or the design's
 own main) name and write the file, in the run directory, which is the model's working directory.
-Set the format to ``true``. A name or a location is an error before Verilator runs, because Xeda
-cannot know the name the testbench chooses. With cocotb, Xeda names the file (cocotb's
+Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` for ``vcd``);
+that name is accepted as "on", and the testbench's ``$dumpfile`` still chooses the file. Every
+other name and every location is an error before Verilator runs, because Xeda cannot know the
+name the testbench chooses. With cocotb, Xeda names the file (cocotb's
 ``--trace-file``): ``true`` writes ``dump.vcd``, and a location is delivered. A testbench that
 also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
 code gives all changes to the first writer. The trace options (``trace_underscore``,
@@ -1150,7 +1152,8 @@ Defaults and limits:
   it; Verilator then ignores delays and warns with ``STMTDLY`` for a delay on a statement
   (``#10;``) and
   ``ASSIGNDLY`` for one on an assignment. Such a warning does not fail the run, unless
-  ``warnings_fatal`` is set.
+  ``warnings_fatal`` is set. A delay that is ignored leaves no event to wait for, so a run
+  without ``$finish`` drains at once and fails; it does not wait for ``timeout``.
 * ``stop_time`` is an error in every mode, before anything runs. End the testbench with
   ``$finish``, or limit the run with ``timeout``.
 * ``generate_systemc`` needs ``main: false`` and the design's own ``sc_main`` among its C++
@@ -1159,11 +1162,11 @@ Defaults and limits:
   planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
   whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
   whitespace (``--run-root``).
-* Verilator 5.044 or newer is required. From 5.048, a ``$finish`` in a ``final`` block does not end
-  a run that drained; on 5.044 to 5.047 it counts as the end. Since the model runs under Verilator's main, ``--coverage``
-  in ``compile_args`` writes ``coverage.dat`` (a link or file left at that name is removed before the run), and, from
-  Verilator 5.048, VPI start-up routines run
-  with ``vpi: true``.
+* Verilator 5.048 or newer is required. A ``$finish`` in a ``final`` block does not end a run that
+  drained: it fails, as it does without the block. Since the model runs under Verilator's main,
+  ``--coverage`` in ``compile_args`` writes ``coverage.dat`` (a link or file left at that name, or
+  at the name ``+verilator+coverage+file+`` gives, is removed before the run), and VPI start-up
+  routines run with ``vpi: true``. ``bsc_sim`` with Verilator needs 5.044 or newer.
 
 Writing a new flow
 ==================
@@ -1189,6 +1192,12 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
 ``parse_reports()`` (optional)
     Populates ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()``,
     ``parse_xml()``.
+
+A flow that refuses a design overrides ``check_design_supported(cls, design, settings=None)``, and
+a simulator that needs no ``tb.top`` for some designs overrides
+``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an
+optional second argument, which every launch passes. An override with the old signature, which
+takes the design alone, fails with a ``TypeError`` when the launch is planned: add the argument.
 
 Registration is automatic: ``Flow.__init_subclass__`` derives the flow name from the class name
 (``VivadoSynth`` -> ``vivado_synth``) and registers it, with any extra names listed in ``aliases``.

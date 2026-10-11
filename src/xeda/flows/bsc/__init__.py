@@ -60,6 +60,9 @@ __all__ = [
 #: `-sched-conditions` on by default, stopped generalizing untyped `let`s, removed `-cross-info`,
 #: and made Bluesim exit with a failure status on `$fatal`; 2026.07.1 is its bug-fix release.
 MIN_BSC_VERSION: tuple[int, ...] = (2026, 7, 1)
+#: The oldest Verilator that `bsc_sim` links xeda's runtime hooks into. bsc's own driver runs the
+#: model, so the floor of the `verilator` flow (Verilator's `--main`) does not apply.
+MIN_BSC_VERILATOR_VERSION: tuple[int, ...] = (5, 44)
 
 #: "bluesim", or a Verilog simulator `bsc -vsim` links a model for (`$BLUESPECDIR/exec`).
 SimulatorName = Literal[
@@ -1613,14 +1616,12 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _verilator(self) -> Tool:
-        """Require the same runtime-hook capability as standalone Verilator."""
-        from ..verilator import MIN_VERILATOR_VERSION
-
+        """Require the Verilator release xeda's runtime hooks are built for."""
         tool = self.bsc.derive(
             "verilator",
             version_flag=["--version"],
             version_regexps=[r"Verilator (?P<version>\d+(?:\.\d+)+)"],
-            minimum_version=MIN_VERILATOR_VERSION,
+            minimum_version=MIN_BSC_VERILATOR_VERSION,
         )
         # derive copies a model; it does not run Tool's constructor/version check.
         tool.require_minimum_version()

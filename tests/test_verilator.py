@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import json
-import re
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -70,14 +68,6 @@ def test_verilator_cocotb_verdict(tmp_path: Path, expected: int, success: bool) 
     assert flow.results["cocotb.failures"] == (0 if success else 1)
     # cocotb's output is not piped (it keeps its terminal and colors): its results decide
     assert not (flow.run_path / flow.settings.sim_dir / "sim.log").exists()
-
-
-def _verilator_version() -> tuple[int, ...]:
-    """The installed Verilator's version, as the numbers of its `--version` line."""
-    text = subprocess.run(["verilator", "--version"], capture_output=True, text=True).stdout
-    match = re.search(r"Verilator (\d+)\.(\d+)", text)
-    assert match, text
-    return int(match.group(1)), int(match.group(2))
 
 
 def _launch(
@@ -315,11 +305,9 @@ def test_a_drained_run_fails_and_has_no_time(tmp_path):
 
 def test_a_finish_in_a_final_block_does_not_end_a_drained_run(tmp_path):
     """The `final` block runs after the simulation ended. Its `$finish` is no end of the
-    simulation: the run drained, and fails. Verilator reports that it is in a `final` block from
-    5.048; before, the hooks count such a `$finish` as the end (documented)."""
+    simulation: the run drained, and fails. The context reports a running `final` block from
+    Verilator 5.048, the flow's floor."""
     require_verilator()
-    if _verilator_version() < (5, 48):
-        pytest.skip("Verilator reports a `final` block from 5.048")
     flow = _launch(tmp_path, "initial begin #10; end final $finish;", {"timing": True})
     assert flow.results["sim.ended_by"] == "drained"
     assert not flow.succeeded
@@ -421,7 +409,7 @@ def test_verilator_defaults_do_not_randomize(tmp_path):
     ss = Verilator.Settings()
     assert ss.random_init is False and ss.x_initial == "0" and ss.x_assign == "0"
     assert ss.fail_severity == "error"
-    assert MIN_VERILATOR_VERSION == (5, 44)
+    assert MIN_VERILATOR_VERSION == (5, 48)
 
 
 def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
@@ -841,10 +829,39 @@ def test_a_coverage_file_named_through_a_link_that_leads_out_is_refused(tmp_path
     assert (outside / "r.dat").read_text() == "not xeda's"
 
 
-def test_an_untimed_run_that_never_finishes_drains_at_once(tmp_path):
-    """Without `timing`, Verilator's main leaves its loop when no event is left: the run drained
-    and fails, and does not wait for the wall-clock `timeout`."""
+@pytest.mark.parametrize(
+    "body",
+    ['initial $display("done");', "reg clk = 0; always #5 clk = ~clk;"],
+    ids=["nothing_to_do", "ignored_delay"],
+)
+def test_an_untimed_run_that_never_finishes_drains_at_once(tmp_path, body):
+    """Without `timing`, Verilator's main leaves its loop when no event is left (a delay is
+    ignored): the run drained and fails, and does not wait for the wall-clock `timeout`."""
     require_verilator()
-    flow = _launch(tmp_path, 'initial $display("done");', {"timing": False, "timeout": 60})
+    flow = _launch(tmp_path, body, {"timing": False, "timeout": 60})
     assert flow.results["sim.ended_by"] == "drained"
     assert not flow.succeeded
+
+
+def test_a_coverage_file_is_found_in_the_run_directory_under_another_letter_case(tmp_path):
+    """The run directory is told by file-system identity, not by how its path is spelled: on a
+    volume that ignores letter case, the full path of a coverage file under another spelling of
+    the run directory is still a file of it, and a link left at that name is removed as itself."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    respelled = flow.run_path.with_name(flow.run_path.name.upper())
+    if not respelled.exists():
+        pytest.skip("this file system distinguishes letter case")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{respelled / 'cov.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov.dat").is_file() and not (flow.run_path / "cov.dat").is_symlink()

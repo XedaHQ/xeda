@@ -94,9 +94,11 @@ def parse_end_record(path: Path) -> SimEvidence:
 COVERAGE_FILE = "coverage.dat"
 COVERAGE_FILE_ARGUMENT = "+verilator+coverage+file+"
 
-#: The oldest Verilator xeda drives. From 5.044, the main that `--main` generates passes
-#: `--threads` to the model's context; before, the model ran one thread for each CPU.
-MIN_VERILATOR_VERSION = (5, 44)
+#: The oldest Verilator the flow drives. From 5.048, the context reports that a `final` block is
+#: running (`executingFinal()`), which the hooks need to tell the end of the simulation from a
+#: `$finish` in a `final` block. From 5.044, the main that `--main` generates passes `--threads` to
+#: the model's context.
+MIN_VERILATOR_VERSION = (5, 48)
 
 #: The trace formats, by the setting that selects each (Verilator's `--trace-<format>`).
 TRACE_FORMATS = ("vcd", "fst", "saif")
@@ -109,8 +111,8 @@ class VerilatorTool(Tool):
     executable: str = "verilator"
     minimum_version: Optional[Tuple[Union[int, str], ...]] = MIN_VERILATOR_VERSION
     minimum_version_reason: ClassVar[str] = (
-        "Before 5.044, the main that `--main` generates runs the model with one thread for each "
-        "CPU, whatever `--threads` says."
+        "Before 5.048, xeda's hooks cannot tell a `$finish` in a `final` block from the end of "
+        "the simulation, so a run that drained could pass."
     )
 
 
@@ -376,8 +378,9 @@ class Verilator(SimFlow):
                 raise FlowSettingsException(
                     f"`{name}` names a waveform file, but without cocotb xeda writes no "
                     "waveform: the testbench's `$dumpfile` (or the design's own C++ main) names "
-                    f"and writes the file. Set `{name}: true` to build the model with "
-                    f"{name.upper()} tracing, and call `$dumpfile` and `$dumpvars` in the testbench"
+                    f"and writes the file. Set `{name}: true` (stored as `dump.{name}`, the only "
+                    f"name accepted) to build the model with {name.upper()} tracing, and call "
+                    "`$dumpfile` and `$dumpvars` in the testbench"
                 )
 
     def always_runs(self) -> Optional[str]:
@@ -722,16 +725,12 @@ class Verilator(SimFlow):
             for arg in model_args
             if arg.startswith(COVERAGE_FILE_ARGUMENT)
         ]
-        # the run directory by every name it has: as given, and as the file system resolves it
-        bases = unique([os.path.abspath(self.run_path), os.path.realpath(self.run_path)])
         for name in names:
-            located = os.path.abspath(self.run_path / name)
-            for base in bases:
-                if os.path.commonpath([located, base]) == base:
-                    # a name lexically in the run directory, given in full or not: refused when
-                    # a link on the way leads out
-                    self.run_directory.remove(self.run_path / os.path.relpath(located, base))
-                    break
+            within = self.run_directory.named_within(self.run_path / name)
+            if within is not None:
+                # a name in the run directory, however it is spelled: refused when a link on the
+                # way leads out
+                self.run_directory.remove(self.run_path / within)
             # else a location the user chose outside the run directory is the user's own
 
     def rm_dep_files(self):

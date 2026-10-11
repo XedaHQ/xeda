@@ -1968,11 +1968,12 @@ dependency must also share `custom_boards_file`.
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
   top; `stop_time` is rejected in every mode by `check_settings_supported` (also run in `init()`);
-  minimum Verilator 5.044 (`VerilatorTool`: from there Verilator's main passes `--threads` to the
-  context).
+  minimum Verilator 5.048 (`VerilatorTool`: the hooks need `executingFinal()`; `bsc_sim` keeps
+  `bsc.MIN_BSC_VERILATOR_VERSION`, 5.044, as it runs bsc's own driver).
   Waveforms follow Verilator's own rules and xeda never opens one: `vcd`/`fst`/`saif` only compile
   tracing in with that format (`--trace-<format>`; one at most, `check_settings_supported`), and
-  `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`). Without cocotb
+  `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`, so that name is
+  accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
   the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
   name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through
   `--trace-file` and a location is delivered. The trace options default to Verilator's own
@@ -1981,9 +1982,9 @@ dependency must also share `custom_boards_file`.
   almost no changes).
   Before the model runs, `_free_model_outputs` removes `coverage.dat` (Verilator's main writes it
   with `--coverage`) and the file `+verilator+coverage+file+` names, as themselves: a link a tool
-  left there is never written through. A `$finish` in a `final` block ends nothing (hooks, from
-  Verilator 5.048): the run stays `drained`. Known limit: on 5.044 to 5.047 such a `$finish`
-  counts as the end (raise the floor to 5.048 to close it). A relative `+verilator+coverage+file+`
+  left there is never written through. A `$finish` in a `final` block ends nothing (hooks, `executingFinal()`): the run stays
+  `drained`. A coverage name is told to lie in the run directory by file-system identity
+  (`RunDirectory.named_within`), so another letter case or alias of the run directory counts. A `+verilator+coverage+file+`
   name behind a link that leads out is refused (`RunDirectoryError`).
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
