@@ -11,6 +11,7 @@ from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner, default_runner
 from xeda.dataclass import Field
 from xeda.proc_utils import run_process
+from xeda.flow_runner.trace_inputs import registered_input_files
 from xeda.flows import xilinx
 
 from . import tool_utils
@@ -29,13 +30,19 @@ class _ChipdbTaker(_Taker):
         nextpnr: Path | None = Field(None, description="The installed nextpnr binary.")
         chipdb: Path | None = Field(None, description="An explicit read-only chip database.")
 
-    def prepare_inputs(self):
+    def _layout(self):
         assert self.settings.nextpnr is not None
+        layout = xilinx.find_xilinx_layout(self.settings.nextpnr, chipdb=self.settings.chipdb)
+        return layout, xilinx.select_xilinx("xc7a100tcsg324-1", layout)
+
+    def locate_prepared_inputs(self):
+        located = xilinx.locate_chipdb(*self._layout(), self.run_directory)
+        return None if located is None else [located]
+
+    def prepare_inputs(self):
         assert self.inputs.made.read_text() == "made\n"
         assert _probe(self.inputs.made.parent) == "blocked"
-        layout = xilinx.find_xilinx_layout(self.settings.nextpnr, chipdb=self.settings.chipdb)
-        selection = xilinx.select_xilinx("xc7a100tcsg324-1", layout)
-        self.chipdb = xilinx.prepare_chipdb(layout, selection, self.run_directory)
+        self.chipdb = xilinx.prepare_chipdb(*self._layout(), self.run_directory)
         self.implicit_inputs.append(self.chipdb)
 
     def run(self):
@@ -371,3 +378,60 @@ def test_execution_order_keeps_preparation_before_snapshot_and_start(tmp_path, m
     monkeypatch.setattr(_Taker, "run", run)
     DefaultRunner(tmp_path / "run", display_results=False).launch_flow(_Taker, design, {})
     assert events == ["init", "hand-over and prepare", "expectation", "snapshot", "start", "run"]
+
+
+# --------------------------------------------------------------------- where it is, unmade
+
+
+def _dry(tmp_path, generation, settings=None):
+    """What a launch of the chip database taker would do with each node, without doing it."""
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(generation[1].run_root, display_results=False)
+    return runner.plan_with_freshness(
+        _ChipdbTaker,
+        design,
+        flow_settings={"nextpnr": generation[0] / "bin/nextpnr-himbaechel", **(settings or {})},
+    )[1]
+
+
+def test_a_flow_that_prepares_inputs_says_where_they_are_without_making_them(tmp_path, generation):
+    """The located paths are what preparation registers, and locating writes nothing: before
+    anything is made the chip database is not there (None), and after it is, it is that one."""
+    from .write_audit import writes_seen
+
+    first = _launch_cache(tmp_path, generation)
+    registered = registered_input_files(first)
+    writes: list[str] = []
+    with writes_seen(writes):
+        located = first.locate_prepared_inputs()
+    assert located == [Path(first.results["chipdb"])] and registered == located
+    assert writes == []
+    # another device data: the identity moves, its entry is not made, the answer is "not yet"
+    (generation[0] / "share/nextpnr/himbaechel/uarch/xilinx/constids.inc").write_text("new content")
+    with writes_seen(writes):
+        assert first.locate_prepared_inputs() is None
+    assert writes == []
+
+
+def test_a_dry_run_judges_a_node_by_its_located_prepared_input(tmp_path, generation):
+    first = _launch_cache(tmp_path, generation)
+    assert _launch_cache(tmp_path, generation).reused
+    states = _dry(tmp_path, generation)
+    assert states[_ChipdbTaker.name].state == "fresh", states
+    (generation[0] / "share/nextpnr/himbaechel/uarch/xilinx/constids.inc").write_text("new content")
+    said = _dry(tmp_path, generation)[_ChipdbTaker.name]
+    assert said.state == "unknown" and "not made yet" in said.reason, said
+    # the launch makes it, and runs
+    second = _launch_cache(tmp_path, generation)
+    assert not second.reused and second.results["chipdb"] != first.results["chipdb"]
+    assert _dry(tmp_path, generation)[_ChipdbTaker.name].state == "fresh"
+
+
+def test_a_flow_whose_preparation_registers_other_than_it_locates_is_refused(
+    tmp_path, generation, monkeypatch
+):
+    """A dry run judges by the located inputs, so a launch checks that preparation registered
+    exactly those."""
+    monkeypatch.setattr(_ChipdbTaker, "locate_prepared_inputs", lambda self: [])
+    with pytest.raises(FlowFatalError, match="locate_prepared_inputs"):
+        _launch_cache(tmp_path, generation)

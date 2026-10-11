@@ -210,6 +210,10 @@ def probes():
                 description="The producer's declared file.",
             )
 
+        def locate_prepared_inputs(self):
+            # a flow that registers what it was handed: only once it has been handed
+            return [self.inputs.out] if self.inputs.out is not None else []
+
         def prepare_inputs(self) -> None:
             self.implicit_inputs.append(self.inputs.out)
             _edit_during_run("prepared")

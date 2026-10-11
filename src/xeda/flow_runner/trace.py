@@ -460,6 +460,7 @@ def check_trace(
     locate: Callable[[str], Optional[str]],
     *,
     refresh: bool = True,
+    edge: bool = True,
 ) -> Freshness:
     """Re-verify the trace in `run_dir` against `expected`; the first failing check is the
     reason. Files count as unchanged by their metadata when `FileRecord.trusted` says it is
@@ -472,7 +473,9 @@ def check_trace(
     marker can be written there (a read-only run directory), the check goes on and refreshes
     nothing: a refresh only spares later checks a hash, and without one they read the file
     again. With `refresh=False`, validation is read-only, including the clock probe, so reusing
-    a producer does not invalidate another consumer's pending completion evidence."""
+    a producer does not invalidate another consumer's pending completion evidence. With
+    `edge=False` what the producers handed over is not compared (a dry run that does not know
+    it yet judges everything else)."""
     found = read_trace(run_dir)
     if found is None:
         recorded = _recorded_format(run_dir)
@@ -601,9 +604,13 @@ def check_trace(
         return Freshness(False, "design changed (top, parameters, defines or other metadata)")
     # last: everything above is known without the producers, so a flow stale for its own
     # reasons says so whatever they did
-    edge, equivalent = changed_edge(expected.flow, trace.declared_inputs, expected.declared_inputs)
-    if edge is not None:
-        return Freshness(False, edge)
+    equivalent: tuple[str, ...] = ()
+    if edge:
+        changed, equivalent = changed_edge(
+            expected.flow, trace.declared_inputs, expected.declared_inputs
+        )
+        if changed is not None:
+            return Freshness(False, changed)
     checked_ns = clock[0] if clock else None
     # Refreshed, a record read now is trusted by its metadata from `checked_ns` on: worth
     # writing when it changed, or when the file has settled since -- a record that was racy

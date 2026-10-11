@@ -1127,7 +1127,18 @@ class Flow(metaclass=ABCMeta):
         Producer inputs are filled and held for reading. This stage runs even on a fresh
         launch; it must not write the flow's run directory. Register resolved files in
         ``implicit_inputs`` so freshness and delivery reservations see them before execution.
+        What it registers, `locate_prepared_inputs` says without making anything.
         """
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The files `init()` and `prepare_inputs()` register in `implicit_inputs`, found by the
+        settings, the design and the declared inputs that are design sources alone: it writes
+        nothing, starts no process and reads no producer's file. None if one is not made yet (a
+        chip database no run has generated), then the files of a launch do not exist to be
+        compared. A dry run judges freshness with it, on a flow that was not initialized;
+        the launch asks it after `prepare_inputs()` and refuses a flow whose registrations are
+        not exactly these (`tests/test_prepare_inputs.py`)."""
+        return []
 
     @classmethod
     def _create_jinja_env(

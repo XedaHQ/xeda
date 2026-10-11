@@ -617,6 +617,28 @@ def _generate_chipdb(
     return binary
 
 
+def locate_chipdb(
+    layout: XilinxLayout, selection: XilinxSelection, run_directory: RunDirectory
+) -> Path | None:
+    """Where `prepare_chipdb` leaves the chip database of `selection`, if it is there: an explicit
+    chipdb, validated; else the cache entry of the identity of the installation and the device
+    data, whose manifest is not read (a hit validates it, `prepare_chipdb`). None if nothing is
+    there, or the run root is not a marked one: a launch would generate it. Reads files to
+    form the identity; writes nothing and starts no program."""
+    if layout.chipdb is not None:
+        validate_chipdb(layout.chipdb, selection)
+        return layout.chipdb
+    root = run_directory.run_root
+    if root is None or not is_run_root(root):
+        return None
+    owner = RunDirectory(root, root)
+    entry = _cache_path(
+        owner,
+        _cache_path(owner, root / ".cache/xilinx-chipdb") / chipdb_identity(layout, selection).key,
+    )
+    return entry / f"{selection.fabric}.bin" if entry.exists() else None
+
+
 def prepare_chipdb(
     layout: XilinxLayout, selection: XilinxSelection, run_directory: RunDirectory
 ) -> Path:

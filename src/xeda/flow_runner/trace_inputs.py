@@ -438,6 +438,13 @@ def registered_input_files(flow: Flow) -> list[Path]:
     return _existing_files(flow.implicit_inputs, flow.run_path)
 
 
+def located_input_files(flow: Flow) -> Optional[list[Path]]:
+    """The existing files `flow.locate_prepared_inputs()` says its preparation registers, resolved,
+    in the form `registered_input_files` gives them; None if it says some is not made yet."""
+    located = flow.locate_prepared_inputs()
+    return None if located is None else _existing_files(located, flow.run_path)
+
+
 def installation_prefixes(programs: Sequence[str]) -> list[Path]:
     """The installation prefix of each host program among `programs`: the directory above the
     `bin/` its resolved executable lies in. A container image has none (its paths are not host
@@ -522,26 +529,30 @@ def flow_code_digest(flow_class: Type[Flow]) -> str:
 
 
 def candidate_inputs(
-    flow: Flow,
+    flow_class: type[Flow],
+    run_path: Path,
     design: Design,
     input_settings: Flow.Settings,
+    registered: Sequence[Path],
+    records: Sequence[DeclaredInputRecord],
     run_root: Optional[Path] = None,
 ) -> List[Path]:
     """Every existing file the run would consume that can be named before it runs: the
     design's files, the files its settings name and every file under a directory they name
     (`setting_directory_files`), the design sources its declared inputs take
-    (`source_input_files`), and the files the flow registered in `init()` or `prepare_inputs()`
-    (`registered_input_files`) -- xeda's own bookkeeping files in its run directory excepted.
-    What its producers handed over is no file of its own: the edge records it (`BoundProducer`)."""
-    bookkeeping = bookkeeping_files(flow.run_path)
-    handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
+    (`source_input_files` of the `records`), and the files the flow registered in `init()` or
+    `prepare_inputs()` (`registered`, as `registered_input_files` finds them) -- xeda's own
+    bookkeeping files in its run directory excepted. What its producers handed over is no file
+    of its own: the edge records it (`BoundProducer`)."""
+    bookkeeping = bookkeeping_files(run_path)
+    handed = {Path(path).resolve() for path in handed_paths(records)}
     files = {
         # the parts of the design this flow reads, not the whole design
-        *design_files(design, type(flow).design_parts, type(flow).design_scope(input_settings)),
+        *design_files(design, flow_class.design_parts, flow_class.design_scope(input_settings)),
         *setting_files(input_settings),
-        *setting_directory_files(input_settings, flow.run_path, run_root),
-        *registered_input_files(flow),
-        *source_input_files(flow),
+        *setting_directory_files(input_settings, run_path, run_root),
+        *_existing_files(registered, run_path),
+        *source_input_files(records),
     }
     return sorted(files - bookkeeping - handed)
 
@@ -560,12 +571,53 @@ def handed_paths(records: Sequence[DeclaredInputRecord]) -> set[str]:
     return {entry.path for record in records for ref in record.references for entry in ref.entries}
 
 
-def source_input_files(flow: Flow) -> list[Path]:
-    """The files of the flow's declared inputs that come from the design's sources: the selected
-    paths without those a producer handed over (`handed_paths`). A file handed over is never a
-    file record of the consumer."""
-    handed = handed_paths(getattr(flow, "declared_input_records", ()))
-    return [path for path in declared_input_files(flow) if str(path) not in handed]
+def source_input_files(records: Sequence[DeclaredInputRecord]) -> list[Path]:
+    """The files of the declared inputs that come from the design's sources: the paths the
+    `records` list, without those a producer handed over (`handed_paths`). A file handed over is
+    never a file record of the consumer."""
+    handed = handed_paths(records)
+    return [Path(path) for record in records for path in record.paths if path not in handed]
+
+
+def expected_run(
+    *,
+    flow_class: type[Flow],
+    name: str,
+    flowrun_hash: str,
+    settings_hash: str,
+    design_hash: str,
+    run_path: Path,
+    design: Design,
+    input_settings: Flow.Settings,
+    run_root: Path,
+    registered: Sequence[Path],
+    declared: Sequence[DeclaredInputRecord],
+    dependency_run_ids: Mapping[str, str],
+) -> Expectation:
+    """What a run of a flow would consume now, from explicit data: the one function the launch
+    (`expectation`) and the dry run (`plan_freshness`) both judge by, so they cannot drift.
+    `input_settings` is the launcher's own (never modified by the flow). `registered` are the
+    files the flow registers in `init()` and `prepare_inputs()` (`Flow.locate_prepared_inputs`
+    says where they are without making them), `declared` its input records with what the
+    producers handed over, and `dependency_run_ids` the runs consumed, as provenance."""
+    return Expectation(
+        flow=name,
+        flowrun_hash=flowrun_hash,
+        design_hash=design_hash,
+        xeda_version=__version__,
+        xeda_code=xeda_code_digest(),
+        flow_code=flow_code_digest(flow_class),
+        inputs=tuple(
+            candidate_inputs(
+                flow_class, run_path, design, input_settings, registered, declared, run_root
+            )
+        ),
+        settings=as_recorded(input_settings),
+        setting_locations=setting_locations(input_settings, run_path),
+        dependency_runs=dict(dependency_run_ids),
+        declared_inputs=tuple(declared),
+        settings_hash=settings_hash,
+    )
 
 
 def expectation(
@@ -587,19 +639,19 @@ def expectation(
     registered, including those resolved by `prepare_inputs` after hand-over.
     """
     assert flow.flow_hash is not None and flow.design_hash is not None
-    return Expectation(
-        flow=flow.name,
+    return expected_run(
+        flow_class=type(flow),
+        name=flow.name,
         flowrun_hash=flow.flow_hash,
-        design_hash=flow.design_hash,
-        xeda_version=__version__,
-        xeda_code=xeda_code_digest(),
-        flow_code=flow_code_digest(type(flow)),
-        inputs=tuple(candidate_inputs(flow, design, input_settings, run_root)),
-        settings=as_recorded(input_settings),
-        setting_locations=setting_locations(input_settings, flow.run_path),
-        dependency_runs=dependency_runs(producers, run_root),
-        declared_inputs=getattr(flow, "declared_input_records", ()),
         settings_hash=flow.settings_hash or "",
+        design_hash=flow.design_hash,
+        run_path=flow.run_path,
+        design=design,
+        input_settings=input_settings,
+        run_root=run_root,
+        registered=flow.implicit_inputs,
+        declared=getattr(flow, "declared_input_records", ()),
+        dependency_run_ids=dependency_runs(producers, run_root),
     )
 
 

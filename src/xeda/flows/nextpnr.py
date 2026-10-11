@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
@@ -27,7 +28,14 @@ from ..tool import NonZeroExitCode, Tool
 from ..run_dir import RunDirectory
 from ..utils import replacing_file, setting_flag
 from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, reconcile_clocks
-from .xilinx import find_xilinx_layout, prepare_chipdb, select_xilinx
+from .xilinx import (
+    XilinxLayout,
+    XilinxSelection,
+    find_xilinx_layout,
+    locate_chipdb,
+    prepare_chipdb,
+    select_xilinx,
+)
 
 __all__ = ["Nextpnr"]
 
@@ -36,6 +44,16 @@ log = logging.getLogger(__name__)
 
 #: How many of the error lines in nextpnr's log a failure it does not classify quotes.
 ERRORS_SHOWN = 5
+
+
+@dataclass(frozen=True)
+class _BoardFallback:
+    """Where a board's pin file is (`Nextpnr._locate_board_input`)."""
+
+    path: Optional[Path] = None
+    url: Optional[str] = None
+    #: what the file holds, for a board file of the package that is copied into the cache
+    content: Optional[bytes] = None
 
 
 class NextpnrTool(Tool):
@@ -681,7 +699,23 @@ class Nextpnr(FpgaSynthFlow):
         if self.io_family(self.settings) == "xilinx":
             self._prepare_chipdb()
 
-    def _prepare_chipdb(self) -> None:
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The board's pin file and, for a Xilinx target, the chip database, where
+        `prepare_inputs` leaves them (nothing is made here): None if either is not made yet."""
+        located = []
+        board = self._locate_board_input()
+        if board.path is not None:
+            if not board.path.is_file():
+                return None
+            located.append(board.path)
+        if self.io_family(self.settings) == "xilinx":
+            chipdb = self._locate_chipdb()
+            if chipdb is None:
+                return None
+            located.append(chipdb)
+        return located
+
+    def _xilinx_layout_and_selection(self) -> tuple[XilinxLayout, XilinxSelection]:
         assert isinstance(self.settings, self.Settings)
         assert self.settings.fpga is not None
         executable = which("nextpnr-himbaechel")
@@ -700,21 +734,28 @@ class Nextpnr(FpgaSynthFlow):
                 else None
             ),
         )
-        selection = select_xilinx(self.settings.fpga.part or "", layout)
+        return layout, select_xilinx(self.settings.fpga.part or "", layout)
+
+    def _locate_chipdb(self) -> Optional[Path]:
+        layout, selection = self._xilinx_layout_and_selection()
+        return locate_chipdb(layout, selection, self.run_directory)
+
+    def _prepare_chipdb(self) -> None:
+        layout, selection = self._xilinx_layout_and_selection()
         self._xilinx_layout = layout
         self._xilinx_selection = selection
         self._chipdb = prepare_chipdb(layout, selection, self.run_directory)
         self.implicit_inputs.append(self._chipdb)
 
-    def _prepare_board_inputs(self) -> None:
-        """Select board fallback paths before freshness, without writing the run directory."""
+    def _locate_board_input(self) -> "_BoardFallback":
+        """Where the board's pin file is, when the design supplies none: a local file, a board
+        file of the package (copied once into the run root's cache, where `content` says what
+        it holds), or a URL, which is fetched when the flow runs. Nothing is written."""
         assert isinstance(self.settings, self.Settings)
         assert isinstance(self.inputs, self.Inputs)
-        self._pin_inputs = list(self.inputs.constraints or [])
-        self._board_url = None
         kind = self._constraint_kind()
-        if self._pin_inputs or kind is None:
-            return
+        if list(self.inputs.constraints or []) or kind is None:
+            return _BoardFallback()
         board_data = self.settings.board_data()
         name = board_data.get(kind) if board_data else None
         if not isinstance(name, str) or not name:
@@ -722,37 +763,55 @@ class Nextpnr(FpgaSynthFlow):
                 raise FlowFatalError(
                     "Xilinx nextpnr needs typed Xdc files in rtl.sources or a board with an xdc fallback."
                 )
-            return
+            return _BoardFallback()
         parsed = urlparse(name)
         if parsed.scheme and parsed.netloc:
-            self._board_url = name
-            return  # always-run; fetch only after freshness/snapshot, inside run-local scratch
+            return _BoardFallback(url=name)  # always-run; fetched after freshness, in scratch
         if self.settings.custom_boards_file:
-            path = self.settings.custom_boards_file.parent / name
-        else:
-            resource = files("xeda.data").joinpath(name)
-            if isinstance(resource, Path):
-                path = resource
-            else:
-                content = resource.read_bytes()
-                digest = hashlib.sha3_256(content).hexdigest()[:32]
-                root = self.run_directory.run_root
-                if root is None:
+            return _BoardFallback(path=self.settings.custom_boards_file.parent / name)
+        resource = files("xeda.data").joinpath(name)
+        if isinstance(resource, Path):
+            return _BoardFallback(path=resource)
+        content = resource.read_bytes()
+        digest = hashlib.sha3_256(content).hexdigest()[:32]
+        root = self.run_directory.run_root
+        if root is None:
+            raise FlowFatalError(
+                "An archive board fallback needs an owned run root; supply a claimed scratch RunDirectory when constructing a flow directly."
+            )
+        return _BoardFallback(
+            path=root / ".cache" / "board-files" / digest / Path(name).name, content=content
+        )
+
+    def _prepare_board_inputs(self) -> None:
+        """Select board fallback paths before freshness, without writing the run directory."""
+        assert isinstance(self.settings, self.Settings)
+        assert isinstance(self.inputs, self.Inputs)
+        self._pin_inputs = list(self.inputs.constraints or [])
+        self._board_url = None
+        board = self._locate_board_input()
+        if board.url is not None:
+            self._board_url = board.url
+            return
+        path = board.path
+        if path is None:
+            return
+        if board.content is not None:
+            root = self.run_directory.run_root
+            assert root is not None
+            cache = RunDirectory.claimed(path.parent, root)
+            cache.path.mkdir(parents=True, exist_ok=True)
+            path = cache.writable(path.name)
+            if path.is_file():
+                if path.read_bytes() != board.content:
                     raise FlowFatalError(
-                        "An archive board fallback needs an owned run root; supply a claimed scratch RunDirectory when constructing a flow directly."
+                        f"Corrupt board file cache entry {path}; remove it and rerun."
                     )
-                cache = RunDirectory.claimed(root / ".cache" / "board-files" / digest, root)
-                cache.path.mkdir(parents=True, exist_ok=True)
-                path = cache.writable(Path(name).name)
-                if path.is_file():
-                    if path.read_bytes() != content:
-                        raise FlowFatalError(
-                            f"Corrupt board file cache entry {path}; remove it and rerun."
-                        )
-                else:
-                    with replacing_file(path, "wb") as stream:
-                        stream.write(content)
+            else:
+                with replacing_file(path, "wb") as stream:
+                    stream.write(board.content)
         if not path.is_file():
+            kind = self._constraint_kind()
             raise FlowFatalError(
                 f"Board {self.settings.board!r} {kind} fallback does not exist: {path}"
             )
