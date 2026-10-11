@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
+from xeda.flow import FlowFatalError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 from xeda.run_dir import RunDirectoryError
@@ -915,3 +915,34 @@ def test_a_coverage_file_named_through_an_alias_in_another_letter_case_is_freed(
     assert flow.succeeded
     assert outside.read_text() == "not xeda's"
     assert (flow.run_path / "cov" / "result.dat").is_file()
+
+
+def test_a_coverage_name_with_dotdot_is_refused(tmp_path):
+    """`cov/../r.dat` means a different file when `cov` is a link: the file xeda frees and the
+    file the model writes would differ, so the name is refused."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov/../r.dat"],
+    }
+    with pytest.raises(FlowSettingsException, match=r"has a `\.\.` in it"):
+        _launch(tmp_path, body, settings)
+
+
+def test_a_flow_built_directly_refuses_a_coverage_link_it_may_not_remove(tmp_path):
+    """In a directory no launcher chose, xeda deletes nothing. A link at the coverage file's name
+    would then be written through by the model, so the run is refused before it starts."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    run_path = tmp_path / "direct"
+    run_path.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (run_path / "coverage.dat").symlink_to(outside)
+    settings = Verilator.Settings.from_input({"build": False}, design_root=tmp_path)
+    flow = Verilator(settings, design, run_path)
+    with pytest.raises(FlowFatalError, match="deletes nothing"):
+        flow._free_model_outputs([])
+    assert outside.read_text() == "not xeda's"
+    assert (run_path / "coverage.dat").is_symlink()

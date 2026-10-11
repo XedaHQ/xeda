@@ -726,12 +726,28 @@ class Verilator(SimFlow):
             if arg.startswith(COVERAGE_FILE_ARGUMENT)
         ]
         for name in names:
+            if ".." in Path(name).parts:
+                # a `..` after a link leads elsewhere than its text does: the model and this check
+                # would name different files
+                raise FlowSettingsException(
+                    f"the coverage file {name} has a `..` in it: name it without, so that the "
+                    "file xeda frees is the file the model writes"
+                )
             within = self.run_directory.named_within(self.run_path / name)
-            if within is not None:
-                # a name in the run directory, however it is spelled: refused when a link on the
-                # way leads out
-                self.run_directory.remove(self.run_path / within)
-            # else a location the user chose outside the run directory is the user's own
+            if within is None:
+                continue  # a location the user chose outside the run directory is the user's own
+            # a name in the run directory, however it is spelled: refused when a link on the way
+            # leads out
+            located = self.run_path / within
+            self.run_directory.remove(located)
+            if os.path.islink(located) or (
+                os.path.lexists(located) and os.lstat(located).st_nlink > 1
+            ):
+                # a directory no launcher chose (a flow built directly): xeda deletes nothing there
+                raise FlowFatalError(
+                    f"{located} is a link, and xeda deletes nothing in {self.run_path}, which no "
+                    "launcher chose: the model would write through it. Remove the link"
+                )
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run

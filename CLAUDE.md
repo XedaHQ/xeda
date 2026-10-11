@@ -1985,7 +1985,9 @@ dependency must also share `custom_boards_file`.
   left there is never written through. A `$finish` in a `final` block ends nothing (hooks, `executingFinal()`): the run stays
   `drained`. A coverage name is told to lie in the run directory by file-system identity
   (`RunDirectory.named_within`), so another letter case or alias of the run directory counts. A `+verilator+coverage+file+`
-  name behind a link that leads out is refused (`RunDirectoryError`).
+  name behind a link that leads out is refused (`RunDirectoryError`), as is a name with `..` (the
+  model and the check would name different files), and a link left in a directory no launcher chose
+  (xeda deletes nothing there, so it refuses to start the model).
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
