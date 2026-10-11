@@ -558,6 +558,11 @@ def relations(tmp_path):
 
         results_description = {}
 
+    class _Src2(_Src):
+        """Makes another source."""
+
+        results_description = {}
+
     class _Sim(Flow):
         """Reads a netlist, a second one made with it and a file made from its source."""
 
@@ -616,6 +621,7 @@ def relations(tmp_path):
 
     return types.SimpleNamespace(
         src=_Src.name,
+        src2=_Src2.name,
         a=_SynthA.name,
         b=_SynthB.name,
         sim=_Sim.name,
@@ -701,3 +707,25 @@ def test_a_relation_groups_the_inputs_that_name_the_same_input_and_the_same_via(
     consumer = Node(report.name, report, {"act": item})
     moved = {name for _node, name in _involved(graph, consumer, declared_inputs(report)["ck"])}
     assert moved == {"ck", "net", "net2"}
+
+
+def test_advice_that_moves_a_synthesis_to_another_source_takes_a_second_step(relations):
+    """The advice sees the plan as it is. It moves `net` and `net2` to the other synthesis, and
+    it cannot know what that synthesis reads: here the user bound its `src` to another producer,
+    so `aux`, which follows `src`, breaks. The next refusal names the binding for `aux`, and
+    with it the plan passes."""
+    r = relations
+    given = [f"flows.{r.b}.inputs.src={r.src2}.src", f"flows.{r.report}.inputs.ck={r.b}.ck"]
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_report(*given)
+    advice = advice_of(" ".join(str(error.value).split()))
+    assert f"flows.{r.sim}.inputs.net={r.b}.net" in advice
+    assert not [item for item in advice if ".inputs.aux=" in item]
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_report(*given, *advice)
+    message = " ".join(str(error.value).split())
+    assert "`aux` must come from the producer of the `src`" in message
+    second = advice_of(message)
+    assert second == [f"flows.{r.sim}.inputs.aux={r.src2}.src"], message
+    planned = r.plan_report(*given, *advice, *second)
+    assert {node.name for node in planned.nodes} == {r.src2, r.b, r.sim, r.report}
