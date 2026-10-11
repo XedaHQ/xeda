@@ -90,7 +90,7 @@ def test_outputs_to_warns_when_a_simulation_delivers_no_waveform(tmp_path, monke
     use_fake_tools(monkeypatch)
     run_dir = tmp_path / "run"
     design = _design(tmp_path / "design")
-    with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.default_runner"):
+    with caplog.at_level(logging.WARNING, logger="xeda.flow_runner.launch_report"):
         flow = DefaultRunner(run_dir, outputs_to=tmp_path / "got").run_flow(Modelsim, design, {})
     assert flow is not None and flow.succeeded and flow.deliveries == []
     assert not (tmp_path / "got").exists()

@@ -62,11 +62,11 @@ from .default_runner import (
     FlowLauncher,
     FlowNotFoundError,
     _get_flow_class_if_known,
-    _refuse_outputs_to_a_programmer,
     get_flow_class,
     print_results,
     with_debug_logging,
 )
+from .launch_input import refuse_outputs_to_a_programmer
 from .resolver import Plan
 from .run_lock import run_dir_lock
 from .settings_layers import (
@@ -1062,7 +1062,7 @@ class RemoteRunner(FlowLauncher):
             outputs_to = self.settings.outputs_to
             if outputs_to is not None:
                 # before the mirror, the run root or a connection, as a local launch refuses it
-                _refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
+                refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
             return flow_class, flow_name, plan, input_settings, sections
 
         # What needs only the design's declarations is refused before a generator runs, as a

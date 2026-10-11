@@ -184,12 +184,12 @@ built directly takes it at construction). `Flow.wrote_output` counts an output a
 only if its state -- device, inode, size, mtime, ctime (`run_dir.record_output_state`) -- differs
 from the snapshot's, or the snapshot never saw it; one under a directory the snapshot could not
 read, or outside the run directory, has no known prior state, which is never proof. A failed run's
-`results.json` lists only the artifacts it wrote (`artifacts.drop_unwritten_artifacts`, from
-`_execute`), and a failed `--remote` run keeps only what the remote vouches its run wrote, judged
+`results.json` lists only the artifacts it wrote (`artifacts.drop_unwritten_artifacts`, called from
+`_launch`), and a failed `--remote` run keeps only what the remote vouches its run wrote, judged
 on the remote's own file system (`remote_runner`'s second message). A tool may leave symbolic
 links in its run directory: before the run, a working location whose own name is a link leading
 out of the run directory is removed as a link, never what it points to, and one reached through
-such a link is refused, naming it (`default_runner._free_working_locations`,
+such a link is refused, naming it (`launch_run.free_working_locations`,
 `RunDirectory.inside`); a delivery never expands a link to a directory outside the run directory,
 nor copies from a link that leads nowhere (`deliver._check_link`). xeda never writes through a
 link: a file goes through `utils.replacing_file`/`replacing_copy` (complete, then renamed over the
@@ -341,6 +341,26 @@ Four orthogonal abstractions, deliberately decoupled:
 - **`Tool`** (`tool.py`) - an executable, runnable natively, in Docker (`Docker` model), or remotely.
 - **`FlowLauncher`/`FlowRunner`** (`flow_runner/default_runner.py`) - orchestrates instantiation,
   dependency resolution, run-dir management, caching, and result reporting.
+  `default_runner.py` holds the launch skeleton (`launch_flow`, `_launch`, `_finish_launch`), the
+  launch state, the delivery checks, the clean-up and the request layer (`run`, `plan`,
+  `_request`, `resolve`, `_validate_plan`). Each stage of a launch is a module of free
+  functions with explicit arguments: `launch_input.py` (settings in context, `--outputs-to`
+  refusals), `launch_identity.py` (hashes, run path, `RunDirPolicy`, claim), `launch_producers.py`
+  (`run_producers`; it calls back into `launch_flow` and the read lease through `Protocol`s it
+  declares), `launch_run.py` (`execute`, working locations, `refuse_inputs_inside`),
+  `launch_report.py` (results, artifacts table, `print_results`) and `scrub.py` (`xeda scrub` and
+  `--scrub`). **No stage module imports `default_runner`**
+  (`tests/test_launcher_modules.py`, which also lists every name `default_runner` once defined,
+  `NAMES_BEFORE_THE_SPLIT`, and requires each to stay importable). `MOVED_NAMES` holds only the
+  names that moved to a stage module and that the launcher does not use itself: `__getattr__`
+  keeps them importable, and the module refuses to have one of them set, so a test cannot patch a
+  name nothing looks up there. The compatibility surface is the names `default_runner` defined,
+  not what it imported. The prepare and freshness stages are in
+  `_launch` itself, because they share its locals. A test patches a name on the module whose
+  code looks it up: `tests/test_patch_targets.py` fails a patch of a name on `default_runner`
+  that only tests read, and launches real flows (a run that raises, a tool that exits nonzero) to
+  see that `scrub_runs`, `expectation`, `snapshot_inputs`, `write_trace` and
+  `_drop_unwritten_artifacts` are looked up in `default_runner` by the skeleton.
 
 `xedaproject.py` handles multi-design project files (`xedaproject.yaml`, also accepted as
 `xedaproject.yml` or `xedaproject.toml`), including top-level `flows` settings that get merged into
@@ -354,12 +374,12 @@ dependency flows. A project file is found by one helper, `resolve_project_file` 
 
 `FlowLauncher.launch_flow()` is the one procedure every flow run and every producer run goes
 through, make's order: bring every prerequisite up to date, then judge this flow against them. Its
-stages (each a method; the docstring lists them): **input** (`_input_settings`: validate in
-context, apply `--debug`) -> **identity** (`_run_identity`: design hash + `flowrun_hash`, run dir,
+stages (each a step, a method or a stage-module function; the docstring lists them): **input** (`launch_input.input_settings`: validate in
+context, apply `--debug`) -> **identity** (`launch_identity.run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
 *copy* of the input, `init()` (adds no dependency and reads no input) -- runs even for a flow that turns out
 fresh, so it must not change a file in its run directory, all of which are outputs) ->
-**producers** (`_run_producers`, following the plan; each in a sibling run directory held for
+**producers** (`launch_producers.run_producers`, following the plan; each in a sibling run directory held for
 reading until the launch ends) ->
 **prepare inputs** (`Flow.prepare_inputs`, after hand-over under producer read leases: register
 implicit inputs before freshness and reserve them against delivery; preparation may materialize
@@ -368,16 +388,16 @@ board files in managed cache space, never write the flow's run directory) ->
 would consume now; a match reuses the recorded results and skips **run** entirely; `_launch`
 itself removes the trace here, before **run**, so nothing vouches for the directory from this
 point on) -> **run** (`_launch` records every expected input as the run finds it,
-`trace_inputs.snapshot_inputs`, and writes `settings.json`; then `_execute`: `run()`,
-`parse_reports()`, `check_results()`) -> **report** (`_report`: artifacts, `results.json`; `_launch` then writes a
-fresh `trace.json`, on success, once `_report` has returned).
+`trace_inputs.snapshot_inputs`, and writes `settings.json`; then `launch_run.execute`: `run()`,
+`parse_reports()`, `check_results()`) -> **report** (`launch_report.report`: artifacts, `results.json`; `_launch` then writes a
+fresh `trace.json`, on success, once `report` has returned).
 
 **Every failure path after a run starts leaves a failure document**: `results.json` with
 `success: false`, `error.type`, `error.message` and the run's identity -- a failing `run()`, and a
 failing dependency, which the depender's directory reports too (a `FlowDependencyFailure` naming
 the dependency and its `results.json`). A flow that fails with no exception and no tool exit
 status -- its `parse_reports()`/`check_results()` said so -- gets `error.type = "ReportedFailure"`
-and a message from `_execute` (a flow may set its own message first, as `openfpgaloader` does; a
+and a message from `launch_run.execute` (a flow may set its own message first, as `openfpgaloader` does; a
 real error is never overwritten), so a depender quotes something.
 The two names are two roles, not one thing spelled twice (neither is an exception class; both are
 strings in JSON documents): `FlowFailed` is the *verdict* at the top of the `--json` document of
@@ -458,7 +478,7 @@ removed before the run, so an earlier success never stands for a run that died
   `required_settings` are the settings a model may not require (`dc`'s `target_libraries`): a
   layer holds only some settings, and validating one that lacks a required field fails, so
   `Flow.Settings` refuses a field without a default (see "Settings"). The
-  launcher passes the producers a flow was handed from (`_run_producers`) to
+  launcher passes the producers a flow was handed from (`launch_producers.run_producers`) to
   `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`). Tests find a
   flow's producers through `tool_utils.producers_of(runner, flow)`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
@@ -658,7 +678,7 @@ its output paths inside its run directory.
   (`bindings.input_origins`: each a producer's identity and output key, or `"source"`), for
   default and explicit edges alike; a flow without a plan node has no origins. The resolver's
   freeze, `_validate_plan` (which recomputes every node and checks the plan's bound inputs
-  against the request's bindings), `_run_identity`, claims, results and traces all use it. A
+  against the request's bindings), `launch_identity.run_identity`, claims, results and traces all use it. A
   producer's settings change therefore moves its consumers' identities; where a binding was
   written does not. The trace (`TRACE_FORMAT` 14) records each input's ordered producers
   (`DeclaredInputRecord.references`) and its explanatory origin, and `trace.changed_binding`
@@ -1032,7 +1052,7 @@ source's location, so re-arranging even VHDL or constraint sources changes the i
 fresh and makes `ghdl_sim` stale, but a `{"rtl"}` flow downstream of a producer that reads `tb`
 still runs again with it (the dependency's new `run_id`). It scopes the design hash and the trace's
 design files and nothing else: the launcher's registered reads and refused inputs
-(`_read_inputs`, `_refuse_inputs_inside`), a remote run's read inputs and `PlanContext.design_hash`
+(`_read_inputs`, `launch_run.refuse_inputs_inside`), a remote run's read inputs and `PlanContext.design_hash`
 keep the whole design, since they protect the user's files and verify the request. A part wrongly
 left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
@@ -1291,7 +1311,7 @@ directory, the best run included, as it did before the purge implied the clean-u
 POSIX lock file (`<run dir>.lock`, `run_lock.py`, beside the run directory, never inside it; none
 on Windows) serializes concurrent launches of the same run directory; `xeda scrub`
 takes the same exclusive lock and retains the durable lock file. **Scrub reads the disk, never
-a design file** (`default_runner.scrub_design`, with `scrub_runs` the one-directory form a
+a design file** (`scrub.scrub_design`, with `scrub_runs` the one-directory form a
 launch's `--scrub` uses, so it stays in its own target): `xeda scrub FLOW DESIGN` collects `FLOW`
 and `FLOW_<hash>` run directories directly under `<design>` and under each directory below it
 that could be a target's (a target name, `design.target_name_problem`, holding none of
@@ -1412,7 +1432,7 @@ up front). The requested flow also checks the named deliveries of every flow of 
 launch starts (`FlowLauncher._check_deliveries_ahead`), so a refusal, or the question whether to
 replace a file, never comes after the tool of an earlier flow ran. It makes what no answer could
 allow first, for every flow: a file of the design or one a setting reads that lies in the flow's
-own run directory (`_refuse_inputs_inside`, which each flow checks again at its turn for a file
+own run directory (`launch_run.refuse_inputs_inside`, which each flow checks again at its turn for a file
 made since), `--outputs-to` and the deliveries (`Deliveries.refuse`, `check_outputs_to`) -- and a
 destination two deliveries name, or one inside another
 (`deliver.refuse_shared_destinations`: every destination known before the run -- every named
@@ -1448,7 +1468,7 @@ programmer -- is refused before anything runs, in `_launch` (before the run root
 `_check_deliveries_ahead`), `plan` (dry runs) and the remote runner alike, a `DeliveryError` with
 `before_run` true naming the setting whose location delivers the file it reads, written
 `=$PWD/<file>`, and every form of a location (`utils.LOCATION_FORMS`)
-(`default_runner._refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
+(`launch_input.refuse_outputs_to_a_programmer`: the producer's `enabled_by` deliverable, else its
 deliverable of the output's own name), or the design source it is. Under `--remote` that setting
 would deliver on the remote host, so the error names the producer's own request instead
 (`xeda run --remote fpga_pack ... --outputs-to DIR`).
@@ -2002,7 +2022,7 @@ dependency must also share `custom_boards_file`.
   `sim_dir`, where it builds; `bsc_sim` refuses it for every simulator, since bsc's link step runs
   its tools through a shell without quoting (`_check_link_paths` stays as the backstop for the
   design's own paths). Both go through `Flow.check_run_directory`, which is pure and judges the
-  path alone, before anything is created: the launcher calls it in `_run_identity` for every
+  path alone, before anything is created: the launcher calls it in `launch_identity.run_identity` for every
   launch, `plan` calls it, and `Dse` calls it once before the search; the `--remote` runner never
   does (the build is the remote's). The run directory is judged by what it leads to (make builds
   in the physical directory), `sim_dir` by its name (the launcher removes a link left at it).

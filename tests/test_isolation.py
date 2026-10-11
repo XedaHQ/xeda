@@ -1812,7 +1812,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
         assert purge.launch_flow(LinkLeaver, design, {}).succeeded
         assert not run_dir.exists()
         assert DefaultRunner(root, display_results=False).launch_flow(LinkLeaver, design, {})
-        monkeypatch.setattr("xeda.flow_runner.default_runner.console.input", lambda _: "yes")
+        monkeypatch.setattr("xeda.console.console.input", lambda _: "yes")
         assert scrub_runs(LinkLeaver.name, run_dir.parent, run_root=root.resolve())
         assert not run_dir.exists()
         assert _outside_tree(outside) == before
