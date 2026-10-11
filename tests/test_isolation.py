@@ -596,15 +596,23 @@ class Started(NamedTuple):
 
 def run_root_paths(text: str, root: Path, cwd: Path | None) -> set[Path]:
     """The paths in `text` that lie under `root`: written in full (as they are and as they
-    resolve), or, if `cwd` is given, relative to it by a step up (`../producer/results.json`)."""
+    resolve), or, if `cwd` is given, relative to it (`../producer/results.json`); and `cwd`
+    itself, if it lies under the root."""
     found: set[Path] = set()
     for base in {str(root), str(root.resolve())}:
         found.update(Path(m) for m in re.findall(re.escape(base) + _PATH_END, text))
-    for word in re.findall(r"[^\s\"'`;,()<>|&{}\[\]=:]+", text) if cwd else ():
-        if not word.startswith("/") and ".." in word.split("/"):
-            path = Path(os.path.normpath(cwd / word))
-            if path.is_relative_to(root) or path.is_relative_to(root.resolve()):
-                found.add(path)
+    if cwd is not None:
+        # a tool that runs in the run root, or in another flow's directory, reads what it names
+        # relative to there
+        for place in (cwd, *cwd.parents):
+            if place == root or place == root.resolve():
+                found.add(cwd)
+                break
+        for word in re.findall(r"[^\s\"'`;,()<>|&{}\[\]=:]+", text):
+            if not word.startswith("/") and "/" in word:
+                path = Path(os.path.normpath(cwd / word))
+                if path.is_relative_to(root) or path.is_relative_to(root.resolve()):
+                    found.add(path)
     return found
 
 
@@ -753,6 +761,9 @@ def _reads_the_producer_s_results(how: str):
             run_process("true", ["--read", str(undeclared)])
         elif how == "run_process, relative":
             run_process("true", [relative])
+        elif how == "run root":  # a tool started in the run root, given a path relative to it
+            root = self.run_path.parent.parent
+            run_process("true", [os.path.relpath(undeclared, root)], cwd=root)
         elif how == "script":
             (self.run_path / "extra.tcl").write_text(f"source {undeclared}\n")
         else:
@@ -789,7 +800,10 @@ def test_the_runtime_check_finds_a_consumer_handed_a_file_that_it_did_not_declar
     undeclared = (producer.run_path / "results.json").resolve()
     assert undeclared not in {p.resolve() for p in declared_values(consumer)}
     handed = handed_paths(consumer, world.root, started)
-    assert foreign_paths(consumer, world.root, handed) == [str(undeclared)]
+    wanted = [str(undeclared)]
+    if how == "run root":  # the run root itself is the tool's directory, which is no flow's
+        wanted = sorted([str(world.root.resolve()), *wanted])
+    assert foreign_paths(consumer, world.root, handed) == wanted
 
 
 def test_the_runtime_check_follows_a_link_to_where_it_leads(tmp_path):

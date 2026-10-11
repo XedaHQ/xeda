@@ -327,6 +327,10 @@ class _Reads(ast.NodeVisitor):
         self.reads: list[tuple[int, str | None, str, tuple[_Function, ...]]] = []
         #: (call, enclosing functions)
         self.calls: list[tuple[ast.Call, tuple[_Function, ...]]] = []
+        #: (line, name) of each accessor (`getattr`) used other than by calling it, which would
+        #: let a read of a state attribute go by another name
+        self.aliases: list[tuple[int, str]] = []
+        self._called: set[int] = set()
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
         self.classes.append(node.name)
@@ -355,9 +359,14 @@ class _Reads(ast.NodeVisitor):
             self._read(node, node.value, f"{ast.unparse(node.value)}.{node.attr}")
         self.generic_visit(node)
 
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in STATE_ACCESSORS and id(node) not in self._called:
+            self.aliases.append((node.lineno, node.id))
+
     def visit_Call(self, node: ast.Call) -> None:
         self.calls.append((node, tuple(self.scope)))
         func = node.func
+        self._called.add(id(func))
         if (
             isinstance(func, ast.Name)
             and func.id in STATE_ACCESSORS
@@ -410,6 +419,12 @@ def analyze(units: list[tuple[str, ast.AST]]) -> tuple[list[str], set[str]]:
         visit = _Reads(label)
         visit.visit(tree)
         visits.append(visit)
+    for visit in visits:
+        problems += [
+            f"{visit.label}:{line}: uses `{name}` other than by calling it: a read of a state "
+            "attribute through another name cannot be seen"
+            for line, name in visit.aliases
+        ]
     #: (function node id, parameter) -> where it is
     place: dict[tuple[int, str], str] = {}
     by_name: dict[str, list[_Function]] = {}
@@ -536,6 +551,12 @@ class Consumer:
     def run(self):
         return getattr(self.dependency, "artifacts")
 """
+READS_THROUGH_AN_ALIAS = """
+class Consumer:
+    def run(self):
+        read = getattr
+        return read(self.dependency, "results")
+"""
 READS_IN_A_FUNCTION_WITH_NO_INSTANCE = """
 def free():
     return self.results
@@ -637,6 +658,11 @@ def test_a_read_of_the_state_of_anything_but_the_instance_is_found() -> None:
     ):
         (problem,) = _problems(source)
         assert text in problem and "not the flow's own state" in problem, problem
+
+
+def test_an_accessor_that_is_not_called_by_its_name_is_found() -> None:
+    (problem,) = _problems(READS_THROUGH_AN_ALIAS)
+    assert "uses `getattr` other than by calling it" in problem, problem
 
 
 def test_a_helper_that_is_only_ever_given_the_flow_is_not_a_problem() -> None:
