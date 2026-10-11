@@ -1091,7 +1091,9 @@ class RemoteRunner(FlowLauncher):
         flowrun_hash = plan.node(flow_name).flowrun_hash
         settings_hash = plan.node(flow_name).settings_hash
         # as a local run counts the design: by the parts and source types the flow reads
-        design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_source_types)
+        design_hash = design.parts_hash(
+            flow_class.design_parts, flow_class.design_scope(plan.node(flow_name).settings)
+        )
         outputs_to = self.settings.outputs_to
         # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
         # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's

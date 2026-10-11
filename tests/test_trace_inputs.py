@@ -255,7 +255,7 @@ def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(
     that is not the bytes the producer recorded is unknown (`FileRecord.trusted`)."""
     from xeda.digest import FileRecord, content_digest
     from xeda.flow_runner.trace import OutputEntry
-    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
 
     path = tmp_path / "out.txt"
     path.write_text("A\n")
@@ -270,7 +270,7 @@ def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(
             inputs_recorded_ns=now_ns,
             expected=(),
             records={},
-            handed={str(path): started},
+            handed={str(path): (started, _name_state(path))},
         )
 
     recent = started.mtime_ns + 1_000_000_000
@@ -291,3 +291,35 @@ def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(
     started = FileRecord.of(path.stat(), content_digest(path))
     entry = OutputEntry(path=str(path), sha=started.sha)
     assert not _entry_consumed(entry, snapshot(started.mtime_ns + 1_000_000_000)).unknown
+
+
+def test_a_handed_link_replaced_while_the_flow_ran_is_unknown_even_if_put_back(tmp_path):
+    """An internal link can be a declared output. Replaced by a link to another file and put back,
+    it leads to the same file again, with the same target metadata: the identity of the link
+    itself is what shows it."""
+    import os
+
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+
+    target, other, link = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "link.txt"
+    target.write_text("A\n")
+    other.write_text("B\n")
+    link.symlink_to(target)
+    started = FileRecord.of(link.stat(), content_digest(link))
+    entry = OutputEntry(path=str(link), sha=started.sha)
+    snapshot = InputSnapshot(
+        started_ns=0,
+        inputs_recorded_ns=started.mtime_ns + 10**11,
+        expected=(),
+        records={},
+        handed={str(link): (started, _name_state(link))},
+    )
+    assert not _entry_consumed(entry, snapshot).unknown
+    link.unlink()
+    link.symlink_to(other)
+    link.unlink()
+    link.symlink_to(target)
+    assert os.stat(link).st_ino == started.inode
+    assert _entry_consumed(entry, snapshot).unknown

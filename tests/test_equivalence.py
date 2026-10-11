@@ -329,7 +329,8 @@ def test_a_python_hook_in_nextpnr_stops_the_comparison_without_source_locations(
     (root / "blink.v").write_text("// a line above the logic\n" + BLINK)
     state["line"] = 5
     flow = launch(pre_place=str(root / "hook.py"))
-    assert not flow.reused and flow.stale_reason == "`netlist` from `yosys_fpga` changed"
+    # with a hook, nextpnr is judged on every source too: the edit itself moves it
+    assert not flow.reused and "blink.v" in flow.stale_reason, flow.stale_reason
     assert len(calls) == 2
 
 

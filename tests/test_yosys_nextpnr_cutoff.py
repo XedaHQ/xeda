@@ -21,7 +21,7 @@ import pytest
 from xeda.flow_runner import DefaultRunner
 
 from . import tool_utils
-from .tool_utils import launch_until_fresh
+from .tool_utils import UNRECORDED_BEFORE_RUN_REASON
 
 RESOURCES = Path(__file__).parent / "resources" / "chains"
 REQUEST = "yosys_fpga+nextpnr+fpga_pack"
@@ -99,8 +99,15 @@ def build(request, tmp_path, tmp_path_factory, monkeypatch) -> Build:
     build = Build(board, tmp_path / "design", run_root)
     build.launch()
     assert build.ran() == STAGES
-    settled = launch_until_fresh(build.runner, build.launch)
-    assert settled.reused and build.ran() == ()
+    # a tool that reports a file of another file system is judged once more (the documented
+    # extra run): settle the whole graph, and say why any later run ran
+    for _ in range(2):
+        build.launch()
+        if build.ran() == ():
+            break
+        reasons = [f.stale_reason for f in build.runner.launched if not f.reused]
+        assert all(r and r.startswith(UNRECORDED_BEFORE_RUN_REASON) for r in reasons), reasons
+    assert build.ran() == ()
     return build
 
 

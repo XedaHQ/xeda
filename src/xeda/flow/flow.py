@@ -722,6 +722,13 @@ class Flow(metaclass=ABCMeta):
     #: that protect the user's files keep the whole design.
     design_source_types: ClassVar[frozenset[SourceType] | None] = None
 
+    @classmethod
+    def design_scope(cls, settings: Flow.Settings) -> frozenset[SourceType] | None:
+        """The types of source this flow is judged on given `settings`: `design_source_types`,
+        unless the settings can make the flow read other sources (nextpnr's Python hooks), and
+        then None, every source of the parts. Pure."""
+        return cls.design_source_types
+
     #: A static explanation for flows that must not appear before the end of a chain, such as a
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
     action_reason: ClassVar[str | None] = None

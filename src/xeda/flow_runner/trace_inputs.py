@@ -537,7 +537,7 @@ def candidate_inputs(
     handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
     files = {
         # the parts of the design this flow reads, not the whole design
-        *design_files(design, type(flow).design_parts, type(flow).design_source_types),
+        *design_files(design, type(flow).design_parts, type(flow).design_scope(input_settings)),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
         *registered_input_files(flow),
@@ -617,15 +617,25 @@ class InputSnapshot:
     #: that existed when the run started
     records: Mapping[str, FileRecord]
     #: the record of each file the producers handed over, taken as the run starts (None if it
-    #: could not be read): a file that is not the one the producer recorded, or that changed
-    #: while the flow ran, is unknown (`_consumed`)
-    handed: Mapping[str, Optional[FileRecord]] = dataclass_field(default_factory=dict)
+    #: could not be read), with the identity of the name it was handed by (`_name_state`, which
+    #: tells a link replaced and put back): a file that is not the one the producer recorded, or
+    #: that changed while the flow ran, is unknown (`_consumed`)
+    handed: Mapping[str, Optional[Tuple[FileRecord, Tuple[int, int, int]]]] = dataclass_field(
+        default_factory=dict
+    )
 
 
-def _handed_record(path: Path) -> Optional[FileRecord]:
-    """The record of a handed file (its content, through a link), or None if unreadable."""
+def _name_state(path: Path) -> Tuple[int, int, int]:
+    """The identity of the name `path` itself, a link not followed: inode, change time, mtime."""
+    st = os.lstat(path)
+    return (st.st_ino, st.st_ctime_ns, st.st_mtime_ns)
+
+
+def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[int, int, int]]]:
+    """The record of a handed file (its content, through a link) and of its name, or None if
+    unreadable."""
     try:
-        return FileRecord.of(path.stat(), content_digest(path))
+        return FileRecord.of(path.stat(), content_digest(path)), _name_state(path)
     except OSError:
         return None
 
@@ -772,12 +782,15 @@ def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredI
 
 
 def _entry_consumed(entry: OutputEntry, snapshot: InputSnapshot) -> OutputEntry:
-    started = snapshot.handed.get(entry.path)
+    began = snapshot.handed.get(entry.path)
     unknown = entry.model_copy(update={"unknown": True})
-    if started is None or started.sha != entry.sha:
+    if began is None or began[0].sha != entry.sha:
         return unknown
+    started, name = began
     path = Path(entry.path)
     try:
+        if _name_state(path) != name:
+            return unknown  # a link replaced while the flow ran, even if put back
         now = path.stat()
         if (now.st_size, now.st_mtime_ns, now.st_ctime_ns, now.st_ino) != (
             started.size,

@@ -151,7 +151,7 @@ def run_identity(
     counts by the parts the flow reads (`Flow.design_parts`) and the types of source it takes
     (`Flow.design_source_types`), so an edit to a testbench or a source the flow does not read
     changes nothing of it."""
-    design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_source_types)
+    design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
     settings_hash = flow_run_hash(flow_name, settings, design.name)
     flowrun_hash = node_identity(settings_hash, node.origins)
     # a directory the flow cannot work in is refused on the path alone: nothing is created yet

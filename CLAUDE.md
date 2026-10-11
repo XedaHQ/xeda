@@ -1063,7 +1063,8 @@ scope further, to the sources of the types a flow takes** (`Design.parts_hash(pa
 source_types)`, `design_files(design, parts, source_types)`; the design's metadata stays whole, the
 sources keep their order): `nextpnr` (its netlist, pin and SDC types), `fpga_pack`, `openfpgaloader`
 and `vivado_power` (their input types) are judged on those, so an edit to the HDL that only their
-producer reads leaves them alone. `None` (every other flow) is the whole parts. The declaration
+producer reads leaves them alone. `None` (every other flow) is the whole parts. `Flow.design_scope(settings)` is what the launch uses: the declaration, except
+that `nextpnr` with a Python hook or `extra_args` is judged on every source (a hook can read any). The declaration
 must hold every type the flow can take or hand its tool, and the flow's code and templates read no
 source of their own (`tests/test_design_source_types.py`); `rtl_hash`, `tb_hash` and
 `settings.json` keep the design's own values. `flowrun_hash` writes any path under the design

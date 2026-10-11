@@ -198,3 +198,45 @@ def test_nextpnr_is_not_judged_on_the_verilog_its_producer_reads(
     third, _ = launch()
     assert third.design_hash != second.design_hash
     assert not third.reused
+
+
+def test_a_nextpnr_hook_is_judged_on_every_source(
+    tmp_path: Path, monkeypatch, tools  # noqa: F811
+) -> None:  # noqa: F811
+    """A Python hook can read any source of the design (a placement table, typed `Data`): with
+    one, nextpnr is judged on the whole parts, and an edit to such a file moves it."""
+    from xeda.flow_runner import DefaultRunner
+    from xeda.flows import Nextpnr
+
+    settings = Nextpnr.Settings.from_input({"fpga": {"part": PART}})
+    assert Nextpnr.design_scope(settings) == NARROWED["nextpnr"]
+    for hook in ({"pre_place": "hook.py"}, {"extra_args": ["--run", "hook.py"]}):
+        hooked = Nextpnr.Settings.from_input({"fpga": {"part": PART}, **hook})
+        assert Nextpnr.design_scope(hooked) is None
+
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "a.v").write_text("module a; endmodule\n")
+    (root / "hook.py").write_text("# a hook\n")
+    (root / "table.txt").write_text("a 1\n")
+    monkeypatch.chdir(tmp_path)
+
+    def launch(**hook):
+        design = Design(
+            name="d",
+            design_root=root,
+            rtl={
+                "sources": ["a.v", {"file": "table.txt", "type": "Data"}],
+                "top": "a",
+            },
+        )
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        flow = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}, **hook})
+        assert flow is not None and flow.succeeded
+        return flow
+
+    for hook in ({}, {"pre_place": str(root / "hook.py")}):
+        first = launch(**hook)
+        (root / "table.txt").write_text(first.design_hash[:8] + "\n")  # a new table
+        second = launch(**hook)
+        assert (second.design_hash != first.design_hash) is bool(hook), hook
