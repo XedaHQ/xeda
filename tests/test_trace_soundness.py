@@ -179,7 +179,8 @@ def probes():
             self.outputs.out = self.run_path / "outputs" / "out.txt"
 
     class ProbeScratchReader(Flow):
-        """Reads its producer's undeclared files by path, and copies them to an output."""
+        """Copies its producer's declared file to an output. It reads nothing else of the producer's
+        run directory: a flow reaches another flow's files through its declared inputs alone."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
@@ -192,9 +193,7 @@ def probes():
             )
 
         def run(self) -> None:
-            scratcher_dir = self.inputs.out.parent.parent
-            texts = [(scratcher_dir / n).read_text() for n in ("scratch.txt", "sub/deep.txt")]
-            _copy_to_output(self, "".join(texts))
+            _copy_to_output(self, self.inputs.out.read_text())
 
     classes = (
         ProbeSettingFile,
@@ -563,13 +562,12 @@ SCRATCHER_AGAIN = "probe_scratcher (p/probe_scratcher) ran again"
 def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depender(
     probes, root, name, change
 ):
-    """A managed run directory's outputs are every file in it: a depender that
-    reads a file of its dependency's by path -- as vivado_postsynth_sim reads the netlist and
-    vivado_power the routed checkpoint -- no longer reuses a result built from a file edited or
-    deleted by hand since. The dependency is stale, re-runs, and its depender follows."""
+    """A managed run directory's outputs are every file in it, declared or not: a dependency
+    whose file was edited or deleted by hand since its run is stale and re-runs, and its
+    depender follows it."""
     cls = probes["ProbeScratchReader"]
     _, out, (producer,) = _launch_graph(root, cls)
-    assert out == "scratch\ndeep\n"
+    assert out == "declared\n"
     changed = (producer.run_path / name).resolve()
     if change == "edit":
         changed.write_text("hand-edited\n")
@@ -580,7 +578,7 @@ def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depend
     why = "changed" if change == "edit" else "missing"
     assert dependency.stale_reason == f"output {why}: {changed}"
     assert not flow.reused and flow.stale_reason == SCRATCHER_AGAIN
-    assert out == "scratch\ndeep\n"  # rebuilt from what the dependency writes
+    assert out == "declared\n"  # rebuilt from what the dependency writes
     flow, _, (dependency,) = _launch_graph(root, cls)
     assert flow.reused and dependency.reused
 
@@ -627,7 +625,7 @@ def test_pruning_still_drops_the_trace(probes, root):
     flow, out, (producer,) = _launch_graph(root, cls, post_cleanup=True)
     assert not flow.reused and flow.stale_reason == "no successful previous run"
     assert producer.stale_reason == "no successful previous run"
-    assert out == "scratch\ndeep\n"
+    assert out == "declared\n"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="symbolic links and FIFOs")
