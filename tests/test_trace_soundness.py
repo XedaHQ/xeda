@@ -194,6 +194,7 @@ def probes():
 
         def run(self) -> None:
             _copy_to_output(self, self.inputs.out.read_text())
+            _edit_during_run("handed")
 
     classes = (
         ProbeSettingFile,
@@ -553,18 +554,14 @@ def test_file_valued_abc_script_is_an_input_and_changes_make_yosys_stale(root):
             registered_flows.pop(name, None)
 
 
-#: why a depender of `ProbeScratcher` runs after it ran again
-SCRATCHER_AGAIN = "probe_scratcher (p/probe_scratcher) ran again"
-
-
 @pytest.mark.parametrize("change", ["edit", "delete"])
 @pytest.mark.parametrize("name", ["scratch.txt", "sub/deep.txt"])
-def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depender(
+def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_leaves_its_depender_fresh(
     probes, root, name, change
 ):
     """A managed run directory's outputs are every file in it, declared or not: a dependency
-    whose file was edited or deleted by hand since its run is stale and re-runs, and its
-    depender follows it."""
+    whose file was edited or deleted by hand since its run is stale and re-runs. Its depender
+    consumed only what it declared, which the rebuild leaves as it was: the depender is fresh."""
     cls = probes["ProbeScratchReader"]
     _, out, (producer,) = _launch_graph(root, cls)
     assert out == "declared\n"
@@ -577,10 +574,62 @@ def test_a_hand_changed_undeclared_file_of_a_dependency_reruns_it_and_its_depend
     assert not dependency.reused, "a hand-changed file of the dependency went unnoticed"
     why = "changed" if change == "edit" else "missing"
     assert dependency.stale_reason == f"output {why}: {changed}"
-    assert not flow.reused and flow.stale_reason == SCRATCHER_AGAIN
-    assert out == "declared\n"  # rebuilt from what the dependency writes
+    assert flow.reused and flow.stale_reason is None, flow.stale_reason
+    assert changed.is_file(), "the dependency rebuilt it"
     flow, _, (dependency,) = _launch_graph(root, cls)
     assert flow.reused and dependency.reused
+
+
+def test_a_handed_file_edited_by_hand_is_rebuilt_and_the_depender_follows_only_a_change(
+    probes, root
+):
+    """The declared file itself: the dependency is stale and rebuilds the original bytes, so the
+    depender, which consumed those, is fresh."""
+    cls = probes["ProbeScratchReader"]
+    _, _, (producer,) = _launch_graph(root, cls)
+    handed = (producer.run_path / "outputs" / "out.txt").resolve()
+    handed.write_text("hand-edited\n")
+    flow, out, (dependency,) = _launch_graph(root, cls)
+    assert dependency.stale_reason == f"output changed: {handed}"
+    assert flow.reused and handed.read_text() == "declared\n"
+
+
+def test_a_handed_file_that_changes_while_its_depender_runs_never_matches(probes, root):
+    """The depender read the file, which was edited while it ran: it consumed bytes that no
+    record holds. The next launch rebuilds the producer's original bytes, and the depender runs
+    all the same, since what it consumed is unknown."""
+    cls = probes["ProbeScratchReader"]
+    _launch_graph(root, cls)
+    handed = (root.parent / "xeda_run" / "p" / "probe_scratcher" / "outputs" / "out.txt").resolve()
+    EDIT["handed"] = (handed, "edited while the depender ran\n", True)
+    flow, out, _ = _launch_graph(root, cls, rebuild_all=True)
+    assert out == "declared\n"
+    trace = json.loads((flow.run_path / "trace.json").read_text())
+    (entry,) = trace["declared_inputs"][0]["references"][0]["entries"]
+    assert entry["unknown"] is True
+    flow, out, (dependency,) = _launch_graph(root, cls)
+    assert not dependency.reused
+    assert (
+        not flow.reused
+        and flow.stale_reason
+        == "`out` from `probe_scratcher` changed while probe_scratch_reader ran"
+    )
+    flow, _, (dependency,) = _launch_graph(root, cls)
+    assert flow.reused and dependency.reused
+
+
+def test_a_forged_record_of_a_handed_output_is_no_way_to_a_fresh_depender(probes, root):
+    """The dependency's `results.json` is one of its own outputs: forging the digest it records
+    makes the dependency stale, and the depender is judged against the rebuilt record."""
+    cls = probes["ProbeScratchReader"]
+    _, _, (producer,) = _launch_graph(root, cls)
+    results = producer.run_path.resolve() / "results.json"
+    document = json.loads(results.read_text())
+    document["outputs"]["out"]["sha"] = "f" * 32
+    results.write_text(json.dumps(document))
+    flow, _, (dependency,) = _launch_graph(root, cls)
+    assert dependency.stale_reason == f"output changed: {results}"
+    assert flow.reused
 
 
 def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
@@ -600,7 +649,7 @@ def test_a_managed_run_directory_s_outputs_are_every_file_in_it(probes, root):
 def test_a_file_added_to_a_managed_run_directory_makes_it_stale(probes, root, name):
     """A managed run directory is xeda's alone: a file that appears in it after the run is a
     change -- a depender reading the directory may find it. The run is stale, and
-    its depender follows; once the file is recorded, both are fresh again."""
+    its depender, which consumed only the declared file, stays fresh."""
     cls = probes["ProbeScratchReader"]
     _, _, (producer,) = _launch_graph(root, cls)
     added = (producer.run_path / name).resolve()
@@ -609,7 +658,7 @@ def test_a_file_added_to_a_managed_run_directory_makes_it_stale(probes, root, na
     flow, _, (dependency,) = _launch_graph(root, cls)
     assert not dependency.reused
     assert dependency.stale_reason == f"new file in the run directory: {added}"
-    assert not flow.reused and flow.stale_reason == SCRATCHER_AGAIN
+    assert flow.reused and flow.stale_reason is None, flow.stale_reason
     flow, _, (dependency,) = _launch_graph(root, cls)
     assert flow.reused and dependency.reused
 

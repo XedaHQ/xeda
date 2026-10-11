@@ -481,7 +481,7 @@ removed before the run, so an earlier success never stands for a run that died
   layer holds only some settings, and validating one that lacks a required field fails, so
   `Flow.Settings` refuses a field without a default (see "Settings"). The
   launcher passes the producers a flow was handed from (`launch_producers.run_producers`) to
-  `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`). Tests find a
+  `trace_inputs.expectation`, which records their `run_id`s (`dependency_runs`, provenance only: nothing compares it). Tests find a
   flow's producers through `tool_utils.producers_of(runner, flow)`.
 - `run()` generates scripts and invokes tools. `parse_reports()` populates `self.results`;
   `self.results.success` decides pass/fail. Helpers: `parse_report_regex()`, `parse_regex()`,
@@ -1052,7 +1052,7 @@ source's location, so re-arranging even VHDL or constraint sources changes the i
 `send_design` keeps sources under the root at their relative place for the same reason.
 **`design_parts` is a flow's *direct* scope**: a testbench edit leaves `vivado_synth` and `yosys`
 fresh and makes `ghdl_sim` stale, but a `{"rtl"}` flow downstream of a producer that reads `tb`
-still runs again with it (the dependency's new `run_id`). It scopes the design hash and the trace's
+still runs again with it if the producer's output changed (the edge, below). It scopes the design hash and the trace's
 design files and nothing else: the launcher's registered reads and refused inputs
 (`_read_inputs`, `launch_run.refuse_inputs_inside`), a remote run's read inputs and `PlanContext.design_hash`
 keep the whole design, since they protect the user's files and verify the request. A part wrongly
@@ -1164,7 +1164,7 @@ clock) decides; on another file system nothing does, and it is recorded unknown
 last run, on another file system ...") -- yosys's own library files on another volume do that
 once after a flow's first run (`tests/tool_utils.launch_until_fresh`). It
 also carries a `run_id` for the run itself and, keyed by each dependency's run directory relative to
-the run root, the `run_id` of the dependency run it consumed (`dependency_runs`). `trace.check_trace` re-derives all of this
+the run root, the `run_id` of the dependency run it consumed (`dependency_runs`: provenance, never compared; a fresh check never rewrites it). `trace.check_trace` re-derives all of this
 (`trace_inputs.expectation`)
 and returns the first mismatch as the stale reason. A file counts as unchanged by its metadata when
 `FileRecord.trusted` says so -- size, mtime, inode change time and inode all equal, and the later of
@@ -1177,15 +1177,31 @@ hashed at every later check; in a read-only run directory it checks without refr
 A fresh launch may therefore rewrite `trace.json`: a test that claims a reuse left a run directory
 alone compares `tool_utils.run_outputs_state` (every entry but the reserved names), never a listing
 of the whole directory, and forces the refresh with `tool_utils.check_after_the_racy_window`
-rather than hoping the machine is slow enough. A dependency
-that ran again always makes its depender stale too, even if nothing it declared as an input actually
-changed -- there is no cross-edge cutoff on an unchanged output. What is not tracked
+rather than hoping the machine is slow enough. **A consumer is judged on what its producers
+handed it, not on their runs or their files** (`BoundProducer.entries`, one `OutputEntry` of
+`path`, `sha` and, for a type that defines one, `equivalence` per handed file, in order, copied
+from the producer's `results.outputs` after hand-over verified it): `trace.changed_edge` compares them
+with the producer's current record, reads no file, and is the **last** check of `check_trace`
+(after the design hash), so a consumer stale for its own reasons says so whatever its producers did.
+A producer that ran again with the same outputs leaves its consumers fresh (`ran_again_note`
+says so in the log when it ran in this launch); one whose output changed makes exactly the
+consumers of that output stale ("`netlist` from `yosys_fpga` changed"), and theirs only if their
+own outputs change. A handed file is **never a file record of the consumer** -- not in `inputs`, not
+in `implicit_inputs` (`source_input_files`, `implicit_input_files` drop it) -- so a depfile that
+names it brings nothing back; a handed file that changed while the consumer ran (identity and
+metadata against `InputSnapshot.handed`, never a clock) is recorded `unknown` and never matches.
+This is sound because a flow reads only its declared inputs (`tests/test_one_dependency_mechanism.py`
+and the runtime half in `tests/test_isolation.py`); a producer's undeclared files, its
+`results.json` and its run are no consumer input. A producer **settings** change still moves its
+consumers, through the identity (`bindings.node_identity`); the cutoff covers re-runs that keep
+the producer's identity (a source edit, a program or xeda change, `--rebuild-all` on the producer
+alone, a hand-edited output that is rebuilt). `TRACE_FORMAT` 15. What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
 run directory points to, when that is a directory (the link is recorded by its target, never
 followed); programs started indirectly (a compiler under `make`, Python packages such as
 cocotb); environment variables; files a tool finds on its own without reporting them. A hand edit of
 any file a dependency's run left, or a file added there, makes the dependency stale, and its
-dependers follow through its new `run_id`.
+dependers follow only if what they were handed changed.
 Pin constraints fetched from a URL are not verifiable either, so a flow using them always runs.
 
 **A generator's re-run decision is content-based too** (`xeda/generation.py`), although it is

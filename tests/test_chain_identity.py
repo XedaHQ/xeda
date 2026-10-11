@@ -9,6 +9,7 @@ import pytest
 
 from xeda import Design
 from xeda.design import SourceType
+from xeda.digest import content_digest
 from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.bindings import node_identity
@@ -179,12 +180,20 @@ def test_hashed_variants_of_one_flow_coexist_and_run_where_they_were_planned(tmp
                 "output": "made",
                 "producer_hash": plan.node(producer.name).flowrun_hash,
                 "producer_path": str(producer.run_path),
+                "entries": [
+                    {
+                        "path": str(producer.run_path / "made.txt"),
+                        "sha": content_digest(producer.run_path / "made.txt"),
+                        "equivalence": None,
+                        "unknown": False,
+                    }
+                ],
             }
         ]
         paths.append(flow.run_path)
     assert paths[0] != paths[1] and all(path.is_dir() for path in paths)
-    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 14
-    assert TRACE_FORMAT == 14
+    assert trace["declared_inputs"][0]["binding_origin"] == "file" and trace["format"] == 15
+    assert TRACE_FORMAT == 15
 
 
 def test_a_tampered_identity_fails_before_execution(tmp_path):

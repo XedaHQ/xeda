@@ -10,7 +10,10 @@ from xeda.digest import MODIFIED_DURING_RUN, RACY_NS, FileRecord, record_file
 from xeda.flow_runner.trace import (
     TRACE_FILE,
     TRACE_FORMAT,
+    BoundProducer,
+    DeclaredInputRecord,
     Expectation,
+    OutputEntry,
     ProgramRecord,
     Trace,
     as_recorded,
@@ -92,6 +95,33 @@ def _file(path: Path, text: str) -> Path:
     return path
 
 
+def _entry(sha: str, equivalence: str | None = None, path: str = "/r/yosys_1/out.json"):
+    return OutputEntry(path=path, sha=sha * 32, equivalence=equivalence)
+
+
+def _wired(*entries: OutputEntry, equivalence: bool = False) -> DeclaredInputRecord:
+    """The input `netlist`, made by `yosys` and handed over as `entries`."""
+    return DeclaredInputRecord(
+        name="netlist",
+        origin="producer",
+        producer="yosys",
+        output="netlist",
+        producer_hash="p" * 32,
+        producer_path="/r/yosys_1",
+        paths=tuple(entry.path for entry in entries),
+        references=(
+            BoundProducer(
+                producer="yosys",
+                output="netlist",
+                producer_hash="p" * 32,
+                producer_path="/r/yosys_1",
+                entries=entries,
+            ),
+        ),
+        equivalence=equivalence,
+    )
+
+
 @pytest.fixture
 def recorded(tmp_path):
     """A run directory whose trace records one input and its files as outputs, all unchanged
@@ -107,6 +137,8 @@ def recorded(tmp_path):
             programs={},
             inputs={str(source): record_file(source)},
             outputs={str(path): record_file(path) for path in (output, settings)},
+            declared_inputs=[_wired(_entry("a"))],
+            dependency_runs={"toy/yosys_1": "a" * 32},
         ),
     )
     expected = Expectation(
@@ -119,8 +151,8 @@ def recorded(tmp_path):
         inputs=(source,),
         settings={"seed": 1},
         setting_locations={},
-        dependency_runs={},
-        dependency_flows={},
+        dependency_runs={"toy/yosys_1": "a" * 32},
+        declared_inputs=(_wired(_entry("a")),),
     )
     return run_dir, source, output, expected
 
@@ -144,41 +176,91 @@ def test_a_trace_without_a_run_id_is_no_trace(recorded):
     assert _check(run_dir, expected).reason == "no successful previous run"
 
 
-def _record_dependency_runs(run_dir: Path, runs: dict) -> None:
+def test_a_dependency_that_ran_again_is_no_change_in_itself(recorded):
+    """What the flow consumed is what it declared: the producer's run is recorded for the record,
+    and is not compared."""
+    run_dir, _, _, expected = recorded
+    ran_again = {"toy/yosys_1": "c" * 32, "toy/yosys_2": "d" * 32}
+    assert _check(run_dir, expected, dependency_runs=ran_again).fresh
+    assert _check(run_dir, expected, dependency_runs={}).fresh
+
+
+def test_a_changed_output_is_named_by_its_input_and_its_producer(recorded):
+    run_dir, _, _, expected = recorded
+    changed = _check(run_dir, expected, declared_inputs=(_wired(_entry("b")),))
+    assert changed.reason == "`netlist` from `yosys` changed"
+
+
+def test_an_output_that_moved_is_a_change(recorded):
+    run_dir, _, _, expected = recorded
+    moved = _wired(_entry("a", path="/r/yosys_2/out.json"))
+    assert _check(run_dir, expected, declared_inputs=(moved,)).reason == (
+        "`netlist` from `yosys` changed"
+    )
+
+
+def test_an_output_that_changed_while_the_flow_ran_never_matches(recorded):
+    run_dir, _, _, expected = recorded
+    entry = _entry("a")
     trace = json.loads((run_dir / "trace.json").read_text())
-    trace["dependency_runs"] = runs
+    trace["declared_inputs"][0]["references"][0]["entries"][0]["unknown"] = True
     (run_dir / "trace.json").write_text(json.dumps(trace))
+    stale = _check(run_dir, expected, declared_inputs=(_wired(entry),))
+    assert stale.reason == "`netlist` from `yosys` changed while toy ran"
 
 
-def test_a_dependency_that_ran_again_is_named(recorded, tmp_path):
-    """Whatever the dependency's declared outputs say, and before the input set is compared: a
-    run may have read any file its dependency's run wrote. Dependencies are told apart by their
-    run directories, so two of one flow are two dependencies."""
+def test_the_edge_is_judged_after_everything_else(recorded):
+    """A flow stale for its own reasons says so, whatever its producer did."""
     run_dir, source, _, expected = recorded
-    runs = {"toy/yosys_1": "a" * 32, "toy/yosys_2": "b" * 32}
-    flows = {"toy/yosys_1": "yosys", "toy/yosys_2": "yosys"}
-    _record_dependency_runs(run_dir, runs)
-    assert _check(run_dir, expected, dependency_runs=runs, dependency_flows=flows).fresh
-    extra = _file(tmp_path / "b.v", "module b; endmodule\n")
-    again = _check(
+    _file(source, "module b; endmodule\n")
+    os.utime(source, ns=(OLD + 1_000, OLD + 1_000))
+    result = _check(run_dir, expected, declared_inputs=(_wired(_entry("b")),))
+    assert result.reason == f"input changed: {source}"
+    result = _check(run_dir, expected, declared_inputs=(_wired(_entry("b")),), design_hash="e" * 32)
+    assert result.reason == f"input changed: {source}"
+    source.unlink()
+    result = _check(run_dir, expected, declared_inputs=(_wired(_entry("b")),))
+    assert result.reason == f"input missing: {source}"
+
+
+def test_an_equivalent_output_is_no_change_for_an_input_that_opts_in(tmp_path):
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    out = _file(run_dir / "out.json", "{}\n")
+    recorded_input = _wired(_entry("a", "e" * 32), equivalence=True)
+    write_trace(
         run_dir,
-        expected,
-        dependency_runs={**runs, "toy/yosys_1": "c" * 32},
-        dependency_flows=flows,
-        inputs=(source, extra),
+        _trace(
+            programs={},
+            inputs={},
+            outputs={str(out): record_file(out)},
+            declared_inputs=[recorded_input],
+        ),
     )
-    assert again.reason == "yosys (toy/yosys_1) ran again"
-    fewer = _check(
-        run_dir, expected, dependency_runs={"toy/yosys_2": "b" * 32}, dependency_flows=flows
-    )
-    assert fewer.reason == "no longer depends on the run in toy/yosys_1"
-    more = _check(
-        run_dir,
-        expected,
-        dependency_runs={**runs, "toy/yosys_3": "d" * 32},
-        dependency_flows={**flows, "toy/yosys_3": "yosys"},
-    )
-    assert more.reason == "new dependency: yosys (toy/yosys_3)"
+
+    def check(*entries: OutputEntry, equivalence: bool):
+        expected = Expectation(
+            flow="toy",
+            flowrun_hash="f" * 32,
+            design_hash="d" * 32,
+            xeda_version="0.5.0",
+            xeda_code="x" * 32,
+            flow_code="c" * 32,
+            inputs=(),
+            settings={},
+            setting_locations={},
+            dependency_runs={},
+            declared_inputs=(_wired(*entries, equivalence=equivalence),),
+        )
+        return check_trace(run_dir, expected, lambda name: None)
+
+    same = check(_entry("b", "e" * 32), equivalence=True)
+    assert same.fresh and same.equivalent == ("netlist",)
+    identical = check(_entry("a", "e" * 32), equivalence=True)
+    assert identical.fresh and identical.equivalent == ()
+    assert not check(_entry("b", "e" * 32), equivalence=False).fresh  # does not opt in
+    assert not check(_entry("b", "f" * 32), equivalence=True).fresh  # another digest
+    assert not check(_entry("b"), equivalence=True).fresh  # no digest now
 
 
 def test_without_a_trace_nothing_is_fresh(tmp_path, recorded):

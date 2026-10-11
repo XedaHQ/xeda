@@ -15,8 +15,9 @@ from ..digest import content_digest
 from ..flow import Flow, FlowDependencyFailure
 from ..flow.io import declared_outputs, output_enabled
 from ..run_dir import RunDirectoryError
+from .trace import OutputEntry
 
-__all__ = ["handed_over", "record_outputs", "declared_output_files"]
+__all__ = ["handed_entries", "handed_over", "record_outputs", "declared_output_files"]
 
 
 def declared_output_files(results: dict[str, Any]) -> list[Path]:
@@ -80,6 +81,17 @@ def record_outputs(flow: Flow) -> list[str]:
             records[name] = entries if many else entries[0]
     flow.results["outputs"] = records
     return problems
+
+
+def handed_entries(producer: Flow, output: str) -> tuple[OutputEntry, ...]:
+    """The files of `producer`'s `output` as its run recorded them (`handed_over` has verified
+    them): what a consumer is handed, to be compared with what it consumed. Call it after
+    `handed_over` has accepted the output."""
+    recorded = (producer.results.get("outputs") or {})[output]
+    return tuple(
+        OutputEntry(path=entry["path"], sha=entry["sha"], equivalence=entry.get("equivalence"))
+        for entry in (recorded if isinstance(recorded, list) else [recorded])
+    )
 
 
 def handed_over(producer: Flow, output: str) -> list[Path]:
