@@ -31,13 +31,13 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.console import console
-from xeda.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, default_runner, run_lock
 from xeda.flow_runner.run_lock import run_dir_lock, run_dir_read_lock
 from xeda.run_dir import RunDirectoryError
 from xeda.run_root import ensure_run_root
 from xeda.utils import replacing_file
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
@@ -53,10 +53,8 @@ STORE = f"{FLOW}_cccccccccccccccc"
 
 @pytest.fixture(autouse=True)
 def private_registry():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 class Prompts(list):

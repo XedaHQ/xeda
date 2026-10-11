@@ -22,7 +22,7 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, Out, registered_flows
+from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, Out
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.trace import as_recorded
@@ -30,6 +30,7 @@ from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader
 from xeda.introspect import plan_info
 from xeda.utils import LOCATION_FORMS, replacing_file
 
+from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .project_files import PROJECT_FILE
 from .test_openfpgaloader import assert_fake_loader
@@ -42,10 +43,8 @@ PINS = "set_property LOC E3 [get_ports clk]\n"
 
 @pytest.fixture(autouse=True)
 def isolate_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def _design(tmp_path: Path, part: str = ECP5, flows=None) -> Design:

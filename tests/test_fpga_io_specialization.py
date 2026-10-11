@@ -9,19 +9,18 @@ from xeda import Design
 from xeda.board import WithFpgaBoardSettings
 from xeda.dataclass import Field
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In, registered_flows
+from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, In
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 
+from .flow_registry import preserved_flow_registry
 from .test_declared_fpga_flows import tools as tools
 
 
 @pytest.fixture(autouse=True)
 def _restore_registry():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 class _ConfigTaker(Flow):

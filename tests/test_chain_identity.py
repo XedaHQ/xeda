@@ -9,23 +9,22 @@ import pytest
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import FlowFatalError, registered_flows
+from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.bindings import node_identity
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.default_runner import DIR_NAME_HASH_LEN
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _ChainConsumer, _Join, _Left, _Taker
 from .tool_utils import producers_of
 
 
 @pytest.fixture(autouse=True)
 def isolate_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def _design(tmp_path, sources=(), flows=None):

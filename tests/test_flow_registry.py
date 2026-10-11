@@ -10,13 +10,13 @@ from inspect import isabstract, isclass
 import pytest
 
 from xeda import flows
-from xeda.flow import Flow, registered_flows
+from xeda.flow import Flow
 from xeda.flow_runner import get_flow_class
 
-ALL_FLOW_CLASSES = sorted(
-    {cls for cls in flows.__builtin_flows__} | {cls for _mod, cls in registered_flows.values()},
-    key=lambda cls: cls.name,
-)
+# The product's flows. The registry also holds the flows other test modules define: they are
+# registered when their module is imported and removed by their own tests, so the registry at
+# collection time says nothing about what is there when these tests run.
+ALL_FLOW_CLASSES = sorted(set(flows.__builtin_flows__), key=lambda cls: cls.name)
 
 
 def test_flows_all_lists_only_concrete_flow_classes():

@@ -23,6 +23,7 @@ from xeda.flow_runner.bindings import (
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.settings_layers import split_flow_sections
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import (
     _ChainConsumer,
     _ChainOptionalConsumer,
@@ -35,10 +36,8 @@ from .io_flows import (
 
 @pytest.fixture(autouse=True)
 def isolate_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def layer(cls, inputs, location="the design file"):
