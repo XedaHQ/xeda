@@ -198,3 +198,26 @@ def test_a_moved_name_the_launcher_does_not_use_is_not_also_defined_there():
     `IMPORTED`, and a stale entry would hide the binding."""
     assert not set(default_runner.MOVED_NAMES) & set(vars(default_runner))
     assert not set(IMPORTED) & set(default_runner.MOVED_NAMES)
+
+
+@pytest.mark.parametrize("name", sorted(default_runner.MOVED_NAMES))
+def test_a_moved_name_cannot_be_replaced_on_the_launcher_module(name: str, monkeypatch):
+    """Nothing in the launcher looks a moved name up, so replacing it there would change nothing
+    and leave a stale global behind. The module refuses, naming the module to patch."""
+    module = default_runner.MOVED_NAMES[name][0]
+    with pytest.raises(AttributeError, match=rf"replace it on `xeda\.flow_runner\.{module}`"):
+        setattr(default_runner, name, None)
+    with pytest.raises(AttributeError, match=module):
+        monkeypatch.setattr(default_runner, name, None)
+    with pytest.raises(AttributeError, match=module):
+        delattr(default_runner, name)
+    assert name not in vars(default_runner), "a refused replacement left a global behind"
+
+
+@pytest.mark.parametrize("name", ["_drop_unwritten_artifacts", "scrub_runs", "expectation"])
+def test_a_name_the_launcher_looks_up_can_still_be_replaced(name: str, monkeypatch):
+    original = getattr(default_runner, name)
+    with monkeypatch.context() as patching:
+        patching.setattr(default_runner, name, id)
+        assert getattr(default_runner, name) is id
+    assert getattr(default_runner, name) is original

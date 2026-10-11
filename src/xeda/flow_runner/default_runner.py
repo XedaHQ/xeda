@@ -7,8 +7,10 @@ import functools
 import importlib
 import logging
 import os
+import sys
 import threading
 import time
+import types
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
@@ -180,6 +182,32 @@ def __getattr__(name: str) -> Any:
     if moved is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     return getattr(importlib.import_module(f".{moved[0]}", __package__), moved[1])
+
+
+class _LauncherModule(types.ModuleType):
+    """This module, refusing to have a moved name set or deleted. A name in `MOVED_NAMES` is
+    found through `__getattr__`, so assigning it (a test's `monkeypatch.setattr`) would make a
+    real global that no launcher code reads: the replacement would change nothing."""
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        self._refuse_moved(name)
+        super().__setattr__(name, value)
+
+    def __delattr__(self, name: str) -> None:
+        self._refuse_moved(name)
+        super().__delattr__(name)
+
+    @staticmethod
+    def _refuse_moved(name: str) -> None:
+        moved = MOVED_NAMES.get(name)
+        if moved is not None:
+            raise AttributeError(
+                f"`{name}` moved to `xeda.flow_runner.{moved[0]}.{moved[1]}`, and nothing in "
+                f"`default_runner` looks it up: replace it on `xeda.flow_runner.{moved[0]}`"
+            )
+
+
+sys.modules[__name__].__class__ = _LauncherModule
 
 
 __all__ = [
@@ -749,12 +777,12 @@ class FlowLauncher:
         dependency run, goes through -- make's order: bring every prerequisite up to date, then
         judge this flow against them. Its stages, in order:
 
-        1. **input** (`launch_input.input_settings`): validate the settings in their context (design root,
-           start directory) and apply the launcher's ``--debug``. The result is the run's input,
-           never modified afterwards. A missing required setting, or a design the flow cannot
-           run, fails the launch here.
-        2. **identity** (`launch_identity.run_identity`): the design's hash and the settings' `flowrun_hash`;
-           the run directory, `<design>[/<target>]/<flow>` (``hashed_run_dirs``:
+        1. **input** (`launch_input.input_settings`): validate the settings in their context
+           (design root, start directory) and apply the launcher's ``--debug``. The result is the
+           run's input, never modified afterwards. A missing required setting, or a design the
+           flow cannot run, fails the launch here.
+        2. **identity** (`launch_identity.run_identity`): the design's hash and the settings'
+           `flowrun_hash`; the run directory, `<design>[/<target>]/<flow>` (``hashed_run_dirs``:
            `<flow>_<flowrun_hash>`), which the flow must be able to work in
            (`Flow.check_run_directory`, judged on the path before anything is created),
            locked from here until the run's trace is written (`run_lock`). With ``clean``, the
@@ -762,8 +790,9 @@ class FlowLauncher:
         3. **prepare**: construct the flow with its own copy of the input and call its `init()`.
            `init()` runs for a flow that turns out to be fresh too, so it must not change a file
            in the run directory: every file there is an output of the last run.
-        4. **producers** (`launch_producers.run_producers`): launch each producer the plan names through this
-           same procedure, in a sibling run directory, with the settings the plan holds for it.
+        4. **producers** (`launch_producers.run_producers`): launch each producer the plan names
+           through this same procedure, in a sibling run directory, with the settings the plan
+           holds for it.
         5. **freshness**: without ``rebuild_all`` or ``clean`` (the default), a flow whose trace
            still matches what it would consume now (`trace.check_trace`) is not run again: its
            recorded results are reused. Otherwise `flow.stale_reason` says why it runs. A flow that can
