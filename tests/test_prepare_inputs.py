@@ -435,3 +435,14 @@ def test_a_flow_whose_preparation_registers_other_than_it_locates_is_refused(
     monkeypatch.setattr(_ChipdbTaker, "locate_prepared_inputs", lambda self: [])
     with pytest.raises(FlowFatalError, match="locate_prepared_inputs"):
         _launch_cache(tmp_path, generation)
+
+
+def test_a_corrupt_cache_entry_is_unknown_to_a_dry_run_and_refused_by_a_launch(
+    tmp_path, generation
+):
+    first = _launch_cache(tmp_path, generation)
+    (Path(first.results["chipdb"]).parent / "manifest.yaml").unlink()
+    said = _dry(tmp_path, generation)[_ChipdbTaker.name]
+    assert said.state == "unknown" and "Corrupt Xilinx chipdb cache entry" in said.reason, said
+    with pytest.raises(FlowFatalError, match="Corrupt Xilinx chipdb cache entry"):
+        _launch_cache(tmp_path, generation)

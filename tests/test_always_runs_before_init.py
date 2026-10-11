@@ -83,10 +83,7 @@ def _settings(cls, world, extra=None):
 @pytest.mark.parametrize("cls", [c for c, _ in FLOWS], ids=lambda c: c.name)
 def test_the_answer_before_init_is_the_answer_after_it(cls, tmp_path, monkeypatch):
     world = _prepare(cls, tmp_path, monkeypatch)
-    try:
-        before, after = _bare_and_initialized(cls, _settings(cls, world), world, monkeypatch)
-    except Exception as error:  # noqa: BLE001 - flows the sweep's world does not plan
-        pytest.skip(f"{cls.name} cannot be initialized in the sweep's world: {error}")
+    before, after = _bare_and_initialized(cls, _settings(cls, world), world, monkeypatch)
     assert before == after, cls.name
 
 

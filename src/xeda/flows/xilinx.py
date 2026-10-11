@@ -622,9 +622,9 @@ def locate_chipdb(
 ) -> Path | None:
     """Where `prepare_chipdb` leaves the chip database of `selection`, if it is there: an explicit
     chipdb, validated; else the cache entry of the identity of the installation and the device
-    data, whose manifest is not read (a hit validates it, `prepare_chipdb`). None if nothing is
-    there, or the run root is not a marked one: a launch would generate it. Reads files to
-    form the identity; writes nothing and starts no program."""
+    data, validated as a hit is in `prepare_chipdb`. None if nothing is there, or the run root is
+    not a marked one: a launch would generate it. Reads files to form the identity and to check
+    the entry; writes nothing and starts no program."""
     if layout.chipdb is not None:
         validate_chipdb(layout.chipdb, selection)
         return layout.chipdb
@@ -632,11 +632,10 @@ def locate_chipdb(
     if root is None or not is_run_root(root):
         return None
     owner = RunDirectory(root, root)
-    entry = _cache_path(
-        owner,
-        _cache_path(owner, root / ".cache/xilinx-chipdb") / chipdb_identity(layout, selection).key,
-    )
-    return entry / f"{selection.fabric}.bin" if entry.exists() else None
+    identity = chipdb_identity(layout, selection)
+    entry = _cache_path(owner, _cache_path(owner, root / ".cache/xilinx-chipdb") / identity.key)
+    # an entry is checked as a hit is (`FlowFatalError` if it is corrupt): the launch refuses it
+    return _cached_chipdb(owner, entry, selection, identity) if entry.exists() else None
 
 
 def prepare_chipdb(

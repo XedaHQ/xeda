@@ -30,7 +30,7 @@ from ..design import Design
 from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException
 from ..flow.io import declared_inputs
 from ..proc_utils import DOCKER_IMAGE_PREFIX
-from ..run_dir import RunDirectory
+from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_input
 from .resolver import Plan, PlanNode
 from .trace import (
@@ -99,18 +99,20 @@ def _entries(results: dict, output: str) -> tuple[OutputEntry, ...] | None:
 
 
 def _bare_flow(
+    plan: Plan,
     node: PlanNode,
     settings: Flow.Settings,
     design: Design,
     run_root: Path,
     runner_cwd: Path,
-    flowrun_hash: str,
-    settings_hash: str,
     design_hash: str,
+    handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
 ) -> Flow:
     """The flow as the launch constructs it, before `init()`: its run directory is claimed, and
-    nothing writes there. Its declared inputs hold the design sources the plan names; those a
-    producer hands over are not known."""
+    nothing writes there. Its declared inputs are what the plan wires: the design sources, and the
+    files the producers hand over where those are known (`handed`), else a path of the
+    producer's run directory standing for the file, so that a hook that asks whether an input
+    is supplied (nextpnr's board fallback) answers as the launch does."""
     flow = node.flow_class(
         settings.model_copy(deep=True),
         design.model_copy(deep=True),
@@ -118,10 +120,21 @@ def _bare_flow(
         runner_cwd=runner_cwd,
         run_directory=RunDirectory.claimed(node.run_path, run_root),
     )
-    flow.flow_hash, flow.settings_hash, flow.design_hash = flowrun_hash, settings_hash, design_hash
+    flow.flow_hash, flow.settings_hash, flow.design_hash = (
+        node.flowrun_hash,
+        node.settings_hash,
+        design_hash,
+    )
     for selected in node.inputs:
-        if selected.sources:
-            paths = list(selected.sources)
+        paths = list(selected.sources)
+        for ref in selected.references:
+            found = handed.get((ref.node, ref.output))
+            paths += (
+                [Path(entry.path) for entry in found]
+                if found
+                else [plan.node(ref.node).run_path / ref.output]
+            )
+        if paths:
             many = declared_inputs(node.flow_class)[selected.name].cardinality == "many"
             setattr(flow.inputs, selected.name, paths if many else paths[0])
     return flow
@@ -180,22 +193,30 @@ def judge_node(
     debug: bool,
 ) -> NodeFreshness:
     flow_class = node.flow_class
+    # what the producers hand over, where their recorded results can say (a fresh producer's
+    # results are the ones a launch hands over; any other's are about to be made)
+    producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
+    waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
+    entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
+    lacks: NodeFreshness | None = None
+    if waiting is None:
+        for item in node.inputs:
+            for ref in item.references:
+                results = _results(plan.node(ref.node))
+                found = None if results is None else _entries(results, ref.output)
+                if found is None:
+                    lacks = NodeFreshness(
+                        "unknown", f"{ref.node} recorded no output `{ref.output}` to hand over"
+                    )
+                else:
+                    entries[(ref.node, ref.output)] = found
     try:
         settings = launch_input.input_settings(
             flow_class, node.settings, design, runner_cwd, debug=debug
         )
         split_deliveries(settings, design.name)
         design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
-        flow = _bare_flow(
-            node,
-            settings,
-            design,
-            run_root,
-            runner_cwd,
-            node.flowrun_hash,
-            node.settings_hash,
-            design_hash,
-        )
+        flow = _bare_flow(plan, node, settings, design, run_root, runner_cwd, design_hash, entries)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
         # a plan checks no more than the request; a launch checks the settings in the design's
         # context, as it constructs the flow, and would refuse these
@@ -209,25 +230,14 @@ def judge_node(
         return NodeFreshness("stale", EVERY_FLOW_RUNS_REBUILD_ALL)
     try:
         registered = flow.locate_prepared_inputs()
-    except FlowFatalError as error:
+    except (FlowFatalError, RunDirectoryError, ValueError, OSError) as error:
         return NodeFreshness("unknown", f"its prepared inputs cannot be located: {error}")
     if registered is None:
         return NodeFreshness(
             "unknown", "a prepared input is not made yet: a launch makes it before judging"
         )
-    producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
-    waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
-    entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
-    if waiting is None:
-        for item in node.inputs:
-            for ref in item.references:
-                results = _results(plan.node(ref.node))
-                found = None if results is None else _entries(results, ref.output)
-                if found is None:
-                    return NodeFreshness(
-                        "unknown", f"{ref.node} recorded no output `{ref.output}` to hand over"
-                    )
-                entries[(ref.node, ref.output)] = found
+    if lacks is not None:
+        return lacks
     expected: Expectation = expected_run(
         flow_class=flow_class,
         name=flow.name,

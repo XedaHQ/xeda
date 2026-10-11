@@ -318,6 +318,50 @@ def test_a_node_whose_settings_a_launch_refuses_in_the_design_s_context_is_unkno
     assert "clock" in states["nextpnr"].reason
 
 
+def test_an_input_a_producer_supplies_is_supplied_to_the_hook_that_asks(
+    tmp_path, monkeypatch, toys  # noqa: F811
+):
+    """nextpnr takes the board's pin file only when no pin file is supplied: a hook that asks
+    whether an input is supplied must be answered as the launch answers it, also when a
+    producer, not the design, supplies it."""
+
+    class ToyFallback(Flow):
+        """Registers a fallback file unless its input is supplied."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The producer's text.",
+            )
+
+        def locate_prepared_inputs(self):
+            return [] if self.inputs.produced is not None else [self.design.root_path / "fallback"]
+
+        def prepare_inputs(self) -> None:
+            self.implicit_inputs += self.locate_prepared_inputs()
+
+        def run(self) -> None:
+            (self.run_path / "out.txt").write_text(self.inputs.produced.read_text())
+
+    class FallbackGraph(ToyGraph):
+        flow, consumer = "toy_fallback", "toy_fallback"
+
+    (tmp_path / "fallback").write_text("a pin file of the board\n")
+    graph = FallbackGraph(tmp_path, monkeypatch)
+    graph.settle()
+    for options in ({}, {"rebuild_all": True}):
+        states = compare(graph, options)
+        assert states["toy_fallback"].state == (STALE if options else FRESH), states
+    graph.edit_source()
+    states = compare(graph, {})
+    assert states["toy_fallback"].state == UNKNOWN
+
+
 def test_a_node_that_always_runs_is_stale_and_its_consumer_is_unknown(
     tmp_path, monkeypatch, tools  # noqa: F811
 ):
@@ -500,3 +544,36 @@ def test_the_cli_dry_run_json_carries_state_and_reason(tmp_path, monkeypatch, to
     assert nodes["toy_consumer"] | {} and nodes["toy_consumer"]["state"] == UNKNOWN
     assert nodes["toy_consumer"]["reason"] == "depends on toy_producer"
     assert "state" not in plan_info(plan)["nodes"][0]
+
+
+def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, monkeypatch):
+    """A simulator's flow makes its cocotb support when it first uses it, not when it is built:
+    making it asks for a version, which is a process."""
+    from xeda.tool import Tool
+
+    from .test_isolation import DESIGNS, SQRT_DESIGN, _world
+
+    world = _world(tmp_path)
+    rtl, tb = DESIGNS.get("ghdl_sim", SQRT_DESIGN)
+    design = Design(
+        name="sqrt",
+        design_root=world.work,
+        rtl=rtl,
+        tb=tb,
+        language={"vhdl": {"standard": "2008"}},
+    )
+    graph = Graph.__new__(Graph)
+    graph.root, graph.run_root, graph.settings = world.work, world.root, []
+    monkeypatch.chdir(world.work)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("a dry run probed a tool")
+
+    monkeypatch.setattr(Tool, "probe_stdout", forbidden)
+    graph.design = lambda: design  # type: ignore[method-assign]
+    graph.flow = "ghdl_sim"
+    with Watch(graph) as watch:
+        plan, states = graph.dry()
+    assert watch.problems() == []
+    assert states["ghdl_sim"].state == STALE, states
+    assert states["ghdl_sim"].reason == "no successful previous run"

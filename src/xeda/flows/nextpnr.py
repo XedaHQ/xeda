@@ -706,7 +706,9 @@ class Nextpnr(FpgaSynthFlow):
         board = self._locate_board_input()
         if board.path is not None:
             if not board.path.is_file():
-                return None
+                if board.content is not None:
+                    return None  # the cache entry of a board file of the package: not made yet
+                raise FlowFatalError(self._board_file_missing(board.path))
             located.append(board.path)
         if self.io_family(self.settings) == "xilinx":
             chipdb = self._locate_chipdb()
@@ -783,6 +785,11 @@ class Nextpnr(FpgaSynthFlow):
             path=root / ".cache" / "board-files" / digest / Path(name).name, content=content
         )
 
+    def _board_file_missing(self, path: Path) -> str:
+        assert isinstance(self.settings, self.Settings)
+        kind = self._constraint_kind()
+        return f"Board {self.settings.board!r} {kind} fallback does not exist: {path}"
+
     def _prepare_board_inputs(self) -> None:
         """Select board fallback paths before freshness, without writing the run directory."""
         assert isinstance(self.settings, self.Settings)
@@ -811,10 +818,7 @@ class Nextpnr(FpgaSynthFlow):
                 with replacing_file(path, "wb") as stream:
                     stream.write(board.content)
         if not path.is_file():
-            kind = self._constraint_kind()
-            raise FlowFatalError(
-                f"Board {self.settings.board!r} {kind} fallback does not exist: {path}"
-            )
+            raise FlowFatalError(self._board_file_missing(path))
         self._pin_inputs = [path]
         self.implicit_inputs.append(path)
 

@@ -500,7 +500,8 @@ would have to be looked up (``its container image is checked when it runs``), wh
 input does not exist yet (a chip database no run has generated), or when a launch would refuse its
 settings in the design's context. Every ``fresh`` and ``stale`` node is exactly what the launch
 does: ``tests/test_dry_run_freshness.py`` runs the plan's request and compares. ``--rebuild-all``
-and ``--clean`` make every node stale, and a launch records the same reason.
+and ``--clean`` make every node stale, with the reason a launch records too (a flow that always
+runs keeps its own).
 
 Planning does not call a flow's ``init()``, but it builds each flow as the launch does, with a
 run directory it never writes, to ask whether it always runs. Invalid settings, shared-setting

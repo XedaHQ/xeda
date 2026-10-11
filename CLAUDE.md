@@ -743,11 +743,13 @@ its output paths inside its run directory.
   (explicit arguments; `expectation` is its launch form), `trace.check_trace`, and the pure hooks
   `Flow.design_scope`, `Flow.input_equivalence`, `Flow.locate_prepared_inputs` and
   `Flow.always_runs`. A flow is built as the launch builds it (settings, design, a claimed run
-  directory it never writes, the design sources of its plan as its `inputs`) and **not
-  initialized**; `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
+  directory it never writes, as its `inputs` the design sources of its plan and the files its
+  fresh producers hand over, or a path standing for them) and **not initialized**; a flow's
+  constructor starts no process (`SimFlow.cocotb` is made when first used); `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
   before and after `init()` for every flow and every value of the settings that decide it. The
   order is the launch's: `always_runs()`, then `--clean` / `--rebuild-all` (the launch records
-  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`), then the trace up to what
+  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`; a flow that always runs keeps
+  its own), then the trace up to what
   the producers handed over (`check_trace(refresh=False, edge=False)`: no clock marker, no
   refresh), then, if every producer is `fresh`, the edge against each producer's recorded
   `results.json` `outputs` (read only because that producer's own trace vouches for it); a

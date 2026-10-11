@@ -236,8 +236,9 @@ What makes a flow stale
 depends on a producer that would run first (the flow is judged by the outputs that run hands over),
 a container image would have to be looked up, or a prepared input, such as a chip database, does
 not exist yet. The dry run takes no lock, refreshes no trace and starts no process. With
-``--rebuild-all`` or ``--clean`` every flow is stale, with the reason ``every flow runs
-(--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records too.
+``--rebuild-all`` or ``--clean`` every flow is stale. A flow a run would otherwise reuse has the
+reason ``every flow runs (--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records
+too; a flow that always runs keeps its own reason (``it draws a new random seed``).
 
 A run directory is reused from run to run, so a report the previous run left is still there when
 a flow runs again. A flow reads only the reports its own run wrote: right before the run, Xeda
