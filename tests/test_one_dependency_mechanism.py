@@ -357,6 +357,8 @@ class _Reads(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr in STATE_ATTRIBUTES:
             self._read(node, node.value, f"{ast.unparse(node.value)}.{node.attr}")
+        if node.attr in STATE_ACCESSORS and id(node) not in self._called:
+            self.aliases.append((node.lineno, ast.unparse(node)))
         self.generic_visit(node)
 
     def visit_Name(self, node: ast.Name) -> None:
@@ -368,14 +370,24 @@ class _Reads(ast.NodeVisitor):
         func = node.func
         self._called.add(id(func))
         if (
-            isinstance(func, ast.Name)
-            and func.id in STATE_ACCESSORS
+            _accessor(func)
             and len(node.args) >= 2
             and isinstance(node.args[1], ast.Constant)
             and node.args[1].value in STATE_ATTRIBUTES
         ):
             self._read(node, node.args[0], ast.unparse(node))
         self.generic_visit(node)
+
+
+def _accessor(func: ast.expr) -> str | None:
+    """The accessor (`getattr`, ...) that a call's function names, bare or qualified
+    (`builtins.getattr`)."""
+    name = (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr if isinstance(func, ast.Attribute) else None
+    )
+    return name if name in STATE_ACCESSORS else None
 
 
 def _callee(call: ast.Call) -> str | None:
@@ -412,7 +424,17 @@ def analyze(units: list[tuple[str, ast.AST]]) -> tuple[list[str], set[str]]:
     does, which is the same thing as long as every call passes the instance or, in such a
     function, its own such parameter -- and there is a call. A read of a state attribute of
     anything else (a local, an attribute, a call), a call that passes something else for such a
-    parameter and a parameter that no call gives a value are the problems."""
+    parameter and a parameter that no call gives a value are the problems.
+
+    Scope. The scan guards against an accidental regression in the spellings a maintainer would
+    write, not against code that hides a read. It recognizes: a direct read of a state attribute on
+    any receiver but the instance; the accessors `getattr`, `setattr`, `hasattr` and `delattr`
+    called by their bare or qualified name (`builtins.getattr`), and any other use of one, which
+    could hide a read; a read through a local name (a local is no parameter, so it is no flow); and
+    a helper or method whose every call passes the flow. It does no data-flow analysis across
+    functions or containers: a helper reached through another name (`reader = read_state`), a flow
+    kept in a list or a dictionary, or one returned by a call is not followed. Code review is the
+    backstop for those."""
     problems: list[str] = []
     visits = []
     for label, tree in units:
@@ -557,6 +579,21 @@ class Consumer:
         read = getattr
         return read(self.dependency, "results")
 """
+READS_BY_QUALIFIED_NAME = """
+import builtins
+
+class Consumer:
+    def run(self):
+        return builtins.getattr(self.dependency, "results")
+"""
+READS_THROUGH_A_QUALIFIED_ALIAS = """
+import builtins
+
+class Consumer:
+    def run(self):
+        read = builtins.getattr
+        return read(self.dependency, "results")
+"""
 READS_IN_A_FUNCTION_WITH_NO_INSTANCE = """
 def free():
     return self.results
@@ -654,6 +691,7 @@ def test_a_read_of_the_state_of_anything_but_the_instance_is_found() -> None:
         (READS_A_LOCAL, "`producer.results`"),
         (READS_AN_ATTRIBUTE, "`self.tool.run_path`"),
         (READS_BY_NAME, "getattr(self.dependency, 'artifacts')"),
+        (READS_BY_QUALIFIED_NAME, "builtins.getattr(self.dependency, 'results')"),
         (READS_IN_A_FUNCTION_WITH_NO_INSTANCE, "`self.results`"),
     ):
         (problem,) = _problems(source)
@@ -663,6 +701,8 @@ def test_a_read_of_the_state_of_anything_but_the_instance_is_found() -> None:
 def test_an_accessor_that_is_not_called_by_its_name_is_found() -> None:
     (problem,) = _problems(READS_THROUGH_AN_ALIAS)
     assert "uses `getattr` other than by calling it" in problem, problem
+    (problem,) = _problems(READS_THROUGH_A_QUALIFIED_ALIAS)
+    assert "uses `builtins.getattr` other than by calling it" in problem, problem
 
 
 def test_a_helper_that_is_only_ever_given_the_flow_is_not_a_problem() -> None:
