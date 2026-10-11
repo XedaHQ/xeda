@@ -1721,6 +1721,11 @@ class FlowLauncher:
                 try:
                     with recording_programs() as execution_programs:
                         self._execute(flow, run_path, input_settings)
+                        if not flow.succeeded:
+                            # a run that ended without raising, its tool's failure or its checks'
+                            # included, reports only the artifacts it wrote; a run that raised
+                            # gets the same filter in the handler below
+                            _drop_unwritten_artifacts(flow)
                     for name in execution_programs:
                         if name not in programs:
                             programs.append(name)
@@ -2086,8 +2091,6 @@ class FlowLauncher:
         for k, v in flow.artifacts.items():
             if not flow.results.artifacts.get(k):
                 flow.results.artifacts[k] = v
-        if not flow.succeeded:
-            _drop_unwritten_artifacts(flow)
 
     def _clean_up(
         self, flow: Flow, settings_json: Path, results_json: Path, policy: RunDirPolicy
