@@ -42,6 +42,7 @@ MOVED: dict[str, tuple[str, str]] = {
     "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
     "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
     "_setting_naming": ("launch_input", "setting_naming"),
+    "RunDirPolicy": ("launch_identity", "RunDirPolicy"),
 }
 
 

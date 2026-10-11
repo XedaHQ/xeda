@@ -51,7 +51,6 @@ from ..deliver import (
     split_deliveries,
 )
 from ..design import (
-    DESIGN_NAME,
     DESIGN_PARTS,
     Design,
     deferring_load_side_effects,
@@ -104,8 +103,9 @@ from .bindings import (
     require_no_bindings,
     split_bindings,
 )
-from . import launch_input, launch_report
+from . import launch_identity, launch_input, launch_report
 from .chains import ChainElement, FlowRequest, parse_request
+from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
 from .launch_report import (
     print_results,
@@ -193,25 +193,6 @@ _REMOVED_LAUNCHER_SETTINGS = {
     "run_path": "run_root to choose where runs go (a flow always runs in a directory xeda "
     "creates under it), and outputs_to to receive its outputs elsewhere",
 }
-
-
-@dataclass(frozen=True)
-class RunDirPolicy:
-    """What one launch does with its run directory (see `FlowLauncher._run_dir_policy`).
-
-    Decided per launch, never by writing to the launcher's settings: every launch of a launcher
-    shares those, each of its dependency launches included.
-    """
-
-    clean: bool
-    scrub_old_runs: bool
-    post_cleanup: bool
-    post_cleanup_purge: bool
-
-    @property
-    def purges(self) -> bool:
-        """Whether the clean-up after the launch deletes the run directory (`_clean_up`)."""
-        return self.post_cleanup and self.post_cleanup_purge
 
 
 @dataclass(frozen=True)
@@ -943,40 +924,16 @@ class FlowLauncher:
         target: str | None = None,
     ) -> Path:
         """`<run root>/<design>[/<target>]/<node>`, or `<node>_<identity>` with hashed run
-        directories: strictly inside the run root, resolved -- a `RunDirectoryError` otherwise,
-        before anything (the lock beside it included) is written. A link at that name is used
-        only if it is a run directory of the node by `run_directory_problem`, the rule scrub
-        lists run directories by: it leads to a directory named like one beside it. A design
-        selected as a target runs in that target's directory, as its dependencies do; one
-        without, as it always has. `target` is the design's own (`Design.target`), never read
-        from the launcher, which may be reused for another design."""
-        subdir = node_name
-        if self.settings.hashed_run_dirs and identity:
-            subdir += f"_{identity[:DIR_NAME_HASH_LEN]}"
-        if not DESIGN_NAME.fullmatch(design_name):
-            raise RunDirectoryError(f"{design_name!r} is not a design name")
-        parent = Path(design_name)
-        if target is not None:
-            problem = target_name_problem(target)
-            if problem is not None:
-                raise RunDirectoryError(problem)
-            parent /= target
-        ensure_run_root(self._run_root, start=self._start, create=False)
-        run_path = self._run_root / parent / subdir
-        if not RunDirectory.lies_under(run_path, self._run_root):
-            raise RunDirectoryError(
-                f"{run_path} leads out of the run root {self._run_root} (through a symbolic "
-                "link): xeda runs only inside its run root; remove the link"
-            )
-        if run_path.is_symlink():  # the rule `xeda scrub` lists a run directory by
-            beside = Path(os.path.realpath(run_path.parent))
-            problem = run_directory_problem(run_path, node_name, beside)
-            if problem is not None:
-                raise RunDirectoryError(
-                    f"{run_path} cannot be the run directory of {node_name}: {problem}. Remove "
-                    f"the link, or make it lead to a run directory of {node_name} beside it."
-                )
-        return run_path
+        directories: strictly inside the run root, resolved (`launch_identity.run_path_of`)."""
+        return launch_identity.run_path_of(
+            self._run_root,
+            self._start,
+            self.settings.hashed_run_dirs,
+            design_name,
+            node_name,
+            identity,
+            target=target,
+        )
 
     def get_flow_run_path(
         self,
@@ -1184,7 +1141,7 @@ class FlowLauncher:
            start directory) and apply the launcher's ``--debug``. The result is the run's input,
            never modified afterwards. A missing required setting, or a design the flow cannot
            run, fails the launch here.
-        2. **identity** (`_run_identity`): the design's hash and the settings' `flowrun_hash`;
+        2. **identity** (`launch_identity.run_identity`): the design's hash and the settings' `flowrun_hash`;
            the run directory, `<design>[/<target>]/<flow>` (``hashed_run_dirs``:
            `<flow>_<flowrun_hash>`), which the flow must be able to work in
            (`Flow.check_run_directory`, judged on the path before anything is created),
@@ -1412,6 +1369,14 @@ class FlowLauncher:
             files=self._delivered_files,  # the launch's
         )
 
+    def _claim_run_dir(self, run_path: Path) -> None:
+        """Record that this launch entered `run_path` (`launch_identity.claim_run_dir`)."""
+        launch_identity.claim_run_dir(self._claims, run_path)
+
+    def _run_dir_policy(self) -> RunDirPolicy:
+        """What this launch does with its run directory (`launch_identity.run_dir_policy`)."""
+        return launch_identity.run_dir_policy(self.settings)
+
     def _entered(self, run_path: Path) -> bool:
         """Whether this launch built a flow for `run_path`, so that the `results.json` there is
         its own and not one an earlier launch left."""
@@ -1420,14 +1385,6 @@ class FlowLauncher:
             Path(os.path.abspath(f.run_path)) == where
             for f in self.launched[self._launched_before :]
         )
-
-    def _claim_run_dir(self, run_path: Path) -> None:
-        """Record that this launch entered `run_path`. The plan has one node per flow, so a
-        directory is entered once; a second entry would run over what the first produced."""
-        key = Path(os.path.abspath(run_path))
-        if key in self._claims:
-            raise FlowFatalError(f"{run_path} is entered twice in one launch")
-        self._claims.add(key)
 
     def _launch(
         self,
@@ -1480,8 +1437,8 @@ class FlowLauncher:
         # a deliverable given as a location becomes its conventional name here, before the
         # identity; the tools write that, and a delivery copies it to the location
         deliveries = split_deliveries(input_settings, design.name)
-        design_hash, flowrun_hash, run_path, settings_hash = self._run_identity(
-            flow_class, flow_name, design, input_settings, node
+        design_hash, flowrun_hash, run_path, settings_hash = launch_identity.run_identity(
+            self, flow_class, flow_name, design, input_settings, node
         )
         # What the flows read -- every file their settings name, and every file under a
         # directory one names, as the trace lists it -- is an input no delivery of the launch
@@ -1754,45 +1711,6 @@ class FlowLauncher:
             before_run=False,
         )
         self._pending_deliveries.append((flow, delivery))
-
-    def _run_identity(
-        self,
-        flow_class: type[Flow],
-        flow_name: str,
-        design: Design,
-        settings: Flow.Settings,
-        node: PlanNode,
-    ) -> tuple[str, str, Path, str]:
-        """Stage 2: `(design_hash, flowrun_hash, run_path, settings_hash)`. The run's hash is
-        its node's identity (`bindings.node_identity`): its settings and the ordered origins of
-        its inputs. The design
-        counts by the parts the flow reads (`Flow.design_parts`), so an edit to a testbench the
-        flow does not read changes nothing of it."""
-        design_hash = design.parts_hash(flow_class.design_parts)
-        settings_hash = flow_run_hash(flow_name, settings, design.name)
-        flowrun_hash = node_identity(settings_hash, node.origins)
-        # a directory the flow cannot work in is refused on the path alone: nothing is created yet
-        # (`get_flow_run_path` creates the run root)
-        flow_class.check_run_directory(
-            settings,
-            self.run_path_of(design.name, node.name, flowrun_hash, target=design.target),
-        )
-        run_path = self.get_flow_run_path(
-            design.name, node.name, flowrun_hash, target=design.target
-        )
-        return design_hash, flowrun_hash, run_path, settings_hash
-
-    def _run_dir_policy(self) -> RunDirPolicy:
-        """What this launch does with its run directory: the launcher's settings, for every
-        flow alike, dependencies included. Purging is a clean-up after the run, so
-        `post_cleanup_purge` alone makes `post_cleanup` true here -- the one place where the two
-        settings meet, which `_clean_up`, the pending clean-ups and the delivery by move follow."""
-        return RunDirPolicy(
-            clean=self.settings.clean,
-            scrub_old_runs=self.settings.scrub_old_runs,
-            post_cleanup=self.settings.post_cleanup or self.settings.post_cleanup_purge,
-            post_cleanup_purge=self.settings.post_cleanup_purge,
-        )
 
     @contextmanager
     def _producer_read_lease(self, producer: Flow):
