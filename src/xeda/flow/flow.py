@@ -710,6 +710,18 @@ class Flow(metaclass=ABCMeta):
     #: (`tests/test_design_parts.py`).
     design_parts: ClassVar[frozenset[str]] = frozenset({"rtl"})
 
+    #: The types of the design's sources this flow is judged on, within `design_parts`: its
+    #: `design_hash` and the design files of its trace cover the sources of these types, in their
+    #: order, and the design's metadata (top, parameters, defines, clocks, language), but not a
+    #: source of another type. None: every source of the parts. A flow that takes its files through
+    #: declared inputs (`nextpnr`, `fpga_pack`, `openfpgaloader`, `vivado_power`) names the types
+    #: its inputs take, so an edit to a file only its producer reads leaves it alone. A type
+    #: wrongly left out is a stale reuse: the declaration holds every type the flow can take or
+    #: hand its tool, and its code and templates read no source of their own
+    #: (`tests/test_design_source_types.py`). Only the flow's own freshness is scoped; the guards
+    #: that protect the user's files keep the whole design.
+    design_source_types: ClassVar[frozenset[SourceType] | None] = None
+
     #: A static explanation for flows that must not appear before the end of a chain, such as a
     #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
     action_reason: ClassVar[str | None] = None

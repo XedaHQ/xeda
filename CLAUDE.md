@@ -1058,7 +1058,15 @@ design files and nothing else: the launcher's registered reads and refused input
 keep the whole design, since they protect the user's files and verify the request. A part wrongly
 left out is a stale reuse, one wrongly left in a run for nothing, so a flow that reads `tb` in code
 or a template declares it (`SimFlow`, `bsc`, `vivado_project`); `tests/test_design_parts.py`
-scans every flow's classes and the templates it renders. `flowrun_hash` writes any path under the design
+scans every flow's classes and the templates it renders. **`Flow.design_source_types` narrows the
+scope further, to the sources of the types a flow takes** (`Design.parts_hash(parts,
+source_types)`, `design_files(design, parts, source_types)`; the design's metadata stays whole, the
+sources keep their order): `nextpnr` (its netlist, pin and SDC types), `fpga_pack`, `openfpgaloader`
+and `vivado_power` (their input types) are judged on those, so an edit to the HDL that only their
+producer reads leaves them alone. `None` (every other flow) is the whole parts. The declaration
+must hold every type the flow can take or hand its tool, and the flow's code and templates read no
+source of their own (`tests/test_design_source_types.py`); `rtl_hash`, `tb_hash` and
+`settings.json` keep the design's own values. `flowrun_hash` writes any path under the design
 root or the start directory relative to it (`$DESIGN_ROOT/c.xdc`), and one under xeda's own
 installation relative to that (`$XEDA/platforms/...`, `utils.location_roots`: a bundled
 platform's files are the same on every installation) -- each root and each path recognized as

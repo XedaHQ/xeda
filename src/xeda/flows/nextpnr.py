@@ -280,6 +280,19 @@ class Nextpnr(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
+    #: judged on the files it takes from the design: a JSON netlist, the pin files and the SDC
+    #: files. The HDL that `yosys_fpga` reads is that flow's input, not this one's.
+    design_source_types = frozenset(
+        {
+            SourceType.JsonNetlist,
+            SourceType.Lpf,
+            SourceType.Pcf,
+            SourceType.Pdc,
+            SourceType.Xdc,
+            SourceType.Sdc,
+        }
+    )
+
     results_description = describe_results(
         "Fmax",
         "wns",

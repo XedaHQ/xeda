@@ -45,6 +45,9 @@ class FpgaPack(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
+    #: judged on the routed configuration it can take from the design, nothing else
+    design_source_types = frozenset({SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm})
+
     _selection: XilinxSelection | None = None
     _part_data: PartData | None = None
 

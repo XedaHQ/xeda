@@ -33,12 +33,24 @@ import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Type
+from typing import (
+    Any,
+    Collection,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+)
 
 from pydantic import BaseModel
 
 from ..artifacts import iter_artifact_paths
-from ..design import DESIGN_PARTS, Design, FileResource
+from ..design import DESIGN_PARTS, Design, FileResource, SourceType
 from ..digest import (
     MODIFIED_DURING_RUN,
     UNRECORDED_BEFORE_RUN,
@@ -88,9 +100,14 @@ def _add(found: List[Path], path: Path) -> None:
         found.append(resolved)
 
 
-def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Path]:
+def design_files(
+    design: Design,
+    parts: Iterable[str] = DESIGN_PARTS,
+    source_types: Optional[Collection[SourceType]] = None,
+) -> List[Path]:
     """Every file the design's `parts` name, resolved (`Flow.design_parts`: the RTL, and the
-    testbench for a flow that reads it; the whole design by default): their sources, a
+    testbench for a flow that reads it; the whole design by default): their sources (only
+    those of `source_types`, if given: `Flow.design_source_types`), a
     parameter or define given as a file (`ROM = { file = "rom.mem" }`, which the design holds
     as the file's absolute path), and any other file a field of theirs refers to.
 
@@ -127,9 +144,17 @@ def design_files(design: Design, parts: Iterable[str] = DESIGN_PARTS) -> List[Pa
     unknown = wanted - DESIGN_PARTS
     if unknown:
         raise ValueError(f"{', '.join(sorted(unknown))} is not a part of a design")
-    visit(design.rtl)  # the RTL is always read
+
+    def visit_part(part: BaseModel) -> None:
+        for name in type(part).model_fields:
+            value = getattr(part, name)
+            if name == "sources" and source_types is not None:
+                value = [source for source in value if source.type in source_types]
+            visit(value)
+
+    visit_part(design.rtl)  # the RTL is always read
     if "tb" in wanted:
-        visit(design.tb)
+        visit_part(design.tb)
     return found
 
 
@@ -507,7 +532,7 @@ def candidate_inputs(
     bookkeeping = bookkeeping_files(flow.run_path)
     files = {
         # the parts of the design this flow reads, not the whole design
-        *design_files(design, type(flow).design_parts),
+        *design_files(design, type(flow).design_parts, type(flow).design_source_types),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, flow.run_path, run_root),
         *dependency_outputs(producers),
