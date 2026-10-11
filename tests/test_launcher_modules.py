@@ -34,18 +34,74 @@ LAUNCHER = "xeda.flow_runner.default_runner"
 #: The stage modules: every `launch_*.py`, and the scrub module.
 STAGE_MODULES = sorted([*FLOW_RUNNER.glob("launch_*.py"), *FLOW_RUNNER.glob("scrub.py")])
 
-#: name in `default_runner` -> (module that defines it now, name there)
-MOVED: dict[str, tuple[str, str]] = {
+#: Moved names the launcher module imports as they are (the launcher itself uses them): name in
+#: `default_runner` -> (module that defines it now, name there). The rest are `MOVED_NAMES`.
+IMPORTED: dict[str, tuple[str, str]] = {
     "print_results": ("launch_report", "print_results"),
-    "_artifact_rows": ("launch_report", "artifact_rows"),
-    "_drop_unwritten_artifacts": ("launch_report", "drop_unwritten"),
-    "_warn_outputs_to_delivered_nothing": ("launch_report", "warn_outputs_to_delivered_nothing"),
-    "_refuse_outputs_to_a_programmer": ("launch_input", "refuse_outputs_to_a_programmer"),
-    "_setting_naming": ("launch_input", "setting_naming"),
-    "_free_working_locations": ("launch_run", "free_working_locations"),
-    "_refuse_inputs_inside": ("launch_run", "refuse_inputs_inside"),
     "RunDirPolicy": ("launch_identity", "RunDirPolicy"),
+    "run_directory_names": ("scrub", "run_directory_names"),
+    "scrub_runs": ("scrub", "scrub_runs"),
+    "_drop_unwritten_artifacts": ("launch_report", "drop_unwritten"),
 }
+
+#: Every name that `default_runner` defined before the split into stages. Each must stay
+#: importable from it.
+NAMES_BEFORE_THE_SPLIT = (
+    "COMPLETION_DOCUMENTS",
+    "DefaultRunner",
+    "DesignNotFoundError",
+    "FlowLauncher",
+    "FlowLauncherType",
+    "FlowRunner",
+    "LAUNCH_DOCUMENTS",
+    "RunDirPolicy",
+    "ScrubResult",
+    "XedaOptions",
+    "_DEBUG_LOGGING",
+    "_DebugLogging",
+    "_Listed",
+    "_Method",
+    "_REMOVED_LAUNCHER_SETTINGS",
+    "_RecordingProject",
+    "_Removal",
+    "_Request",
+    "_Scan",
+    "_Skipped",
+    "__all__",
+    "_artifact_rows",
+    "_choosing_once",
+    "_completion_records",
+    "_distinct",
+    "_drop_unwritten_artifacts",
+    "_flow_name_suggestions",
+    "_free_working_locations",
+    "_get_flow_class_if_known",
+    "_is_gone",
+    "_listed",
+    "_lock_path",
+    "_problem_now",
+    "_refuse_a_change",
+    "_refuse_inputs_inside",
+    "_refuse_outputs_to_a_programmer",
+    "_registered_flow_class",
+    "_remove_confirmed",
+    "_run_directories_in",
+    "_say",
+    "_say_skipped",
+    "_setting_naming",
+    "_target_parents",
+    "_warn_outputs_to_delivered_nothing",
+    "add_file_logger",
+    "get_flow_class",
+    "log",
+    "print_results",
+    "remove_file_logger",
+    "run_directory_names",
+    "scrub_design",
+    "scrub_runs",
+    "with_debug_logging",
+    "xeda_debug_logging",
+)
 
 
 def _names_the_launcher(source: str, package: str) -> list[str]:
@@ -122,8 +178,23 @@ def test_the_check_ignores_other_imports(source: str):
     assert _names_the_launcher(source, "xeda.flow_runner") == []
 
 
-@pytest.mark.parametrize("old", sorted(MOVED))
-def test_a_moved_name_is_still_importable_from_the_launcher_module(old: str):
-    module, new = MOVED[old]
+ALL_MOVED = {**IMPORTED, **default_runner.MOVED_NAMES}
+
+
+@pytest.mark.parametrize("old", sorted(ALL_MOVED))
+def test_a_moved_name_is_the_object_that_lives_in_its_stage_module(old: str):
+    module, new = ALL_MOVED[old]
     home = importlib.import_module(f"xeda.flow_runner.{module}")
     assert getattr(default_runner, old) is getattr(home, new)
+
+
+@pytest.mark.parametrize("name", NAMES_BEFORE_THE_SPLIT)
+def test_every_name_defined_before_the_split_is_still_importable(name: str):
+    assert hasattr(default_runner, name), f"{name} can no longer be imported from default_runner"
+
+
+def test_a_moved_name_the_launcher_does_not_use_is_not_also_defined_there():
+    """`MOVED_NAMES` is for names only importers use; a name the launcher binds itself is in
+    `IMPORTED`, and a stale entry would hide the binding."""
+    assert not set(default_runner.MOVED_NAMES) & set(vars(default_runner))
+    assert not set(IMPORTED) & set(default_runner.MOVED_NAMES)
