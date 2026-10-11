@@ -41,10 +41,10 @@ log = logging.getLogger(__name__)
 StepsValType = Union[None, List[str], Dict[str, Any]]
 
 # The artifact labels of the outputs a project-mode run writes on request (`project_outputs`).
-# `vivado_synth` registers them, and its consumers (`vivado_postsynth_sim`, `vivado_power`) look
-# them up by these names (`artifact_path`). The non-project flows (`vivado_alt_synth`,
-# `vivado_impl`) record what they write under the same names, and their placed checkpoint and
-# their one (slow-corner) SDF under the last two.
+# `vivado_synth` registers them, and `OUTPUT_LABELS` maps them to its declared outputs, which its
+# consumers (`vivado_postsynth_sim`, `vivado_power`) take as inputs. The non-project flows
+# (`vivado_alt_synth`, `vivado_impl`) record what they write under the same names, and their placed
+# checkpoint and their one (slow-corner) SDF under the last two.
 CHECKPOINT_SYNTH = "checkpoint_synth"
 CHECKPOINT_ROUTE = "checkpoint_route"
 NETLIST = "netlist"
@@ -334,19 +334,6 @@ def _run_relative(run_path: Path, path: Path) -> Path:
             if full.is_relative_to(base):
                 return full.relative_to(base)
     return path
-
-
-def artifact_path(flow: Any, label: str) -> Path:
-    """The file `flow`, a completed dependency, registered under `label`, resolved against its
-    run directory."""
-    path = flow.artifacts.get(label)
-    if not path:
-        raise FlowFatalError(
-            f"The {flow.name} dependency (run directory {flow.run_path}) registered no `{label}` "
-            "output: it was not asked for it, or its results come from a run that did not write it"
-        )
-    path = Path(path)
-    return path if path.is_absolute() else flow.run_path / path
 
 
 def constraint_files(flow: Any, settings: Any) -> List[Path]:

@@ -21,7 +21,7 @@ import pytest
 
 from xeda import Design
 from xeda.digest import content_digest
-from xeda.flow import FPGA, FlowFatalError, FlowSettingsException
+from xeda.flow import FPGA, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoSynth
@@ -371,12 +371,6 @@ def test_qor_suggestions_are_written_under_the_run_directorys_reports(
     reports = flow.run_path / "reports" / "route_design"
     assert Path(call[call.index("-strategy_dir") + 1]) == reports / "strategy_suggestions"
     assert Path(call[-1]) == reports / "qor_suggestions.rqs"
-
-
-def test_a_missing_dependency_output_is_a_fatal_error_naming_it(tmp_path, monkeypatch) -> None:
-    synth = _synth(tmp_path, monkeypatch)  # no `write_netlist`: no netlist registered
-    with pytest.raises(FlowFatalError, match=r"vivado_synth.*`netlist`"):
-        vs.artifact_path(synth, vs.NETLIST)
 
 
 def _recorded_output(flow_dir: Path, name: str) -> Path:

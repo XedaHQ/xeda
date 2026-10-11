@@ -684,8 +684,24 @@ its output paths inside its run directory.
   `FlowFatalError` naming its setting/path. Hand-over validates schema, cardinality,
   containment and digest under a verified read lease for new and reused producers alike; reuse
   uses the producer's trace, not current-run write evidence. Declared flow code reads only
-  `self.inputs`, never producer settings, directories or artifacts. Traces also record ordered
-  declared input names, origins, producer identities and paths; a changed binding invalidates reuse.
+  `self.inputs`, never producer settings, directories or artifacts. Two oracles hold it for every
+  flow. `test_one_dependency_mechanism.py` scans every module of `xeda/flows`, `xeda/flow` and
+  `xeda/cocotb.py` (classes of any kind, helpers included) for a read of `settings`, `run_path`,
+  `artifacts`, `results`, `outputs` or `inputs` on anything but the `self` of the enclosing method.
+  A function that takes the flow as a parameter may read it only if every call passes the flow
+  (the method's `self`, or a parameter of the caller that is itself proven this way) and some call
+  exists. The scan's docstring (`analyze`) states which spellings it recognizes and that it does no
+  data-flow analysis; code review covers the rest. `test_isolation.py` records every process a flow
+  starts (at `subprocess.Popen`, whichever way it is asked for) and checks that every path under
+  the run root that the process or the flow's scripts name lies, once resolved, in the flow's own
+  run directory, is a declared input, a registered implicit input, or is in the test's stand-in
+  toolchain. A path is found when it is written in full, or when it contains a `/` and is
+  relative: a process's relative path is resolved against that process's working directory, and a
+  relative path in a script or another text file of the run directory against the run directory
+  (a file under `reports/` counts only in full). A bare file name is not resolved. There is no per-flow exemption list. A Python read of an undeclared file of
+  a producer through a declared path (`self.inputs.x.parent / "y"`) is seen by neither.
+  Traces also record ordered declared input names, origins, producer identities and paths; a
+  changed binding invalidates reuse.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
