@@ -350,10 +350,12 @@ Four orthogonal abstractions, deliberately decoupled:
   declares), `launch_run.py` (`execute`, working locations, `refuse_inputs_inside`),
   `launch_report.py` (results, artifacts table, `print_results`) and `scrub.py` (`xeda scrub` and
   `--scrub`). **No stage module imports `default_runner`**
-  (`tests/test_launcher_modules.py`, also the list of every name `default_runner` once defined:
-  `MOVED_NAMES` and `__getattr__` keep them importable, and the module refuses to have one
-  of them set, so a test cannot patch a name nothing looks up there; the compatibility surface is
-  the names `default_runner` defined, not what it imported). The prepare and freshness stages are in
+  (`tests/test_launcher_modules.py`, which also lists every name `default_runner` once defined,
+  `NAMES_BEFORE_THE_SPLIT`, and requires each to stay importable). `MOVED_NAMES` holds only the
+  names that moved to a stage module and that the launcher does not use itself: `__getattr__`
+  keeps them importable, and the module refuses to have one of them set, so a test cannot patch a
+  name nothing looks up there. The compatibility surface is the names `default_runner` defined,
+  not what it imported. The prepare and freshness stages are in
   `_launch` itself, because they share its locals. A test patches a name on the module whose
   code looks it up: `tests/test_patch_targets.py` fails a patch of a name on `default_runner`
   that only tests read, and launches real flows (a run that raises, a tool that exits nonzero) to
