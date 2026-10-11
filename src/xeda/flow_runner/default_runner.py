@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import ExitStack, contextmanager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
@@ -58,18 +58,15 @@ from ..design import (
 )
 from ..flow import (
     Flow,
-    FlowDependencyFailure,
     FlowFatalError,
     FlowSettingsException,
     registered_flows,
 )
-from ..flow.io import declared_inputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
 from ..proc_utils import recording_programs
 from ..run_dir import (
     DIR_NAME_HASH_LEN,
     RunDirectory,
-    RunDirectoryError,
 )
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
 from ..utils import (
@@ -94,7 +91,7 @@ from .bindings import (
     require_no_bindings,
     split_bindings,
 )
-from . import launch_identity, launch_input, launch_report, launch_run
+from . import launch_identity, launch_input, launch_producers, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -105,10 +102,10 @@ from .launch_report import (
     warn_outputs_to_delivered_nothing,
 )
 from .launch_run import refuse_inputs_inside
-from .outputs import declared_output_files, handed_over
+from .outputs import declared_output_files
 from .resolver import Plan, PlanNode, resolve as resolve_plan
 from .scrub import run_directory_names, scrub_runs
-from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
+from .run_lock import CompletedRun, run_dir_lock
 from .settings_layers import (
     API_ORIGIN,
     COMMAND_LINE_ORIGIN,
@@ -123,8 +120,6 @@ from .settings_layers import (
 )
 from .trace import (
     as_recorded,
-    BoundProducer,
-    DeclaredInputRecord,
     check_trace,
     locate_program,
     previous_trace,
@@ -135,7 +130,6 @@ from .trace_inputs import (
     artifact_files,
     build_trace,
     design_files,
-    declared_input_files,
     expectation,
     register_read_settings,
     registered_input_files,
@@ -768,7 +762,7 @@ class FlowLauncher:
         3. **prepare**: construct the flow with its own copy of the input and call its `init()`.
            `init()` runs for a flow that turns out to be fresh too, so it must not change a file
            in the run directory: every file there is an output of the last run.
-        4. **producers** (`_run_producers`): launch each producer the plan names through this
+        4. **producers** (`launch_producers.run_producers`): launch each producer the plan names through this
            same procedure, in a sibling run directory, with the settings the plan holds for it.
         5. **freshness**: without ``rebuild_all`` or ``clean`` (the default), a flow whose trace
            still matches what it would consume now (`trace.check_trace`) is not run again: its
@@ -995,6 +989,11 @@ class FlowLauncher:
         """What this launch does with its run directory (`launch_identity.run_dir_policy`)."""
         return launch_identity.run_dir_policy(self.settings)
 
+    def _producer_read_lease(self, producer: Flow) -> AbstractContextManager[Flow]:
+        """Verify the completed generation of `producer` under a shared lock before any consumer
+        reads its files (`launch_producers.producer_read_lease`)."""
+        return launch_producers.producer_read_lease(producer, self.run_root, self._completed_runs)
+
     def _entered(self, run_path: Path) -> bool:
         """Whether this launch built a flow for `run_path`, so that the `results.json` there is
         its own and not one an earlier launch left."""
@@ -1135,8 +1134,18 @@ class FlowLauncher:
                     with WorkingDirectory(run_path):
                         flow.init()
                     assert plan is not None and node is not None
-                    producers = self._run_producers(
-                        flow, design, node, plan, all_flows_settings, read_leases
+                    producers = launch_producers.run_producers(
+                        flow,
+                        design,
+                        node,
+                        plan,
+                        all_flows_settings,
+                        read_leases,
+                        launch_flow=self.launch_flow,
+                        read_lease=self._producer_read_lease,
+                        completed=self._planned_completed,
+                        read_inputs=self._read_inputs,
+                        entered=self._entered,
                     )
                     # Producers have their own program records. Preparation belongs to this
                     # consumer and happens before its execution recording scope/snapshot.
@@ -1329,136 +1338,6 @@ class FlowLauncher:
             before_run=False,
         )
         self._pending_deliveries.append((flow, delivery))
-
-    @contextmanager
-    def _producer_read_lease(self, producer: Flow):
-        """Verify the completed generation under SH before any consumer can read its files."""
-        with ExitStack() as lease:
-            try:
-                lease.enter_context(run_dir_read_lock(producer.run_path, self.run_root))
-            except (OSError, RunDirectoryError) as error:
-                raise FlowDependencyFailure(
-                    f"Cannot acquire shared read lock for producer {producer.name} "
-                    f"at {producer.run_path}: {error}"
-                ) from error
-            try:
-                _completed, token = self._completed_runs[producer.run_path.resolve()]
-                token.verify()
-            except (KeyError, OSError, ValueError, RunDirectoryError) as error:
-                raise FlowDependencyFailure(
-                    f"{producer.name} changed before acquiring its read lease: {error}"
-                ) from error
-            yield producer
-
-    def _run_producers(
-        self,
-        flow: Flow,
-        design: Design,
-        node: PlanNode,
-        plan: Plan,
-        sections: dict[str, Any] | None,
-        read_leases: ExitStack,
-    ) -> list[Flow]:
-        """Materialize exactly the planned inputs; never choose another producer here. The
-        producers whose files the flow was handed, each once, in the order they completed."""
-        consumed_from: list[Flow] = []
-        records = []
-        declarations = declared_inputs(type(flow))
-        for selected in node.inputs:
-            declaration = declarations[selected.name]
-            producers: list[Flow] = []
-            paths = list(selected.sources)
-            # the ordered references of the plan: each producer launched once per plan,
-            # its files handed over by the frozen output key, concatenated in reference order
-            for reference in selected.references:
-                producer_node = plan.node(reference.node)
-                key = (id(plan), producer_node.node_key)
-                producer = self._planned_completed.get(key)
-                if producer is None:
-                    try:
-                        producer = self.launch_flow(
-                            producer_node.flow_class,
-                            design,
-                            producer_node.settings,
-                            depender=flow,
-                            all_flows_settings=sections,
-                            plan=plan,
-                            plan_node=producer_node.node_key,
-                        )
-                    except Exception as error:
-                        if isinstance(error, DeliveryError) and error.before_run:
-                            raise  # refused before the producer's tool ran: not its failure
-                        raise FlowDependencyFailure(
-                            f"dependency {producer_node.name} failed: {error}"
-                            + (
-                                f"; see {producer_node.run_path / 'results.json'}"
-                                if self._entered(producer_node.run_path)
-                                else ""
-                            )
-                        ) from error
-                    self._planned_completed[key] = producer
-                if not producer.succeeded:
-                    raise FlowDependencyFailure(
-                        f"dependency {producer.name} failed: {producer.results.get('error', '')}; "
-                        f"see {producer.run_path / 'results.json'}"
-                    )
-                if producer not in consumed_from:
-                    read_leases.enter_context(self._producer_read_lease(producer))
-                    consumed_from.append(producer)
-                accepted = selected_types(type(flow), node.settings, selected.name)
-                produced = selected_types(
-                    producer_node.flow_class, producer_node.settings, reference.output, output=True
-                )
-                if not produced or not set(produced) <= set(accepted):
-                    raise FlowDependencyFailure(
-                        f"{flow.name}.{selected.name}: {producer.name}.{reference.output} "
-                        "has no compatible output for the selected target"
-                    )
-                paths.extend(handed_over(producer, reference.output))
-                producers.append(producer)
-            producer = producers[0] if producers else None
-            bound_producers = tuple(
-                BoundProducer(
-                    producer=reference.node,
-                    output=reference.output,
-                    producer_hash=made_by.flow_hash,
-                    producer_path=str(made_by.run_path),
-                )
-                for reference, made_by in zip(selected.references, producers)
-            )
-            if (declaration.required and not paths) or (
-                declaration.cardinality != "many" and len(paths) > 1
-            ):
-                raise FlowDependencyFailure(
-                    f"{flow.name}'s input `{selected.name}` has {len(paths)} paths; "
-                    f"expected {declaration.cardinality}"
-                )
-            for path in paths:
-                if not path.is_file():
-                    raise FlowDependencyFailure(
-                        f"{flow.name}'s input `{selected.name}` is missing: {path}"
-                    )
-            value = paths if declaration.cardinality == "many" else (paths[0] if paths else None)
-            setattr(flow.inputs, selected.name, value)
-            records.append(
-                DeclaredInputRecord(
-                    name=selected.name,
-                    origin=selected.origin,
-                    producer=selected.producer,
-                    output=selected.output,
-                    producer_hash=producer.flow_hash if producer else None,
-                    producer_path=str(producer.run_path) if producer else None,
-                    paths=tuple(map(str, paths)),
-                    references=bound_producers,
-                    binding_origin=selected.binding_origin,
-                    binding_location=selected.binding_location,
-                )
-            )
-        flow.declared_input_records = tuple(records)
-        selected_files = declared_input_files(flow)
-        self._read_inputs.add(selected_files)
-        refuse_inputs_inside(flow.run_path, flow.name, selected_files)
-        return consumed_from
 
     def _clean_up(
         self, flow: Flow, settings_json: Path, results_json: Path, policy: RunDirPolicy
