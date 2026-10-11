@@ -444,11 +444,13 @@ consumer switching its producer's optional output on:
           {"name": "yosys_fpga", "flow": "yosys_fpga",
            "run_path": "/path/to/xeda_run/blinky/yosys_fpga", "flowrun_hash": "...",
            "settings_hash": "...",
+           "state": "stale", "reason": "no successful previous run",
            "inputs": [], "switched_on": ["netlist"], "action_reason": null,
            "input_types": {}, "output_types": {"netlist": ["JsonNetlist"], "netlist_edif": []}},
           {"name": "nextpnr", "flow": "nextpnr",
            "run_path": "/path/to/xeda_run/blinky/nextpnr", "flowrun_hash": "...",
            "settings_hash": "...",
+           "state": "stale", "reason": "no successful previous run",
            "inputs": [{"name": "netlist", "origin": "producer", "producer": "yosys_fpga",
                        "output": "netlist", "sources": [],
                        "references": [{"node": "yosys_fpga", "output": "netlist"}],
@@ -486,11 +488,27 @@ consumer needs them, not every output already enabled by its settings. ``input_t
 iCE40 selects ``Pcf`` pin constraints and ``IceAsc`` configuration. The static flow catalog
 reports the full declared type vocabulary.
 
-Planning does not call a flow's ``init()``. Freshness and always-run decisions are not evaluated.
-Invalid settings, shared-setting conflicts, missing required inputs and impossible targets
-produce the usual ``success: false`` / ``error`` document.
+Each node says what a launch would do with it. ``state`` is ``fresh`` (the launch reuses its
+recorded run), ``stale`` (the launch runs it) or ``unknown`` (nothing can be said without running
+something), and ``reason`` is why: for a stale node, the words the launch logs after
+``Running <flow>:`` (``no successful previous run``, ``input changed: <file>``, ``settings
+changed: <names>``, ``every flow runs (--rebuild-all)``, ``it draws a new random seed``, and so
+on); for an unknown node, what stops the answer; empty for a fresh node. A node is unknown when
+it depends on a producer that would run (``depends on yosys_fpga``: its answer is the recorded
+outputs of that run, which the launch has to make first), when a container image of its last run
+would have to be looked up (``its container image is checked when it runs``), when a prepared
+input does not exist yet (a chip database no run has generated), or when a launch would refuse its
+settings in the design's context. Every ``fresh`` and ``stale`` node is exactly what the launch
+does: ``tests/test_dry_run_freshness.py`` runs the plan's request and compares. ``--rebuild-all``
+and ``--clean`` make every node stale, and a launch records the same reason.
 
-Planning changes no run roots, markers, locks, results or deliveries and probes no tools.
+Planning does not call a flow's ``init()``, but it builds each flow as the launch does, with a
+run directory it never writes, to ask whether it always runs. Invalid settings, shared-setting
+conflicts, missing required inputs and impossible targets produce the usual ``success: false`` /
+``error`` document.
+
+Planning changes no run roots, markers, locks, results or deliveries, refreshes no trace,
+starts no process and probes no tools.
 A request that the design's declarations already rule out is refused first, before a generator
 runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
 refused before those side effects;

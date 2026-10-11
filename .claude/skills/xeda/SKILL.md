@@ -332,9 +332,12 @@ xeda run nextpnr blinky.yaml --dry-run --json
 ```
 
 This prints `success: true`, `dry_run: true`, and a `plan` with `requested` and ordered `nodes`:
-producers first, run directories, hashes, declared input origins (`source`, `producer`, `none`)
-and `switched_on` optional outputs. It runs no tools and changes no run root, marker, lock or
-delivery. Conflicting settings and impossible targets produce the usual failure document.
+producers first, run directories, hashes, declared input origins (`source`, `producer`, `none`),
+`switched_on` optional outputs and what a run would do with each node: `state` (`fresh`: reused;
+`stale`: runs, and `reason` is the one the log gives; `unknown`: `reason` says why, for example
+`depends on yosys_fpga` when a producer runs first). Use it after an edit to see what will run and
+why. It runs no tools and changes no run root, marker, lock, trace or delivery. Conflicting
+settings and impossible targets produce the usual failure document.
 
 A design that would run a generator or fetch a Git dependency while loading is refused before
 side effects. Materialize it first; the library can plan an already materialized `Design`.
@@ -345,7 +348,6 @@ the declared design is complete. If it is not (a source pattern, a Git dependenc
 file that only the generator writes), the request is judged after the generator, as before. When
 the declared design is complete, a file that a setting names and that xeda reads to check it
 (`custom_boards_file`, a platform file) must exist before the generator runs.
-Freshness is not evaluated in a plan.
 `--dry-run --remote` is refused.
 
 ## Reading results

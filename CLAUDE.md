@@ -350,7 +350,8 @@ Four orthogonal abstractions, deliberately decoupled:
   refusals), `launch_identity.py` (hashes, run path, `RunDirPolicy`, claim), `launch_producers.py`
   (`run_producers`; it calls back into `launch_flow` and the read lease through `Protocol`s it
   declares), `launch_run.py` (`execute`, working locations, `refuse_inputs_inside`),
-  `launch_report.py` (results, artifacts table, `print_results`) and `scrub.py` (`xeda scrub` and
+  `launch_report.py` (results, artifacts table, `print_results`), `plan_freshness.py` (what a
+  launch would do with each planned node, for `--dry-run`) and `scrub.py` (`xeda scrub` and
   `--scrub`). **No stage module imports `default_runner`**
   (`tests/test_launcher_modules.py`, which also lists every name `default_runner` once defined,
   `NAMES_BEFORE_THE_SPLIT`, and requires each to stay importable). `MOVED_NAMES` holds only the
@@ -731,8 +732,37 @@ its output paths inside its run directory.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
-  `Design` is plannable.
-  Freshness is not evaluated, and `--remote` is refused.
+  `Design` is plannable. `--remote` is refused.
+- **A dry run says what a launch would do with each node** (`DefaultRunner.plan_with_freshness`,
+  `plan_freshness.judge_plan`; `plan_info(plan, states)` adds `state` and `reason` to each node,
+  `_print_plan` prints `fresh`, `stale: <reason>` or `unknown: <reason>`). `fresh` is reused;
+  `stale` runs, and the reason is word for word the one the launch logs and sets as
+  `Flow.stale_reason`; `unknown` is not a claim (`depends on <producer>`, `its container image is
+  checked when it runs`, `a prepared input is not made yet`, `a launch refuses its settings: ...`).
+  **It judges with what the launch uses, so the two cannot drift**: `trace_inputs.expected_run`
+  (explicit arguments; `expectation` is its launch form), `trace.check_trace`, and the pure hooks
+  `Flow.design_scope`, `Flow.input_equivalence`, `Flow.locate_prepared_inputs` and
+  `Flow.always_runs`. A flow is built as the launch builds it (settings, design, a claimed run
+  directory it never writes, the design sources of its plan as its `inputs`) and **not
+  initialized**; `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
+  before and after `init()` for every flow and every value of the settings that decide it. The
+  order is the launch's: `always_runs()`, then `--clean` / `--rebuild-all` (the launch records
+  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`), then the trace up to what
+  the producers handed over (`check_trace(refresh=False, edge=False)`: no clock marker, no
+  refresh), then, if every producer is `fresh`, the edge against each producer's recorded
+  `results.json` `outputs` (read only because that producer's own trace vouches for it); a
+  producer that is not fresh makes the node `unknown`, unless the node is stale for its own reasons,
+  which it says. A container image is never located (`plan_freshness.dry_locate` raises
+  `NeedsAProcess`: `docker image inspect` is a process). **Prepared inputs have a locating step**:
+  `Flow.locate_prepared_inputs()` (yosys's ABC script, nextpnr's board file and, for Xilinx, its
+  chip database via `xilinx.locate_chipdb`) says where `init()` and `prepare_inputs()` register
+  their files, or None if one is not made yet; the preparation itself uses the same
+  locating code, and `_launch` refuses a flow whose registered files are not exactly the located
+  ones (`located_input_files`), so a dry run cannot judge by a different set.
+  `tests/test_dry_run_freshness.py` runs a matrix of changes on a toy graph and on
+  `yosys_fpga -> nextpnr` and compares every claim with the launch, shows the dry run changes
+  nothing, locks nothing and starts nothing (each of three mistakes that would break it is
+  caught), and `tests/test_prepare_inputs.py` holds the locating step.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its

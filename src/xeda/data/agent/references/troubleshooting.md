@@ -309,6 +309,10 @@ changed since its last successful run. A flow that runs logs why (`Running <flow
 one left alone logs that it is up to date and shows its recorded results. `--cached-dependencies`
 and `--incremental`/`--no-incremental` no longer exist - they fail naming their replacement below.
 
+To see what will run, and why, before running: `xeda run ... --dry-run` (add `--json`). Each node is
+`fresh` (reused), `stale` with the reason the log would give, or `unknown` with why (for example
+`depends on yosys_fpga`, a producer that runs first). It writes nothing and starts no process.
+
 | Situation | Option |
 | --- | --- |
 | Stale tool state is suspected, or you want every flow to re-run from nothing | `--clean` |
