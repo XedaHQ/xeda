@@ -324,7 +324,11 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     ]
     assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
     assert _pairs(predecessors(VivadoImpl, classes), "producer") == [("yosys_fpga", None, False)]
-    assert _pairs(followers(VivadoImpl, classes), "consumer") == [("openfpgaloader", None, False)]
+    # and its routed checkpoint (`write_checkpoint`) is what the power report reads
+    assert _pairs(followers(VivadoImpl, classes), "consumer") == [
+        ("openfpgaloader", None, False),
+        ("vivado_power", None, False),
+    ]
     assert predecessors(YosysFpga, classes) == []
 
 

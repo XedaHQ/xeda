@@ -5,12 +5,12 @@
     `post_place` of `reports_dir`, which the power optimization after placement reports into (and
     the checkpoint, if one is written): Vivado makes no directory for a report. This file reads
     the implementation options of `settings.impl`. The checkpoints and the netlists are written
-    only by a flow whose settings switch them on (`write_checkpoint`, `write_netlist`,
-    `write_timing_netlist`). For those, the script has also set `settings.outputs_dir` and
-    `checkpoints_dir`, and has made them. -#}
-{%- set write_checkpoint = settings.write_checkpoint is defined and settings.write_checkpoint -%}
-{%- set write_netlist = settings.write_netlist is defined and settings.write_netlist -%}
-{%- set write_timing_netlist = settings.write_timing_netlist is defined and settings.write_timing_netlist -%}
+    when the settings `write_checkpoint`, `write_netlist` and `write_timing_netlist` switch them
+    on. For those, the script has also set `checkpoints_dir` (for `write_checkpoint`) and
+    `settings.outputs_dir` (for the other two), and has made them. -#}
+{%- set write_checkpoint = settings.write_checkpoint -%}
+{%- set write_netlist = settings.write_netlist -%}
+{%- set write_timing_netlist = settings.write_timing_netlist -%}
 puts "\n================================( Place Design )================================="
 place_design {{settings.impl.steps.place|flatten_options}}
 showWarningsAndErrors

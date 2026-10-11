@@ -778,14 +778,25 @@ the `-pvector bra` in `write_netlist.{ys,tcl}`; no EDIF unless flat; the netlist
 `link_design` has the same rule); `netlist` takes `Edif` only, since a Verilog netlist drops block
 RAM contents with `x` bits. The script is `vivado_impl.tcl` (non-project: `read_xdc`, `read_edif`,
 `link_design`, `opt_design`) plus `implementation.tcl`, the tail it shares with
-`vivado_alt_synth.tcl`: its `write_checkpoint`/`write_netlist`/`write_timing_netlist` blocks are
-`is defined` guards, since `vivado_impl` has no such settings (its only output is `bitstream`; the
-stage types for a checkpoint and a netlist exist now, but declaring them here also needs the
-`write_*` settings and an output check in the fake), and the includer makes `reports/post_place`
-(Vivado makes no directory for a report; the fake Vivado fails as it does, `[Common 17-37]`).
+`vivado_alt_synth.tcl`; the includer makes `reports/post_place` (Vivado makes no directory for a
+report; the fake Vivado fails as it does, `[Common 17-37]`) and, for `write_checkpoint` and
+the two netlist switches, `checkpoints_dir` and `outputs_dir`.
 `VivadoImplementation` (`vivado_synth.py`) holds what `vivado_synth`, `vivado_alt_synth` and
-`vivado_impl` share: the implementation settings, the bitstream's `enable_output` and the timing
-and utilization parsing. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
+`vivado_impl` share: the implementation settings, the bitstream's `enable_output`, the timing
+and utilization parsing, and the switches `write_checkpoint`/`write_netlist`/`write_timing_netlist`
+with the outputs they enable (`VivadoImplementation.Outputs`: `checkpoint_route`, `netlist`,
+`netlist_timing`, `sdf`, `bitstream`; `vivado_synth` adds `checkpoint_synth` and `sdf_min`,
+`vivado_alt_synth` `checkpoint_synth`). The non-project flows record them through one helper pair
+(`non_project_outputs`, `record_outputs`), at `checkpoints/post_*.dcp` and
+`outputs/impl_{funcsim.v,timesim.v,timesim.sdf}`. `vivado_impl` is no default producer of any
+consumer: `vivado_postsynth_sim` and `vivado_power` still default to `vivado_synth`, and
+`yosys_fpga+vivado_impl+vivado_power` is refused until the simulation's three inputs are bound to
+`vivado_impl` (related inputs; the error lists them), as with `vivado_alt_synth`: add
+`-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for `netlist`,
+`netlist_timing` and `sdf` (the chain binds the checkpoint). Those edges are
+in `REVIEWED_EDGES` of `tests/test_stage_types.py` (netlist and checkpoint edges only: the `sdf`
+edge to `vivado_postsynth_sim` is not tracked there); `tests/test_vivado_impl.py` checks that an
+output the three flows share is declared alike and runs the documented bindings. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

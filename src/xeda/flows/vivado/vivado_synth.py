@@ -42,8 +42,9 @@ StepsValType = Union[None, List[str], Dict[str, Any]]
 
 # The artifact labels of the outputs a project-mode run writes on request (`project_outputs`).
 # `vivado_synth` registers them, and its consumers (`vivado_postsynth_sim`, `vivado_power`) look
-# them up by these names (`artifact_path`). `vivado_alt_synth` records what it writes under the
-# same names, and its placed checkpoint and its one (slow-corner) SDF under the last two.
+# them up by these names (`artifact_path`). The non-project flows (`vivado_alt_synth`,
+# `vivado_impl`) record what they write under the same names, and their placed checkpoint and
+# their one (slow-corner) SDF under the last two.
 CHECKPOINT_SYNTH = "checkpoint_synth"
 CHECKPOINT_ROUTE = "checkpoint_route"
 NETLIST = "netlist"
@@ -366,51 +367,41 @@ class RunOptions(XedaBaseModel):
     steps: Dict[str, StepsValType] = {}
 
 
-class _VivadoSynthOutputs(FpgaSynthFlow.Outputs):
-    """What both Vivado synthesis flows write, each switched on by its own setting.
-
-    `VivadoSynth.Outputs` and `VivadoAltSynth.Outputs` extend it rather than one another: the
-    alternative flow writes a single SDF corner, so it must not inherit an `sdf_min` it never
-    produces (a switched-on output a run did not write fails the run).
-    """
-
-    netlist: Path | None = Out(
-        SourceType.FpgaNetlist,
-        enabled_by="write_netlist",
-        description="The routed design's functional Verilog netlist.",
-    )
-    netlist_timing: Path | None = Out(
-        SourceType.FpgaTimingNetlist,
-        enabled_by="write_timing_netlist",
-        description="The routed design's timing Verilog netlist, simulated with `sdf`.",
-    )
-    sdf: Path | None = Out(
-        SourceType.Sdf,
-        enabled_by="write_timing_netlist",
-        description="The routed design's SDF timing annotation for `netlist_timing`: the "
-        "slow-corner (max) delays.",
-    )
-    checkpoint_synth: Path | None = Out(
-        SourceType.SynthCheckpoint,
-        enabled_by="write_checkpoint",
-        description="The design checkpoint (.dcp) after synthesis.",
-    )
-    checkpoint_route: Path | None = Out(
-        SourceType.RoutedCheckpoint,
-        enabled_by="write_checkpoint",
-        description="The design checkpoint (.dcp) after routing.",
-    )
-    bitstream: Path | None = Out(
-        SourceType.Bitstream,
-        enabled_by="bitstream",
-        description="The FPGA bitstream, at `bitstream`.",
-    )
-
-
 class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
     """What the Vivado flows that implement a design have in common: the settings of its
-    implementation and its reports, the bitstream a consumer asks for, and the timing and
-    utilization results read from the reports of the routed design."""
+    implementation and its reports, the routed design's checkpoint, netlists and bitstream (each
+    switched on by a setting of the same name in every flow), and the timing and utilization
+    results read from the reports of the routed design."""
+
+    class Outputs(FpgaSynthFlow.Outputs):
+        """What every Vivado implementation writes, each switched on by its own setting."""
+
+        netlist: Path | None = Out(
+            SourceType.FpgaNetlist,
+            enabled_by="write_netlist",
+            description="The routed design's functional Verilog netlist.",
+        )
+        netlist_timing: Path | None = Out(
+            SourceType.FpgaTimingNetlist,
+            enabled_by="write_timing_netlist",
+            description="The routed design's timing Verilog netlist, simulated with `sdf`.",
+        )
+        sdf: Path | None = Out(
+            SourceType.Sdf,
+            enabled_by="write_timing_netlist",
+            description="The routed design's SDF timing annotation for `netlist_timing`: the "
+            "slow-corner (max) delays.",
+        )
+        checkpoint_route: Path | None = Out(
+            SourceType.RoutedCheckpoint,
+            enabled_by="write_checkpoint",
+            description="The design checkpoint (.dcp) after routing.",
+        )
+        bitstream: Path | None = Out(
+            SourceType.Bitstream,
+            enabled_by="bitstream",
+            description="The FPGA bitstream, at `bitstream`.",
+        )
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         """Settings of a Vivado flow that implements a design"""
@@ -457,6 +448,24 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             None, description="Default min delay to set on all output ports"
         )
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
+        write_checkpoint: bool = Field(
+            False,
+            description="Write the routed design's Vivado checkpoint (.dcp). `vivado_synth` and "
+            "`vivado_alt_synth` also write the one after synthesis, and the non-project flows "
+            "(`vivado_alt_synth`, `vivado_impl`) the one after placement. Required by the "
+            "`vivado_power` flow.",
+        )
+        write_netlist: bool = Field(
+            False,
+            description="Write the routed design's functional Verilog netlist and its constraints "
+            "(XDC). Required by `vivado_postsynth_sim`.",
+        )
+        write_timing_netlist: bool = Field(
+            False,
+            description="Write the routed design's timing Verilog netlist and its SDF timing "
+            "annotation (`vivado_synth` writes the fast and the slow corner, the other flows the "
+            "slow one). Required by `vivado_postsynth_sim`.",
+        )
 
         @field_validator("fpga")
         @classmethod
@@ -480,6 +489,43 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             conventional = settings.conventional_output("bitstream", design_name)
             assert conventional is not None  # the field is a deliverable with a conventional name
             settings.bitstream = Path(conventional)
+
+    def non_project_outputs(self) -> Dict[str, Path]:
+        """Where a non-project script (`implementation.tcl`) writes each file its settings ask
+        for, by artifact label: the checkpoints after placement and routing, the functional
+        netlist and its exported constraints, the timing netlist and its SDF."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        paths: Dict[str, Path] = {}
+        if ss.write_checkpoint:
+            paths[CHECKPOINT_PLACE] = ss.checkpoints_dir / "post_place.dcp"
+            paths[CHECKPOINT_ROUTE] = ss.checkpoints_dir / "post_route.dcp"
+        if ss.write_netlist:
+            paths[NETLIST] = ss.outputs_dir / "impl_funcsim.v"
+            paths[XDC_EXPORTED] = ss.outputs_dir / "impl.xdc"
+        if ss.write_timing_netlist:
+            paths[NETLIST_TIMING] = ss.outputs_dir / "impl_timesim.v"
+            paths[SDF] = ss.outputs_dir / "impl_timesim.sdf"
+        return paths
+
+    def record_outputs(self, paths: Dict[str, Path]) -> None:
+        """Register the files the script is about to write (`paths`, by artifact label) as
+        artifacts, and each one that is a declared output as that output."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.artifacts.update(paths)
+        declare_outputs(
+            self,
+            {
+                # a flow that does no synthesis has no such output, and writes no such file
+                "netlist": paths.get(NETLIST),
+                "netlist_timing": paths.get(NETLIST_TIMING),
+                "sdf": paths.get(SDF),
+                "checkpoint_synth": paths.get(CHECKPOINT_SYNTH),
+                "checkpoint_route": paths.get(CHECKPOINT_ROUTE),
+                "bitstream": ss.bitstream,
+            },
+        )
 
     def parse_timing_report(self, reports_dir) -> bool:
         assert isinstance(self.settings, self.Settings)
@@ -654,6 +700,21 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         return not failed
 
 
+class _VivadoSynthOutputs(VivadoImplementation.Outputs):
+    """What both Vivado synthesis flows write, each switched on by its own setting.
+
+    `VivadoSynth.Outputs` and `VivadoAltSynth.Outputs` extend it rather than one another: the
+    alternative flow writes a single SDF corner, so it must not inherit an `sdf_min` it never
+    produces (a switched-on output a run did not write fails the run).
+    """
+
+    checkpoint_synth: Path | None = Out(
+        SourceType.SynthCheckpoint,
+        enabled_by="write_checkpoint",
+        description="The design checkpoint (.dcp) after synthesis.",
+    )
+
+
 class VivadoSynth(VivadoImplementation):
     """FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch.
 
@@ -730,23 +791,6 @@ class VivadoSynth(VivadoImplementation):
     class Settings(VivadoImplementation.Settings):
         """Vivado synthesis settings"""
 
-        write_checkpoint: bool = Field(
-            False,
-            description="Write Vivado design checkpoints (.dcp) after synthesis and after routing, "
-            "in `outputs/synth_design/` and `outputs/route_design/`. Required by the "
-            "`vivado_power` flow.",
-        )
-        write_netlist: bool = Field(
-            False,
-            description="Write the routed design's functional Verilog netlist and its constraints "
-            "(XDC), in `outputs/route_design/`. Required by `vivado_postsynth_sim`.",
-        )
-        write_timing_netlist: bool = Field(
-            False,
-            description="Write the routed design's timing Verilog netlist and its SDF timing "
-            "annotation (fast- and slow-corner), in `outputs/route_design/`. Required by "
-            "`vivado_postsynth_sim`.",
-        )
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = Field(
             RunOptions(
