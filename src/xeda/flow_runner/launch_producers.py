@@ -182,7 +182,7 @@ def run_producers(
                 references=bound_producers,
                 binding_origin=selected.binding_origin,
                 binding_location=selected.binding_location,
-                equivalence=getattr(declaration, "equivalence", False),
+                equivalence=type(flow).input_equivalence(node.settings, selected.name),
             )
         )
     flow.declared_input_records = tuple(records)

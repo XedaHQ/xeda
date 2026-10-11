@@ -298,3 +298,35 @@ def test_a_netlist_that_differs_in_the_logic_runs_nextpnr_again(
     flow, _ = _launch(tmp_path, monkeypatch)
     assert not flow.reused and flow.stale_reason == "`netlist` from `yosys_fpga` changed"
     assert len(calls) == 2
+
+
+def test_a_python_hook_in_nextpnr_stops_the_comparison_without_source_locations(
+    tmp_path, monkeypatch, varying_synthesis
+):
+    """A hook runs inside nextpnr and can read a cell's `src` attribute to decide where to place
+    it: with one, a netlist whose source locations moved is not the netlist that was placed."""
+    state, calls = varying_synthesis
+    root = tmp_path / "d"
+    root.mkdir()
+    (root / "hook.py").write_text("# a placement hook\n")
+    monkeypatch.chdir(tmp_path)
+
+    def launch(**settings):
+        runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+        design = _design(root)
+        flow = runner.run_flow(Nextpnr, design, {"fpga": {"part": PART}, **settings})
+        assert flow is not None and flow.succeeded
+        return flow
+
+    assert not Nextpnr.input_equivalence(
+        Nextpnr.Settings.from_input({"fpga": {"part": PART}, "pre_place": "hook.py"}), "netlist"
+    )
+    assert Nextpnr.input_equivalence(
+        Nextpnr.Settings.from_input({"fpga": {"part": PART}}), "netlist"
+    )
+    launch(pre_place=str(root / "hook.py"))
+    (root / "blink.v").write_text("// a line above the logic\n" + BLINK)
+    state["line"] = 5
+    flow = launch(pre_place=str(root / "hook.py"))
+    assert not flow.reused and flow.stale_reason == "`netlist` from `yosys_fpga` changed"
+    assert len(calls) == 2

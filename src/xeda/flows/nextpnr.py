@@ -565,6 +565,15 @@ class Nextpnr(FpgaSynthFlow):
             description="The routed configuration: ECP5 textcfg, iCE40 asc, or Nexus/Xilinx fasm.",
         )
 
+    @classmethod
+    def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
+        """The netlist is compared without its source locations unless a Python hook runs inside
+        nextpnr: it can read them (a cell's `src` attribute) to decide where to place."""
+        hooks = ("pre_pack", "pre_place", "pre_route", "post_route", "py_script")
+        if name == "netlist" and any(getattr(settings, hook, None) for hook in hooks):
+            return False
+        return super().input_equivalence(settings, name)
+
     @staticmethod
     def io_family(settings: Flow.Settings) -> str:
         """Classify formats independently of which targets can currently be launched."""

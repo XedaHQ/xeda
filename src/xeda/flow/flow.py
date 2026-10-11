@@ -766,6 +766,13 @@ class Flow(metaclass=ABCMeta):
         (the run root, the directory and its lock), and a plan calls it too."""
 
     @classmethod
+    def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
+        """Whether input `name` compares the equivalence digest of what it is handed, given
+        `settings` (`In(..., equivalence=True)`, unless the settings make the flow depend on
+        what the digest leaves out). Pure, like `input_types`."""
+        return declared_inputs(cls)[name].equivalence
+
+    @classmethod
     def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
         """Narrow an input's vocabulary using settings alone, without probes or writes."""
         return declared_inputs(cls)[name].types

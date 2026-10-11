@@ -77,6 +77,7 @@ from .trace import (
     RESERVED_FILES,
     DeclaredInputRecord,
     Expectation,
+    OutputEntry,
     ProgramRecord,
     Trace,
     as_recorded,
@@ -615,17 +616,16 @@ class InputSnapshot:
     #: the record of each expected input, and of each file the previous run's depfiles named,
     #: that existed when the run started
     records: Mapping[str, FileRecord]
-    #: the metadata of each file the producers handed over, as `_as_recorded` reads it, and its
-    #: content digest as the run starts: a file whose metadata differs after the run, or whose
-    #: content was not the one the producer recorded, changed while the flow ran (`_consumed`)
-    handed: Mapping[str, Tuple[Optional[Tuple[int, int, int, int]], Optional[str]]] = (
-        dataclass_field(default_factory=dict)
-    )
+    #: the record of each file the producers handed over, taken as the run starts (None if it
+    #: could not be read): a file that is not the one the producer recorded, or that changed
+    #: while the flow ran, is unknown (`_consumed`)
+    handed: Mapping[str, Optional[FileRecord]] = dataclass_field(default_factory=dict)
 
 
-def _digest_or_none(path: Path) -> Optional[str]:
+def _handed_record(path: Path) -> Optional[FileRecord]:
+    """The record of a handed file (its content, through a link), or None if unreadable."""
     try:
-        return content_digest(path)
+        return FileRecord.of(path.stat(), content_digest(path))
     except OSError:
         return None
 
@@ -666,7 +666,7 @@ def snapshot_inputs(
         expected=inputs,
         records=records,
         handed={
-            path: (_as_recorded(Path(path)), _digest_or_none(Path(path)))
+            path: _handed_record(Path(path))
             for path in sorted(handed_paths(expected.declared_inputs))
         },
     )
@@ -759,29 +759,29 @@ def run_reports(flow: Flow) -> List[str]:
 
 
 def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredInputRecord:
-    """`record` as the run consumed it: an entry whose file differs from what the snapshot saw
-    just before the run -- by identity and metadata, never a clock -- changed while the flow ran,
-    and is marked so; it never matches."""
+    """`record` as the run consumed it. An entry is marked unknown, and never matches, if its
+    file was not the bytes the producer recorded when the run started, or if it may have changed
+    since: its metadata differs, or it is too recent for the metadata to vouch for it
+    (`FileRecord.trusted`, as for every input) and its content is read again."""
     references = tuple(
-        ref.model_copy(
-            update={
-                "entries": tuple(
-                    (
-                        entry.model_copy(update={"unknown": True})
-                        if snapshot.handed.get(entry.path)
-                        != (
-                            _as_recorded(Path(entry.path)),
-                            entry.sha,
-                        )
-                        else entry
-                    )
-                    for entry in ref.entries
-                )
-            }
-        )
+        ref.model_copy(update={"entries": tuple(_entry_consumed(e, snapshot) for e in ref.entries)})
         for ref in record.references
     )
     return record.model_copy(update={"references": references})
+
+
+def _entry_consumed(entry: OutputEntry, snapshot: InputSnapshot) -> OutputEntry:
+    started = snapshot.handed.get(entry.path)
+    unknown = entry.model_copy(update={"unknown": True})
+    if started is None or started.sha != entry.sha:
+        return unknown
+    path = Path(entry.path)
+    try:
+        if started.trusted(path.stat(), snapshot.inputs_recorded_ns):
+            return entry
+        return entry if content_digest(path) == entry.sha else unknown
+    except OSError:
+        return unknown
 
 
 def build_trace(

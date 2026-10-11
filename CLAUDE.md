@@ -682,8 +682,8 @@ its output paths inside its run directory.
   freeze, `_validate_plan` (which recomputes every node and checks the plan's bound inputs
   against the request's bindings), `launch_identity.run_identity`, claims, results and traces all use it. A
   producer's settings change therefore moves its consumers' identities; where a binding was
-  written does not. The trace (`TRACE_FORMAT` 14) records each input's ordered producers
-  (`DeclaredInputRecord.references`) and its explanatory origin, and `trace.changed_binding`
+  written does not. The trace (`TRACE_FORMAT` 15) records each input's ordered producers
+  (`DeclaredInputRecord.references`, with the files each handed over) and its explanatory origin, and `trace.changed_binding`
   names the reason: "netlist now from __synth.netlist (was yosys_fpga.netlist)", or the
   producer that "has other settings or inputs than in the last run".
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`,
@@ -1121,7 +1121,8 @@ flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a
 the run directory or run root themselves where a named directory holds them; no size cap, a
 warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
 `Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
-expanded against the start directory or the environment) and the dependencies' outputs --
+expanded against the start directory or the environment) and the design sources its declared
+inputs take (`source_input_files`; what a producer handed over is the edge's, not a file record) --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record
 where `FileRecord.trusted` vouches for it), so a file edited while the run goes on no longer
@@ -1204,7 +1205,8 @@ adds `equivalence` beside `sha` to every output of such a type whichever consume
 input opts in with `In(..., equivalence=True)` (class creation refuses it for a type with none;
 `list-flows --json` shows it beside `required`). `changed_edge` falls back to `sha` unless the
 input opts in and both sides have a digest; `Freshness.equivalent` names the inputs that matched
-only so, and the launch logs it. `nextpnr`'s `netlist` opts in: its routed configuration was
+only so, and the launch logs it. `nextpnr`'s `netlist` opts in (`Flow.input_equivalence`, pure, per settings; nextpnr says no when a Python hook
+(`pre_pack`, `pre_place`, `pre_route`, `post_route`, `py_script`) runs inside it, since a hook can read a cell's `src`): its routed configuration was
 byte-identical for a netlist shifted by a comment line, and its `results.json` holds no source
 location, but its `report.json` and log cite the lines of the netlist it placed. The yosys
 version is in the file (`creator`), so another yosys is another digest. Another type gets a

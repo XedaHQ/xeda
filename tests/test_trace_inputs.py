@@ -247,3 +247,37 @@ def test_an_artifact_directory_s_files_are_listed_without_following_a_link_out(t
     files = artifact_files(flow)  # type: ignore[arg-type]
     assert (run_path / "out" / "a.txt").resolve() in files
     assert not any(p.is_relative_to(outside.resolve()) for p in files)
+
+
+def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(tmp_path):
+    """The metadata of a file edited within one tick of a coarse clock can be what it was: a
+    handed file too recent for its record to vouch for it is hashed after the run, and one
+    that is not the bytes the producer recorded is unknown (`FileRecord.trusted`)."""
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed
+
+    path = tmp_path / "out.txt"
+    path.write_text("A\n")
+    recorded = content_digest(path)
+    path.write_text("B\n")  # the same size; its metadata is what the snapshot below holds
+    started = FileRecord.of(path.stat(), recorded)
+    entry = OutputEntry(path=str(path), sha=recorded)
+
+    def snapshot(now_ns: int) -> InputSnapshot:
+        return InputSnapshot(
+            started_ns=0,
+            inputs_recorded_ns=now_ns,
+            expected=(),
+            records={},
+            handed={str(path): started},
+        )
+
+    recent = started.mtime_ns + 1_000_000_000
+    assert _entry_consumed(entry, snapshot(recent)).unknown
+    settled = max(started.mtime_ns, started.ctime_ns) + 10_000_000_000
+    assert not _entry_consumed(entry, snapshot(settled)).unknown  # trusted by its metadata
+    path.write_text("A\n")
+    assert not _entry_consumed(entry, snapshot(recent)).unknown  # read again: the recorded bytes
+    other = OutputEntry(path=str(path), sha="f" * 32)
+    assert _entry_consumed(other, snapshot(recent)).unknown  # not what the producer recorded

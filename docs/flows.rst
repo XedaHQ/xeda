@@ -242,7 +242,8 @@ placed only in the ``src`` attributes of yosys's JSON netlist, the file and line
 from: a comment added above the logic then re-runs ``yosys_fpga`` and leaves ``nextpnr`` and
 ``fpga_pack`` up to date. The reports of such a ``nextpnr`` run cite the source locations of the
 netlist it placed. A change to any other part of the netlist, the yosys version included, runs
-``nextpnr`` again.
+``nextpnr`` again, and so does any change when a Python hook (``pre_pack``, ``pre_place``,
+``pre_route``, ``post_route`` or ``py_script``) is set, since a hook can read the source locations.
 
 .. _flow-chains:
 
