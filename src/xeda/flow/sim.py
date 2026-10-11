@@ -226,8 +226,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
         """Whether the design brings a C++ driver of its own: `Cpp` sources among the RTL's and the
-        testbench's. A simulator that builds a C++ model runs it in place of its own (`verilator`,
-        `yosys_sim`)."""
+        testbench's. `yosys_sim` takes any `Cpp` source for a main and runs it in place of its own.
+        (`verilator` asks its `main` setting.)"""
         return bool(design.sim_sources_of_type(SourceType.Cpp))
 
     @classmethod
@@ -235,7 +235,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         """Whether this simulator knows what to run for `design` when `tb.top` is not set, though
         its testbench has sources in a hardware description language. No simulator does by
         default. One that finds the testbench's top itself (GHDL's `find-top`), or runs a C++
-        driver of the design's own (Verilator, `yosys_sim`), says so by overriding this."""
+        driver of the design's own (`yosys_sim`), says so by overriding this."""
         return False
 
     @classmethod
