@@ -906,18 +906,18 @@ def _uses(node: ast.AST):
         stack.extend(ast.iter_child_nodes(current))
 
 
-def reached_code(
+def flow_source_reads(
     sources: dict[str, str], classes: dict[str, set[str]], load=_loaded_source
-) -> tuple[dict[str, "_Module | None"], dict[str, set[str]]]:
-    """The code of one flow: the parsed modules (`sources` and every module a helper is reached
-    through) and, by module, the names of the module-level functions the flow's code reaches. The
-    flow's code is its classes (`classes` names them by module), the module-level statements of
-    their modules (which run when the module is imported), and the module-level functions that
-    code reaches: by their name, through the module's own functions and through the modules it
-    imports them from (`load` gives an imported module's text), and through the functions those
-    call. Another flow's class in a flow's module, and a helper that no code of the flow reaches
-    (`VivadoSynth` calls `constraint_files`, `VivadoImpl` in the same module does not), are no
-    part of it."""
+) -> list[tuple[str, int, str]]:
+    """Every read of the design's sources by the Python of one flow, as `(module:qualified
+    name, line, what)`. `sources` maps the modules of the flow's classes to their text and
+    `classes` to the names of those classes in them. The flow's code is its classes, the
+    module-level statements of their modules (which run when the module is imported), and the
+    module-level functions that code reaches: by their name, through the module's own functions
+    and through the modules it imports them from (`load` gives an imported module's text), and
+    through the functions those call. Another flow's class in a flow's module, and a helper that
+    no code of the flow reaches (`VivadoSynth` calls `constraint_files`, `VivadoImpl` in the
+    same module does not), are no part of it."""
     parsed: dict[str, _Module | None] = {}
 
     def module(name: str) -> _Module | None:
@@ -960,20 +960,10 @@ def reached_code(
     while pending:
         owner, node = pending.pop()
         reach(owner, node)
-    module_names = {*sources, *reached}
-    return {name: module(name) for name in module_names}, reached
 
-
-def flow_source_reads(
-    sources: dict[str, str], classes: dict[str, set[str]], load=_loaded_source
-) -> list[tuple[str, int, str]]:
-    """Every read of the design's sources by the Python of one flow, as `(module:qualified
-    name, line, what)`. `sources` maps the modules of the flow's classes to their text and
-    `classes` to the names of those classes in them; the flow's code is `reached_code`."""
-    modules, reached = reached_code(sources, classes, load)
     found = []
-    for name in sorted(modules):
-        here = modules[name]
+    for name in sorted({*sources, *reached}):
+        here = module(name)
         assert here is not None
         text = sources[name] if name in sources else load(name)
         assert text is not None

@@ -685,14 +685,17 @@ its output paths inside its run directory.
   containment and digest under a verified read lease for new and reused producers alike; reuse
   uses the producer's trace, not current-run write evidence. Declared flow code reads only
   `self.inputs`, never producer settings, directories or artifacts. Two oracles hold it for every
-  flow: `test_one_dependency_mechanism.py` scans the flow's code (its MRO, the module-level code of
-  those modules and the helpers it reaches) for a read of `settings`, `run_path`, `artifacts`,
-  `results`, `outputs` or `inputs` on anything but `self`, where a helper that takes the flow as a
-  parameter is allowed only if every call passes `self`; `test_isolation.py` checks, under the
-  stand-in tools, that every path under the run root a tool is handed (command line, environment,
-  scripts and logs in the run directory) lies in the flow's own run directory, is a declared input
-  or is a registered implicit input. Neither has an exemption list. A Python read of an undeclared
-  file of a producer through a declared path (`self.inputs.x.parent / "y"`) is seen by neither.
+  flow. `test_one_dependency_mechanism.py` scans every module of `xeda/flows`, `xeda/flow` and
+  `xeda/cocotb.py` (classes of any kind, helpers included) for a read of `settings`, `run_path`,
+  `artifacts`, `results`, `outputs` or `inputs` on anything but the `self` of the enclosing method.
+  A function that takes the flow as a parameter may read it only if every call passes the flow
+  (the method's `self`, or a parameter of the caller that is itself proven this way) and some call
+  exists. `test_isolation.py` records every process a flow starts (at `subprocess.Popen`, whichever
+  way it is asked for) and checks that every path under the run root that the process or the
+  flow's scripts name -- in full, or relative by a step up -- lies, once resolved, in the flow's
+  own run directory, is a declared input, a registered implicit input, or is in the test's
+  stand-in toolchain. There is no per-flow exemption list. A Python read of an undeclared file of
+  a producer through a declared path (`self.inputs.x.parent / "y"`) is seen by neither.
   Traces also record ordered declared input names, origins, producer identities and paths; a
   changed binding invalidates reuse.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON

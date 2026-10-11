@@ -24,7 +24,6 @@ import ast
 import json
 import inspect
 import re
-import sys
 import textwrap
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -46,8 +45,6 @@ from xeda.flow_runner.chains import fitting_outputs
 from xeda.flows import Openroad, VivadoSynth
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
-from .test_design_parts import _mro
-from .test_source_contracts import DEFINITIONS, reached_code
 
 FLOWS = flow_classes()
 DECLARED = [(cls, name) for cls, name in FLOWS if declared_inputs(cls) or declared_outputs(cls)]
@@ -272,23 +269,25 @@ def test_openroad_hands_synthesis_nothing_but_its_declared_input():
 #: alone, which names the files a producer declared.
 STATE_ATTRIBUTES = frozenset({"settings", "run_path", "artifacts", "results", "outputs", "inputs"})
 STATE_ACCESSORS = frozenset({"getattr", "setattr", "hasattr", "delattr"})
-
-
-def _is_self(node: ast.AST) -> bool:
-    return isinstance(node, ast.Name) and node.id == "self"
+#: The code a flow is built from: the packages of the flows and of their base classes, and the
+#: cocotb support. Every module of them is scanned, whichever flow reaches it.
+FLOW_CODE_ROOTS = ("flows", "flow", "cocotb.py")
+PACKAGE_ROOT = Path(xeda.__file__).parent
 
 
 class _Function:
     """One function of a flow's code: its name, its parameters and how a call binds them."""
 
-    def __init__(self, label: str, node: ast.FunctionDef | ast.AsyncFunctionDef, in_class: bool):
-        self.label = label
+    def __init__(self, node: ast.FunctionDef | ast.AsyncFunctionDef, owner_class: str | None):
         self.node = node
         args = node.args
         self.params = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
         static = any(ast.unparse(d) == "staticmethod" for d in node.decorator_list)
-        #: a call `x.f(...)` binds the first parameter to `x`
-        self.bound = in_class and not static and bool(self.params)
+        #: a method: a call `x.f(...)` binds the first parameter to `x`
+        self.bound = owner_class is not None and not static and bool(self.params)
+        #: the names a call can use: a constructor is called by the name of its class
+        self.names = [owner_class] if node.name == "__init__" and owner_class else [node.name]
+        self.constructor = node.name == "__init__"
 
     def argument(self, call: ast.Call, param: str) -> ast.expr | None:
         """What `call` passes as `param`; None if it cannot be told (a star argument)."""
@@ -299,9 +298,21 @@ class _Function:
         if param not in positional or any(isinstance(a, ast.Starred) for a in call.args):
             return None
         index = positional.index(param)
-        if self.bound and isinstance(call.func, ast.Attribute):
+        if self.bound and (self.constructor or isinstance(call.func, ast.Attribute)):
             index -= 1
         return call.args[index] if 0 <= index < len(call.args) else None
+
+
+def _owner(name: str, scope: tuple[_Function, ...]) -> _Function | None:
+    """The innermost enclosing function that has a parameter `name`."""
+    return next((f for f in reversed(scope) if name in f.params), None)
+
+
+def _is_the_instance(name: str, scope: tuple[_Function, ...]) -> bool:
+    """Whether `name` is the `self` of the method that encloses the code (a function nested in a
+    method sees it too). A parameter that is merely called `self` is no instance."""
+    owner = _owner(name, scope)
+    return name == "self" and owner is not None and owner.bound and owner.params[0] == "self"
 
 
 class _Reads(ast.NodeVisitor):
@@ -310,20 +321,21 @@ class _Reads(ast.NodeVisitor):
     def __init__(self, label: str) -> None:
         self.label = label
         self.scope: list[_Function] = []
-        self.classes = 0
+        self.classes: list[str] = []
         self.functions: list[_Function] = []
-        #: (line, receiver name or None, enclosing functions) of each read of a state attribute
+        #: (line, receiver name or None, text, enclosing functions) of each read of a state attribute
         self.reads: list[tuple[int, str | None, str, tuple[_Function, ...]]] = []
         #: (call, enclosing functions)
         self.calls: list[tuple[ast.Call, tuple[_Function, ...]]] = []
 
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self.classes += 1
+        self.classes.append(node.name)
         self.generic_visit(node)
-        self.classes -= 1
+        self.classes.pop()
 
     def visit_FunctionDef(self, node) -> None:
-        function = _Function(self.label, node, self.classes > 0 and not self.scope)
+        in_class = bool(self.classes) and not self.scope
+        function = _Function(node, self.classes[-1] if in_class else None)
         self.functions.append(function)
         self.scope.append(function)
         self.generic_visit(node)
@@ -332,10 +344,11 @@ class _Reads(ast.NodeVisitor):
     visit_AsyncFunctionDef = visit_FunctionDef
 
     def _read(self, node: ast.AST, receiver: ast.AST, text: str) -> None:
-        if _is_self(receiver):
-            return
         name = receiver.id if isinstance(receiver, ast.Name) else None
-        self.reads.append((node.lineno, name, text, tuple(self.scope)))
+        scope = tuple(self.scope)
+        if name is not None and _is_the_instance(name, scope):
+            return
+        self.reads.append((node.lineno, name, text, scope))
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if node.attr in STATE_ATTRIBUTES:
@@ -356,68 +369,97 @@ class _Reads(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def cross_reads(units: list[tuple[str, ast.AST]]) -> list[str]:
+def _callee(call: ast.Call) -> str | None:
+    func = call.func
+    return (
+        func.id
+        if isinstance(func, ast.Name)
+        else func.attr if isinstance(func, ast.Attribute) else None
+    )
+
+
+def _candidates(
+    call: ast.Call, scope: tuple[_Function, ...], by_name: dict[str, list[_Function]]
+) -> list[_Function]:
+    """The functions `call` can call, by its name: `name(...)` a function or a constructor, never a
+    method; `self.name(...)` a method, never a function; `other.name(...)` either (a module's
+    function or a method of `other`)."""
+    functions = by_name.get(_callee(call) or "", [])
+    func = call.func
+    if isinstance(func, ast.Name):
+        return [f for f in functions if not f.bound or f.constructor]
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+        if _is_the_instance(func.value.id, scope):
+            return [f for f in functions if f.bound and not f.constructor]
+    return functions
+
+
+def analyze(units: list[tuple[str, ast.AST]]) -> tuple[list[str], set[str]]:
     """How the code in `units`, as `(module, tree)`, reads the state of anything but the flow it
-    runs as. One rule: a flow reads the state attributes (`STATE_ATTRIBUTES`) of `self`. A
-    helper function takes the flow as a parameter and reads its state, which is the same thing
-    as long as every call passes `self` or, in a helper, its own such parameter. A read of a
-    state attribute of anything else -- a local, an attribute, a call -- and a call that passes
-    something else for such a parameter are the problems."""
+    runs as, and which parameters carry the flow into a function (as `module:function.param`).
+
+    One rule: code reads the state attributes (`STATE_ATTRIBUTES`) of the instance it is a method
+    of. A function can take the flow as a parameter and read its state, or pass it on to one that
+    does, which is the same thing as long as every call passes the instance or, in such a
+    function, its own such parameter -- and there is a call. A read of a state attribute of
+    anything else (a local, an attribute, a call), a call that passes something else for such a
+    parameter and a parameter that no call gives a value are the problems."""
     problems: list[str] = []
     visits = []
     for label, tree in units:
         visit = _Reads(label)
         visit.visit(tree)
         visits.append(visit)
-    functions = [f for v in visits for f in v.functions]
-    #: (function node id, parameter) of every parameter that is read as a flow's state, or
-    #: passed on to one that is
+    #: (function node id, parameter) -> where it is
+    place: dict[tuple[int, str], str] = {}
+    by_name: dict[str, list[_Function]] = {}
+    for visit in visits:
+        for function in visit.functions:
+            for name in function.names:
+                by_name.setdefault(name, []).append(function)
+            for param in function.params:
+                place[(id(function.node), param)] = (
+                    f"{visit.label}:{function.node.lineno}: {function.node.name}.{param}"
+                )
+    #: the parameters read as the flow's state, or passed on to one that is
     tracked: set[tuple[int, str]] = set()
     for visit in visits:
         for line, name, text, scope in visit.reads:
-            owner = next((f for f in reversed(scope) if name in f.params), None)
-            if owner is None or name == "self":
+            owner = _owner(name, scope) if name is not None else None
+            if owner is None:
                 problems.append(f"{visit.label}:{line}: reads `{text}`, not the flow's own state")
             else:
-                tracked.add((id(owner.node), name))
-    by_name: dict[str, list[_Function]] = {}
-    for function in functions:
-        by_name.setdefault(function.node.name, []).append(function)
+                tracked.add((id(owner.node), name))  # type: ignore[arg-type]
     changed = True
     while changed:
         changed = False
         for visit in visits:
             for call, scope in visit.calls:
-                callee = (
-                    call.func.id
-                    if isinstance(call.func, ast.Name)
-                    else call.func.attr if isinstance(call.func, ast.Attribute) else None
-                )
-                for function in by_name.get(callee or "", ()):
+                for function in _candidates(call, scope, by_name):
                     for param in function.params:
                         if (id(function.node), param) not in tracked:
                             continue
                         argument = function.argument(call, param)
-                        if not isinstance(argument, ast.Name) or _is_self(argument):
+                        if not isinstance(argument, ast.Name):
                             continue
-                        owner = next((f for f in reversed(scope) if argument.id in f.params), None)
+                        if _is_the_instance(argument.id, scope):
+                            continue
+                        owner = _owner(argument.id, scope)
                         if owner is not None and (id(owner.node), argument.id) not in tracked:
                             tracked.add((id(owner.node), argument.id))
                             changed = True
+    given: set[tuple[int, str]] = set()
     for visit in visits:
         for call, scope in visit.calls:
-            callee = (
-                call.func.id
-                if isinstance(call.func, ast.Name)
-                else call.func.attr if isinstance(call.func, ast.Attribute) else None
-            )
-            for function in by_name.get(callee or "", ()):
+            callee = _callee(call)
+            for function in _candidates(call, scope, by_name):
                 for param in function.params:
                     if (id(function.node), param) not in tracked:
                         continue
+                    given.add((id(function.node), param))
                     argument = function.argument(call, param)
                     allowed = isinstance(argument, ast.Name) and (
-                        _is_self(argument)
+                        _is_the_instance(argument.id, scope)
                         or any(
                             (id(f.node), argument.id) in tracked
                             for f in scope
@@ -425,63 +467,57 @@ def cross_reads(units: list[tuple[str, ast.AST]]) -> list[str]:
                         )
                     )
                     if not allowed:
-                        given = (
+                        shown = (
                             "an argument that cannot be told"
                             if argument is None
-                            else (f"`{ast.unparse(argument)}`")
+                            else f"`{ast.unparse(argument)}`"
                         )
                         problems.append(
-                            f"{visit.label}:{call.lineno}: passes {given} as `{param}` of "
-                            f"`{callee}`, which reads its state: pass `self`"
+                            f"{visit.label}:{call.lineno}: passes {shown} as `{param}` of "
+                            f"`{callee}`, which reads its state: pass the flow itself"
                         )
-    return problems
+    for key in sorted(tracked - given, key=place.get):  # type: ignore[arg-type]
+        problems.append(f"{place[key]}: read as the flow's state, but no call gives it a value")
+    return problems, {place[key] for key in tracked}
 
 
-def flow_code(cls: type[Flow]) -> list[tuple[str, ast.AST]]:
-    """The code of `cls` as `(module, tree)` units: the classes of its MRO (`Flow` included), the
-    statements of their modules outside any definition, and the module-level functions that code
-    reaches (`tests/test_source_contracts.py` defines the reach). A helper reached only from a
-    design-judging method (`JUDGING_METHODS`) is not reached."""
-    names_by_module: dict[str, set[str]] = {}
-    for klass in _mro(cls):
-        names_by_module.setdefault(klass.__module__, set()).add(klass.__name__)
-    sources = {name: inspect.getsource(sys.modules[name]) for name in names_by_module}
-    modules, reached = reached_code(sources, names_by_module)
-    units: list[tuple[str, ast.AST]] = []
-    for name, module in sorted(modules.items()):
-        assert module is not None
-        for statement in module.tree.body:
-            if isinstance(statement, ast.ClassDef):
-                if statement.name in names_by_module.get(name, ()):
-                    units.append((name, statement))
-            elif isinstance(statement, DEFINITIONS):
-                if statement.name in reached.get(name, ()):
-                    units.append((name, statement))
-            elif name in sources:
-                units.append((name, statement))
-    return units
+def cross_reads(units: list[tuple[str, ast.AST]]) -> list[str]:
+    return analyze(units)[0]
 
 
-@pytest.mark.parametrize("cls", [cls for cls, _ in FLOWS], ids=[name for _, name in FLOWS])
-def test_no_flow_reads_the_state_of_another_flow(cls) -> None:
+def flow_code_files() -> list[Path]:
+    """Every module of the code that flows are built from (`FLOW_CODE_ROOTS`)."""
+    files: list[Path] = []
+    for name in FLOW_CODE_ROOTS:
+        path = PACKAGE_ROOT / name
+        files += sorted(path.rglob("*.py")) if path.is_dir() else [path]
+    return files
+
+
+def flow_code() -> list[tuple[str, ast.AST]]:
+    return [
+        (str(path.relative_to(PACKAGE_ROOT)), ast.parse(path.read_text()))
+        for path in flow_code_files()
+    ]
+
+
+def test_the_scan_holds_every_module_a_flow_is_built_from() -> None:
+    """Not vacuous: every class of every registered flow's MRO is in a scanned module, and the
+    helpers that take the flow as a parameter are found in the scan."""
+    scanned = {Path(path).resolve() for path in flow_code_files()}
+    for cls, name in FLOWS:
+        for klass in cls.__mro__:
+            if klass.__module__.startswith("xeda."):
+                assert Path(inspect.getfile(klass)).resolve() in scanned, f"{name}: {klass}"
+    _, parameters = analyze(flow_code())
+    for helper in ("judge_evidence.flow", "project_outputs.flow", "declare_outputs.flow"):
+        assert any(f": {helper}" in p for p in parameters), helper
+
+
+def test_no_flow_reads_the_state_of_another_flow() -> None:
     """Another flow's files reach a flow through its declared inputs alone, so a consumer that
     is judged on its inputs (the trace records them) is judged on everything it read."""
-    assert cross_reads(flow_code(cls)) == []
-
-
-def test_the_sweep_reaches_the_helpers_that_take_the_flow_as_a_parameter() -> None:
-    """Not vacuous: the helpers of the simulators' evidence and of Vivado's project hooks read
-    the flow's state through a parameter, and are in the code of the flows that call them."""
-    from xeda.flows import GhdlSim, VivadoSynth
-
-    for cls, helper in ((GhdlSim, "judge_evidence"), (VivadoSynth, "project_outputs")):
-        names = {
-            statement.name
-            for _, tree in flow_code(cls)
-            for statement in [tree]
-            if isinstance(statement, ast.FunctionDef)
-        }
-        assert helper in names, f"{cls.name} does not reach {helper}"
+    assert cross_reads(flow_code()) == []
 
 
 READS_A_LOCAL = """
@@ -500,6 +536,10 @@ class Consumer:
     def run(self):
         return getattr(self.dependency, "artifacts")
 """
+READS_IN_A_FUNCTION_WITH_NO_INSTANCE = """
+def free():
+    return self.results
+"""
 HELPER = """
 def helper(flow):
     return flow.settings.x
@@ -510,7 +550,9 @@ def forwarding(flow):
 PASSES_SELF = HELPER + """
 class Consumer:
     def run(self):
-        return forwarding(self) + helper(flow=self)
+        def nested():
+            return helper(self)
+        return forwarding(self) + helper(flow=self) + nested()
 """
 PASSES_ANOTHER = HELPER + """
 class Consumer:
@@ -536,17 +578,62 @@ class Consumer:
     def run(self):
         return self.read(self.producer)
 """
+#: a helper class, which no flow inherits from, whose method reads the state of what it is given
+HELPER_CLASS = """
+class Reader:
+    def read(self, other):
+        return other.results
+
+class Consumer:
+    def run(self):
+        return Reader().read(self.producer)
+"""
+HELPER_CLASS_CONSTRUCTOR = """
+class Reader:
+    def __init__(self, other):
+        self.value = other.results
+
+class Consumer:
+    def run(self):
+        return Reader(self.producer)
+"""
+#: a parameter that is merely called `self` is no instance
+PARAMETER_CALLED_SELF = """
+def read(self):
+    return self.results
+
+class Consumer:
+    def run(self):
+        return read(self.producer)
+"""
+NO_CALLER = """
+def read(flow):
+    return flow.artifacts
+"""
+METHOD_NOT_FOLLOWED = """
+class Reader:
+    def read(self, flow):
+        return flow.results
+
+    def other(self):
+        return 1
+
+class Consumer:
+    def run(self):
+        return Reader().other()
+"""
 
 
 def _problems(source: str) -> list[str]:
     return cross_reads([("mutant", ast.parse(source))])
 
 
-def test_a_read_of_the_state_of_anything_but_self_is_found() -> None:
+def test_a_read_of_the_state_of_anything_but_the_instance_is_found() -> None:
     for source, text in (
         (READS_A_LOCAL, "`producer.results`"),
         (READS_AN_ATTRIBUTE, "`self.tool.run_path`"),
         (READS_BY_NAME, "getattr(self.dependency, 'artifacts')"),
+        (READS_IN_A_FUNCTION_WITH_NO_INSTANCE, "`self.results`"),
     ):
         (problem,) = _problems(source)
         assert text in problem and "not the flow's own state" in problem, problem
@@ -564,11 +651,29 @@ def test_a_helper_that_is_only_ever_given_the_flow_is_not_a_problem() -> None:
         (PASSES_A_LOCAL_THROUGH_THE_HELPER, "producer"),
         (PASSES_A_STAR, "cannot be told"),
         (METHOD, "self.producer"),
+        (HELPER_CLASS, "self.producer"),
+        (HELPER_CLASS_CONSTRUCTOR, "self.producer"),
+        (PARAMETER_CALLED_SELF, "self.producer"),
+    ],
+    ids=[
+        "another",
+        "local",
+        "star",
+        "method",
+        "helper-class",
+        "constructor",
+        "parameter-called-self",
     ],
 )
 def test_a_helper_given_anything_but_the_flow_is_found(source: str, argument: str) -> None:
     problems = _problems(source)
-    assert problems and all(argument in p and "pass `self`" in p for p in problems), problems
+    assert any(argument in p and "pass the flow itself" in p for p in problems), problems
+
+
+@pytest.mark.parametrize("source", [NO_CALLER, METHOD_NOT_FOLLOWED], ids=["function", "method"])
+def test_a_reader_of_a_flow_s_state_that_nothing_calls_is_found(source: str) -> None:
+    (problem,) = _problems(source)
+    assert "no call gives it a value" in problem, problem
 
 
 def test_a_stand_in_flow_that_reads_a_producer_through_a_helper_is_found() -> None:
