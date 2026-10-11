@@ -1203,9 +1203,14 @@ Defaults and limits:
   whitespace (``--run-root``).
 * Verilator 5.048 or newer is required. A ``$finish`` in a ``final`` block does not end a run that
   drained: it fails, as it does without the block. Since the model runs under Verilator's main,
-  ``--coverage`` in ``compile_args`` writes ``coverage.dat`` (a link or file left at that name, or
-  at the name ``+verilator+coverage+file+`` gives, is removed before the run), and VPI start-up
-  routines run with ``vpi: true``. ``bsc_sim`` with Verilator needs 5.044 or newer.
+  ``--coverage`` in ``compile_args`` writes ``coverage.dat``, and VPI start-up routines run with
+  ``vpi: true``. ``bsc_sim`` with Verilator needs 5.044 or newer.
+* Before the model runs, a file or link left at the coverage file's name in the run directory
+  (``coverage.dat``, or the name ``+verilator+coverage+file+`` gives) is removed, so the model
+  never writes through a link. The flow refuses a coverage name that is a directory, that has
+  ``..`` in it, or that goes through a link leading out of the run directory. A full path outside
+  the run directory is left as it is. In a directory no launcher chose (a flow built directly),
+  the flow deletes nothing and refuses a link at that name.
 
 Writing a new flow
 ==================
