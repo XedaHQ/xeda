@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_ar
 from importlib_resources import files
 from pydantic import BaseModel
 
-from .dataclass import PydanticUndefined, input_names, written_role
+from .dataclass import PydanticUndefined, input_names, single_item_fields_of, written_role
 from .design import (
     DESIGN_NAME,
     FLAT_RTL_KEYS,
@@ -821,7 +821,8 @@ def _widen(spec: Dict[str, Any], extra: List[Dict[str, Any]]) -> Dict[str, Any]:
     if branches is None:
         rest = {k: v for k, v in spec.items() if k not in documentation}
         branches = [rest] if rest else []
-    return {**documentation, "anyOf": [*branches, *extra]}
+    # copies: the module's tables of extra forms must not be shared with a returned schema
+    return {**documentation, "anyOf": [*branches, *deepcopy(extra)]}
 
 
 def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> None:
@@ -869,6 +870,39 @@ def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
     return found
 
 
+#: An item of `clocks` that is no whole clock but that the loader takes (`clock_tables`): a port
+#: name, and `null` or an empty table, which say there is no clock.
+_CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
+    {"type": "string"},
+    {"type": "null"},
+    {"type": "object", "maxProperties": 0},
+]
+
+
+def _accept_clock_forms(schema: Dict[str, Any]) -> None:
+    """Accept every form of a clock in the items of `clocks`, as `RtlSettings.clock_tables`
+    reads them."""
+    properties = schema.get("$defs", {}).get("RtlSettings", {}).get("properties", {})
+    clocks = properties.get("clocks")
+    if clocks and "items" in clocks:
+        clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)
+    clock = properties.get("clock")  # one clock: the same forms of an item
+    if clock and "anyOf" in clock:
+        clock["anyOf"] = [*clock["anyOf"], deepcopy(_CLOCK_ITEM_FORMS[-1])]
+
+
+def _accept_single_items(schema: Dict[str, Any]) -> None:
+    """Accept one item where a list field takes a list (`single_item_fields`): the loader reads
+    it as a list of one. The item's schema is the list's own, so the two cannot differ."""
+    for model in _models_reachable_from(Design):
+        target = schema if model is Design else schema.get("$defs", {}).get(model.__name__)
+        properties = (target or {}).get("properties", {})
+        for name in single_item_fields_of(model):
+            spec = properties.get(name)
+            if spec is not None and spec.get("type") == "array" and "items" in spec:
+                properties[name] = _widen(spec, [spec["items"]])
+
+
 def _accept_alias_choices(schema: dict[str, Any]) -> None:
     """Accept every name of a field with several (`AliasChoices`): the loader takes any of them,
     but pydantic's schema names only the first -- `generics` is `parameters` by another name.
@@ -912,6 +946,8 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
         return schema
     _accept_field_names(schema, json_safe(Design.model_json_schema(by_alias=False)))
     _accept_alias_choices(schema)
+    _accept_clock_forms(schema)
+    _accept_single_items(schema)
     _add_flat_form(schema)
     _open_property_sets(schema)
     for definition, properties in _EXTRA_INPUT_FORMS.items():

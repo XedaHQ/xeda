@@ -188,7 +188,8 @@ Validating a design file
 against - or generate from - rather than guessing at the format. It is a **draft 2020-12**
 document: nested types live under ``$defs`` and fixed-length tuples use ``prefixItems``. The
 ``$schema`` key always names the dialect the document actually conforms to, so point a validator
-at that rather than assuming a draft.
+at that rather than assuming a draft. The schema describes the forms the loader accepts. For
+example, ``sources`` and ``clocks`` take one item in place of a list of one.
 
 Running a flow
 ==============
