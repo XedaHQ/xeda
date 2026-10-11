@@ -427,15 +427,15 @@ def analyze(units: list[tuple[str, ast.AST]]) -> tuple[list[str], set[str]]:
     parameter and a parameter that no call gives a value are the problems.
 
     Scope. The scan guards against an accidental regression in the spellings a maintainer would
-    write, not against code that hides a read. It recognizes: a direct read of a state attribute on
-    any receiver but the instance; the accessors `getattr`, `setattr`, `hasattr` and `delattr`
+    write, not against code that hides a read. It recognizes: a direct read of a state attribute
+    on any receiver but the instance; the accessors `getattr`, `setattr`, `hasattr` and `delattr`
     called by their bare or qualified name (`builtins.getattr`) with a string literal as the field
-    name, and any other use of one, which could hide a read; a read through a local name (a local is no parameter, so it is no flow); and
-    a helper or method whose every call passes the flow. It does no data-flow analysis across
-    functions or containers: a helper reached through another name (`reader = read_state`), a flow
-    kept in a list or a dictionary, one returned by a call, and an accessor given a computed field
-    name are not followed. Code review is the
-    backstop for those."""
+    name, and any other use of one, which could hide a read; a read through a local name (a local
+    is no parameter, so it is no flow); and a helper or method whose every call passes the flow.
+    It does no data-flow analysis across functions or containers: a helper reached through another
+    name (`reader = read_state`), a flow kept in a list or a dictionary, one returned by a call,
+    and an accessor given a computed field name are not followed. Code review is the backstop for
+    those."""
     problems: list[str] = []
     visits = []
     for label, tree in units:
