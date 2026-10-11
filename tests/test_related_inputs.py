@@ -9,6 +9,7 @@ it, naming the inputs and their producers.
 """
 
 import json
+import types
 from pathlib import Path
 
 import pytest
@@ -514,3 +515,217 @@ def test_the_advice_never_overrides_a_binding_in_a_via_group(groups):
     message = " ".join(str(error.value).split())
     assert not advice_of(message), message
     assert "bound to different producers" in message
+
+
+@pytest.fixture
+def relations(tmp_path):
+    """Flows with two kinds of relation to one anchor. `_Report.ck` follows its activity to the
+    synthesis behind `net` of the simulation (`via`). On the simulation, `net2` is tied to `net`
+    (same producer), while `aux` is tied to `net` only through `src` (`via`): it has to come from
+    the producer of the `src` that the synthesis behind `net` reads."""
+    from xeda.flow import Out
+
+    class _Src(Flow):
+        """Makes a source."""
+
+        results_description = {}
+
+        class Outputs(Flow.Outputs):
+            src: Path = Out(SourceType.Data, description="x")
+
+        def run(self) -> None:
+            pass
+
+    class _SynthA(Flow):
+        """First synthesis."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            src: Path = In(SourceType.Data, producer=_Src.name, output="src", description="x")
+
+        class Outputs(Flow.Outputs):
+            net: Path = Out(SourceType.Data, description="x")
+            net2: Path = Out(SourceType.Data, description="x")
+            aux: Path = Out(SourceType.Data, description="x")
+            ck: Path = Out(SourceType.Data, description="x")
+
+        def run(self) -> None:
+            pass
+
+    class _SynthB(_SynthA):
+        """Second synthesis."""
+
+        results_description = {}
+
+    class _Src2(_Src):
+        """Makes another source."""
+
+        results_description = {}
+
+    class _Sim(Flow):
+        """Reads a netlist, a second one made with it and a file made from its source."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            net: Path = In(SourceType.Data, producer=_SynthA.name, output="net", description="x")
+            net2: Path = In(
+                SourceType.Data,
+                producer=_SynthA.name,
+                output="net2",
+                same_producer_as="net",
+                description="x",
+            )
+            aux: Path = In(
+                SourceType.Data,
+                producer=_Src.name,
+                output="src",
+                same_producer_as="net",
+                via="src",
+                description="x",
+            )
+
+        class Outputs(Flow.Outputs):
+            act: Path = Out(SourceType.Data, description="x")
+
+        def run(self) -> None:
+            pass
+
+    class _Report(Flow):
+        """Reports on the checkpoint of the synthesis behind an activity."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            act: Path = In(SourceType.Data, producer=_Sim.name, output="act", description="x")
+            ck: Path = In(
+                SourceType.Data,
+                producer=_SynthA.name,
+                output="ck",
+                same_producer_as="act",
+                via="net",
+                description="x",
+            )
+
+        def run(self) -> None:
+            pass
+
+    from xeda import Design
+
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+
+    def plan_(flow, *settings):
+        return runner.plan(flow, design, flow_settings=list(settings))
+
+    return types.SimpleNamespace(
+        src=_Src.name,
+        src2=_Src2.name,
+        a=_SynthA.name,
+        b=_SynthB.name,
+        sim=_Sim.name,
+        report=_Report.name,
+        plan_report=lambda *settings: plan_(_Report, *settings),
+        plan_sim=lambda *settings: plan_(_Sim, *settings),
+    )
+
+
+def test_the_advice_moves_the_inputs_tied_by_the_same_relation_only(relations):
+    r = relations
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_report(f"flows.{r.report}.inputs.ck={r.b}.ck")
+    message = " ".join(str(error.value).split())
+    advice = advice_of(message)
+    assert f"flows.{r.sim}.inputs.net={r.b}.net" in advice, message
+    assert f"flows.{r.sim}.inputs.net2={r.b}.net2" in advice, message
+    assert not [item for item in advice if ".inputs.aux=" in item], "aux follows `src`, not `net`"
+    planned = r.plan_report(f"flows.{r.report}.inputs.ck={r.b}.ck", *advice)
+    assert {node.name for node in planned.nodes} == {r.src, r.b, r.sim, r.report}
+
+
+@pytest.mark.parametrize("name", ["net", "net2"])
+def test_a_tied_input_bound_alone_gets_advice_that_makes_the_plan_pass(relations, name):
+    r = relations
+    binding = f"flows.{r.sim}.inputs.{name}={r.b}.{name}"
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_sim(binding)
+    advice = advice_of(" ".join(str(error.value).split()))
+    assert advice and not [item for item in advice if ".inputs.aux=" in item]
+    planned = r.plan_sim(binding, *advice)
+    assert {node.name for node in planned.nodes} == {r.src, r.b, r.sim}
+
+
+def test_an_input_that_follows_another_input_is_judged_by_that_input(relations):
+    """`aux` has to come from the producer of the `src` that the synthesis behind `net` reads.
+    Both syntheses read the same `src`, so moving `net` and `net2` leaves `aux` as it is."""
+    r = relations
+    planned = r.plan_sim(
+        f"flows.{r.sim}.inputs.net={r.b}.net", f"flows.{r.sim}.inputs.net2={r.b}.net2"
+    )
+    assert {node.name for node in planned.nodes} == {r.src, r.b, r.sim}
+
+
+def test_an_input_that_follows_another_input_is_refused_when_its_producer_differs(relations):
+    r = relations
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_sim(f"flows.{r.sim}.inputs.aux={r.a}.aux")
+    assert "`aux` must come from the producer of the `src`" in " ".join(str(error.value).split())
+
+
+def test_a_relation_groups_the_inputs_that_name_the_same_input_and_the_same_via(relations):
+    """The oracle of the grouping: for every declared relation, the inputs judged together are
+    exactly those with the same `same_producer_as` and the same `via` -- a relation with another
+    `via` compares something else -- and the inputs that move with a maker's input have no `via`."""
+    from xeda.flow_runner.related_inputs import Node, _involved, _related
+
+    classes = [flow for flow, _ in declaring_flows()]
+    classes += [registered_flow(relations.sim), registered_flow(relations.report)]
+    seen = 0
+    for cls in classes:
+        node = Node(cls.name, cls, {})
+        for declaration in declared_inputs(cls).values():
+            if declaration.same_producer_as is None:
+                continue
+            seen += 1
+            expected = {
+                other.name
+                for other in declared_inputs(cls).values()
+                if (other.same_producer_as, other.via)
+                == (declaration.same_producer_as, declaration.via)
+            }
+            assert set(_related(node, declaration)) == expected, f"{cls.name}.{declaration.name}"
+    assert seen >= 6
+    # the maker's inputs that move with `net`: those tied to it, never `aux`, which follows `src`
+    sim = registered_flow(relations.sim)
+    report = registered_flow(relations.report)
+    maker = Node(sim.name, sim, {})
+    graph = {maker.label: maker}
+    from types import SimpleNamespace
+
+    item = SimpleNamespace(origin="producer", references=[SimpleNamespace(node=sim.name)])
+    consumer = Node(report.name, report, {"act": item})
+    moved = {name for _node, name in _involved(graph, consumer, declared_inputs(report)["ck"])}
+    assert moved == {"ck", "net", "net2"}
+
+
+def test_advice_that_moves_a_synthesis_to_another_source_takes_a_second_step(relations):
+    """The advice sees the plan as it is. It moves `net` and `net2` to the other synthesis, and
+    it cannot know what that synthesis reads: here the user bound its `src` to another producer,
+    so `aux`, which follows `src`, breaks. The next refusal names the binding for `aux`, and
+    with it the plan passes."""
+    r = relations
+    given = [f"flows.{r.b}.inputs.src={r.src2}.src", f"flows.{r.report}.inputs.ck={r.b}.ck"]
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_report(*given)
+    advice = advice_of(" ".join(str(error.value).split()))
+    assert f"flows.{r.sim}.inputs.net={r.b}.net" in advice
+    assert not [item for item in advice if ".inputs.aux=" in item]
+    with pytest.raises(FlowSettingsException) as error:
+        r.plan_report(*given, *advice)
+    message = " ".join(str(error.value).split())
+    assert "`aux` must come from the producer of the `src`" in message
+    second = advice_of(message)
+    assert second == [f"flows.{r.sim}.inputs.aux={r.src2}.src"], message
+    planned = r.plan_report(*given, *advice, *second)
+    assert {node.name for node in planned.nodes} == {r.src2, r.b, r.sim, r.report}
