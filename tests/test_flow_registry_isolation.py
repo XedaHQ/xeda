@@ -65,28 +65,35 @@ def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
     assert out == "False"
 
 
+def _called_name(call: ast.Call) -> str:
+    func = call.func
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+
+
 def _restoring_by_hand(path: Path) -> list[int]:
-    """The lines of a test file that empty the registry, or swap the module's own table."""
+    """The lines of a test file that empty the registry or swap the module's own table."""
     lines = []
     for node in ast.walk(ast.parse(path.read_text(), str(path))):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "clear"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "registered_flows"
-        ):
-            lines.append(node.lineno)
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "setattr"
-            and any(
+        if isinstance(node, ast.Call):
+            emptied = (
+                _called_name(node) == "clear"
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "registered_flows"
+            )
+            swapped = _called_name(node) == "setattr" and any(
                 isinstance(arg, ast.Constant) and arg.value == "registered_flows"
                 for arg in node.args
             )
-        ):
-            lines.append(node.lineno)
+            if emptied or swapped:
+                lines.append(node.lineno)
+        elif isinstance(node, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(
+                isinstance(target, ast.Attribute) and target.attr == "registered_flows"
+                for target in targets
+            ):
+                lines.append(node.lineno)
     return lines
 
 
@@ -107,6 +114,8 @@ def test_no_test_restores_the_registry_by_hand():
     [
         "registered_flows.clear()",
         "monkeypatch.setattr(flow_module, 'registered_flows', {})",
+        "setattr(flow_module, 'registered_flows', {})",
+        "flow_module.registered_flows = {}",
     ],
 )
 def test_the_scan_sees_each_way_to_restore_by_hand(tmp_path, source):
