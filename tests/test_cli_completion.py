@@ -14,6 +14,7 @@ from xeda.cli import SHELLS, cli
 from xeda.flow import registered_flows
 
 from . import io_flows  # noqa: F401 - registers the declared test flows
+from .flow_registry import preserved_flow_registry
 
 pytestmark = pytest.mark.python_compat
 
@@ -175,13 +176,11 @@ def only_the_product_and_chain_fixture_flows():
     """Other test modules register flows of their own in this process; completion offers every
     registered flow, so the lists asserted here are taken over the product's flows and this
     suite's chain fixtures alone."""
-    before = registered_flows.copy()
-    for key, (module, cls) in before.items():
-        if not (cls.__module__.startswith("xeda.flows") or cls.__module__ == io_flows.__name__):
-            del registered_flows[key]
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        for key, (module, cls) in registered_flows.copy().items():
+            if not (cls.__module__.startswith("xeda.flows") or cls.__module__ == io_flows.__name__):
+                del registered_flows[key]
+        yield
 
 
 @pytest.mark.parametrize("shell", SHELLS)

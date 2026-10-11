@@ -11,12 +11,13 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowDependencyFailure, registered_flows
+from xeda.flow import FlowDependencyFailure
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner import default_runner as runner_module
 from xeda.flow_runner.chains import parse_request
 from xeda.flow_runner.trace import as_recorded
 
+from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .io_flows import _Join, _Taker
 from .test_read_locks import _environment, _probe
@@ -26,10 +27,8 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-direc
 
 @pytest.fixture(autouse=True)
 def isolate_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def _design(tmp_path, flows=None):

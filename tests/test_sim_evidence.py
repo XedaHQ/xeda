@@ -15,6 +15,8 @@ from xeda.design import SourceType
 from xeda.flow import registered_flows
 from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
 
+from .flow_registry import preserved_flow_registry
+
 #: These transitional inventories must stay empty; they cannot exempt behavioral cases.
 NOT_YET_CONVERTED: dict[str, str] = {}
 PARTLY_CONVERTED: dict[str, str] = {}
@@ -419,34 +421,33 @@ def test_behavioral_manifest_covers_registry_and_backend_literal():
 from .sim_evidence_cases import CASES
 
 
-def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path, monkeypatch):
+def test_a_new_unadapted_simulator_cannot_pass_on_silent_exit_zero(tmp_path):
     import sys
-    import xeda.flow.flow as flow_module
     from xeda import Design, DefaultRunner
     from xeda.tool import Tool
 
     # Registration belongs to the test alone, including canonical and class-name aliases.
-    monkeypatch.setattr(flow_module, "registered_flows", dict(registered_flows))
+    with preserved_flow_registry():
 
-    class UnadaptedSimulator(SimFlow):
-        """A new simulator that has not implemented an evidence adapter."""
+        class UnadaptedSimulator(SimFlow):
+            """A new simulator that has not implemented an evidence adapter."""
 
-        def run(self):
-            Tool(sys.executable, version_flag=None).run(
-                "-c", "from pathlib import Path; Path('runtime').write_text('executed')"
-            )
+            def run(self):
+                Tool(sys.executable, version_flag=None).run(
+                    "-c", "from pathlib import Path; Path('runtime').write_text('executed')"
+                )
 
-        def parse_reports(self):
-            return True
+            def parse_reports(self):
+                return True
 
-    design = Design(name="silent", design_root=tmp_path, rtl={"sources": [], "top": "tb"})
-    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        UnadaptedSimulator, design
-    )
-    assert flow is not None
-    assert (flow.run_path / "runtime").read_text() == "executed"
-    assert not flow.has_evidence_adapter()
-    assert not flow.succeeded
+        design = Design(name="silent", design_root=tmp_path, rtl={"sources": [], "top": "tb"})
+        flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+            UnadaptedSimulator, design
+        )
+        assert flow is not None
+        assert (flow.run_path / "runtime").read_text() == "executed"
+        assert not flow.has_evidence_adapter()
+        assert not flow.succeeded
     assert "unadapted_simulator" not in registered_flows
 
 

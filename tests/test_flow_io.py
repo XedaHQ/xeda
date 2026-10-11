@@ -26,16 +26,15 @@ from xeda.flow.io import (
 )
 from xeda.introspect import flow_info
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _ChainUndeclared, _Maker, _Place, _Taker
 
 
 @pytest.fixture(autouse=True)
 def isolate_test_flow_registration():
     """Locally defined flows must not change another test's registry."""
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def _flow_with_model(kind, annotation, declaration):

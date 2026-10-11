@@ -67,7 +67,11 @@ checkout, so `test_bsc_external._fetch_pinned_commit` holds an `flock` beside it
 (`tests/test_external_cache.py`). On platforms without `fcntl`, cache access skips in xdist
 workers; run the external tests serially there. Keep it so: a test must not write outside
 `tmp_path`, leave a process-wide change (`chdir`, `environ`, a registered flow) behind, or take a fixed name, and a
-session-scoped fixture runs once per worker, not once per run. The environment has its own oracle
+session-scoped fixture runs once per worker, not once per run. A test that
+defines flows restores the registry with `tests/flow_registry.py`'s `preserved_flow_registry`, which
+loads the built-ins first: a snapshot taken before `xeda.flows` is imported and restored later drops
+them for the rest of the process (a test file run alone fails that way;
+`tests/test_flow_registry_isolation.py` scans for any other restore). The environment has its own oracle
 (`tests/test_environment_isolation.py`, with the autouse guards in `tests/conftest.py`): a direct
 write to `os.environ`, in a test or at import, fails -- use `monkeypatch`. (A module-level `PATH`
 append of `tests/fake_tools` once made a missing real `nextpnr-*` resolve to the fake in a full

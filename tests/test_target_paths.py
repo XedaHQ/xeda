@@ -23,10 +23,11 @@ from click.testing import CliRunner
 
 from xeda import Design
 from xeda.cli import cli
-from xeda.flow import FlowFatalError, registered_flows
+from xeda.flow import FlowFatalError
 from xeda.flow_runner import DefaultRunner
 from xeda.run_dir import RunDirectoryError
 
+from .flow_registry import preserved_flow_registry
 from . import tool_utils
 from .io_flows import _Join, _Maker, _Taker
 from .test_fpga_chains import RESOURCES as CHAINS
@@ -37,10 +38,8 @@ pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-direc
 
 @pytest.fixture(autouse=True)
 def private_registry():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 #: how a design file writes its targets, and which one a test selects

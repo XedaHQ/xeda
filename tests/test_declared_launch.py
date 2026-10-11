@@ -11,10 +11,11 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowDependencyFailure, FlowFatalError
 from xeda.flow_runner import DefaultRunner
-from xeda.flow import Flow, In, registered_flows
+from xeda.flow import Flow, In
 from xeda.design import SourceType
 from xeda.flow_runner.trace import TRACE_FORMAT
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker, _Taker
 from .tool_utils import producers_of
 
@@ -22,10 +23,8 @@ from .tool_utils import producers_of
 @pytest.fixture(autouse=True)
 def private_registry():
     """Locally defined probes leave other tests' registered flows intact."""
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 @pytest.fixture

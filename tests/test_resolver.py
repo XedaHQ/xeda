@@ -23,6 +23,7 @@ from xeda.flow_runner.settings_layers import (
     transitive_dependencies,
 )
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _ChainUndeclared, _Maker, _Place, _Reader, _Taker
 
 PART = "LFE5U-25F-6BG256C"
@@ -202,12 +203,8 @@ def test_a_declared_producer_is_a_flow_the_command_line_may_address():
 @pytest.fixture(autouse=True)
 def private_registry():
     """Locally defined contract probes do not leak into other registry sweeps."""
-    from xeda.flow import registered_flows
-
-    saved = dict(registered_flows)
-    yield
-    registered_flows.clear()
-    registered_flows.update(saved)
+    with preserved_flow_registry():
+        yield
 
 
 def test_section_locations_and_origin_precedence_are_retained(tmp_path):

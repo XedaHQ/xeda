@@ -16,13 +16,14 @@ from click.testing import CliRunner
 
 from xeda.cli import cli
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsException, In, registered_flows
+from xeda.flow import Flow, FlowSettingsException, In
 from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import registered_flow
 from xeda.flows import VivadoPostsynthSim, VivadoPower
 from xeda.introspect import all_flow_classes, flow_info
 
+from .flow_registry import preserved_flow_registry
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 
 ALT = [
@@ -35,10 +36,8 @@ POWER = "flows.vivado_power.inputs"
 
 @pytest.fixture(autouse=True)
 def isolate_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def plan(tmp_path, flow, *settings, sources=()):
