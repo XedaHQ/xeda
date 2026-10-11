@@ -723,13 +723,14 @@ class Verilator(SimFlow):
             if arg.startswith(COVERAGE_FILE_ARGUMENT)
         ]
         for name in names:
-            if os.path.isabs(name):
-                # a location the user chose by its full path is the user's own
-                if self.run_directory.holds(name):
-                    self.run_directory.remove(name)
-            else:
-                # a name in the run directory, which is refused when a link on the way leads out
-                self.run_directory.remove(self.run_path / name)
+            located = Path(os.path.abspath(self.run_path / name))
+            if os.path.commonpath([located, os.path.abspath(self.run_path)]) == os.path.abspath(
+                self.run_path
+            ):
+                # a name lexically in the run directory, given in full or not: refused when a
+                # link on the way leads out
+                self.run_directory.remove(located)
+            # else a location the user chose outside the run directory is the user's own
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run

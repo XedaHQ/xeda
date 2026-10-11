@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import json
+import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -68,6 +70,14 @@ def test_verilator_cocotb_verdict(tmp_path: Path, expected: int, success: bool) 
     assert flow.results["cocotb.failures"] == (0 if success else 1)
     # cocotb's output is not piped (it keeps its terminal and colors): its results decide
     assert not (flow.run_path / flow.settings.sim_dir / "sim.log").exists()
+
+
+def _verilator_version() -> tuple[int, ...]:
+    """The installed Verilator's version, as the numbers of its `--version` line."""
+    text = subprocess.run(["verilator", "--version"], capture_output=True, text=True).stdout
+    match = re.search(r"Verilator (\d+)\.(\d+)", text)
+    assert match, text
+    return int(match.group(1)), int(match.group(2))
 
 
 def _launch(
@@ -305,8 +315,11 @@ def test_a_drained_run_fails_and_has_no_time(tmp_path):
 
 def test_a_finish_in_a_final_block_does_not_end_a_drained_run(tmp_path):
     """The `final` block runs after the simulation ended. Its `$finish` is no end of the
-    simulation: the run drained, and fails."""
+    simulation: the run drained, and fails. Verilator reports that it is in a `final` block from
+    5.048; before, the hooks count such a `$finish` as the end (documented)."""
     require_verilator()
+    if _verilator_version() < (5, 48):
+        pytest.skip("Verilator reports a `final` block from 5.048")
     flow = _launch(tmp_path, "initial begin #10; end final $finish;", {"timing": True})
     assert flow.results["sim.ended_by"] == "drained"
     assert not flow.succeeded
@@ -820,4 +833,18 @@ def test_a_coverage_file_named_through_a_link_that_leads_out_is_refused(tmp_path
     (flow.run_path / "cov").symlink_to(outside)
     with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
         _launch(tmp_path, body, settings)
+    # the same file named by its full path, behind the same link
+    full = str(flow.run_path / "cov" / "r.dat")
+    settings["model_args"] = [f"+verilator+coverage+file+{full}"]
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
     assert (outside / "r.dat").read_text() == "not xeda's"
+
+
+def test_an_untimed_run_that_never_finishes_drains_at_once(tmp_path):
+    """Without `timing`, Verilator's main leaves its loop when no event is left: the run drained
+    and fails, and does not wait for the wall-clock `timeout`."""
+    require_verilator()
+    flow = _launch(tmp_path, 'initial $display("done");', {"timing": False, "timeout": 60})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert not flow.succeeded
