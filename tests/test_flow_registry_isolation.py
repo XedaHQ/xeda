@@ -78,7 +78,12 @@ def _registry_aliases(tree: ast.AST) -> frozenset[str]:
     `from xeda.flow import registered_flows as table`, and a name bound to such a name
     (`alias = table`), to a fixed point."""
     aliases: set[str] = set()
-    assigns = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
+    # (targets, value) of each plain or annotated assignment that has a value
+    assigns = [
+        (node.targets if isinstance(node, ast.Assign) else [node.target], node.value)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign) or (isinstance(node, ast.AnnAssign) and node.value)
+    ]
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             aliases.update(
@@ -87,9 +92,9 @@ def _registry_aliases(tree: ast.AST) -> frozenset[str]:
     while True:
         found = {
             target.id
-            for node in assigns
-            if _is_registry(node.value, frozenset(aliases))
-            for target in node.targets
+            for targets, value in assigns
+            if _is_registry(value, frozenset(aliases))
+            for target in targets
             if isinstance(target, ast.Name)
         }
         if found <= aliases:
@@ -175,6 +180,7 @@ def test_no_test_restores_the_registry_by_hand():
         "table = flow_module.registered_flows\ntable.clear()",
         "table = registered_flows\ntable.popitem()",
         "from xeda.flow import registered_flows as table\ntable.clear()",
+        "table: dict = registered_flows\ntable.clear()",
         "table = flow_module.registered_flows\nalias = table\nother = alias\nother.clear()",
     ],
 )
