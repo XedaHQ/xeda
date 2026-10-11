@@ -498,3 +498,26 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
         design = Design.from_file(path)
         if section != "rtl.generator":
             assert len((design.tb if section == "tb" else design.rtl).sources) == 1
+
+
+@pytest.mark.parametrize(
+    "clocks, count",
+    [
+        (None, 0),
+        ("clk", 1),
+        ({"port": "clk"}, 1),
+        ([], 0),
+        ([None], 0),
+        ([{}], 0),
+        ([""], 0),
+        (["clk"], 1),
+        (["clk", {"port": "b"}, None, {}], 2),
+    ],
+    ids=repr,
+)
+def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
+    """`clocks` as one clock, a list of port names and tables, and the items that say there is
+    no clock (`null`, `""`, an empty table): `RtlSettings.clock_tables` reads all of them."""
+    data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
+    assert len(Design(**data).rtl.clocks) == count
+    assert list(validator().iter_errors(data)) == []
