@@ -918,7 +918,8 @@ the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and the
 switched on by the settings of the same names, ``write_checkpoint``,
 ``write_netlist`` and ``write_timing_netlist``. Each file is a declared output, with the same
 name and type as in the synthesis flows, so ``vivado_postsynth_sim`` and ``vivado_power`` can read
-them. There is no synthesis checkpoint, because there is no synthesis.
+them. The checkpoint after placement and the exported constraints are artifacts, not declared
+outputs. There is no synthesis checkpoint, because there is no synthesis.
 
 .. list-table::
     :header-rows: 1
