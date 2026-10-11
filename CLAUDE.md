@@ -604,7 +604,7 @@ its output paths inside its run directory.
   SDF or SAIF is the user's own choice. Two different producers are refused with the inputs,
   their origins and the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that repair
   it (the inputs the user bound keep their producer and every other generated input of the group
-  moves to it; bound inputs that disagree get no advice; a test applies each advice and plans). `vivado_postsynth_sim`'s `netlist` and `sdf` are tied to `netlist_timing` (all three come
+  moves to it; bound inputs that disagree get no advice; a test applies each advice and plans). A relation is its anchor *and* its `via`: inputs that name the same anchor with another `via` (or none) are other relations, judged and repaired on their own, and an input of the maker that follows the `via` input through a `via` of its own does not move with it (`related_inputs._tied_to`). `vivado_postsynth_sim`'s `netlist` and `sdf` are tied to `netlist_timing` (all three come
   from one synthesis run: only the timing pair is read with `timing_sim`, but a half-bound trio
   also runs two synthesis flows); `vivado_power`'s `checkpoint` is tied to the synthesis behind
   `activity` (`same_producer_as="activity", via="netlist_timing"`: the producer of the
