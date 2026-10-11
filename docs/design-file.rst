@@ -148,8 +148,8 @@ The aliases ``test`` and ``tests`` are also accepted. The section takes the same
        VHDL, Bluespec or Chisel) and the testbench is not cocotb: without it the simulator would
        run ``rtl.top``, which has no stimulus, so the flow refuses the design and names
        ``tb.top``. A simulator that knows what to run without it is not refused: ``ghdl_sim`` finds
-       the top of a VHDL testbench itself, and ``verilator`` and ``yosys_sim`` run a C++ driver
-       of the design's own, whatever HDL the testbench also holds.
+       the top of a VHDL testbench itself, and ``yosys_sim`` runs a C++ driver of the design's
+       own, whatever HDL the testbench also holds. So does ``verilator`` with ``main: false``.
    * - ``uut``
      - Instance name of the unit under test inside the testbench. Some flows need it to locate
        signals for waveform dumping or activity capture.

@@ -84,10 +84,10 @@ class VivadoImpl(VivadoImplementation):
         )
 
     @classmethod
-    def check_design_supported(cls, design: Design) -> None:
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
         """Vivado looks the top of an EDIF netlist up by its file name (`run`), so the design
         has to name one that is a file name."""
-        super().check_design_supported(design)
+        super().check_design_supported(design, settings)
         top = design.rtl.top
         if not top:
             raise FlowSettingsException(

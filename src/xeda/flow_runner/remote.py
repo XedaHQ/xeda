@@ -1048,7 +1048,7 @@ class RemoteRunner(FlowLauncher):
                     flow_class.Settings,
                 )
             flow_class.check_required_settings(input_settings)
-            flow_class.check_design_supported(design)
+            flow_class.check_design_supported(design, input_settings)
             located = deliverable_locations(input_settings)
             if located:
                 key, path = located[0]

@@ -161,6 +161,19 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     return True
 
 
+def waveform_name(value: Any, extension: str) -> Any:
+    """A waveform setting as the name it stands for: `true` is `dump.<extension>`, `false` or an
+    empty name is none, and a name without an extension gets `.<extension>`. Anything else is
+    left as it is, for the field's own validation."""
+    if value is True:
+        return f"dump.{extension}"
+    if value is False or value == "":
+        return None
+    if isinstance(value, (str, Path)) and not Path(value).suffix:
+        return f"{value}.{extension}"
+    return value
+
+
 class SimFlow(Flow, metaclass=ABCMeta):
     """superclass of all simulation flows"""
 
@@ -208,37 +221,34 @@ class SimFlow(Flow, metaclass=ABCMeta):
         @field_validator("vcd", mode="before")
         @classmethod
         def _validate_vcd(cls, vcd):
-            if vcd is True:
-                return "dump.vcd"
-            if vcd is False or vcd == "":
-                return None
-            if isinstance(vcd, (str, Path)) and not Path(vcd).suffix:
-                return f"{vcd}.vcd"
-            return vcd
+            return waveform_name(vcd, "vcd")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
         """Whether the design brings a C++ driver of its own: `Cpp` sources among the RTL's and the
-        testbench's. A simulator that builds a C++ model runs it in place of its own (`verilator`,
-        `yosys_sim`)."""
+        testbench's. `yosys_sim` takes any `Cpp` source for a main and runs it in place of its own.
+        (`verilator` asks its `main` setting.)"""
         return bool(design.sim_sources_of_type(SourceType.Cpp))
 
     @classmethod
-    def runs_without_testbench_top(cls, design: Design) -> bool:
-        """Whether this simulator knows what to run for `design` when `tb.top` is not set, though
-        its testbench has sources in a hardware description language. No simulator does by
-        default. One that finds the testbench's top itself (GHDL's `find-top`), or runs a C++
-        driver of the design's own (Verilator, `yosys_sim`), says so by overriding this."""
+    def runs_without_testbench_top(
+        cls, design: Design, settings: Flow.Settings | None = None
+    ) -> bool:
+        """Whether this simulator knows what to run for `design` (run with `settings`, when the
+        caller has them) when `tb.top` is not set, though its testbench has sources in a hardware
+        description language. No simulator does by default. One that finds the testbench's top
+        itself (GHDL's `find-top`), or runs a C++ driver of the design's own (`yosys_sim`;
+        `verilator` with `main: false`, which only its settings say), says so by overriding this."""
         return False
 
     @classmethod
-    def check_design_supported(cls, design: Design) -> None:
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
         """A cocotb testbench needs a simulator xeda drives cocotb on (`cocotb_sim_name`): run on
         any other, the design would be simulated without it and its tests would never run.
         A testbench written in a hardware description language (`LANGUAGE_TYPES`) needs `tb.top`,
         unless the simulator knows what to run without it (`runs_without_testbench_top`):
         otherwise the simulator would simulate `rtl.top`, which has no stimulus."""
-        super().check_design_supported(design)
+        super().check_design_supported(design, settings)
         if design.tb.cocotb and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
             from importlib import import_module
@@ -256,7 +266,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             )
         if not design.tb.cocotb and not design.tb.top:
             hdl = [src for src in design.tb.sources if src.type in LANGUAGE_TYPES]
-            if hdl and not cls.runs_without_testbench_top(design):
+            if hdl and not cls.runs_without_testbench_top(design, settings):
                 raise FlowSettingsException(
                     f"{cls.name} needs to know which module is the testbench: `tb.sources` "
                     f"holds {', '.join(src.file.name for src in hdl)} but `tb.top` is not set. "
@@ -275,7 +285,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             self.settings, self.Settings
         ), "self.settings is not an instance of self.Settings class"
         # launched, the flow was checked already; constructed directly, it is checked here
-        self.check_design_supported(self.design)
+        self.check_design_supported(self.design, self.settings)
         self.cocotb: Optional[Cocotb] = (
             Cocotb(
                 **self.settings.cocotb.model_dump(),

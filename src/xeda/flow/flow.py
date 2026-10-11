@@ -775,7 +775,9 @@ class Flow(metaclass=ABCMeta):
             switch_on(settings, declaration)
 
     @classmethod
-    def check_design_supported(cls, design: Design) -> None:
+    def check_design_supported(
+        cls, design: Design, settings: "Flow.Settings | None" = None
+    ) -> None:
         """Fail a launch on a design this flow cannot run, before anything is set up for the run
         or shipped to a remote; checked wherever `check_required_settings` is. A flow that reads
         the design's sources itself (`reads_sources`) refuses a source in a language it cannot

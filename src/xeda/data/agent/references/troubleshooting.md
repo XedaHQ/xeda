@@ -56,6 +56,11 @@ passive VHPI monitor and needs a C++ compiler for non-cocotb runs; its removed `
 setting must be replaced with `fail_severity`. CXXRTL accepts an observed exit 0 from its linked
 user-owned driver even if simulated time is unknown; it rejects `stop_time` because that driver
 controls scheduling.
+Verilator rejects `stop_time` too: end the testbench with `$finish`, or use `timeout`. Its `vcd`,
+`fst` and `saif` only build tracing into the model (set them to `true`): without cocotb, the
+testbench's `$dumpfile` and `$dumpvars` name and write the file, and a name or location is an
+error. A C++ source
+that holds `main` needs `main: false`; without it, a C++ source is a DPI helper.
 
 ModelSim batch evidence requires a matching runtime checkpoint, native stop reason/time,
 TESTSTATUS and the bounded runtime section of its owned logfile. VHDL `std.env.stop` is accepted

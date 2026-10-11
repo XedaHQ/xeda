@@ -521,7 +521,9 @@ class GhdlSim(Ghdl, SimFlow):
     _sim_log: Path | None = None
 
     @classmethod
-    def runs_without_testbench_top(cls, design: Design) -> bool:
+    def runs_without_testbench_top(
+        cls, design: Design, settings: Flow.Settings | None = None
+    ) -> bool:
         """A VHDL testbench's top unit is found with `ghdl find-top`."""
         return any(src.type is SourceType.Vhdl for src in design.tb.sources)
 

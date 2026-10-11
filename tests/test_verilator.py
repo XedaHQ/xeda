@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsException
+from xeda.flow import FlowFatalError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
+from xeda.run_dir import RunDirectoryError
 
 from .test_cli_structured_output import run_xeda
 from .tool_utils import require_cocotb, require_verilator
@@ -34,6 +35,9 @@ def test_verilator_sim_py(tmp_path: Path) -> None:
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()
         assert flow.succeeded
+        if design.name == "fifo.xeda.yaml":
+            # the example defines DUMP_VCD, so its testbench's $dumpfile block writes the waveform
+            assert (flow.run_path / "fifo_tb.vcd").is_file()
         assert isinstance(flow.settings, Verilator.Settings)
         assert results_json.exists()
 
@@ -104,12 +108,6 @@ def _launch(
         ("initial begin $finish; end", {}, "finish", True),  # untimed, $finish at 0
         ("reg clk; initial clk = 0;", {}, "drained", False),  # nothing ever ends it
         ("initial begin #10; #10; end", {"timing": True}, "drained", False),
-        (
-            "initial begin #10; #10; end",
-            {"timing": True, "stop_time": "15ns"},
-            "stop_time",
-            True,
-        ),
         ('initial begin #5 $error("e"); #5 $finish; end', {"timing": True}, "error", False),
         ("initial begin #5 $stop; end", {"timing": True}, "error", False),
         pytest.param(
@@ -175,7 +173,7 @@ def test_a_stop_reaching_the_hooks_directly_is_recorded_once_as_an_error(tmp_pat
     flow = _launch(
         tmp_path,
         "initial begin #5 $finish; end",
-        {"timing": True},
+        {"timing": True, "main": False},
         extra_sources={"main.cpp": DIRECT_STOP_DRIVER},
     )
     assert flow.results["sim.ended_by"] == "error"
@@ -248,9 +246,10 @@ def test_verilator_simulates_the_designs_testbench_top(tmp_path):
     assert flow.succeeded
 
 
-def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp_path):
-    """HDL among the testbench's sources (a checker bound into the design) does not make a design
-    with a C++ driver of its own ask for `tb.top`: the driver runs the RTL top."""
+def test_a_design_with_its_own_main_and_hdl_sources_needs_no_testbench_top(tmp_path):
+    """HDL among the testbench's sources (a checker bound into the design) needs `tb.top`, unless
+    the design's own C++ main (`main: false`) runs the model: that main runs the RTL top. The
+    same design with `main` unset is refused, since Verilator's main would run no stimulus."""
     require_verilator()
     (tmp_path / "dut.sv").write_text(
         "`timescale 1ns/1ps\nmodule dut(input logic clk);\n"
@@ -267,56 +266,76 @@ def test_a_design_with_its_own_driver_and_hdl_sources_needs_no_testbench_top(tmp
         rtl={"sources": ["dut.sv"], "top": "dut"},
         tb={"sources": ["chk.sv", "main.cpp"]},
     )
-    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
-        Verilator, design, {"timing": True}
-    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    for settings in ({"timing": True}, {"timing": True, "main": True}):
+        with pytest.raises(FlowSettingsException, match="`tb.top`"):
+            runner.plan("verilator", design, flow_settings=settings)
+        with pytest.raises(FlowSettingsException, match="`tb.top`"):
+            runner.run_flow(Verilator, design, settings)
+    assert not (tmp_path / "runs").exists()
+    runner.plan("verilator", design, flow_settings={"timing": True, "main": False})
+    flow = runner.run_flow(Verilator, design, {"timing": True, "main": False})
     assert flow is not None and flow.succeeded
     assert flow.results["sim.ended_by"] == "exit"
 
 
-@pytest.mark.parametrize("timescale", ["1ns/1ns", "1ns/1ps", "1ns/1fs", "1us/100ps"])
-def test_verilator_stops_at_stop_time_in_the_models_precision(tmp_path, timescale):
-    """The driver converts `stop_time` into ticks of the model's time precision, coarser or
-    finer than the picoseconds it is given in, and the record says which precision it is."""
+@pytest.mark.parametrize(
+    ("timescale", "ticks"),
+    [("1ns/1ns", 15), ("1ns/1ps", 15000), ("1ns/1fs", 15000000), ("1us/100ps", 150)],
+)
+def test_verilator_records_the_finish_time_in_the_models_precision(tmp_path, timescale, ticks):
+    """The `$finish` is recorded at its simulated time, in ticks of the model's time precision,
+    and the record says which precision it is."""
     require_verilator()
     flow = _launch(
-        tmp_path,
-        "initial begin #10ns; #10ns; end",
-        {"timing": True, "stop_time": "15ns"},
-        timescale=timescale,
+        tmp_path, "initial begin #15ns; $finish; end", {"timing": True}, timescale=timescale
     )
-    assert flow.results["sim.ended_by"] == "stop_time"
+    assert flow.results["sim.ended_by"] == "finish"
+    assert flow.results["sim.time"] == ticks
     assert flow.results["sim.time_unit"] == timescale.split("/")[1]
     assert flow.succeeded
 
 
-@pytest.mark.parametrize(
-    ("settings", "ended_by", "error"),
-    [
-        ({"timing": True, "stop_time": "1us"}, "stop_time", None),
-        ({"timing": True, "timeout": 2}, None, "ProcessTimeout"),
-    ],
-)
-def test_verilator_ends_a_simulation_that_never_finishes(tmp_path, settings, ended_by, error):
-    """A free-running clock never drains: the requested `stop_time` ends it (a pass), or else
-    the wall-clock `timeout` stops the model, which leaves no end record (a failure)."""
+def test_a_drained_run_fails_and_has_no_time(tmp_path):
+    """Verilator's main returns when no event is left. With no `$finish`, the hooks record
+    `drained`, which fails, and the end time is unknown."""
     require_verilator()
-    flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", settings)
-    assert flow.results.get("sim.ended_by") == ended_by
-    assert (flow.results.get("error") or {}).get("type") == error
-    assert flow.succeeded is (error is None)
+    flow = _launch(tmp_path, "initial begin #10; #10; end", {"timing": True})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert flow.results["sim.time"] is None
+    assert not flow.succeeded
 
 
-@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+def test_a_finish_in_a_final_block_does_not_end_a_drained_run(tmp_path):
+    """The `final` block runs after the simulation ended. Its `$finish` is no end of the
+    simulation: the run drained, and fails. The context reports a running `final` block from
+    Verilator 5.048, the flow's floor."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #10; end final $finish;", {"timing": True})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert not flow.succeeded
+
+
+def test_the_wall_clock_timeout_stops_a_simulation_that_never_finishes(tmp_path):
+    """A free-running clock never drains, and nothing stops it but the wall-clock `timeout`,
+    which leaves no end record (a failure)."""
+    require_verilator()
+    flow = _launch(tmp_path, "reg clk = 0; always #5 clk = ~clk;", {"timing": True, "timeout": 2})
+    assert "sim.ended_by" not in flow.results
+    assert flow.results["error"]["type"] == "ProcessTimeout"
+    assert not flow.succeeded
+
+
+@pytest.mark.parametrize("own_driver", [False, True], ids=["verilator_main", "own_main"])
 def test_a_timed_out_model_s_output_reaches_the_log(tmp_path, own_driver):
     """The model's output is copied through a pipe, which would leave the C runtime's stdout
     block-buffered: what a testbench printed before it hung would be lost when the time limit
-    kills it. xeda's hooks make it line-buffered, in its own driver and a design's alike."""
+    kills it. xeda's hooks make it line-buffered, under Verilator's main and a design's alike."""
     require_verilator()
     flow = _launch(
         tmp_path,
         'reg clk = 0; always #5 clk = ~clk; initial $display("printed before the hang");',
-        {"timing": True, "timeout": 3},
+        {"timing": True, "timeout": 3, **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "0")} if own_driver else None,
     )
     assert (flow.results.get("error") or {}).get("type") == "ProcessTimeout"
@@ -354,20 +373,20 @@ int main(int argc, char** argv) {
 def test_verilator_judges_the_designs_own_driver_by_its_exit(
     tmp_path, body, status, ended_by, success
 ):
-    """A design with its own C++ driver keeps it; xeda's hooks, linked into it, record its end:
-    the driver's exit (with the status it returned), or a fatal error."""
+    """A design with its own C++ main (`main: false`) keeps it; xeda's hooks, linked into it,
+    record its end: the main's exit (with the status it returned), or a fatal error."""
     require_verilator()
     flow = _launch(
         tmp_path,
         body,
-        {"timing": True},
+        {"timing": True, "main": False},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", str(status))},
     )
     assert flow.results["sim.ended_by"] == ended_by
     assert flow.succeeded is success
 
 
-@pytest.mark.parametrize("own_driver", [False, True], ids=["xeda_driver", "own_driver"])
+@pytest.mark.parametrize("own_driver", [False, True], ids=["verilator_main", "own_main"])
 def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
     """A failed model's log still supplies warnings to its failure document."""
     require_verilator()
@@ -375,7 +394,7 @@ def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
     flow = _launch(
         tmp_path,
         f'initial begin #5 $warning("before failure"); #5 {ending}; end',
-        {"timing": True, "fail_severity": "warning"},
+        {"timing": True, "fail_severity": "warning", **({"main": False} if own_driver else {})},
         extra_sources={"main.cpp": OWN_DRIVER.replace("STATUS", "3")} if own_driver else None,
     )
     assert not flow.succeeded
@@ -393,7 +412,7 @@ def test_verilator_defaults_do_not_randomize(tmp_path):
     ss = Verilator.Settings()
     assert ss.random_init is False and ss.x_initial == "0" and ss.x_assign == "0"
     assert ss.fail_severity == "error"
-    assert MIN_VERILATOR_VERSION == (5, 24)
+    assert MIN_VERILATOR_VERSION == (5, 48)
 
 
 def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
@@ -402,7 +421,7 @@ def test_the_model_arguments_are_not_written_into_the_settings(tmp_path):
     flow = _launch(
         tmp_path,
         "initial begin #1 $finish; end",
-        {"timing": True, "vcd": "w.vcd", "random_init": True},
+        {"timing": True, "vcd": True, "random_init": True},
     )
     assert flow.settings.model_args == []
 
@@ -465,22 +484,203 @@ def test_a_cocotb_toplevel_other_than_the_rtl_top_is_simulated(tmp_path):
     assert flow.results["cocotb.tests"] == 1
 
 
-def test_stop_time_is_refused_where_it_cannot_be_enforced(tmp_path):
+def _stop_time_designs(tmp_path):
     (tmp_path / "dut.sv").write_text("module dut; endmodule\n")
     (tmp_path / "tb_dut.py").write_text("")
     (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
     cases = {
-        "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, "with cocotb"),
-        "cpp": ({"sources": ["main.cpp"]}, "design.s own C\\+\\+ driver"),
+        "hdl": ({"sources": []}, {}),
+        "cpp": ({"sources": ["main.cpp"]}, {"main": False}),
+        "cocotb": ({"sources": ["tb_dut.py"], "cocotb": True}, {}),
     }
-    for name, (tb, text) in cases.items():
+    for name, (tb, settings) in cases.items():
         design = Design(
             name=name, design_root=tmp_path, rtl={"sources": ["dut.sv"], "top": "dut"}, tb=tb
         )
-        settings = Verilator.Settings.from_input({"stop_time": "10ns"}, design_root=tmp_path)
-        flow = Verilator(settings, design, tmp_path / "run")
-        with pytest.raises(FlowSettingsException, match=text):
-            flow.init()
+        yield name, design, settings
+
+
+def test_stop_time_is_refused_in_every_mode_before_anything_runs(tmp_path):
+    """Verilator's own main, the design's own main and cocotb's main cannot stop at a simulated
+    time. The plan refuses it, and so does a flow built directly."""
+    for name, design, settings in _stop_time_designs(tmp_path):
+        runner = DefaultRunner(tmp_path / f"runs-{name}", display_results=False)
+        with pytest.raises(FlowSettingsException, match=r"\$finish.*`timeout`"):
+            runner.plan("verilator", design, flow_settings={**settings, "stop_time": "10ns"})
+        assert not (tmp_path / f"runs-{name}").exists()
+        flow_settings = Verilator.Settings.from_input(
+            {**settings, "stop_time": "10ns"}, design_root=tmp_path
+        )
+        with pytest.raises(FlowSettingsException, match="cannot stop at a simulated time"):
+            Verilator(flow_settings, design, tmp_path / f"run-{name}").init()
+
+
+@pytest.mark.parametrize("pair", [("vcd", "fst"), ("vcd", "saif"), ("fst", "saif")])
+def test_two_trace_formats_are_refused(tmp_path, pair):
+    """Verilator takes one trace format; the flow no longer picks one of two in silence."""
+    (tmp_path / "d.sv").write_text("module d; endmodule\n")
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"})
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    with pytest.raises(FlowSettingsException, match="one trace format"):
+        runner.plan("verilator", design, flow_settings={name: True for name in pair})
+
+
+def test_the_trace_formats_are_switches_that_default_to_verilators_own_options(tmp_path, commands):
+    """`true` selects a format, YAML and command line alike, and no trace option beyond the format
+    is passed unless it is set."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    for name in ("vcd", "fst", "saif"):
+        commands.clear()
+        DefaultRunner(tmp_path / f"runs-{name}", display_results=False).run_flow(
+            Verilator, design, {name: True}
+        )
+        (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+        assert f"--trace-{name}" in command
+        assert not [a for a in command if a.startswith("--trace") and a != f"--trace-{name}"]
+    commands.clear()
+    DefaultRunner(tmp_path / "runs-set", display_results=False).run_flow(
+        Verilator,
+        design,
+        {"vcd": True, "trace_underscore": True, "trace_structs": True, "trace_max_width": 64},
+    )
+    (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+    assert {"--trace-underscore", "--trace-structs"} <= set(command)
+    assert command[command.index("--trace-max-width") + 1] == "64"
+    assert "--trace-max-array" not in command
+
+
+def test_verilators_main_is_asked_for_unless_the_design_brings_its_own(tmp_path, commands):
+    """`--main` follows the `main` setting: set unless it is false."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": ["tb.sv"], "top": "tb"},
+        tb={"sources": ["main.cpp"], "top": "tb"},
+    )
+    for settings, expected in (({}, True), ({"main": True}, True), ({"main": False}, False)):
+        commands.clear()
+        DefaultRunner(
+            tmp_path / f"runs-{expected}-{len(settings)}", display_results=False
+        ).run_flow(Verilator, design, settings)
+        (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+        assert ("--main" in command) is expected
+        assert ("-CFLAGS" in command and "-DXEDA_VERILATOR_MAIN" in command) is expected
+
+
+def test_cocotb_has_its_own_main_and_the_systemc_model_needs_the_designs(tmp_path):
+    (tmp_path / "d.sv").write_text("module d; endmodule\n")
+    design = Design(
+        name="d", design_root=tmp_path, rtl={"sources": ["d.sv"], "top": "d"}, tb={"top": "d"}
+    )
+    flow_settings = Verilator.Settings.from_input({"generate_systemc": True}, design_root=tmp_path)
+    with pytest.raises(FlowSettingsException, match="`main: false`"):
+        Verilator(flow_settings, design, tmp_path / "run").init()
+    (tmp_path / "tb_d.py").write_text("")
+    cocotb = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": ["d.sv"], "top": "d"},
+        tb={"sources": ["tb_d.py"], "cocotb": True},
+    )
+    flow_settings = Verilator.Settings.from_input({"main": True}, design_root=tmp_path)
+    with pytest.raises(FlowSettingsException, match="cocotb's own main"):
+        Verilator(flow_settings, cocotb, tmp_path / "run-cocotb").init()
+    flow_settings = Verilator.Settings.from_input({"main": False}, design_root=tmp_path)
+    Verilator(flow_settings, cocotb, tmp_path / "run-cocotb-false").init()
+
+
+DUMPING_BODY = (
+    "reg [3:0] n = 0;\n"
+    'initial begin $dumpfile("tb_wave.vcd"); $dumpvars(0, tb); end\n'
+    "always #5 n = n + 1;\n"
+    "initial begin #50 $finish; end"
+)
+
+
+def test_the_testbench_writes_the_waveform_that_the_setting_builds_in(tmp_path):
+    """`vcd: true` builds the model with VCD tracing; the testbench's `$dumpfile` names the file,
+    in the model's working directory (the run directory), and xeda opens none of its own."""
+    require_verilator()
+    flow = _launch(tmp_path, DUMPING_BODY, {"vcd": True})
+    assert flow.succeeded
+    wave = flow.run_path / "tb_wave.vcd"
+    assert wave.read_text().startswith("$version Generated by VerilatedVcd")
+    assert "$var" in wave.read_text()
+    assert not list(flow.run_path.rglob("dump.vcd"))
+
+
+def test_the_testbench_writes_no_waveform_when_no_format_is_set(tmp_path):
+    require_verilator()
+    flow = _launch(tmp_path, DUMPING_BODY, {})
+    assert flow.succeeded
+    assert not list(flow.run_path.rglob("*.vcd"))
+
+
+@pytest.mark.parametrize("main", [True, False], ids=["verilator_main", "own_main"])
+@pytest.mark.parametrize("given", ["name", "location"])
+def test_a_waveform_name_or_location_is_refused_before_verilator_runs(tmp_path, main, given):
+    """Without cocotb, the testbench or the design's main names the waveform file, so a name or
+    a location is refused, naming `$dumpfile`, and no model is built."""
+    if given == "location":
+        value = str(tmp_path / "out" / "w.vcd")
+    else:
+        value = "w.vcd"
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    sources = ["tb.sv"]
+    if not main:
+        (tmp_path / "main.cpp").write_text("int main() { return 0; }\n")
+        sources.append("main.cpp")
+    design = Design(
+        name="tb",
+        design_root=tmp_path,
+        rtl={"sources": ["tb.sv"], "top": "tb"},
+        tb={"sources": sources, "top": "tb"},
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    with pytest.raises(FlowSettingsException, match=r"`vcd` names a waveform file.*`\$dumpfile`"):
+        runner.run_flow(Verilator, design, {"vcd": value, "main": main})
+    assert not list((tmp_path / "runs").rglob("sim_build"))
+
+
+def test_cocotb_names_the_waveform_and_a_location_is_delivered(tmp_path):
+    """With cocotb, xeda names the file through cocotb's `--trace-file`: `true` writes
+    `dump.vcd`, and a location is delivered."""
+    require_verilator()
+    require_cocotb()
+    (tmp_path / "dut.sv").write_text(
+        "module dut(input logic clk, output logic [3:0] q);\n"
+        "  always_ff @(posedge clk) q <= q + 1;\n"
+        "  initial q = 0;\nendmodule\n"
+    )
+    (tmp_path / "tb_dut.py").write_text(
+        "import cocotb\n"
+        "from cocotb.clock import Clock\n"
+        "from cocotb.triggers import Timer\n"
+        "@cocotb.test()\n"
+        "async def count(dut):\n"
+        "    cocotb.start_soon(Clock(dut.clk, 10, unit='ns').start())\n"
+        "    await Timer(100, 'ns')\n"
+    )
+    design = Design(
+        name="dut",
+        design_root=tmp_path,
+        rtl={"sources": ["dut.sv"], "top": "dut"},
+        tb={"sources": ["tb_dut.py"], "cocotb": True},
+    )
+    flow = DefaultRunner(tmp_path / "runs-true", display_results=False).run_flow(
+        Verilator, design, {"vcd": True, "timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert "$var" in (flow.run_path / "dump.vcd").read_text()
+    delivered = tmp_path / "out" / "c.vcd"
+    flow = DefaultRunner(tmp_path / "runs-located", display_results=False).run_flow(
+        Verilator, design, {"vcd": str(delivered), "timing": True}
+    )
+    assert flow is not None and flow.succeeded
+    assert "$var" in delivered.read_text()
 
 
 SQRT_DESIGN = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
@@ -561,3 +761,234 @@ def test_verilator_is_handed_the_sources_it_reads_in_design_order(tmp_path, comm
         f"-I{tmp_path / 'inc'}",
         f"-I{tmp_path / 'tb inc'}",
     ]
+
+
+DPI_HELPER = """extern "C" int xeda_add(int a, int b) { return a + b; }
+"""
+
+
+def test_a_cpp_source_with_no_main_is_a_dpi_helper_and_links(tmp_path):
+    """A `Cpp` source is not taken for a main: Verilator's own main runs the HDL testbench and
+    the helper, which the testbench calls through DPI, is linked into the model."""
+    require_verilator()
+    flow = _launch(
+        tmp_path,
+        'import "DPI-C" function int xeda_add(input int a, input int b);\n'
+        "initial begin\n"
+        '  if (xeda_add(2, 3) != 5) $fatal(1, "DPI helper returned the wrong sum");\n'
+        "  #10 $finish;\n"
+        "end",
+        {},
+        extra_sources={"helper.cpp": DPI_HELPER},
+    )
+    assert flow.succeeded
+    assert flow.results["sim.ended_by"] == "finish"
+
+
+def test_a_link_left_at_the_coverage_file_is_never_written_through(tmp_path):
+    """`--coverage` makes Verilator's own main write `coverage.dat` in the run directory. A link
+    at that name, left by an earlier tool, is removed as itself before the model runs: the
+    file it leads to, outside the run directory, is not touched."""
+    require_verilator()
+    body = "reg r = 0; initial begin #5 r = 1; #5 $finish; end"
+    settings = {"compile_args": ["--coverage"]}
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    coverage = flow.run_path / "coverage.dat"
+    assert coverage.is_file() and not coverage.is_symlink()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    coverage.unlink()
+    coverage.symlink_to(outside)
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert coverage.is_file() and not coverage.is_symlink()
+
+
+def test_a_coverage_file_named_through_a_link_that_leads_out_is_refused(tmp_path):
+    """`+verilator+coverage+file+cov/results.dat` names a file in a directory of the run
+    directory. When `cov` is a link left by an earlier tool that leads out, the run is refused
+    before the model starts, and the file outside is not touched."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov/r.dat"],
+    }
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "r.dat").write_text("not xeda's")
+    (flow.run_path / "cov").symlink_to(outside)
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
+    # the same file named by its full path, behind the same link
+    full = str(flow.run_path / "cov" / "r.dat")
+    settings["model_args"] = [f"+verilator+coverage+file+{full}"]
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
+    assert (outside / "r.dat").read_text() == "not xeda's"
+
+
+@pytest.mark.parametrize(
+    "body",
+    ['initial $display("done");', "reg clk = 0; always #5 clk = ~clk;"],
+    ids=["nothing_to_do", "ignored_delay"],
+)
+def test_an_untimed_run_that_never_finishes_drains_at_once(tmp_path, body):
+    """Without `timing`, Verilator's main leaves its loop when no event is left (a delay is
+    ignored): the run drained and fails, and does not wait for the wall-clock `timeout`."""
+    require_verilator()
+    flow = _launch(tmp_path, body, {"timing": False, "timeout": 60})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert not flow.succeeded
+
+
+def test_a_coverage_file_is_found_in_the_run_directory_under_another_letter_case(tmp_path):
+    """The run directory is told by file-system identity, not by how its path is spelled: on a
+    volume that ignores letter case, the full path of a coverage file under another spelling of
+    the run directory is still a file of it, and a link left at that name is removed as itself."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    respelled = flow.run_path.with_name(flow.run_path.name.upper())
+    if not respelled.exists():
+        pytest.skip("this file system distinguishes letter case")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{respelled / 'cov.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov.dat").is_file() and not (flow.run_path / "cov.dat").is_symlink()
+
+
+def test_a_coverage_file_named_through_an_alias_of_a_subdirectory_is_freed(tmp_path):
+    """`/alias/result.dat`, where `alias` is a link to a directory of the run directory, is a file
+    of the run directory: a link left at that name is removed as itself."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    (flow.run_path / "cov").mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(flow.run_path / "cov")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov" / "result.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'result.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov" / "result.dat").is_file()
+
+
+def test_a_coverage_file_named_through_an_alias_in_another_letter_case_is_freed(tmp_path):
+    """An alias of a directory of the run directory, made to the run directory's name in another
+    letter case, still leads to the run directory by identity: a link left at the file's name is
+    removed as itself. Needs a file system that ignores letter case."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    respelled = flow.run_path.with_name(flow.run_path.name.upper())
+    if not respelled.exists():
+        pytest.skip("this file system distinguishes letter case")
+    (flow.run_path / "cov").mkdir()
+    alias = tmp_path / "cov-alias"
+    alias.symlink_to(respelled / "cov")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov" / "result.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'result.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov" / "result.dat").is_file()
+
+
+def test_a_coverage_name_with_dotdot_is_refused(tmp_path):
+    """`cov/../r.dat` means a different file when `cov` is a link: the file xeda frees and the
+    file the model writes would differ, so the name is refused."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov/../r.dat"],
+    }
+    with pytest.raises(FlowSettingsException, match=r"has a `\.\.` in it"):
+        _launch(tmp_path, body, settings)
+
+
+def test_a_flow_built_directly_refuses_a_coverage_link_it_may_not_remove(tmp_path):
+    """In a directory no launcher chose, xeda deletes nothing. A link at the coverage file's name
+    would then be written through by the model, so the run is refused before it starts."""
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    run_path = tmp_path / "direct"
+    run_path.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (run_path / "coverage.dat").symlink_to(outside)
+    settings = Verilator.Settings.from_input({"build": False}, design_root=tmp_path)
+    flow = Verilator(settings, design, run_path)
+    with pytest.raises(FlowFatalError, match="deletes nothing"):
+        flow._free_model_outputs([])
+    assert outside.read_text() == "not xeda's"
+    assert (run_path / "coverage.dat").is_symlink()
+
+
+def test_a_coverage_file_behind_a_link_that_leads_out_after_an_alias_is_refused(tmp_path):
+    """`/alias/out/result.dat`: `alias` is a link to a directory of the run directory, and `out`
+    in it is a link to a directory outside. The name is in the run directory, and the link on the
+    way leads out, so the run is refused and the file outside is not touched."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    (flow.run_path / "cov").mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "result.dat").write_text("not xeda's")
+    (flow.run_path / "cov" / "out").symlink_to(outside)
+    alias = tmp_path / "cov-alias"
+    alias.symlink_to(flow.run_path / "cov")
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'out' / 'result.dat'}"],
+    }
+    with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
+        _launch(tmp_path, body, settings)
+    assert (outside / "result.dat").read_text() == "not xeda's"
+
+
+def test_a_directory_named_as_the_coverage_file_is_never_deleted(tmp_path):
+    """A coverage name is removed as a file, a link included. A directory of that name is refused,
+    with everything in it left in place."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    kept = flow.run_path / "cov" / "keep.txt"
+    kept.parent.mkdir()
+    kept.write_text("mine")
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov"],
+    }
+    with pytest.raises(FlowSettingsException, match="is a directory"):
+        _launch(tmp_path, body, settings)
+    assert kept.read_text() == "mine"

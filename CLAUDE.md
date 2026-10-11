@@ -1998,11 +1998,26 @@ dependency must also share `custom_boards_file`.
   `SimEvidence` through `judge_evidence` (`flow/sim.py`), never by the tool's exit status alone:
   what the simulator's own end record shows (`sim.ended_by`, `sim.time`, ... result keys), against
   `fail_severity`. cocotb, on every simulator, needs at least one test that ran and none that
-  failed (an all-skipped run fails). Verilator is driven by xeda's own C++ main
-  (`verilator_main.cpp`), and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`) record every
-  `$finish`/`$stop`/`$error`/`$fatal`/warning and write the end record. A design's own C++ driver
-  replaces only xeda's main: the hooks are still linked in and record how it ended
-  (`ended_by = "exit"`, with the driver's exit status, plus the recorded events). cocotb replaces the whole mechanism: no hooks, and cocotb's results decide.
+  failed (an all-skipped run fails). Verilator has three drivers, and xeda has no
+  main of its own. (1) An HDL top (`tb.top`, else `rtl.top`): Verilator's own `--main` runs the
+  model, and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`, built with `-DXEDA_VERILATOR_MAIN`)
+  record every `$finish`/`$stop`/`$error`/`$fatal` and Verilator runtime warning (an HDL
+  `$warning` reaches no hook: `fail_severity: warning` finds it in `sim.log`) and write the end record from the path
+  in the environment variable `XEDA_END_RECORD` (the model gets no argument of xeda's): at exit,
+  `finish` with the `$finish` time, or `drained` with no time (Verilator's main leaves its loop
+  only on `$finish` or an empty event queue). (2) The design's own C++ `main`/`sc_main`
+  (`main: false`): the hooks are still linked in and record the end (`ended_by = "exit"`, no
+  status, plus the recorded events); the flow adds the process exit status to the evidence. (3) cocotb: cocotb's own `verilator.cpp`
+  main, no hooks, cocotb's results decide; the run is refused when that file is missing (no
+  fallback copy). The `main` setting maps to `--main`: `Verilator.verilator_main()` is true unless
+  cocotb (`Optional[bool] = None`, the effective value computed where it is used), so a `Cpp`
+  source with `main` unset is a DPI helper and links; `main: true` with cocotb, and
+  `generate_systemc` without `main: false`, are refused in `init()`. Verilator's mode is judged by
+  the setting: `Flow.check_design_supported(design, settings=None)` and
+  `SimFlow.runs_without_testbench_top(design, settings=None)` take the flow's settings as an optional
+  second argument (every launch path passes them: resolver, DSE, remote, `SimFlow.__init__`), and
+  `Verilator` is exempt from the `tb.top` rule exactly when `main` is false (the design's C++ main
+  runs the model); with Verilator's own main, or with no settings, an HDL testbench needs `tb.top`.
   The hooks also make the model's stdout line-buffered, since it is copied through a pipe to
   `sim_dir/sim.log` (block-buffered, a timed-out model's output was lost); under cocotb nothing is
   copied, so its output keeps the terminal. The simulated top (`--top-module`) is `tb.top`, else
@@ -2010,7 +2025,29 @@ dependency must also share `custom_boards_file`.
   one rule `Cocotb.env` sets `TOPLEVEL` by. Its settings: `timeout`, `fail_severity`
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
-  top, and `stop_time` (rejected with cocotb or a design's own driver); minimum Verilator 5.024.
+  top; `stop_time` is rejected in every mode by `check_settings_supported` (also run in `init()`);
+  minimum Verilator 5.048 (`VerilatorTool`: the hooks need `executingFinal()`; `bsc_sim` keeps
+  `bsc.MIN_BSC_VERILATOR_VERSION`, 5.044, as it runs bsc's own driver).
+  Waveforms follow Verilator's own rules and xeda never opens one: `vcd`/`fst`/`saif` only compile
+  tracing in with that format (`--trace-<format>`; one at most, `check_settings_supported`), and
+  `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`, so that name is
+  accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
+  the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
+  name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through
+  `--trace-file` and a location is delivered. The trace options default to Verilator's own
+  (`trace_underscore`/`trace_structs` off, no max width or array unless set). A cocotb testbench
+  whose HDL also dumps gets a nearly empty file from cocotb's dumper (the second writer takes
+  almost no changes).
+  Before the model runs, `_free_model_outputs` removes `coverage.dat` (Verilator's main writes it
+  with `--coverage`) and the file `+verilator+coverage+file+` names, as themselves: a link a tool
+  left there is never written through. A `$finish` in a `final` block ends nothing (hooks, `executingFinal()`): the run stays
+  `drained`. A coverage name is told to lie in the run directory by file-system identity
+  (`RunDirectory.named_within`), so another letter case or alias of the run directory counts. A `+verilator+coverage+file+`
+  name behind a link that leads out is refused (`RunDirectoryError`), as is a name with `..` (the
+  model and the check would name different files), and a link left in a directory no launcher chose
+  (xeda deletes nothing there, so it refuses to start the model). A full path
+  that resolves outside the run directory, through however many links, is a location the user
+  chose (`named_within` is None): xeda frees only names it can show to lie in the run directory.
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
@@ -2034,10 +2071,11 @@ dependency must also share `custom_boards_file`.
   `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
   `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
-  drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design)`: `ghdl_sim` for
-  a VHDL testbench (`ghdl find-top` finds its top), `verilator` and `yosys_sim` for a design with a
-  `Cpp` source (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver, which
-  runs the model whatever HDL the testbench also holds). Another simulator on that list is a
+  drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design, settings)`:
+  `ghdl_sim` for a VHDL testbench (`ghdl find-top` finds its top), `yosys_sim` for a design with
+  a `Cpp` source (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver,
+  which runs the model whatever HDL the testbench also holds), `verilator` when `main` is false
+  (its settings say; without settings it is not exempt). Another simulator on that list is a
   decision.
   Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
   `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
