@@ -5,7 +5,6 @@ from __future__ import annotations
 import difflib
 import functools
 import importlib
-import json
 import logging
 import os
 import threading
@@ -15,7 +14,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from pprint import PrettyPrinter
 from typing import (
@@ -33,13 +32,8 @@ from typing import (
 )
 
 import yaml
-from box import Box
-from rich import box
-from rich.style import Style
-from rich.table import Table
-from rich.text import Text
 
-from ..artifacts import drop_unwritten_artifacts, iter_artifact_paths
+from ..artifacts import iter_artifact_paths
 from ..console import console
 from ..dataclass import DELIVERABLE_ROLE, WORKING_ROLE, XedaBaseModel, model_validator, written_role
 from ..deliver import (
@@ -51,7 +45,6 @@ from ..deliver import (
     Delivery,
     DeliveryError,
     ReadInputs,
-    deliverable_setting_names,
     outputs_to_deliveries,
     recorded_artifacts,
     refuse_shared_destinations,
@@ -96,11 +89,9 @@ from ..utils import (
     XedaException,
     backup_existing,
     dump_json,
-    json_encodable,
     settings_to_dict,
     snakecase_to_camelcase,
     unique,
-    with_json_keys,
 )
 from ..version import __version__
 from ..xedaproject import PROJECT_FILE_NAMES, ProjectFileError, XedaProject, resolve_project_file
@@ -116,6 +107,13 @@ from .bindings import (
     split_bindings,
 )
 from .chains import ChainElement, FlowRequest, parse_request
+from .launch_report import (
+    drop_unwritten as _drop_unwritten_artifacts,  # looked up here: tests replace it on this module
+    print_results,
+    report,
+    reuse_results,
+    warn_outputs_to_delivered_nothing,
+)
 from .outputs import declared_output_files, handed_over, record_outputs
 from .resolver import Plan, PlanNode, check_launchable, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
@@ -155,6 +153,13 @@ from .trace_inputs import (
     snapshot_inputs,
 )
 
+# Names defined here before the launcher was split by stage. Each stays importable from this
+# module; `tests/test_launcher_modules.py` lists them with their new homes.
+from .launch_report import artifact_rows as _artifact_rows  # noqa: E402,F401
+from .launch_report import (  # noqa: E402,F401
+    warn_outputs_to_delivered_nothing as _warn_outputs_to_delivered_nothing,
+)
+
 __all__ = [
     "DIR_NAME_HASH_LEN",
     "DefaultRunner",
@@ -169,76 +174,6 @@ __all__ = [
 ]
 
 log = logging.getLogger(__name__)
-
-
-def print_results(
-    flow: Optional[Flow] = None,
-    results: Optional[Dict[str, Any]] = None,
-    title: Optional[str] = None,
-    subset: Optional[Iterable[str]] = None,
-    skip_if_false: Union[bool, Iterable[str], None] = None,
-) -> None:
-    """Display selected flow results in a formatted table."""
-    if results is None and flow:
-        results = flow.results
-    assert results is not None, "results is None"
-    # The table shows what `results.json` holds: keys as that file writes them, so a key it can
-    # write (a tuple, a `Path`) cannot crash the table printed after the run.
-    results = with_json_keys(dict(results))
-    console.print()
-    table = Table(
-        title=title,
-        title_style=Style(frame=True, bold=True),
-        show_header=False,
-        box=box.ROUNDED,
-        show_lines=True,
-    )
-    table.add_column(style="bold", min_width=8, no_wrap=True)
-    table.add_column(justify="right", min_width=8)
-    skip_fields = [
-        "timestamp",
-        "design",
-        "design_hash",
-        "flow",
-        "flow_hash",
-        "settings_hash",
-        "tools",
-        "run_path",
-        "artifacts",
-        "outputs",
-    ]
-    for k, v in results.items():
-        skipable = skip_if_false and (isinstance(skip_if_false, bool) or k in skip_if_false)
-        if skipable and not v:
-            continue
-        if v is not None and not str(k).startswith("_"):
-            if k == "success":
-                table.add_row("Status", "[green]OK[/green]" if v else "[red]FAILED[/red]")
-                continue
-            if (subset and k not in subset) or k in skip_fields:
-                continue
-            if k == "runtime" and isinstance(v, (float, int)):
-                table.add_row(
-                    "Run time",
-                    str(timedelta(seconds=round(v))),
-                    style=Style(dim=True),
-                )
-                continue
-            if isinstance(v, (dict,)):
-                table.add_row(f"{k}:", "", style=Style(bold=True))
-                for xk, xv in v.items():
-                    if isinstance(xv, dict):
-                        xv = json.dumps(xv, indent=1, default=json_encodable)
-                    else:
-                        xv = str(xv)
-                    table.add_row(Text(f" {xk}"), str(xv))
-                continue
-            if isinstance(v, float):
-                v = f"{v:,.3f}"
-            elif isinstance(v, int):
-                v = f"{v:,}"
-            table.add_row(str(k), str(v))
-    console.print(table)
 
 
 class DesignNotFoundError(XedaException):
@@ -761,24 +696,6 @@ def _free_working_locations(flow: Flow) -> None:
     map_written_leaves(flow.settings, free)
 
 
-def _warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
-    """`--outputs-to` copies only artifacts a successful, requested flow reported inside its run
-    directory: a flow that reported none there, or names no setting deliverable, delivers nothing
-    and nothing else says so. Name the flow and, where it has any, the deliverable settings of its
-    own a location could be given instead (`vcd` for a simulator), so a bare run is not mistaken
-    for xeda silently dropping a file."""
-    names = deliverable_setting_names(type(flow.settings))
-    which = ", ".join(names) if names else "none"
-    log.warning(
-        "--outputs-to %s: %s delivered nothing there -- its deliverable settings (%s) are what "
-        "--outputs-to copies; give one a location (%s) for something to deliver",
-        outputs_to,
-        flow.name,
-        which,
-        LOCATION_FORMS,
-    )
-
-
 def _setting_naming(flow_class: type[Flow], output: str) -> str | None:
     """The deliverable setting of `flow_class` that names its output `output`: the one that
     switches it on (`enabled_by`), else a setting of the output's own name."""
@@ -879,33 +796,6 @@ def _refuse_outputs_to_a_programmer(
 
 
 FlowLauncherType = TypeVar("FlowLauncherType", bound="FlowLauncher")
-
-
-def _artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
-    """Flatten an artifacts mapping into `(label, path, end_section)` "Artifacts:" table rows.
-
-    Each label's paths are found with `iter_artifact_paths`, so a value nested through any mix
-    of mappings, lists and tuples is flattened the same way as everywhere else artifacts are
-    walked. The label is shown once, on the row of its first path; a label with no path leaves
-    (`None`, `""`, an empty list/dict, ...) gets no rows at all.
-    """
-    rows: list[tuple[str, str, bool]] = []
-    for label, value in artifacts.items():
-        paths = [str(path) for path in iter_artifact_paths(value)]
-        for i, path in enumerate(paths):
-            rows.append((label if i == 0 else "", path, i == len(paths) - 1))
-    return rows
-
-
-def _drop_unwritten_artifacts(flow: Flow) -> None:
-    """Report only the artifacts a failed run actually wrote (`drop_unwritten_artifacts`)."""
-    flow.results.artifacts = Box(
-        drop_unwritten_artifacts(
-            flow.results.artifacts,
-            flow.wrote_output,  # only a file whose recorded prior state changed
-            flow.name,
-        )
-    )
 
 
 class _DebugLogging:
@@ -1439,7 +1329,7 @@ class FlowLauncher:
                 and flow.succeeded
                 and not any(d.key == OUTPUTS_TO for d in flow.deliveries)
             ):
-                _warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
+                warn_outputs_to_delivered_nothing(flow, self.settings.outputs_to)
         return flow
 
     def _finish_launch(self, deliver: bool) -> Optional[Exception]:
@@ -1747,7 +1637,7 @@ class FlowLauncher:
                     self._record_identity(flow, run_path)
                     flow.results.success = False
                     flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
-                    self._report(flow, design, results_json, record=True)
+                    report(flow, design, results_json, self.settings, record=True)
                     raise
 
                 # only now: what the flow consumes includes its producers' outputs and runs
@@ -1766,12 +1656,12 @@ class FlowLauncher:
                     freshness = check_trace(
                         run_path, expected, locate_program, refresh=depender is None
                     )
-                    if freshness.fresh and self._reuse_results(flow, results_json):
+                    if freshness.fresh and reuse_results(flow, results_json):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
                         flow.run_id = freshness.run_id
                         log.info("%s is up to date (%s)", flow.name, run_path)
-                        self._report(flow, design, results_json, record=False)
+                        report(flow, design, results_json, self.settings, record=False)
                         self._defer_delivery(flow, delivery, outputs_to)
                         return flow
                     flow.stale_reason = (
@@ -1844,7 +1734,7 @@ class FlowLauncher:
                     for k, v in flow.artifacts.items():
                         flow.results.artifacts.setdefault(k, v)
                     _drop_unwritten_artifacts(flow)
-                    self._report(flow, design, results_json, record=True)
+                    report(flow, design, results_json, self.settings, record=True)
                     raise
                 if self.settings.dump_settings_json:
                     # `run()` may finish resolving generated files or derived switches. Keep the
@@ -1852,7 +1742,7 @@ class FlowLauncher:
                     # its effective snapshot after a completed execution without backing up that
                     # transient snapshot.
                     dump_json(all_settings, settings_json, backup=False)
-                self._report(flow, design, results_json, record=True)
+                report(flow, design, results_json, self.settings, record=True)
                 if flow.succeeded and expected is not None and snapshot is not None:
                     # Recorded once the run has written everything, `results.json` included, and
                     # before the clean-up, which may remove files the trace names (a depfile).
@@ -1989,20 +1879,6 @@ class FlowLauncher:
             post_cleanup=self.settings.post_cleanup or self.settings.post_cleanup_purge,
             post_cleanup_purge=self.settings.post_cleanup_purge,
         )
-
-    @staticmethod
-    def _reuse_results(flow: Flow, results_json: Path) -> bool:
-        """Adopt the recorded results of a fresh run; False if they cannot be read."""
-        try:
-            previous = Box(json.loads(results_json.read_text()))
-        except (OSError, ValueError):
-            return False
-        if not previous.get("success"):
-            return False
-        flow.results.update(**previous)
-        flow.artifacts = previous.get("artifacts", Box())
-        flow.reused = True
-        return True
 
     @contextmanager
     def _producer_read_lease(self, producer: Flow):
@@ -2212,41 +2088,6 @@ class FlowLauncher:
                 flow.results.artifacts[k] = v
         if not flow.succeeded:
             _drop_unwritten_artifacts(flow)
-
-    def _report(self, flow: Flow, design: Design, results_json: Path, record: bool) -> None:
-        """Stage 7: show the results and, for a run that just executed (`record`), write them to
-        `results.json`. A reused run's directory is left exactly as it was."""
-        if self.settings.display_results and flow.artifacts and flow.succeeded:
-            table = Table(
-                box=box.SIMPLE,
-                show_header=True,
-                show_edge=False,
-                show_footer=True,
-                collapse_padding=True,
-                pad_edge=False,
-            )
-            table.add_column(
-                "Artifacts:", justify="left", style="cyan", header_style="blue", no_wrap=False
-            )
-            table.add_column("", justify="left", style="green", no_wrap=False)
-
-            for label, artifact, end_section in _artifact_rows(flow.artifacts):
-                table.add_row(label, artifact, end_section=end_section)
-
-            console.print("")
-            console.print(table)
-            console.print("")
-
-        if record and self.settings.dump_results_json:
-            dump_json(flow.results, results_json, backup=self.settings.backups)
-            log.info("Results written to %s", results_json)
-
-        if self.settings.display_results:
-            print_results(
-                flow,
-                title=f"Results of flow:{flow.name} design:{design.name}",
-                skip_if_false={"artifacts", "reports"},
-            )
 
     def _clean_up(
         self, flow: Flow, settings_json: Path, results_json: Path, policy: RunDirPolicy
