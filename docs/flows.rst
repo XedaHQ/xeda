@@ -1175,7 +1175,7 @@ Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` f
 that name is accepted as "on", and the testbench's ``$dumpfile`` still chooses the file. Every
 other name and every location is an error before Verilator runs, because Xeda cannot know the
 name the testbench chooses. With cocotb, Xeda names the file (cocotb's
-``--trace-file``): ``true`` writes ``dump.vcd``, and a location is delivered. A testbench that
+``--trace-file``): ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
 also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
 code gives all changes to the first writer. The trace options (``trace_underscore``,
 ``trace_structs``, ``trace_max_width``, ``trace_max_array``) keep Verilator's own defaults unless

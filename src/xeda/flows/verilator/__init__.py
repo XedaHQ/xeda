@@ -117,7 +117,7 @@ class VerilatorTool(Tool):
 
 
 class Verilator(SimFlow):
-    """Simulate a Verilog or SystemVerilog design with Verilator.
+    """Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer.
 
     Verilator compiles the design to C++ (or SystemC) and builds a native executable, which
     makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
@@ -128,7 +128,7 @@ class Verilator(SimFlow):
     cocotb, cocotb's own main runs it, and cocotb's results decide the run.
 
     The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with
-    HDL testbench sources needs `tb.top`); with cocotb, the module cocotb drives:
+    HDL testbench sources needs `tb.top` when Verilator supplies its main); with cocotb, the module cocotb drives:
     `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are `rtl.parameters` updated
     by `tb.parameters` when the simulated top is the RTL top, and `tb.parameters` alone
     otherwise. Without cocotb, a run passes only on evidence of how the simulation ended, which
@@ -739,6 +739,12 @@ class Verilator(SimFlow):
             # a name in the run directory, however it is spelled: refused when a link on the way
             # leads out
             located = self.run_path / within
+            if located.is_dir() and not located.is_symlink():
+                # `remove` deletes a directory tree: never one that was named as a file
+                raise FlowSettingsException(
+                    f"the coverage file {located} is a directory: name a file in it, or another "
+                    "file"
+                )
             self.run_directory.remove(located)
             if os.path.islink(located) or (
                 os.path.lexists(located) and os.lstat(located).st_nlink > 1

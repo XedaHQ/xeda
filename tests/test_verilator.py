@@ -35,6 +35,9 @@ def test_verilator_sim_py(tmp_path: Path) -> None:
         results_json = flow.run_path / "results.json"
         assert settings_json.exists()
         assert flow.succeeded
+        if design.name == "fifo.xeda.yaml":
+            # the example defines DUMP_VCD, so its testbench's $dumpfile block writes the waveform
+            assert (flow.run_path / "fifo_tb.vcd").is_file()
         assert isinstance(flow.settings, Verilator.Settings)
         assert results_json.exists()
 
@@ -970,3 +973,22 @@ def test_a_coverage_file_behind_a_link_that_leads_out_after_an_alias_is_refused(
     with pytest.raises(RunDirectoryError, match="symbolic link out of it"):
         _launch(tmp_path, body, settings)
     assert (outside / "result.dat").read_text() == "not xeda's"
+
+
+def test_a_directory_named_as_the_coverage_file_is_never_deleted(tmp_path):
+    """A coverage name is removed as a file, a link included. A directory of that name is refused,
+    with everything in it left in place."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    kept = flow.run_path / "cov" / "keep.txt"
+    kept.parent.mkdir()
+    kept.write_text("mine")
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": ["+verilator+coverage+file+cov"],
+    }
+    with pytest.raises(FlowSettingsException, match="is a directory"):
+        _launch(tmp_path, body, settings)
+    assert kept.read_text() == "mine"

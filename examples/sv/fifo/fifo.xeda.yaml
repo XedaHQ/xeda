@@ -11,6 +11,8 @@ tb:
     # - tb/fifo_tb.py
   # cocotb: true
   top: fifo_tb
+  defines:
+    DUMP_VCD: null
 
 flows:
   verilator:

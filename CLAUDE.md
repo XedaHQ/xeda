@@ -2001,12 +2001,13 @@ dependency must also share `custom_boards_file`.
   failed (an all-skipped run fails). Verilator has three drivers, and xeda has no
   main of its own. (1) An HDL top (`tb.top`, else `rtl.top`): Verilator's own `--main` runs the
   model, and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`, built with `-DXEDA_VERILATOR_MAIN`)
-  record every `$finish`/`$stop`/`$error`/`$fatal`/warning and write the end record from the path
+  record every `$finish`/`$stop`/`$error`/`$fatal` and Verilator runtime warning (an HDL
+  `$warning` reaches no hook: `fail_severity: warning` finds it in `sim.log`) and write the end record from the path
   in the environment variable `XEDA_END_RECORD` (the model gets no argument of xeda's): at exit,
   `finish` with the `$finish` time, or `drained` with no time (Verilator's main leaves its loop
   only on `$finish` or an empty event queue). (2) The design's own C++ `main`/`sc_main`
-  (`main: false`): the hooks are still linked in and record how it ended (`ended_by = "exit"`,
-  with the main's exit status, plus the recorded events). (3) cocotb: cocotb's own `verilator.cpp`
+  (`main: false`): the hooks are still linked in and record the end (`ended_by = "exit"`, no
+  status, plus the recorded events); the flow adds the process exit status to the evidence. (3) cocotb: cocotb's own `verilator.cpp`
   main, no hooks, cocotb's results decide; the run is refused when that file is missing (no
   fallback copy). The `main` setting maps to `--main`: `Verilator.verilator_main()` is true unless
   cocotb (`Optional[bool] = None`, the effective value computed where it is used), so a `Cpp`
