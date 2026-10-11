@@ -62,14 +62,21 @@ def _explicit(node: Node, name: str) -> bool:
     return item is not None and item.binding_origin is not None
 
 
+def _tied_to(cls: type[Flow], name: str, via: str | None = None) -> list[str]:
+    """The inputs of `cls` that come from the same producer as input `name` (when `via` is None) or
+    that follow input `name` through the input `via`. Another `via` is another relation."""
+    return [
+        other.name
+        for other in declared_inputs(cls).values()
+        if (other.same_producer_as, other.via) == (name, via)
+    ]
+
+
 def _related(node: Node, declaration: InputDeclaration) -> list[str]:
     """The inputs of `node` related in the same way as `declaration`: itself and every other that
     names the same input, with the same `via`."""
-    return [
-        other.name
-        for other in declared_inputs(node.cls).values()
-        if (other.same_producer_as, other.via) == (declaration.same_producer_as, declaration.via)
-    ]
+    assert declaration.same_producer_as is not None
+    return _tied_to(node.cls, declaration.same_producer_as, declaration.via)
 
 
 def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin | None:
@@ -96,7 +103,7 @@ def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin
 def _involved(graph: Graph, node: Node, declaration: InputDeclaration) -> list[tuple[Node, str]]:
     """Every input that has to agree for the relation of `declaration` to hold: the related
     inputs of `node` and, with `via`, that input of each node that makes the related input,
-    with the inputs of that node tied to it."""
+    with the inputs of that node tied to it by the same relation (no `via` of their own)."""
     anchor = declaration.same_producer_as
     assert anchor is not None
     members = _related(node, declaration)
@@ -105,11 +112,7 @@ def _involved(graph: Graph, node: Node, declaration: InputDeclaration) -> list[t
     involved = [(node, name) for name in members]
     for made_by in sorted(_origin(node, anchor) or ()):
         maker = graph[made_by]
-        tied = [
-            other.name
-            for other in declared_inputs(maker.cls).values()
-            if other.same_producer_as == declaration.via
-        ]
+        tied = _tied_to(maker.cls, declaration.via)
         involved += [(maker, name) for name in (declaration.via, *tied)]
     return involved
 
