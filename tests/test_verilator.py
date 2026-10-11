@@ -888,3 +888,30 @@ def test_a_coverage_file_named_through_an_alias_of_a_subdirectory_is_freed(tmp_p
     assert flow.succeeded
     assert outside.read_text() == "not xeda's"
     assert (flow.run_path / "cov" / "result.dat").is_file()
+
+
+def test_a_coverage_file_named_through_an_alias_in_another_letter_case_is_freed(tmp_path):
+    """An alias of a directory of the run directory, made to the run directory's name in another
+    letter case, still leads to the run directory by identity: a link left at the file's name is
+    removed as itself. Needs a file system that ignores letter case."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    respelled = flow.run_path.with_name(flow.run_path.name.upper())
+    if not respelled.exists():
+        pytest.skip("this file system distinguishes letter case")
+    (flow.run_path / "cov").mkdir()
+    alias = tmp_path / "cov-alias"
+    alias.symlink_to(respelled / "cov")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov" / "result.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'result.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov" / "result.dat").is_file()

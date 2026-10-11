@@ -290,25 +290,22 @@ class RunDirectory:
         """`path` as a name relative to this run directory, if the run directory is `path` or one
         of its parents -- by file-system identity (`st_dev`, `st_ino`), never by comparing
         spellings, so another letter case or an alias of the run directory's path counts -- else
-        None. The name is what `path` says below that parent; it is not checked
-        (`inside` does that)."""
+        None. `path` is judged as given, and with its directory resolved (the last component kept
+        as it is, so a link at the name is the name): a directory below this one that is reached
+        through a link is a file of the run directory. The name is what the matching spelling says
+        below that parent; it is not checked (`inside` does that)."""
         try:
             own = os.stat(self.path)
         except OSError:
             return None
         given = Path(os.path.abspath(path))
-        for parent in given.parents:
-            try:
-                if os.path.samestat(os.stat(parent), own):
-                    return given.relative_to(parent)
-            except OSError:
-                continue
-        # a directory below this one reached through an alias (a link to it): its resolved
-        # location, with the last component kept as it is
-        resolved = Path(os.path.realpath(given.parent))
-        real = Path(os.path.realpath(self.path))
-        if resolved.is_relative_to(real):
-            return resolved.relative_to(real) / given.name
+        for spelling in (given, Path(os.path.realpath(given.parent)) / given.name):
+            for parent in spelling.parents:
+                try:
+                    if os.path.samestat(os.stat(parent), own):
+                        return spelling.relative_to(parent)
+                except OSError:
+                    continue
         return None
 
     def holds(self, path: str | os.PathLike) -> bool:

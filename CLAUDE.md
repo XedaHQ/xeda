@@ -2009,10 +2009,11 @@ dependency must also share `custom_boards_file`.
   `SimFlow.check_design_supported` refuses a design whose `tb.sources` holds a source of a
   `design.LANGUAGE_TYPES` language (Verilog, SystemVerilog, VHDL, Bluespec, Chisel) when there is
   no `tb.top` and no cocotb: the simulator would run `rtl.top`, which has no stimulus, and report a
-  drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design)`: `ghdl_sim` for
-  a VHDL testbench (`ghdl find-top` finds its top), `yosys_sim` for a design with a `Cpp` source
-  (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver, which runs the
-  model whatever HDL the testbench also holds). Another simulator on that list is a
+  drained queue. The one exemption is `SimFlow.runs_without_testbench_top(design, settings)`:
+  `ghdl_sim` for a VHDL testbench (`ghdl find-top` finds its top), `yosys_sim` for a design with
+  a `Cpp` source (`SimFlow.has_cpp_driver`, the one predicate for a design's own C++ driver,
+  which runs the model whatever HDL the testbench also holds), `verilator` when `main` is false
+  (its settings say; without settings it is not exempt). Another simulator on that list is a
   decision.
   Every `SimFlow` shares `timeout` (per subprocess invocation containing simulation) and
   `fail_severity` (`warning`/`error`/`failure`/`fatal`, default `error`; `failure` and `fatal`
