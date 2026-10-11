@@ -684,8 +684,17 @@ its output paths inside its run directory.
   `FlowFatalError` naming its setting/path. Hand-over validates schema, cardinality,
   containment and digest under a verified read lease for new and reused producers alike; reuse
   uses the producer's trace, not current-run write evidence. Declared flow code reads only
-  `self.inputs`, never producer settings, directories or artifacts. Traces also record ordered
-  declared input names, origins, producer identities and paths; a changed binding invalidates reuse.
+  `self.inputs`, never producer settings, directories or artifacts. Two oracles hold it for every
+  flow: `test_one_dependency_mechanism.py` scans the flow's code (its MRO, the module-level code of
+  those modules and the helpers it reaches) for a read of `settings`, `run_path`, `artifacts`,
+  `results`, `outputs` or `inputs` on anything but `self`, where a helper that takes the flow as a
+  parameter is allowed only if every call passes `self`; `test_isolation.py` checks, under the
+  stand-in tools, that every path under the run root a tool is handed (command line, environment,
+  scripts and logs in the run directory) lies in the flow's own run directory, is a declared input
+  or is a registered implicit input. Neither has an exemption list. A Python read of an undeclared
+  file of a producer through a declared path (`self.inputs.x.parent / "y"`) is seen by neither.
+  Traces also record ordered declared input names, origins, producer identities and paths; a
+  changed binding invalidates reuse.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
