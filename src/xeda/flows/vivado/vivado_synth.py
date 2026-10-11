@@ -449,9 +449,10 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
         write_checkpoint: bool = Field(
             False,
-            description="Write the routed design's Vivado checkpoint (.dcp), and the checkpoints "
-            "of the steps before it that the flow runs (after synthesis, after placement). "
-            "Required by the `vivado_power` flow.",
+            description="Write the routed design's Vivado checkpoint (.dcp). `vivado_synth` and "
+            "`vivado_alt_synth` also write the one after synthesis, and the non-project flows "
+            "(`vivado_alt_synth`, `vivado_impl`) the one after placement. Required by the "
+            "`vivado_power` flow.",
         )
         write_netlist: bool = Field(
             False,
@@ -515,6 +516,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         declare_outputs(
             self,
             {
+                # a flow that does no synthesis has no such output, and writes no such file
                 "netlist": paths.get(NETLIST),
                 "netlist_timing": paths.get(NETLIST_TIMING),
                 "sdf": paths.get(SDF),

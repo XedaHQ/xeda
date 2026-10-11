@@ -463,7 +463,7 @@ def test_vivado_impl_writes_the_routed_checkpoint_and_netlists_it_is_asked_for(w
         "xdc_exported": "outputs/impl.xdc",
     }
     for label, name in written.items():
-        assert flow.artifacts[label] == Path(name), label
+        assert flow.run_path / flow.artifacts[label] == flow.run_path / name, label
         assert (flow.run_path / name).stat().st_size > 0, name
     assert "(DELAYFILE" in (flow.run_path / "outputs/impl_timesim.sdf").read_text()
     assert "module blinky" in (flow.run_path / "outputs/impl_funcsim.v").read_text()

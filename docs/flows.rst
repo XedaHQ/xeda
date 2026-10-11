@@ -471,7 +471,7 @@ example designs and targets that use them:
     # not available yet
     xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
 
-``vivado_synth`` and ``vivado_alt_synth`` declare their outputs, each switched on by its own
+``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` declare their outputs, each switched on by its own
 setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint``, ``bitstream``), so
 ``vivado_synth+openfpgaloader`` is a chain: the loader switches the ``bitstream`` on. It needs
 the design's ``fpga`` and a clock, and it programs a device: plan it with ``--dry-run``.
