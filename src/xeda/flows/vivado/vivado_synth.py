@@ -42,8 +42,9 @@ StepsValType = Union[None, List[str], Dict[str, Any]]
 
 # The artifact labels of the outputs a project-mode run writes on request (`project_outputs`).
 # `vivado_synth` registers them, and its consumers (`vivado_postsynth_sim`, `vivado_power`) look
-# them up by these names (`artifact_path`). `vivado_alt_synth` records what it writes under the
-# same names, and its placed checkpoint and its one (slow-corner) SDF under the last two.
+# them up by these names (`artifact_path`). The non-project flows (`vivado_alt_synth`,
+# `vivado_impl`) record what they write under the same names, and their placed checkpoint and
+# their one (slow-corner) SDF under the last two.
 CHECKPOINT_SYNTH = "checkpoint_synth"
 CHECKPOINT_ROUTE = "checkpoint_route"
 NETLIST = "netlist"
