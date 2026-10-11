@@ -500,8 +500,11 @@ would have to be looked up (``its container image is checked when it runs``), wh
 input does not exist yet (a chip database no run has generated), or when a launch would refuse its
 settings in the design's context. Every ``fresh`` and ``stale`` node is exactly what the launch
 does: ``tests/test_dry_run_freshness.py`` runs the plan's request and compares. ``--rebuild-all``
-and ``--clean`` make every node stale, with the reason a launch records too (a flow that always
-runs keeps its own).
+and ``--clean`` make every node stale once its prepared inputs pass (a chip database cache that is
+corrupt is refused first, so unknown), with the reason a launch records too (a flow that always
+runs keeps its own). A dry run does not call ``init()``, so ``stale`` means that a launch does not
+reuse the node: it runs it, unless the flow's ``init()`` refuses the settings or the design (for
+example ``stop_time`` with the design's own Verilator driver), which only a launch finds.
 
 Planning does not call a flow's ``init()``, but it builds each flow as the launch does, with a
 run directory it never writes, to ask whether it always runs. Invalid settings, shared-setting

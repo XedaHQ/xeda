@@ -765,7 +765,10 @@ its output paths inside its run directory.
   `tests/test_dry_run_freshness.py` runs a matrix of changes on a toy graph and on
   `yosys_fpga -> nextpnr` and compares every claim with the launch, shows the dry run changes
   nothing, locks nothing and starts nothing (each of three mistakes that would break it is
-  caught), and `tests/test_prepare_inputs.py` holds the locating step.
+  caught), and `tests/test_prepare_inputs.py` holds the locating step. **Limit**: a dry run never
+  calls `init()`, so `stale` is "not reused", and a flow whose `init()` raises on the settings or the
+  design (Verilator's `stop_time` with a C++ driver; about ten flows raise there) fails in a launch
+  instead of running; a pure check hook per flow would close it.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its
