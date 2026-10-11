@@ -881,9 +881,14 @@ _CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
 def _accept_clock_forms(schema: Dict[str, Any]) -> None:
     """Accept every form of a clock in the items of `clocks`, as `RtlSettings.clock_tables`
     reads them."""
-    clocks = schema.get("$defs", {}).get("RtlSettings", {}).get("properties", {}).get("clocks")
+    properties = schema.get("$defs", {}).get("RtlSettings", {}).get("properties", {})
+    clocks = properties.get("clocks")
     if clocks and "items" in clocks:
         clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)
+    clock = properties.get("clock")  # one clock: the same forms of an item
+    if clock and "anyOf" in clock:
+        empty = _CLOCK_ITEM_FORMS[-1]
+        clock["anyOf"] = [*clock["anyOf"], deepcopy(empty)]
 
 
 def _accept_single_items(schema: Dict[str, Any]) -> None:

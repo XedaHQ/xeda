@@ -521,3 +521,15 @@ def test_every_form_of_clocks_the_loader_reads_is_in_the_schema(clocks, count):
     data = {"name": "d", "rtl": {"sources": [], "top": "t", "clocks": clocks}}
     assert len(Design(**data).rtl.clocks) == count
     assert list(validator().iter_errors(data)) == []
+
+
+@pytest.mark.parametrize("clock", [None, "", "clk", {}, {"port": "clk"}], ids=repr)
+def test_every_form_of_clock_the_loader_reads_is_in_the_schema(clock):
+    """`clock` takes a port name, a table, and `null`, `""` or an empty table for no clock, in
+    `rtl` and in the flat form."""
+    for data in (
+        {"name": "d", "rtl": {"sources": [], "top": "t", "clock": clock}},
+        {"name": "d", "sources": [], "top": "t", "clock": clock},
+    ):
+        Design(**data)
+        assert list(validator().iter_errors(data)) == []
