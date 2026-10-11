@@ -734,7 +734,7 @@ its output paths inside its run directory.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
   `Design` is plannable. `--remote` is refused.
 - **A dry run says what a launch would do with each node** (`DefaultRunner.plan_with_freshness`,
-  `plan_freshness.judge_plan`; `plan_info(plan, states)` adds `state` and `reason` to each node,
+  `plan_freshness.judge_plan`; `plan_info(plan, freshness)` adds `state` and `reason` to each node,
   `_print_plan` prints `fresh`, `stale: <reason>` or `unknown: <reason>`). `fresh` is reused;
   `stale` runs, and the reason is word for word the one the launch logs and sets as
   `Flow.stale_reason`; `unknown` is not a claim (`depends on <producer>`, `its container image is
