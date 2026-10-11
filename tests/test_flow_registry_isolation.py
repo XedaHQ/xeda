@@ -74,17 +74,27 @@ def _is_registry(node: ast.expr, aliases: frozenset[str] = frozenset()) -> bool:
 
 
 def _registry_aliases(tree: ast.AST) -> frozenset[str]:
-    """The names a file binds to the registry: `table = flow_module.registered_flows`, and
-    `from xeda.flow import registered_flows as table`."""
+    """The names a file binds to the registry: `table = flow_module.registered_flows`,
+    `from xeda.flow import registered_flows as table`, and a name bound to such a name
+    (`alias = table`), to a fixed point."""
     aliases: set[str] = set()
+    assigns = [node for node in ast.walk(tree) if isinstance(node, ast.Assign)]
     for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and _is_registry(node.value):
-            aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
-        elif isinstance(node, ast.ImportFrom):
+        if isinstance(node, ast.ImportFrom):
             aliases.update(
                 a.asname for a in node.names if a.name == "registered_flows" and a.asname
             )
-    return frozenset(aliases)
+    while True:
+        found = {
+            target.id
+            for node in assigns
+            if _is_registry(node.value, frozenset(aliases))
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        if found <= aliases:
+            return frozenset(aliases)
+        aliases |= found
 
 
 #: The methods that take entries out or drop them wholesale. A test removes the flow it defined by
@@ -94,7 +104,14 @@ WHOLESALE = ("clear", "popitem")
 
 
 def _restoring_by_hand(path: Path) -> list[int]:
-    """The lines of a test file that empty the registry or swap the table itself."""
+    """The lines of a test file that empty the registry or swap the table itself.
+
+    Scope: a tripwire, not a proof. The rule that keeps the built-in flows is to restore the
+    registry with `preserved_flow_registry`. The scan recognizes the registry as the bare name
+    `registered_flows`, as `<module>.registered_flows`, and as a name bound to either in the same
+    file, however many names deep (`table = m.registered_flows; alias = table`). It does no data-flow
+    analysis across functions, containers, calls or other files.
+    """
     lines = []
     tree = ast.parse(path.read_text(), str(path))
     aliases = _registry_aliases(tree)
@@ -158,6 +175,7 @@ def test_no_test_restores_the_registry_by_hand():
         "table = flow_module.registered_flows\ntable.clear()",
         "table = registered_flows\ntable.popitem()",
         "from xeda.flow import registered_flows as table\ntable.clear()",
+        "table = flow_module.registered_flows\nalias = table\nother = alias\nother.clear()",
     ],
 )
 def test_the_scan_sees_each_way_to_restore_by_hand(tmp_path, source):
