@@ -214,8 +214,11 @@ bitstream=$PWD/blinky.bit`. Its `netlist` is `yosys_fpga`'s `netlist_edif` outpu
 `vivado_alt_synth`'s, under the same names and switches (`write_checkpoint` -> `checkpoint_route`,
 `write_netlist` -> `netlist`, `write_timing_netlist` -> `netlist_timing` and `sdf`; no
 `checkpoint_synth`), and `bitstream`, written when set or when `openfpgaloader` follows. To feed
-`vivado_postsynth_sim` or `vivado_power` from it, bind their inputs to `vivado_impl` (the planner
-names the bindings). `yosys_fpga` writes the EDIF
+`vivado_postsynth_sim` or `vivado_power` from it, bind their inputs to `vivado_impl`:
+`yosys_fpga+vivado_impl+vivado_power` passes the chain check but planning refuses it until
+`-s flows.vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist
+flows.vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing
+flows.vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf` is added (the chain binds the checkpoint). `yosys_fpga` writes the EDIF
 (`write_edif -pvector bra`, beside the JSON netlist, so `nextpnr` and `vivado_impl` share one
 synthesis run) whenever a Xilinx synthesis is flat; with `flatten: false`, `keep_hierarchy` (also as
 an attribute in `set_mod_attribute` or `set_attribute`), `black_box` or `synth_pass_only` and no
@@ -284,8 +287,8 @@ producer**. A binding names a flow's output, never a file: give a file as a type
 Related inputs of one flow come from one producer: `xeda list-flows --json` shows a relation as
 `same_producer_as` (and `via`) on the input. `vivado_postsynth_sim`'s `netlist` and `sdf` agree with
 its `netlist_timing`, and so does `vivado_power`'s `checkpoint` with the synthesis behind its
-`activity`. Binding one of them to `vivado_alt_synth` alone is refused, naming the `-s` bindings
-that make the plan agree. A file you list in `rtl.sources` is your own choice and is not compared.
+`activity`. Binding one of them to `vivado_alt_synth` (or `vivado_impl`) alone is refused, naming
+the `-s` bindings that make the plan agree. A file you list in `rtl.sources` is your own choice and is not compared.
 
 ```yaml
 # prebuilt_demo.yaml: `xeda run nextpnr prebuilt_demo.yaml` skips synthesis;

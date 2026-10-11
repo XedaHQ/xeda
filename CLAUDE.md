@@ -792,8 +792,9 @@ with the outputs they enable (`VivadoImplementation.Outputs`: `checkpoint_route`
 consumer: `vivado_postsynth_sim` and `vivado_power` still default to `vivado_synth`, and
 `yosys_fpga+vivado_impl+vivado_power` is refused until the simulation's three inputs are bound to
 `vivado_impl` (related inputs; the error lists them), as with `vivado_alt_synth`. Those edges are
-in `REVIEWED_EDGES` of `tests/test_stage_types.py`; `tests/test_vivado_impl.py` checks that an
-output the three flows share is declared alike. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
+in `REVIEWED_EDGES` of `tests/test_stage_types.py` (netlist and checkpoint edges only: the `sdf`
+edge to `vivado_postsynth_sim` is not tracked there); `tests/test_vivado_impl.py` checks that an
+output the three flows share is declared alike and runs the documented bindings. Real Vivado: `tests/test_vivado_real.py` (`XEDA_TESTS_VIVADO=1`).
 
 Use YAML for new examples, designs, project files and Xeda configuration data. The bundled boards
 and platform databases are still TOML; a custom board database (`custom_boards_file`) may be TOML

@@ -986,3 +986,43 @@ def test_the_commands_the_documentation_shows_plan_and_run(tmp_path, toolchain) 
         )
         assert result.exit_code == 0, (words, result.output)
     assert (tmp_path / "blinky.bit").is_file()
+
+
+def test_the_bindings_the_documentation_gives_for_the_power_chain_make_it_plan(tmp_path) -> None:
+    """The chain to `vivado_power` passes the chain check and is refused when planned; the `-s`
+    items that `docs/flows.rst` gives for it make it plan, and so does the simulation alone."""
+    from click.testing import CliRunner
+
+    from xeda.cli import cli
+
+    text = FLOWS_RST.read_text(encoding="utf-8")
+    section = text[text.index(".. _vivado-impl:") : text.index("\nBluespec\n========\n")]
+    (line,) = [
+        line.strip() for line in section.splitlines() if line.strip().startswith("-s flows.vivado")
+    ]
+    items = shlex.split(line)[1:]
+    assert items == [
+        f"flows.vivado_postsynth_sim.inputs.{name}=vivado_impl.{name}"
+        for name in ("netlist", "netlist_timing", "sdf")
+    ]
+    root = tmp_path / "d"
+    _power_design(root)
+    (root / "blinky.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "blinky",
+                "rtl": {"sources": ["blinky.v", "pins.xdc"], "top": TOP, "clock": {"port": "clk"}},
+                "tb": {"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
+                "flows": {"vivado_impl": {"fpga": {"part": PART}, "clock": {"period": 10.0}}},
+            }
+        )
+    )
+    base = ["run", "--dry-run", "--json", "--run-root", str(tmp_path / "xeda_run")]
+    chain = "yosys_fpga+vivado_impl+vivado_power"
+    refused = CliRunner().invoke(cli, [*base, chain, str(root / "blinky.yaml")])
+    assert refused.exit_code != 0
+    for request in (chain, "vivado_postsynth_sim"):
+        result = CliRunner().invoke(cli, [*base, request, str(root / "blinky.yaml"), "-s", *items])
+        assert result.exit_code == 0, (request, result.output)
+        nodes = [node["name"] for node in json.loads(result.output)["plan"]["nodes"]]
+        assert "vivado_impl" in nodes, nodes

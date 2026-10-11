@@ -941,10 +941,16 @@ outputs. There is no synthesis checkpoint, because there is no synthesis.
       - the file the setting names
 
 The consumers take ``vivado_synth`` by default, so bind them to ``vivado_impl`` as for
-``vivado_alt_synth`` (see the related inputs above). The chain
-``yosys_fpga+vivado_impl+vivado_power`` passes the chain check, but planning refuses it until the
-simulation's inputs are bound too, and the error lists the
-``-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>`` bindings to add.
+``vivado_alt_synth`` (see the related inputs above). The chain check sees declarations only, so
+``yosys_fpga+vivado_impl+vivado_power`` passes it, but planning refuses it until the three inputs
+of the simulation that makes the activity come from ``vivado_impl`` too. Add these items to ``-s``
+(the chain binds the checkpoint itself; use the same items with ``vivado_postsynth_sim`` to
+simulate the routed netlists alone):
+
+.. code-block:: text
+
+    -s flows.vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist flows.vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing flows.vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
+
 The power report needs a testbench in the design (``tb``), as for the other Vivado flows.
 
 **The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
