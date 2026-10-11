@@ -2,7 +2,12 @@ set_param tclapp.enableGitAccess 0
 
 set reports_dir {{settings.reports_dir|tcl_word}}
 set fpga_part   {{settings.fpga.part|tcl_word}}
-
+{% if settings.write_netlist or settings.write_timing_netlist -%}
+set settings.outputs_dir {{settings.outputs_dir|tcl_word}}
+{% endif -%}
+{% if settings.write_checkpoint -%}
+set checkpoints_dir      {{settings.checkpoints_dir|tcl_word}}
+{% endif %}
 {% include 'util.tcl' %}
 
 {%- if settings.nthreads is not none %}
@@ -11,7 +16,12 @@ set_param general.maxThreads {{settings.nthreads}}
 
 file mkdir ${reports_dir}
 file mkdir [file join ${reports_dir} post_place]
-
+{% if settings.write_netlist or settings.write_timing_netlist -%}
+file mkdir ${settings.outputs_dir}
+{% endif -%}
+{% if settings.write_checkpoint -%}
+file mkdir ${checkpoints_dir}
+{% endif %}
 {% for msg in settings.suppress_msgs -%}
 set_msg_config -id {{("[" ~ msg ~ "]")|tcl_word}} -suppress
 {% endfor %}

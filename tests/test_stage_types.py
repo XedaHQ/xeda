@@ -211,6 +211,11 @@ REVIEWED_EDGES = {
     ("vivado_alt_synth", "netlist", "vivado_postsynth_sim", "netlist"),
     ("vivado_alt_synth", "netlist_timing", "vivado_postsynth_sim", "netlist_timing"),
     ("vivado_alt_synth", "checkpoint_route", "vivado_power", "checkpoint"),
+    # the implementation of an EDIF netlist writes them too, under the same names, switched on by
+    # the same settings; a binding or a chain feeds the consumers from it
+    ("vivado_impl", "netlist", "vivado_postsynth_sim", "netlist"),
+    ("vivado_impl", "netlist_timing", "vivado_postsynth_sim", "netlist_timing"),
+    ("vivado_impl", "checkpoint_route", "vivado_power", "checkpoint"),
 }
 
 

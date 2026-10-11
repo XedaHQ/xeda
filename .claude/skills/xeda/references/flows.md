@@ -9,7 +9,7 @@ xeda list-settings <flow> --json     # every setting: name, type, default, meani
 xeda list-results <flow> --json      # every result key, with its meaning
 ```
 
-Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. A refused chain says which chain would be valid, if any. A flow with no declared I/O runs alone.
+Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_pack design.yaml` binds each flow's declared outputs to the next flow's required inputs. "can follow" and "can be followed by" below are the declared relations; `(depends on the target)` marks one the target's family decides, and `flow.output+flow` one that needs the output named. A refused chain says which chain would be valid, if any. The relations are declarations only: planning can still refuse a chain that passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs `-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>` for each of `netlist`, `netlist_timing` and `sdf`; the refusal lists the bindings to add. A flow with no declared I/O runs alone.
 
 ## Simulation
 
@@ -173,19 +173,19 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 ### `vivado_impl`
 
-*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `openfpgaloader`*
+*runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `openfpgaloader`, `vivado_power`*
 
-Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. Its `netlist` input is an `Edif` design source or, by default, the EDIF netlist that `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here. A generated TCL script reads the constraints and the netlist, links the design, and runs `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after placement); it reports timing and utilization, and writes a bitstream when `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`. Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies the netlist to `<top>.edif` in its run directory, whatever the file was called. The design needs `rtl.top` for that, and `fpga` and a clock as for any Vivado flow. Pin constraints are `Xdc` design sources or `xdc_files`. A netlist from another source has to be flat, and written with its buses' ranges: yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the ranges. Without them Vivado links the design with every bus reversed and says nothing.
+Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. Its `netlist` input is an `Edif` design source or, by default, the EDIF netlist that `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here. A generated TCL script reads the constraints and the netlist, links the design, and runs `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after placement); it reports timing and utilization, and writes a bitstream when `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`. The outputs are switched as in `vivado_alt_synth`, which also runs Vivado in non-project mode, by the settings of the same names: `write_checkpoint` writes the routed checkpoint `checkpoints/post_route.dcp` (`checkpoint_route`), and the one after placement beside it; `write_netlist` the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the constraints `outputs/impl.xdc` (`xdc_exported`); `write_timing_netlist` the timing netlist `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF `outputs/impl_timesim.sdf` (`sdf`); `bitstream` the bitstream. A design has no synthesis checkpoint here, so there is no `checkpoint_synth`. Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies the netlist to `<top>.edif` in its run directory, whatever the file was called. The design needs `rtl.top` for that, and `fpga` and a clock as for any Vivado flow. Pin constraints are `Xdc` design sources or `xdc_files`. A netlist from another source has to be flat, and written with its buses' ranges: yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the ranges. Without them Vivado links the design with every bus reversed and says nothing.
 
 Required settings: `fpga`
 
-18 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
+21 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
 ### `vivado_power`
 
-*runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_postsynth_sim`, `vivado_synth`*
+*runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_impl`, `vivado_postsynth_sim`, `vivado_synth`*
 
 Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file from a timing-annotated netlist simulation of the testbench, then reports power against the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
 

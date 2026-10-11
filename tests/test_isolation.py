@@ -24,7 +24,7 @@ from collections import Counter
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence
+from typing import Iterator, List, NamedTuple, Optional, Sequence
 
 import pytest
 from click.testing import CliRunner
@@ -32,7 +32,7 @@ from click.testing import CliRunner
 import xeda
 from xeda import Design
 from xeda.cli import cli
-from xeda.flow import SimFlow
+from xeda.flow import Flow, SimFlow
 from xeda.design import SourceType, loading_in_run_root
 from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
@@ -54,6 +54,8 @@ SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt"
 GCD = Path(__file__).parent.parent / "examples" / "bluespec" / "gcd"
 PACKAGE = Path(xeda.__file__).parent
 
+#: Where the stand-in FPGA tools are installed, in the run root
+FAKE_TOOLCHAIN = ".fake-toolchain"
 #: FPGA flows use process fakes, including an opt-in fake synthesis executable.
 FPGA_FAKED = {"yosys_fpga", "nextpnr", "fpga_pack", "openfpgaloader", "vivado_impl"}
 #: The flows whose tools have a fake in tests/fake_tools.
@@ -410,7 +412,7 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         from .tool_utils import use_fake_fpga_tools
 
         ensure_run_root(world.root)
-        use_fake_fpga_tools(monkeypatch, world.root / ".fake-toolchain")
+        use_fake_fpga_tools(monkeypatch, world.root / FAKE_TOOLCHAIN)
     if flow_class.name not in FAKED:
         monkeypatch.setattr("xeda.tool.run_process", lambda *args, **kwargs: "")
         monkeypatch.setattr("xeda.tool.Tool.version_gte", lambda self, *args: True)
@@ -565,6 +567,262 @@ def test_the_sweep_sees_a_touch_only_change(tmp_path, monkeypatch):
     changed, violations, _ = _sweep(vivado_synth, world, monkeypatch, "clean")
     assert changed == ["work/notes.txt"]
     assert not violations, "a child process's write: the audit hook cannot see it"
+
+
+# --- what a tool is handed ------------------------------------------------------------------
+
+#: The documents xeda writes into a run directory: they name every path of the launch, and no
+#: tool reads them.
+LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json", "trace.json.tmp")
+#: A path under the run root, up to a character that ends a word in a script or a command line.
+_PATH_END = r"[^\s\"'`;,()<>|&{}\[\]=:]*"
+
+
+def declared_values(flow) -> list[Path]:
+    """Every file or directory that `flow` declared as an input (`Flow.Inputs`), as a path."""
+    values: list[Path] = []
+    for name in type(flow.inputs).model_fields:
+        value = getattr(flow.inputs, name)
+        values += [Path(v) for v in (value if isinstance(value, (list, tuple)) else [value]) if v]
+    return values
+
+
+class Started(NamedTuple):
+    """A process a flow started: the directory it ran in, and its command line and environment."""
+
+    cwd: Path
+    text: str
+
+
+def run_root_paths(text: str, root: Path, cwd: Path | None) -> set[Path]:
+    """The paths in `text` that lie under `root`: written in full (as they are and as they
+    resolve), or, if `cwd` is given, relative to it (`../producer/results.json`); and `cwd`
+    itself, if it lies under the root."""
+    found: set[Path] = set()
+    for base in {str(root), str(root.resolve())}:
+        found.update(Path(m) for m in re.findall(re.escape(base) + _PATH_END, text))
+    if cwd is not None:
+        # a tool that runs in the run root, or in another flow's directory, reads what it names
+        # relative to there
+        for place in (cwd, *cwd.parents):
+            if place == root or place == root.resolve():
+                found.add(cwd)
+                break
+        for word in re.findall(r"[^\s\"'`;,()<>|&{}\[\]=:]+", text):
+            if not word.startswith("/") and "/" in word:
+                path = Path(os.path.normpath(cwd / word))
+                if path.is_relative_to(root) or path.is_relative_to(root.resolve()):
+                    found.add(path)
+    return found
+
+
+def handed_paths(flow, root: Path, started: Sequence[Started]) -> set[Path]:
+    """The paths under the run root that `flow`'s tools were handed: in the command lines and
+    environments of the processes `started` holds, and in the text files its run directory holds
+    (the scripts, the generated constraint files, the recorded calls of a stand-in tool, the
+    tools' logs), but not the launch's own documents."""
+    found: set[Path] = set()
+    for process in started:
+        found |= run_root_paths(process.text, root, process.cwd)
+    for path in sorted(flow.run_path.rglob("*")):
+        if path.is_symlink() or not path.is_file() or path.name in LAUNCH_DOCUMENTS:
+            continue
+        # a report is what a tool wrote, with the command lines it was run by: only a path written
+        # in full counts there; elsewhere (a script, a generated constraint file) a step up does
+        written = path.is_relative_to(flow.run_path / "reports")
+        try:
+            found |= run_root_paths(path.read_text(), root, None if written else flow.run_path)
+        except (UnicodeDecodeError, OSError):
+            continue
+    return found
+
+
+def foreign_paths(flow, root: Path, handed: set[Path]) -> list[str]:
+    """What `handed` names that `flow` may not be handed: a path under the run root, outside the
+    flow's own run directory, that is not a declared input of the flow or a file it registered as
+    an implicit input (the chip database, a bundled board's file). One rule for a producer's
+    files: they reach a consumer as its declared inputs, whatever else lies in the directory."""
+
+    def inside(path: Path, base: Path) -> bool:
+        return path.is_relative_to(base.resolve())
+
+    #: the stand-in tools are installed under the run root, and a tool is found by the path to it
+    allowed = [flow.run_path, *declared_values(flow), *flow.implicit_inputs, root / FAKE_TOOLCHAIN]
+    # A path counts by where it leads: a link in the flow's own directory to a producer's file is
+    # the producer's file, and a link to a declared input is that input.
+    found = {path: path.resolve() for path in handed}
+    return sorted(
+        str(path)
+        for path, resolved in found.items()
+        if resolved.is_relative_to(root.resolve())
+        and not any(inside(resolved, base) for base in allowed)
+    )
+
+
+def _flow_in_the_stack() -> Flow | None:
+    """The flow whose code is running: the innermost `self` on the stack that is a flow. A
+    producer started from a consumer's launch is the innermost one, and a tool that a helper
+    (the chip database's generator) starts is the flow's that called the helper."""
+    frame = sys._getframe(2)
+    while frame is not None:
+        candidate = frame.f_locals.get("self")
+        if isinstance(candidate, Flow):
+            return candidate
+        frame = frame.f_back  # type: ignore[assignment]
+    return None
+
+
+def _tools_handed(flow_class, world: World, monkeypatch) -> list[tuple[Flow, Sequence[Started]]]:
+    """Launch `flow_class` as the sweep does; its launched flows, each with the processes it
+    started. Every process starts at `subprocess.Popen`, whichever way the flow asked
+    (`Tool.execute`, `run_process`, a helper's own call), so that is where they are recorded."""
+    started: list[tuple[Flow, Started]] = []
+    runners: list[DefaultRunner] = []
+    popen = subprocess.Popen.__init__
+
+    def recording(self, args, *rest, **kwargs):
+        flow = _flow_in_the_stack()
+        if flow is not None:
+            words = [args] if isinstance(args, (str, os.PathLike)) else list(args)
+            env = {
+                k: v for k, v in (kwargs.get("env") or {}).items() if os.environ.get(k) != v
+            }  # what the flow gave the tool, not the whole environment
+            text = " ".join([*map(str, words), *(f"{k}={v}" for k, v in env.items())])
+            cwd = Path(kwargs.get("cwd") or Path.cwd())
+            started.append((flow, Started(cwd.resolve(), text)))
+        return popen(self, args, *rest, **kwargs)
+
+    launch = DefaultRunner.launch_flow
+
+    def spying(self, *args, **kwargs):
+        runners.append(self)
+        return launch(self, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", recording)
+    monkeypatch.setattr(DefaultRunner, "launch_flow", spying)
+    _launch(flow_class, world, monkeypatch, "clean", [])
+    runner = runners[0]  # the request's; a producer is launched by one of its own
+    return [
+        (flow, [process for owner, process in started if owner is flow]) for flow in runner.launched
+    ]
+
+
+@pytest.mark.parametrize("flow_class", FLOWS, ids=lambda c: c.name)
+def test_a_tool_is_handed_no_file_of_another_flow_but_its_declared_inputs(
+    flow_class, tmp_path, monkeypatch
+):
+    """The runtime half of "no flow reads another flow's state": under the stand-in tools, every
+    path under the run root that a flow's tool is handed lies in the flow's own run directory, or
+    is a declared input, or an input the flow registered (`foreign_paths`). A consumer is judged
+    on what it declares, so a file it read by another way would not be noticed when it changed."""
+    world = _world(tmp_path)
+    for flow, started in _tools_handed(flow_class, world, monkeypatch):
+        handed = handed_paths(flow, world.root, started)
+        assert (
+            foreign_paths(flow, world.root, handed) == []
+        ), f"{flow.name} was handed a foreign path"
+
+
+@pytest.mark.parametrize("flow_name", ["nextpnr", "fpga_pack", "openfpgaloader"])
+def test_the_runtime_check_sees_a_consumer_handed_its_producer_s_declared_files(
+    flow_name, tmp_path, monkeypatch
+):
+    """Not vacuous: a consumer's tool is handed paths of its producer's run directory, and every
+    one of them is a declared input."""
+    world = _world(tmp_path)
+    flows = _tools_handed(_flow(flow_name), world, monkeypatch)
+    consumer, started = next((f, c) for f, c in flows if f.name == flow_name)
+    handed = handed_paths(consumer, world.root, started)
+    producers = [f.run_path.resolve() for f, _ in flows if f is not consumer]
+    assert producers, f"{flow_name} has no producer in the sweep's world"
+    taken = {p for p in handed if any(r in (p, *p.resolve().parents) for r in producers)}
+    assert taken, f"{flow_name}'s tool was handed no file of its producers"
+    assert foreign_paths(consumer, world.root, handed) == []
+
+
+def _reads_the_producer_s_results(how: str):
+    """A `Nextpnr.run` that, besides its own work, hands the producer's `results.json` (not a
+    declared input) to a process or a script, the way `how` says."""
+    from xeda.flows import Nextpnr
+    from xeda.proc_utils import run_process
+    from xeda.tool import Tool
+
+    run = Nextpnr.run
+
+    def run_and_read_the_producer(self):
+        run(self)
+        undeclared = self.inputs.netlist.parent / "results.json"
+        relative = os.path.relpath(undeclared, self.run_path)
+        if how == "tool":
+            Tool(executable="true").run("--read", undeclared)
+        elif how == "tool, relative":
+            Tool(executable="true").run(f"--read={relative}")
+        elif how == "run_process":  # not through a Tool: as the chip database generator starts
+            run_process("true", ["--read", str(undeclared)])
+        elif how == "run_process, relative":
+            run_process("true", [relative])
+        elif how == "run root":  # a tool started in the run root, given a path relative to it
+            root = self.run_path.parent.parent
+            run_process("true", [os.path.relpath(undeclared, root)], cwd=root)
+        elif how == "script":
+            (self.run_path / "extra.tcl").write_text(f"source {undeclared}\n")
+        else:
+            assert how == "script, relative"
+            (self.run_path / "extra.tcl").write_text(f'source "{relative}"\n')
+
+    return run_and_read_the_producer
+
+
+@pytest.mark.parametrize(
+    "how",
+    [
+        "tool",
+        "tool, relative",
+        "run_process",
+        "run_process, relative",
+        "script",
+        "script, relative",
+    ],
+)
+def test_the_runtime_check_finds_a_consumer_handed_a_file_that_it_did_not_declare(
+    how, tmp_path, monkeypatch
+):
+    """The producer's `results.json` is not a declared input of `nextpnr`: a tool that is handed
+    it, in an argument or a script, written in full or relative to the run directory, by a `Tool`
+    or by any other way to start a process, is a finding."""
+    from xeda.flows import Nextpnr
+
+    monkeypatch.setattr(Nextpnr, "run", _reads_the_producer_s_results(how))
+    world = _world(tmp_path)
+    flows = _tools_handed(Nextpnr, world, monkeypatch)
+    consumer, started = next((f, c) for f, c in flows if f.name == "nextpnr")
+    (producer,) = [f for f, _ in flows if f.name == "yosys_fpga"]
+    undeclared = (producer.run_path / "results.json").resolve()
+    assert undeclared not in {p.resolve() for p in declared_values(consumer)}
+    handed = handed_paths(consumer, world.root, started)
+    wanted = [str(undeclared)]
+    if how == "run root":  # the run root itself is the tool's directory, which is no flow's
+        wanted = sorted([str(world.root.resolve()), *wanted])
+    assert foreign_paths(consumer, world.root, handed) == wanted
+
+
+def test_the_runtime_check_follows_a_link_to_where_it_leads(tmp_path):
+    """A link in the flow's own run directory to a file of a producer is that file; a link to a
+    declared input is that input, and the run root itself is not a way into the producers."""
+    from types import SimpleNamespace
+
+    root = tmp_path / "run"
+    consumer, producer = root / "d" / "consumer", root / "d" / "producer"
+    for directory in (consumer, producer):
+        directory.mkdir(parents=True)
+    (producer / "out.txt").write_text("declared\n")
+    (producer / "results.json").write_text("{}\n")
+    (consumer / "declared").symlink_to(producer / "out.txt")
+    (consumer / "undeclared").symlink_to(producer / "results.json")
+    inputs = type("Inputs", (), {"model_fields": {"out": None}, "out": producer / "out.txt"})()
+    flow = SimpleNamespace(run_path=consumer, inputs=inputs, implicit_inputs=[])
+    handed = {consumer / "declared", consumer / "undeclared", root}
+    assert foreign_paths(flow, root, handed) == [str(root), str(consumer / "undeclared")]
 
 
 def _freeze(root: Path, keep: Path) -> None:
@@ -1554,7 +1812,7 @@ def test_links_a_tool_left_are_never_followed_out_of_the_run_directory(tmp_path,
         assert purge.launch_flow(LinkLeaver, design, {}).succeeded
         assert not run_dir.exists()
         assert DefaultRunner(root, display_results=False).launch_flow(LinkLeaver, design, {})
-        monkeypatch.setattr("xeda.flow_runner.default_runner.console.input", lambda _: "yes")
+        monkeypatch.setattr("xeda.console.console.input", lambda _: "yes")
         assert scrub_runs(LinkLeaver.name, run_dir.parent, run_root=root.resolve())
         assert not run_dir.exists()
         assert _outside_tree(outside) == before

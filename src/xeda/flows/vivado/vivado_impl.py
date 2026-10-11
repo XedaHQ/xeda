@@ -7,10 +7,10 @@ from typing import Optional
 from ...dataclass import Field, field_validator
 from ...design import Design, SourceType
 from ...edif import modules_used_as_library_cells_in_file
-from ...flow import Flow, FlowFatalError, FlowSettingsException, In, Out
+from ...flow import Flow, FlowFatalError, FlowSettingsException, In
 from ...utils import replacing_copy
 from .vivado_alt_synth import expand_run_options, flatten_options
-from .vivado_synth import RunOptions, VivadoImplementation, VivadoSynth, declare_outputs
+from .vivado_synth import RunOptions, VivadoImplementation, VivadoSynth
 
 __all__ = ["VivadoImpl"]
 
@@ -28,6 +28,15 @@ class VivadoImpl(VivadoImplementation):
     `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after
     placement); it reports timing and utilization, and writes a bitstream when `bitstream` is
     set or a consumer needs it. The results are those of `vivado_synth`.
+
+    The outputs are switched as in `vivado_alt_synth`, which also runs Vivado in non-project mode,
+    by the settings of the same names: `write_checkpoint` writes the routed checkpoint
+    `checkpoints/post_route.dcp` (`checkpoint_route`), and the one after placement beside it;
+    `write_netlist` the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the
+    constraints `outputs/impl.xdc` (`xdc_exported`); `write_timing_netlist` the timing netlist
+    `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF
+    `outputs/impl_timesim.sdf` (`sdf`); `bitstream` the bitstream. A design has no synthesis
+    checkpoint here, so there is no `checkpoint_synth`.
 
     Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies
     the netlist to `<top>.edif` in its run directory, whatever the file was called. The design
@@ -72,13 +81,6 @@ class VivadoImpl(VivadoImplementation):
             (SourceType.Xdc, SourceType.Sdc),
             optional=True,
             description="XDC and SDC constraints, in design-source order.",
-        )
-
-    class Outputs(VivadoImplementation.Outputs):
-        bitstream: Path | None = Out(
-            SourceType.Bitstream,
-            enabled_by="bitstream",
-            description="The FPGA bitstream, at `bitstream`.",
         )
 
     @classmethod
@@ -155,7 +157,7 @@ class VivadoImpl(VivadoImplementation):
             # never through a link at that name (`RunDirectory.writable`)
             bitstream = self.run_directory.writable(self.run_path / ss.bitstream)
             bitstream.parent.mkdir(parents=True, exist_ok=True)
-            declare_outputs(self, {"bitstream": ss.bitstream})
+        self.record_outputs(self.non_project_outputs())
 
         xdc_files = [
             self.copy_from_template("clock.xdc"),

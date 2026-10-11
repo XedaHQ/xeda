@@ -60,7 +60,7 @@ from .dataclass import (
 from .digest import content_digest
 from .generation import judging_generation
 from .proc_utils import tool_output_redirect
-from .run_dir import RunDirectory
+from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
     ConflictingKeys,
     NonZeroExitCode,
@@ -371,6 +371,15 @@ def _globbed_source_files(pattern: str, root: Path) -> List[str]:
     return sorted(m for m in glob(str(expanded)) if isfile(m))
 
 
+def as_source_list(sources: Any) -> Any:
+    """`sources` as the list it stands for: one source (a path, a table or a resource) is a list
+    of one. This is the one place that knows the form (the `sources` validator, the generator's
+    re-run decision and the declared load all read it); anything else is returned as it is."""
+    if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
+        return [sources]
+    return sources
+
+
 def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
     """The files an unvalidated `rtl.sources` names, for deciding if a generator must run again.
 
@@ -381,8 +390,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
     TypeError. Returns `None` for anything uninterpretable: the validator reports that properly
     a moment later, and until then the safe answer is to run the generator.
     """
-    if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
-        sources = [sources]  # the scalar shorthand the sources validator also accepts
+    sources = as_source_list(sources)
     if not isinstance(sources, (list, tuple, set)):
         return None
     paths: List[Path] = []
@@ -1033,6 +1041,8 @@ class DVSettings(XedaBaseModel):
     #: A target's sources come after the design's (`merge_layers(append=True)`); an override's
     #: replace them, as every other layer's list does.
     appended_fields: ClassVar[tuple[str, ...]] = ("sources",)
+    #: One source stands for a list of one (`as_source_list`).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
 
     @property
     def generics(self) -> Dict[str, DefineType]:
@@ -1062,8 +1072,7 @@ class DVSettings(XedaBaseModel):
             """Create a design source from a path and optional source type."""
             return DesignSource(src, typ=typ)
 
-        if isinstance(value, (str, Path, DesignSource)):
-            value = [value]
+        value = as_source_list(value)
         sources: List[DesignSource] = []
 
         def source_already_exists(src: DesignSource) -> bool:
@@ -1072,8 +1081,6 @@ class DVSettings(XedaBaseModel):
                     return True
             return False
 
-        if isinstance(value, (str, Path, FileResource, Mapping)):
-            value = [value]
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
                 f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
@@ -1152,6 +1159,8 @@ class Generator(XedaBaseModel):
         "the design too (a library tree, an editable clone); xeda assumes nothing about the "
         "generator's language or environment.",
     )
+    #: One path stands for a list of one (the `sources` validator below).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
     always_runs: bool = Field(
         default=False,
         description="Run this generator on every design load: what it reads cannot be judged "
@@ -1436,6 +1445,8 @@ class RtlSettings(DVSettings):
     #: `Flow.Settings.removed_settings`: a flat top-level key, a target's key and
     #: `--design-overrides` reach the same check, since each is folded into `rtl` first.
     removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
+    #: One clock stands for a list of one (`clock_tables`).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("clocks",)
 
     @classmethod
     def removed_input_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -1836,8 +1847,7 @@ def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
     file named as a `{ path = ... }`, which need not exist yet, with its type. A pattern stands
     for the files that exist once the generator has run, so it is left out and the load is
     incomplete."""
-    if isinstance(sources, (str, os.PathLike, Mapping)):
-        sources = [sources]
+    sources = as_source_list(sources)
     if not isinstance(sources, (list, tuple)):
         return sources  # the sources validator reports it
     declared: List[Any] = []
@@ -2323,35 +2333,51 @@ def _flow_section_problems(
 
 def target_name_problem(name: Any) -> str | None:
     """Why `name` cannot name a target, or None. A target's run directories are
-    `<run root>/<design>/<name>/<flow>`, so it is a name (as a design's is) that is no flow's: the
-    flows' own directories lie beside it. The loader and the launcher's path boundary
-    (`DefaultRunner.run_path_of`) judge a name by this one rule."""
+    `<run root>/<design>/<name>/<flow>`, so it is a name (as a design's is) that is no flow's
+    and no flow's run directory's: the flows' own directories (`<flow>`, or `<flow>_<hash>` with
+    hashed run directories) lie beside it. The loader and the launcher's path boundary
+    (`DefaultRunner.run_path_of`) judge a name by this one rule, and `xeda scrub` takes a
+    directory for a target's by it."""
     if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
         return (
             f"{name!r} is not a target name: it names the target's run directories, so it "
             "starts with a letter and holds only letters, digits, `_` and `-`"
         )
-    if _names_a_flow(name):
+    flow = _flow_named(name)
+    if flow is not None:
         return (
             f"{name!r} is the name of a flow, and a target's run directories lie beside "
             "the flows' own: give the target another name"
+            if flow == _fold(name)
+            else f"{name!r} is the name of a run directory of the flow `{flow}` "
+            f"(`{flow}_` and a {DIR_NAME_HASH_LEN}-character hash), and a target's run directories "
+            "lie beside the flows' own: give the target another name"
         )
     return None
 
 
-def _names_a_flow(name: str) -> bool:
-    """Whether `name` is a registered flow's name or alias, or a removed flow's
-    (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for
-    underscores, any letter case)."""
+def _fold(name: str) -> str:
+    """`name` as the command line takes a flow's: dashes for underscores, in lower case."""
+    return name.replace("-", "_").lower()
+
+
+def _flow_named(name: str) -> str | None:
+    """The flow whose name `name` is, or whose run directory's name it is (the flow's name, an
+    underscore and a hash: `run_dir.run_directory_name`), else None.
+    A flow is a registered flow's name or alias, or a removed flow's
+    (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for underscores,
+    any letter case)."""
     # Imported here, and by name: the flows import this module, and are registered by being
     # imported.
     importlib.import_module("xeda.flows")
     registered_flows = importlib.import_module("xeda.flow").registered_flows
-
-    folded = name.replace("-", "_").lower()
     # a removed flow's name is a flow's too: its run directories may still be under `<design>/`
     removed = importlib.import_module("xeda.flow_runner.settings_layers").REMOVED_FLOWS
-    return folded in removed or any(flow.lower() == folded for flow in registered_flows)
+    flows = {_fold(flow) for flow in registered_flows} | set(removed)
+
+    folded = _fold(name)
+    # a flow's run directories are named by the one rule a launch and scrub apply
+    return next((flow for flow in sorted(flows) if run_directory_name(flow).match(folded)), None)
 
 
 class Design(XedaBaseModel):

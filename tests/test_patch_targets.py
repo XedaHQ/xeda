@@ -566,14 +566,22 @@ def test_a_patched_module_name_is_looked_up_through_that_module(target: PatchTar
     )
 
 
-@pytest.mark.parametrize("name", sorted(LAUNCHER_TARGETS), ids=sorted(LAUNCHER_TARGETS))
+#: Every name the suite replaces on the launcher module, and the five it must always replace.
+LAUNCHED_NAMES = sorted(
+    LAUNCHER_TARGETS | {t.name for t in TARGETS if t.module == "xeda.flow_runner.default_runner"}
+)
+
+
+@pytest.mark.parametrize("name", LAUNCHED_NAMES, ids=LAUNCHED_NAMES)
 def test_the_launcher_stage_names_are_looked_up_in_the_product(name: str):
-    """The names the launcher's stages move are patched to intercept the *launcher*.
+    """The names the suite patches on the launcher module are patched to intercept the
+    *launcher*.
 
     So for these the lookup must be in `src/xeda`: once only test code reads the name there,
     the patch no longer reaches a single line of the launcher, and the tests that rely on it
     pass for the wrong reason. This is the case that goes red when a stage body moves out of
-    `default_runner.py` and leaves a re-export behind.
+    `default_runner.py` and leaves a re-export behind -- for any name the suite patches there,
+    not only the five that `LAUNCHER_TARGETS` pins.
 
     This is a *reachability* check, not a proof: see
     `test_patching_a_launcher_stage_name_intercepts_a_real_launch` for the behavioral one, and
@@ -675,6 +683,46 @@ def test_patching_the_failed_run_artifact_drop_intercepts_a_failing_launch(tmp_p
     assert seen == {"_drop_unwritten_artifacts"}, (
         "a failing launch did not go through default_runner._drop_unwritten_artifacts: it is "
         "patched to intercept the launcher, and the patch reached nothing"
+    )
+
+
+#: The sqrt example, which the fake Vivado flows below build.
+SQRT_EXAMPLE = TESTS.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
+
+
+def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_execution(
+    tmp_path, monkeypatch
+):
+    """The same, for a run that fails the ordinary way: its tool exits nonzero.
+
+    The failing launch above raises out of `run()`, and so reaches only the launcher's handler
+    for a raised error. A tool that exits nonzero is the commonest real failure and does not
+    raise: the execution returns, its results say `success: false`, and the failed run's
+    artifacts are filtered on that path instead. The launch must not raise here, so the call
+    that is observed is the one for a run that ended, and it must go through the module
+    (`tests/test_remote_run.py` replaces the filter on it, to see a failed run's artifacts).
+    """
+    from xeda import Design
+    from xeda.flow_runner import DefaultRunner
+
+    from .tool_utils import use_fake_tools
+
+    seen = _intercepting(monkeypatch, ["_drop_unwritten_artifacts"])
+    use_fake_tools(monkeypatch)
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "synth_design")
+    monkeypatch.chdir(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.launch_flow(
+        "vivado_alt_synth",
+        Design.from_file(SQRT_EXAMPLE),
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "write_netlist": True},
+    )
+    assert not flow.succeeded, "the fake tool was meant to fail"
+    assert flow.results["error"]["type"] != "ReportedFailure", "the tool was meant to exit nonzero"
+    assert seen == {"_drop_unwritten_artifacts"}, (
+        "a launch whose tool exited nonzero did not go through "
+        "default_runner._drop_unwritten_artifacts: it is patched to intercept the launcher, and "
+        "the patch reached nothing"
     )
 
 

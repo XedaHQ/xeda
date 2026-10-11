@@ -471,7 +471,7 @@ example designs and targets that use them:
     # not available yet
     xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
 
-``vivado_synth`` and ``vivado_alt_synth`` declare their outputs, each switched on by its own
+``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` declare their outputs, each switched on by its own
 setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint``, ``bitstream``), so
 ``vivado_synth+openfpgaloader`` is a chain: the loader switches the ``bitstream`` on. It needs
 the design's ``fpga`` and a clock, and it programs a device: plan it with ``--dry-run``.
@@ -906,13 +906,52 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
 ``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows and one
-clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is the only output.
-It is written when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
-``openfpgaloader``. A bitstream needs every port to be constrained; without ``bitstream``, Vivado
-stops after routing and the flow reports timing and utilization only. The results are those of
+clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is written when
+``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as ``openfpgaloader``.
+A bitstream needs every port to be constrained; without ``bitstream``, Vivado stops after routing
+and the flow reports timing and utilization only. The results are those of
 ``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp``, ...), read from Vivado's reports of
 the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their options as for
 ``vivado_alt_synth``. Only 7-series parts were tested.
+
+**The routed design's files.** ``vivado_impl`` writes the same files as ``vivado_alt_synth``,
+switched on by the settings of the same names, ``write_checkpoint``,
+``write_netlist`` and ``write_timing_netlist``. Each file is a declared output, with the same
+name and type as in the synthesis flows, so ``vivado_postsynth_sim`` and ``vivado_power`` can read
+them. The checkpoint after placement and the exported constraints are artifacts, not declared
+outputs. There is no synthesis checkpoint, because there is no synthesis.
+
+.. list-table::
+    :header-rows: 1
+
+    * - Setting
+      - Output
+      - File
+    * - ``write_checkpoint``
+      - ``checkpoint_route``
+      - ``checkpoints/post_route.dcp`` (and ``post_place.dcp`` beside it)
+    * - ``write_netlist``
+      - ``netlist``
+      - ``outputs/impl_funcsim.v`` (and the constraints ``outputs/impl.xdc``)
+    * - ``write_timing_netlist``
+      - ``netlist_timing``, ``sdf``
+      - ``outputs/impl_timesim.v``, ``outputs/impl_timesim.sdf`` (slow corner)
+    * - ``bitstream``
+      - ``bitstream``
+      - the file the setting names
+
+The consumers take ``vivado_synth`` by default, so bind them to ``vivado_impl`` as for
+``vivado_alt_synth`` (see the related inputs above). The chain check sees declarations only, so
+``yosys_fpga+vivado_impl+vivado_power`` passes it, but planning refuses it until the three inputs
+of the simulation that makes the activity come from ``vivado_impl`` too. Add these items to ``-s``
+(the chain binds the checkpoint itself; use the same items with ``vivado_postsynth_sim`` to
+simulate the routed netlists alone):
+
+.. code-block:: text
+
+    -s flows.vivado_postsynth_sim.inputs.netlist=vivado_impl.netlist flows.vivado_postsynth_sim.inputs.netlist_timing=vivado_impl.netlist_timing flows.vivado_postsynth_sim.inputs.sdf=vivado_impl.sdf
+
+The power report needs a testbench in the design (``tb``), as for the other Vivado flows.
 
 **The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
 -pvector bra``, when its settings make a Xilinx synthesis flat: ``flatten: true``, or ``flatten``

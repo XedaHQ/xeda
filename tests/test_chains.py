@@ -5,7 +5,7 @@ import re
 import pytest
 
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsException, registered_flows
+from xeda.flow import Flow, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import FlowNotFoundError
 from xeda.flow_runner.chains import (
@@ -16,6 +16,7 @@ from xeda.flow_runner.chains import (
     validate_chain,
 )
 
+from .flow_registry import preserved_flow_registry
 from . import io_flows
 from .io_flows import (
     _ChainAction,
@@ -34,10 +35,8 @@ from .io_flows import (
 
 @pytest.fixture(autouse=True)
 def isolate_test_flow_registration():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 def test_parse_normalizes_names_and_keeps_a_single_element_request():
@@ -324,7 +323,11 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     ]
     assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
     assert _pairs(predecessors(VivadoImpl, classes), "producer") == [("yosys_fpga", None, False)]
-    assert _pairs(followers(VivadoImpl, classes), "consumer") == [("openfpgaloader", None, False)]
+    # and its routed checkpoint (`write_checkpoint`) is what the power report reads
+    assert _pairs(followers(VivadoImpl, classes), "consumer") == [
+        ("openfpgaloader", None, False),
+        ("vivado_power", None, False),
+    ]
     assert predecessors(YosysFpga, classes) == []
 
 

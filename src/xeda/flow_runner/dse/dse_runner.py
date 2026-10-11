@@ -33,9 +33,9 @@ from ..default_runner import (
     get_flow_class,
     print_results,
     remove_file_logger,
-    run_directory_names,
     with_debug_logging,
 )
+from ..scrub import run_directory_names
 from ..settings_layers import merge_layers
 from ..resolver import Plan
 from ..run_lock import run_dir_lock

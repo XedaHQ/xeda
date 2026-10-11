@@ -350,6 +350,33 @@ def test_a_target_is_not_named_as_a_flow(tmp_path, name):
     assert f"targets.{name}" in message
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["vivado_synth_0123456789abcdef", "nextpnr_fedcba9876543210", "Nextpnr_0123456789abcdef"],
+)
+def test_a_target_is_not_named_as_a_flow_s_run_directory(tmp_path, name):
+    """With hashed run directories a flow's directory is `<flow>_<16-character hash>`: it lies
+    beside the targets, and a target of that name would be taken for it."""
+    message = error_of(tmp_path, {**BASE, "targets": {"ok": {}, name: {}}}, target="ok")
+    assert repr(name) in message and "run directory of the flow" in message
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "vivado_synth_0123456789abcde",  # 15 characters: no hash
+        "vivado_synth_0123456789abcdef0",  # 17
+        "vivado_synth_0123456789abcdE-",  # not a hash
+        "vivado_synth_other",
+        "board_0123456789abcdef",  # no flow of that name
+    ],
+)
+def test_a_name_that_only_looks_like_a_run_directory_is_a_target_name(tmp_path, name):
+    from xeda.design import target_name_problem
+
+    assert target_name_problem(name) is None
+
+
 def test_every_flow_name_and_alias_is_refused_as_a_target_name(tmp_path):
     from xeda.flow import registered_flows
 
