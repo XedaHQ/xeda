@@ -41,7 +41,7 @@ def json_netlist_digest(path: Path) -> str | None:
     (`creator`): another yosys is another digest."""
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, RecursionError):
+    except (OSError, ValueError, RecursionError, MemoryError):
         return None
     if not isinstance(document, dict):
         return None

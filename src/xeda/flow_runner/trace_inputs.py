@@ -56,6 +56,7 @@ from ..digest import (
     MODIFIED_DURING_RUN,
     UNRECORDED_BEFORE_RUN,
     FileRecord,
+    content_digest,
     digest_files,
     filesystem_time_ns,
     package_files,
@@ -532,6 +533,7 @@ def candidate_inputs(
     (`registered_input_files`) -- xeda's own bookkeeping files in its run directory excepted.
     What its producers handed over is no file of its own: the edge records it (`BoundProducer`)."""
     bookkeeping = bookkeeping_files(flow.run_path)
+    handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
     files = {
         # the parts of the design this flow reads, not the whole design
         *design_files(design, type(flow).design_parts, type(flow).design_source_types),
@@ -540,7 +542,7 @@ def candidate_inputs(
         *registered_input_files(flow),
         *source_input_files(flow),
     }
-    return sorted(files - bookkeeping)
+    return sorted(files - bookkeeping - handed)
 
 
 def declared_input_files(flow: Flow) -> list[Path]:
@@ -613,11 +615,19 @@ class InputSnapshot:
     #: the record of each expected input, and of each file the previous run's depfiles named,
     #: that existed when the run started
     records: Mapping[str, FileRecord]
-    #: the metadata of each file the producers handed over, as `_as_recorded` reads it: a file
-    #: that differs after the run changed while the flow ran (`build_trace`)
-    handed: Mapping[str, Optional[Tuple[int, int, int, int]]] = dataclass_field(
-        default_factory=dict
+    #: the metadata of each file the producers handed over, as `_as_recorded` reads it, and its
+    #: content digest as the run starts: a file whose metadata differs after the run, or whose
+    #: content was not the one the producer recorded, changed while the flow ran (`_consumed`)
+    handed: Mapping[str, Tuple[Optional[Tuple[int, int, int, int]], Optional[str]]] = (
+        dataclass_field(default_factory=dict)
     )
+
+
+def _digest_or_none(path: Path) -> Optional[str]:
+    try:
+        return content_digest(path)
+    except OSError:
+        return None
 
 
 def snapshot_inputs(
@@ -656,7 +666,7 @@ def snapshot_inputs(
         expected=inputs,
         records=records,
         handed={
-            path: _as_recorded(Path(path))
+            path: (_as_recorded(Path(path)), _digest_or_none(Path(path)))
             for path in sorted(handed_paths(expected.declared_inputs))
         },
     )
@@ -758,7 +768,11 @@ def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredI
                 "entries": tuple(
                     (
                         entry.model_copy(update={"unknown": True})
-                        if snapshot.handed.get(entry.path) != _as_recorded(Path(entry.path))
+                        if snapshot.handed.get(entry.path)
+                        != (
+                            _as_recorded(Path(entry.path)),
+                            entry.sha,
+                        )
                         else entry
                     )
                     for entry in ref.entries

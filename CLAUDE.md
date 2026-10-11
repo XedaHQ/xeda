@@ -1188,8 +1188,9 @@ says so in the log when it ran in this launch); one whose output changed makes e
 consumers of that output stale ("`netlist` from `yosys_fpga` changed"), and theirs only if their
 own outputs change. A handed file is **never a file record of the consumer** -- not in `inputs`, not
 in `implicit_inputs` (`source_input_files`, `implicit_input_files` drop it) -- so a depfile that
-names it brings nothing back; a handed file that changed while the consumer ran (identity and
-metadata against `InputSnapshot.handed`, never a clock) is recorded `unknown` and never matches.
+names it brings nothing back; a handed file that is not the bytes the producer recorded when the run starts, or whose metadata changed
+while the consumer ran (`InputSnapshot.handed`: metadata and content digest, never a clock), is recorded
+`unknown` and never matches.
 This is sound because a flow reads only its declared inputs (`tests/test_one_dependency_mechanism.py`
 and the runtime half in `tests/test_isolation.py`); a producer's undeclared files, its
 `results.json` and its run are no consumer input. A producer **settings** change still moves its

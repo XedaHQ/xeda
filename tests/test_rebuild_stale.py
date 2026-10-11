@@ -339,24 +339,29 @@ def test_an_output_edited_by_hand_is_rebuilt_and_its_readers_stay_fresh(
     assert chunks_again.stale_reason == f"output changed: {first.resolve()}"
 
 
-class ToyDepfileConsumer(Flow):
-    """Copies its producer's output, and names it in a depfile as a tool does."""
+def _depfile_consumer():
+    """A consumer whose depfile names its handed input, as a tool's does."""
 
-    results_description: ClassVar[dict[str, str]] = {}
-    design_source_types = frozenset()
+    class ToyDepfileConsumer(Flow):
+        """Copies its producer's output, and names it in a depfile as a tool does."""
 
-    class Inputs(Flow.Inputs):
-        produced: Path = In(
-            SourceType.Data,
-            producer="toy_producer",
-            output="produced",
-            description="The producer's text.",
-        )
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
 
-    def run(self) -> None:
-        RUNS.append(self.name)
-        (self.run_path / "deps.d").write_text(f"out: {self.inputs.produced}\n")
-        self.depfiles.append(self.run_path / "deps.d")
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The producer's text.",
+            )
+
+        def run(self) -> None:
+            RUNS.append(self.name)
+            (self.run_path / "deps.d").write_text(f"out: {self.inputs.produced}\n")
+            self.depfiles.append(self.run_path / "deps.d")
+
+    return ToyDepfileConsumer
 
 
 def test_a_file_handed_over_is_no_file_record_of_its_consumer_whatever_names_it(
@@ -366,6 +371,7 @@ def test_a_file_handed_over_is_no_file_record_of_its_consumer_whatever_names_it(
     does not bring a record of the file back: neither `inputs` nor `implicit_inputs` holds it, so
     the consumer stays fresh when its producer runs again with the same bytes."""
     producer, _ = toys
+    ToyDepfileConsumer = _depfile_consumer()
     try:
         flow, _ = _run(tmp_path, ToyDepfileConsumer, design)
         handed = str(flow.inputs.produced.resolve())

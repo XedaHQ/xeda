@@ -196,6 +196,27 @@ def probes():
             _copy_to_output(self, self.inputs.out.read_text())
             _edit_during_run("handed")
 
+    class ProbeRegisteringReader(Flow):
+        """Copies its producer's declared file, after registering it as an input it prepared
+        (`implicit_inputs`) and letting a test edit it before the run starts."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+
+        class Inputs(Flow.Inputs):
+            out: Path = In(
+                SourceType.Data,
+                producer="probe_scratcher",
+                output="out",
+                description="The producer's declared file.",
+            )
+
+        def prepare_inputs(self) -> None:
+            self.implicit_inputs.append(self.inputs.out)
+            _edit_during_run("prepared")
+
+        def run(self) -> None:
+            _copy_to_output(self, self.inputs.out.read_text())
+
     classes = (
         ProbeSettingFile,
         ProbeSource,
@@ -207,6 +228,7 @@ def probes():
         ProbeToolDepfile,
         ProbeScratcher,
         ProbeScratchReader,
+        ProbeRegisteringReader,
     )
     yield {cls.__name__: cls for cls in classes}
     EDIT.clear()
@@ -616,6 +638,34 @@ def test_a_handed_file_that_changes_while_its_depender_runs_never_matches(probes
     )
     flow, _, (dependency,) = _launch_graph(root, cls)
     assert flow.reused and dependency.reused
+
+
+def test_a_handed_file_edited_before_the_run_starts_never_matches(probes, root):
+    """Between hand-over, which checks the digest the producer recorded, and the start of the
+    run, a file edited by hand is not what the producer recorded: the consumer read other bytes,
+    and the edge, which would match the rebuilt original, is recorded unknown."""
+    cls = probes["ProbeRegisteringReader"]
+    _launch_graph(root, cls)
+    handed = (root.parent / "xeda_run" / "p" / "probe_scratcher" / "outputs" / "out.txt").resolve()
+    EDIT["prepared"] = (handed, "edited before the run\n", True)
+    flow, out, _ = _launch_graph(root, cls, rebuild_all=True)
+    assert out == "edited before the run\n"
+    trace = json.loads((flow.run_path / "trace.json").read_text())
+    (entry,) = trace["declared_inputs"][0]["references"][0]["entries"]
+    assert entry["unknown"] is True
+    flow, out, (dependency,) = _launch_graph(root, cls)
+    assert not dependency.reused and not flow.reused and out == "declared\n"
+
+
+def test_a_handed_file_that_a_flow_registers_as_prepared_is_no_file_record(probes, root):
+    """Whatever registers a handed file as an input -- `prepare_inputs` here -- the edge is
+    what records it."""
+    cls = probes["ProbeRegisteringReader"]
+    flow, _, (producer,) = _launch_graph(root, cls)
+    trace = json.loads((flow.run_path / "trace.json").read_text())
+    handed = str((producer.run_path / "outputs" / "out.txt").resolve())
+    assert handed not in trace["inputs"] and handed not in trace["implicit_inputs"]
+    assert _launch_graph(root, cls)[0].reused
 
 
 def test_a_forged_record_of_a_handed_output_is_no_way_to_a_fresh_depender(probes, root):
