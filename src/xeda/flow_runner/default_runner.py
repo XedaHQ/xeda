@@ -35,7 +35,7 @@ import yaml
 
 from ..artifacts import iter_artifact_paths
 from ..console import console
-from ..dataclass import WORKING_ROLE, XedaBaseModel, model_validator
+from ..dataclass import XedaBaseModel, model_validator
 from ..deliver import (
     OUTPUTS_TO,
     Conflict,
@@ -68,8 +68,7 @@ from ..flow import (
 )
 from ..flow.io import declared_inputs, selected_types
 from ..flow import flowrun_hash as flow_run_hash
-from ..flow.flow import WrittenLeaf, map_written_leaves
-from ..proc_utils import ProcessTimeout, recording_programs
+from ..proc_utils import recording_programs
 from ..run_dir import (
     DIR_NAME_HASH_LEN,
     OutputState,
@@ -80,7 +79,6 @@ from ..run_dir import (
     run_directory_problem,
 )
 from ..run_root import DEFAULT_RUN_ROOT, ensure_run_root
-from ..tool import NonZeroExitCode
 from ..utils import (
     WorkingDirectory,
     XedaException,
@@ -103,7 +101,7 @@ from .bindings import (
     require_no_bindings,
     split_bindings,
 )
-from . import launch_identity, launch_input, launch_report
+from . import launch_identity, launch_input, launch_report, launch_run
 from .chains import ChainElement, FlowRequest, parse_request
 from .launch_identity import RunDirPolicy
 from .launch_input import refuse_outputs_to_a_programmer
@@ -113,7 +111,8 @@ from .launch_report import (
     reuse_results,
     warn_outputs_to_delivered_nothing,
 )
-from .outputs import declared_output_files, handed_over, record_outputs
+from .launch_run import refuse_inputs_inside
+from .outputs import declared_output_files, handed_over
 from .resolver import Plan, PlanNode, resolve as resolve_plan
 from .run_lock import CompletedRun, run_dir_lock, run_dir_read_lock
 from .settings_layers import (
@@ -154,6 +153,8 @@ from .trace_inputs import (
 # importable from here; `tests/test_launcher_modules.py` lists their new homes. The launcher looks
 # `_drop_unwritten_artifacts` up here, so a test can replace it on this module.
 _artifact_rows = launch_report.artifact_rows
+_free_working_locations = launch_run.free_working_locations
+_refuse_inputs_inside = launch_run.refuse_inputs_inside
 _drop_unwritten_artifacts = launch_report.drop_unwritten
 _refuse_outputs_to_a_programmer = launch_input.refuse_outputs_to_a_programmer
 _setting_naming = launch_input.setting_naming
@@ -633,47 +634,6 @@ def scrub_design(
     _say_skipped(skipped)
     done = _remove_confirmed(_listed(flow_name, candidates), run_root)
     return ScrubResult(parents, done.removed, done.kept, done.gone, [s.link for s in skipped])
-
-
-def _refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
-    """xeda empties and rewrites a flow's run directory, so no file of the design, and no
-    file a setting reads, may lie in the run directory of the flow that reads it (in another
-    run's directory it is that run's output, read by content)."""
-    run_dir = Path(os.path.realpath(run_path))
-    inside = sorted({f for f in files if Path(os.path.realpath(f)).is_relative_to(run_dir)})
-    if inside:
-        raise RunDirectoryError(
-            f"{inside[0]} lies in {run_path}, {flow_name}'s own run directory, which xeda "
-            "empties and rewrites: keep your files in your design, outside the run root"
-        )
-
-
-def _free_working_locations(flow: Flow) -> None:
-    """Before the run: each working location of `flow` (a setting with the `WORKING` role, a name
-    inside the run directory) is where its tools work, never through a symbolic link out of the
-    run directory. A tool may leave its working location's own name a link, anywhere: that link
-    is removed as itself -- never what it points to -- and the tool makes the location anew. One
-    reached through a link that leads out is refused, naming the link (`RunDirectory.inside`),
-    before anything runs there."""
-    run_directory = flow.run_directory
-
-    def free(written: WrittenLeaf) -> Any:
-        leaf = written.value
-        if written.role != WORKING_ROLE or not isinstance(leaf, (str, os.PathLike)):
-            return leaf
-        if os.path.normpath(os.fspath(leaf)) in ("", "."):
-            return leaf  # the run directory itself
-        located = run_directory.inside(leaf)
-        if located.is_symlink() and not RunDirectory.lies_under(located, run_directory.path):
-            log.info(
-                "Removing %s, a link left where `%s` works: it leads out of the run directory",
-                located,
-                written.key,
-            )
-            run_directory.remove(located)
-        return leaf
-
-    map_written_leaves(flow.settings, free)
 
 
 class _RecordingProject:
@@ -1161,7 +1121,7 @@ class FlowLauncher:
            previous run's report is never this run's), then record every expected input as the
            run finds it
            (`trace_inputs.snapshot_inputs`: a file edited while the run goes on then no longer
-           matches its trace), record `settings.json`, and execute (`_execute`: `run()`,
+           matches its trace), record `settings.json`, and execute (`launch_run.execute`: `run()`,
            `parse_reports()`, `check_results()`, results; a failed run's artifacts only as far as
            it wrote them, `Flow.wrote_output`).
         7. **report** (`_report`): artifacts, `results.json`; then, for a successful run, the
@@ -1319,7 +1279,7 @@ class FlowLauncher:
         # that lies in its own run directory, which xeda empties and rewrites. A flow checks it
         # again at its turn, for a file made since.
         for planned in plan.nodes:
-            _refuse_inputs_inside(
+            refuse_inputs_inside(
                 planned.run_path,
                 planned.name,
                 [*design_files(design), *setting_files(planned.settings)],
@@ -1452,7 +1412,7 @@ class FlowLauncher:
                     self._read_inputs, planned.settings, planned.run_path, self.run_root
                 )
             self._check_deliveries_ahead(plan, node, design, deliveries, run_path)
-        _refuse_inputs_inside(
+        refuse_inputs_inside(
             run_path, flow_name, [*design_files(design), *setting_files(input_settings)]
         )
         policy = self._run_dir_policy()
@@ -1526,7 +1486,7 @@ class FlowLauncher:
                         flow.prepare_inputs()
                     prepared = registered_input_files(flow)
                     self._read_inputs.add(prepared)
-                    _refuse_inputs_inside(flow.run_path, flow.name, prepared)
+                    refuse_inputs_inside(flow.run_path, flow.name, prepared)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
                     if isinstance(e, DeliveryError) and e.before_run:
                         # a producer's delivery was refused before its tool ran: this flow's
@@ -1538,7 +1498,7 @@ class FlowLauncher:
                     # a dependency failed or raised: this flow did not run: its directory no longer vouches for a success
                     remove_trace(run_path)
                     run_directory.remove(results_json)
-                    self._record_identity(flow, run_path)
+                    launch_run.record_identity(flow, run_path)
                     flow.results.success = False
                     flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
                     report(flow, design, results_json, self.settings, record=True)
@@ -1617,14 +1577,14 @@ class FlowLauncher:
                 for d in deliveries:
                     (run_path / d.name).parent.mkdir(parents=True, exist_ok=True)
                 # never through a link a tool left leading out of the run directory
-                _free_working_locations(flow)
+                launch_run.free_working_locations(flow)
                 # From now on, what the run directory holds is this run's own only if the run
                 # writes it (`Flow.wrote_output`, by identity): a report left from before is a
                 # previous run's (`Flow.report_file`).
                 flow.start_run()
                 try:
                     with recording_programs() as execution_programs:
-                        self._execute(flow, run_path, input_settings)
+                        launch_run.execute(flow, run_path, input_settings)
                         if not flow.succeeded:
                             # a run that ended without raising, its tool's failure or its checks'
                             # included, reports only the artifacts it wrote; a run that raised
@@ -1839,85 +1799,8 @@ class FlowLauncher:
         flow.declared_input_records = tuple(records)
         selected_files = declared_input_files(flow)
         self._read_inputs.add(selected_files)
-        _refuse_inputs_inside(flow.run_path, flow.name, selected_files)
+        refuse_inputs_inside(flow.run_path, flow.name, selected_files)
         return consumed_from
-
-    @staticmethod
-    def _record_identity(flow: Flow, run_path: Path) -> None:
-        """What every results document says of the run, whether it succeeded or not."""
-        flow.results["design"] = flow.design.name
-        flow.results["design_hash"] = flow.design_hash
-        flow.results["flow"] = flow.name
-        flow.results["flow_hash"] = flow.flow_hash
-        flow.results["settings_hash"] = flow.settings_hash
-        flow.results["run_path"] = run_path.absolute()
-        flow.results.timestamp = flow.timestamp
-
-    def _execute(self, flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
-        """Stage 6: `run()`, `parse_reports()`, and the run's results, artifacts included."""
-        self._record_identity(flow, run_path)
-
-        success = True
-
-        with WorkingDirectory(run_path):
-            if flow.settings.reports_dir:
-                flow.settings.reports_dir.mkdir(exist_ok=True, parents=True)
-            try:
-                flow.run()
-            except NonZeroExitCode as e:
-                if isinstance(e, ProcessTimeout):
-                    log.error("%s", e)
-                else:
-                    log.error(
-                        "Execution of '%s' returned %d",
-                        (
-                            " ".join(e.command_args)
-                            if isinstance(e.command_args, (list, tuple))
-                            else e.command_args
-                        ),
-                        e.exit_code,
-                    )
-                flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
-                success = False
-            if flow.init_time is not None:
-                flow.results.runtime = time.monotonic() - flow.init_time
-            try:
-                success &= flow.parse_reports()
-                success &= flow.check_results()
-            except Exception as e:  # pylint: disable=broad-except
-                log.critical("parse_reports or check_results threw an exception: %s", e)
-                if success:  # if so far so good this is a bug!
-                    raise e
-            flow.add_canonical_result_aliases()
-            if success:
-                # Consumers use these integrity records for fresh and reused producers alike.
-                problems = record_outputs(flow)
-                for problem in problems:
-                    log.error("%s", problem)
-                if problems:
-                    success = False
-                    flow.results["error"] = {
-                        "type": "MissingOutput",
-                        "message": "; ".join(problems),
-                    }
-            if not success and not input_settings.is_quiet:
-                log.debug("Failure was reported in the parsed results.")
-            if not success and not flow.results.get("error"):
-                # no exception and no exit status: the reports or checks said so; a failure
-                # document always names its error (and a depender quotes it). This is a node's
-                # cause, `ReportedFailure`; `FlowFailed` is the verdict the top-level `--json`
-                # document of `xeda run` gives whatever the cause, so the names must differ.
-                flow.results["error"] = {
-                    "type": "ReportedFailure",
-                    "message": (
-                        f"`{flow.name}` reported failure: its reports or checks did not pass "
-                        "(see the log and its run directory)"
-                    ),
-                }
-            flow.results.success = success
-        for k, v in flow.artifacts.items():
-            if not flow.results.artifacts.get(k):
-                flow.results.artifacts[k] = v
 
     def _clean_up(
         self, flow: Flow, settings_json: Path, results_json: Path, policy: RunDirPolicy
