@@ -1157,8 +1157,12 @@ working locations (a setting with the `WORKING` role: `reports`, `outputs`, `che
 flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a role" below), not
 the run directory or run root themselves where a named directory holds them; no size cap, a
 warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
-`Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
-expanded against the start directory or the environment) and the design sources its declared
+`Flow.implicit_inputs` by the end of `init()` and `prepare_inputs()` (`registered_input_files`:
+yosys's `abc_script`, expanded against the start directory or the environment; nextpnr's board
+file and Xilinx chip database; **every registered input has a `Flow.locate_prepared_inputs()`
+counterpart that says where it is without making it, and the launch refuses a flow whose
+registered files differ from the located ones**, `located_input_files`, because a dry run judges by
+the located ones) and the design sources its declared
 inputs take (`source_input_files`; what a producer handed over is the edge's, not a file record) --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record

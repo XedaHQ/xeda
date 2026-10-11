@@ -31,6 +31,7 @@ from .nextpnr_constraints import ClockUse, Constraints, merge_constraints, recon
 from .xilinx import (
     XilinxLayout,
     XilinxSelection,
+    chipdb_identity,
     find_xilinx_layout,
     locate_chipdb,
     prepare_chipdb,
@@ -741,14 +742,23 @@ class Nextpnr(FpgaSynthFlow):
         return layout, select_xilinx(self.settings.fpga.part or "", layout)
 
     def _locate_chipdb(self) -> Optional[Path]:
+        """Where the chip database is. After preparation, the identity of the installation that
+        preparation formed (hashing it is most of the cost) is the one used again: a launch forms
+        it once; a dry run, which prepares nothing, forms it."""
         layout, selection = self._xilinx_layout_and_selection()
-        return locate_chipdb(layout, selection, self.run_directory)
+        return locate_chipdb(
+            layout, selection, self.run_directory, getattr(self, "_chipdb_identity", None)
+        )
 
     def _prepare_chipdb(self) -> None:
         layout, selection = self._xilinx_layout_and_selection()
         self._xilinx_layout = layout
         self._xilinx_selection = selection
-        self._chipdb = prepare_chipdb(layout, selection, self.run_directory)
+        if layout.chipdb is None:
+            self._chipdb_identity = chipdb_identity(layout, selection)
+        self._chipdb = prepare_chipdb(
+            layout, selection, self.run_directory, getattr(self, "_chipdb_identity", None)
+        )
         self.implicit_inputs.append(self._chipdb)
 
     def _locate_board_input(self) -> "_BoardFallback":

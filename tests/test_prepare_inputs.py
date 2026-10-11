@@ -478,3 +478,44 @@ def test_a_cached_board_file_is_what_the_package_holds_or_it_is_refused(tmp_path
     cached.write_bytes(b"edited\n")
     with pytest.raises(FlowFatalError, match="Corrupt board file cache entry"):
         Nextpnr._check_board_cache(cached, b"LOCATE COMP clk SITE A;\n")
+
+
+def test_a_launch_forms_the_identity_of_the_installation_once(tmp_path, monkeypatch):
+    """Hashing the installation and the device data is most of the cost of finding the chip
+    database: preparation forms the identity, and the locating step the launch then checks it
+    by reuses it; a dry run, which prepares nothing, forms it itself."""
+    from xeda.flows import nextpnr as module
+    from xeda.run_dir import RunDirectory
+
+    formed, located_with = [], []
+    monkeypatch.setattr(module, "which", lambda name: "/opt/openxc7/bin/nextpnr-himbaechel")
+    monkeypatch.setattr(
+        module, "find_xilinx_layout", lambda *a, **k: type("L", (), {"chipdb": None})()
+    )
+    monkeypatch.setattr(module, "select_xilinx", lambda *a, **k: object())
+    monkeypatch.setattr(module, "chipdb_identity", lambda *a: formed.append(1) or "identity")
+    monkeypatch.setattr(
+        module, "prepare_chipdb", lambda layout, sel, rd, identity=None: tmp_path / "a.bin"
+    )
+    monkeypatch.setattr(
+        module,
+        "locate_chipdb",
+        lambda layout, sel, rd, identity=None: located_with.append(identity) or tmp_path / "a.bin",
+    )
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t"})
+    settings = module.Nextpnr.Settings.from_input(
+        {"fpga": "xc7a100tcsg324-1"}, design_root=tmp_path, runner_cwd=tmp_path
+    )
+    run_path = tmp_path / "run" / "d" / "nextpnr"
+    flow = module.Nextpnr(
+        settings,
+        design,
+        run_path,
+        runner_cwd=tmp_path,
+        run_directory=RunDirectory.claimed(run_path, tmp_path / "run"),
+    )
+    flow._locate_chipdb()  # a dry run: nothing prepared, no identity yet
+    assert located_with == [None]
+    flow._prepare_chipdb()
+    flow._locate_chipdb()  # the launch's check, after preparation
+    assert formed == [1] and located_with == [None, "identity"]

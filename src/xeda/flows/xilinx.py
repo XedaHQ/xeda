@@ -618,13 +618,18 @@ def _generate_chipdb(
 
 
 def locate_chipdb(
-    layout: XilinxLayout, selection: XilinxSelection, run_directory: RunDirectory
+    layout: XilinxLayout,
+    selection: XilinxSelection,
+    run_directory: RunDirectory,
+    identity: XilinxChipdbIdentity | None = None,
 ) -> Path | None:
     """Where `prepare_chipdb` leaves the chip database of `selection`, if it is there: an explicit
     chipdb, validated; else the cache entry of the identity of the installation and the device
     data, validated as a hit is in `prepare_chipdb`. None if nothing is there, or the run root is
     not a marked one: a launch would generate it. Reads files to form the identity and to check
-    the entry; writes nothing and starts no program."""
+    the entry; writes nothing and starts no program. `identity` is the identity of this
+    installation and device data, if the caller has just formed it (hashing them is most of the
+    cost); it is formed here otherwise."""
     if layout.chipdb is not None:
         validate_chipdb(layout.chipdb, selection)
         return layout.chipdb
@@ -632,14 +637,17 @@ def locate_chipdb(
     if root is None or not is_run_root(root):
         return None
     owner = RunDirectory(root, root)
-    identity = chipdb_identity(layout, selection)
+    identity = identity or chipdb_identity(layout, selection)
     entry = _cache_path(owner, _cache_path(owner, root / ".cache/xilinx-chipdb") / identity.key)
     # an entry is checked as a hit is (`FlowFatalError` if it is corrupt): the launch refuses it
     return _cached_chipdb(owner, entry, selection, identity) if entry.exists() else None
 
 
 def prepare_chipdb(
-    layout: XilinxLayout, selection: XilinxSelection, run_directory: RunDirectory
+    layout: XilinxLayout,
+    selection: XilinxSelection,
+    run_directory: RunDirectory,
+    identity: XilinxChipdbIdentity | None = None,
 ) -> Path:
     """Validate an explicit chipdb or prepare a shared content-keyed immutable entry.
 
@@ -647,7 +655,8 @@ def prepare_chipdb(
     directory. A sibling durable lock coordinates POSIX processes using the existing
     lock machinery; Windows retains its existing absence of process locking. Scrubbing
     ordinary flow directories leaves this cache and its locks alone. A cache hit starts
-    no program: the manifest is its generator provenance.
+    no program: the manifest is its generator provenance. `identity` is the identity of this
+    installation and device data, if the caller has formed it already (`chipdb_identity`).
     """
     if layout.chipdb is not None:
         validate_chipdb(layout.chipdb, selection)
@@ -659,7 +668,7 @@ def prepare_chipdb(
             "run root; supply a validated explicit chipdb when constructing a flow directly."
         )
     owner = RunDirectory(root, root)
-    identity = chipdb_identity(layout, selection)
+    identity = identity or chipdb_identity(layout, selection)
     cache = _cache_path(owner, root / ".cache/xilinx-chipdb")
     entry = _cache_path(owner, cache / identity.key)
     _cache_path(owner, lock_file(entry))
