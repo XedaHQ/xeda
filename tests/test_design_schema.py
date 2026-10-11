@@ -6,6 +6,7 @@ editors and coding agents with no machine-readable description of a design file.
 
 import json
 import pathlib
+import sys
 
 import pytest
 
@@ -489,7 +490,11 @@ def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, sect
         if section == "":
             data = {"name": "d", "top": "a", "sources": form}
         elif section == "rtl.generator":
-            data["rtl"]["generator"] = {"executable": "true", "sources": form}
+            data["rtl"]["generator"] = {
+                "executable": sys.executable,
+                "args": ["-c", "pass"],
+                "sources": form,
+            }
         else:
             data[section]["sources"] = form
         assert list(validator().iter_errors(data)) == [], form
@@ -533,3 +538,24 @@ def test_every_form_of_clock_the_loader_reads_is_in_the_schema(clock):
     ):
         Design(**data)
         assert list(validator().iter_errors(data)) == []
+
+
+def test_a_returned_schema_shares_nothing_with_the_next_one():
+    """Every call builds its own document: changing one, everywhere, leaves the next call (and
+    the module's tables of extra forms) as they were."""
+
+    def disturb(node):
+        if isinstance(node, dict):
+            for value in list(node.values()):
+                disturb(value)
+            node["x-disturbed"] = True
+        elif isinstance(node, list):
+            for item in node:
+                disturb(item)
+            node.append("disturbed")
+
+    reference = design_schema()
+    first = design_schema()
+    disturb(first)
+    assert design_schema() == reference
+    assert design_schema() == design_schema()

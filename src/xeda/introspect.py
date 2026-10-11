@@ -821,7 +821,8 @@ def _widen(spec: Dict[str, Any], extra: List[Dict[str, Any]]) -> Dict[str, Any]:
     if branches is None:
         rest = {k: v for k, v in spec.items() if k not in documentation}
         branches = [rest] if rest else []
-    return {**documentation, "anyOf": [*branches, *extra]}
+    # copies: the module's tables of extra forms must not be shared with a returned schema
+    return {**documentation, "anyOf": [*branches, *deepcopy(extra)]}
 
 
 def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> None:
@@ -887,8 +888,7 @@ def _accept_clock_forms(schema: Dict[str, Any]) -> None:
         clocks["items"] = _widen(clocks["items"], _CLOCK_ITEM_FORMS)
     clock = properties.get("clock")  # one clock: the same forms of an item
     if clock and "anyOf" in clock:
-        empty = _CLOCK_ITEM_FORMS[-1]
-        clock["anyOf"] = [*clock["anyOf"], deepcopy(empty)]
+        clock["anyOf"] = [*clock["anyOf"], deepcopy(_CLOCK_ITEM_FORMS[-1])]
 
 
 def _accept_single_items(schema: Dict[str, Any]) -> None:
@@ -900,7 +900,7 @@ def _accept_single_items(schema: Dict[str, Any]) -> None:
         for name in single_item_fields_of(model):
             spec = properties.get(name)
             if spec is not None and spec.get("type") == "array" and "items" in spec:
-                properties[name] = _widen(spec, [deepcopy(spec["items"])])
+                properties[name] = _widen(spec, [spec["items"]])
 
 
 def _accept_alias_choices(schema: dict[str, Any]) -> None:
