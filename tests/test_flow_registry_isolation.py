@@ -65,12 +65,26 @@ def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
     assert out == "False"
 
 
-def _is_registry(node: ast.expr) -> bool:
-    """Whether `node` names the registry: `registered_flows`, or any `<module>.registered_flows`
-    (`flow_module.registered_flows`, `xeda.flow.flow.registered_flows`)."""
+def _is_registry(node: ast.expr, aliases: frozenset[str] = frozenset()) -> bool:
+    """Whether `node` names the registry: `registered_flows`, any `<module>.registered_flows`
+    (`flow_module.registered_flows`, `xeda.flow.flow.registered_flows`), or a name bound to one."""
     if isinstance(node, ast.Name):
-        return node.id == "registered_flows"
+        return node.id == "registered_flows" or node.id in aliases
     return isinstance(node, ast.Attribute) and node.attr == "registered_flows"
+
+
+def _registry_aliases(tree: ast.AST) -> frozenset[str]:
+    """The names a file binds to the registry: `table = flow_module.registered_flows`, and
+    `from xeda.flow import registered_flows as table`."""
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and _is_registry(node.value):
+            aliases.update(t.id for t in node.targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.ImportFrom):
+            aliases.update(
+                a.asname for a in node.names if a.name == "registered_flows" and a.asname
+            )
+    return frozenset(aliases)
 
 
 #: The methods that take entries out or drop them wholesale. A test removes the flow it defined by
@@ -82,13 +96,15 @@ WHOLESALE = ("clear", "popitem")
 def _restoring_by_hand(path: Path) -> list[int]:
     """The lines of a test file that empty the registry or swap the table itself."""
     lines = []
-    for node in ast.walk(ast.parse(path.read_text(), str(path))):
+    tree = ast.parse(path.read_text(), str(path))
+    aliases = _registry_aliases(tree)
+    for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
             emptied = (
                 isinstance(func, ast.Attribute)
                 and func.attr in WHOLESALE
-                and _is_registry(func.value)
+                and _is_registry(func.value, aliases)
             )
             # `setattr(module, "registered_flows", ...)`, `monkeypatch.setattr(module,
             # "registered_flows", ...)` and `monkeypatch.setattr("xeda.flow.flow.registered_flows",
@@ -139,12 +155,15 @@ def test_no_test_restores_the_registry_by_hand():
         "setattr(flow_module, 'registered_flows', {})",
         "flow_module.registered_flows = {}",
         "flow_module.registered_flows |= {}",
+        "table = flow_module.registered_flows\ntable.clear()",
+        "table = registered_flows\ntable.popitem()",
+        "from xeda.flow import registered_flows as table\ntable.clear()",
     ],
 )
 def test_the_scan_sees_each_way_to_restore_by_hand(tmp_path, source):
     path = tmp_path / "t.py"
     path.write_text(source + "\n")
-    assert _restoring_by_hand(path) == [1]
+    assert _restoring_by_hand(path) == [source.count("\n") + 1]
 
 
 @pytest.mark.parametrize(
