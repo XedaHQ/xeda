@@ -120,6 +120,12 @@ class Tree:
             run_dir(self.design / "open_xc7"),  # ... and a removed flow's, whose own
             run_dir(self.root / "e" / "a" / FLOW),  # another design's, with a target `a` too
         ]
+        # a hashed run directory of another flow, emptied by `--clean` and not yet written to: it
+        # holds none of the launch documents, yet it is no target's directory
+        self.cleaned = self.design / "yosys_fpga_cccccccccccccccc"
+        (self.cleaned / FLOW).mkdir(parents=True)
+        (self.cleaned / FLOW / "settings.json").write_text("{}")
+        self.keep.append(self.cleaned / FLOW)
         (self.design / "c").mkdir()  # a target with no run of the flow
         (self.keep[2] / FLOW).mkdir()  # a run directory is never searched
         (self.keep[2] / FLOW / "inner.txt").write_text("a flow's own directory\n")

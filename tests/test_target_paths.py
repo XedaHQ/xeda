@@ -390,6 +390,12 @@ def test_a_target_is_not_named_as_a_flow_at_the_path_boundary(tmp_path, target):
         runner(tmp_path).run_path_of("d", "vivado_synth", target=target)
 
 
+@pytest.mark.parametrize("target", ["vivado_synth_0123456789abcdef", "NEXTPNR_0123456789ABCDEF"])
+def test_a_target_is_not_named_as_a_flow_s_run_directory_at_the_path_boundary(tmp_path, target):
+    with pytest.raises(RunDirectoryError, match="run directory of the flow"):
+        runner(tmp_path).run_path_of("d", "vivado_synth", target=target)
+
+
 def test_targets_that_differ_only_in_letter_case_are_refused_at_load(tmp_path):
     """One directory on a file system that ignores case: the loader refuses the table."""
     from xeda.design import DesignValidationError

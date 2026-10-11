@@ -60,7 +60,7 @@ from .dataclass import (
 from .digest import content_digest
 from .generation import judging_generation
 from .proc_utils import tool_output_redirect
-from .run_dir import RunDirectory
+from .run_dir import DIR_NAME_HASH_LEN, RunDirectory
 from .utils import (
     ConflictingKeys,
     NonZeroExitCode,
@@ -2333,35 +2333,54 @@ def _flow_section_problems(
 
 def target_name_problem(name: Any) -> str | None:
     """Why `name` cannot name a target, or None. A target's run directories are
-    `<run root>/<design>/<name>/<flow>`, so it is a name (as a design's is) that is no flow's: the
-    flows' own directories lie beside it. The loader and the launcher's path boundary
-    (`DefaultRunner.run_path_of`) judge a name by this one rule."""
+    `<run root>/<design>/<name>/<flow>`, so it is a name (as a design's is) that is no flow's
+    and no flow's run directory's: the flows' own directories (`<flow>`, or `<flow>_<hash>` with
+    hashed run directories) lie beside it. The loader and the launcher's path boundary
+    (`DefaultRunner.run_path_of`) judge a name by this one rule, and `xeda scrub` takes a
+    directory for a target's by it."""
     if not isinstance(name, str) or not DESIGN_NAME.fullmatch(name):
         return (
             f"{name!r} is not a target name: it names the target's run directories, so it "
             "starts with a letter and holds only letters, digits, `_` and `-`"
         )
-    if _names_a_flow(name):
+    flow = _flow_named(name)
+    if flow is not None:
         return (
             f"{name!r} is the name of a flow, and a target's run directories lie beside "
             "the flows' own: give the target another name"
+            if flow == _fold(name)
+            else f"{name!r} is the name of a run directory of the flow `{flow}` "
+            f"(`{flow}_` and a {DIR_NAME_HASH_LEN}-character hash), and a target's run directories "
+            "lie beside the flows' own: give the target another name"
         )
     return None
 
 
-def _names_a_flow(name: str) -> bool:
-    """Whether `name` is a registered flow's name or alias, or a removed flow's
-    (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for
-    underscores, any letter case)."""
+def _fold(name: str) -> str:
+    """`name` as the command line takes a flow's: dashes for underscores, in lower case."""
+    return name.replace("-", "_").lower()
+
+
+def _flow_named(name: str) -> str | None:
+    """The flow whose name `name` is, or whose run directory's name it is (the flow's name, an
+    underscore and `DIR_NAME_HASH_LEN` letters or digits: `run_dir.run_directory_name`), else None.
+    A flow is a registered flow's name or alias, or a removed flow's
+    (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for underscores,
+    any letter case)."""
     # Imported here, and by name: the flows import this module, and are registered by being
     # imported.
     importlib.import_module("xeda.flows")
     registered_flows = importlib.import_module("xeda.flow").registered_flows
-
-    folded = name.replace("-", "_").lower()
     # a removed flow's name is a flow's too: its run directories may still be under `<design>/`
     removed = importlib.import_module("xeda.flow_runner.settings_layers").REMOVED_FLOWS
-    return folded in removed or any(flow.lower() == folded for flow in registered_flows)
+    flows = {_fold(flow) for flow in registered_flows} | set(removed)
+
+    folded = _fold(name)
+    suffix = DIR_NAME_HASH_LEN + 1  # "_" and the hash
+    candidates = [folded]
+    if len(folded) > suffix and re.fullmatch(f"_[a-z0-9]{{{DIR_NAME_HASH_LEN}}}", folded[-suffix:]):
+        candidates.append(folded[:-suffix])
+    return next((candidate for candidate in candidates if candidate in flows), None)
 
 
 class Design(XedaBaseModel):

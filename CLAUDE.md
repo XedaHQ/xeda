@@ -287,7 +287,7 @@ Four orthogonal abstractions, deliberately decoupled:
   board's files is a target's job alone. `Design.from_file(path, target=)`,
   `XedaProject.get_design(name, target)` and the launchers' `target=` (`--target` on `run` and
   `dse`) all go through `Design.target_selected` (target, then `--design-overrides`). One target
-  needs no selection; several without one, an unknown one, a name that is a flow's, and a
+  needs no selection; several without one, an unknown one, a name that is a flow's or a flow's run directory's, and a
   written `target` key are `DesignValidationError`s at `targets...`. The oracle
   (`tests/test_targets.py`): a selected target equals the design written flat by hand, in every
   field, hash and dump but `target` and the spelling of a flow's section (`flows_as_read`). **A
@@ -327,7 +327,9 @@ Four orthogonal abstractions, deliberately decoupled:
   `<run root>/<design>[/<target>]/<flow>[_<hash>]`, the design's own `Design.target` passed as
   the `target=` keyword of `run_path_of`/`get_flow_run_path` (never read from the launcher, which
   may be reused), judged by `design.target_name_problem` at the path boundary and at load (a
-  name, no flow's -- a removed flow's included -- and no two of a design's differing only in case), and `_validate_plan` refuses
+  name, no flow's -- a removed flow's included -- and no flow's hashed run directory's
+  (`<flow>_<16 characters>`: scrub takes a directory with none of the launch documents for a
+  target's, so that name is never one), and no two of a design's differing only in case), and `_validate_plan` refuses
   a plan for another target even when every hash is equal. The target is still no part of any
   hash: equal targets build separately and stay fresh separately; a pre-target run
   (`<design>/<flow>`) is neither reused nor touched by a target's launch. Shared leaves (`board`, `fpga`, `custom_boards_file`) at a target's top level are not
