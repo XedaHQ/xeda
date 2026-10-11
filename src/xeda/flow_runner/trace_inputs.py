@@ -16,8 +16,8 @@ is the run's; anywhere else, a file the run's settings, depfiles or design name 
 recorded as unknown if it changed during the run, so the next launch runs again.
 
 **What a run produced.** Every file the run left in its run directory is an output (`output_files`), declared as an artifact or not: a depender may read any of them by
-path, so a hand edit anywhere in the directory -- or a file added there -- makes the run stale,
-and its dependers follow through its new `run_id`. They are hashed once, after the run; a check
+path, so a hand edit anywhere in the directory -- or a file added there -- makes the run stale;
+its dependers follow only if what it hands them changed (`trace.changed_edge`). They are hashed once, after the run; a check
 trusts their metadata (`digest.FileRecord.trusted`) as it does an input's.
 """
 
