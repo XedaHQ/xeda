@@ -617,21 +617,30 @@ class InputSnapshot:
     #: that existed when the run started
     records: Mapping[str, FileRecord]
     #: the record of each file the producers handed over, taken as the run starts (None if it
-    #: could not be read), with the identity of the name it was handed by (`_name_state`, which
+    #: could not be read), with the identity of every link on the way to it (`_name_state`, which
     #: tells a link replaced and put back): a file that is not the one the producer recorded, or
     #: that changed while the flow ran, is unknown (`_consumed`)
-    handed: Mapping[str, Optional[Tuple[FileRecord, Tuple[int, int, int]]]] = dataclass_field(
-        default_factory=dict
+    handed: Mapping[str, Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]] = (
+        dataclass_field(default_factory=dict)
     )
 
 
-def _name_state(path: Path) -> Tuple[int, int, int]:
-    """The identity of the name `path` itself, a link not followed: inode, change time, mtime."""
-    st = os.lstat(path)
-    return (st.st_ino, st.st_ctime_ns, st.st_mtime_ns)
+def _name_state(path: Path) -> Tuple[Tuple[int, int, int], ...]:
+    """The identity of `path` as a name, a link not followed, and of every link it leads through
+    to the file: for each, its inode, change time and mtime. A link replaced by another and put
+    back leads to the same file, with the same metadata; this tells it."""
+    states = []
+    current = path
+    for _ in range(40):  # the depth of links the system follows
+        st = os.lstat(current)
+        states.append((st.st_ino, st.st_ctime_ns, st.st_mtime_ns))
+        if not stat.S_ISLNK(st.st_mode):
+            break
+        current = Path(os.path.normpath(current.parent / os.readlink(current)))
+    return tuple(states)
 
 
-def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[int, int, int]]]:
+def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]:
     """The record of a handed file (its content, through a link) and of its name, or None if
     unreadable."""
     try:

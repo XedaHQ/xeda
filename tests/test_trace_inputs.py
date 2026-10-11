@@ -323,3 +323,34 @@ def test_a_handed_link_replaced_while_the_flow_ran_is_unknown_even_if_put_back(t
     link.symlink_to(target)
     assert os.stat(link).st_ino == started.inode
     assert _entry_consumed(entry, snapshot).unknown
+
+
+def test_a_link_in_the_chain_to_a_handed_file_replaced_and_put_back_is_unknown(tmp_path):
+    """`out.json -> current.json -> a.json`: the middle link is the one swapped, so the name the
+    flow was handed is unchanged and leads to the same file with the same metadata."""
+    from xeda.digest import FileRecord, content_digest
+    from xeda.flow_runner.trace import OutputEntry
+    from xeda.flow_runner.trace_inputs import InputSnapshot, _entry_consumed, _name_state
+
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.write_text("A\n")
+    b.write_text("B\n")
+    middle, outer = tmp_path / "current.json", tmp_path / "out.json"
+    middle.symlink_to(a)
+    outer.symlink_to(middle.name)
+    started = FileRecord.of(outer.stat(), content_digest(outer))
+    entry = OutputEntry(path=str(outer), sha=started.sha)
+    snapshot = InputSnapshot(
+        started_ns=0,
+        inputs_recorded_ns=started.mtime_ns + 10**11,
+        expected=(),
+        records={},
+        handed={str(outer): (started, _name_state(outer))},
+    )
+    assert len(_name_state(outer)) == 3
+    assert not _entry_consumed(entry, snapshot).unknown
+    middle.unlink()
+    middle.symlink_to(b)
+    middle.unlink()
+    middle.symlink_to(a)
+    assert _entry_consumed(entry, snapshot).unknown
