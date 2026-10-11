@@ -7,10 +7,9 @@ from .default_runner import (
     XedaOptions,
     add_file_logger,
     get_flow_class,
-    scrub_design,
-    scrub_runs,
 )
 from .dse import Dse
+from .scrub import scrub_design, scrub_runs
 
 __all__ = [
     "DIR_NAME_HASH_LEN",

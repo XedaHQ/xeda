@@ -14,7 +14,7 @@ from xeda.design import SourceType
 from xeda.digest import content_digest
 from xeda.flow import FlowDependencyFailure, Out
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner import default_runner as runner_module
+from xeda.flow_runner import launch_report
 from xeda.flow_runner import outputs as output_module
 from xeda.flow_runner.outputs import handed_over
 
@@ -337,8 +337,8 @@ def test_hand_over_of_reused_outputs_does_not_test_current_run_writes(
 def test_output_records_are_skipped_in_the_results_table(tmp_path, design, monkeypatch):
     maker = _launch(tmp_path, design, {})
     printed = []
-    monkeypatch.setattr(runner_module.console, "print", lambda *args: printed.extend(args))
-    runner_module.print_results(maker)
+    monkeypatch.setattr(launch_report.console, "print", lambda *args: printed.extend(args))
+    launch_report.print_results(maker)
     table = printed[0]
     assert "outputs:" not in table.columns[0]._cells
     assert "Status" in table.columns[0]._cells
