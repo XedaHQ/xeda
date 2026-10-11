@@ -234,7 +234,14 @@ void write_record_now(const char* ended_by) {
 void vl_finish(const char* filename, int linenum, const char* hier) {
     (void)hier;
     note_event("finish", -1, filename, linenum, "");
-    if (!g_finished) {
+    // A `$finish` in a `final` block runs after the simulation has ended, so it ends nothing. The
+    // context reports that from Verilator 5.048; before, such a `$finish` counts as the end.
+#if VERILATOR_VERSION_INTEGER >= 5048000
+    const bool in_final = Verilated::threadContextp()->executingFinal();
+#else
+    const bool in_final = false;
+#endif
+    if (!g_finished && !in_final) {
         g_finished = true;
         g_finish_time = g_time;
     }

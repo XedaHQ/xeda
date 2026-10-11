@@ -14,6 +14,7 @@ from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvent, SimEvidence, waveform_name
+from ...run_dir import RunDirectoryError
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...utils import replacing_copy, unique
 
@@ -88,6 +89,11 @@ def parse_end_record(path: Path) -> SimEvidence:
         }
     )
 
+
+#: The file Verilator's own main writes with `--coverage`, in the model's working directory, and
+#: the model argument that names another.
+COVERAGE_FILE = "coverage.dat"
+COVERAGE_FILE_ARGUMENT = "+verilator+coverage+file+"
 
 #: The oldest Verilator xeda drives. From 5.044, the main that `--main` generates passes
 #: `--threads` to the model's context; before, the model ran one thread for each CPU.
@@ -681,6 +687,7 @@ class Verilator(SimFlow):
             self.run_directory.remove(record, record.with_name(record.name + ".tmp"))
             # the model takes no argument of xeda's: the hooks read the record's path from here
             env = {**(env or {}), "XEDA_END_RECORD": str(record)}
+        self._free_model_outputs(model_args)
         model = verilator.derive(verilated_bin)
         # the model's output, copied to `sim.log` (line-buffered by the hooks, so none is lost
         # when the model is stopped); cocotb's goes straight to the terminal, keeping its colors,
@@ -693,6 +700,25 @@ class Verilator(SimFlow):
             self._driver_exit_code = e.exit_code
             raise
         self._driver_exit_code = 0
+
+    def _free_model_outputs(self, model_args: List[str]) -> None:
+        """Before the model runs: the files Verilator's own main writes at a name of its own in the
+        run directory (`coverage.dat` with `--coverage`, or the file `+verilator+coverage+file+`
+        names) are removed as themselves, a symbolic link or a hard link at such a name included.
+        The model would otherwise write through the link, to a file that may lie outside the run
+        directory, and an earlier run's file must not stand for this run's."""
+        names = [COVERAGE_FILE]
+        names += [
+            arg.split(COVERAGE_FILE_ARGUMENT, 1)[1]
+            for arg in model_args
+            if arg.startswith(COVERAGE_FILE_ARGUMENT)
+        ]
+        for name in names:
+            try:
+                self.run_directory.remove(self.run_path / name)
+            except RunDirectoryError:
+                # a location the user chose outside the run directory is the user's own
+                log.debug("Leaving %s, which is not in the run directory", name)
 
     def rm_dep_files(self):
         """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run

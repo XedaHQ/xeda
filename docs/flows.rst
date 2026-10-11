@@ -1158,7 +1158,8 @@ Defaults and limits:
   whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
   whitespace (``--run-root``).
 * Verilator 5.044 or newer is required. Since the model runs under Verilator's main, ``--coverage``
-  in ``compile_args`` writes ``coverage.dat``, and, from Verilator 5.048, VPI start-up routines run
+  in ``compile_args`` writes ``coverage.dat`` (a link or file left at that name is removed before the run), and, from
+  Verilator 5.048, VPI start-up routines run
   with ``vpi: true``.
 
 Writing a new flow

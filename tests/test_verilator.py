@@ -305,6 +305,15 @@ def test_a_drained_run_fails_and_has_no_time(tmp_path):
     assert not flow.succeeded
 
 
+def test_a_finish_in_a_final_block_does_not_end_a_drained_run(tmp_path):
+    """The `final` block runs after the simulation ended. Its `$finish` is no end of the
+    simulation: the run drained, and fails."""
+    require_verilator()
+    flow = _launch(tmp_path, "initial begin #10; end final $finish;", {"timing": True})
+    assert flow.results["sim.ended_by"] == "drained"
+    assert not flow.succeeded
+
+
 def test_the_wall_clock_timeout_stops_a_simulation_that_never_finishes(tmp_path):
     """A free-running clock never drains, and nothing stops it but the wall-clock `timeout`,
     which leaves no end record (a failure)."""
@@ -772,3 +781,24 @@ def test_a_cpp_source_with_no_main_is_a_dpi_helper_and_links(tmp_path):
     )
     assert flow.succeeded
     assert flow.results["sim.ended_by"] == "finish"
+
+
+def test_a_link_left_at_the_coverage_file_is_never_written_through(tmp_path):
+    """`--coverage` makes Verilator's own main write `coverage.dat` in the run directory. A link
+    at that name, left by an earlier tool, is removed as itself before the model runs: the
+    file it leads to, outside the run directory, is not touched."""
+    require_verilator()
+    body = "reg r = 0; initial begin #5 r = 1; #5 $finish; end"
+    settings = {"compile_args": ["--coverage"]}
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    coverage = flow.run_path / "coverage.dat"
+    assert coverage.is_file() and not coverage.is_symlink()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    coverage.unlink()
+    coverage.symlink_to(outside)
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert coverage.is_file() and not coverage.is_symlink()

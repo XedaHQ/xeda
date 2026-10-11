@@ -1976,6 +1976,10 @@ dependency must also share `custom_boards_file`.
   (`trace_underscore`/`trace_structs` off, no max width or array unless set). A cocotb testbench
   whose HDL also dumps gets a nearly empty file from cocotb's dumper (the second writer takes
   almost no changes).
+  Before the model runs, `_free_model_outputs` removes `coverage.dat` (Verilator's main writes it
+  with `--coverage`) and the file `+verilator+coverage+file+` names, as themselves: a link a tool
+  left there is never written through. A `$finish` in a `final` block ends nothing (hooks, from
+  Verilator 5.048): the run stays `drained`.
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
