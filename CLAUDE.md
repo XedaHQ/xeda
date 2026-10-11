@@ -1207,7 +1207,12 @@ only so, and the launch logs it. `nextpnr`'s `netlist` opts in: its routed confi
 byte-identical for a netlist shifted by a comment line, and its `results.json` holds no source
 location, but its `report.json` and log cite the lines of the netlist it placed. The yosys
 version is in the file (`creator`), so another yosys is another digest. Another type gets a
-normalizer only with evidence from a real run. What is not tracked
+normalizer only with evidence from a real run. The evidence for `JsonNetlist` (Yosys 0.69+260,
+two Verilog designs with hierarchy, a generate loop and an inferred memory; ECP5, iCE40 and
+Xilinx 7-series passes, each flat and with `flatten: false`; four line-shifting edits each): every
+netlist was equal after the `src` attributes were dropped, and no generated name contained a line
+number. The digest of a 45 MB netlist takes 1.3 s. `tests/test_yosys_nextpnr_cutoff.py` shows the
+chain on real tools (ECP5; the Xilinx case is opt-in, `XEDA_TESTS_OPENXC7=1`). What is not tracked
 (each can make a stale result look fresh; `--rebuild-all` is the escape): what a symbolic link in a
 run directory points to, when that is a directory (the link is recorded by its target, never
 followed); programs started indirectly (a compiler under `make`, Python packages such as
