@@ -372,7 +372,7 @@ dependency flows. A project file is found by one helper, `resolve_project_file` 
 
 `FlowLauncher.launch_flow()` is the one procedure every flow run and every producer run goes
 through, make's order: bring every prerequisite up to date, then judge this flow against them. Its
-stages (each a method; the docstring lists them): **input** (`launch_input.input_settings`: validate in
+stages (each a step, a method or a stage-module function; the docstring lists them): **input** (`launch_input.input_settings`: validate in
 context, apply `--debug`) -> **identity** (`launch_identity.run_identity`: design hash + `flowrun_hash`, run dir,
 locked via `run_lock` until the trace is written) -> **prepare** (construct the flow with its own
 *copy* of the input, `init()` (adds no dependency and reads no input) -- runs even for a flow that turns out
