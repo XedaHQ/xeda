@@ -1987,7 +1987,9 @@ dependency must also share `custom_boards_file`.
   (`RunDirectory.named_within`), so another letter case or alias of the run directory counts. A `+verilator+coverage+file+`
   name behind a link that leads out is refused (`RunDirectoryError`), as is a name with `..` (the
   model and the check would name different files), and a link left in a directory no launcher chose
-  (xeda deletes nothing there, so it refuses to start the model).
+  (xeda deletes nothing there, so it refuses to start the model). A full path
+  that resolves outside the run directory, through however many links, is a location the user
+  chose (`named_within` is None): xeda frees only names it can show to lie in the run directory.
   A report that ends a run is one event, and `ended_by` names its cause: `error` for `$error`, a
   failed assertion and `$stop` (whether it reaches the hooks through `vl_stop_maybe` or `vl_stop`),
   `fatal` for `$fatal` and Verilator's own fatal errors.
