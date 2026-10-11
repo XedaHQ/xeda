@@ -620,17 +620,18 @@ def foreign_paths(flow, root: Path, handed: set[Path]) -> list[str]:
     files: they reach a consumer as its declared inputs, whatever else lies in the directory."""
 
     def inside(path: Path, base: Path) -> bool:
-        return any(
-            p.is_relative_to(b) for p in (path, path.resolve()) for b in (base, base.resolve())
-        )
+        return path.is_relative_to(base.resolve())
 
     #: the stand-in tools are installed under the run root, and a tool is found by the path to it
     allowed = [flow.run_path, *declared_values(flow), *flow.implicit_inputs, root / FAKE_TOOLCHAIN]
+    # A path counts by where it leads: a link in the flow's own directory to a producer's file is
+    # the producer's file, and a link to a declared input is that input.
+    found = {path: path.resolve() for path in handed}
     return sorted(
         str(path)
-        for path in handed
-        if not any(inside(path, base) for base in allowed)
-        and not inside(root, path)  # the run root itself, or a directory above the run directory
+        for path, resolved in found.items()
+        if resolved.is_relative_to(root.resolve())
+        and not any(inside(resolved, base) for base in allowed)
     )
 
 
@@ -646,7 +647,7 @@ def _tools_handed(flow_class, world: World, monkeypatch) -> list[tuple[object, S
 
     def recording(self, executable, *args, env=None, **kwargs):
         text = " ".join([str(executable), *map(str, args)])
-        text += " " + " ".join(f"{k}={v}" for k, v in (env or {}).items() if k != "PATH")
+        text += " " + " ".join(f"{k}={v}" for k, v in (env or {}).items())
         started.append((Path.cwd().resolve(), text))
         return execute(self, executable, *args, env=env, **kwargs)
 
@@ -733,6 +734,25 @@ def test_the_runtime_check_finds_a_consumer_handed_a_file_that_it_did_not_declar
     assert foreign_paths(consumer, world.root, handed_paths(consumer, world.root, [])) == []
     handed = handed_paths(consumer, world.root, commands)
     assert foreign_paths(consumer, world.root, handed) == [str(undeclared)]
+
+
+def test_the_runtime_check_follows_a_link_to_where_it_leads(tmp_path):
+    """A link in the flow's own run directory to a file of a producer is that file; a link to a
+    declared input is that input, and the run root itself is not a way into the producers."""
+    from types import SimpleNamespace
+
+    root = tmp_path / "run"
+    consumer, producer = root / "d" / "consumer", root / "d" / "producer"
+    for directory in (consumer, producer):
+        directory.mkdir(parents=True)
+    (producer / "out.txt").write_text("declared\n")
+    (producer / "results.json").write_text("{}\n")
+    (consumer / "declared").symlink_to(producer / "out.txt")
+    (consumer / "undeclared").symlink_to(producer / "results.json")
+    inputs = type("Inputs", (), {"model_fields": {"out": None}, "out": producer / "out.txt"})()
+    flow = SimpleNamespace(run_path=consumer, inputs=inputs, implicit_inputs=[])
+    handed = {consumer / "declared", consumer / "undeclared", root}
+    assert foreign_paths(flow, root, handed) == [str(root), str(consumer / "undeclared")]
 
 
 def _freeze(root: Path, keep: Path) -> None:
