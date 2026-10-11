@@ -27,7 +27,7 @@ import yaml
 from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import FlowFatalError, FlowSettingsException
-from xeda.flow.io import declared_inputs, declared_outputs
+from xeda.flow.io import declared_inputs, declared_outputs, output_enabled
 from xeda.flow.flow import NoReadableSource
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import VivadoAltSynth, VivadoImpl, VivadoSynth, YosysFpga
@@ -113,6 +113,25 @@ def _edif_design(root: Path, **kwargs) -> Design:
     return _design(root, sources=({"file": "given.edf", "type": "Edif"}, "pins.xdc"), **kwargs)
 
 
+#: the device and clock as command-line items, for a request that names its flows by chain
+_DEV = ["fpga=xc7a35tcpg236-1", "clock.period=10.0"]
+SIM_INPUTS = ("netlist", "netlist_timing", "sdf")
+
+
+def _power_design(root: Path) -> Design:
+    """`_design` with the testbench a timing simulation and a power report need."""
+    design = _design(root)
+    (root / "tb.sv").write_text(
+        "module tb; reg clk = 0, rst = 0; wire [3:0] led; blinky dut(clk, rst, led); endmodule\n"
+    )
+    return Design(
+        name="blinky",
+        design_root=root,
+        rtl=design.rtl.model_dump(mode="json"),
+        tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
+    )
+
+
 def _runner(tmp_path: Path, **kwargs) -> DefaultRunner:
     return DefaultRunner(tmp_path / "run", display_results=False, **kwargs)
 
@@ -134,9 +153,22 @@ def test_vivado_impl_declares_one_edif_netlist_and_the_constraints_it_reads() ->
     assert constraints.types == (SourceType.Xdc, SourceType.Sdc)
     assert (constraints.cardinality, constraints.required) == ("many", False)
     assert set(inputs) == {"netlist", "constraints"}
-    (bitstream,) = declared_outputs(VivadoImpl).values()
+    outputs = declared_outputs(VivadoImpl)
+    bitstream = outputs["bitstream"]
     assert (bitstream.name, bitstream.types) == ("bitstream", (SourceType.Bitstream,))
     assert (bitstream.cardinality, bitstream.enabled_by) == ("optional", "bitstream")
+    # the routed design's files, as the other Vivado implementations declare them; no
+    # synthesis checkpoint, since the flow does no synthesis
+    assert set(outputs) == {"bitstream", "checkpoint_route", "netlist", "netlist_timing", "sdf"}
+    assert [
+        (name, outputs[name].types, outputs[name].enabled_by)
+        for name in ("checkpoint_route", "netlist", "netlist_timing", "sdf")
+    ] == [
+        ("checkpoint_route", (SourceType.RoutedCheckpoint,), "write_checkpoint"),
+        ("netlist", (SourceType.FpgaNetlist,), "write_netlist"),
+        ("netlist_timing", (SourceType.FpgaTimingNetlist,), "write_timing_netlist"),
+        ("sdf", (SourceType.Sdf,), "write_timing_netlist"),
+    ]
     # it reads no RTL: the design's sources are the producer's concern
     assert VivadoImpl.reads_sources is None
 
@@ -684,12 +716,165 @@ def test_the_results_are_those_of_vivado_synth_but_for_the_projects_status() -> 
         assert key in VivadoImpl.results_description
 
 
-def test_a_run_leaves_no_checkpoint_or_netlist_and_asks_no_setting_for_one() -> None:
-    """Until stage-typed checkpoint and netlist types exist, the bitstream is the only output."""
+def test_every_output_has_one_name_one_type_and_one_switch_in_all_the_vivado_implementations() -> (
+    None
+):
+    """One concept, one name: an output that two of the flows implementing a design in Vivado
+    both declare is declared alike (type, cardinality, switch and description), and the switch
+    is a setting of the same name, type and default in each."""
+    flows = (VivadoSynth, VivadoAltSynth, VivadoImpl)
+    declared = [declared_outputs(flow) for flow in flows]
+    shared = set.intersection(*(set(outputs) for outputs in declared))
+    assert shared == {"bitstream", "checkpoint_route", "netlist", "netlist_timing", "sdf"}
+    for name in shared:
+        assert len({repr(outputs[name]) for outputs in declared}) == 1, name
+        switch = declared[0][name].enabled_by
+        fields = [flow.Settings.model_fields[switch] for flow in flows]
+        assert len({(f.annotation, f.default) for f in fields}) == 1, switch
+    assert set(declared_outputs(VivadoImpl)) <= set(declared_outputs(VivadoAltSynth))
+
+
+def test_a_flow_without_a_synthesis_asks_no_synthesis_setting() -> None:
     settings = set(VivadoImpl.Settings.model_fields)
-    assert not settings & {"write_checkpoint", "write_netlist", "write_timing_netlist"}
     assert not settings & {"synth", "flatten_hierarchy", "out_of_context", "tcl_files"}
     assert {"fpga", "clocks", "impl", "bitstream", "xdc_files", "fail_timing"} <= settings
+    assert {"write_checkpoint", "write_netlist", "write_timing_netlist"} <= settings
+
+
+@needs_tclsh
+@pytest.mark.parametrize("enabled", [True, False], ids=["written", "not_written"])
+def test_the_routed_checkpoint_and_netlists_are_written_and_recorded_when_switched_on(
+    enabled, tmp_path, toolchain
+) -> None:
+    """Each output is written by `implementation.tcl` exactly when its setting is on, and then it
+    is an artifact, a declared output (a file that exists, with its digest in `results.json`) and
+    nothing else is left in `checkpoints/` or `outputs/`."""
+    settings = {
+        **SETTINGS,
+        "write_checkpoint": enabled,
+        "write_netlist": enabled,
+        "write_timing_netlist": enabled,
+    }
+    flow = _runner(tmp_path).run_flow(VivadoImpl, _edif_design(tmp_path / "d"), settings)
+    assert flow is not None and flow.succeeded
+    ss = flow.settings
+    assert isinstance(ss, VivadoImpl.Settings)
+    checkpoints, outputs = ss.checkpoints_dir, ss.outputs_dir
+    written = {
+        "checkpoint_route": (
+            checkpoints / "post_route.dcp",
+            ["write_checkpoint", "-force", f"{checkpoints}/post_route"],
+        ),
+        "checkpoint_place": (
+            checkpoints / "post_place.dcp",
+            ["write_checkpoint", "-force", f"{checkpoints}/post_place"],
+        ),
+        "netlist": (
+            outputs / "impl_funcsim.v",
+            ["write_verilog", "-mode", "funcsim", "-force", f"{outputs}/impl_funcsim.v"],
+        ),
+        "netlist_timing": (
+            outputs / "impl_timesim.v",
+            ["write_verilog", "-mode", "timesim", "-sdf_anno", "false", "-force", "-file"]
+            + [f"{outputs}/impl_timesim.v"],
+        ),
+        "sdf": (
+            outputs / "impl_timesim.sdf",
+            ["write_sdf", "-mode", "timesim", "-process_corner", "slow", "-force", "-file"]
+            + [f"{outputs}/impl_timesim.sdf"],
+        ),
+        "xdc_exported": (
+            outputs / "impl.xdc",
+            ["write_xdc", "-no_fixed_only", "-force", f"{outputs}/impl.xdc"],
+        ),
+    }
+    calls = fake_calls(flow.run_path)
+    for _, call in written.values():
+        assert (call in calls) == enabled, call
+    assert flow.artifacts.get("checkpoint_synth") is None, "the flow does no synthesis"
+    recorded = {label: flow.artifacts[label] for label in written if label in flow.artifacts}
+    assert recorded == ({label: path for label, (path, _) in written.items()} if enabled else {})
+    document = json.loads((flow.run_path / "results.json").read_text())
+    declared = {"checkpoint_route", "netlist", "netlist_timing", "sdf"}
+    assert set(document.get("outputs", {})) == (declared if enabled else set())
+    for label in declared if enabled else ():
+        assert (flow.run_path / written[label][0]).is_file(), label
+        assert document["outputs"][label]["sha"], label
+    if not enabled:
+        assert not (flow.run_path / checkpoints).exists()
+        assert not (flow.run_path / outputs).exists()
+
+
+def test_a_consumer_of_the_routed_design_switches_the_outputs_on(tmp_path) -> None:
+    """`vivado_impl` feeds the power report and the timing simulation as `vivado_synth` does, once
+    the bindings say so: the chain that binds the checkpoint is refused until the simulation's
+    inputs agree (the one producer of related inputs), and the refusal names them."""
+    design = _power_design(tmp_path / "d")
+    bind = [f"flows.vivado_postsynth_sim.inputs.{n}=vivado_impl.{n}" for n in SIM_INPUTS]
+    with pytest.raises(FlowSettingsException) as error:
+        _runner(tmp_path).plan("yosys_fpga+vivado_impl+vivado_power", design, flow_settings=_DEV)
+    message = " ".join(str(error.value).split())
+    assert "checkpoint <- vivado_impl.checkpoint_route" in message
+    for binding in bind:
+        assert binding in message
+    plan = _runner(tmp_path).plan(
+        "yosys_fpga+vivado_impl+vivado_power", design, flow_settings=[*_DEV, *bind]
+    )
+    assert [node.name for node in plan.nodes] == [
+        "yosys_fpga",
+        "vivado_impl",
+        "vivado_postsynth_sim",
+        "vivado_power",
+    ]
+    impl = plan.node("vivado_impl")
+    assert impl.settings.write_checkpoint
+    assert impl.settings.write_netlist and impl.settings.write_timing_netlist
+    assert {"checkpoint_route", "netlist", "netlist_timing", "sdf"} <= {
+        name
+        for name, declaration in declared_outputs(VivadoImpl).items()
+        if output_enabled(impl.settings, declaration)
+    }
+
+
+def test_the_timing_simulation_reads_the_netlists_vivado_impl_wrote(tmp_path) -> None:
+    design = _power_design(tmp_path / "d")
+    bind = [f"flows.vivado_postsynth_sim.inputs.{n}=vivado_impl.{n}" for n in SIM_INPUTS]
+    plan = _runner(tmp_path).plan("vivado_postsynth_sim", design, flow_settings=[*_DEV, *bind])
+    assert [node.name for node in plan.nodes] == [
+        "yosys_fpga",
+        "vivado_impl",
+        "vivado_postsynth_sim",
+    ]
+    inputs = {
+        i.name: [ref.node for ref in i.references] for i in plan.node("vivado_postsynth_sim").inputs
+    }
+    assert all(inputs[name] == ["vivado_impl"] for name in SIM_INPUTS), inputs
+
+
+@needs_tclsh
+def test_the_power_report_runs_on_the_checkpoint_and_the_activity_of_one_implementation(
+    tmp_path, toolchain
+) -> None:
+    design = _power_design(tmp_path / "d")
+    bind = [
+        *(f"flows.vivado_postsynth_sim.inputs.{n}=vivado_impl.{n}" for n in SIM_INPUTS),
+        "flows.vivado_power.inputs.checkpoint=vivado_impl.checkpoint_route",
+    ]
+    runner = _runner(tmp_path)
+    flow = runner.run("vivado_power", design, flow_settings=[*_DEV, *bind])
+    assert flow is not None and flow.succeeded
+    assert [f.name for f in runner.launched] == [
+        "yosys_fpga",
+        "vivado_impl",
+        "vivado_postsynth_sim",
+        "vivado_power",
+    ]
+    impl = runner.launched[1]
+    checkpoint = impl.settings.checkpoints_dir / "post_route.dcp"
+    assert (impl.run_path / checkpoint).is_file()
+    calls = fake_calls(flow.run_path)
+    opened = [call for call in calls if call[0] == "open_checkpoint"]
+    assert opened and str(impl.run_path / checkpoint) in opened[0][-1]
 
 
 # ------------------------------------------------------------------------- tricky names, no pins

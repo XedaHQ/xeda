@@ -210,8 +210,12 @@ without a period is a declaration; it does not supply a physical timing constrai
 `vivado_impl` places and routes an EDIF netlist in Vivado (non-project mode, no synthesis), so
 Vivado implements the open-source synthesis: `xeda run yosys_fpga+vivado_impl blinky.yaml -s
 bitstream=$PWD/blinky.bit`. Its `netlist` is `yosys_fpga`'s `netlist_edif` output or one
-`{file: "top.edf", type: Edif}` in `rtl.sources` (which skips synthesis); `bitstream` is its only
-output, written when set or when `openfpgaloader` follows. `yosys_fpga` writes the EDIF
+`{file: "top.edf", type: Edif}` in `rtl.sources` (which skips synthesis). Its outputs are
+`vivado_alt_synth`'s, under the same names and switches (`write_checkpoint` -> `checkpoint_route`,
+`write_netlist` -> `netlist`, `write_timing_netlist` -> `netlist_timing` and `sdf`; no
+`checkpoint_synth`), and `bitstream`, written when set or when `openfpgaloader` follows. To feed
+`vivado_postsynth_sim` or `vivado_power` from it, bind their inputs to `vivado_impl` (the planner
+names the bindings). `yosys_fpga` writes the EDIF
 (`write_edif -pvector bra`, beside the JSON netlist, so `nextpnr` and `vivado_impl` share one
 synthesis run) whenever a Xilinx synthesis is flat; with `flatten: false`, `keep_hierarchy` (also as
 an attribute in `set_mod_attribute` or `set_attribute`), `black_box` or `synth_pass_only` and no

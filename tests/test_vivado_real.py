@@ -439,6 +439,36 @@ def test_vivado_impl_runs_the_power_optimization_steps_it_is_asked_for(work_dir)
     assert flow.results["ff"] == 27 and flow.results["wns"] > 0
 
 
+def test_vivado_impl_writes_the_routed_checkpoint_and_netlists_it_is_asked_for(work_dir) -> None:
+    """`write_checkpoint`, `write_netlist` and `write_timing_netlist` as in `vivado_alt_synth`:
+    the files are where the flow records them, and Vivado's own commands made them."""
+    require_yosys()
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoImpl,
+        _impl_design(work_dir / "design", "blinky"),
+        {
+            **IMPL_SETTINGS,
+            "write_checkpoint": True,
+            "write_netlist": True,
+            "write_timing_netlist": True,
+        },
+    )
+    assert flow is not None and flow.succeeded
+    written = {
+        "checkpoint_route": "checkpoints/post_route.dcp",
+        "checkpoint_place": "checkpoints/post_place.dcp",
+        "netlist": "outputs/impl_funcsim.v",
+        "netlist_timing": "outputs/impl_timesim.v",
+        "sdf": "outputs/impl_timesim.sdf",
+        "xdc_exported": "outputs/impl.xdc",
+    }
+    for label, name in written.items():
+        assert flow.artifacts[label] == Path(name), label
+        assert (flow.run_path / name).stat().st_size > 0, name
+    assert "(DELAYFILE" in (flow.run_path / "outputs/impl_timesim.sdf").read_text()
+    assert "module blinky" in (flow.run_path / "outputs/impl_funcsim.v").read_text()
+
+
 def test_vivado_impl_implements_an_edif_netlist_it_is_given(work_dir) -> None:
     """A listed netlist named other than its top: Vivado looks the top up by the name of the
     file, so the flow reads a copy named for it."""

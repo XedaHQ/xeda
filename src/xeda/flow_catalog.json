@@ -134,13 +134,13 @@
       "netlist": [],
       "netlist_timing": [],
       "sdf": [],
-      "checkpoint_synth": [],
       "checkpoint_route": [
         "vivado_power"
       ],
       "bitstream": [
         "openfpgaloader"
-      ]
+      ],
+      "checkpoint_synth": []
     }
   },
   "vivado_impl": {
@@ -148,7 +148,14 @@
     "class_name": "VivadoImpl",
     "followers": {
       "": [
-        "openfpgaloader"
+        "openfpgaloader",
+        "vivado_power"
+      ],
+      "netlist": [],
+      "netlist_timing": [],
+      "sdf": [],
+      "checkpoint_route": [
+        "vivado_power"
       ],
       "bitstream": [
         "openfpgaloader"
@@ -202,13 +209,13 @@
       "netlist": [],
       "netlist_timing": [],
       "sdf": [],
-      "checkpoint_synth": [],
       "checkpoint_route": [
         "vivado_power"
       ],
       "bitstream": [
         "openfpgaloader"
       ],
+      "checkpoint_synth": [],
       "sdf_min": []
     }
   },

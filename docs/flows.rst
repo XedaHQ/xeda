@@ -906,13 +906,45 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
 ``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows and one
-clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is the only output.
-It is written when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
-``openfpgaloader``. A bitstream needs every port to be constrained; without ``bitstream``, Vivado
-stops after routing and the flow reports timing and utilization only. The results are those of
+clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is written when
+``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as ``openfpgaloader``.
+A bitstream needs every port to be constrained; without ``bitstream``, Vivado stops after routing
+and the flow reports timing and utilization only. The results are those of
 ``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp``, ...), read from Vivado's reports of
 the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their options as for
 ``vivado_alt_synth``. Only 7-series parts were tested.
+
+**The routed design's files.** ``vivado_impl`` writes the same files as ``vivado_alt_synth``,
+switched on by the settings of the same names, ``write_checkpoint``,
+``write_netlist`` and ``write_timing_netlist``. Each file is a declared output, with the same
+name and type as in the synthesis flows, so ``vivado_postsynth_sim`` and ``vivado_power`` can read
+them. There is no synthesis checkpoint, because there is no synthesis.
+
+.. list-table::
+    :header-rows: 1
+
+    * - Setting
+      - Output
+      - File
+    * - ``write_checkpoint``
+      - ``checkpoint_route``
+      - ``checkpoints/post_route.dcp`` (and ``post_place.dcp`` beside it)
+    * - ``write_netlist``
+      - ``netlist``
+      - ``outputs/impl_funcsim.v`` (and the constraints ``outputs/impl.xdc``)
+    * - ``write_timing_netlist``
+      - ``netlist_timing``, ``sdf``
+      - ``outputs/impl_timesim.v``, ``outputs/impl_timesim.sdf`` (slow corner)
+    * - ``bitstream``
+      - ``bitstream``
+      - the file the setting names
+
+The consumers take ``vivado_synth`` by default, so bind them to ``vivado_impl`` as for
+``vivado_alt_synth`` (see the related inputs above). The chain
+``yosys_fpga+vivado_impl+vivado_power`` passes the chain check, but planning refuses it until the
+simulation's inputs are bound too, and the error lists the
+``-s flows.vivado_postsynth_sim.inputs.<input>=vivado_impl.<input>`` bindings to add.
+The power report needs a testbench in the design (``tb``), as for the other Vivado flows.
 
 **The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
 -pvector bra``, when its settings make a Xilinx synthesis flat: ``flatten: true``, or ``flatten``
