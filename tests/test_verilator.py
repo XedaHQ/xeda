@@ -865,3 +865,26 @@ def test_a_coverage_file_is_found_in_the_run_directory_under_another_letter_case
     assert flow.succeeded
     assert outside.read_text() == "not xeda's"
     assert (flow.run_path / "cov.dat").is_file() and not (flow.run_path / "cov.dat").is_symlink()
+
+
+def test_a_coverage_file_named_through_an_alias_of_a_subdirectory_is_freed(tmp_path):
+    """`/alias/result.dat`, where `alias` is a link to a directory of the run directory, is a file
+    of the run directory: a link left at that name is removed as itself."""
+    require_verilator()
+    body = "initial begin #5 $finish; end"
+    flow = _launch(tmp_path, body, {"compile_args": ["--coverage"]})
+    assert flow.succeeded
+    (flow.run_path / "cov").mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(flow.run_path / "cov")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("not xeda's")
+    (flow.run_path / "cov" / "result.dat").symlink_to(outside)
+    settings = {
+        "compile_args": ["--coverage"],
+        "model_args": [f"+verilator+coverage+file+{alias / 'result.dat'}"],
+    }
+    flow = _launch(tmp_path, body, settings)
+    assert flow.succeeded
+    assert outside.read_text() == "not xeda's"
+    assert (flow.run_path / "cov" / "result.dat").is_file()

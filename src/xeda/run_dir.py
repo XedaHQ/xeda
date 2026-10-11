@@ -303,6 +303,12 @@ class RunDirectory:
                     return given.relative_to(parent)
             except OSError:
                 continue
+        # a directory below this one reached through an alias (a link to it): its resolved
+        # location, with the last component kept as it is
+        resolved = Path(os.path.realpath(given.parent))
+        real = Path(os.path.realpath(self.path))
+        if resolved.is_relative_to(real):
+            return resolved.relative_to(real) / given.name
         return None
 
     def holds(self, path: str | os.PathLike) -> bool:
