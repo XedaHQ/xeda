@@ -174,7 +174,9 @@ def test_design_schema_is_a_usable_json_schema():
     schema = json.loads(run_xeda("design-schema").stdout)
     assert "name" in schema["properties"]
     sources = schema["$defs"]["RtlSettings"]["properties"]["sources"]
-    assert sources["items"]["anyOf"][0]["type"] == "string"
+    as_list, as_one = sources["anyOf"]  # a list, or one source in place of it
+    assert as_list["items"]["anyOf"][0]["type"] == "string"
+    assert as_one == as_list["items"]
 
 
 def test_table_output_does_not_truncate_setting_names():

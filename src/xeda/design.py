@@ -371,6 +371,15 @@ def _globbed_source_files(pattern: str, root: Path) -> List[str]:
     return sorted(m for m in glob(str(expanded)) if isfile(m))
 
 
+def as_source_list(sources: Any) -> Any:
+    """`sources` as the list it stands for: one source (a path, a table or a resource) is a list
+    of one. This is the one place that knows the form (the `sources` validator, the generator's
+    re-run decision and the declared load all read it); anything else is returned as it is."""
+    if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
+        return [sources]
+    return sources
+
+
 def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
     """The files an unvalidated `rtl.sources` names, for deciding if a generator must run again.
 
@@ -381,8 +390,7 @@ def _source_paths_as_given(sources: Any, root: Path) -> Optional[List[Path]]:
     TypeError. Returns `None` for anything uninterpretable: the validator reports that properly
     a moment later, and until then the safe answer is to run the generator.
     """
-    if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
-        sources = [sources]  # the scalar shorthand the sources validator also accepts
+    sources = as_source_list(sources)
     if not isinstance(sources, (list, tuple, set)):
         return None
     paths: List[Path] = []
@@ -1033,6 +1041,8 @@ class DVSettings(XedaBaseModel):
     #: A target's sources come after the design's (`merge_layers(append=True)`); an override's
     #: replace them, as every other layer's list does.
     appended_fields: ClassVar[tuple[str, ...]] = ("sources",)
+    #: One source stands for a list of one (`as_source_list`).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
 
     @property
     def generics(self) -> Dict[str, DefineType]:
@@ -1062,8 +1072,7 @@ class DVSettings(XedaBaseModel):
             """Create a design source from a path and optional source type."""
             return DesignSource(src, typ=typ)
 
-        if isinstance(value, (str, Path, DesignSource)):
-            value = [value]
+        value = as_source_list(value)
         sources: List[DesignSource] = []
 
         def source_already_exists(src: DesignSource) -> bool:
@@ -1072,8 +1081,6 @@ class DVSettings(XedaBaseModel):
                     return True
             return False
 
-        if isinstance(value, (str, Path, FileResource, Mapping)):
-            value = [value]
         if not isinstance(value, (list, tuple, set)):
             raise ValueError(
                 f"'sources' must be a list of source files, got {type(value).__name__}: {value!r}"
@@ -1152,6 +1159,8 @@ class Generator(XedaBaseModel):
         "the design too (a library tree, an editable clone); xeda assumes nothing about the "
         "generator's language or environment.",
     )
+    #: One path stands for a list of one (the `sources` validator below).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("sources",)
     always_runs: bool = Field(
         default=False,
         description="Run this generator on every design load: what it reads cannot be judged "
@@ -1436,6 +1445,8 @@ class RtlSettings(DVSettings):
     #: `Flow.Settings.removed_settings`: a flat top-level key, a target's key and
     #: `--design-overrides` reach the same check, since each is folded into `rtl` first.
     removed_inputs: ClassVar[Dict[str, str]] = {"clock_port": "`clock: <port>`"}
+    #: One clock stands for a list of one (`clock_tables`).
+    single_item_fields: ClassVar[tuple[str, ...]] = ("clocks",)
 
     @classmethod
     def removed_input_problems(cls, values: Mapping[str, Any]) -> list[tuple[str, str]]:
@@ -1836,8 +1847,7 @@ def _declared_sources(sources: Any, record: DeferredLoad) -> Any:
     file named as a `{ path = ... }`, which need not exist yet, with its type. A pattern stands
     for the files that exist once the generator has run, so it is left out and the load is
     incomplete."""
-    if isinstance(sources, (str, os.PathLike, Mapping)):
-        sources = [sources]
+    sources = as_source_list(sources)
     if not isinstance(sources, (list, tuple)):
         return sources  # the sources validator reports it
     declared: List[Any] = []
