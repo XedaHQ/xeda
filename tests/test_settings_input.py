@@ -472,7 +472,7 @@ def test_direct_flow_construction_attaches_missing_settings_context(tmp_path):
 
 
 def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
-    from xeda.flow_runner import DefaultRunner
+    from xeda.flow_runner.launch_input import input_settings
     from xeda.flows import VivadoSynth
 
     (tmp_path / "top.v").write_text("module top; endmodule\n")  # `vivado_synth` reads a source
@@ -480,8 +480,6 @@ def test_runner_preserves_edits_inside_a_producer_settings_object(tmp_path):
     settings = VivadoSynth.Settings(fpga="xc7a100t")
     settings.xdc_files = ["$DESIGN_ROOT/pins.xdc"]
 
-    validated = DefaultRunner(tmp_path / "run")._input_settings(
-        VivadoSynth, settings, design, tmp_path / "start"
-    )
+    validated = input_settings(VivadoSynth, settings, design, tmp_path / "start")
 
     assert validated.xdc_files == [tmp_path / "pins.xdc"]
