@@ -567,9 +567,10 @@ class Nextpnr(FpgaSynthFlow):
 
     @classmethod
     def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
-        """The netlist is compared without its source locations unless a Python hook runs inside
-        nextpnr: it can read them (a cell's `src` attribute) to decide where to place."""
-        hooks = ("pre_pack", "pre_place", "pre_route", "post_route", "py_script")
+        """The netlist is compared without its source locations unless a Python hook may run
+        inside nextpnr: it can read them (a cell's `src` attribute) to decide where to place.
+        `extra_args` can start one (`--pre-place=hook.py`, `--run`), so any of them counts."""
+        hooks = ("pre_pack", "pre_place", "pre_route", "post_route", "py_script", "extra_args")
         if name == "netlist" and any(getattr(settings, hook, None) for hook in hooks):
             return False
         return super().input_equivalence(settings, name)

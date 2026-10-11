@@ -761,8 +761,9 @@ def run_reports(flow: Flow) -> List[str]:
 def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredInputRecord:
     """`record` as the run consumed it. An entry is marked unknown, and never matches, if its
     file was not the bytes the producer recorded when the run started, or if it may have changed
-    since: its metadata differs, or it is too recent for the metadata to vouch for it
-    (`FileRecord.trusted`, as for every input) and its content is read again."""
+    since: its metadata differs (written while the flow ran, even if put back as it was), or the
+    metadata is the same but too recent to vouch for it (`FileRecord.trusted`, as for every
+    input) and its content is read again."""
     references = tuple(
         ref.model_copy(update={"entries": tuple(_entry_consumed(e, snapshot) for e in ref.entries)})
         for ref in record.references
@@ -777,7 +778,15 @@ def _entry_consumed(entry: OutputEntry, snapshot: InputSnapshot) -> OutputEntry:
         return unknown
     path = Path(entry.path)
     try:
-        if started.trusted(path.stat(), snapshot.inputs_recorded_ns):
+        now = path.stat()
+        if (now.st_size, now.st_mtime_ns, now.st_ctime_ns, now.st_ino) != (
+            started.size,
+            started.mtime_ns,
+            started.ctime_ns,
+            started.inode,
+        ):
+            return unknown  # written while the flow ran, whatever it holds now
+        if started.trusted(now, snapshot.inputs_recorded_ns):
             return entry
         return entry if content_digest(path) == entry.sha else unknown
     except OSError:

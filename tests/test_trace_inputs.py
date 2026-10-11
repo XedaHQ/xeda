@@ -277,7 +277,17 @@ def test_a_handed_file_that_may_have_changed_is_read_again_before_it_is_trusted(
     assert _entry_consumed(entry, snapshot(recent)).unknown
     settled = max(started.mtime_ns, started.ctime_ns) + 10_000_000_000
     assert not _entry_consumed(entry, snapshot(settled)).unknown  # trusted by its metadata
-    path.write_text("A\n")
-    assert not _entry_consumed(entry, snapshot(recent)).unknown  # read again: the recorded bytes
     other = OutputEntry(path=str(path), sha="f" * 32)
     assert _entry_consumed(other, snapshot(recent)).unknown  # not what the producer recorded
+    # written while the flow ran, then put back as it was: the metadata moved
+    path.write_text("B\n")
+    started = FileRecord.of(path.stat(), content_digest(path))
+    entry = OutputEntry(path=str(path), sha=started.sha)
+    path.write_text("C\n")
+    path.write_text("B\n")
+    assert _entry_consumed(entry, snapshot(settled + 10**10)).unknown
+    # the bytes the producer recorded, and metadata that is the same but too recent to trust
+    path.write_text("A\n")
+    started = FileRecord.of(path.stat(), content_digest(path))
+    entry = OutputEntry(path=str(path), sha=started.sha)
+    assert not _entry_consumed(entry, snapshot(started.mtime_ns + 1_000_000_000)).unknown

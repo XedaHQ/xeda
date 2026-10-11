@@ -318,9 +318,9 @@ def test_a_python_hook_in_nextpnr_stops_the_comparison_without_source_locations(
         assert flow is not None and flow.succeeded
         return flow
 
-    assert not Nextpnr.input_equivalence(
-        Nextpnr.Settings.from_input({"fpga": {"part": PART}, "pre_place": "hook.py"}), "netlist"
-    )
+    for hook in ({"pre_place": "hook.py"}, {"extra_args": ["--pre-place=hook.py"]}):
+        settings = Nextpnr.Settings.from_input({"fpga": {"part": PART}, **hook})
+        assert not Nextpnr.input_equivalence(settings, "netlist")
     assert Nextpnr.input_equivalence(
         Nextpnr.Settings.from_input({"fpga": {"part": PART}}), "netlist"
     )
