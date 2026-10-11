@@ -65,24 +65,41 @@ def test_a_snapshot_taken_before_the_built_ins_load_would_lose_them():
     assert out == "False"
 
 
-def _called_name(call: ast.Call) -> str:
-    func = call.func
-    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+def _is_registry(node: ast.expr) -> bool:
+    """Whether `node` names the registry: `registered_flows`, or any `<module>.registered_flows`
+    (`flow_module.registered_flows`, `xeda.flow.flow.registered_flows`)."""
+    if isinstance(node, ast.Name):
+        return node.id == "registered_flows"
+    return isinstance(node, ast.Attribute) and node.attr == "registered_flows"
+
+
+#: The methods that take entries out or drop them wholesale. A test removes the flow it defined by
+#: name (`pop(name, None)`, `del registered_flows[name]`) and adds it back the same way (`update`,
+#: `registered_flows[name] = ...`): these do not depend on what the registry held before.
+WHOLESALE = ("clear", "popitem")
 
 
 def _restoring_by_hand(path: Path) -> list[int]:
-    """The lines of a test file that empty the registry or swap the module's own table."""
+    """The lines of a test file that empty the registry or swap the table itself."""
     lines = []
     for node in ast.walk(ast.parse(path.read_text(), str(path))):
         if isinstance(node, ast.Call):
+            func = node.func
             emptied = (
-                _called_name(node) == "clear"
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "registered_flows"
+                isinstance(func, ast.Attribute)
+                and func.attr in WHOLESALE
+                and _is_registry(func.value)
             )
-            swapped = _called_name(node) == "setattr" and any(
-                isinstance(arg, ast.Constant) and arg.value == "registered_flows"
+            # `setattr(module, "registered_flows", ...)`, `monkeypatch.setattr(module,
+            # "registered_flows", ...)` and `monkeypatch.setattr("xeda.flow.flow.registered_flows",
+            # ...)`
+            swapped = (
+                (isinstance(func, ast.Attribute) and func.attr == "setattr")
+                or (isinstance(func, ast.Name) and func.id == "setattr")
+            ) and any(
+                isinstance(arg, ast.Constant)
+                and isinstance(arg.value, str)
+                and arg.value.rsplit(".", 1)[-1] == "registered_flows"
                 for arg in node.args
             )
             if emptied or swapped:
@@ -113,12 +130,37 @@ def test_no_test_restores_the_registry_by_hand():
     "source",
     [
         "registered_flows.clear()",
+        "flow_module.registered_flows.clear()",
+        "xeda.flow.flow.registered_flows.clear()",
+        "registered_flows.popitem()",
+        "flow_module.registered_flows.popitem()",
         "monkeypatch.setattr(flow_module, 'registered_flows', {})",
+        "monkeypatch.setattr('xeda.flow.flow.registered_flows', {})",
         "setattr(flow_module, 'registered_flows', {})",
         "flow_module.registered_flows = {}",
+        "flow_module.registered_flows |= {}",
     ],
 )
 def test_the_scan_sees_each_way_to_restore_by_hand(tmp_path, source):
     path = tmp_path / "t.py"
     path.write_text(source + "\n")
     assert _restoring_by_hand(path) == [1]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "registered_flows.pop(name, None)",
+        "flow_module.registered_flows.pop(name, None)",
+        "del registered_flows[name]",
+        "registered_flows[name] = entry",
+        "registered_flows.update(own)",
+        "registered_flows.setdefault(name, entry)",
+        "before = registered_flows.copy()",
+        "monkeypatch.setitem(registered_flows, name, entry)",
+    ],
+)
+def test_the_scan_leaves_the_registration_of_a_flow_by_name_alone(tmp_path, source):
+    path = tmp_path / "t.py"
+    path.write_text(source + "\n")
+    assert _restoring_by_hand(path) == []
