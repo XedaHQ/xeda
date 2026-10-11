@@ -382,3 +382,119 @@ def test_the_schema_accepts_a_parameter_list_entry_with_a_falsy_value(value, tmp
     }
     assert validator().is_valid(data)
     assert Design(design_root=tmp_path, **data).rtl.parameters == {"W": value}
+
+
+# ------------------------------------------------- a list field that takes one item in its place
+
+
+def list_fields():
+    """Every list field of every model a design holds: (model, field name, schema property names)."""
+    import typing
+
+    from xeda.introspect import _models_reachable_from
+
+    for model in _models_reachable_from(Design):
+        for name, info in model.model_fields.items():
+            if typing.get_origin(info.annotation) is list or "List[" in repr(info.annotation):
+                yield model, name, {name, info.alias or name}
+
+
+def loader_takes_a_bare_string(model, name) -> bool:
+    """Whether the model's validators read the text `x` as an item of the list field, rather
+    than refuse it as a value that is no list."""
+    from pydantic import ValidationError
+
+    try:
+        model.__pydantic_validator__.validate_assignment(model.model_construct(), name, "x")
+    except ValidationError as error:
+        return all(e["type"] != "list_type" for e in error.errors())
+    return True
+
+
+def schema_properties(schema, model):
+    if model is Design:
+        return schema["properties"]
+    return schema["$defs"].get(model.__name__, {}).get("properties", {})
+
+
+def fields_that_take_a_bare_string_but_the_schema_does_not(schema):
+    """(model, field) pairs where the loader reads a bare string as the item of a list and the
+    schema describes only a list."""
+    found = []
+    for model, name, names in list_fields():
+        if not loader_takes_a_bare_string(model, name):
+            continue
+        properties = schema_properties(schema, model)
+        spec = next((properties[n] for n in names if n in properties), None)
+        if spec is None:
+            continue
+        checker = jsonschema.Draft202012Validator({"$defs": schema["$defs"], **spec})
+        if list(checker.iter_errors("x")):
+            found.append((model.__name__, name))
+    return found
+
+
+def test_the_schema_takes_a_bare_string_wherever_the_loader_does():
+    """The loader reads `sources: rtl/a.v` as a list of one, and `clocks: clk` too. Every list
+    field for which that holds must say so in the input schema. A new such field fails here
+    until it is described: declare it in `single_item_fields` (the schema reads the declaration)."""
+    assert fields_that_take_a_bare_string_but_the_schema_does_not(design_schema()) == []
+
+
+def test_the_sweep_sees_a_list_field_that_the_schema_describes_as_a_list_only(monkeypatch):
+    """Without the declaration the schema lists `sources` and `clocks` as lists only, and the
+    sweep names them: it has teeth."""
+    from xeda import introspect
+
+    monkeypatch.setattr(introspect, "single_item_fields_of", lambda model: ())
+    gaps = fields_that_take_a_bare_string_but_the_schema_does_not(design_schema())
+    assert {
+        ("RtlSettings", "sources"),
+        ("TbSettings", "sources"),
+        ("RtlSettings", "clocks"),
+    } <= set(gaps)
+
+
+def test_every_declared_single_item_field_is_one_the_loader_takes():
+    """The declaration the schema follows is true of the loader."""
+    from xeda.dataclass import single_item_fields_of
+
+    declared = {
+        (model, name)
+        for model in {m for m, _, _ in list_fields()}
+        for name in single_item_fields_of(model)
+    }
+    assert {(m.__name__, n) for m, n in declared} >= {
+        ("RtlSettings", "sources"),
+        ("TbSettings", "sources"),
+        ("RtlSettings", "clocks"),
+        ("Generator", "sources"),
+    }
+    for model, name in declared:
+        assert loader_takes_a_bare_string(model, name), f"{model.__name__}.{name}"
+
+
+@pytest.mark.parametrize(
+    "section", ["", "rtl", "tb", "rtl.generator"], ids=["flat", "rtl", "tb", "generator"]
+)
+def test_sources_given_as_one_path_or_one_table_load_and_validate(tmp_path, section):
+    """The same forms at the root, in `rtl`, in `tb` and in a generator: the loader and the
+    schema agree for a path and (not for a generator) a table."""
+    (tmp_path / "a.v").write_text("module a; endmodule\n")
+    forms = ["a.v", {"file": "a.v"}, {"path": "a.v", "type": "Verilog"}]
+    if section == "rtl.generator":
+        forms = ["a.v"]
+    for form in forms:
+        data: dict = {"name": "d", "rtl": {"top": "a", "sources": []}, "tb": {"sources": []}}
+        if section == "":
+            data = {"name": "d", "top": "a", "sources": form}
+        elif section == "rtl.generator":
+            data["rtl"]["generator"] = {"executable": "true", "sources": form}
+        else:
+            data[section]["sources"] = form
+        assert list(validator().iter_errors(data)) == [], form
+        path = tmp_path / "d.json"
+        path.write_text(json.dumps(data))
+        design = Design.from_file(path)
+        if section != "rtl.generator":
+            assert len((design.tb if section == "tb" else design.rtl).sources) == 1

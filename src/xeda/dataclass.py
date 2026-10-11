@@ -76,6 +76,7 @@ __all__ = [
     "mapping_form",
     "nested_model",
     "shape_problems",
+    "single_item_fields_of",
     "table_entries",
     "unspecified",
     "conventional_output",
@@ -374,6 +375,15 @@ def appended_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
     fields: Dict[str, None] = {}
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("appended_fields", ())))
+    return tuple(fields)
+
+
+def single_item_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
+    """The `single_item_fields` of `model`: its own and its bases', in the order of the MRO from
+    the base."""
+    fields: Dict[str, None] = {}
+    for klass in reversed(model.__mro__):
+        fields.update(dict.fromkeys(vars(klass).get("single_item_fields", ())))
     return tuple(fields)
 
 
@@ -706,6 +716,10 @@ class XedaBaseModel(BaseModel):
     #: it (`merge_layers(append=True)`, a target's merge over its design's `sources`). A subclass
     #: adds to its bases' (`appended_fields_of`).
     appended_fields: ClassVar[Tuple[str, ...]] = ()
+    #: List fields that also take one item where a list is expected (`sources: rtl/a.v`). The
+    #: field's validator reads that form; `design_schema()` describes it from this declaration. A
+    #: subclass adds to its bases' (`single_item_fields_of`).
+    single_item_fields: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:

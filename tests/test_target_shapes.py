@@ -136,34 +136,7 @@ def cases(rows):
     return [pytest.param(*row[1:], id=row[0]) for row in rows]
 
 
-#: Forms the loader takes and the schema does not describe yet, from before targets, with why:
-#: a single source on its own where the schema says a list, and an empty table where it says a
-#: whole clock.
-SCHEMA_GAPS = {
-    "sources: path then list": "the schema lists `sources` only as a list",
-    "sources: table then table": "the schema lists `sources` only as a list",
-    "sources: list then path": "the schema lists `sources` only as a list",
-    "tb.sources: path then list": "the schema lists `sources` only as a list",
-    "clock: clocks then empty clocks": "the schema lists `clocks` as whole clocks",
-}
-
-
-def schema_cases(rows):
-    return [
-        pytest.param(
-            *row[1:],
-            id=row[0],
-            marks=(
-                [pytest.mark.xfail(reason=SCHEMA_GAPS[row[0]], strict=True)]
-                if row[0] in SCHEMA_GAPS
-                else []
-            ),
-        )
-        for row in rows
-    ]
-
-
-@pytest.mark.parametrize("design, target, flat", schema_cases(SHAPES))
+@pytest.mark.parametrize("design, target, flat", cases(SHAPES))
 def test_the_schema_accepts_every_form_the_loader_accepts(tmp_path, design, target, flat):
     """The published schema describes the design file as the loader reads it: a form the loader
     takes, in a design or in a target, is valid against it."""

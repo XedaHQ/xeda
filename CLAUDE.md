@@ -210,7 +210,11 @@ metadata; the CLI, the docs and the agent skill all read from it.
 adds the flat top-level form (`sources`/`top`/`clock` at the root, folded into `rtl` by
 `Design.process_compatibility`), `test`/`tests` as aliases for `tb`, field names alongside
 aliases (`language`/`hdl`), the shorthands validators accept (`tb.top = "tb"`,
-`tb.cocotb = true`), and drops `additionalProperties: false` because files may use dotted-key
+`tb.cocotb = true`), one item where a list is expected for a field in `single_item_fields`
+(`sources`, `clocks`, a generator's `sources`; `as_source_list` and `clock_tables` read the form,
+`introspect._accept_single_items` describes it, and
+`tests/test_design_schema.py::test_the_schema_takes_a_bare_string_wherever_the_loader_does` sweeps
+every list field), and drops `additionalProperties: false` because files may use dotted-key
 shorthand (`clock.port`) that is expanded before validation. `design_schema(input_syntax=False)`
 returns the model schema. `tests/test_design_schema.py` validates every example design against
 both the schema and `Design.from_file`, so the two cannot drift. The emitted document is **draft
