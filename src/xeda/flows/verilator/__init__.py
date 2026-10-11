@@ -722,14 +722,16 @@ class Verilator(SimFlow):
             for arg in model_args
             if arg.startswith(COVERAGE_FILE_ARGUMENT)
         ]
+        # the run directory by every name it has: as given, and as the file system resolves it
+        bases = unique([os.path.abspath(self.run_path), os.path.realpath(self.run_path)])
         for name in names:
-            located = Path(os.path.abspath(self.run_path / name))
-            if os.path.commonpath([located, os.path.abspath(self.run_path)]) == os.path.abspath(
-                self.run_path
-            ):
-                # a name lexically in the run directory, given in full or not: refused when a
-                # link on the way leads out
-                self.run_directory.remove(located)
+            located = os.path.abspath(self.run_path / name)
+            for base in bases:
+                if os.path.commonpath([located, base]) == base:
+                    # a name lexically in the run directory, given in full or not: refused when
+                    # a link on the way leads out
+                    self.run_directory.remove(self.run_path / os.path.relpath(located, base))
+                    break
             # else a location the user chose outside the run directory is the user's own
 
     def rm_dep_files(self):
