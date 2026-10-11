@@ -83,7 +83,7 @@ class Docker(XedaBaseModel):
         except Exception:  # noqa: BLE001 - CPU details are optional Docker metadata
             ret = None
         if ret is not None:
-            return [x.split("\n") for x in re.split(r"\n\s*\n", ret, re.MULTILINE)]
+            return [x.split("\n") for x in re.split(r"\n\s*\n", ret)]
         return None
 
     @cached_property
