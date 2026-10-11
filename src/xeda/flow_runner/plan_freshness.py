@@ -27,11 +27,18 @@ from typing import Literal
 
 from ..deliver import split_deliveries
 from ..design import Design
-from ..flow import Flow, FlowFatalError, FlowSettingsError, FlowSettingsException
-from ..flow.io import declared_inputs
+from ..flow import (
+    Flow,
+    FlowDependencyFailure,
+    FlowFatalError,
+    FlowSettingsError,
+    FlowSettingsException,
+)
+from ..flow.io import declared_inputs, declared_outputs
 from ..proc_utils import DOCKER_IMAGE_PREFIX
 from ..run_dir import RunDirectory, RunDirectoryError
 from . import launch_input
+from .outputs import recorded_entries
 from .resolver import Plan, PlanNode
 from .trace import (
     BoundProducer,
@@ -83,19 +90,22 @@ def _results(node: PlanNode) -> dict | None:
     return document if isinstance(document, dict) and document.get("success") else None
 
 
-def _entries(results: dict, output: str) -> tuple[OutputEntry, ...] | None:
-    """The files of `output` as the recorded results hand them over (`outputs.handed_entries`),
-    or None if the results record none."""
+def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntry, ...] | str:
+    """The files of `output` as the recorded results hand them over, read as the hand-over reads
+    them (`outputs.recorded_entries`); else why not, as words for an unknown node: no record, or
+    one that is not valid."""
+    declaration = declared_outputs(producer.flow_class).get(output)
     recorded = (results.get("outputs") or {}).get(output)
-    if recorded is None:
-        return None
+    if declaration is None or recorded is None:
+        return f"{producer.name} recorded no output `{output}` to hand over"
     try:
-        return tuple(
-            OutputEntry(path=e["path"], sha=e["sha"], equivalence=e.get("equivalence"))
-            for e in (recorded if isinstance(recorded, list) else [recorded])
+        return recorded_entries(
+            recorded,
+            declaration.cardinality == "many",
+            f"{producer.name}'s output `{output}`",
         )
-    except (KeyError, TypeError):
-        return None
+    except FlowDependencyFailure as error:
+        return str(error)
 
 
 def _bare_flow(
@@ -203,11 +213,13 @@ def judge_node(
         for item in node.inputs:
             for ref in item.references:
                 results = _results(plan.node(ref.node))
-                found = None if results is None else _entries(results, ref.output)
-                if found is None:
-                    lacks = NodeFreshness(
-                        "unknown", f"{ref.node} recorded no output `{ref.output}` to hand over"
-                    )
+                found = (
+                    f"{ref.node} recorded no output `{ref.output}` to hand over"
+                    if results is None
+                    else _entries(results, plan.node(ref.node), ref.output)
+                )
+                if isinstance(found, str):
+                    lacks = NodeFreshness("unknown", found)
                 else:
                     entries[(ref.node, ref.output)] = found
     try:

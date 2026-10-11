@@ -577,3 +577,87 @@ def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, mon
     assert watch.problems() == []
     assert states["ghdl_sim"].state == STALE, states
     assert states["ghdl_sim"].reason == "no successful previous run"
+
+
+def _forge_record(graph: Graph, node: str, edit: Callable[[dict], None]) -> None:
+    """Rewrite one output record of `node`'s `results.json`, and the trace's record of that
+    file to match, so that the node is still fresh: the record alone is what is wrong."""
+    from xeda.digest import record_file
+
+    run_dir = graph.run_dir(node)
+    results = run_dir / "results.json"
+    document = json.loads(results.read_text())
+    edit(document["outputs"])
+    results.write_text(json.dumps(document))
+    trace_file = run_dir / "trace.json"
+    trace = json.loads(trace_file.read_text())
+    trace["outputs"][str(results.resolve())] = json.loads(record_file(results).model_dump_json())
+    trace_file.write_text(json.dumps(trace))
+
+
+def _as_a_list(outputs: dict) -> None:
+    outputs["produced"] = [outputs["produced"]]
+
+
+def _as_a_table(outputs: dict) -> None:
+    outputs["produced"] = outputs["produced"][0]
+
+
+@pytest.mark.parametrize("shape", ["a scalar output as a list", "a list output as a table"])
+def test_an_output_record_the_hand_over_refuses_is_unknown_to_a_dry_run(
+    shape, tmp_path, monkeypatch, toys
+):
+    """The dry run reads a producer's recorded outputs as the hand-over reads them (one function,
+    `outputs.recorded_entries`): a record of the wrong shape for the declared cardinality is not
+    handed over, so the consumer cannot be said to be fresh."""
+    ToyProducer, ToyConsumer = toys
+    if shape == "a list output as a table":
+        # a producer whose one output is a list of files, and a consumer that takes the list
+        class ManyProducer(ToyProducer):
+            """Writes its text to a list output of one file."""
+
+            class Outputs(Flow.Outputs):
+                produced: list[Path] = Out(SourceType.Data, description="The copied text.")
+
+            def run(self) -> None:
+                out = self.run_path / "outputs" / "produced.txt"
+                out.parent.mkdir(exist_ok=True)
+                out.write_text(self.design.rtl.sources[0].file.read_text() + self.settings.suffix)
+                self.artifacts.produced = out
+                self.outputs.produced = [out]
+
+        class ManyConsumer(ToyConsumer):
+            """Copies the first file of its producer's list."""
+
+            class Inputs(Flow.Inputs):
+                produced: list[Path] = In(
+                    SourceType.Data,
+                    producer="many_producer",
+                    output="produced",
+                    description="The producer's text.",
+                )
+
+            def run(self) -> None:
+                out = self.run_path / "outputs" / "consumed.txt"
+                out.parent.mkdir(exist_ok=True)
+                out.write_text(self.inputs.produced[0].read_text())
+                self.artifacts.consumed = out
+
+        class ManyGraph(ToyGraph):
+            flow, producer, consumer = "many_consumer", "many_producer", "many_consumer"
+
+        graph, edit = ManyGraph(tmp_path, monkeypatch), _as_a_table
+    else:
+        graph, edit = ToyGraph(tmp_path, monkeypatch), _as_a_list
+    graph.settle()
+    _, states = graph.dry()
+    assert (states[graph.producer].state, states[graph.consumer].state) == (FRESH, FRESH)
+    _forge_record(graph, graph.producer, edit)
+    _, states = graph.dry()
+    assert states[graph.producer].state == FRESH, "only the record is wrong"
+    said = states[graph.consumer]
+    assert said.state == UNKNOWN, said
+    assert f"{graph.producer}'s output `produced` has an invalid record" in said.reason
+    # and the launch refuses it
+    with pytest.raises(Exception, match="has an invalid record"):
+        graph.run()
