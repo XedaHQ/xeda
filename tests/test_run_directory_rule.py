@@ -28,7 +28,6 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.console import console
-from xeda.flow import registered_flows
 from xeda.flow_runner import DefaultRunner, default_runner
 from xeda.flow_runner.dse.dse_runner import _purge_run
 from xeda.flow_runner.run_lock import run_dir_lock
@@ -41,6 +40,7 @@ from xeda.run_dir import (
 )
 from xeda.run_root import ensure_run_root
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker
 
 pytestmark = [
@@ -57,10 +57,8 @@ RULE = f"named {FLOW} or {FLOW}_<hash>"
 
 @pytest.fixture(autouse=True)
 def private_registry():
-    before = registered_flows.copy()
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        yield
 
 
 @pytest.fixture

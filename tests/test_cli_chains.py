@@ -11,10 +11,11 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.design import DesignFileParseError
 from xeda.cli import cli
-from xeda.flow import FlowSettingsException, registered_flows
+from xeda.flow import FlowSettingsException
 from xeda.flow_runner import remote as remote_module
 from xeda.flow_runner.remote import RemoteRunner
 
+from .flow_registry import preserved_flow_registry
 from . import io_flows  # noqa: F401 - registers the declared test flows
 
 pytestmark = pytest.mark.python_compat
@@ -22,11 +23,9 @@ pytestmark = pytest.mark.python_compat
 
 @pytest.fixture(autouse=True)
 def isolate(tmp_path, monkeypatch):
-    before = registered_flows.copy()
-    monkeypatch.chdir(tmp_path)
-    yield
-    registered_flows.clear()
-    registered_flows.update(before)
+    with preserved_flow_registry():
+        monkeypatch.chdir(tmp_path)
+        yield
 
 
 def _design(tmp_path, flows=None, name="design.yaml"):

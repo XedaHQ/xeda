@@ -30,6 +30,7 @@ from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nextpnr
 
+from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes, minimal_settings
 from .test_design_parts import _mro, reachable_templates
 from .test_tcl_paths import needs_tclsh
@@ -383,10 +384,8 @@ def test_a_plan_refuses_a_design_with_nothing_the_flow_reads(
 @pytest.fixture
 def private_registry():
     """A flow that a test defines does not leak into the sweeps of other tests."""
-    saved = dict(registered_flows)
-    yield
-    registered_flows.clear()
-    registered_flows.update(saved)
+    with preserved_flow_registry():
+        yield
 
 
 def _reads_nextpnr_and_the_netlist():
