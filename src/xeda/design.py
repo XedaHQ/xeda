@@ -60,7 +60,7 @@ from .dataclass import (
 from .digest import content_digest
 from .generation import judging_generation
 from .proc_utils import tool_output_redirect
-from .run_dir import DIR_NAME_HASH_LEN, RunDirectory
+from .run_dir import DIR_NAME_HASH_LEN, RunDirectory, run_directory_name
 from .utils import (
     ConflictingKeys,
     NonZeroExitCode,
@@ -2363,7 +2363,7 @@ def _fold(name: str) -> str:
 
 def _flow_named(name: str) -> str | None:
     """The flow whose name `name` is, or whose run directory's name it is (the flow's name, an
-    underscore and `DIR_NAME_HASH_LEN` letters or digits: `run_dir.run_directory_name`), else None.
+    underscore and a hash: `run_dir.run_directory_name`), else None.
     A flow is a registered flow's name or alias, or a removed flow's
     (`settings_layers.REMOVED_FLOWS`), as the command line would take it (dashes for underscores,
     any letter case)."""
@@ -2376,11 +2376,8 @@ def _flow_named(name: str) -> str | None:
     flows = {_fold(flow) for flow in registered_flows} | set(removed)
 
     folded = _fold(name)
-    suffix = DIR_NAME_HASH_LEN + 1  # "_" and the hash
-    candidates = [folded]
-    if len(folded) > suffix and re.fullmatch(f"_[a-z0-9]{{{DIR_NAME_HASH_LEN}}}", folded[-suffix:]):
-        candidates.append(folded[:-suffix])
-    return next((candidate for candidate in candidates if candidate in flows), None)
+    # a flow's run directories are named by the one rule a launch and scrub apply
+    return next((flow for flow in sorted(flows) if run_directory_name(flow).match(folded)), None)
 
 
 class Design(XedaBaseModel):
