@@ -165,10 +165,10 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   `error.message` and the run's identity, also when a dependency fails; the previous
   `results.json` is removed before a run starts.
 - **A simulation passes only on evidence that it ended.** A cocotb run, on any simulator, needs
-  at least one test that ran and none that failed (an all-skipped run fails). Verilator runs under
-  Xeda's own C++ main (a design's own C++ driver keeps its place, and Xeda's hooks still record how
-  it ended) and reports `sim.ended_by`, `sim.time` and related keys; it gains `timeout`,
-  `fail_severity` (default `error`) and `stop_time`, simulates the testbench's top by name
+  at least one test that ran and none that failed (an all-skipped run fails). Xeda's hooks record
+  how a Verilator run ended (under Verilator's own main or a design's own C++ driver), and
+  Verilator reports `sim.ended_by`, `sim.time` and related keys; it gains `timeout` and
+  `fail_severity` (default `error`), refuses `stop_time`, simulates the testbench's top by name
   (`--top-module`: `tb.top`, else `rtl.top`; with cocotb, `tb.cocotb.toplevel`, else `rtl.top`),
   applies `rtl.parameters` only when the RTL top is the simulated top, and copies the model's output
   to `sim.log` in `sim_dir` (not under cocotb). Every simulator family, including VCS, xsim,
@@ -380,12 +380,12 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   flow left alone logs that it is up to date and shows its previously recorded results. Staleness
   covers: no successful previous run; changed settings (named in the reason); a changed xeda
   version or flow code/templates; a changed program (path, size or mtime; a container image's
-  ID); a dependency that ran again (until per-edge cutoff arrives, this always re-runs what
-  depends on it); an input added, removed, changed or missing; an output deleted or edited; or
-  changed design metadata (`top`, parameters, defines). Dependencies are always brought up to
-  date before the flow depending on them is judged. Each run directory records this in a new
-  `trace.json`, written last and atomically after a successful run and removed before the next
-  run executes, so its mere presence certifies the last run there succeeded. A file counts as
+  ID); a dependency whose outputs the flow takes changed; an input added, removed, changed or
+  missing; an output deleted or edited; or changed design metadata (`top`, parameters, defines).
+  Dependencies are always brought up to date before the flow depending on them is judged. Each run
+  directory records this in a new `trace.json`, written last and atomically after a successful run
+  and removed before the next run executes, so its mere presence certifies the last run there
+  succeeded. A file counts as
   unchanged by size and mtime unless it was touched within 2 seconds of the trace (a racy
   timestamp), otherwise by content hash -- a `touch` or a branch round-trip costs a hash, not a
   re-run, and a file restored with a stale mtime is still caught. `openfpgaloader` and `open_xc7`
@@ -658,9 +658,9 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
 
 - **Verilator simulation**: `random_init` now defaults to false, as in Verilator, and
   `random_seed` is used only with it; `x_initial`/`x_assign` default to `"0"` (were `"unique"`);
-  `stop_time` with cocotb or with a design's own C++ driver is an error (only Xeda's own driver
-  enforces it); `generate_systemc` without an `sc_main` among the design's C++ sources is an error
-  (Xeda's driver runs a C++ model); Verilator 5.024 or newer is required.
+  `stop_time` is an error (end the testbench with `$finish`, or use `timeout`); `generate_systemc`
+  without `main: false` and an `sc_main` among the design's C++ sources is an error; Verilator
+  5.048 or newer is required.
 - **The run root is `--run-root`** (`XEDA_RUN_ROOT`; the API's `run_root`, the launchers' first
   argument and property; the key `run_root` of `xeda scrub --json`), for `run`, `dse` and
   `scrub`: it is the directory holding every run directory. `--xeda-run-dir`, `XEDA_RUN_DIR` and
