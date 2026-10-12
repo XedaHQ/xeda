@@ -368,6 +368,7 @@ stable enough to branch on either way:
 - ``ExecutableNotFound``: the tool is not installed.
 - ``NonZeroExitCode``: the tool failed.
 - ``DesignValidationError``: a bad design file.
+- ``DesignNotSpecified``: you named no design, and no project file provides one.
 - ``NoSuccessfulRun``: a design-space exploration found no successful candidate.
 - ``FlowDependencyFailure``: a producer that the requested flow needs failed, or Xeda could not
   verify its completed output.
@@ -396,14 +397,14 @@ Four more types come from the isolation of run directories and deliveries:
   ``--overwrite-outputs``, or answer the prompt at an interactive terminal.
 
 An error in the command line itself is a usage error. This covers an unknown flow, an unknown
-option, a missing design file and a malformed chain. Xeda prints one error document with the class
-of the click error as ``error.type`` (``BadParameter``, ``NoSuchOption``, ``UsageError``) and exits
-with status 2. Such a document has no ``request`` or ``nodes``. Xeda applies several refusals before
-it starts a run, and they use the same document with ``UsageError``. For example, ``--remote``
-refuses ``--clean``, ``--hashed-run-dirs``, ``--dry-run`` and chains this way. A binding that cannot
-be applied (an unknown input or producer, a binding for a flow that declares no inputs, or a chain
-together with a command-line or API binding of the same input) is a settings error. It names the
-input and the place where the binding was written.
+option, a design file that does not exist and a malformed chain. Xeda prints one error document with
+the class of the click error as ``error.type`` (``BadParameter``, ``NoSuchOption``, ``UsageError``)
+and exits with status 2. Such a document has no ``request`` or ``nodes``. Xeda applies several
+refusals before it starts a run, and they use the same document with ``UsageError``. For example,
+``--remote`` refuses ``--clean``, ``--hashed-run-dirs``, ``--dry-run`` and chains this way. A
+binding that cannot be applied (an unknown input or producer, a binding for a flow that declares no
+inputs, or a chain together with a command-line or API binding of the same input) is a settings
+error. It names the input and the place where the binding was written.
 
 The ``results.json`` of every node is a failure document too, and its ``error.type`` is more
 specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
