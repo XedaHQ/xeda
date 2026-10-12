@@ -1268,11 +1268,11 @@ what to do. For a testbench that stops with no finish, it tells you to end the t
 Every simulator flow (every ``SimFlow``) has the settings ``timeout`` and ``fail_severity``. The
 default severity is ``error``, and the choices are ``warning``, ``error``, ``failure`` and
 ``fatal`` (``failure`` and ``fatal`` have the same rank). Any observed event at or above the
-selected threshold fails the run. ``timeout`` bounds each subprocess invocation that contains
-simulation, including analysis and elaboration when they share that invocation. It is not a
-cumulative deadline for the producers. An unset ``timeout`` adds no wall-clock limit. A Verilog
-``$stop`` is an event of the rank ``error`` and fails at the default threshold. VHDL
-``std.env.stop`` is accepted as completion.
+selected threshold fails the run. ``timeout`` is a number of seconds of wall-clock time. It stops
+and fails each subprocess invocation that contains simulation. An invocation can combine analysis,
+elaboration and simulation. The limit applies to each invocation and not to their total. An unset
+``timeout`` adds no limit. A Verilog ``$stop`` is an event of the rank ``error`` and fails at the
+default threshold. VHDL ``std.env.stop`` is accepted as completion.
 
 GHDL and nvc keep the actual end time of the simulator. A stop whose observed time differs from the
 requested ``stop_time`` fails, which matters for designs with sparse clock events. Xeda does not
