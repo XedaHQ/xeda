@@ -98,6 +98,7 @@ __all__ = [
     "waveform_format",
     "COMPRESSED_FORMATS",
     "WAVEFORM_SUFFIXES",
+    "waveform_format_name",
     "format_of_waveform_name",
     "waveform_format_of",
     "waveform_value",
@@ -761,6 +762,13 @@ WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
 
 #: A format that is another format compressed, and the plain format it is made of.
 COMPRESSED_FORMATS: Dict[str, str] = {"vcdgz": "vcd"}
+
+
+def waveform_format_name(extension: str) -> str:
+    """How a message names the waveform format `extension`: `VCD`, `FST`, ... and, for a
+    compressed format, `gzip-compressed VCD`."""
+    plain = COMPRESSED_FORMATS.get(extension)
+    return f"gzip-compressed {plain.upper()}" if plain else extension.upper()
 
 
 def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:

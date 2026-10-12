@@ -15,6 +15,7 @@ from ..dataclass import (
     Field,
     XedaBaseModel,
     format_of_waveform_name,
+    waveform_format_name,
     waveform,
     waveform_fields,
 )
@@ -399,22 +400,20 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 stem = format_of_waveform_name(text[:-3])
                 if stem is not None and stem[0] not in COMPRESSED_FORMATS:
                     raise FlowSettingsException(
-                        f"`{name}` writes {extension.upper()} data, and its name {value} ends in "
-                        f".{stem[1]}.gz, a gzip name: {cls.name} writes {stem[0].upper()} data "
+                        f"`{name}` writes {waveform_format_name(extension)} data, and its name {value} ends in "
+                        f".{stem[1]}.gz, a gzip name: {cls.name} writes {waveform_format_name(stem[0])} data "
                         "uncompressed"
                     )
             if written is not None and written[0] != extension:
                 other, suffix = usable.get(written[0]), written[1]
                 if other is not None:
-                    advice = f"give the name to `{other}`, which writes {written[0].upper()} data"
+                    advice = f"give the name to `{other}`, which writes {waveform_format_name(written[0])} data"
                 elif COMPRESSED_FORMATS.get(written[0]) == extension:
-                    advice = (
-                        f"{cls.name} writes plain {extension.upper()} data: drop the gzip ending"
-                    )
+                    advice = f"{cls.name} writes plain {waveform_format_name(extension)} data: drop the gzip ending"
                 else:
-                    advice = f"{written[0].upper()} data is another format: use a .{extension} name"
+                    advice = f"{waveform_format_name(written[0])} data is another format: use a .{extension} name"
                 raise FlowSettingsException(
-                    f"`{name}` writes {extension.upper()} data, and its name {value} ends in "
+                    f"`{name}` writes {waveform_format_name(extension)} data, and its name {value} ends in "
                     f".{suffix}: {advice}"
                 )
 

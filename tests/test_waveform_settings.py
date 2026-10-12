@@ -421,7 +421,12 @@ def test_a_name_never_selects_another_format(cls, name, field, extension):
         ("modelsim", "vcd", "x.saif", "use a .vcd name"),
         ("vcs", "vpd", "x.vcd", "use a .vpd name"),
         ("ghdl_sim", "wave", "x.vcd", "give the name to `vcd`"),
-        ("ghdl_sim", "vcd", "x.vcd.gz", "give the name to `vcdgz`"),
+        (
+            "ghdl_sim",
+            "vcd",
+            "x.vcd.gz",
+            "give the name to `vcdgz`, which writes gzip-compressed VCD data",
+        ),
         ("ghdl_sim", "vcd", "W.VCD.GZ", "give the name to `vcdgz`"),
         ("ghdl_sim", "vcd", "x.vcdgz", "give the name to `vcdgz`"),
         ("ghdl_sim", "vcd", "x.gz", "give the name to `vcdgz`"),
