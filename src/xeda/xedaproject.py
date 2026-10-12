@@ -116,7 +116,7 @@ class XedaProject:
                 else:
                     data = json.load(f)
         if not isinstance(data, dict) or not data:
-            raise ValueError("Invalid project file: it must hold a nonempty mapping")
+            raise ValueError(f"Invalid project file {file}: it must hold a nonempty mapping")
         # The design entries are expanded where they are used, one by one, whether `design` is a
         # table or a list of tables.
         entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}
