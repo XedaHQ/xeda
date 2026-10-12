@@ -588,17 +588,19 @@ the copy lands.
 A run is identified by what it writes: whether it writes the output, and the name it writes the
 output under in the run directory. A location is no part of that. A run that is up to date
 therefore delivers to a location you give it later, without running again. If the flow writes the
-output in any case under its conventional name, you can give a location, change it or remove it,
-and the run stays the same. ``fpga_pack`` always writes its bitstream, so
-``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. Three settings are
-written in any case under a name of their own when they are unset: ``verilog_output`` of
-``ghdl_synth``, ``cxxrtl.filename`` of ``yosys_sim`` and ``placement`` of ``nextpnr`` on Xilinx
-targets. For them, a location is a different file in the run directory, so it is a different run.
+output in any case, you can give a location, change it or remove it, and the run stays the same.
+The flow writes the conventional name when the setting is unset. ``fpga_pack`` always writes its
+bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. The same
+holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr`` on Xilinx targets.
 
 A setting that switches an output on works differently. ``vivado_synth`` writes no bitstream until
 ``bitstream`` is set. The first location you give it runs the flow again. Later locations do not.
 A name without a location (``-s bitstream=board.bit``) is a different file in the run directory,
 so it is a different run.
+
+A setting that names a file refuses ``true`` and ``false``, as text or as a boolean, because they
+would become a file called ``true``. Give a name or a location, or leave the setting unset. Only a
+waveform setting such as ``vcd`` takes ``true`` and ``false`` as a switch.
 
 A requested flow that writes no outputs -- a programmer, as in
 ``xeda run vivado_synth+openfpgaloader`` -- has nothing to deliver. ``--outputs-to`` is then

@@ -141,7 +141,7 @@ class Nvc(SimFlow):
         wave: Union[bool, str, Path, None] = Field(
             None,
             description="Write waveform data to a file. The default is to not write waveform data.",
-            json_schema_extra=deliverable("outputs/{design}.fst"),
+            json_schema_extra=deliverable("outputs/{design}.fst", switch=True),
         )
         wave_format: Optional[Literal["vcd", "fst"]] = Field(
             None,

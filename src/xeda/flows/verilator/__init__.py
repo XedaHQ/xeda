@@ -283,19 +283,19 @@ class Verilator(SimFlow):
             "the value is the file cocotb writes: `true` writes `dump.vcd`, a name without an "
             "extension gets `.vcd`, and a location is delivered. Only one of `vcd`, `fst` and "
             "`saif` may be set.",
-            json_schema_extra=deliverable("outputs/{design}.vcd"),
+            json_schema_extra=deliverable("outputs/{design}.vcd", switch=True),
         )
         fst: Union[None, str, Path] = Field(
             None,
             description="Build the model with FST tracing (`--trace-fst`), far more compact than "
             "VCD for long simulations. Used as `vcd` is: `true` selects the format.",
-            json_schema_extra=deliverable("outputs/{design}.fst"),
+            json_schema_extra=deliverable("outputs/{design}.fst", switch=True),
         )
         saif: Union[None, str, Path] = Field(
             None,
             description="Build the model with SAIF tracing (`--trace-saif`), for power "
             "estimation. Used as `vcd` is: `true` selects the format.",
-            json_schema_extra=deliverable("outputs/{design}.saif"),
+            json_schema_extra=deliverable("outputs/{design}.saif", switch=True),
         )
         threads: int = Field(
             0,

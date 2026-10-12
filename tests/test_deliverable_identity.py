@@ -12,9 +12,15 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.dataclass import DELIVERABLE_ROLE, conventional_output, written_always, written_role
+from xeda.dataclass import (
+    DELIVERABLE_ROLE,
+    conventional_output,
+    takes_switch,
+    written_always,
+    written_role,
+)
 from xeda.deliver import split_deliveries
-from xeda.flow import flowrun_hash
+from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.launch_input import setting_naming
@@ -29,17 +35,17 @@ BITSTREAM = b"\x00\xffXEDA bitstream\x00"
 #: Deliverables the flow writes whether or not they are given, and that have no default name:
 #: unset, the run writes the conventional name. (A setting with a default name is written under
 #: it, and a setting that switches its output on writes nothing when unset.)
-ALWAYS_WRITTEN = {("FpgaPack.Settings", "bitstream")}
+ALWAYS_WRITTEN = {
+    ("FpgaPack.Settings", "bitstream"),
+    ("GhdlSynth.Settings", "verilog_output"),
+    ("Nextpnr.Settings", "placement"),  # Xilinx only; it reads the LUT count from the dump
+}
 
 #: Deliverables the flow writes whether or not they are given, but, unset, under a name of their
-#: own (`<top>.v`, `<top>.cpp`), not the conventional one a location gets. Unset and a location
-#: are two runs here, as the file names differ. (The CXXRTL header is named after the model's
-#: file, and a C++ driver of the design includes it by that name.)
-UNSET_UNDER_OWN_NAME = {
-    ("GhdlSynth.Settings", "verilog_output"),
-    ("CxxRtl", "filename"),
-    ("Nextpnr.Settings", "placement"),  # Xilinx only: it always writes `placement.json`
-}
+#: own, not the conventional one a location gets. Unset and a location would be two runs there.
+#: There is none: a flow that needs the name for its own purpose makes the setting a working
+#: location instead (`cxxrtl.filename`: the design's C++ driver includes the generated header).
+UNSET_UNDER_OWN_NAME: set[tuple[str, str]] = set()
 
 
 def deliverables(model, prefix=(), seen=()):
@@ -138,14 +144,12 @@ def test_a_deliverable_written_under_its_own_name_is_not_marked(tmp_path):
 
 
 #: Where a flow's code gives an unset deliverable (default `None`) a name of its own, by file
-#: and setting. Each is either a deliverable the flow writes in any case (the first three: see
-#: `ALWAYS_WRITTEN` and `UNSET_UNDER_OWN_NAME`), or a demand that names the output
-#: (`enable_output`: a consumer that needs the file sets its conventional name).
+#: and setting. Each is either a deliverable the flow writes in any case (see `ALWAYS_WRITTEN`),
+#: or a demand that names the output (`enable_output`: a consumer that needs the file sets its
+#: conventional name).
 REVIEWED_FALLBACKS = {
     ("flows/fpga_pack.py", "bitstream"): "always written; conventional name",
-    ("flows/ghdl/__init__.py", "verilog_output"): "always written; `<top>.v`",
-    ("flows/yosys/cxx_rtl.py", "filename"): "always written; `<top>.cpp`",
-    ("flows/nextpnr.py", "placement"): "Xilinx always writes it; `placement.json`",
+    ("flows/ghdl/__init__.py", "verilog_output"): "always written; conventional name",
     ("flows/vivado/vivado_synth.py", "bitstream"): "a consumer's demand names it",
     ("flows/vivado/vivado_postsynthsim.py", "saif"): "a consumer's demand names it",
 }
@@ -294,3 +298,48 @@ def test_a_location_given_to_a_finished_run_delivers_without_running_again(tmp_p
     named = launch(bitstream="board.bit")
     assert not named.reused
     assert named.outputs.bitstream == named.run_path / "board.bit"
+
+
+SWITCHES = ("true", "false", "TRUE", True, False)
+
+
+@pytest.mark.parametrize(
+    "cls, path, model, field", CASES, ids=[f"{c.name}.{'.'.join(p)}" for c, p, _m, _f in CASES]
+)
+def test_true_and_false_name_no_file(tmp_path, cls, path, model, field):
+    """A deliverable that has no switch meaning refuses `true` and `false`, as text and as a
+    boolean, and says to give a location. One that reads them as a switch (a waveform) takes them.
+    """
+    for value in SWITCHES:
+        if takes_switch(model, field):
+            _hash(cls, tmp_path, path, value)
+            continue
+        with pytest.raises(FlowSettingsError) as refused:
+            _hash(cls, tmp_path, path, value)
+        message = str(refused.value)
+        assert f"`{str(value).lower()}` is a switch" in message and path[-1] in message
+        assert "location" in message
+
+
+def test_ghdl_synth_writes_its_conventional_name_when_unset(tmp_path):
+    """The run writes `outputs/<design>.v` whether `verilog_output` is given or not, so a location
+    given later is delivered from the same run."""
+    tool_utils.require_ghdl()
+    root = tmp_path / "design"
+    root.mkdir()
+    (root / "inv.vhd").write_text(
+        "library ieee; use ieee.std_logic_1164.all;\n"
+        "entity inv is port(a: in std_logic; y: out std_logic); end;\n"
+        "architecture rtl of inv is begin y <= not a; end;\n"
+    )
+    design = Design(name="inv", design_root=root, rtl={"sources": ["inv.vhd"], "top": "inv"})
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    first = runner.run("ghdl_synth", design)
+    assert first is not None and first.succeeded
+    written = first.run_path / "outputs/inv.v"
+    assert written.is_file() and first.artifacts.generated_verilog == [Path("outputs/inv.v")]
+    location = tmp_path / "delivered" / "inverter.v"
+    location.parent.mkdir()
+    again = runner.run("ghdl_synth", design, flow_settings={"verilog_output": str(location)})
+    assert again is not None and again.reused
+    assert location.read_bytes() == written.read_bytes()

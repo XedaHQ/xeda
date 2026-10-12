@@ -202,7 +202,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             alias="waveform",
             description="Write a waveform to this file. `true` writes `dump.vcd`; a name without "
             "an extension gets `.vcd`; `false` or an empty name writes none.",
-            json_schema_extra=deliverable("outputs/{design}.vcd"),
+            json_schema_extra=deliverable("outputs/{design}.vcd", switch=True),
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
