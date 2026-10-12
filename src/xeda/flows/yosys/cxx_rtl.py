@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from ...dataclass import WORKING, Field, XedaBaseModel, deliverable, input_names
+from ...dataclass import WORKING, Field, XedaBaseModel, input_names
 from ...design import Design, SourceType
 from ...flow import (
     Flow,
