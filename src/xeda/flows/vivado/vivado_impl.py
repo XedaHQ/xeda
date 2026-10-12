@@ -20,42 +20,44 @@ log = logging.getLogger(__name__)
 class VivadoImpl(VivadoImplementation):
     """Place and route a netlist with AMD-Xilinx Vivado, in non-project mode.
 
-    Its `netlist` input is an `Edif` design source or, by default, the EDIF netlist that
-    `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl
+    The `netlist` input is an `Edif` design source or, by default, the EDIF netlist that
+    `yosys_fpga` writes for a flat Xilinx synthesis. So `xeda run yosys_fpga+vivado_impl
     design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here.
     A generated TCL script reads the constraints and the netlist, links the design, and runs
     `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that
     `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after
-    placement); it reports timing and utilization, and writes a bitstream when `bitstream` is
-    set or a consumer needs it. The results are those of `vivado_synth`.
+    placement). The flow reports timing and utilization. It writes a bitstream when `bitstream`
+    is set or a consumer needs it. The results are those of `vivado_synth`.
 
-    The outputs are switched as in `vivado_alt_synth`, which also runs Vivado in non-project mode,
-    by the settings of the same names: `write_checkpoint` writes the routed checkpoint
-    `checkpoints/post_route.dcp` (`checkpoint_route`), and the one after placement beside it;
-    `write_netlist` the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the
-    constraints `outputs/impl.xdc` (`xdc_exported`); `write_timing_netlist` the timing netlist
-    `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF
-    `outputs/impl_timesim.sdf` (`sdf`); `bitstream` the bitstream. A design has no synthesis
-    checkpoint here, so there is no `checkpoint_synth`.
+    The outputs follow `vivado_alt_synth`, which also runs Vivado in non-project mode, and the
+    settings of the same names switch them on. `write_checkpoint` writes the routed checkpoint
+    `checkpoints/post_route.dcp` (`checkpoint_route`) and the one after placement beside it.
+    `write_netlist` writes the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the
+    constraints `outputs/impl.xdc` (`xdc_exported`). `write_timing_netlist` writes the timing
+    netlist `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF
+    `outputs/impl_timesim.sdf` (`sdf`). `bitstream` writes the bitstream. The flow does no
+    synthesis, so it has no `checkpoint_synth`.
 
-    Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies
-    the netlist to `<top>.edif` in its run directory, whatever the file was called. The design
-    needs `rtl.top` for that, and `fpga` and a clock as for any Vivado flow. Pin constraints
-    are `Xdc` design sources or `xdc_files`.
+    Vivado finds the top module of an EDIF netlist by the name of its file. The flow therefore
+    copies the netlist to `<top>.edif` in its run directory, whatever the file was called. For
+    that, the design needs `rtl.top`. It also needs `fpga` and a clock, as for any Vivado flow.
+    Pin constraints are `Xdc` design sources or `xdc_files`.
 
-    A netlist from another source has to be flat, and written with its buses' ranges: yosys's
-    `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it
-    starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the
-    ranges. Without them Vivado links the design with every bus reversed and says nothing.
+    A netlist from another source must be flat and must carry the ranges of its buses. Use
+    yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist
+    before it starts Vivado. It stops for a netlist that is not flat, and it names the modules.
+    It cannot check the ranges. Without them, Vivado links the design with every bus reversed and
+    gives no message.
     """
 
-    # Vivado's runs, whose status `vivado_synth` reports, are project mode's
+    # This flow has no project-mode Vivado runs, so it drops the `status` result of
+    # `vivado_synth`.
     results_description = {
         key: text for key, text in VivadoSynth.results_description.items() if key != "status"
     }
 
     class Settings(VivadoImplementation.Settings):
-        """Vivado implementation settings"""
+        """Vivado implementation settings."""
 
         impl: RunOptions = Field(
             RunOptions(strategy="Default"),
@@ -75,7 +77,8 @@ class VivadoImpl(VivadoImplementation):
             SourceType.Edif,
             producer="yosys_fpga",
             output="netlist_edif",
-            description="The EDIF netlist to implement: a design source or yosys_fpga's.",
+            description="The EDIF netlist to implement: a design source or the one from "
+            "`yosys_fpga`.",
         )
         constraints: list[Path] = In(
             (SourceType.Xdc, SourceType.Sdc),
@@ -85,8 +88,9 @@ class VivadoImpl(VivadoImplementation):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Vivado looks the top of an EDIF netlist up by its file name (`run`), so the design
-        has to name one that is a file name."""
+        """Refuse a design with no top module, or with a top module that is no file name.
+
+        Vivado looks up the top of an EDIF netlist by the name of its file (`run`)."""
         super().check_design_supported(design, settings)
         top = design.rtl.top
         if not top:
@@ -102,7 +106,7 @@ class VivadoImpl(VivadoImplementation):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Vivado implements Xilinx devices only."""
+        """Refuse a device that is not a Xilinx device."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         fpga = settings.fpga
@@ -120,11 +124,14 @@ class VivadoImpl(VivadoImplementation):
 
     @staticmethod
     def refuse_a_hierarchy(netlist: Path) -> None:
-        """Stop for a netlist that Vivado would take apart into black boxes. The settings show
-        only some of the ways to a hierarchy (`YosysFpga.Settings.edif_problem`): the HDL asks for
-        one too (`(* keep_hierarchy *)`), and a netlist from elsewhere may hold one. The netlist
-        shows them all, and is read in chunks: the file of a large design is not held. Vivado
-        reports the cause in its log, and xeda only its exit status."""
+        """Refuse a netlist with a hierarchy, which Vivado would take for black boxes.
+
+        The settings show only some of the ways to a hierarchy
+        (`YosysFpga.Settings.edif_problem`). The HDL can ask for one too
+        (`(* keep_hierarchy *)`), and a netlist from another source can hold one. The netlist
+        shows all of them. The function reads the netlist in chunks, so it does not hold the
+        file of a large design in memory. Vivado reports the cause in its log, but Xeda sees
+        only its exit status."""
         modules = modules_used_as_library_cells_in_file(netlist)
         if modules:
             raise FlowFatalError(
@@ -148,14 +155,15 @@ class VivadoImpl(VivadoImplementation):
             log.warning("No clocks specified for top RTL design.")
         self.refuse_a_hierarchy(inputs.netlist)
 
-        # Vivado finds the top by the name of the file (`[Project 1-68] No files found to match
-        # top module`): so whatever the netlist is called, the script reads this copy of it
+        # Vivado finds the top module by the name of the file (`[Project 1-68] No files found
+        # to match top module`). The script therefore reads this copy, whatever the netlist was
+        # called.
         netlist = self.run_directory.writable(f"{top}.edif")
         replacing_copy(inputs.netlist, netlist)
 
         bitstream: Optional[Path] = None
         if ss.bitstream is not None:
-            # never through a link at that name (`RunDirectory.writable`)
+            # Never write through a link at that name (`RunDirectory.writable`).
             bitstream = self.run_directory.writable(self.run_path / ss.bitstream)
             bitstream.parent.mkdir(parents=True, exist_ok=True)
         self.record_outputs(self.non_project_outputs())

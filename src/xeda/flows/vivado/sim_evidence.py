@@ -1,8 +1,9 @@
-"""Native xsim runtime observations shared by behavioral and netlist simulations.
+"""Native xsim runtime observations, shared by behavioral and netlist simulations.
 
-The diagnostic forms and current_sim PRECISION were measured on Vivado 2024.2.
-An owned Vivado log bounds runtime separately from compilation and Tcl echo.
-A checkpoint observes time; only native HDL diagnostics establish finish.
+The diagnostic forms and the `current_sim` PRECISION come from measurements on Vivado 2024.2.
+Markers that the script writes into the Vivado log (`xsim_runtime.log`) separate the runtime from
+compilation and Tcl echo.
+A checkpoint records time. Only a native HDL diagnostic shows that the simulation finished.
 """
 
 import re
@@ -19,7 +20,7 @@ PROCESS_LOG = Path("xsim_process.log")
 
 
 def parse_xsim_evidence(flow: Flow) -> SimEvidence | None:
-    """Read current-run native events and owned checkpoints, failing closed on ambiguity."""
+    """Read the native events and checkpoints of this run. Return None if the log is ambiguous."""
     text = read_sim_log(flow, RUNTIME_LOG)
     if text is None:
         return None
@@ -36,7 +37,7 @@ def parse_xsim_evidence(flow: Flow) -> SimEvidence | None:
     vhdl_files = {
         str(source.file) for source in flow.design.sim_sources if source.type is SourceType.Vhdl
     }
-    # Relative native paths are interpreted in the simulator's working directory, never by suffix.
+    # Resolve relative native paths against the simulator's working directory, never by suffix.
     vhdl_paths = {Path(path).resolve() for path in vhdl_files}
     finish_times = []
     checkpoints: list[tuple[str, int, int]] = []
@@ -68,8 +69,8 @@ def parse_xsim_evidence(flow: Flow) -> SimEvidence | None:
             limit = parse_sim_time(hit[1].replace("sec", "s"))
             if limit is None:
                 return None
-        # Native records can follow partial $write output on the same physical line.
-        # Match the complete suffix; severity still requires the native time/source context.
+        # A native record can follow partial $write output on the same line, so match the end
+        # of the line. The severity still needs the native time and source context.
         end = re.search(
             r"\$(finish|stop) called at time : ([\d.]+\s+(?:fs|ps|ns|us|ms|sec))"
             r'(?: : File "(.+)" Line (\d+))?$',

@@ -131,7 +131,7 @@ CASES: dict[str, Case] = {
     "verilator-waveform-name": Case(Verilator, "`vcd` names a waveform file", {"vcd": "wave.vcd"}),
     "bsc-unspecified-without-undetermined": Case(
         Bsc,
-        "requires opt_undetermined_vals",
+        "requires `opt_undetermined_vals: true`",
         {"unspecified_to": "X", "opt_undetermined_vals": False},
         _bsv(),
     ),
@@ -152,8 +152,8 @@ CASES: dict[str, Case] = {
     "bsc-sim-max-cycles-elsewhere": Case(
         BscSim, "max_cycles bounds Bluesim", {"simulator": "iverilog", "max_cycles": 10}, _bsv()
     ),
-    "vcs-sdf-without-instance": Case(Vcs, "SDF instance is required", {"sdf_file": "x.sdf"}),
-    "vivado-sim-elab-debug-off": Case(VivadoPostsynthSim, "elab_debug=off", {"elab_debug": "off"}),
+    "vcs-sdf-without-instance": Case(Vcs, "`sdf_instance` is required", {"sdf_file": "x.sdf"}),
+    "vivado-sim-elab-debug-off": Case(VivadoPostsynthSim, "elab_debug: off", {"elab_debug": "off"}),
     "vivado-sim-controlled-flag": Case(
         VivadoPostsynthSim, "conflicts with xsim runtime evidence", {"sim_flags": ["-R"]}
     ),

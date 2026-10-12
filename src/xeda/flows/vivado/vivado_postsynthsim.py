@@ -11,11 +11,11 @@ log = logging.getLogger(__name__)
 
 
 class VivadoPostsynthSim(VivadoSim):
-    """Simulate the testbench on the routed netlist `vivado_synth` writes.
+    """Simulate the testbench on the routed netlist that `vivado_synth` writes.
 
-    Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its
-    functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`)
-    annotated with its slow-corner SDF (`sdf_max`).
+    The producer `vivado_synth` runs with `write_netlist` and `write_timing_netlist`. This flow
+    simulates the functional netlist (`netlist`). With `timing_sim`, it simulates the timing
+    netlist (`netlist_timing`) annotated with the slow-corner SDF (`sdf`).
     """
 
     class Settings(VivadoSim.Settings, FpgaSynthFlow.Settings):
@@ -65,9 +65,11 @@ class VivadoPostsynthSim(VivadoSim):
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """An activity demand names the file: `saif` has no default to switch on, so a consumer's
-        demand gives it its conventional name (`outputs/<design>.saif`), the one the run writes
-        when the setting names a location. Timing activity also enables timing."""
+        """Switch on an activity output when a consumer demands it.
+
+        `saif` has no default to switch on, so the demand gives it the conventional name
+        (`outputs/<design>.saif`). The run writes that name when the setting names a location.
+        A demand for `timing_saif` also enables the timing simulation."""
         if name not in ("saif", "timing_saif"):
             return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
@@ -78,7 +80,7 @@ class VivadoPostsynthSim(VivadoSim):
 
     @staticmethod
     def conventional_activity(settings: Flow.Settings, design_name: str) -> Path:
-        """The name the activity file is written under when nothing names it."""
+        """Return the name of the activity file when no setting names it."""
         conventional = settings.conventional_output("saif", design_name)
         assert conventional is not None  # `saif` is a deliverable with a conventional name
         return Path(conventional)
@@ -90,10 +92,10 @@ class VivadoPostsynthSim(VivadoSim):
         assert isinstance(self.outputs, self.Outputs)
         synth_netlist_path = self.inputs.netlist_timing if ss.timing_sim else self.inputs.netlist
         if synth_netlist_path is None or not synth_netlist_path.is_file():
-            raise FlowFatalError(f"Netlist {synth_netlist_path} does not exist!")
+            raise FlowFatalError(f"The netlist {synth_netlist_path} does not exist.")
         postsynth_sources = [DesignSource(synth_netlist_path)]
         log.info("Setting post-synthesis sources to: %s", postsynth_sources)
-        # also removing top-level generics and everything else
+        # Keep only the top module: drop the top parameters and every other RTL setting.
         self.design.rtl = RtlSettings(
             top=self.design.rtl.top, sources=postsynth_sources, attributes={}
         )
@@ -108,7 +110,7 @@ class VivadoPostsynthSim(VivadoSim):
         if ss.timing_sim:
             if not ss.sdf.delay_items():
                 if self.inputs.sdf is None:
-                    raise FlowFatalError("Timing simulation requires the declared sdf input")
+                    raise FlowFatalError("A timing simulation needs the declared input `sdf`.")
                 ss.sdf = SDF(max=self.inputs.sdf)
             if not ss.sdf.root:
                 ss.sdf.root = self.design.tb.uut
@@ -124,8 +126,8 @@ class VivadoPostsynthSim(VivadoSim):
                 "-pulse_int_e 0",
             ]
         )
-        # A direct timing request enables timing_saif without enabling the separate saif
-        # output. Supply the recorder's filename during simulation, preserving its switch.
+        # A direct timing request enables `timing_saif` without the separate `saif` output.
+        # Give the recorder a file name for the simulation, then restore the `saif` setting.
         requested_saif = ss.saif
         recording_saif = requested_saif or (
             self.conventional_activity(ss, self.design.name) if ss.timing_sim else None

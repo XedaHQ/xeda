@@ -86,7 +86,7 @@ set_property strategy {{settings.impl.strategy|tcl_word}} [get_runs impl_1]
 set_property generic {{generics|join(" ")|tcl_word}} [current_fileset]
 {%- endif %}
 
-{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
+{# See https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 {# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
 {%- for steps,run_name in [(synth_steps, "synth_1"), (impl_steps, "impl_1")] %}
 {%- for step,options in steps.items() %}
@@ -134,12 +134,12 @@ unset design_name
 unset project_name
 unset fpga_part
 
-{#- What became of a run is in its properties alone: `wait_on_run` returns normally for a failed
-    run in Vivado 2021.1, and raises an error in 2024.2. So the script waits for the run either
-    way, then asks whether it completed the step it was launched to -- its STATUS is
-    "<step> Complete!" (not "<step> ERROR", "Not started", ...) and its PROGRESS 100% -- and
-    records the status for the results (`status`). A run that did not complete its step ends the
-    script with one message naming the run, its status and its log. #}
+{#- The outcome of a run is in its properties alone. In Vivado 2021.1, `wait_on_run` returns
+    normally for a failed run. In 2024.2, it raises an error. So the script waits for the run
+    either way, then checks that the run completed the step it was launched to: its STATUS is
+    "<step> Complete!" (not "<step> ERROR", "Not started", ...) and its PROGRESS is 100%. The
+    script records the status for the results (`status`). A run that did not complete its step
+    ends the script with one message that names the run, its status and its log. #}
 proc xedaWaitOnRun {run step} {
   catch {wait_on_run $run} {# <-- renamed to wait_on_runs in Vivado 2021.2 #}
   set status [get_property STATUS [get_runs $run]]

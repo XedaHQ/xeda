@@ -15,11 +15,11 @@ log = logging.getLogger(__name__)
 
 
 class VivadoSim(Vivado, SimFlow):
-    """Simulate using Xilinx Vivado simulator (xsim).
+    """Simulate a design with the Vivado simulator (`xsim`).
 
-    ``elab_debug`` must preserve source information so VHDL ``std.env.stop`` can be distinguished
-    from Verilog ``$stop``; explicitly disabling it is rejected. ``stop_time`` is an absolute
-    bound across prerun and runtime, measured from xsim's actual current time. Verified with
+    `elab_debug` must keep source information, so that Xeda can tell VHDL `std.env.stop` from
+    Verilog `$stop`. Xeda refuses `elab_debug: off`. `stop_time` is an absolute limit across the
+    pre-run and the run, measured from the current time that `xsim` reports. Verified with
     Vivado 2024.2.
     """
 
@@ -30,23 +30,22 @@ class VivadoSim(Vivado, SimFlow):
         "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings", "sim.evidence"
     )
 
-    # TODO change this?
-    # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
+    # TODO: Vivado can run several configurations (test vectors) in one run through `run_configs`.
 
     class Settings(Vivado.Settings, SimFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
             "suppress_msgs": NoReplacement(
-                "a simulation runs no synthesis, and xeda passed it to nothing"
+                "a simulation runs no synthesis, and Xeda passed it to nothing"
             ),
-            "initialize_zeros": NoReplacement("xeda passed it to nothing"),
-            "read_oneshot": NoReplacement("xeda passed it to nothing"),
+            "initialize_zeros": NoReplacement("Xeda passed it to nothing"),
+            "read_oneshot": NoReplacement("Xeda passed it to nothing"),
         }
         saif: Optional[Path] = Field(
             None,
-            description="Write switching activity to this SAIF file, for downstream power "
-            "estimation. Implies `elab_debug`. `true` writes `outputs/<design>.saif`, the name a "
-            "location is written under.",
+            description="Write the switching activity to this SAIF file, for power estimation. "
+            "`true` writes `outputs/<design>.saif`, the name that the run uses when a location "
+            "is given.",
             json_schema_extra=waveform("saif", "outputs/{design}.saif"),
         )
         elab_flags: List[str] = Field(
@@ -58,24 +57,27 @@ class VivadoSim(Vivado, SimFlow):
         sim_flags: List[str] = Field([], description="Extra flags passed to `xsim` at run time.")
         elab_debug: Optional[str] = Field(
             None,
-            description='Debug level passed to `xelab -debug`, e.g. "typical" or "all". Set '
-            "to at least `typical` to retain native diagnostic source provenance.",
+            description='Debug level passed to `xelab -debug`, for example "typical" or "all". '
+            'The default is "typical". Xeda refuses "off", because it needs the source '
+            "information to read the diagnostics of the simulator.",
         )
         sdf: SDF = Field(
             SDF(),
-            description="SDF timing-annotation files to back-annotate onto the netlist, per delay "
-            "corner (min/typ/max) and optional instance root.",
+            description="SDF files that annotate the netlist with delays, per delay corner "
+            "(min, typ, max), and an optional instance root.",
         )
         optimization_flags: List[str] = Field(
             ["-O3"], description="Optimization flags passed to `xelab`."
         )
         debug_traces: bool = Field(
-            False, description="Enable simulator debug tracing. Very verbose and slow."
+            False,
+            description="Enable the debug tracing of the simulator (`ltrace` and `ptrace`). "
+            "The output is very verbose and the simulation is slow.",
         )
         prerun_time: Optional[str] = Field(
             None,
-            description="Run the simulation for this long before waveform dumping starts, e.g. "
-            '"10ns". Useful to skip an initial reset sequence.',
+            description="Run the simulation for this long before SAIF logging starts, for "
+            'example "10ns". This skips the activity of an initial reset sequence.',
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
         xelab_log: Optional[Path] = Field(
@@ -96,7 +98,7 @@ class VivadoSim(Vivado, SimFlow):
 
     @classmethod
     def check_waveforms(cls, settings: Flow.Settings) -> None:
-        """`vcd_scope` and `vcd_level` choose what the VCD holds."""
+        """Refuse `vcd_scope` and `vcd_level` without `vcd`."""
         assert isinstance(settings, cls.Settings)
         for name in ("vcd_scope", "vcd_level"):
             if getattr(settings, name) and settings.vcd is None:
@@ -127,17 +129,17 @@ class VivadoSim(Vivado, SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse settings that break the runtime evidence protocol or give a bad time, before
-        anything runs."""
+        """Refuse settings that break the runtime evidence protocol or give a bad time."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         cls.check_waveforms(settings)
         if settings.elab_debug == "off":
             raise FlowSettingsException(
-                "elab_debug=off disables source provenance required by xsim runtime evidence"
+                "`elab_debug: off` removes the source information that the xsim runtime evidence "
+                "needs"
             )
-        # Flags are rendered as Tcl words; existing settings allow several words in an
-        # entry. Check every option so grouping cannot hide a runtime evidence control.
+        # A flag becomes Tcl words, and an entry may hold several words. Check each word, so that
+        # grouping cannot hide an option that the runtime evidence protocol controls.
         for option in (word for flag in settings.sim_flags for word in flag.split()):
             if option in cls.CONTROLLED_SIM_FLAGS or option.startswith("-downgrade_"):
                 raise FlowSettingsException(
@@ -160,7 +162,7 @@ class VivadoSim(Vivado, SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly is not planned
         self.check_settings_supported(ss)
-        # The owned native log is required even when ordinary Vivado logging was disabled.
+        # The runtime evidence reads Vivado's log, so keep it even when `no_log` is set.
         self.vivado.default_args = [arg for arg in self.vivado.default_args if arg != "-nolog"]
 
     def run(self) -> None:
@@ -169,8 +171,8 @@ class VivadoSim(Vivado, SimFlow):
         if ss.nthreads is not None:
             ss.elab_flags.append(f"-mt {ss.nthreads}")
         elab_debug = ss.elab_debug
-        # Native $stop carries its HDL source only with elaboration debug. The adapter
-        # needs that provenance to distinguish VHDL std.env.stop from Verilog $stop.
+        # A native $stop carries its HDL source only with elaboration debug. The adapter needs
+        # the source to tell VHDL std.env.stop from Verilog $stop.
         if not elab_debug:
             elab_debug = "typical"
         if elab_debug:
@@ -181,7 +183,7 @@ class VivadoSim(Vivado, SimFlow):
                 [
                     (
                         None,
-                        "No testbench ('tb') is specified in the design",
+                        "The design has no testbench: add a `tb` section",
                         None,
                         None,
                     )
@@ -193,7 +195,7 @@ class VivadoSim(Vivado, SimFlow):
                 [
                     (
                         None,
-                        "VivadoSim requires simulation top but 'tb.top' was not specified in the design",
+                        "The simulation needs a top module: set `tb.top` in the design",
                         None,
                         None,
                     )
@@ -206,17 +208,18 @@ class VivadoSim(Vivado, SimFlow):
         if not sdf_root:
             sdf_root = self.design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
-            assert sdf_root, "neither SDF root nor tb.uut are provided"
+            assert sdf_root, "neither an SDF root nor `tb.uut` is set"
             ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
-        # The simulator's work library is made anew, the previous one removed through the run
-        # directory. So is the SAIF, which `open_saif` does not replace.
+        # Remove the previous work library through the run directory, so that the simulator
+        # makes it anew. Remove the previous SAIF file too: `open_saif` does not replace one.
         self.run_directory.remove("xsim.dir")
         if ss.saif:
             saif = self.run_directory.writable(ss.saif)
             self.run_directory.remove(saif)
-            # `open_saif` makes no directory: the conventional name is below `outputs/`, which
-            # only a located setting has made by now (the launcher, for a delivery)
+            # `open_saif` makes no directory. The conventional name lies in `outputs/`, which
+            # exists by now only if the setting names a location (the launcher makes it for the
+            # delivery).
             saif.parent.mkdir(parents=True, exist_ok=True)
         self.run_directory.remove(RUNTIME_LOG, PROCESS_LOG)
         self.run_directory.writable(RUNTIME_LOG)
@@ -235,8 +238,8 @@ class VivadoSim(Vivado, SimFlow):
         script_path = self.copy_from_template(
             "vivado_sim.tcl", stop_fs=stop_fs, prerun_fs=prerun_fs, runtime_log=RUNTIME_LOG
         )
-        # `vivado_sim.tcl` writes these whenever the enabling setting is set; record them so
-        # consumers (e.g. `vivado_power`) don't have to guess the path themselves.
+        # `vivado_sim.tcl` writes these files whenever their setting is set. Record them, so that
+        # consumers such as `vivado_power` need not guess the path.
         if ss.vcd:
             self.artifacts.vcd = ss.vcd
         if ss.saif:
