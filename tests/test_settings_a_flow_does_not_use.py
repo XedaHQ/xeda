@@ -13,11 +13,12 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsError
+from xeda.dataclass import input_names
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Nvc, Openroad, VivadoAltSynth, VivadoProject, VivadoSynth, YosysFpga
 
-from .settings_samples import minimal_settings
+from .settings_samples import flow_classes, minimal_settings
 from .test_vivado_step_tables import PART, _design, _run, _script
 from .test_openroad import _mac_design
 from .tool_utils import fake_calls, require_nvc_evidence, use_fake_asic_tools
@@ -27,8 +28,13 @@ needs_tclsh = pytest.mark.skipif(
 )
 
 SYNTHESIS = {"fpga": PART, "clock": {"period": 5.5}}
+PRODUCT_NAMES = {name for cls, name in flow_classes() if cls.__module__.startswith("xeda.")} & {
+    cls.name for _, cls in registered_flows.values()
+}
 
-#: flow, a setting the flow does not have, a value for it, and what the error says to use
+#: flow, a setting the flow does not have, a value for it, and what the error says to use. Every
+#: setting that a flow lost is here, so a removed field without an entry in `removed_settings`
+#: fails.
 REFUSED = [
     ("vivado_project", "vcd", True, "flows.vivado_sim.vcd"),
     ("vivado_project", "waveform", "wave", "flows.vivado_sim.vcd"),
@@ -36,9 +42,13 @@ REFUSED = [
     ("vivado_project", "fail_severity", "error", "flows.vivado_sim.fail_severity"),
     ("vivado_project", "saif", "a.saif", "flows.vivado_sim.saif"),
     ("vivado_project", "optimization_flags", ["-O3"], "flows.vivado_sim.optimization_flags"),
+    ("vivado_project", "initialize_zeros", True, "no setting"),
+    ("vivado_project", "read_oneshot", True, "no setting"),
     ("vivado_sim", "initialize_zeros", True, "no setting"),
     ("vivado_sim", "read_oneshot", True, "no setting"),
     ("vivado_sim", "suppress_msgs", [], "no setting"),
+    ("vivado_postsynth_sim", "initialize_zeros", True, "no setting"),
+    ("vivado_postsynth_sim", "read_oneshot", True, "no setting"),
     ("vivado_postsynth_sim", "suppress_msgs", [], "no setting"),
     ("vivado_power", "suppress_msgs", [], "no setting"),
     ("yosys_sim", "netlist", "out.v", "no setting"),
@@ -54,9 +64,19 @@ REFUSED = [
     ("yosys_fpga", "nosynth", True, "no setting"),
     ("yosys_fpga", "netlist_verilog_extmem", [], "no setting"),
     ("ghdl_synth", "compiler_flags", ["-O"], "flows.ghdl_sim.compiler_flags"),
+    ("ghdl_synth", "assembler_flags", ["-O"], "flows.ghdl_sim.assembler_flags"),
     ("ghdl_synth", "linker_flags", ["-L"], "flows.ghdl_sim.linker_flags"),
-    ("dc", "platform", "nangate45", "target_libraries"),
-    ("dc", "mw_ref_lib", "lib", "no setting"),
+    *[
+        ("dc", name, value, use)
+        for name, value, use in (
+            ("platform", "nangate45", "target_libraries"),
+            ("extra_link_libraries", ["a.db"], "no setting"),
+            ("mw_ref_lib", "lib", "no setting"),
+            ("mw_tf", "x.tf", "no setting"),
+            ("alib_dir", "alib", "no setting"),
+            ("additional_search_path", "dir", "no setting"),
+        )
+    ],
     ("quartus", "synthesis_effort", "fast", "no setting"),
     ("vcs", "work_dir", "work", "no setting"),
     ("vcs", "optimization_flags", ["-O"], "no setting"),
@@ -64,8 +84,15 @@ REFUSED = [
     ("nvc", "optimization_flags", ["-O"], "no setting"),
     ("verilator", "optimization_flags", ["-O"], "no setting"),
     ("yosys_sim", "optimization_flags", ["-O"], "no setting"),
-    ("bsc", "timeout_seconds", 5, "no setting"),
-    ("vivado_synth", "no_console", True, "no setting"),
+    # removed from every flow
+    *[
+        (flow, name, value, use)
+        for flow in sorted(PRODUCT_NAMES)
+        for name, value, use in (
+            ("timeout_seconds", 5, "`timeout`"),
+            ("no_console", True, "no setting"),
+        )
+    ],
 ]
 
 
@@ -233,3 +260,30 @@ def test_openroad_sources_the_floorplan_script_and_hands_the_macro_placer_its_co
     assert f'source "{floorplan}"' in script
     assert f'-config_file [list "{config}"]' in script
     assert script.count("-config_file") == 1, "the setting replaces the environment variable's"
+
+
+# ----------------------------------------------------------------------- the removal sweeps
+
+
+@pytest.mark.parametrize("flow", sorted(PRODUCT_NAMES))
+def test_every_removed_setting_of_a_flow_is_refused_as_removed(flow) -> None:
+    """A key in `removed_settings` is no field and no alias of the flow, and giving it says it
+    was removed (never `Extra inputs are not permitted`)."""
+    cls = registered_flows[flow][1]
+    names = input_names(cls.Settings)
+    for key in cls.Settings.removed_setting_replacements():
+        assert key not in names, f"{flow}: {key} is a setting and was removed"
+        with pytest.raises(FlowSettingsError) as refused:
+            cls.Settings.from_input({**minimal_settings(cls), key: "x"})
+        assert f"`{key}` was removed: use " in str(refused.value)
+
+
+def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
+    from xeda.flows import VivadoSim
+
+    for spelling, field in input_names(VivadoSim.Settings).items():
+        if field in VivadoSynth.Settings.model_fields:
+            continue
+        with pytest.raises(FlowSettingsError) as refused:
+            VivadoProject.Settings.from_input({**SYNTHESIS, spelling: None})
+        assert f"`{spelling}` was removed: use " in str(refused.value)

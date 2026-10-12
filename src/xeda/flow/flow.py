@@ -1001,7 +1001,8 @@ class Flow(metaclass=ABCMeta):
         #: says so, instead of pydantic's "extra inputs are not permitted".
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)",
-            "timeout_seconds": "no setting: no flow read it",
+            "timeout_seconds": "`timeout`, on the flows that have one (the simulators). No flow limited a "
+            "tool's run time with it",
             "no_console": "no setting: no flow read it",
         }
 

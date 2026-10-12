@@ -84,6 +84,11 @@ class VivadoProject(Vivado, FpgaSynthFlow):
                 for spelling, field in input_names(VivadoSim.Settings).items()
                 if field not in VivadoSynth.Settings.model_fields
             },
+            **{
+                spelling: text
+                for spelling, text in VivadoSim.Settings.removed_settings.items()
+                if spelling not in VivadoSynth.Settings.model_fields
+            },
         }
 
         gui: bool = Field(
