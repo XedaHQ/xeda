@@ -123,6 +123,24 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
 target, ``--design-overrides`` and a ``flows`` table.
 
+Some settings hold a dictionary whose keys are names that the tool defines. Vivado's run
+properties are an example, and their names contain dots. A dotted key of such a setting is one
+key, not a path into nested tables::
+
+    xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+
+This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
+file, a target, a project file and the API give it in the same way. In a design file, the key
+``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
+written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
+Two names where one is the start of the other (``A`` and ``A.B``) are an error, like any key that
+is both a value and a table.
+
+``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
+its settings) and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
+dotted key is a path into nested tables.
+
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain

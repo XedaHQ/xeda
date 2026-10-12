@@ -116,6 +116,7 @@ type as ``-s <name>=<value>``:
           "description": "Max number of threads",
           "enum": null,
           "writes": null,
+          "opaque_keys": false,
           "common": true,
           "declared_by": "xeda.flow.flow.Flow.Settings",
           "json_schema": {
@@ -137,6 +138,11 @@ type as ``-s <name>=<value>``:
   given -- ``sim_dir``, a log path), ``"deliverable"`` (an output that may be given a location,
   which is then delivered there once the run finishes -- ``fpga_pack``'s ``bitstream``, ``vcd``), or
   ``null`` when the setting is read, not written.
+* ``opaque_keys`` is true for a setting that holds a dictionary whose keys are names defined by the
+  tool, such as Vivado's run properties (``set_synth_properties``). A dot in such a key is part of
+  the name: ``-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`` sets the one property
+  ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM``. For any other setting, a dotted key is a path into nested
+  tables.
 * ``enum`` lists the permitted values when a setting is constrained to a set.
 * ``definitions`` describes nested setting types (``FPGA``, ``PhysicalClock``, ``RunOptions``, ...).
   This is xeda's own envelope key and keeps its name; inside ``json_schema`` the same types appear

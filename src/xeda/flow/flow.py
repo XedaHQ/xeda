@@ -48,12 +48,16 @@ from ..dataclass import (
     ValidationError,
     XedaBaseModel,
     annotation_args,
+    annotation_kind,
     comma_separated_items,
     conventional_output,
     field_annotation,
     field_validator,
+    fold_dotted_keys,
     input_names,
     model_validator,
+    opaque_key_fields_of,
+    table_entries,
     validation_errors,
     written_role,
 )
@@ -919,6 +923,24 @@ class Flow(metaclass=ABCMeta):
                     "without a default: give the field a default (`None`, or an empty value) "
                     "and name it in `required_settings`."
                 )
+            for name in opaque_key_fields_of(cls):
+                info = cls.model_fields.get(name)
+                if (
+                    info is None
+                    or annotation_kind(info.annotation)[0] != "dict"
+                    or table_entries(info.annotation) is not None
+                ):
+                    raise TypeError(
+                        f"{cls.__qualname__}: `{name}` is in `opaque_key_fields`, so it must be a "
+                        "setting that holds a dictionary of values (`Dict[str, int]`), not "
+                        "dictionaries."
+                    )
+
+        #: Settings that hold a dictionary whose keys are names of the tool (a Vivado run
+        #: property, `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), which may contain dots. A dotted key
+        #: of such a setting is one key, whichever way it is given (`dataclass.fold_dotted_keys`).
+        #: A subclass adds to its bases' (`dataclass.opaque_key_fields_of`).
+        opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
@@ -957,10 +979,14 @@ class Flow(metaclass=ABCMeta):
             2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
+            3. A setting whose keys are opaque names (`opaque_key_fields`) takes a dotted key as
+               one key: the nested tables that every origin makes of it are joined again.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            if name in opaque_key_fields_of(cls):
+                value = fold_dotted_keys(value)
             if isinstance(value, str) and _is_comma_separated_list(annotation):
                 value = comma_separated_items(name, value)
             if value == "" and _is_optional_path(annotation):

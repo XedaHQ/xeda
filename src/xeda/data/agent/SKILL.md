@@ -120,6 +120,13 @@ the options with `--`.
 xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 ```
 
+A setting that holds a dictionary keyed by the tool's own names takes a name with dots as ONE key:
+`-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` sets the Vivado run property
+`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM` (same in a design file under `flows.vivado_synth.set_synth_properties`).
+`xeda list-settings <flow> --json` marks these with `"opaque_keys": true` (the Vivado
+`set_synth_properties`/`set_impl_properties`, ISE's `*_options`); any other dotted key is a path into
+nested tables (`synth.steps...`).
+
 Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`,
 `quiet`/`verbose`/`debug`, `redirect_stdout` and `lib_paths`. `xeda list-settings <flow> --json`
 marks these with `"common": true`; `--no-common` omits them.

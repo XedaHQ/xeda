@@ -861,6 +861,19 @@ overlay report it as a `DesignValidationError`, and `dse` as its error document.
 `tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
 to every origin.
 
+**A setting whose keys are the tool's own names takes a dotted key as one key.** Every origin
+expands dotted keys before it knows the model, so Vivado's `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`
+arrives as nested tables. `Flow.Settings.opaque_key_fields` (read along the MRO,
+`dataclass.opaque_key_fields_of`) names the dictionary settings of that kind (`set_synth_properties`
+and `set_impl_properties` on `VivadoSynth.Settings`, which `vivado_alt_synth` and `vivado_project`
+inherit; ISE's five `*_options`), and `_normalize_flow_setting` joins each path to a value back into
+one key (`dataclass.fold_dotted_keys`), on construction, reload and assignment alike. The nested form
+and the dotted form are one setting. A name that is the start of another (`A`, `A.B`) stays a
+`ConflictingKeys` from the expansion. Class creation refuses a name that is no dictionary-of-values
+field; `introspect` shows `opaque_keys`; `tests/test_opaque_key_settings.py` gives a property from
+every origin, checks the fake Vivado gets one word, and requires every dictionary setting of every
+flow to be opaque or reviewed as nested (`ORDINARY_DICTIONARIES`, with the reason).
+
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
 values really are of several kinds, its type says so and whatever consumes it renders each kind
@@ -876,7 +889,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting two conveniences, applied before any field validator runs (by a model `before` validator
+setting its conveniences (these two, and the join of an opaque-key table below), applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
