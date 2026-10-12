@@ -620,7 +620,7 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
     design = Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["top.v"], "top": "top"},
+        rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
         flows={
             "vivado_synth": {
                 "clock": {"period": 5.0},

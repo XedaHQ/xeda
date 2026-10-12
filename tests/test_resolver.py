@@ -35,7 +35,9 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
     root.mkdir(exist_ok=True)
     for source in sources:
         (root / source["file"]).write_text("x\n")
-    design = Design(name="d", design_root=root, rtl={"sources": list(sources), "top": "t"})
+    design = Design(
+        name="d", design_root=root, rtl={"sources": list(sources), "top": "t", "clock": "clk"}
+    )
     return resolve(
         flow_cls,
         design,
@@ -1186,7 +1188,7 @@ def test_a_flow_section_with_a_null_clock_plans(tmp_path):
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top"},
+        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top", "clock": "clk"},
     )
     plan = resolve(
         YosysFpga,
