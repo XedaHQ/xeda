@@ -124,13 +124,16 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
   only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
   flows read `lib_paths`.
-- A flow uses every other setting it lists, and refuses one that belongs to a related flow,
-  naming that flow: `vivado_project` refuses the settings of `vivado_sim`, `yosys_sim` those of
-  `yosys`, `ghdl_synth` the compiler and linker flags of `ghdl_sim`, and `vivado_alt_synth`
-  refuses `set_synth_properties`, `set_impl_properties` and `show_available_strategies`
-  (non-project mode has no runs). A removed setting fails with "`<name>` was removed: ..."; if
-  nothing replaces it, the message says to delete it (for example `timeout_seconds` is now
-  `timeout`, and `no_console` is gone).
+- A flow uses every other setting it lists, and refuses a setting of a related flow:
+  - The message names the flow that has it: `vivado_project` refuses `elab_debug`, `stop_time` and
+    the other `vivado_sim` settings ("use `flows.vivado_sim.<name>`"); `ghdl_synth` refuses
+    `compiler_flags`, `assembler_flags` and `linker_flags` ("use `flows.ghdl_sim.<name>`");
+    `vivado_alt_synth` refuses `set_synth_properties`, `set_impl_properties` and
+    `show_available_strategies` ("it is a setting of vivado_synth": non-project mode has no runs).
+  - The message says to delete it: `yosys_sim` refuses the synthesis settings of `yosys`
+    (`splitnets` was removed: "CXXRTL simulation does not synthesize; delete it").
+  - A removed setting fails with "`<name>` was removed: ...". If nothing replaces it, the message
+    says to delete it. `timeout_seconds` is now `timeout`, and `no_console` is gone.
 - A setting accepts its declared type only. `true` and `false` are the only booleans, and a list
   setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
 
