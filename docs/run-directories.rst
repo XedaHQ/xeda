@@ -370,7 +370,8 @@ Location tells Xeda a run's own file from an edit of yours. The run directory al
 run root, and it belongs to the run alone. Every entry in it is an output of the run, whether the
 run wrote it or not. A file that appears there after the last run makes the run stale. Outside the
 run directory, a file that a setting, a depfile or the design names stays an input. If such a file
-changed during the run, its record is unknown, and the next launch runs again.
+was not there before the run, or changed during it, its record is unknown, and the next launch runs
+again.
 
 Every file under a directory that a setting names is an input, and there is no limit on how many. A
 limit would let a change past it go unnoticed. Xeda checks each file by its metadata at every launch
@@ -486,7 +487,7 @@ A request for exclusive access while the process holds the lock shared is refuse
 written. ``xeda scrub`` keeps the lock file when it deletes a run directory, so waiting processes
 continue to use the same lock identity. Scrub removes sibling run directories before the launch
 takes its own run lock. This avoids deadlocks between variants of the settings. A failure to take
-the lock names the producer, its path and the error of the operating system.
+the lock names the producer, its path, the shared mode and the error of the operating system.
 
 Xeda reserves these names at the top of a run directory and never counts them as outputs of a run:
 ``trace.json``, ``trace.json.tmp`` (a trace that is being written) and ``.xeda-time-*`` (a marker
@@ -666,8 +667,8 @@ Two more exceptions exist, and you configure both explicitly. Xeda does not deci
   the run directory of a producer at all. A dockerized flow that needs a file of a producer needs a
   ``Docker.mounts`` entry for it.
 
-In both cases Xeda writes there as you told it and guards nothing about what it finds. You manage
-that directory, not Xeda.
+In both cases Xeda writes there as you told it and guards nothing about what it finds. That
+directory is yours to manage.
 
 Outputs where you name them
 ============================
@@ -753,7 +754,6 @@ flow that delivers it, Xeda asks again. If it changes while Xeda waits for your 
 not replace it. Xeda checks once more right before the copy, in case something changed in between.
 It never replaces a destination that changed since its last check, whether you confirmed it or not.
 A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too.
-Delivery follows the outcome of the run, not whether a tool executed.
 
 With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. Xeda then
 moves a delivered file out of the run directory and does not copy it, so a large output does not

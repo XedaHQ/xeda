@@ -271,9 +271,9 @@ and its resolved ``inputs``, which are empty for a flow that declares none. The 
 uses the same representation for the inputs (the section on planning, below, describes the fields).
 When a producer fails, the planned nodes that were never entered come after the other nodes, with
 ``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
-repeated flow, or an edge that does not fit) is a usage error. It gives one error document and exit
-status 2, with no ``request``, ``plan`` or ``nodes``. Chains are local requests, and ``--remote``
-and ``dse`` refuse them.
+repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
+It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. Chains
+are local requests, and ``--remote`` and ``dse`` refuse them.
 
 ``design`` is always the name of the design: the ``name`` in its design file, or the name you gave
 for a design of a project (``--design-name``). ``design_file`` is the absolute path of the design
@@ -312,7 +312,7 @@ or ``--outputs-to`` named, once the whole launch finished (see "Outputs where yo
   or ``"unchanged"`` (the destination already held exactly that file).
 
 The list is ``[]`` for a node with nothing to deliver. A node that is up to date still lists its
-deliveries, because delivery follows the outcome of a node, not whether its tool ran.
+deliveries, because delivery depends on the outcome of the node, whether or not its tool ran.
 
 The records of declared outputs appear as ``results.outputs`` in the CLI document and as the
 top-level ``outputs`` key in ``results.json``. Each enabled output that the flow actually produced
