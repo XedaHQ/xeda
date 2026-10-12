@@ -6,7 +6,7 @@ from typing import List, Literal, Optional, Union
 from colorama import Fore as fg
 from colorama import Style as style
 
-from ..dataclass import WORKING, Field, deliverable
+from ..dataclass import WORKING, Field, waveform
 from ..design import SourceType
 from ..flow import Flow, FlowSettingsException, SimFlow
 from ..flow.flow import describe_results
@@ -42,6 +42,30 @@ class Vcs(SimFlow):
     results_description = describe_results(
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
+
+    unsupported_waveforms = {
+        "vcd": "VCS writes VPD, FSDB or EVCD waveforms: set `vpd`, `fsdb` or `evcd` (`to_vcd` "
+        "converts an FSDB or VPD file to VCD)"
+    }
+
+    @classmethod
+    def check_waveforms(cls, settings: Flow.Settings) -> None:
+        """VCS writes one waveform, and `to_vcd` and the size limits need the format they act on."""
+        assert isinstance(settings, cls.Settings)
+        chosen = [name for name in ("fsdb", "vpd", "evcd") if getattr(settings, name) is not None]
+        if len(chosen) > 1:
+            raise FlowSettingsException(
+                f"vcs writes one waveform, and {', '.join(chosen)} are set: keep one of them"
+            )
+        if settings.to_vcd and not (settings.fsdb or settings.vpd):
+            raise FlowSettingsException(
+                "`to_vcd` converts an FSDB or VPD waveform: set `fsdb` or `vpd`"
+            )
+        if settings.vpd_size_limit is not None and settings.vpd is None:
+            raise FlowSettingsException("`vpd_size_limit` limits the VPD waveform: set `vpd`")
+        default_limit = cls.Settings.model_fields["fsdb_size_limit"].default
+        if settings.fsdb_size_limit != default_limit and settings.fsdb is None:
+            raise FlowSettingsException("`fsdb_size_limit` limits the FSDB waveform: set `fsdb`")
 
     def has_evidence_adapter(self) -> bool:
         return True
@@ -190,8 +214,9 @@ class Vcs(SimFlow):
         )
         fsdb: Optional[Path] = Field(
             None,
-            description="Enable FSDB (Fast Signal DataBase) for waveform generation",
-            json_schema_extra=deliverable("outputs/{design}.fsdb"),
+            description="Enable FSDB (Fast Signal DataBase) for waveform generation: the file to "
+            "write. `true` writes `dump.fsdb`.",
+            json_schema_extra=waveform("fsdb"),
         )
         fsdb_size_limit: Optional[int] = Field(
             256,
@@ -203,17 +228,20 @@ class Vcs(SimFlow):
         )
         vpd: Optional[Path] = Field(
             None,
-            description="Enable VPD waveform generation and specify the file path.",
-            json_schema_extra=deliverable("outputs/{design}.vpd"),
+            description="Enable VPD waveform generation and specify the file path. `true` writes "
+            "`dump.vpd`.",
+            json_schema_extra=waveform("vpd"),
         )
         evcd: Optional[Path] = Field(
             None,
-            description="Enable EVCD waveform generation and specify the file path.",
-            json_schema_extra=deliverable("outputs/{design}.evcd"),
+            description="Enable EVCD waveform generation and specify the file path. `true` writes "
+            "`dump.evcd`.",
+            json_schema_extra=waveform("evcd"),
         )
         vpd_size_limit: Optional[int] = Field(
             None,
-            description="Set the VPD size limit in MB. When the limit is reached, the simulation overwrites older history",
+            description="Set the VPD size limit in MB (`+vpdfilesize`). When the limit is reached, the "
+            "simulation overwrites older history. Needs `vpd`.",
         )
 
     @classmethod
@@ -221,6 +249,7 @@ class Vcs(SimFlow):
         """VCS annotates an SDF file onto one instance, so it needs both, before anything runs."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
+        cls.check_waveforms(settings)
         if settings.sdf_file and settings.sdf_instance is None:
             raise FlowSettingsException("SDF instance is required when SDF file is provided")
 
@@ -283,11 +312,11 @@ class Vcs(SimFlow):
         common_run_args: list[str] = []
         setup: list[str] = []
         for kind in ("fsdb", "vpd", "evcd"):
-            waveform = getattr(ss, kind)
-            if waveform:
+            dumped = getattr(ss, kind)
+            if dumped:
                 fid = "FSDB0" if kind == "fsdb" else "VPD0"
                 setup += [
-                    f"dump -file {tcl_word(waveform)} -type {kind.upper() if kind == 'fsdb' else kind}",
+                    f"dump -file {tcl_word(dumped)} -type {kind.upper() if kind == 'fsdb' else kind}",
                     f"dump -add . -add / -aggregates -fid {fid}",
                     f"dump -enable -fid {fid}",
                 ]
@@ -386,6 +415,8 @@ class Vcs(SimFlow):
             # simv_args += [
             #     f"+fsdbfile+{ss.fsdb}",
             # ]
+        if ss.vpd and ss.vpd_size_limit is not None:
+            simv_args.append(f"+vpdfilesize+{ss.vpd_size_limit}")
         # simv_args += ["+dumpports+portdir"]
 
         if ss.sdf_file and ss.sdf_instance:

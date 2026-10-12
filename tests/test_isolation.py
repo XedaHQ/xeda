@@ -128,7 +128,7 @@ LOCATED = {
     "vivado_synth": {"bitstream": "top.bit"},
     "vivado_sim": {"saif": "sim.saif"},
     "ghdl_sim": {"vcd": "dump.vcd"},
-    "nvc": {"wave": "dump.fst"},
+    "nvc": {"fst": "dump.fst"},
     "verilator": {"vcd": "dump.vcd"},
     "yosys_fpga": {"netlist_json": "net.json", "netlist_edif": "net.edif"},
     "vivado_impl": {"bitstream": "top.bit"},

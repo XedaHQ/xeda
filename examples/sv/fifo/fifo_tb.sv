@@ -127,7 +127,7 @@ module fifo_tb;
 
 `ifdef DUMP_VCD
   initial begin
-    $dumpfile("fifo_tb.vcd");
+    $dumpfile("dump.vcd");
     $dumpvars(0, fifo_tb);
   end
 `endif

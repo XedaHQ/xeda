@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
+from ..dataclass import (
+    COMPRESSED_FORMATS,
+    Field,
+    XedaBaseModel,
+    format_of_waveform_name,
+    waveform_format_name,
+    waveform,
+    waveform_fields,
+)
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
@@ -285,19 +294,6 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     return True
 
 
-def waveform_name(value: Any, extension: str) -> Any:
-    """A waveform setting as the name it stands for: `true` is `dump.<extension>`, `false` or an
-    empty name is none, and a name without an extension gets `.<extension>`. Anything else is
-    left as it is, for the field's own validation."""
-    if value is True:
-        return f"dump.{extension}"
-    if value is False or value == "":
-        return None
-    if isinstance(value, (str, Path)) and not Path(value).suffix:
-        return f"{value}.{extension}"
-    return value
-
-
 class SimFlow(Flow, metaclass=ABCMeta):
     """superclass of all simulation flows"""
 
@@ -307,6 +303,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     #: a simulation runs the testbench
     design_parts = frozenset({"rtl", "tb"})
+
+    #: The waveform settings (`dataclass.waveform`) that this simulator cannot honor, each with
+    #: what to do instead. A simulator writes a waveform through its own mechanism (a run option,
+    #: a script command, the HDL's `$dumpfile`), or refuses the setting when planned: no waveform
+    #: setting is ignored. `tests/test_waveform_settings.py` classifies every setting of every
+    #: simulator.
+    unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
     class Settings(Flow.Settings):
         timeout: float | None = Field(
@@ -326,9 +329,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
         vcd: Union[str, Path, None] = Field(
             None,
             alias="waveform",
-            description="Write a waveform to this file. `true` writes `dump.vcd`; a name without "
-            "an extension gets `.vcd`; `false` or an empty name writes none.",
-            json_schema_extra=deliverable("outputs/{design}.vcd"),
+            description="Write a VCD waveform to this file. `true` writes `dump.vcd`; a name "
+            "without an extension gets `.vcd`; `false` or an empty name writes none. A simulator "
+            "that cannot write VCD refuses it, and names its own waveform settings.",
+            json_schema_extra=waveform("vcd"),
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
@@ -343,11 +347,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
             [],
             description="Extra optimization flags passed to the simulator's compiler/elaborator.",
         )
-
-        @field_validator("vcd", mode="before")
-        @classmethod
-        def _validate_vcd(cls, vcd):
-            return waveform_name(vcd, "vcd")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
@@ -366,6 +365,57 @@ class SimFlow(Flow, metaclass=ABCMeta):
         itself (GHDL's `find-top`), or runs a C++ driver of the design's own (`yosys_sim`;
         `verilator` with `main: false`, which only its settings say), says so by overriding this."""
         return False
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`),
+        and a name that selects another format.
+
+        The setting a name is given to decides the format, never the name: a name that ends in
+        an extension of another format (`format_of_waveform_name`) is refused, naming the setting
+        of that format on this simulator when it has one. A located `wave: x.vcd` of `ghdl_sim`
+        is written under the conventional name of `wave` and would be the wrong format, and
+        `true` would then be the same run as a location of another format."""
+        super().check_settings_supported(settings)
+        formats = waveform_fields(type(settings))
+        usable = {
+            extension: name
+            for name, extension in formats.items()
+            if name not in cls.unsupported_waveforms
+        }
+        for name, extension in formats.items():
+            value = getattr(settings, name)
+            if value is None:
+                continue
+            if name in cls.unsupported_waveforms:
+                raise FlowSettingsException(
+                    f"{cls.name} cannot write a waveform from `{name}`: "
+                    f"{cls.unsupported_waveforms[name]}"
+                )
+            text = os.fspath(value)
+            written = format_of_waveform_name(text)
+            if text.lower().endswith(".gz") and not text.lower().endswith(".vcd.gz"):
+                # a gzip name whose stem is a plain format is a compressed file of that format,
+                # and only a setting of a compressed format writes one
+                stem = format_of_waveform_name(text[:-3])
+                if stem is not None and stem[0] not in COMPRESSED_FORMATS:
+                    raise FlowSettingsException(
+                        f"`{name}` writes {waveform_format_name(extension)} data, and its name {value} ends in "
+                        f".{stem[1]}.gz, a gzip name: {cls.name} writes {waveform_format_name(stem[0])} data "
+                        "uncompressed"
+                    )
+            if written is not None and written[0] != extension:
+                other, suffix = usable.get(written[0]), written[1]
+                if other is not None:
+                    advice = f"give the name to `{other}`, which writes {waveform_format_name(written[0])} data"
+                elif COMPRESSED_FORMATS.get(written[0]) == extension:
+                    advice = f"{cls.name} writes plain {waveform_format_name(extension)} data: drop the gzip ending"
+                else:
+                    advice = f"{waveform_format_name(written[0])} data is another format: use a .{extension} name"
+                raise FlowSettingsException(
+                    f"`{name}` writes {waveform_format_name(extension)} data, and its name {value} ends in "
+                    f".{suffix}: {advice}"
+                )
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
@@ -459,7 +509,18 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 record_failure(self, _cocotb_problem(self.results))
             return passed
         assert isinstance(self.settings, self.Settings)
-        return judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
+        passed = judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
+        problem = self.waveform_problem() if passed else None
+        if problem is not None:
+            record_failure(self, problem)
+            return False
+        return passed
+
+    def waveform_problem(self) -> str | None:
+        """Why a run that passed still failed to write the waveform its settings asked for, or
+        None. Only a simulator whose testbench names the file can write something else: the
+        others make the tool write the name they were given."""
+        return None
 
     def always_runs(self) -> Optional[str]:
         assert isinstance(self.settings, self.Settings)

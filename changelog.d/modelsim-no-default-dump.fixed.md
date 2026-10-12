@@ -1,0 +1,1 @@
+- `modelsim` no longer writes `dump.vcd` when `vcd` is not set.

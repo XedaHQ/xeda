@@ -22,7 +22,7 @@ import colorama
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import Design, DesignSource, SourceType
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from .sim_evidence import (
     bluesim_evidence,
@@ -1501,6 +1501,7 @@ class BscSim(BscFlow, SimFlow):
         # A failing run's waveform is the one most wanted, so it is recorded whether or not the
         # simulation passes -- and an earlier run's goes first, so a waveform found is this run's.
         dump: Path | None = None
+        dumped = False
         if vcd:
             dump = Path("dump.vcd") if ss.simulator == "verilator" else vcd
             # The waveform is made anew: an earlier run's goes first, and so does what bsc's
@@ -1545,6 +1546,13 @@ class BscSim(BscFlow, SimFlow):
                     replacing_copy(dump, self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
+                dumped = True
+        if vcd and ss.simulator == "verilator" and not dumped:
+            # bsc's Verilator driver dumps on `+bscvcd`; one that wrote nothing is no waveform
+            raise FlowFatalError(
+                f"`vcd` asks for a waveform, and bsc's Verilator driver wrote no {dump} in this "
+                "run: the design may end the simulation before it dumps"
+            )
 
     def _run_modelsim(self, top: str, plusargs: list[str]) -> None:
         """Load bsc's compiled work library with the owned ModelSim evidence script."""

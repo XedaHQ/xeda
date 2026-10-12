@@ -93,6 +93,16 @@ __all__ = [
     "input_names",
     "model_validator",
     "validation_errors",
+    "waveform",
+    "waveform_fields",
+    "waveform_format",
+    "COMPRESSED_FORMATS",
+    "WAVEFORM_SUFFIXES",
+    "waveform_format_name",
+    "format_of_waveform_name",
+    "waveform_format_of",
+    "waveform_value",
+    "WaveformText",
     "written_role",
 ]
 
@@ -703,6 +713,133 @@ def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
     if conventional is not None:
         marker["x-xeda-output"] = conventional
     return marker
+
+
+#: The `json_schema_extra` key of a setting that names a waveform file, with the waveform's
+#: format. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
+WAVEFORM_KEY = "x-xeda-waveform"
+
+
+def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
+    """The marker of a setting that names a waveform file of the format `extension` (`vcd`, `fst`,
+    `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name the run writes when the
+    setting is given a location, by default `dump.<extension>`, and `true` stands for that same
+    name, so `true` and a location are one run (`flow.identity_settings`). The name may hold the
+    design's name (`outputs/{design}.saif`). The setting then keeps the text as it is, and the
+    launcher writes the design's name where the run writes the file (`deliver.split_deliveries`)."""
+    marker = deliverable(conventional or f"dump.{extension}")
+    marker[WAVEFORM_KEY] = {"format": extension}
+    return marker
+
+
+def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, str]]:
+    """`(extension, name)` of `model`'s waveform setting `field` (see `waveform`), `name` being
+    what `true` stands for; None if it is no waveform setting."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    mark = extra.get(WAVEFORM_KEY) if isinstance(extra, dict) else None
+    if not isinstance(extra, dict) or not isinstance(mark, dict):
+        return None
+    return str(mark["format"]), str(extra["x-xeda-output"])
+
+
+#: Every extension a tool writes a waveform format under, by format (without the dot, compared in
+#: lower case, the longest match winning). The one table the check of a name against the format
+#: of its setting reads (`format_of_waveform_name`). A format may have more than one extension.
+#: `vcdgz` is VCD compressed with gzip (GHDL's `--vcdgz`): a name that ends in `.gz` is one,
+#: whatever comes before, and `vcd` is always plain.
+WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
+    "vcd": ("vcd",),
+    "vcdgz": ("vcd.gz", "vcdgz", "gz"),
+    "fst": ("fst",),
+    "ghw": ("ghw",),
+    "saif": ("saif",),
+    "vpd": ("vpd",),
+    "fsdb": ("fsdb",),
+    "evcd": ("evcd",),
+}
+
+
+#: A format that is another format compressed, and the plain format it is made of.
+COMPRESSED_FORMATS: Dict[str, str] = {"vcdgz": "vcd"}
+
+
+def waveform_format_name(extension: str) -> str:
+    """How a message names the waveform format `extension`: `VCD`, `FST`, ... and, for a
+    compressed format, `gzip-compressed VCD`."""
+    plain = COMPRESSED_FORMATS.get(extension)
+    return f"gzip-compressed {plain.upper()}" if plain else extension.upper()
+
+
+def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
+    """`(format, suffix)` of a waveform file name that ends in an extension of
+    `WAVEFORM_SUFFIXES`, the longest one; None for any other name. The suffix is shown in lower
+    case."""
+    if not isinstance(name, (str, os.PathLike)):
+        return None
+    lowered = os.fspath(name).lower()
+    found: Optional[Tuple[str, str]] = None
+    for extension, suffixes in WAVEFORM_SUFFIXES.items():
+        for suffix in suffixes:
+            if lowered.endswith("." + suffix) and (found is None or len(suffix) > len(found[1])):
+                found = (extension, suffix)
+    return found
+
+
+def waveform_format_of(model: type[BaseModel], field: str) -> Optional[str]:
+    """The format of `model`'s waveform setting `field` (`vcd`, `fst`, `ghw`, ...); None if it
+    is no waveform setting. The marker is the one place that says a setting takes `true` as on."""
+    found = waveform_format(model, field)
+    return found[0] if found else None
+
+
+def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
+    """Every waveform setting of `model` (see `waveform`), with its format."""
+    return {
+        name: found[0] for name in model.model_fields if (found := waveform_format(model, name))
+    }
+
+
+class WaveformText(ValueError):
+    """Text that a waveform setting cannot take: a word YAML 1.1 reads as a boolean (`yes`).
+    `message` says what to write."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.message,))
+
+    def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
+        """This refusal as the validation error `boolean_text`."""
+        return PydanticCustomError("boolean_text", self.message)
+
+
+def waveform_value(value: Any, extension: str, true_name: str) -> Any:
+    """A waveform setting as the name it stands for, the one rule for every simulator.
+
+    `true` (the boolean, or the text in any letter case, which is all `-s` can write) is
+    `true_name`, the name the run writes for a location (`waveform`), which may hold `{design}`. `false` (likewise) and an empty
+    name are none. A name without an extension gets `.<extension>`. The other words YAML 1.1 reads
+    as a boolean (`yes`, `on`, `n`, ...), and `true` or `false` with spaces around it, given as the
+    whole value, are refused as they are for a boolean field (`boolean_text_message`), since a
+    setting is on, off or a name. Other text is a
+    name. Anything else is left as it is, for the field's own validation."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if value.lower() in ("true", "false"):
+            value = value.lower() == "true"
+        elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
+            # as for a boolean field, text with spaces around `true` is no boolean (and no name)
+            raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
+    if value is True:
+        return true_name
+    if value is False or (isinstance(value, str) and value == ""):
+        return None
+    if isinstance(value, (str, PurePath)) and not PurePath(value).suffix:
+        return f"{value}.{extension}"
+    return value
 
 
 def written_role(model: type[BaseModel], field: str) -> Optional[str]:

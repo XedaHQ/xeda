@@ -59,7 +59,7 @@ from .dataclass import DELIVERABLE_ROLE, written_role
 from .digest import FileRecord, content_digest, filesystem_time_ns, record_file
 from .listing import directory_files
 from .flow import Flow, FlowSettingsError
-from .flow.flow import WrittenLeaf, map_written_leaves, output_name
+from .flow.flow import WrittenLeaf, map_written_leaves, output_name, resolved_template
 from .run_root import is_run_root
 from .utils import XedaException, copy_fd, json_encodable, with_json_keys
 
@@ -179,6 +179,8 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
             conventional = output_name(written, design)
             assert conventional is not None, key  # every deliverable has one
             name = conventional
+        elif (resolved := resolved_template(written, design)) is not None:
+            name = resolved  # the output is written under its name, as for a location
         else:
             name = PurePath(path)
         if str(name) in RESERVED_NAMES:
@@ -199,7 +201,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
                 )
             )
         if not path.is_absolute():
-            return leaf
+            return Path(name) if resolved_template(written, design) is not None else leaf
         if path.suffix != name.suffix:
             log.warning(
                 "`%s`: the run writes %s, which is copied to %s as it is: a location chooses "

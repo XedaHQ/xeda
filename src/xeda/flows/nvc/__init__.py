@@ -7,13 +7,14 @@ from functools import cached_property
 from pathlib import Path
 from typing import ClassVar, List, Literal, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
+from ...dataclass import Field, XedaBaseModel, field_validator, waveform
 from ...design import DesignSource, SourceType, VhdlSettings
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
 from ...units import convert_unit
+from ...utils import LOCATION_FORMS
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,8 @@ class Nvc(SimFlow):
         removed_settings: ClassVar[dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
             "exit_severity": "fail_severity",
+            "wave": "`fst`",
+            "wave_format": "`fst` or `vcd`",
         }
         one_shot: bool = Field(
             True,
@@ -138,14 +141,13 @@ class Nvc(SimFlow):
             None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
         )
-        wave: Union[bool, str, Path, None] = Field(
+        fst: Union[str, Path, None] = Field(
             None,
-            description="Write waveform data to a file. The default is to not write waveform data.",
-            json_schema_extra=deliverable("outputs/{design}.fst"),
-        )
-        wave_format: Optional[Literal["vcd", "fst"]] = Field(
-            None,
-            description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension.",
+            description="Write the waveform as an FST file: a name in the run directory, or a "
+            f"location it is delivered to ({LOCATION_FORMS}). `true` writes `dump.fst`; a name "
+            "without an extension gets `.fst`. nvc writes one waveform: set `fst` or `vcd`, not "
+            "both.",
+            json_schema_extra=waveform("fst"),
         )
         wave_arrays: Union[int, bool, None] = Field(
             2048,
@@ -155,13 +157,15 @@ class Nvc(SimFlow):
             None,
             description="""Include signals matching this glob pattern in the waveform data.
             Examples: ':top:*:x', '*:x', ':top:sub:*'
-            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
+            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
+            Needs `vcd` or `fst`.""",
         )
         wave_exclude_glob: Optional[str] = Field(
             None,
             description="""Exclude signals matching this glob pattern from the waveform data.
             Examples: ':top:*:x', '*:x', ':top:sub:*'
-            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.""",
+            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
+            Needs `vcd` or `fst`.""",
         )
         stop_delta: Optional[int] = Field(
             None,
@@ -203,17 +207,28 @@ class Nvc(SimFlow):
                     )
             return [flag for flag in self.run_flags if flag != canonical] + [canonical]
 
-    @cached_property
-    def nvc(self):
-        return NvcTool()  # pyright: ignore[reportCallIssue]
-
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse run flags that compete with `fail_severity` or `stop_time`, before anything
-        runs."""
+        """Refuse, before anything runs, run flags that compete with `fail_severity` or
+        `stop_time`; and a waveform that nvc cannot write: it writes one, with `--wave` (`vcd` or
+        `fst`), and the settings that refine the waveform need one."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         settings.runtime_flags()
+        if settings.vcd is not None and settings.fst is not None:
+            raise FlowSettingsException(
+                "nvc writes one waveform, and vcd and fst are set: keep one of them"
+            )
+        if settings.vcd is None and settings.fst is None:
+            for name in ("wave_include_glob", "wave_exclude_glob", "wave_arrays"):
+                if getattr(settings, name) != cls.Settings.model_fields[name].default:
+                    raise FlowSettingsException(
+                        f"`{name}` refines the waveform, and neither `vcd` nor `fst` is set"
+                    )
+
+    @cached_property
+    def nvc(self):
+        return NvcTool()  # pyright: ignore[reportCallIssue]
 
     def init(self) -> None:
         super().init()
@@ -221,8 +236,8 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly is not planned
         self.check_settings_supported(ss)
-        if ss.wave and isinstance(ss.wave, (str, Path)):
-            ss.wave = self.process_path(ss.wave)
+        if ss.fst is not None:
+            ss.fst = self.process_path(ss.fst)
 
     def global_options(self) -> List[str]:
         cf: List[str] = []
@@ -402,19 +417,18 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         run_flags = ss.runtime_flags()
 
-        if ss.wave:
-            if isinstance(ss.wave, bool):
-                run_flags += ["--wave"]
-            else:
-                run_flags += [f"--wave={ss.wave}"]
-                if not ss.wave_format and isinstance(ss.wave, (str, Path)):
-                    ss.wave = Path(ss.wave)
-                    if ss.wave.suffix == ".vcd":
-                        ss.wave_format = "vcd"
-                    elif ss.wave.suffix == ".fst":
-                        ss.wave_format = "fst"
-                if ss.wave_format:
-                    run_flags.append(f"--format={ss.wave_format}")
+        # one waveform (`check_settings_supported`): `--format=vcd` selects VCD, else nvc writes FST
+        target: Union[str, Path, None] = ss.fst
+        if ss.vcd is not None:
+            target = self.process_path(ss.vcd)
+        if target:
+            run_flags.append(f"--wave={target}")
+            if ss.vcd is not None:
+                run_flags.append("--format=vcd")
+            if ss.wave_include_glob:
+                run_flags.append(f"--include={ss.wave_include_glob}")
+            if ss.wave_exclude_glob:
+                run_flags.append(f"--exclude={ss.wave_exclude_glob}")
             if ss.wave_arrays:
                 if isinstance(ss.wave_arrays, bool):
                     run_flags.append("--dump-arrays")
