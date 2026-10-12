@@ -22,9 +22,9 @@ class Platform(XedaBaseModel):
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
-        """A bundled platform's name or the path of a `config.toml` is a whole platform, read
-        from a file (`from_setting`): no table to merge with, so a layer that gives one replaces
-        the layers below it."""
+        """Treat a bundled platform's name or the path of a `config.toml` as a whole platform.
+        `from_setting` reads it from a file. There is no table to merge, so a settings layer that
+        gives one replaces the layers below it."""
         return WHOLE if isinstance(value, (str, Path)) else None
 
     @classmethod
@@ -54,9 +54,8 @@ class Platform(XedaBaseModel):
         """Resolve a flow's `platform` setting: a bundled platform name or a `config.toml` path.
 
         Anything else (a mapping, an existing instance) is returned for pydantic to validate.
-        A name or path that does not resolve is reported as a `ValueError`, so that it becomes a
-        settings error naming the field -- `-s platform=asap8` used to escape as a bare
-        `FileNotFoundError` traceback pointing into xeda's own package directory.
+        A name or path that does not resolve raises a `ValueError`, which becomes a settings error
+        that names the field.
         """
         if not isinstance(value, (str, Path)):
             return value
@@ -71,9 +70,9 @@ class Platform(XedaBaseModel):
                     + (
                         f"Bundled platforms: {', '.join(bundled)}."
                         if bundled
-                        else "No platforms are bundled with this installation of xeda."
+                        else "No platforms are bundled with this installation of Xeda."
                     )
-                    + " A path to a platform's config.toml is also accepted."
+                    + " A path to a platform's `config.toml` is also accepted."
                 ) from None
             raise ValueError(f"Platform file not found: {value}") from None
 
@@ -102,7 +101,7 @@ class Platform(XedaBaseModel):
 
 
 def bundled_platform_names() -> List[str]:
-    """Names of the platforms shipped in `xeda.platforms` (those with a `config.toml`)."""
+    """Return the names of the platforms in `xeda.platforms` (those with a `config.toml`)."""
     try:
         root = Path(str(files(__package__)))
     except (ModuleNotFoundError, TypeError):  # pragma: no cover

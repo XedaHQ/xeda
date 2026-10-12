@@ -11,10 +11,10 @@ log = logging.getLogger(__name__)
 
 
 class DiamondSynth(FpgaSynthFlow):
-    """FPGA synthesis, place & route for Lattice devices using Lattice Diamond.
+    """Synthesize, place and route a design for a Lattice FPGA with Lattice Diamond.
 
-    Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch
-    mode and reports resource utilization and timing. The bitstream,
+    Run the full Diamond implementation flow (synthesis through bitstream generation) in batch
+    mode. Report resource utilization and timing. The bitstream,
     `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
     """
 
@@ -63,9 +63,9 @@ class DiamondSynth(FpgaSynthFlow):
         )
         strategy: str = Field(
             "Timing",
-            description="The Diamond strategy the flow's own starts from, by the name Diamond "
-            "gives it (e.g. `Timing`, `Area`). `Timing` also turns on pipelining and retiming and "
-            "timing-driven mapping, `Area` area optimization.",
+            description="Name of the Diamond strategy that the flow copies and then adjusts (for "
+            "example `Timing` or `Area`). `Timing` also turns on pipelining, retiming and "
+            "timing-driven mapping. `Area` turns on area optimization.",
         )
         allow_dsps: bool = Field(
             True,
@@ -79,27 +79,27 @@ class DiamondSynth(FpgaSynthFlow):
         )
 
     def run(self) -> None:
-        """Generate constraints and launch Diamond synthesis."""
+        """Write the constraints and the script, then run Diamond."""
         assert isinstance(self.settings, self.Settings)
         if self.settings.main_clock is None:
             raise FlowSettingsException(
                 "diamond_synth needs a clock: set `clock.period` (or `clocks`) in the flow settings"
             )
-        # the implementation directory, inside the run directory (`RunDirectory.inside`), handed
-        # to `synth.tcl` as one literal Tcl word
+        # The implementation directory, inside the run directory (`RunDirectory.inside`).
+        # `synth.tcl` gets it as one literal Tcl word.
         impl_dir = self.run_directory.inside(self.settings.impl_folder)
         constraint_exts = ["ldc"] if self.settings.synthesis_engine == "lse" else ["sdc", "fdc"]
         constraints = [f"constraints.{ext}" for ext in constraint_exts]
         for constraint in constraints:
             self.copy_from_template(constraint)
         # `prj_project new` makes the project `<design>.ldf` and its implementation directory
-        # anew: the previous implementation is removed through the run directory -- never a
-        # directory by its name in a tool script.
+        # again. The flow removes the previous implementation through the run directory,
+        # because a tool script must not delete a directory by name.
         self.run_directory.remove(impl_dir)
         script_path = self.copy_from_template("synth.tcl", impl_dir=impl_dir)
         diamondc = Tool("diamondc")
         diamondc.run(script_path)
-        # Diamond names an implementation's files `<project>_<implementation>.<suffix>`
+        # Diamond names the files of an implementation `<project>_<implementation>.<suffix>`.
         prefix = f"{self.design.name}_{self.settings.impl_name}"
         for label, suffix in (
             ("timing_report", "twr"),
@@ -114,7 +114,7 @@ class DiamondSynth(FpgaSynthFlow):
         self.artifacts["bitstream"] = bitstream
 
     def parse_reports(self) -> bool:
-        """Read Diamond timing and utilization reports."""
+        """Read the Diamond timing and utilization reports."""
         assert isinstance(self.settings, self.Settings)
         reports_dir = self.run_path / self.settings.impl_folder
         design_name = self.design.name
@@ -144,8 +144,8 @@ class DiamondSynth(FpgaSynthFlow):
 \s*(?P<_lvl_cost>\S+)\s+(?P<_ncd>\S+)\s+(?P<_num_unrouted>\d+)\s+(?P<wns>\-?\d+\.\d+)\s+(?P<_setup_score>\d+)\s+(?P<whs>\-?\d+\.\d+)\s+(?P<_hold_score>\d+)\s+(?P<_runtime>\d+(?:\:\d+)*)\s+(?P<_status>\w+)\s*$"""
         self.parse_report_regex(reports_dir / f"{design_name}_{impl_name}.par", slice_pat, time_pat)
 
-        # NOTE there can be "page breaks" anywhere in the mrp file (others? TODO)
-        # NOTE therefore only match lines
+        # The `.mrp` file can have page breaks anywhere (TODO: check for other kinds of break), so
+        # the patterns match only lines. The report states:
         #   1. Total number of LUT4s = (Number of logic LUT4s) + 2*(Number of distributed RAMs) + 2*(Number of ripple logic)
         #   2. Number of logic LUT4s does not include count of distributed RAM and ripple logic.
         slice_pattern = r"""\s*Number\s+of\s+registers:\s*(?P<ff>\d+)\s+out\s+of\s*(?P<_ff_avail>\d+).*
@@ -166,7 +166,7 @@ class DiamondSynth(FpgaSynthFlow):
             reports_dir / f"{design_name}_{impl_name}.mrp", slice_pattern, dsp_pattern
         )
 
-        # FIXME add other types of available ALUs and DSPs
+        # FIXME: count the other kinds of ALUs and DSPs too.
         self.results["dsp"] = self.results["_dsp_MULT18X18D"] + self.results["_dsp_MULT9X9D"]
 
         failed = False

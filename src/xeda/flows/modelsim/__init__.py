@@ -37,11 +37,11 @@ class ModelsimTool(Tool):
 class Modelsim(SimFlow):
     """Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim.
 
-    Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated
-    with timing from an SDF file via the `sdf` setting. Batch evidence requires this run's native
-    stop reason, time and TESTSTATUS checkpoint plus its bounded runtime logfile. VHDL
-    ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the
-    default severity. Verified with ModelSim-Intel Starter 2020.1.
+    Simulate RTL and gate-level netlists. A netlist simulation can use the timing of SDF files
+    (`sdf` setting). A run passes only on evidence from this run: the native stop reason, the
+    time and a TESTSTATUS checkpoint, plus the bounded runtime log file. VHDL `std.env.stop` is
+    accepted when the evidence shows a native break from a known VHDL source. Verilog `$stop`
+    fails at the default `fail_severity`. Verified with ModelSim-Intel Starter 2020.1.
     """
 
     #: `vlog` compiles Verilog and SystemVerilog, `vcom` compiles VHDL.
@@ -77,9 +77,9 @@ class Modelsim(SimFlow):
             ["-lint"], description="Flags passed to `vcom` for every VHDL source."
         )
         vlog_flags: List[str] = Field(
-            # `-svinputport=var`: an `input logic` port is a variable, as in other simulators;
-            # ModelSim otherwise makes it a net of the default type, an error under
-            # `default_nettype none`
+            # `-svinputport=var`: an `input logic` port is a variable, as in other simulators.
+            # Without it, ModelSim makes the port a net of the default type, which is an error
+            # under `default_nettype none`.
             ["-lint", "-svinputport=var"],
             description="Flags passed to `vlog` for every Verilog and SystemVerilog source.",
         )
@@ -88,30 +88,32 @@ class Modelsim(SimFlow):
         )
 
     def run(self) -> None:
-        """Compile design sources and execute the ModelSim script."""
+        """Compile the sources and run the ModelSim script."""
         assert isinstance(self.settings, self.Settings)
         tb = self.design.tb
         ss = self.settings
         if not self.design.sim_tops:
             raise DesignValidationError(
-                [(None, "ModelSim needs a simulation top: 'tb.top' is not specified", None, None)],
+                [(None, "ModelSim needs a simulation top module: `tb.top` is not set", None, None)],
                 self.design.model_dump(),
             )
-        # vsim's arguments, one word each: the template writes each as a TCL word, so an SDF
-        # path with a space is one argument
+        # The arguments of `vsim`, one word each. The template writes each as a TCL word, so an
+        # SDF path with a space stays one argument.
         vsim_opts: List[str] = list(ss.vsim_flags)
-        # TODO are library paths supported?
+        # TODO: check whether library paths work.
         for lib_name, _ in ss.lib_paths:  # (name, path) pairs; `-L` takes the name
             if lib_name:
                 vsim_opts += ["-L", lib_name]
         sdf_root = ss.sdf.root if ss.sdf.root else tb.uut
         for dt, f in ss.sdf.delay_items():
-            assert sdf_root, "Neither settings.sdf.root or design.tb.uut are provided"
+            assert sdf_root, "An SDF file needs an instance root: set `sdf.root` or `tb.uut`"
             vsim_opts.extend([f"-sdf{dt}", f"{sdf_root}={f}"])
         vsim_opts += [f"-g{k}={v}" for k, v in tb.parameters.items()]
 
-        # The launch logfile includes build diagnostics; the adapter reads only runtime markers.
-        # Clear both proof inputs before compilation too: a compile/load failure cannot reuse a preceding successful run.
+        # The launch log file includes build diagnostics, but the adapter reads only the runtime
+        # markers. Remove the evidence files (`modelsim_runtime.log`, `modelsim_end.txt`) and the
+        # process log before compilation, so that a compile or load failure cannot reuse the
+        # files of an earlier successful run.
         self.run_directory.remove(
             "modelsim_runtime.log", "modelsim_end.txt", "modelsim_process.log"
         )
@@ -135,8 +137,9 @@ class Modelsim(SimFlow):
         if ss.modelsimini:
             modelsim_opts.extend(["-modelsimini", str(ss.modelsimini)])
         vsim = ModelsimTool()
-        # vsim contains both build and runtime. Keep all output on failure/timeout, but only
-        # the runtime transcript supplies evidence; a general stdout redirect cannot hide it.
+        # One `vsim` run does both the build and the simulation. Keep all its output on failure
+        # or timeout. Only the runtime transcript supplies evidence. A general stdout redirect
+        # (`redirect_stdout`) could hide that transcript, so the derived tool sets none.
         runtime = vsim.derive(vsim.executable, redirect_stdout=None)
         runtime.run(
             *modelsim_opts,

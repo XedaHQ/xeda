@@ -45,14 +45,19 @@ def embrace(s):
 
 
 class Openroad(AsicSynthFlow):
-    """OpenROAD open-source ASIC synthesis flow"""
+    """Place and route a gate-level netlist for an ASIC platform with OpenROAD.
+
+    The netlist comes from the `yosys` flow or from a source of type `VerilogNetlist`. With
+    `generate_gds`, the flow also writes GDSII using KLayout, if KLayout is installed.
+    """
 
     class Inputs(AsicSynthFlow.Inputs):
         netlist: Path = In(
             SourceType.VerilogNetlist,
             producer="yosys",
             output="netlist",
-            description="Gate-level Verilog netlist from yosys, or a typed VerilogNetlist source.",
+            description="Gate-level Verilog netlist from `yosys`, or a source of type "
+            "`VerilogNetlist`.",
         )
         sdc: list[Path] = In(
             SourceType.Sdc,
@@ -61,12 +66,12 @@ class Openroad(AsicSynthFlow):
             "constraints generated from `clocks` and before `sdc_files`.",
         )
 
-    merged_lib_file = "merged.lib"  # used by floorplan (restructure)
+    merged_lib_file = "merged.lib"  # used by resynth (`restructure`)
 
     required_settings = {
-        "platform": "the ASIC platform: a bundled platform's name with `-s platform=<name>` (see "
-        "`xeda list-platforms`) or the path to a platform's config.toml; in the design file, as "
-        "`flows.{flow}.platform`"
+        "platform": "the ASIC platform: give a bundled platform's name with `-s platform=<name>` "
+        "(see `xeda list-platforms`) or the path to a platform's `config.toml`; in the design "
+        "file, give it as `flows.{flow}.platform`"
     }
 
     results_description = describe_results(
@@ -82,7 +87,7 @@ class Openroad(AsicSynthFlow):
     )
 
     class Settings(AsicSynthFlow.Settings):
-        #: what `openroad` had only to hand to its synthesis: yosys's own settings now
+        #: Settings that moved to `yosys`: `openroad` only passed them on to its synthesis.
         removed_settings = {
             **AsicSynthFlow.Settings.removed_settings,
             "blocks": "`flows.yosys.black_box`",
@@ -98,36 +103,49 @@ class Openroad(AsicSynthFlow):
         )
         corner: Optional[Union[str, List]] = Field(
             None,
-            description='Process corner(s) from the platform\'s Liberty set to analyze, e.g. "tt". '
-            "Defaults to the platform's own default corner.",
+            description="Process corner(s) from the platform's Liberty set to analyze, for "
+            'example "tt". Defaults to the platform\'s own default corner.',
         )
         multi_corner: bool = Field(
             False,
-            description="Analyze timing across all of the platform's corners rather than only the "
-            "default one. Forced off when the platform defines fewer than two corners.",
+            description="Analyze timing across all corners of the platform. When off, only the "
+            "default corner is analyzed. Forced off when the platform defines fewer than two "
+            "corners.",
         )
         input_delay_frac: Optional[float] = Field(
-            0.20, description="Input delay as fraction of clock period [0.0..1.0)"
+            0.20,
+            description="Input delay as a fraction of the clock period, in the range [0.0, 1.0). "
+            "Used only when `input_delay` is unset.",
         )
         output_delay_frac: Optional[float] = Field(
-            0.20, description="Output delay as fraction of clock period [0.0..1.0)"
+            0.20,
+            description="Output delay as a fraction of the clock period, in the range [0.0, 1.0). "
+            "Used only when `output_delay` is unset.",
         )
-        input_delay: Optional[float] = Field(None, description="Input delay in picoseconds")
-        output_delay: Optional[float] = Field(None, description="Output delay in picoseconds")
+        input_delay: Optional[float] = Field(
+            None,
+            description="Input delay in picoseconds. Takes precedence over `input_delay_frac`.",
+        )
+        output_delay: Optional[float] = Field(
+            None,
+            description="Output delay in picoseconds. Takes precedence over `output_delay_frac`.",
+        )
         core_utilization: Optional[float] = Field(
-            40.0, description="Core utilization in percent (0..100)"
+            40.0,
+            description="Core utilization in percent (0..100). Sizes the floorplan unless "
+            "`floorplan_def` or `footprint` is set.",
         )
-        core_aspect_ratio: float = Field(1.0, description="Core height / core width")
-        core_margin: float = Field(2.0, description="Core margin in um")
+        core_aspect_ratio: float = Field(1.0, description="Ratio of core height to core width.")
+        core_margin: float = Field(2.0, description="Core margin in um.")
         core_area: List[Union[int, float]] = Field(
             [],
-            description="Explicit core area as [x1, y1, x2, y2] in microns. Overrides "
-            "`core_utilization`.",
+            description="Explicit core area as [x1, y1, x2, y2] in microns. Used only with "
+            "`die_area`, and only when `core_utilization` is unset.",
         )
         die_area: List[Union[int, float]] = Field(
             [],
-            description="Explicit die area as [x1, y1, x2, y2] in microns. Overrides "
-            "`core_utilization`.",
+            description="Explicit die area as [x1, y1, x2, y2] in microns. Used only with "
+            "`core_area`, and only when `core_utilization` is unset.",
         )
         sdc_files: List[Path] = Field(
             [],
@@ -145,18 +163,18 @@ class Openroad(AsicSynthFlow):
         )
         write_metrics: Optional[Path] = Field(
             Path("metrics.json"),
-            description="write metrics in file in JSON format",
+            description="File where OpenROAD writes the metrics, in JSON format (`-metrics`).",
             json_schema_extra=deliverable(),
         )
-        exit: bool = Field(True, description="exit after completion")
-        gui: bool = Field(False, description="start in GUI mode")
+        exit: bool = Field(True, description="Exit OpenROAD when the script completes (`-exit`).")
+        gui: bool = Field(False, description="Start OpenROAD in GUI mode (`-gui`).")
         copy_platform_files: bool = Field(
             False,
             description="Copy the platform's LEF/Liberty/technology files into the run directory "
             "instead of referencing them where they are installed.",
         )
         extra_liberty_files: List[Path] = Field(
-            [], description="Additional Liberty (.lib) files to read, e.g. for hard macros."
+            [], description="Additional Liberty (.lib) files to read, for example for hard macros."
         )
         # floorplan
         floorplan_def: Optional[Path] = Field(
@@ -185,8 +203,8 @@ class Openroad(AsicSynthFlow):
         # io_place
         io_place_random: bool = Field(
             False,
-            description="Place IO pins randomly instead of running the pin placer. Only useful for "
-            "quick experiments.",
+            description="Place IO pins randomly (`place_pins -random`). Useful only for quick "
+            "experiments.",
         )
         # place
         place_density: Union[None, float, str] = Field(
@@ -212,13 +230,13 @@ class Openroad(AsicSynthFlow):
         )
         min_phi_coef: Optional[Annotated[float, Field(ge=0.95, le=1.05)]] = Field(  # type: ignore
             None,
-            description="Lower bound for the minimum placement-density coefficient (phi). "
-            "Defaults to 0.95; allowed values are 0.95 through 1.05.",
+            description="Lower bound of the placement-density coefficient (phi). When unset, "
+            "OpenROAD uses 0.95. Allowed values are 0.95 through 1.05.",
         )
         max_phi_coef: Optional[Annotated[float, Field(ge=1.00, le=1.20)]] = Field(  # type: ignore
             None,
-            description="Upper bound for the minimum placement-density coefficient (phi). "
-            "Defaults to 1.05; allowed values are 1.00 through 1.20.",
+            description="Upper bound of the placement-density coefficient (phi). When unset, "
+            "OpenROAD uses 1.05. Allowed values are 1.00 through 1.20.",
         )
         # global_route
         congestion_iterations: int = Field(
@@ -233,7 +251,12 @@ class Openroad(AsicSynthFlow):
         repair_antennas: bool = Field(
             False, description="Run antenna-violation repair after detailed routing."
         )
-        update_sdc_margin: Optional[Annotated[float, Field(gt=0.0, lt=1.0)]] = Field(0.05, description="If set, write an SDC file with clock periods that result in slightly (value * clock_period) negative slack (failing).")  # type: ignore
+        update_sdc_margin: Optional[Annotated[float, Field(gt=0.0, lt=1.0)]] = Field(  # type: ignore
+            0.05,
+            description="If set, write an SDC file with a clock period that gives slightly "
+            "negative slack (a failing result). The shortfall is about this fraction of the "
+            "clock period. Applies only to a design with one clock.",
+        )
         # detailed_route
         detailed_route_or_seed: Optional[int] = Field(
             None, description="Random seed for the detailed router's optimization ordering."
@@ -252,7 +275,6 @@ class Openroad(AsicSynthFlow):
         post_detailed_route_tcl: Optional[Path] = Field(
             None, description="TCL script sourced after detailed routing completes."
         )
-        #
         gpl_routability_driven: bool = Field(
             True, description="Let global placement optimize for routability."
         )
@@ -345,15 +367,17 @@ class Openroad(AsicSynthFlow):
         save_images: bool = Field(
             True, description="Render PNG images of the layout at each major stage."
         )
-        generate_gds: bool = Field(True, description="Stream the final layout out to GDSII.")
+        generate_gds: bool = Field(
+            True, description="Stream the final layout out to GDSII with KLayout."
+        )
 
         @field_validator("platform", mode="before")
         @classmethod
         def _validate_platform(cls, value):
             value = AsicsPlatform.from_setting(value)
             if isinstance(value, AsicsPlatform):
-                # The selected corner is applied after all settings fields are available. Keep
-                # that normalization isolated from a caller-owned platform instance.
+                # The selected corner is applied after all settings fields are available. The
+                # copy keeps that step away from a platform instance that the caller owns.
                 value = value.model_copy(deep=True)
             return value
 
@@ -393,11 +417,11 @@ class Openroad(AsicSynthFlow):
             )
 
     def init(self):
-        """Validate settings without reading inputs or writing the run directory."""
+        """Check the settings without reading inputs or writing the run directory."""
         self.check_settings_supported(self.settings)
 
     def dont_use_cells(self) -> List[str]:
-        """The platform's forbidden cells plus the user's, computed where they are used."""
+        """Return the platform's dont-use cells and the user's, computed where they are used."""
         assert isinstance(self.settings, self.Settings)
         assert self.settings.platform is not None
         return unique(self.settings.platform.dont_use_cells + self.settings.dont_use_cells)
@@ -464,7 +488,7 @@ class Openroad(AsicSynthFlow):
         synth_netlist = ss.results_dir / "1_synth.v"
         replacing_copy(self.inputs.netlist, self.run_directory.writable(synth_netlist))
 
-        # yosys doesn't support SDC so we generate it here
+        # yosys does not read SDC, so Xeda writes the clock constraints here
         clocks_sdc = self.copy_from_template("clocks.sdc")
         sdc_files = list(self.inputs.sdc or [])
         sdc_files.append(clocks_sdc)
@@ -474,9 +498,7 @@ class Openroad(AsicSynthFlow):
         openroad = Tool("openroad", self, version_flag="-version")
 
         if not self.design.rtl.clocks:
-            log.critical(
-                "No clocks specified for top RTL design. Continuing with synthesis anyways."
-            )
+            log.critical("No clock is set for the top module. Continuing anyway.")
 
         assert self.design.rtl.top, "design.rtl.top must be set"
 
@@ -566,7 +588,7 @@ class Openroad(AsicSynthFlow):
 
         run_steps(0, len(flow_steps) - 1)
         run_steps(len(flow_steps) - 1, len(flow_steps))
-        # what `extract_parasitics` leaves beside the SPEF it writes
+        # `extract_parasitics` leaves this file beside the SPEF it writes
         self.run_directory.remove(f"{self.design.rtl.top}.totCap")
 
         if ss.generate_gds:
@@ -647,9 +669,11 @@ class Openroad(AsicSynthFlow):
                 log.error("No results found!")
                 return False
             results = dict()
-        # only metrics this run wrote (`report_file`): a previous run's are not its own
+        # Read only metrics that this run wrote (`report_file`). Metrics of an earlier run are not
+        # this run's.
         if ss.write_metrics and self.report_file(ss.write_metrics) is not None:
-            # metrics JSON should contain more accurate and more reliable values, therefore overwrite results from parsing the log
+            # The metrics JSON has more accurate values than the log, so it overwrites the results
+            # parsed from the log.
             with open(ss.write_metrics) as mf:
                 metrics = dict(json.load(mf))
             metrics_name_map = {

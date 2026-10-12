@@ -1,4 +1,4 @@
-"""Xilinx ISE Synthesis flow"""
+"""Flow for FPGA implementation with Xilinx ISE."""
 
 import logging
 from collections.abc import Mapping
@@ -52,9 +52,8 @@ class XTclSh(Tool):
                 read_only=read_only,
                 print_command=print_command,
                 highlight_rules=highlight_rules,
-                # Every keyword of `Docker.run` must be forwarded: one accepted here and dropped
-                # on the way down is silently ignored at the call site. `merge_stderr` was, so a
-                # caller asking for stderr on the dockerized ISE path never got it.
+                # Forward every keyword of `Docker.run`. A keyword that this method accepts and
+                # does not pass on is ignored without a message at the call site.
                 merge_stderr=merge_stderr,
                 timeout=timeout,
                 tee=tee,
@@ -74,9 +73,9 @@ class XTclSh(Tool):
 def format_value(v) -> str:
     """Render a project property the way ISE's `project set` expects it.
 
-    Applied by the templates at render time, never by a validator: quoting is not idempotent,
-    so normalizing on the way in turned `"High"` into `""High""` every time the settings were
-    re-validated -- on any attribute assignment, and on every `settings.json` round trip.
+    The templates apply it when they render. A validator must not apply it, because quoting is
+    not idempotent: each validation of the settings (every attribute assignment and every
+    `settings.json` reload) would turn `"High"` into `""High""`.
     """
     if isinstance(v, bool):
         return "TRUE" if v else "FALSE"
@@ -86,10 +85,10 @@ def format_value(v) -> str:
 
 
 class IseSynth(FpgaSynthFlow):
-    """FPGA synthesis, implementation and bitstream generation using Xilinx ISE.
+    """Synthesize, implement and generate a bitstream for a design with Xilinx ISE.
 
-    Runs XST synthesis, translate, map and place & route ("Implement Design"), then bitgen
-    ("Generate Programming File") in an ISE project, and reports resource utilization and timing.
+    Run XST synthesis, translate, map and place and route ("Implement Design"), then bitgen
+    ("Generate Programming File"), in an ISE project. Report resource utilization and timing.
     The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
     """
 
@@ -118,7 +117,7 @@ class IseSynth(FpgaSynthFlow):
             "trace_options",
         )
 
-        # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
+        # See https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = Field(
             {
                 "Optimization Effort": "High",
@@ -138,7 +137,7 @@ class IseSynth(FpgaSynthFlow):
                 "LUT Combining": "Auto",  # "Off", "Auto", "Area" (S6/V5/V6/7-series/Zynq only)
                 "Placer Effort Level": "High",  # (S6/V5/V6/7-series/Zynq only)
                 "Allow Logic Optimization Across Hierarchy": True,
-                # "Perform Timing-Driven Packing and Placement": True, # (S3/A/E/V4 only()
+                # "Perform Timing-Driven Packing and Placement": True, # (S3/A/E/V4 only)
                 "Combinatorial Logic Optimization": True,
             },
             description="Properties for the `map` (technology mapping and packing) step.",
@@ -165,20 +164,18 @@ class IseSynth(FpgaSynthFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """ISE names its outputs after the top (`<top>.bit`): a design without one cannot run."""
+        """Refuse a design without a top module: ISE names its outputs after it (`<top>.bit`)."""
         super().check_design_supported(design, settings)
         if not design.rtl.top:
-            raise FlowSettingsException(
-                f"{cls.name} needs the design's top-level entity or module: set `rtl.top`."
-            )
+            raise FlowSettingsException(f"{cls.name} needs the design's top module: set `rtl.top`.")
 
     def init(self) -> None:
-        # a flow built directly is not planned
+        # A flow built directly is not planned, so check here.
         self.check_design_supported(self.design, self.settings)
 
     def project_outputs(self) -> dict[str, Path]:
-        """The files of the ISE project this flow records, by artifact label. ISE names them
-        after the top."""
+        """Return the files of the ISE project that this flow records, by artifact label. ISE
+        names them after the top."""
         top = self.design.rtl.top
         return {
             "place_route_report": self.run_path / f"{top}_par.xrpt",
@@ -187,10 +184,10 @@ class IseSynth(FpgaSynthFlow):
         }
 
     def run(self) -> None:
-        # here, not in `init()`, which also runs for a fresh flow whose outputs are reused;
-        # a project left in the directory is reopened with its previous sources and outputs, and
-        # a previous run's outputs must not pass for this run's
-        logger.info("Deleting previous artifacts as ISE needs to run in a clean directory.")
+        # Delete here, not in `init()`: `init()` also runs for a flow that is up to date, and
+        # its outputs are reused. ISE reopens a project that it finds in the directory, with the
+        # old sources and outputs, and an old output must not pass for this run's.
+        logger.info("Deleting previous artifacts: ISE needs a clean directory.")
         self.purge_run_path()
         assert isinstance(self.settings, self.Settings)
         if self.settings.xcf_file is None:
@@ -199,8 +196,9 @@ class IseSynth(FpgaSynthFlow):
 
         self.add_template_global_func(format_value)
 
-        # xfile has no file-type override. Give a mistyped extension a run-local,
-        # typed copy; leave the original design and its source identities intact.
+        # `xfile` cannot override a file type. A source whose extension does not match its type
+        # gets a typed copy in the run directory. The design and its source identities stay
+        # unchanged.
         extensions = {
             SourceType.Verilog: ".v",
             SourceType.Vhdl: ".vhd",

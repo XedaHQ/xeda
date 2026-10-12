@@ -1,4 +1,4 @@
-{#- a hook the settings name for `stage`, sourced where the stage is (`Dc.Settings.hooks`) #}
+{#- Source the script that `settings.hooks` names for `stage`, if any, at the point where the stage occurs (`Dc.Settings.hooks`). #}
 {%- macro hook(stage) %}
 {%- if settings.hooks.get(stage) %}
 puts "\n===================( Running the {{stage}} hook {{settings.hooks[stage]|tcl_quote}} )==================="
