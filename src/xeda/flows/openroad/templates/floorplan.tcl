@@ -36,6 +36,9 @@ make_tracks
 {% if settings.footprint_tcl %}
 source {{settings.footprint_tcl|tcl_word}}
 {% endif %}
+{% if settings.floorplan_tcl %}
+source {{settings.floorplan_tcl|tcl_word}}
+{% endif %}
 
 # remove buffers inserted by yosys/abc
 remove_buffers

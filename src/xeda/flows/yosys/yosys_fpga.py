@@ -3,7 +3,7 @@ import posixpath
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import List, Literal, NamedTuple, Optional, Tuple
+from typing import ClassVar, Dict, List, Literal, NamedTuple, Optional, Tuple
 
 from ...dataclass import Field, deliverable, field_validator, model_validator
 from ...design import SourceType
@@ -21,8 +21,8 @@ from ...utils import ToolException, replacing_file
 from .common import (
     MINIMUM_YOSYS,
     STOP_AFTER_DESCRIPTION,
-    YosysBase,
     YosysRelease,
+    YosysSynthesisBase,
     process_parameters,
     same_file,
     stop_after_conflicts,
@@ -138,7 +138,7 @@ def _given_the_attribute(attributes: dict, name: str) -> list[str]:
     return [] if value is None or value in (0, False) else ["every object"]
 
 
-class YosysFpga(YosysBase, FpgaSynthFlow):
+class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     """
     Yosys Open SYnthesis Suite: FPGA synthesis
     """
@@ -169,7 +169,13 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         }
     )
 
-    class Settings(YosysBase.Settings, FpgaSynthFlow.Settings):
+    class Settings(YosysSynthesisBase.Settings, FpgaSynthFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **YosysSynthesisBase.Settings.removed_settings,
+            "nosynth": "`stop_after: rtl`, which stops after the RTL stage and writes the RTL "
+            "outputs but no netlist (set `netlist_json` and `netlist_verilog` to null with it)",
+            "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
+        }
         netlist_src_attrs: bool = Field(
             True,
             description="Keep `src` attributes (source file and line) in the written netlists "

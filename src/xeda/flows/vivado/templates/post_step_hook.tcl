@@ -39,6 +39,10 @@ report_drc -file [file join ${xeda_reports_dir} drc.rpt]
 report_utilization -force -file [file join ${xeda_reports_dir} utilization.rpt]
 report_utilization -force -file [file join ${xeda_reports_dir} hierarchical_utilization.rpt] -hierarchical_percentages -hierarchical
 report_route_status -file [file join ${xeda_reports_dir} route_status.rpt]
+{%- if settings.extra_reports %}
+report_clock_utilization -file [file join ${xeda_reports_dir} clock_utilization.rpt]
+report_methodology -file [file join ${xeda_reports_dir} methodology.rpt]
+{%- endif %}
 report_datasheet -file [file join ${xeda_reports_dir} datasheet.rpt]
 report_design_analysis -complexity -congestion -timing -show_all -max_paths 4 -file [file join ${xeda_reports_dir} design_analysis.rpt]
 report_design_analysis -complexity -logic_level_distribution -qor_summary -json [file join ${xeda_reports_dir} design_analysis.json]

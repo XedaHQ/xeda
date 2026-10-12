@@ -7,7 +7,7 @@ import os
 import re
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Mapping, Optional, Union
+from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import (
@@ -342,10 +342,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
         cocotb: CocotbSettings = Field(
             CocotbSettings(),  # type: ignore
             description="Settings for the cocotb testbench, used when design.tb.cocotb is set.",
-        )
-        optimization_flags: List[str] = Field(
-            [],
-            description="Extra optimization flags passed to the simulator's compiler/elaborator.",
         )
 
     @staticmethod

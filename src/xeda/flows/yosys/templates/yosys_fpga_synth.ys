@@ -52,7 +52,7 @@ opt -full -fine -purge -sat -undriven
 opt_clean -purge
 
 {% if settings.splitnets -%}
-splitnets
+splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
 {% endif -%}
 {% endif -%}
 

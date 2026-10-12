@@ -5,7 +5,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from ...dataclass import Field, XedaBaseModel
+from ...dataclass import Field, XedaBaseModel, input_names
 from ...design import SourceType
 from ...flow import Flow, FpgaSynthFlow
 from ...utils import HierDict, parse_xml
@@ -15,9 +15,11 @@ from ..vivado.vivado_synth import (
     VivadoSynth,
     constraint_files,
     post_step_hooks,
+    property_mode_conflicts,
     refuse_conflicts,
     run_steps,
     step_mode_conflicts,
+    tcl_property_value,
 )
 
 log = logging.getLogger(__name__)
@@ -71,8 +73,23 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         }
     )
 
-    class Settings(VivadoSynth.Settings, VivadoSim.Settings):
-        """Settings for a Vivado project: synthesis, implementation and simulation"""
+    class Settings(VivadoSynth.Settings):
+        """Settings for a Vivado project: synthesis and implementation"""
+
+        # A project runs no simulation. The simulation settings are refused, naming `vivado_sim`.
+        removed_settings = {
+            **VivadoSynth.Settings.removed_settings,
+            **{
+                spelling: f"`flows.vivado_sim.{field}`"
+                for spelling, field in input_names(VivadoSim.Settings).items()
+                if field not in VivadoSynth.Settings.model_fields
+            },
+            **{
+                spelling: text
+                for spelling, text in VivadoSim.Settings.removed_settings.items()
+                if spelling not in VivadoSynth.Settings.model_fields
+            },
+        }
 
         gui: bool = Field(
             False,
@@ -81,16 +98,18 @@ class VivadoProject(Vivado, FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a mode of the design's own beside `out_of_context`, before anything runs. Only
-        the steps count: the template renders no `set_synth_properties`."""
+        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
-        refuse_conflicts(cls.Settings, step_mode_conflicts(settings))
+        refuse_conflicts(
+            cls.Settings, step_mode_conflicts(settings) + property_mode_conflicts(settings)
+        )
 
     def init(self):
         """Set up Vivado project execution and optional GUI mode."""
         super().init()
         assert isinstance(self.settings, self.Settings)
+        self.add_template_global_func(tcl_property_value)
         if self.settings.gui:
             # `vivado -mode gui -source ...`: the script runs in the GUI, and the project stays
             # open there, as DC's `gui` runs `dc_shell -gui`
@@ -105,6 +124,8 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         self.artifacts.project = f"{self.design.name}.xpr"
 
         synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
+        # the planning check's judgment again: a flow built directly is not planned
+        refuse_conflicts(type(settings), property_mode_conflicts(settings))
         # reports are written after each major step, as `vivado_synth` writes them
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
         tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)

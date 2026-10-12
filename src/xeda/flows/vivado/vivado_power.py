@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 from ...dataclass import Field, deliverable
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, In
+from ...flow import FpgaSynthFlow, In, NoReplacement
 from . import Vivado
 
 logger = logging.getLogger(__name__)
@@ -16,9 +16,12 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     """Estimate post-implementation power from real switching activity.
 
     Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity
-    file from a timing-annotated netlist simulation of the testbench, then reports power against
-    the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual
-    testvectors, so a representative testbench matters.
+    file, then reports power against the routed checkpoint. By default the activity comes from a
+    timing-annotated netlist simulation of the testbench (`timing_saif`). To take it from a
+    functional simulation of the netlist instead, which is faster and has no timing-simulation
+    problems but is less accurate, bind the input:
+    `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. Unlike a vectorless
+    estimate, the result reflects the actual testvectors, so a representative testbench matters.
     """
 
     # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
@@ -47,7 +50,8 @@ class VivadoPower(Vivado, FpgaSynthFlow):
             SourceType.Saif,
             producer="vivado_postsynth_sim",
             output="timing_saif",
-            description="Switching activity from a successful timing-annotated simulation.",
+            description="Switching activity from a successful simulation of the netlist: the "
+            "timing-annotated one (`timing_saif`) by default, or the functional one (`saif`).",
         )
         checkpoint: Path = In(
             SourceType.RoutedCheckpoint,
@@ -61,9 +65,13 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
+            "suppress_msgs": NoReplacement(
+                "power reports from files, and xeda passed it to nothing"
+            ),
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
-            "timing_sim": "no setting: power asks for timing activity, which switches "
-            "`flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
+            "timing_sim": "`flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif` for "
+            "faster activity from a functional simulation; power takes timing activity "
+            "(`vivado_postsynth_sim.timing_saif`) by default",
             **{
                 key: f"`flows.vivado_postsynth_sim.{key}`"
                 for key in (

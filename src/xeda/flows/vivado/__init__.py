@@ -3,7 +3,7 @@ import re
 from abc import ABCMeta
 from functools import cached_property, reduce
 from html import unescape
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from xml.etree import ElementTree
 
 import colorama
@@ -136,13 +136,6 @@ class Vivado(Flow, metaclass=ABCMeta):
         )
         no_log: bool = Field(
             False, description="Pass -nolog to Vivado, so it does not write a vivado.log file."
-        )
-        suppress_msgs: List[str] = Field(
-            [
-                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
-            ],
-            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
-            "messages are not printed and never trigger `fail_critical_warning`.",
         )
 
     def init(self):
