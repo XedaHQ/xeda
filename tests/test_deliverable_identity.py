@@ -35,7 +35,11 @@ ALWAYS_WRITTEN = {("FpgaPack.Settings", "bitstream")}
 #: own (`<top>.v`, `<top>.cpp`), not the conventional one a location gets. Unset and a location
 #: are two runs here, as the file names differ. (The CXXRTL header is named after the model's
 #: file, and a C++ driver of the design includes it by that name.)
-UNSET_UNDER_OWN_NAME = {("GhdlSynth.Settings", "verilog_output"), ("CxxRtl", "filename")}
+UNSET_UNDER_OWN_NAME = {
+    ("GhdlSynth.Settings", "verilog_output"),
+    ("CxxRtl", "filename"),
+    ("Nextpnr.Settings", "placement"),  # Xilinx only: it always writes `placement.json`
+}
 
 
 def deliverables(model, prefix=(), seen=()):
@@ -120,14 +124,88 @@ def test_the_written_always_markers_are_the_declared_table():
 
 def test_a_deliverable_written_under_its_own_name_is_not_marked(tmp_path):
     """Such a deliverable's identity differs from a location's: the run writes another file."""
+    matched = set()
     for cls, _name in flow_classes():
         for path, model, field in deliverables(cls.Settings):
             if (_owner(model, field), field) in UNSET_UNDER_OWN_NAME:
+                matched.add((_owner(model, field), field))
                 assert model.model_fields[field].default is None
                 assert not written_always(model, field)
                 _unset, unset = _hash(cls, tmp_path, path)
                 _located, located = _hash(cls, tmp_path, path, "$PWD/one/place.out")
                 assert unset != located
+    assert matched == UNSET_UNDER_OWN_NAME
+
+
+#: Where a flow's code gives an unset deliverable (default `None`) a name of its own, by file
+#: and setting. Each is either a deliverable the flow writes in any case (the first three: see
+#: `ALWAYS_WRITTEN` and `UNSET_UNDER_OWN_NAME`), or a demand that names the output
+#: (`enable_output`: a consumer that needs the file sets its conventional name).
+REVIEWED_FALLBACKS = {
+    ("flows/fpga_pack.py", "bitstream"): "always written; conventional name",
+    ("flows/ghdl/__init__.py", "verilog_output"): "always written; `<top>.v`",
+    ("flows/yosys/cxx_rtl.py", "filename"): "always written; `<top>.cpp`",
+    ("flows/nextpnr.py", "placement"): "Xilinx always writes it; `placement.json`",
+    ("flows/vivado/vivado_synth.py", "bitstream"): "a consumer's demand names it",
+    ("flows/vivado/vivado_postsynthsim.py", "saif"): "a consumer's demand names it",
+}
+
+
+def _fallbacks(fields):
+    """`(file, setting)` for each place a flow's code gives one of `fields` another value when it
+    is unset: `x.field or ...` outside a condition, and `if x.field is None:` that assigns
+    `x.field`. A syntactic scan: it cannot see a fallback made by other means."""
+    import ast
+
+    import xeda
+
+    root = Path(xeda.__file__).parent
+    found = set()
+    for source in sorted((root / "flows").rglob("*.py")):
+        tree = ast.parse(source.read_text())
+        conditions = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.If, ast.IfExp, ast.While, ast.Assert)):
+                conditions.add(id(node.test))
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+                conditions.add(id(node.operand))
+            if isinstance(node, ast.comprehension):
+                conditions.update(id(test) for test in node.ifs)
+        relative = str(source.relative_to(root))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+                first = node.values[0]
+                if id(node) not in conditions and getattr(first, "attr", None) in fields:
+                    found.add((relative, first.attr))
+            test = getattr(node, "test", None)
+            if (
+                isinstance(node, ast.If)
+                and isinstance(test, ast.Compare)
+                and isinstance(test.left, ast.Attribute)
+                and test.left.attr in fields
+                and isinstance(test.ops[0], ast.Is)
+                and getattr(test.comparators[0], "value", 0) is None
+            ):
+                for inner in ast.walk(ast.Module(body=node.body, type_ignores=[])):
+                    if isinstance(inner, ast.Assign) and any(
+                        isinstance(target, ast.Attribute) and target.attr == test.left.attr
+                        for target in inner.targets
+                    ):
+                        found.add((relative, test.left.attr))
+    return found
+
+
+def test_a_flow_gives_an_unset_deliverable_a_name_only_where_it_was_reviewed():
+    """A flow that writes an output whether or not its setting is given names it in its code
+    when the setting is unset. Such a place is reviewed: the output is marked written always,
+    or listed with the name it gets, or a consumer's demand names it."""
+    fields = {
+        field
+        for cls, _name in flow_classes()
+        for _path, model, field in deliverables(cls.Settings)
+        if model.model_fields[field].default is None
+    }
+    assert _fallbacks(fields) == set(REVIEWED_FALLBACKS)
 
 
 def test_a_written_always_deliverable_has_no_default_and_a_conventional_name():
