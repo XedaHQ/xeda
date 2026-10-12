@@ -27,12 +27,13 @@ from .utils import ExecutableNotFound, NonZeroExitCode, live_log
 log = logging.getLogger(__name__)
 
 
-#: Stream that tool output and echoed commands are written to. `None` means `sys.stdout`.
-#: The CLI's machine-readable modes (`--json`) point this at `sys.stderr` so that a parseable
-#: result can own stdout; child processes that inherit our stdout are redirected too.
+#: The stream that tool output and echoed commands are written to. `None` means `sys.stdout`.
+#: The machine-readable modes of the CLI (`--json`) point it at `sys.stderr`, so that a
+#: parseable result can own stdout. Child processes that inherit stdout are redirected too.
 _tool_output: Optional[TextIO] = None
 
-#: A container image is recorded under this prefix, beside the programs `run_process` starts.
+#: The prefix under which a container image is recorded, beside the programs that `run_process`
+#: starts.
 DOCKER_IMAGE_PREFIX = "docker-image:"
 
 #: Seconds allowed for a tool to exit gracefully after an interrupt or another exception.
@@ -43,9 +44,10 @@ ProgramState = Tuple[int, int, int, int, int]
 
 
 class StartedPrograms(List[str]):
-    """The programs started while `recording_programs` is active, in order and once each, and
-    (`before`) the state of each one's file when it was first started: what its trace compares
-    the file with afterwards, by identity and metadata, never a clock."""
+    """The programs started while `recording_programs` is active, in order and once each.
+    `before` holds the state of the file of each program when it was first started. The trace
+    compares the file with this state afterwards, by identity and metadata and never by a
+    clock."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -53,7 +55,8 @@ class StartedPrograms(List[str]):
 
 
 def program_state(name: str) -> Optional[ProgramState]:
-    """The state of the file `name` runs -- found on PATH unless it is a path -- or None."""
+    """Return the state of the file that `name` runs, or None. A name that is not a path is
+    looked up on PATH."""
     found = name if os.path.isabs(name) or os.sep in name else shutil.which(name)
     try:
         st = os.stat(found) if found else None
@@ -79,8 +82,8 @@ def recording_programs() -> Iterator[StartedPrograms]:
 
 
 def note_program(name: str) -> None:
-    """Record `name`, and the state of its file as it is now, before it starts, if a recording
-    is active."""
+    """Record `name` and the state of its file as it is now, before the program starts, if a
+    recording is active."""
     names = _programs.get()
     if names is not None and name not in names:
         names.append(name)
@@ -95,28 +98,31 @@ def set_tool_output(stream: Optional[TextIO]) -> None:
 
 
 def tool_output_stream() -> TextIO:
-    """The stream tool output should be written to."""
+    """Return the stream that tool output is written to."""
     return _tool_output if _tool_output is not None else sys.stdout
 
 
 def tool_output_redirect() -> Optional[TextIO]:
-    """Stream a child process should inherit as its stdout, or `None` to leave ours unchanged.
+    """Return the stream that a child process should inherit as its stdout, or `None` to leave
+    stdout unchanged.
 
     Any code that spawns a subprocess outside `run_process` (design generators, the remote
-    runner) must honor this, or its output lands on fd 1 and corrupts a `--json` document.
+    runner) must honor this. Otherwise the output lands on fd 1 and corrupts a `--json`
+    document.
     """
     return _tool_output
 
 
 def _stream_has_fileno(stream: Optional[TextIO]) -> bool:
-    """Whether `stream` can be handed to `Popen(stdout=...)` as an inheritable file descriptor.
+    """Return whether `stream` can be handed to `Popen(stdout=...)` as an inheritable file
+    descriptor.
 
-    False for anything that only exists at the Python level -- `click.testing.CliRunner`'s
-    captured streams, an `io.StringIO`, an embedding program's own redirected stdio -- which
-    raise `io.UnsupportedOperation` (itself both an `OSError` and a `ValueError`) from
-    `.fileno()`, or lack the method (`AttributeError`) entirely. `subprocess.Popen` calls
-    `.fileno()` on whatever it is given with no such guard, so handing it one of these raises
-    deep inside `subprocess` instead of here.
+    The result is False for anything that exists only at the Python level, such as the captured
+    streams of `click.testing.CliRunner`, an `io.StringIO`, or the redirected stdio of an
+    embedding program. Their `.fileno()` raises `io.UnsupportedOperation` (itself both an
+    `OSError` and a `ValueError`), or they lack the method (`AttributeError`). `subprocess.Popen`
+    calls `.fileno()` on whatever it is given with no such guard, so handing it one of these
+    raises deep inside `subprocess` and not here.
     """
     if stream is None:
         return False
@@ -140,17 +146,18 @@ class ProcessTimeout(NonZeroExitCode):
 
 
 class _Deadline:
-    """Watches `proc`: once `timeout` seconds pass (`None`: never) while it still runs, stops it
-    and, when it leads a session of its own (`group`, POSIX), every process it started.
+    """A watch on `proc`. Once `timeout` seconds pass (`None`: never) while the process still
+    runs, it stops the process and, when the process leads a session of its own (`group`,
+    POSIX), every process that it started.
 
-    Used as a context manager around everything that waits for `proc`: on leaving it, the timer
-    is cancelled and its thread joined, so nothing signals afterwards; an exception (Ctrl-C
-    included) stops the process and reaps it -- it is our child. With `group`, Ctrl-C forwards
-    SIGINT, other exceptions send SIGTERM, and the leader gets `PROCESS_STOP_GRACE` seconds to
-    exit without being reaped. The group is then sent SIGKILL before reaping the leader, so its
-    group id cannot be recycled (the group's other members are not our children, so they cannot
-    be reaped here). `on_stop` then runs, on the thread leaving the context, as `run_process`
-    documents.
+    Use it as a context manager around everything that waits for `proc`. On leaving, it cancels
+    the timer and joins its thread, so nothing signals afterwards. An exception (Ctrl-C
+    included) stops the process and reaps it, because the process is a child of the caller. With
+    `group`, Ctrl-C forwards SIGINT, other exceptions send SIGTERM, and the leader gets
+    `PROCESS_STOP_GRACE` seconds to exit without being reaped. The group then gets SIGKILL
+    before the leader is reaped, so the group id cannot be recycled (the other members of the
+    group are not children of the caller, so they cannot be reaped here). `on_stop` then runs,
+    on the thread that leaves the context, as `run_process` documents.
     """
 
     def __init__(
@@ -184,9 +191,9 @@ class _Deadline:
             pass
 
     def _stopped(self) -> None:
-        """Run `on_stop`, once, in the calling thread, after the process was reaped. Nothing
-        bounds it here: it bounds itself. A `KeyboardInterrupt` or `SystemExit` from it
-        propagates; any other `Exception` is logged and never replaces the exception in
+        """Run `on_stop` once, in the calling thread, after the process was reaped. Nothing
+        bounds it here, because it bounds itself. A `KeyboardInterrupt` or `SystemExit` from it
+        propagates. Any other `Exception` is logged and never replaces the exception in
         flight."""
         if self._on_stop is None:
             return
@@ -197,8 +204,8 @@ class _Deadline:
 
     def _expire(self) -> None:
         with self._lock:
-            # a process that ended by itself is not a timeout; `poll` returning `None` means the
-            # pid (and group) is not yet reaped, hence not recycled
+            # A process that ended by itself is not a timeout. While `poll` returns `None`, the
+            # process is not yet reaped, so its pid (and group) cannot be recycled.
             if self._cancelled or self.proc.poll() is not None:
                 return
             self.expired = True
@@ -216,8 +223,9 @@ class _Deadline:
         return self
 
     def _exited_unreaped(self) -> bool:
-        """Whether the leader has exited but is still ours to reap (a zombie), read without
-        `wait`/`poll`/`waitpid`, which would release its pid and group id."""
+        """Return whether the leader has exited but is still waiting to be reaped (a zombie).
+        The answer comes without `wait`, `poll` or `waitpid`, which would release its pid and
+        group id."""
         try:
             return psutil.Process(self.proc.pid).status() == psutil.STATUS_ZOMBIE
         except (psutil.NoSuchProcess, psutil.ZombieProcess):
@@ -242,8 +250,9 @@ class _Deadline:
                 try:
                     self._wait_unreaped()
                 finally:
-                    # The leader is still ours, running or a zombie: signal descendants before
-                    # wait() releases its pid. A second Ctrl-C still kills and reaps it.
+                    # The leader is still a child of this process, running or a zombie. Signal
+                    # its descendants before `wait()` releases its pid. A second Ctrl-C still
+                    # kills and reaps it.
                     self._stop(force=True)
                     self.proc.wait()
             else:
@@ -263,13 +272,14 @@ def _needs_line_copy(
     redirect: Optional[TextIO],
     tee: Path | None = None,
 ) -> bool:
-    """Whether a child's stdout must be piped and copied to `tool_output_stream()` line by line
-    in Python, rather than handed to `Popen` directly.
+    """Return whether the stdout of a child must be piped and copied to `tool_output_stream()`
+    line by line in Python, and not handed to `Popen` directly.
 
-    Only with no capture requested (`stdout is None`): then either highlighting wants to inspect
-    each line anyway, or `redirect` (tool output has been redirected, e.g. under `--json`) is a
-    stream that cannot be passed to `Popen` as a file descriptor at all (`_stream_has_fileno`) --
-    handing it one anyway raises `io.UnsupportedOperation` deep inside `subprocess` instead.
+    This applies only with no capture requested (`stdout is None`). Then the lines are copied
+    when a `tee` log is wanted, when highlighting wants to inspect each line, or when `redirect`
+    (tool output has been redirected, for example under `--json`) is a stream that cannot be
+    passed to `Popen` as a file descriptor (`_stream_has_fileno`). Handing such a stream to
+    `Popen` raises `io.UnsupportedOperation` deep inside `subprocess`.
     """
     if stdout is not None:
         return False
@@ -281,16 +291,15 @@ def _needs_line_copy(
 
 
 def _stdout_terminal_fd() -> Optional[int]:
-    """The terminal we write to *directly*, or None if stdout is not one.
+    """Return the file descriptor of the terminal that tool output is written to directly, or
+    None if that stream is not a terminal.
 
-    Deliberately does not fall back to stdin or the controlling terminal. When
-    our output goes through a pipe, some other program decides how it reaches a
-    terminal -- and a wrapper that reads us line by line (a shell script, `tee`,
-    Scala's `ProcessOutput.Readlines`, `for line in proc.stdout`) strips our
-    line endings and re-emits its own. A carriage return we added would then
-    never reach the terminal anyway, and worse, a lone '\\r' counts as a line
-    terminator to those readers, so it would show up as a blank line after
-    every line of output.
+    The function does not fall back to stdin or the controlling terminal. When the output goes
+    through a pipe, some other program decides how it reaches a terminal. A wrapper that reads
+    line by line (a shell script, `tee`, `ProcessOutput.Readlines` of Scala, a Python loop over
+    `proc.stdout`) strips the line endings and emits its own. A carriage return added here would
+    then never reach the terminal anyway. Worse, a lone '\\r' counts as a line terminator to
+    those readers, so it would show up as a blank line after every line of output.
     """
     out = tool_output_stream()
     try:
@@ -302,13 +311,12 @@ def _stdout_terminal_fd() -> Optional[int]:
 
 
 def _needs_explicit_carriage_return(terminal_fd: Optional[int]) -> bool:
-    """True when the terminal will not turn a '\\n' into CR+LF by itself.
+    """Return True when the terminal will not turn a '\\n' into CR+LF by itself.
 
-    A tool that takes over the terminal -- notably anything run through
-    `docker -t -i`, which is how vivado is commonly wrapped -- switches it into
-    raw mode while it runs. A bare '\\n' then moves the cursor down a line
-    without returning the carriage, so output walks diagonally down the screen
-    unless each line is followed by an explicit carriage return.
+    A tool that takes over the terminal switches it into raw mode while it runs. This happens
+    with anything run through `docker -t -i`, which is how Vivado is commonly wrapped. A bare
+    '\\n' then moves the cursor down a line without returning the carriage, so the output walks
+    diagonally down the screen unless each line is followed by an explicit carriage return.
     """
     if terminal_fd is None:
         return False
@@ -316,9 +324,9 @@ def _needs_explicit_carriage_return(terminal_fd: Optional[int]) -> bool:
         oflag = termios.tcgetattr(terminal_fd)[1]
     except (termios.error, OSError, ValueError):
         return False
-    # The terminal only expands NL to CR+LF when output post-processing is on
-    # *and* ONLCR is set; raw mode typically clears OPOST and leaves the ONLCR
-    # bit itself untouched, so both have to be checked.
+    # The terminal expands NL to CR+LF only when output post-processing is on and ONLCR is
+    # set. Raw mode typically clears OPOST and leaves the ONLCR bit itself untouched, so both
+    # have to be checked.
     return not (oflag & termios.OPOST and oflag & termios.ONLCR)
 
 
@@ -329,8 +337,8 @@ _LINE_ENDS = re.compile(r"\r\n|\r|\n")
 
 
 def _write_log_lines(log_file: IO[str], segments: Sequence[str]) -> None:
-    """Write lines of a terminal's output to a log, without the escape sequences and without
-    the empty lines that a line end after a carriage return leaves."""
+    """Write lines of the output of a terminal to a log, without the escape sequences and
+    without the empty lines that a line end after a carriage return leaves."""
     for segment in segments:
         text = _ESCAPE_SEQUENCES.sub("", segment)
         if text.strip():
@@ -338,10 +346,10 @@ def _write_log_lines(log_file: IO[str], segments: Sequence[str]) -> None:
 
 
 def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
-    """Copy what a child writes to its pseudo-terminal, until it closes it. `stream` (xeda's own
-    terminal) gets it as the child wrote it, when it arrives: the colors work, and so does a line
-    that the child redraws with a carriage return. The log gets the lines, one for each redraw,
-    without the escape sequences."""
+    """Copy what a child writes to its pseudo-terminal, until the child closes it. `stream` (the
+    terminal of Xeda) gets the text as the child wrote it, when it arrives: the colors work, and
+    so does a line that the child redraws with a carriage return. The log gets the lines, one
+    for each redraw, without the escape sequences."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""  # the last line, which has not ended yet
     while True:
@@ -353,7 +361,8 @@ def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
             data = b""
         text = decoder.decode(data, final=not data)
         if text:
-            # the log first, as for the lines of a pipe: it keeps what a failing terminal missed
+            # Write the log first, as for the lines of a pipe: it keeps what a failing terminal
+            # missed.
             *ended, pending = _LINE_ENDS.split(pending + text)
             _write_log_lines(log_file, ended)
             stream.write(text)
@@ -374,9 +383,9 @@ def _run_in_terminal(
     on_stop: Callable[[], None] | None,
     new_session: bool,
 ) -> None:
-    """`run_process` for a child that has a pseudo-terminal in place of the pipe: stdout and, with
-    `merge_stderr`, stderr are the terminal. The time limit, the stop hook, the log and the exit
-    status are those of the pipe."""
+    """Run a child as `run_process` does, with a pseudo-terminal in place of the pipe. Stdout and,
+    with `merge_stderr`, stderr are the terminal. The time limit, the stop hook, the log and the
+    exit status are those of the pipe."""
     master, slave = os.openpty()
     try:
         # The log is made before the tool starts: a log that cannot be made must not start it.
@@ -391,7 +400,7 @@ def _run_in_terminal(
                 start_new_session=new_session,
             ) as proc,
         ):
-            os.close(slave)  # the child's copy is the only one left: its end is our EOF
+            os.close(slave)  # the child's copy is the only one left: its end is the EOF
             slave = -1
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
                 _copy_from_terminal(master, log_file, tool_output_stream())
@@ -430,39 +439,39 @@ def run_process(
     on_stop: Callable[[], None] | None = None,
     terminal: bool = False,
 ) -> Union[None, str]:
-    """Run `executable`; return its captured stdout when `stdout` is True.
+    """Run `executable`, and return its captured stdout when `stdout` is True.
 
-    `timeout`: stop the process, and those it started, after this many seconds, raising
-    `ProcessTimeout`. `tee`: also write every line of the output to this file; the
-    output is then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`.
-    A `stdout` that is a path sends the output to that file alone. Either file is a tool's log,
-    made as a new file at the given name before the tool starts and written as the output
-    arrives (`utils.live_log`): it replaces whatever was there, a link or a hard link included,
-    and is never written through it, and a log that cannot be made starts no tool.
+    `timeout` stops the process, and those that it started, after this many seconds and raises
+    `ProcessTimeout`. `tee` also writes every line of the output to this file. The output is
+    then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout`
+    that is a path sends the output to that file alone. Either file is the log of a tool. Xeda
+    makes it as a new file at the given name before the tool starts and writes it as the output
+    arrives (`utils.live_log`). The new file replaces whatever was there, a link or a hard link
+    included, and Xeda never writes through that link. A log that cannot be made starts no tool.
 
     `on_stop` stops what killing the process does not reach (a container: `Docker.run`). It is
-    called at most once, and only when xeda stopped the process: its time limit expired, or an
-    exception (Ctrl-C included) was raised while it still ran -- never for a process that ended
-    by itself. It runs synchronously, on the thread that called `run_process`, after the
-    process was stopped and reaped and, when it leads a process group of its own (POSIX, with a
-    `timeout`), that group was sent SIGKILL. A `KeyboardInterrupt` (a second Ctrl-C) or
-    `SystemExit` it raises propagates; any other `Exception` is logged and never replaces the
-    exception in flight, nor the `ProcessTimeout`. Nothing bounds its run time from outside,
-    and the caller waits for it: a hook that can block must carry its own time limit, such as a
-    `run_process(..., timeout=...)` of its own (`Docker.run`'s `docker kill` is bounded by
-    `tool.DOCKER_KILL_TIMEOUT`).
+    called at most once, and only when Xeda stopped the process: its time limit expired, or an
+    exception (Ctrl-C included) was raised while the process still ran. It is never called for a
+    process that ended by itself. It runs synchronously, on the thread that called
+    `run_process`, after the process was stopped and reaped and, when the process leads a
+    process group of its own (POSIX, with a `timeout`), after that group was sent SIGKILL. A
+    `KeyboardInterrupt` (a second Ctrl-C) or `SystemExit` that it raises propagates. Any other
+    `Exception` is logged and never replaces the exception in flight, nor the `ProcessTimeout`.
+    Nothing bounds its run time from outside, and the caller waits for it. A hook that can block
+    must carry its own time limit, such as a `run_process(..., timeout=...)` of its own (the
+    `docker kill` of `Docker.run` is bounded by `tool.DOCKER_KILL_TIMEOUT`).
 
-    `merge_stderr` folds the child's stderr into stdout while capturing (`stdout=True`)
-    or copying lines (tee/highlighting), so stderr diagnostics also reach the transcript.
+    `merge_stderr` folds the stderr of the child into stdout while capturing (`stdout=True`) or
+    copying lines (`tee` or highlighting), so stderr diagnostics also reach the transcript.
 
-    `terminal`: the child asks for a terminal. When its output is copied to a `tee` log and xeda's
-    own output is a terminal, the child gets a pseudo-terminal in place of the pipe, for its stdout
-    and, with `merge_stderr`, its stderr. It behaves as it does when a person runs it: it writes
-    colors, and redraws a progress bar in place. `tool_output_stream()` gets what it writes as it
-    writes it. The log gets the same text without the escape sequences, a line for each redraw and
-    no empty line. In any other case (a pipe, a file, a CI log, a captured stream) `terminal` has
-    no effect: the child sees the pipe it always saw. `highlight_rules` do not apply to a child
-    with a terminal, which colors its own output.
+    `terminal` says that the child asks for a terminal. When the output is copied to a `tee` log
+    and Xeda writes to a terminal, the child gets a pseudo-terminal in place of the pipe, for its
+    stdout and, with `merge_stderr`, its stderr. It then behaves as it does when a person runs
+    it: it writes colors and redraws a progress bar in place. `tool_output_stream()` gets what it
+    writes as it writes it. The log gets the same text without the escape sequences, a line for
+    each redraw and no empty line. In any other case (a pipe, a file, a CI log, a captured
+    stream) `terminal` has no effect, and the child sees the pipe that it always saw.
+    `highlight_rules` do not apply to a child with a terminal, which colors its own output.
     """
     if timeout is not None and not timeout > 0:
         raise ValueError(f"timeout must be a positive number of seconds, not {timeout!r}")
@@ -487,7 +496,7 @@ def run_process(
         _run_in_terminal(command, env, cwd, check, merge_stderr, timeout, tee, on_stop, new_session)
         return None
     if _needs_line_copy(stdout, highlight_rules, tool_output_redirect(), tee):
-        # compile regex str keys to improve performance
+        # Compile the regex keys once, to improve performance.
         highlight_rules_re: Dict[re.Pattern, str] = {}
         for pattern, subs in (highlight_rules or {}).items():
             highlight_rules_re[re.compile(pattern)] = subs
@@ -521,10 +530,10 @@ def run_process(
                             )
                             if matches > 0:
                                 break
-                        # Re-checked per line rather than once up front: a tool can
-                        # switch the terminal into raw mode while it runs and restore
-                        # it on exit, so this is not fixed for the duration of the
-                        # call. The check costs well under a microsecond.
+                        # Check on every line, not once up front. A tool can switch the
+                        # terminal into raw mode while it runs and restore it on exit, so
+                        # the answer can change during the call. The check costs well
+                        # under a microsecond.
                         print(
                             line,
                             end="\r" if _needs_explicit_carriage_return(terminal_fd) else "",
@@ -542,8 +551,9 @@ def run_process(
 
         def cm_call():
             assert stdout
-            # the tool's log, as with `tee`: a new file at the name, made before the tool starts
-            # and written as it runs; a failed tool's output stays, since it says why it failed
+            # The log of the tool, as with `tee`: a new file at the name, made before the tool
+            # starts and written as it runs. The output of a failed tool stays, since it says
+            # why the tool failed.
             return live_log(stdout, encoding="utf-8")
 
         cm = cm_call
@@ -556,8 +566,8 @@ def run_process(
             [executable, *args],
             cwd=cwd,
             shell=False,
-            # With no capture requested the child inherits our stdout, unless tool output has
-            # been redirected -- otherwise it would write straight to fd 1 and corrupt a
+            # With no capture requested, the child inherits stdout, unless tool output has been
+            # redirected. Without the redirect it would write straight to fd 1 and corrupt a
             # machine-readable result.
             stdout=f if f else subprocess.PIPE if stdout else tool_output_redirect(),
             stderr=subprocess.STDOUT if (merge_stderr and stdout and not f) else None,
@@ -605,7 +615,8 @@ def _terminate_process(process):
 
 
 def _subprocess_tty(command, env, cwd, check):
-    """`subprocess.Popen` yielding stdout lines acting as a TTY"""
+    """Run `command` with `subprocess.Popen` on pseudo-terminals, so that it line-buffers its
+    output. Yield `(is_stderr, data)` for each chunk of bytes (at most 64) that it writes."""
     timeout = None
     mo, so = pty.openpty()  # provide tty to enable line-buffering
     me, se = pty.openpty()
@@ -627,7 +638,7 @@ def _subprocess_tty(command, env, cwd, check):
                 try:
                     data = os.read(fd, 64)
                 except OSError as e:
-                    # EIO means EOF on some systems
+                    # EIO means end of file on some systems
                     if e.errno != errno.EIO:
                         raise
                     data = None
@@ -660,7 +671,6 @@ def run_capture_pty(command, env=None, cwd=None, check=True, encoding="utf-8"):
         elif remainder:
             data_str = remainder + data_str
             remainder = ""
-        # spl = re.split(r"\r?\n", data_str) #
         spl = data_str.splitlines(keepends=True)
         if spl and not spl[-1].endswith(os.linesep) and not spl[-1].endswith("\n"):
             if is_stderr:
