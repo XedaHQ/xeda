@@ -6,7 +6,7 @@ import logging
 import re
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
@@ -178,6 +178,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
     """superclass of all simulation flows"""
 
     cocotb_sim_name: Optional[str] = None
+    #: Advice that a simulator without cocotb support adds to the refusal of a cocotb testbench
+    cocotb_advice: ClassVar[str] = ""
 
     #: a simulation runs the testbench
     design_parts = frozenset({"rtl", "tb"})
@@ -263,6 +265,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
             )
             raise FlowSettingsException(
                 f"{cls.name} cannot run cocotb tests; use one of: {', '.join(supported)}"
+                + (f". {cls.cocotb_advice}" if cls.cocotb_advice else "")
             )
         if not design.tb.cocotb and not design.tb.top:
             hdl = [src for src in design.tb.sources if src.type in LANGUAGE_TYPES]

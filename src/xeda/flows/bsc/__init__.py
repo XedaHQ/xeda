@@ -1189,6 +1189,11 @@ class BscSim(BscFlow, SimFlow):
 
     output_dir_setting = "sim_dir"
 
+    cocotb_advice = (
+        "bsc_sim runs Bluespec testbenches; for a cocotb testbench, simulate the Verilog that "
+        "the `bsc` flow generates with one of these simulators"
+    )
+
     # The link step also compiles in the C and C++ code a testbench imports.
     reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES, *_FOREIGN_TYPES})
 
@@ -1351,8 +1356,7 @@ class BscSim(BscFlow, SimFlow):
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
         """Reject a testbench bsc cannot simulate, before anything runs: no module to simulate
         or several, and imported C functions that the Verilator backend cannot link without
-        the DPI. (A cocotb testbench is refused by `SimFlow`: simulate the Verilog that the
-        `bsc` flow generates.)"""
+        the DPI. (`SimFlow` refuses a cocotb testbench, with `cocotb_advice`.)"""
         super().check_design_supported(design, settings)
         if not cls._tb_top_of(design):
             raise FlowSettingsException(
