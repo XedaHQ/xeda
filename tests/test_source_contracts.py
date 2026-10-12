@@ -736,7 +736,7 @@ HEADER_TYPES = frozenset({SourceType.VerilogHeader, SourceType.SVHeader})
 REVIEWED_DIRECT_READS: dict[str, str] = {
     "xeda.flows.vivado.vivado_synth:constraint_files: sources": "the Xdc and Sdc sources, "
     "which every flow that calls it (`vivado_synth`, `vivado_alt_synth`, `vivado_project`) declares",
-    "xeda.flows.bsc:BscSim._tb_top: sources": "whether the design has a testbench at all, which "
+    "xeda.flows.bsc:BscSim._tb_top_of: sources": "whether the design has a testbench at all, which "
     "decides the module simulated",
     "xeda.flows.bsc:BscSim.run: sources": "which of the Bluespec sources `sources_read` selected "
     "are the testbench's, to find the package of its top",

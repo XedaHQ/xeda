@@ -21,7 +21,7 @@ from typing import Any, ClassVar, Literal
 import colorama
 
 from ...dataclass import WORKING, Field, field_validator
-from ...design import DesignSource, SourceType
+from ...design import Design, DesignSource, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from .sim_evidence import (
@@ -798,20 +798,29 @@ class BscFlow(Flow, metaclass=ABCMeta):
             flags += ["-Xcpp", arg]
         return flags
 
-    def _check_settings(self, backend: str) -> None:
-        """Reject combinations bsc refuses, before anything runs, naming the settings."""
-        ss = self.settings
-        assert isinstance(ss, BscFlow.Settings)
-        if ss.unspecified_to in ("X", "Z") and not ss.opt_undetermined_vals:
+    @classmethod
+    def backend_of(cls, settings: "BscFlow.Settings") -> str:
+        """The code generation backend bsc runs for these settings: `verilog` or `sim`."""
+        return "verilog"
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse combinations bsc refuses, before anything runs, naming the settings."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, BscFlow.Settings)
+        if settings.unspecified_to in ("X", "Z") and not settings.opt_undetermined_vals:
             raise FlowSettingsException(
-                f'{self.name}: unspecified_to = "{ss.unspecified_to}" requires '
+                f'{cls.name}: unspecified_to = "{settings.unspecified_to}" requires '
                 'opt_undetermined_vals = true; otherwise use "0", "1" or "A"'
             )
-        if backend == "sim" and ss.unspecified_to in ("X", "Z"):
+        if cls.backend_of(settings) == "sim" and settings.unspecified_to in ("X", "Z"):
             raise FlowSettingsException(
-                f'{self.name}: Bluesim is two-valued and cannot tie don\'t-cares to "X" or "Z"; '
+                f'{cls.name}: Bluesim is two-valued and cannot tie don\'t-cares to "X" or "Z"; '
                 'set unspecified_to to "0", "1" or "A"'
             )
+
+    def _warn_about_environment(self) -> None:
+        """Say that `BSC_OPTIONS` makes the run depend on more than the settings."""
         if "BSC_OPTIONS" in os.environ:
             log.warning(
                 "BSC_OPTIONS is set (%r): bsc prepends it to every command line, so the run "
@@ -939,12 +948,20 @@ class Bsc(BscFlow):
             "Verilog (`-remove-unused-modules`), as synthesis would.",
         )
 
-    def init(self) -> None:
-        """Reject what bsc would reject, and an old bsc, before anything runs."""
-        assert isinstance(self.settings, self.Settings)
-        if not self.design.rtl.top:
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """bsc generates code for the design's top module, so the design has to name it."""
+        super().check_design_supported(design, settings)
+        if not design.rtl.top:
             raise FlowSettingsException("bsc needs the design's top module: set `rtl.top`")
-        self._check_settings("verilog")
+
+    def init(self) -> None:
+        """Reject what bsc would reject, and an old bsc, before anything runs. Planning checked
+        the settings and the design; a flow built directly is checked here."""
+        assert isinstance(self.settings, self.Settings)
+        self.check_design_supported(self.design, self.settings)
+        self.check_settings_supported(self.settings)
+        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
@@ -1283,36 +1300,25 @@ class BscSim(BscFlow, SimFlow):
         )
         libraries: list[str] = Field([], description='C/C++ libraries to link (`-l`), e.g. ["m"].')
 
-    def init(self) -> None:
-        """Reject what bsc or the simulator would reject, and an old bsc, before anything
-        runs: settings bsc refuses for the backend, a testbench it cannot simulate, and options
-        the chosen simulator lacks."""
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        backend = "sim" if ss.simulator == "bluesim" else "verilog"
-        if ss.simulator in _UNCERTIFIED_SIMULATORS:
+    @classmethod
+    def backend_of(cls, settings: BscFlow.Settings) -> str:
+        assert isinstance(settings, cls.Settings)
+        return "sim" if settings.simulator == "bluesim" else "verilog"
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Reject what bsc or the simulator would reject, before anything runs: settings bsc
+        refuses for the backend, and options the chosen simulator lacks."""
+        assert isinstance(settings, cls.Settings)
+        if settings.simulator in _UNCERTIFIED_SIMULATORS:
             supported = ", ".join(f'"{name}"' for name in _SUPPORTED_SIMULATORS)
             raise FlowSettingsException(
-                f"bsc_sim simulator {ss.simulator!r} is uncertified for simulation evidence; "
-                f"choose a supported alternative: {supported}"
+                f"bsc_sim simulator {settings.simulator!r} is uncertified for simulation "
+                f"evidence; choose a supported alternative: {supported}"
             )
-        self._check_settings(backend)
-        if self.design.tb.cocotb:
-            raise FlowSettingsException(
-                "bsc_sim runs Bluespec testbenches; for a cocotb testbench, simulate the Verilog "
-                "that the `bsc` flow generates"
-            )
-        if not self._tb_top():
-            raise FlowSettingsException(
-                "bsc_sim needs the testbench module: set `tb.top` (or `rtl.top` for a design "
-                "without a testbench)"
-            )
-        if len(self.design.tb.top) > 1:
-            raise FlowSettingsException(
-                "bsc_sim simulates one top module; `tb.top` names " + ", ".join(self.design.tb.top)
-            )
-        if ss.simulator == "bluesim" and any(
-            arg.startswith(("-m", "-c", "-f")) for arg in ss.sim_args
+        super().check_settings_supported(settings)
+        if settings.simulator == "bluesim" and any(
+            arg.startswith(("-m", "-c", "-f")) for arg in settings.sim_args
         ):
             raise FlowSettingsException(
                 "Bluesim sim_args cannot override the owned -m/-c/-f execution protocol; "
@@ -1324,26 +1330,60 @@ class BscSim(BscFlow, SimFlow):
             "vcs": {"-ucli", "-i"},
             "vcsi": {"-ucli", "-i"},
             "xsim": {"-tclbatch", "-onfinish", "-onerror", "-log", "-runall", "-R"},
-        }.get(ss.simulator, set())
-        conflict = next((arg for arg in ss.sim_args if arg in owned_options), None)
+        }.get(settings.simulator, set())
+        conflict = next((arg for arg in settings.sim_args if arg in owned_options), None)
         if conflict:
             raise FlowSettingsException(
-                f"{ss.simulator} sim_args cannot override the owned runtime evidence protocol "
-                f"with {conflict}; pass runtime data as plusargs instead"
+                f"{settings.simulator} sim_args cannot override the owned runtime evidence "
+                f"protocol with {conflict}; pass runtime data as plusargs instead"
             )
-        if ss.stop_time is not None:
+        if settings.stop_time is not None:
             raise FlowSettingsException(
                 "bsc_sim cannot stop at a simulated time: the testbench ends the simulation "
                 "(`$finish`), or `max_cycles` bounds a Bluesim run"
             )
-        if ss.max_cycles is not None and backend != "sim":
+        if settings.max_cycles is not None and cls.backend_of(settings) != "sim":
             raise FlowSettingsException(
-                f"max_cycles bounds Bluesim simulations only, not {ss.simulator}"
+                f"max_cycles bounds Bluesim simulations only, not {settings.simulator}"
             )
-        if ss.simulator == "verilator" and self._foreign_sources() and not ss.use_dpi:
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Reject a testbench bsc cannot simulate, before anything runs: no module to simulate
+        or several, and imported C functions that the Verilator backend cannot link without
+        the DPI. (A cocotb testbench is refused by `SimFlow`: simulate the Verilog that the
+        `bsc` flow generates.)"""
+        super().check_design_supported(design, settings)
+        if not cls._tb_top_of(design):
             raise FlowSettingsException(
-                "Verilator links imported C functions through the DPI only: set use_dpi = true"
+                "bsc_sim needs the testbench module: set `tb.top` (or `rtl.top` for a design "
+                "without a testbench)"
             )
+        if len(design.tb.top) > 1:
+            raise FlowSettingsException(
+                "bsc_sim simulates one top module; `tb.top` names " + ", ".join(design.tb.top)
+            )
+        if isinstance(settings, cls.Settings) and not settings.use_dpi:
+            foreign = [
+                src
+                for part in sorted(cls.design_parts)
+                for src in getattr(design, part).sources
+                if src.type in _FOREIGN_TYPES
+            ]
+            if settings.simulator == "verilator" and foreign:
+                raise FlowSettingsException(
+                    "Verilator links imported C functions through the DPI only: set "
+                    "use_dpi = true"
+                )
+
+    def init(self) -> None:
+        """Reject what bsc or the simulator would reject, and an old bsc, before anything
+        runs. Planning checked the settings; a flow built directly is checked here (its design
+        was checked when it was built)."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        self.check_settings_supported(ss)
+        self._warn_about_environment()
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
         if ss.simulator == "verilator":
             _ = self._verilator()
@@ -1353,13 +1393,18 @@ class BscSim(BscFlow, SimFlow):
         for imported C functions (`import "BDPI"`)."""
         return [src.file for src in self._sources_of(*_FOREIGN_TYPES, tb=True)]
 
-    def _tb_top(self) -> str | None:
+    @staticmethod
+    def _tb_top_of(design: Design) -> str | None:
         """The module to simulate: `tb.top`, or `rtl.top` for a design without a testbench."""
-        if self.design.tb.top:
-            return self.design.tb.top[0]
-        if not self.design.tb.sources:
-            return self.design.rtl.top
+        if design.tb.top:
+            return design.tb.top[0]
+        if not design.tb.sources:
+            return design.rtl.top
         return None
+
+    def _tb_top(self) -> str | None:
+        """The module this run simulates."""
+        return self._tb_top_of(self.design)
 
     def run(self) -> None:
         """Compile the testbench, link a simulation model, and run it."""
