@@ -1,11 +1,12 @@
-{#- The RTL outputs describe the design's own modules. At this point every primitive library a
-    flow read with `-lib` is in the design as boxes, and a box can keep its `always` blocks, which
-    `write_json` refuses to write (`Module ALU contains processes`). The default selection holds
-    no box, so `-selected` writes the design's modules only, as `write_verilog` and `show` do.
+{#- The RTL outputs describe the design's own modules. At this point every primitive library that
+    a flow read with `-lib` is in the design as boxes, and a box can keep its `always` blocks,
+    which `write_json` refuses to write (`Module ALU contains processes`). The default selection
+    holds no box, so `-selected` writes only the modules of the design, as `write_verilog` and
+    `show` do.
     Every block ends its last command with a newline, so an including template that strips the
     whitespace after the include cannot join the next command to it.
-    yosys scripts have no `exit` command: `stop_after == "rtl"` is handled by the including
-    template, which simply does not emit the post-RTL commands. -#}
+    Yosys scripts have no `exit` command. The including template handles `stop_after == "rtl"`
+    and does not emit the post-RTL commands. -#}
 {% if settings.rtl_json -%}
 log -stdout Writing JSON {{settings.rtl_json}}
 write_json -selected {{settings.rtl_json|path}}

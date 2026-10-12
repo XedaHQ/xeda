@@ -324,7 +324,7 @@ def test_unspecified_xilinx_target_keeps_series_7_default():
 
 
 def test_ice40_options_are_rejected_for_other_targets():
-    with pytest.raises(FlowSettingsException, match="iCE40 targets"):
+    with pytest.raises(FlowSettingsException, match="for iCE40 only"):
         YosysFpga.Settings(fpga=TARGETS["ecp5"], ice40_device="hx").synth_command((0, 69))
     with pytest.raises(FlowSettingsException, match="cannot both"):
         YosysFpga.Settings(fpga=TARGETS["ice40-up"], ice40_dsp=True, nodsp=True).synth_command(

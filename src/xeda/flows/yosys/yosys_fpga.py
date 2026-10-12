@@ -36,11 +36,11 @@ GOWIN_FAMILIES = ("gw1n", "gw2a", "gw5a")
 
 
 class PrimitiveLibrary(NamedTuple):
-    """A primitive library file, and the `read_verilog` flags the target's own pass reads it with.
+    """A primitive library file, with the `read_verilog` flags that the family's pass reads it with.
 
-    xeda reads the library first, to check the hierarchy, and the pass reads it again in its
-    `begin` step (`-lib -specify`; a later read replaces an earlier blackbox module). Reading it
-    here with the pass's flags makes the two reads agree."""
+    Xeda reads the library first, to check the hierarchy. The pass reads it again in its `begin`
+    step (`-lib -specify`; a later read replaces an earlier blackbox module). Xeda uses the flags
+    of the pass, so the two reads agree."""
 
     path: str
     flags: tuple[str, ...] = ("-lib", "-specify")
@@ -73,21 +73,21 @@ XILINX_FAMILY_NAMES = {
     "spartan3e": "xc3se",
 }
 
-# Mapped primitive footprints, in 6-input LUTs: a logic LUT cell is one, LUT6_2 can use both
-# outputs, a shift register is one, and a distributed RAM or ROM is as many as its bits need --
-# one LUT holds 64 x 1 or 32 x 2 bits, and a dual-port memory is a second copy for its read port.
-# A ROM is a LUT holding an INIT value, which Vivado reports as logic, not as memory; the MUXF7
-# and MUXF8 that join a deep ROM's LUTs are not LUTs.
-# These are synthesis-stage estimates, not placement occupancy or a claim of Vivado report
-# equivalence.
+# Mapped primitive footprints, in 6-input LUTs. A logic LUT cell is one LUT, LUT6_2 can use both
+# outputs, a shift register is one LUT, and a distributed RAM or ROM takes as many LUTs as its
+# bits need. One LUT holds 64 x 1 or 32 x 2 bits, and a dual-port memory has a second copy for
+# its read port. A ROM is a LUT that holds an INIT value, which Vivado reports as logic. The MUXF7
+# and MUXF8 that join the LUTs of a deep ROM are not LUTs.
+# These are estimates at the synthesis stage. They are no placement occupancy, and they do not
+# claim to equal the Vivado reports.
 XILINX_LUT_FOOTPRINT = {
     **{f"LUT{width}": ("logic", 1) for width in range(1, 7)},
     "LUT6_2": ("logic", 2),
     "CFGLUT5": ("logic", 1),
-    # an inverter is a LUT1 (UG953): yosys only absorbs one into an invertible pin under
-    # `-ise`, so a data-path `INV` a design instantiates costs a LUT on this path
+    # an inverter is a LUT1 (UG953); yosys absorbs one into an invertible pin only under
+    # `-ise`, so a data-path `INV` that a design instantiates costs a LUT here
     "INV": ("logic", 1),
-    # the multi-port memories, which do not follow the <depth>X<width><S|D> naming
+    # the multi-port memories, whose names do not follow <depth>X<width><S|D>
     "RAM32M": ("ram", 4),
     "RAM64M": ("ram", 4),
     "RAM32M16": ("ram", 8),
@@ -101,8 +101,11 @@ _XILINX_SRL = re.compile(r"SRLC?(?:16|32)E?(?:_1)?")
 
 
 def xilinx_lut_footprint(cell: str) -> tuple[str, int] | None:
-    """`(kind, LUTs)` a mapped Xilinx primitive occupies -- kind `logic` (a distributed ROM
-    included), `ram` or `srl` -- or None for a cell that is not built from LUTs."""
+    """Return `(kind, LUTs)` for a mapped Xilinx primitive, or None for a cell built from no LUTs.
+
+    The kind is `logic` (a distributed ROM included), `ram` or `srl`. LUTs is the number of LUTs
+    that the primitive occupies.
+    """
     known = XILINX_LUT_FOOTPRINT.get(cell)
     if known is not None:
         return known
@@ -118,11 +121,12 @@ def xilinx_lut_footprint(cell: str) -> tuple[str, int] | None:
 
 
 def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default", "always"]:
-    """How the `target`'s synthesis pass of yosys `release` uses ABC9.
+    """Return how the synthesis pass of the family `target` in yosys `release` uses ABC9.
 
-    "opt-in": only with `-abc9` (Xilinx); "default": unless `-noabc9` (the others); "always": it
-    cannot be turned off, since yosys 0.69, which also dropped `-retime`. Read from the passes'
-    sources of every release from xeda's minimum, 0.63, to 0.69.
+    The result is "opt-in" (only with `-abc9`, for Xilinx), "default" (unless `-noabc9`, for the
+    other families) or "always" (it cannot be turned off, from yosys 0.69, which also dropped
+    `-retime`). The values come from the pass sources of every release from the Xeda minimum,
+    0.63, to 0.69.
     """
     if release >= (0, 69):
         return "always"
@@ -130,8 +134,11 @@ def _abc9_mode(target: str, release: YosysRelease) -> Literal["opt-in", "default
 
 
 def _given_the_attribute(attributes: dict, name: str) -> list[str]:
-    """The objects that a `set_attribute` or `set_mod_attribute` mapping gives the attribute
-    `name` with a value that sets it (0 does not), or `every object` for a value with no object."""
+    """Return the objects to which a `set_attribute` or `set_mod_attribute` mapping gives `name`.
+
+    Only a value that sets the attribute counts (0 does not). A value with no object gives
+    `every object`.
+    """
     value = attributes.get(name)
     if isinstance(value, dict):
         return [str(path) for path, given in value.items() if given not in (0, False)]
@@ -139,9 +146,7 @@ def _given_the_attribute(attributes: dict, name: str) -> list[str]:
 
 
 class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
-    """
-    Yosys Open SYnthesis Suite: FPGA synthesis
-    """
+    """Synthesize a design for an FPGA device with Yosys."""
 
     minimum_yosys = MINIMUM_YOSYS
 
@@ -184,39 +189,40 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         )
         netlist_edif: Path = Field(
             Path("netlist.edif"),
-            description="The EDIF netlist for Vivado (`vivado_impl`), written with `write_edif "
-            "-pvector bra` so that Vivado reads every bus in the right order: a name in the run "
-            "directory, or a location it is delivered to. It is written for a Xilinx target "
-            "whose settings make the synthesis flat, and not otherwise (`flatten: false`, "
-            "`keep_hierarchy`, `black_box` and `stop_after` stop it), since Vivado reads a flat "
-            "netlist only.",
+            description="The EDIF netlist for Vivado (`vivado_impl`), as a name in the run "
+            "directory or a location to deliver it to. The flow writes it with `write_edif "
+            "-pvector bra`, so Vivado reads every bus in the right order. It writes it only for a "
+            "Xilinx device when the settings make the synthesis flat, because Vivado reads a flat "
+            "netlist only. `flatten: false`, `keep_hierarchy`, `black_box` and `stop_after` "
+            "prevent it.",
             json_schema_extra=deliverable(),
         )
         synth_pass_only: bool = Field(
             False,
-            description="Omit xeda's preparation and cleanup around the target's "
-            "`synth_<target>` pass, which does its own elaboration and mapping. Pass flags and "
-            "explicit ABC9 script choices apply in either mode. Reads the design's sources "
-            "as a bare `yosys <files>` does, so it requires `read_verilog_flags: []`, "
-            "`systemverilog: default` (yosys's built-in reader) and no "
-            "`read_systemverilog_flags`. A Verilog source is then read with plain "
-            "`read_verilog` and a SystemVerilog source with `read_verilog -sv`, chosen by the "
-            "source's `type`; that is what yosys does by file suffix unless the design gives a "
-            "`type` that contradicts the suffix. To compare with a native "
-            "yosys invocation, also match source paths and order. Left false, xeda elaborates "
-            "and optimizes around the pass and gives ABC9 a clock-derived delay. Every flag of "
-            "the pass itself (`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) "
-            "applies either way; a setting that would add a step before or after the pass, or "
-            "make it read differently from `yosys <files>`, is refused rather than ignored.",
+            description="Omit the preparation and cleanup that Xeda adds around the "
+            "`synth_<family>` pass, which does its own elaboration and mapping. Pass flags and "
+            "explicit ABC9 script choices apply in either mode. The flow reads the sources as a "
+            "bare `yosys <files>` does, so the mode requires `read_verilog_flags: []`, "
+            "`systemverilog: default` (the built-in reader of yosys) and no "
+            "`read_systemverilog_flags`. It reads a Verilog source with plain `read_verilog` and "
+            "a SystemVerilog source with `read_verilog -sv`, as the `type` of the source says. "
+            "Yosys does the same by file suffix, unless the design gives a `type` that "
+            "contradicts the suffix. To compare with a native yosys invocation, also match "
+            "source paths and order. When false, Xeda elaborates and optimizes around the pass "
+            "and gives ABC9 a delay derived from the clock. Every flag of the pass itself "
+            "(`flatten`, `abc9`, `nobram`, `widemux`, `synth_flags`, ...) applies in either "
+            "mode. A setting that would add a step before or after the pass, or make it read "
+            "differently from `yosys <files>`, is refused.",
         )
         flatten: Optional[bool] = Field(
             None,
             description="Flatten the design hierarchy. `true` flattens before the RTL outputs "
             "are written and before synthesis. `false` keeps the hierarchy (`-noflatten` for the "
-            "Lattice, iCE40 and Gowin passes). Unset on a Xilinx target is `true`, so the RTL "
-            "outputs are flat too: `synth_xilinx` alone keeps the hierarchy, and flattening "
-            "measured better. Unset on the other targets leaves it to their passes, which "
-            "flatten on their own. Under `synth_pass_only`, unset is the pass's own choice.",
+            "Lattice, iCE40 and Gowin passes). Unset: `true` for a Xilinx device, so the RTL "
+            "outputs are flat too (`synth_xilinx` alone keeps the hierarchy, and flattening "
+            "measured better). For the other families, unset leaves the choice to the pass, "
+            "which flattens on its own. Under `synth_pass_only`, unset leaves the choice to the "
+            "pass for every family.",
         )
         read_verilog_flags: list[str] = Field(
             ["-sv"],
@@ -227,15 +233,15 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         )
         abc9: bool = Field(
             True,
-            description="Map LUTs with ABC9. False maps with classic ABC (`-noabc9`, or no "
-            "`-abc9` where ABC9 is opt-in); yosys 0.69 and newer require ABC9 unless iCE40 "
-            "uses the separate `noabc` setting for built-in LUT mapping.",
+            description="Map LUTs with ABC9. `false` maps with classic ABC (`-noabc9`, or no "
+            "`-abc9` where ABC9 is opt-in). Yosys 0.69 and newer require ABC9. For iCE40, the "
+            "separate `noabc` setting selects the built-in LUT mapping.",
         )
         flow3: Optional[bool] = Field(
             None,
             description="Legacy ABC9 script choice: true selects `flow3`, false leaves the "
             "script to the synthesis pass. Prefer `abc9_script` for a named script; do not "
-            "give both. Unset uses flow3 in xeda's full recipe and leaves the pass's script "
+            "give both. Unset uses flow3 in Xeda's full recipe and leaves the pass's script "
             "in `synth_pass_only`. Has no effect unless ABC9 maps LUTs.",
         )
         abc9_script: Optional[
@@ -244,7 +250,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             None,
             description="Select one of yosys's included ABC9 scripts in either synthesis "
             "mode: default, default.area, default.fast, flow, flow2, flow3 or flow3mfs. "
-            "Unset uses flow3 in xeda's full recipe and the synthesis pass's own choice in "
+            "Unset uses flow3 in Xeda's full recipe and the synthesis pass's own choice in "
             "synth_pass_only. Has no effect when ABC9 mapping is disabled. Cannot be combined "
             "with the legacy flow3 setting.",
         )
@@ -252,23 +258,23 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             False,
             description="Retime flip-flops with ABC (`-retime`). Removed in yosys 0.69.",
         )
-        nobram: bool = Field(False, description="Do not map to block RAM cells")
-        nodsp: bool = Field(False, description="Do not use DSP resources")
-        nolutram: bool = Field(False, description="Do not use LUT RAM cells")
+        nobram: bool = Field(False, description="Do not map to block RAM cells.")
+        nodsp: bool = Field(False, description="Do not use DSP resources.")
+        nolutram: bool = Field(False, description="Do not use LUT RAM cells.")
         sta: bool = Field(
             False,
-            description="Run a simple static timing analysis (requires `flatten`)",
+            description="Run a simple static timing analysis (requires `flatten`).",
         )
         nowidelut: bool = Field(
             False,
-            description="Disable wide LUT implementations using hard MUX resources. Leave false "
-            "to use the target synthesis pass's normal mapping choices.",
+            description="Disable wide LUT implementations that use hard MUX resources. Leave "
+            "false to use the normal mapping choices of the family's synthesis pass.",
         )
-        abc_dff: bool = Field(False, description="Run abc/abc9 with -dff option")
+        abc_dff: bool = Field(False, description="Run abc and abc9 with `-dff`.")
         widemux: int = Field(
             0,
-            description="enable inference of hard multiplexer resources for muxes at or above this number of inputs"
-            " (minimum value 2, recommended value >= 5 or disabled = 0)",
+            description="Infer hard multiplexer resources for muxes with at least this many "
+            "inputs. 0 disables it. The minimum is 2, and 5 or more is recommended.",
         )
 
         @field_validator("widemux")
@@ -280,16 +286,16 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
         synth_flags: List[str] = Field(
             [],
-            description="Extra flags appended verbatim to yosys' device-specific `synth_<family>` "
-            "command, for options without a setting of their own.",
+            description="Extra flags appended verbatim to the device-specific `synth_<family>` "
+            "command of yosys, for flags that have no setting of their own.",
         )
         pre_synth_opt: bool = Field(
             False,
-            description="run additional optimization steps before synthesis",
+            description="Run additional optimization steps before synthesis.",
         )
         post_synth_opt: bool = Field(
             False,
-            description="run additional optimization steps after synthesis if complete",
+            description="Run additional optimization steps after synthesis.",
         )
         stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
         black_box: List[str] = Field(
@@ -307,15 +313,19 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             False, description="Infer UltraPlus MAC16 DSP cells with `synth_ice40 -dsp`."
         )
         ice40_device: Optional[Literal["hx", "lp", "u"]] = Field(
-            None, description="iCE40 timing model; inferred from fpga.device/type when unset."
+            None,
+            description="iCE40 timing model. Unset: inferred from `fpga.device` or `fpga.type`.",
         )
 
         @field_validator("netlist_edif", mode="before")
         @classmethod
         def _the_edif_is_always_written(cls, value):
-            """There is no switch: the EDIF netlist is a declared output (`netlist_edif`) whenever
-            the synthesis is flat, the same whoever asks for it, so one run serves every
-            consumer. The setting only names (or delivers) the file."""
+            """Refuse an empty `netlist_edif`: the flow has no switch for the EDIF netlist.
+
+            The EDIF netlist is a declared output (`netlist_edif`) whenever the synthesis is flat,
+            whichever consumer asks for it, so one run serves every consumer. The setting only
+            names the file, or the location to deliver it to.
+            """
             if value is None or (isinstance(value, (str, Path)) and not str(value).strip()):
                 raise ValueError(
                     "yosys_fpga always writes its EDIF netlist for a flattened Xilinx synthesis; "
@@ -324,16 +334,17 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return value
 
         def edif_problem(self) -> Optional[str]:
-            """Why the synthesis writes no EDIF netlist, or None when it writes one.
+            """Return why the synthesis writes no EDIF netlist, or None when it writes one.
 
-            Pure and lenient, so planning can ask it of any settings: it reads `fpga.vendor`
-            rather than `synthesis_target()`, which raises for a target yosys cannot synthesize.
+            The method is pure and does not raise, so planning can ask it of any settings. It
+            reads `fpga.vendor` and does not call `synthesis_target()`, which raises for a device
+            that yosys cannot synthesize.
             """
             if self.fpga is None:
-                return "no `fpga` target is given"
+                return "no `fpga` device is given"
             vendor = (self.fpga.vendor or "").lower()
             if vendor != "xilinx":
-                return f"the target is not a Xilinx device (fpga.vendor is {vendor or None!r})"
+                return f"the FPGA is not a Xilinx device (fpga.vendor is {vendor or None!r})"
             if self.stop_after == "rtl":
                 return "`stop_after: rtl` stops the flow before the synthesis"
             if not self.effective_flatten():
@@ -347,12 +358,15 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return self._kept_out_of_the_flat_netlist()
 
         def _kept_out_of_the_flat_netlist(self) -> Optional[str]:
-            """What the settings keep out of a flat netlist, or None. `flatten` leaves alone a
-            module or a cell with the attribute `keep_hierarchy`, whichever setting gave it, and
-            `black_box` empties a module. Vivado reads a flat netlist and resolves no module
-            that the netlist does not define. A `keep_hierarchy` that the settings do not show
-            (in the HDL, in `rtl.attributes`) is found by `vivado_impl` in the netlist. A black
-            box that the HDL makes is not: the file declares it as it does a primitive."""
+            """Return what the settings keep out of a flat netlist, or None.
+
+            `flatten` leaves alone a module or a cell with the attribute `keep_hierarchy`,
+            whichever setting gave it, and `black_box` empties a module. Vivado reads a flat
+            netlist and resolves no module that the netlist does not define. `vivado_impl` finds
+            in the netlist a `keep_hierarchy` that the settings do not show (one in the HDL or in
+            `rtl.attributes`). It does not find a black box that the HDL makes: the file declares
+            it as it does a primitive.
+            """
             if self.keep_hierarchy:
                 return (
                     "`keep_hierarchy` keeps "
@@ -376,7 +390,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return None
 
         def synthesis_target(self) -> str:
-            """The yosys FPGA synthesis target: xilinx, gowin, ecp5, ice40 or nexus."""
+            """Return the FPGA family that selects the yosys synthesis pass.
+
+            The result is xilinx, gowin, ecp5, ice40 or nexus.
+            """
             assert self.fpga is not None
             family = (self.fpga.family or "").lower()
             vendor = (self.fpga.vendor or "").lower()
@@ -393,13 +410,13 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             )
 
         def primitive_libraries(self) -> list[PrimitiveLibrary]:
-            """The primitive models the target's pass reads in its `begin` step, which xeda reads
-            the same way before checking the hierarchy.
+            """Return the primitive models that the synthesis pass reads in its `begin` step.
 
-            Every supported yosys release (0.63 to 0.69) reads the same files; `PASS_READS` in
-            `tests/test_yosys_fpga_flags.py` records them, as checked by hand against each
-            release's pass. Only the installed yosys is compared with this list by a test, in
-            both directions: its help, and the files it reads in a run.
+            Xeda reads them the same way before it checks the hierarchy. Every supported yosys
+            release (0.63 to 0.69) reads the same files. `PASS_READS` in
+            `tests/test_yosys_fpga_flags.py` records them, checked by hand against the pass of
+            each release. A test compares only the installed yosys with this list, in both
+            directions: its help, and the files it reads in a run.
             """
             target = self.synthesis_target()
             if target == "xilinx":
@@ -407,7 +424,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     PrimitiveLibrary("+/xilinx/cells_sim.v"),
                     PrimitiveLibrary("+/xilinx/cells_xtra.v", ("-lib",)),
                 ]
-            if target in ("ecp5", "nexus"):  # `synth_<target>` is `synth_lattice -family <family>`
+            if target in ("ecp5", "nexus"):  # `synth_<family>` is `synth_lattice -family <family>`
                 return [
                     PrimitiveLibrary(f"+/lattice/cells_sim_{target}.v"),
                     PrimitiveLibrary(f"+/lattice/cells_bb_{target}.v"),
@@ -422,25 +439,25 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return [PrimitiveLibrary("+/ice40/cells_sim.v", ("-D", define, "-lib", "-specify"))]
 
         def effective_flatten(self) -> Optional[bool]:
-            """Whether the recipe flattens the design: in its own step before the RTL outputs,
-            and with `-flatten` on `synth_xilinx`. It is `flatten` when that is set.
+            """Return whether the recipe flattens the design.
 
-            Unset on a Xilinx target, it is True, so the run is exactly the one `flatten=True`
-            gives, RTL outputs included. `synth_xilinx` alone keeps the hierarchy, and flattening
-            measured better. With `synth_pass_only` it is False instead: the pass keeps its own
-            default. Unset on any other target it is None, as their passes flatten on their own
-            unless told `-noflatten`.
+            The recipe flattens in its own step before the RTL outputs, and with `-flatten` on
+            `synth_xilinx`. The result is `flatten` when that is set. Unset on a Xilinx device,
+            it is True, so the run is the one that `flatten=True` gives, RTL outputs included
+            (`synth_xilinx` alone keeps the hierarchy, and flattening measured better). With
+            `synth_pass_only` it is False, and the pass keeps its own default. Unset on any other
+            family, it is None: their passes flatten on their own unless told `-noflatten`.
             """
             if self.flatten is None and self.synthesis_target() == "xilinx":
                 return not self.synth_pass_only
             return self.flatten
 
         def synth_command(self, release: YosysRelease) -> List[str]:
-            """The device synthesis command for yosys `release`, with its flags.
+            """Return the device synthesis command for yosys `release`, with its flags.
 
-            Each setting becomes the flag the target's pass takes for it in that release (see
-            `_abc9_mode`), and a combination that pass rejects is rejected here: a setting is
-            honored or an error, never dropped. `synth_flags` follow verbatim.
+            Each setting becomes the flag that the family's pass takes for it in that release (see
+            `_abc9_mode`). The method rejects a combination that the pass rejects. A setting is
+            honored or an error, and never dropped. `synth_flags` follow verbatim.
             """
             target = self.synthesis_target()
             if target == "xilinx":
@@ -497,8 +514,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     raise FlowSettingsException("synth_gowin has no -dff option for abc_dff.")
                 command.append("-dff")
             # `synth_xilinx` keeps the hierarchy unless told to flatten; the others flatten it
-            # unless told not to. An unset `flatten` leaves the pass's own choice, except that
-            # xeda's recipe flattens for Xilinx (`effective_flatten`).
+            # unless told not to. An unset `flatten` leaves the choice to the pass, except that
+            # the Xeda recipe flattens for Xilinx (`effective_flatten`).
             flatten = self.effective_flatten()
             if target == "xilinx":
                 if flatten:
@@ -535,7 +552,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 command += self._ice40_flags()
             elif self.ice40_device or self.ice40_dsp or self.ice40_spram:
                 raise FlowSettingsException(
-                    f"ice40_device, ice40_dsp and ice40_spram are for iCE40 targets, not {name}."
+                    f"ice40_device, ice40_dsp and ice40_spram are for iCE40 only; {name} takes "
+                    "none of them."
                 )
             return command + list(self.synth_flags)
 
@@ -546,12 +564,13 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return self
 
         def abc9_scratchpad(self) -> List[str]:
-            """The `scratchpad` commands that tune ABC9 before the synthesis pass runs.
+            """Return the `scratchpad` commands that tune ABC9 before the synthesis pass runs.
 
-            Computed where the script is written, like `synth_command`, because it depends on
-            several settings at once: ABC9 has to be mapping at all, an explicit script applies
-            in either mode, and only the full recipe supplies implicit flow3 and a clock-derived
-            delay. The script itself comes from yosys's constpad, never copied into xeda.
+            The method runs where the script is written, as `synth_command` does, because the
+            result depends on several settings: ABC9 must be mapping at all, an explicit script
+            applies in either mode, and only the full recipe supplies an implicit flow3 and a
+            delay derived from the clock. The script itself comes from the constpad of yosys.
+            Xeda does not copy it.
             """
             if not self.abc9 or self.noabc:
                 return []
@@ -569,44 +588,44 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return commands
 
         def synth_pass_only_conflicts(self) -> List[Tuple[str, str]]:
-            """Every setting that `synth_pass_only` cannot honor, as (setting, why) pairs.
+            """Return every setting that `synth_pass_only` cannot honor, as (setting, why) pairs.
 
-            The mode runs the target's synthesis pass and nothing else, so a setting that would
-            add a pass before or after it, that needs the elaborated hierarchy the mode never
-            builds, or that makes it read differently from the reference invocation (a file it
-            does not read, a reader flag it does not pass), is refused rather than silently
-            ignored. Pure, so the launcher can report it
-            at planning time (`check_settings_supported`) and `run()` can report it again once
-            `init()` has folded the design's own attributes in. Empty whenever the mode is off.
+            The mode runs the synthesis pass of the family and nothing else. It refuses a setting
+            that adds a pass before or after the pass, that needs the elaborated hierarchy (the
+            mode never builds it), or that makes the pass read differently from the reference
+            invocation (a file it does not read, a reader flag it does not pass). The method is
+            pure, so the launcher can report the conflicts at planning time
+            (`check_settings_supported`), and `run()` can report them again once `init()` has
+            folded the attributes of the design in. The result is empty when the mode is off.
 
-            A pass *flag* is never a conflict: `synth_command` renders those into the pass's own
-            command line, and they mean the same in either recipe. Neither is a constrained
-            clock, which the mode simply does not pass on to ABC9. A *reader* flag is: the
-            reference reads a Verilog source with `read_verilog` and no flag of its own, so
-            `read_verilog_flags` must be empty, judged by its value and never by whether it was
-            written -- `settings.json` writes every field, so a reload would otherwise differ
-            from the first run. That includes the default, which is why `read_verilog_flags: []`
-            has to be written with the mode. So is a front end that is not yosys's own
-            (`systemverilog`, whose default is the slang plugin) and the flags only that front
-            end's plugin reads (`read_systemverilog_flags`). All three are settings values, so
-            the check stays pure and class-level whatever sources the design has: the rule is
-            that the mode reads the sources as a bare `yosys <files>` does. Which reader a source
-            gets stays its design `type` (the suffix's inference unless the design states one,
-            "every design source is typed"), so a source whose explicit `type` contradicts its
-            suffix is read as that type; that is the author's statement, not a conflict, and
-            reading it by suffix instead would make the same source read differently in the full
-            recipe.
+            A flag of the pass is never a conflict: `synth_command` renders those into the
+            command line of the pass, and they mean the same in either recipe. A constrained clock
+            is no conflict either: the mode does not pass it on to ABC9. A reader flag is a
+            conflict. The reference reads a Verilog source with `read_verilog` and no flag of its
+            own, so `read_verilog_flags` must be empty. The value decides, whether or not the user
+            wrote it, because `settings.json` writes every field and a reload would otherwise
+            differ from the first run. That includes the default, so the mode needs
+            `read_verilog_flags: []` to be written. A front end other than the one of yosys
+            (`systemverilog`, whose default is the slang plugin) and the flags that only the
+            plugin of that front end reads (`read_systemverilog_flags`) are conflicts for the
+            same reason. All three are values of settings, so the check stays pure and
+            class-level whatever sources the design has: the mode reads the sources as a bare
+            `yosys <files>` does. The `type` of a source selects its reader: the type that the
+            suffix implies, unless the design states one ("every design source is typed"). A
+            source whose explicit `type` contradicts its suffix is read as that type. The author
+            states the type, so it is no conflict, and reading the source by its suffix would
+            make it read differently in the full recipe.
             """
             if not self.synth_pass_only:
                 return []
-            runs_a_pass = "`synth_pass_only` runs no pass but the target's own, so it cannot "
+            runs_a_pass = "`synth_pass_only` runs no pass but the family's own, so it cannot "
             needs_hierarchy = (
                 "`synth_pass_only` lets the synthesis pass elaborate the design, so there is no "
                 "elaborated hierarchy before it for "
             )
             no_rtl_stage = (
-                "`synth_pass_only` has no pre-synthesis stage -- the pass elaborates the design "
-                "itself -- so it cannot "
+                "`synth_pass_only` has no pre-synthesis stage, because the pass elaborates the "
+                "design itself, so it cannot "
             )
             conflicts: List[Tuple[str, str]] = []
             if self.prep is not None:
@@ -694,8 +713,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         "clockgate_map",
                         "`synth_pass_only` reads the design's sources and the libraries named "
                         "in `verilog_lib`, so it cannot also read the clock-gating map "
-                        "`clockgate_map`: no pass of the target reads one, and every extra "
-                        "`read_verilog` renumbers the cells the pass names",
+                        "`clockgate_map`: the pass reads no such map, and every extra "
+                        "`read_verilog` renumbers the cells that the pass names",
                     )
                 )
             if self.rmports:
@@ -705,9 +724,9 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                         runs_a_pass + "remove ports with the separate `rmports` pass",
                     )
                 )
-            # `sta` and `ltp` also make `Yosys.init` set `flatten`, which would add `-flatten` to
-            # the pass: a setting xeda's own code writes escapes this list by construction, so
-            # the user's own request for either is what is refused here.
+            # `sta` and `ltp` also make `YosysSynthesisBase.init` set `flatten`, which would add
+            # `-flatten` to the pass. This list has no `flatten` entry, so the check refuses only
+            # the request of the user for `sta` or `ltp`.
             for name, report in (
                 ("sta", "run static timing analysis"),
                 ("ltp", "report the longest path"),
@@ -728,7 +747,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return conflicts
 
         def _ice40_device(self) -> str:
-            """`hx`, `lp` or `u`: `ice40_device`, else the one `fpga` names."""
+            """Return `hx`, `lp` or `u`: `ice40_device`, else the one that `fpga` names."""
             assert self.fpga is not None
             device: Optional[str] = self.ice40_device
             if device is None:
@@ -783,12 +802,12 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     return ["-family", inferred]
                 if self.fpga.part or self.fpga.device or generation:
                     raise FlowSettingsException(
-                        "Cannot select synth_xilinx family from the Xilinx target: "
+                        "Cannot select synth_xilinx family from the Xilinx device: "
                         f"part={self.fpga.part!r}, device={self.fpga.device!r}, "
                         f"generation={generation or None!r}; set fpga.family or a recognized "
                         "generation (usp, u, or 7)."
                     )
-                return []  # An unspecified Xilinx target uses synth_xilinx's Series 7 default.
+                return []  # an unspecified Xilinx device gets the Series 7 default of synth_xilinx
             if family.endswith("-usp"):
                 target = "xcup"
             elif family.endswith("-us"):
@@ -821,7 +840,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                 )
             elif inferred is None:
                 raise FlowSettingsException(
-                    "A generic Gowin target requires a device or part beginning with GW1N, "
+                    "A generic Gowin family requires a device or part beginning with GW1N, "
                     "GW2A or GW5A."
                 )
             else:
@@ -854,7 +873,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
         if settings.fpga is None:
-            return  # no target yet: the required-settings check names what is missing
+            return  # no `fpga` yet: the required-settings check names what is missing
         problem = settings.edif_problem()
         if problem:
             raise ValueError(f"no EDIF netlist is written: {problem}")
@@ -862,14 +881,14 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Reject a `synth_pass_only` run that asks for a step the mode does not run, a run that
-        stops after the RTL (`stop_after`) and asks for a result of a later stage
-        (`stop_after_conflicts`), and an EDIF file name for a synthesis that writes no EDIF
-        netlist.
+        """Refuse settings that the run cannot honor, before any producer runs.
 
-        Class-level and pure, so the refusal arrives at planning time -- before any producer
-        runs, and under `xeda run --dry-run`. `run()` checks the pass-only conflicts again once
-        `init()` has merged the design's own attributes in, which this cannot see.
+        The refused settings are: a step that `synth_pass_only` does not run; a result of a later
+        stage when the run stops after the RTL (`stop_after_conflicts`); and an EDIF file name
+        for a synthesis that writes no EDIF netlist. The method is class-level and pure, so the
+        refusal comes at planning time, also under `xeda run --dry-run`. `run()` checks the
+        pass-only conflicts again after `init()` has merged the attributes of the design, which
+        this method cannot see.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
@@ -884,7 +903,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
     @classmethod
     def _refuse_synth_pass_only_conflicts(cls, settings: "YosysFpga.Settings") -> None:
-        """Raise one error listing every setting `synth_pass_only` cannot honor, naming both."""
+        """Raise one error that lists each setting that `synth_pass_only` cannot honor."""
         cls._refuse(settings.synth_pass_only_conflicts())
 
     @classmethod
@@ -896,14 +915,16 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             )
 
     def verilog_libraries_to_read(self, libraries: list[PrimitiveLibrary]) -> list[Path]:
-        """The `verilog_lib` entries the script reads: all but a library the target's pass reads.
+        """Return the `verilog_lib` entries that the script reads.
 
-        An entry naming one of `libraries` is skipped in either recipe, by *which file it is*,
-        never by how it is spelled: `+/xilinx/cells_sim.v` (yosys' own spelling, taken lexically)
-        and the same file by its absolute path, through a link or in another letter case (taken
-        against the installed yosys's data directory, which `+/` stands for) are one library.
-        The skip does not depend on what the script happens to read itself, which is nothing of
-        the kind under `synth_pass_only`: one more `read_verilog` renumbers the design's cells.
+        These are all entries but a library that the synthesis pass reads itself. The method
+        skips an entry that names one of `libraries`, in either recipe. It decides by the file
+        that the entry names, and the spelling does not matter. `+/xilinx/cells_sim.v` (the
+        spelling of yosys, compared as text) and the same file by its absolute path, through a
+        link or in another letter case (compared against the data directory of the installed
+        yosys, which `+/` stands for) are one library. The decision does not depend on what the
+        script reads itself, which is nothing of the kind under `synth_pass_only`: one more
+        `read_verilog` renumbers the cells of the design.
         """
         ss = self.settings
         assert isinstance(ss, self.Settings)
@@ -930,8 +951,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
 
     def init(self) -> None:
         assert isinstance(self.settings, self.Settings)
-        # judged as the plan did, on the settings as given: `init()` folds the design's
-        # `rtl.attributes` into `set_attribute`, and the run writes what the plan declared
+        # Judge as the plan did, on the settings as given. `init()` folds the `rtl.attributes`
+        # of the design into `set_attribute`, and the run writes what the plan declared.
         problem = self.settings.edif_problem()
         super().init()
         if problem is None:
@@ -946,7 +967,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             )
 
     def run(self) -> None:
-        """Synthesize the design for the selected FPGA target."""
+        """Synthesize the design for the selected FPGA device."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self._refuse_synth_pass_only_conflicts(ss)
@@ -959,8 +980,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             declared.netlist_edif = self.run_path / ss.netlist_edif
         assert ss.fpga is not None, "checked at launch (`required_settings`)"
         self.artifacts.timing_report = ss.reports_dir / "timing.rpt" if ss.sta else None
-        # written by the stage `stop_after: rtl` stops before: a stopped run has no report, and
-        # lists none
+        # `stop_after: rtl` skips the stage that writes this report, so a stopped run lists none
         self.artifacts.utilization_report = (
             ss.reports_dir / "utilization.json" if ss.stop_after != "rtl" else None
         )
@@ -978,20 +998,20 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             f"yosys_fpga_synth{self.script_ext}",
             lstrip_blocks=True,
             trim_blocks=False,
-            # `read_files.ys` lists the VHDL files and `-e <top>` itself, as for `yosys`: with
-            # `one_shot_elab` the arguments carried every file a second time.
+            # `read_files.ys` lists the VHDL files and `-e <top>` itself, as for `yosys`. With
+            # `one_shot_elab`, the arguments would carry every file a second time.
             ghdl_args=GhdlSynth.synth_args(ss.ghdl, self.design, one_shot_elab=False),
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
             synth_command=synth_command,
-            # `primitive_libraries` says what the target's pass reads in its `begin` step, which
-            # `synth_pass_only` lets the pass do itself. Reading them early would not only be
-            # redundant: every `read_verilog` advances yosys's `autoidx`, which renumbers the
-            # design's generated cell names, and ABC9 maps by those names -- so an extra read
-            # alone changes the netlist. The method is unchanged; only the script omits the read.
+            # `primitive_libraries` names what the pass reads in its `begin` step.
+            # `synth_pass_only` lets the pass do that itself. An early read is redundant, and it
+            # also changes the netlist: every `read_verilog` advances the `autoidx` of yosys,
+            # which renumbers the generated cell names of the design, and ABC9 maps by those
+            # names. Only the script omits the read; the method is unchanged.
             primitive_libraries=([] if ss.synth_pass_only else libraries),
-            # ... but a `verilog_lib` entry naming one of them is skipped in either recipe
+            # A `verilog_lib` entry that names one of them is skipped in either recipe.
             verilog_libs=self.verilog_libraries_to_read(libraries),
             synth_pass_only=ss.synth_pass_only,
         )
@@ -1000,8 +1020,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         if ss.log_file:
             log.info("Logging yosys output to %s", ss.log_file)
             args.extend(["-L", ss.log_file])
-        # With a log file, the console is left to the flow's own messages: the log has yosys's
-        # output. `-T -Q` come with the tool's defaults already (`yosys`), and were given twice.
+        # With a log file, the console shows only the messages of the flow, and the log has the
+        # yosys output. `-T -Q` already come with the defaults of the tool (`yosys`).
         if ss.log_file and not ss.verbose and not ss.debug:
             args.append("-q")
         depfile = self.run_path / "yosys.d"
@@ -1080,13 +1100,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
                     for res in ["CARRY4", "CARRY8", "MUXF7", "MUXF8", "MUXF9"]:
                         add_util_if_nonzero(res)
 
-        # if self.settings.fpga:
         return True
 
 
 def sum_all_resources(design_util: dict, lst: Iterable) -> int:
     return sum(int(design_util.get(t, 0)) for t in lst)
-
-
-#: Why a flow that places the `yosys_fpga` netlist with nextpnr keeps its `src` attributes, for
-#: the description of the field holding its `yosys_fpga` settings.
