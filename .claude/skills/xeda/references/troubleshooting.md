@@ -147,8 +147,9 @@ A Xilinx 7-series build fails before or during `nextpnr`:
   fails with `ReportedFailure`, quoting the lines. An ID error means the bitstream is for another
   device than the one on the cable. `Can't program SPI flash: missing device-package information`
   means the loader's list gives the board no part: set `cable` as well. A Xilinx `write_flash`
-  whose log lacks `Writing: [...] 100.00%` and `Done` did not finish the write (a locked flash can
-  stop it before it writes); set `verify: true` too.
+  whose log lacks the finished write (`Writing: [...] 100.00%` then `Done`, or `Writing: Done`
+  with quiet bars) did not finish it: a locked flash can stop the loader before it writes. `verify`
+  does not report that.
 
 A 7-series bitstream can compute the wrong result with timing met. Some openXC7
 `nextpnr-himbaechel` builds write wrong bits with no error: the 1.0 release and
