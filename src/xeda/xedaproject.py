@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 from pathlib import Path
@@ -10,8 +11,10 @@ import attrs
 from .dataclass import model_with_allow_extra
 from .design import DESIGN_FILE_FORMATS, Design
 from .utils import (
+    ConflictingKeys,
     WorkingDirectory,
     XedaException,
+    expand_hierarchy,
     flows_table_problems,
     tomllib,
 )
@@ -56,6 +59,11 @@ def resolve_project_file(
             raise ProjectFileError(f'Cannot open project file "{given}": no such file')
         return path
     return find_default_xedaproject(directory)
+
+
+#: the top-level keys of a project file: its designs and the settings of its flows, each of which
+#: may be spelled in the singular
+PROJECT_KEYS = ("designs", "design", "flows", "flow")
 
 
 @attrs.define
@@ -107,6 +115,24 @@ class XedaProject:
                     data = json.load(f)
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
+        try:
+            data = expand_hierarchy(data)
+        except ConflictingKeys as e:
+            raise ValueError(f"project file {file}: {e}") from e
+        unknown = [key for key in data if key not in PROJECT_KEYS]
+        if unknown:
+            hints = [
+                f"{key!r}: did you mean {close[0]!r}?"
+                for key in unknown
+                if (close := difflib.get_close_matches(str(key), PROJECT_KEYS, n=1))
+            ]
+            raise ValueError(
+                f"project file {file}: unknown key(s) "
+                f"{', '.join(repr(key) for key in unknown)}; a project has "
+                f"{', '.join(repr(key) for key in PROJECT_KEYS)}"
+                + (f" ({'; '.join(hints)})" if hints else "")
+                + ". Write a setting of a flow as flows.<flow>.<setting>."
+            )
         designs = None
         if not skip_designs:
             if "design" in data and "designs" in data:
@@ -136,6 +162,9 @@ class XedaProject:
                         f"Design entry {i} must be a mapping (table), got "
                         f"{type(d).__name__}: {d!r}"
                     )
+            # a design entry is a table of dotted keys like a design file; expanded, a key to
+            # remove has its field name
+            designs = [design_cls.expanded(d) for d in designs]
             if design_allow_extra:
                 design_cls = model_with_allow_extra(design_cls)
             else:

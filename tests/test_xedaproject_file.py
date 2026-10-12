@@ -166,3 +166,43 @@ def test_default_project_discovery_accepts_each_supported_suffix(tmp_path, name)
     path.write_text("flows: {}\n" if path.suffix != ".toml" else "workspace = {}\n")
 
     assert find_default_xedaproject(tmp_path) == path
+
+
+@pytest.mark.parametrize(
+    ("text", "suggestion"),
+    [
+        ("flowz: {}\n", "flow"),
+        ("desings:\n  - name: d\n", "designs"),
+        ("flow_settings: {}\n", None),
+        ("workspace: {}\n", None),
+    ],
+)
+def test_a_project_key_that_nothing_reads_is_refused_naming_the_accepted_keys(
+    tmp_path, text, suggestion
+):
+    """A key at the root of a project file that is not one of its keys used to be dropped without
+    a word."""
+    path = _write(tmp_path, PROJECT_FILE, DESIGN + text)
+
+    with pytest.raises(ValueError) as raised:
+        XedaProject.from_file(path)
+
+    message = str(raised.value)
+    assert "unknown key(s)" in message and "'designs', 'design', 'flows', 'flow'" in message
+    assert text.split(":")[0] in message
+    if suggestion:
+        assert f"did you mean '{suggestion}'?" in message
+
+
+def test_the_accepted_keys_of_a_project_are_its_designs_and_its_flows(tmp_path):
+    for keys in (("design", "flow"), ("designs", "flows")):
+        body = f"{keys[0]}:\n  - name: d\n    rtl: {{sources: [top.vhd], top: top}}\n"
+        body += f"{keys[1]}:\n  ghdl_sim: {{warn_error: true}}\n"
+        project = XedaProject.from_file(_write(tmp_path, PROJECT_FILE, body))
+        assert project.flows == {"ghdl_sim": {"warn_error": True}}
+
+
+def test_a_dotted_key_at_the_root_of_a_project_reaches_its_flows(tmp_path):
+    path = _write(tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clock.period: 5\n")
+
+    assert XedaProject.from_file(path).flows == {"vivado_synth": {"clock": {"period": 5}}}
