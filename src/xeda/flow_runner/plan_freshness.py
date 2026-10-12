@@ -120,20 +120,15 @@ def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntr
 
 
 def _bare_flow(
-    plan: Plan,
     node: PlanNode,
     settings: Flow.Settings,
     design: Design,
     run_root: Path,
     runner_cwd: Path,
     design_hash: str,
-    handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
 ) -> Flow:
     """The flow as the launch constructs it, before `init()`: its run directory is claimed, and
-    nothing writes there. Its declared inputs are what the plan wires: the design sources, and the
-    files the producers hand over where those are known (`handed`), else a path of the
-    producer's run directory standing for the file, so that a hook that asks whether an input
-    is supplied (nextpnr's board fallback) answers as the launch does."""
+    nothing writes there. Construction checks the settings against the design, as in a launch."""
     flow = node.flow_class(
         settings.model_copy(deep=True),
         design.model_copy(deep=True),
@@ -146,6 +141,19 @@ def _bare_flow(
         node.settings_hash,
         design_hash,
     )
+    return flow
+
+
+def _wire_inputs(
+    flow: Flow,
+    plan: Plan,
+    node: PlanNode,
+    handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
+) -> None:
+    """Set the declared inputs of the flow to what the plan wires: the design sources, and the
+    files the producers hand over where those are known (`handed`), else a path of the
+    producer's run directory standing for the file. A hook that asks whether an input is
+    supplied (nextpnr's board fallback) then answers as the launch does."""
     for selected in node.inputs:
         paths = list(selected.sources)
         for ref in selected.references:
@@ -158,7 +166,6 @@ def _bare_flow(
         if paths:
             many = declared_inputs(node.flow_class)[selected.name].cardinality == "many"
             setattr(flow.inputs, selected.name, paths if many else paths[0])
-    return flow
 
 
 def _records(
@@ -214,6 +221,17 @@ def judge_node(
     debug: bool,
 ) -> NodeFreshness:
     flow_class = node.flow_class
+    try:
+        settings = launch_input.input_settings(
+            flow_class, node.settings, design, runner_cwd, debug=debug
+        )
+        split_deliveries(settings, design.name)
+        design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
+        flow = _bare_flow(node, settings, design, run_root, runner_cwd, design_hash)
+    except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
+        # a plan checks no more than the request; a launch checks the settings in the design's
+        # context, as it constructs the flow, and would refuse these
+        return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
     # A fresh producer's recorded results are the ones a launch hands over, whatever the other
     # producers do. A producer that is not fresh runs first and its results are rewritten.
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
@@ -234,17 +252,7 @@ def judge_node(
                 lacks = lacks or NodeFreshness("unknown", found)
             else:
                 entries[(ref.node, ref.output)] = found
-    try:
-        settings = launch_input.input_settings(
-            flow_class, node.settings, design, runner_cwd, debug=debug
-        )
-        split_deliveries(settings, design.name)
-        design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
-        flow = _bare_flow(plan, node, settings, design, run_root, runner_cwd, design_hash, entries)
-    except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
-        # a plan checks no more than the request; a launch checks the settings in the design's
-        # context, as it constructs the flow, and would refuse these
-        return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
+    _wire_inputs(flow, plan, node, entries)
     # A launch hands over the outputs before it prepares anything or asks the flow anything. One
     # it cannot hand over stops the launch.
     if lacks is not None:
