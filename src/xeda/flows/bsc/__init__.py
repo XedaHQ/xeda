@@ -1309,6 +1309,7 @@ class BscSim(BscFlow, SimFlow):
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Reject what bsc or the simulator would reject, before anything runs: settings bsc
         refuses for the backend, and options the chosen simulator lacks."""
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if settings.simulator in _UNCERTIFIED_SIMULATORS:
             supported = ", ".join(f'"{name}"' for name in _SUPPORTED_SIMULATORS)
@@ -1316,7 +1317,6 @@ class BscSim(BscFlow, SimFlow):
                 f"bsc_sim simulator {settings.simulator!r} is uncertified for simulation "
                 f"evidence; choose a supported alternative: {supported}"
             )
-        super().check_settings_supported(settings)
         if settings.simulator == "bluesim" and any(
             arg.startswith(("-m", "-c", "-f")) for arg in settings.sim_args
         ):
