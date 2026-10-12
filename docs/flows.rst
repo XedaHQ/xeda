@@ -1102,6 +1102,10 @@ tool/driver exit always fails, even after a finish. The normalized record is sav
 ``sim.evidence`` alongside ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
 ``sim.warnings``.
 
+When a simulation fails these checks, ``error.message`` in ``results.json`` says what happened and
+what to do. For a testbench that stops with no finish, it tells you to end the testbench with
+``std.env.finish`` (VHDL) or ``$finish`` (Verilog), or to set ``stop_time``.
+
 Every ``SimFlow`` exposes ``timeout`` and ``fail_severity``. The default severity is ``error``;
 the choices are ``warning``, ``error``, ``failure`` and ``fatal`` (``failure`` and ``fatal`` have
 the same rank). Any observed event at or above the selected threshold fails. ``timeout`` bounds

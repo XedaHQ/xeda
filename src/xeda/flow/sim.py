@@ -69,14 +69,74 @@ def time_in_fs(time: int, unit: str) -> int:
     return time * int(match.group(1)) * _FS_PER_UNIT[match.group(2)]
 
 
+def readable_time(time: int, unit: str | None) -> str:
+    """A simulated time in the largest unit that holds it exactly (`80 ns`, not `80000000 1fs`);
+    as given when the unit is missing or not one of ours."""
+    try:
+        femtoseconds = time_in_fs(time, unit or "")
+    except ValueError:
+        return f"{time} {unit}" if unit else str(time)
+    for name in ("s", "ms", "us", "ns", "ps"):
+        if femtoseconds and femtoseconds % _FS_PER_UNIT[name] == 0:
+            return f"{femtoseconds // _FS_PER_UNIT[name]} {name}"
+    return f"{femtoseconds} fs"
+
+
+def record_failure(flow: Any, message: str) -> None:
+    """Make `message` the `error` of the run's `results.json`, unless the run already has an error
+    (a tool's exit status): a failure the flow's checks found, with no exception, would otherwise
+    get the launcher's general message."""
+    if not flow.results.get("error"):
+        name = getattr(flow, "name", "the simulation")
+        flow.results["error"] = {
+            "type": "ReportedFailure",
+            "message": f"`{name}` reported failure: {message}",
+        }
+
+
+def _cocotb_problem(results: Any) -> str:
+    """Why cocotb's verdict failed, from the counts it recorded in the run's results."""
+    tests = results.get("cocotb.tests")
+    if tests is None:
+        return "cocotb left no readable test results; see the simulation log in the run directory."
+    errors, failures = results.get("cocotb.errors", 0), results.get("cocotb.failures", 0)
+    if errors or failures:
+        return (
+            f"{failures} of {tests} cocotb test(s) failed and {errors} had an error; "
+            "see the simulation log in the run directory."
+        )
+    return (
+        f"cocotb ran no test: {tests} found, {results.get('cocotb.skipped', 0)} skipped "
+        "(does `cocotb.testcase` name one?)."
+    )
+
+
+def _ending_advice(stop_time: Any) -> str:
+    """What to do about a simulation that stopped by itself: no `$finish`, no requested stop."""
+    finish = "end the testbench with `std.env.finish` (VHDL) or `$finish` (Verilog)"
+    if stop_time is None:
+        return f"To fix it, {finish}, or set `stop_time`."
+    return f"To fix it, set `stop_time` to a time before the testbench stops, or {finish}."
+
+
 def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) -> bool:
-    """The evidence rule (design 8a, Q12, Q16): a simulation passes only if it ended by
-    `$finish` (at any time), by the `stop_time` the user asked for, or by the testbench's own
-    driver exiting with status 0; and no recorded event reached `fail_severity`. An end record
-    that is missing, or ends by a drained event queue, an error or a fatal error, fails."""
-    if evidence is None:
-        log.error("The simulation left no end record: it did not report how it ended.")
+    """The evidence rule: a simulation passes only if it ended by `$finish` (at any time), by the
+    `stop_time` the user asked for, or by the testbench's own driver exiting with status 0; and no
+    recorded event reached `fail_severity`. An end record that is missing, or ends by a drained
+    event queue, an error or a fatal error, fails. A failure is logged and, unless the run
+    already has an error (a tool's exit status), recorded as the run's `error` in
+    `results.json`, with what happened and what to do."""
+
+    def fail(message: str) -> bool:
+        log.error("%s", message[:1].upper() + message[1:])
+        record_failure(flow, message)
         return False
+
+    if evidence is None:
+        return fail(
+            "the simulation left no end record, so xeda cannot tell how it ended. "
+            "See the simulation log in the run directory."
+        )
     flow.results["sim.evidence"] = evidence.model_dump(mode="json")
     flow.results["sim.ended_by"] = evidence.ended_by
     flow.results["sim.time"] = evidence.time
@@ -116,9 +176,10 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         "exit": evidence.exit_code == 0,
     }.get(evidence.ended_by, False)
     if not ok:
+        stop_asked = f" before the requested stop_time {stop_time}" if stop_time is not None else ""
         why = {
-            "drained": "its event queue ran empty without a $finish"
-            + (f" before the requested stop_time {stop_time}" if stop_time is not None else ""),
+            "drained": f"its event queue ran empty without a `$finish`{stop_asked}. "
+            + _ending_advice(stop_time),
             "stop_time": (
                 f"the stop could not be confirmed: the record gave no time or time unit "
                 f"(requested stop_time {stop_time})"
@@ -138,26 +199,25 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
             "exit": f"the testbench's driver exited with status {evidence.exit_code}",
             "error": "an error ended it",
             "fatal": "a fatal error ended it",
-        }.get(evidence.ended_by, "it did not report how it ended")
-        log.error(
-            "The simulation did not end as intended: %s (time %s %s).",
-            why,
-            evidence.time,
-            evidence.time_unit or "",
+        }.get(
+            evidence.ended_by,
+            f"it reported no `$finish`, no stop time and no driver exit{stop_asked}, so its event "
+            "queue most likely ran empty. " + _ending_advice(stop_time),
         )
-        return False
+        at = ""
+        if evidence.time is not None:
+            at = f" (at {readable_time(evidence.time, evidence.time_unit)})"
+        end = "" if why.endswith(".") else "."
+        return fail(f"the simulation did not end as intended{at}: {why}{end}")
     threshold = SEVERITY_RANK[fail_severity]
     worst = [e for e in evidence.events if _EVENT_RANK.get(e.kind, 0) >= threshold]
     if worst:
-        log.error(
-            "The simulation reported %d event(s) at or above fail_severity=%s, the first: %s at %s: %s",
-            len(worst),
-            fail_severity,
-            worst[0].kind,
-            worst[0].location,
-            worst[0].message,
+        first = worst[0]
+        where = f" at {first.location}" if first.location else ""
+        return fail(
+            f"the simulation reported {len(worst)} event(s) at or above "
+            f"fail_severity={fail_severity}, the first: {first.kind}{where}: {first.message}"
         )
-        return False
     return True
 
 
@@ -311,9 +371,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
         """cocotb's verdict for a cocotb testbench (on every simulator); otherwise the evidence
         rule. Missing evidence fails, including a flow without an adapter."""
         if self.cocotb:
-            return self.cocotb.add_results(
+            passed = self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
             )
+            if not passed:
+                record_failure(self, _cocotb_problem(self.results))
+            return passed
         assert isinstance(self.settings, self.Settings)
         return judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
 

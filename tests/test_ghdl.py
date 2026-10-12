@@ -321,6 +321,22 @@ def test_ghdl_default_evidence_rejects_drain_and_error(tmp_path, body):
     assert flow is not None and not flow.succeeded
 
 
+def test_ghdl_drained_queue_says_what_to_do_in_results_json(tmp_path):
+    """A testbench that ends with `wait;` leaves no end record. The failure in `results.json`
+    says what happened and what to do, not only the log."""
+    require_ghdl()
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        GhdlSim, _evidence_design(tmp_path, "wait for 5 ns;")
+    )
+    assert flow is not None and not flow.succeeded
+    error = json.loads((flow.run_path / "results.json").read_text())["error"]
+    assert error["type"] == "ReportedFailure"
+    message = error["message"]
+    assert message.startswith("`ghdl_sim` reported failure: ")
+    assert "event queue" in message and "std.env.finish" in message and "stop_time" in message
+    assert "None" not in message
+
+
 def test_ghdl_cocotb_time_limit(tmp_path):
     from .test_cocotb import _inverter_design
 
