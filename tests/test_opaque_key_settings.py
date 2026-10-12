@@ -301,6 +301,10 @@ def test_a_layer_over_a_layer_replaces_the_property_it_names(tmp_path):
 @pytest.mark.parametrize("flow_class", [VivadoSynth, VivadoAltSynth, VivadoProject])
 def test_every_vivado_flow_with_the_dictionaries_declares_them_opaque(flow_class):
     assert opaque_key_fields_of(flow_class.Settings) == OPAQUE
+    if flow_class is VivadoAltSynth:  # non-project mode has no run to set a property on
+        with pytest.raises(ValueError, match="non-project mode"):
+            flow_class.Settings(**BASE, set_synth_properties={SYNTH_NAME: 0})
+        return
     settings = flow_class.Settings(**BASE, set_synth_properties={SYNTH_NAME: 0})
     assert settings.set_synth_properties == {SYNTH_NAME: 0}
 

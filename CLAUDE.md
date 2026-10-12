@@ -1058,9 +1058,11 @@ and to declare `results_description`.
 `<Flow>.Settings` that nothing reads, in each product flow: the code of its MRO (a method counts
 where the launcher calls it, `FLOW_API`, or something names it; an override counts only where it
 calls `super()`), the module-level helpers that code names, the methods of its settings classes
-that code or a template names, and its templates. A validator, a description, a `Literal` and
-a comment are no read. A new unread field fails the test; the fix is one of three. Read it in the
-flow or its template. Take it out of the flow's model: a flow that gets a base's settings it does
+that code or a template names, and its templates. A validator, a description, a `Literal`, a
+comment, `hasattr` and `setattr` are no read. A name in a literal table counts only where
+`getattr` on the settings takes it (`getattr(ss, name)` for a variable that a table, a loop or a
+dictionary lookup gives). A new unread field fails the test; the fix is one of three. Read it in
+the flow or its template. Take it out of the flow's model: a flow that gets a base's settings it does
 not use is built on a smaller base (`YosysSynthesisBase` holds the netlist and ABC settings of
 `yosys` and `yosys_fpga`, and `yosys_sim` is a `YosysBase`; `VivadoProject.Settings` is
 `VivadoSynth.Settings` without `VivadoSim.Settings`) and lists what it dropped in
@@ -2478,7 +2480,7 @@ dependency must also share `custom_boards_file`.
   in `init()`, `prepare_inputs()` or a constructor: `xeda run --dry-run`, the remote preflight and
   `dse` call them, and a producer's `init()` runs after the producers before it. Every override calls
   `super()`. A flow whose `init()` refused such a rule keeps refusing when built directly: its
-  `init()` calls the hook (or, for `YosysBase`, only the rule it owns); a `SimFlow` calls the design
+  `init()` calls the hook (or, for the yosys synthesis flows, only the rule `YosysSynthesisBase` owns); a `SimFlow` calls the design
   hook from its constructor and a `SynthFlow` ties its clocks there with `reconcile_clocks`, the
   function its hook uses. What needs the run stays in `init()`
   or `prepare_inputs()` (a tool on `PATH`, installed data, a file on disk, the resolved inputs).

@@ -24,10 +24,12 @@ A validator is not a read. It checks or normalizes a value that the flow may the
 A read of the setting `x` is:
 
 * in Python, the attribute `x` of an expression that holds the settings (`settings`, `ss`,
-  `self.settings`, `flow.settings`, or `self` and `cls` inside a settings class), or the exact text
-  `"x"` where the code uses it as a name: in the second argument of `getattr`, or in a tuple, list,
-  set or dictionary, such as a table of option names. Text in a docstring, in `Field(...)`, in a
-  decorator or in a `Literal[...]`, and a value that the code assigns or compares, is no read;
+  `self.settings`, `flow.settings`, or `self` and `cls` inside a settings class), or
+  `getattr(<that expression>, "x")`, or the text `"x"` in a literal tuple, list or set of names in
+  code that also calls `getattr` on the settings with a name it holds in a variable (a table of
+  option names that the code walks). `hasattr` and `setattr` are no read, nor is text in a
+  dictionary, a docstring, `Field(...)`, a decorator or a `Literal[...]`, nor a value that the
+  code assigns or compares;
 * in a template, `settings.x` or `settings["x"]` outside a comment.
 
 Known limit: only the top-level fields of a flow's `Settings` are checked. The leaves of a nested
@@ -80,11 +82,10 @@ class Reads:
     """What the code and the templates of one flow read of its settings."""
 
     attributes: frozenset[str]
-    strings: frozenset[str]
     template_names: frozenset[str]
 
     def reads(self, name: str) -> bool:
-        return name in self.attributes or name in self.strings or name in self.template_names
+        return name in self.attributes or name in self.template_names
 
 
 def _is_validator(node: ast.AST) -> bool:
@@ -102,10 +103,14 @@ class _Collector(ast.NodeVisitor):
     settings class, where `self` is the settings. `names` are all the names the code uses, for
     finding the settings methods it calls."""
 
-    def __init__(self, *, settings_code: bool = False) -> None:
+    def __init__(
+        self, *, settings_code: bool = False, env: dict[str, set[str]] | None = None
+    ) -> None:
         self.settings_code = settings_code
         self.attributes: set[str] = set()
-        self.strings: set[str] = set()
+        #: the names of text that each variable can hold, from the literals assigned to it, that it
+        #: loops over or that a dictionary lookup gives it: a read, when `getattr` takes it
+        self.env: dict[str, set[str]] = {key: set(value) for key, value in (env or {}).items()}
         self.names: set[str] = set()
 
     def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
@@ -128,8 +133,14 @@ class _Collector(ast.NodeVisitor):
         name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
         if name in ("Field", "deliverable"):
             return  # a description and an alias are no use of a setting
-        if name in ("getattr", "hasattr", "setattr", "delattr") and len(node.args) > 1:
-            self._name(node.args[1])
+        # `getattr` reads a setting. `hasattr` only asks whether there is one, and `setattr` and
+        # `delattr` replace or drop it.
+        if name == "getattr" and len(node.args) > 1 and self._holds_settings(node.args[0]):
+            key = node.args[1]
+            if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                self.attributes.add(key.value)
+            elif isinstance(key, ast.Name):
+                self.attributes |= self.env.get(key.id, set())
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -137,11 +148,14 @@ class _Collector(ast.NodeVisitor):
             return
         if node.value is not None:
             self.visit(node.value)
+            self._bind(node.target, node.value)
 
     def visit_Assign(self, node: ast.Assign) -> None:
         if any(isinstance(t, ast.Name) and t.id in NAME_TABLES for t in node.targets):
             return
         self.generic_visit(node)
+        for target in node.targets:
+            self._bind(target, node.value)
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if ast.unparse(node.value).endswith("Literal"):
@@ -164,26 +178,69 @@ class _Collector(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         self.names.add(node.id)
 
-    def _name(self, node: ast.AST) -> None:
-        if (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and IDENTIFIER.fullmatch(node.value)
-        ):
-            self.strings.add(node.value)
+    def _holds_settings(self, node: ast.AST) -> bool:
+        base = ast.unparse(node)
+        return base in SETTINGS_EXPRESSIONS or (self.settings_code and base in SETTINGS_SELF)
 
-    def _names(self, node: ast.Tuple | ast.List | ast.Set) -> None:
-        for item in node.elts:
-            self._name(item)
+    def _bind(self, target: ast.AST, value: ast.AST) -> None:
+        names = _strings_in(value, self.env)
+        for node in ast.walk(target):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                self.env.setdefault(node.id, set()).update(names)
+
+    def visit_For(self, node: ast.For) -> None:
+        self._bind(node.target, node.iter)
         self.generic_visit(node)
 
-    visit_Tuple = visit_List = visit_Set = _names
-
-    def visit_Dict(self, node: ast.Dict) -> None:
-        for item in (*node.keys, *node.values):
-            if item is not None:
-                self._name(item)
+    def visit_comprehension(self, node: ast.comprehension) -> None:
+        self._bind(node.target, node.iter)
         self.generic_visit(node)
+
+
+def _strings_in(expr: ast.AST | None, env: dict[str, set[str]]) -> set[str]:
+    """The names of text that `expr` can give: the text in a literal tuple, list, set or
+    dictionary, in either branch of a conditional, in what a variable holds, and in the table a
+    lookup (`table[key]`, `table.get(key)`) is made in."""
+    if isinstance(expr, ast.Constant):
+        value = expr.value
+        return {value} if isinstance(value, str) and IDENTIFIER.fullmatch(value) else set()
+    if isinstance(expr, ast.Name):
+        return set(env.get(expr.id, ()))
+    if isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
+        return set().union(*(_strings_in(item, env) for item in expr.elts))
+    if isinstance(expr, ast.Dict):
+        return set().union(*(_strings_in(item, env) for item in (*expr.keys, *expr.values)))
+    if isinstance(expr, ast.IfExp):
+        return _strings_in(expr.body, env) | _strings_in(expr.orelse, env)
+    if isinstance(expr, ast.Starred):
+        return _strings_in(expr.value, env)
+    if isinstance(expr, ast.BinOp):
+        return _strings_in(expr.left, env) | _strings_in(expr.right, env)
+    if isinstance(expr, ast.Subscript):
+        return _strings_in(expr.value, env)
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "get"
+    ):
+        return _strings_in(expr.func.value, env)
+    return set()
+
+
+def _module_env(tree: ast.Module) -> dict[str, set[str]]:
+    """What the module-level variables of a module hold (`_strings_in`)."""
+    env: dict[str, set[str]] = {}
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign):
+            targets, value = statement.targets, statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            targets, value = [statement.target], statement.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                env.setdefault(target.id, set()).update(_strings_in(value, env))
+    return env
 
 
 def template_reads(name: str, text: str) -> set[str]:
@@ -260,13 +317,20 @@ def settings_reads(
                 queue.append((key[0], member, False))
 
     attributes: set[str] = set()
-    strings: set[str] = set()
     names: set[str] = set(entries)
     code: list[ast.AST] = []
     functions: set[tuple[str, str]] = set()
     taken: set[tuple[str, str]] = set()
     used = frozenset().union(*(template_reads(name, text) for name, text in templates))
     names |= used  # a template calls a settings method as it reads a setting
+
+    envs: dict[str, dict[str, set[str]]] = {}
+
+    def module_env(name: str) -> dict[str, set[str]]:
+        if name not in envs:
+            here = module(name)
+            envs[name] = _module_env(here.tree) if here is not None else {}
+        return envs[name]
 
     def function_called(owner: str, qualifier: str | None, name: str) -> None:
         here = module(owner)
@@ -289,10 +353,9 @@ def settings_reads(
         while queue:
             owner, node, settings_code = queue.pop()
             code.append(node)
-            collector = _Collector(settings_code=settings_code)
+            collector = _Collector(settings_code=settings_code, env=module_env(owner))
             collector.visit(node)
             attributes |= collector.attributes
-            strings |= collector.strings
             names |= collector.names
             for qualifier, name in _uses(node):
                 function_called(owner, qualifier, name)
@@ -307,7 +370,7 @@ def settings_reads(
                     if kind == "flow" and not _calls_super(member.node):
                         break
         if not queue:
-            return Reads(frozenset(attributes), frozenset(strings), used), code
+            return Reads(frozenset(attributes), used), code
 
 
 def _settings_methods(cls: type[Flow]) -> dict[str, list[Member]]:
@@ -491,6 +554,9 @@ def unused_helper(ss):
     return ss.read_by_unused_helper
 
 OPTIONS = ("read_by_table",)
+LOOKUP = {"ecp5": "read_by_lookup", "ice40": "read_by_lookup_too"}
+ALIASES = {"alias": "read_by_unrelated_dict"}
+UNUSED_TABLE = ("read_by_table_nothing_walks",)
 
 class Other:
     def run(self):
@@ -527,6 +593,15 @@ class Fixture(Flow):
         used_helper(ss)
         for name in OPTIONS:
             getattr(ss, name)
+        key = LOOKUP.get(self.family)
+        getattr(ss, key)
+        getattr(ss, "read_by_getattr")
+        for name in ("read_by_local_table", "read_by_second_local_table"):
+            value = getattr(self.settings, name)
+        hasattr(ss, "read_by_hasattr")
+        setattr(ss, "read_by_setattr", 1)
+        getattr(self.tool, "read_by_getattr_on_another_object")
+        getattr(ss, self.name)
         self.name.read_by_wrong_base
         ss.wave_format = "read_by_assignment"
         if ss.wave_format == "read_by_comparison":
@@ -570,6 +645,11 @@ def _fixture_reads() -> Reads:
         "read_through_property",
         "read_by_helper",
         "read_by_table",
+        "read_by_lookup",
+        "read_by_lookup_too",
+        "read_by_getattr",
+        "read_by_local_table",
+        "read_by_second_local_table",
         "read_in_template",
         "read_through_template_call",
         "read_in_cpp_line",
@@ -593,6 +673,11 @@ def test_the_scan_sees_each_way_of_reading_a_setting(setting: str) -> None:
         "read_by_results_table",
         "read_by_wrong_base",
         "read_by_assignment",
+        "read_by_unrelated_dict",
+        "read_by_table_nothing_walks",
+        "read_by_hasattr",
+        "read_by_setattr",
+        "read_by_getattr_on_another_object",
         "read_by_comparison",
         "read_in_tcl_comment",
         "read_in_jinja_comment",
