@@ -7,6 +7,7 @@ Power is not in this sweep: it reports power and relies on its declared activity
 producer to pass the simulation evidence rule before hand-over.
 """
 
+import re
 from pathlib import Path
 
 import pytest
@@ -165,14 +166,14 @@ FINISH_ADVICE = ("std.env.finish", "$finish", "stop_time")
                 events=[SimEvent(kind="stop", time=3, location="tb.sv:9", message="halt")],
             ),
             None,
-            ("stop at tb.sv:9: halt", "std.env.finish"),
+            ("stop event at tb.sv:9: halt", "std.env.finish"),
         ),
         (
             SimEvidence(
                 ended_by="error", time=5, events=[SimEvent(kind="error", message="bad value")]
             ),
             None,
-            ("an error ended it", "error: bad value"),
+            ("an error ended it", "error event: bad value", "fix that error"),
         ),
         (None, None, ("no end record", "simulation log")),
         (
@@ -227,6 +228,55 @@ def test_a_failed_cocotb_run_records_its_counts_through_check_results():
     flow.report_file = lambda path: None
     assert SimFlow.check_results(flow) is False
     assert flow.results["error"]["message"].startswith("`stub_sim` reported failure: 2 of 3")
+
+
+ENDINGS = [
+    # every way judge_evidence can fail, as (evidence, stop_time, max_cycles, text of the cause)
+    (None, None, None, "no end record"),
+    (SimEvidence(ended_by="unknown"), None, None, "event queue most likely ran empty"),
+    (
+        SimEvidence(ended_by="unknown", events=[SimEvent(kind="stop", message="halt")]),
+        None,
+        None,
+        "the first stop event: halt",
+    ),
+    (SimEvidence(ended_by="drained", time=5), "10ns", None, "ran empty"),
+    (SimEvidence(ended_by="stop_time", time=5, time_unit="1ns"), None, None, "nobody asked for"),
+    (SimEvidence(ended_by="stop_time", time=5), "10ns", None, "no time or no time unit"),
+    (
+        SimEvidence(ended_by="stop_time", time=5, time_unit="1ns"),
+        "10ns",
+        None,
+        "other than the requested stop_time 10ns",
+    ),
+    (SimEvidence(ended_by="max_cycles", cycles=3), None, None, "nobody asked for"),
+    (SimEvidence(ended_by="max_cycles", cycles=3), None, 10, "it observed 3 cycles"),
+    (SimEvidence(ended_by="exit", exit_code=2), None, None, "exited with status 2"),
+    (SimEvidence(ended_by="error"), None, None, "an error ended it"),
+    (SimEvidence(ended_by="fatal"), None, None, "a fatal error ended it"),
+    (
+        SimEvidence(ended_by="finish", time=1, events=[SimEvent(kind="fatal", message="m")]),
+        None,
+        None,
+        "1 event(s) at or above fail_severity=error",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("evidence", "stop_time", "max_cycles", "cause"),
+    ENDINGS,
+    ids=[f"{i}-{e.ended_by if e else 'none'}" for i, (e, *_) in enumerate(ENDINGS)],
+)
+def test_every_failed_ending_gives_its_cause_and_what_to_do(evidence, stop_time, max_cycles, cause):
+    """One form: the cause, then `To fix it, <what to do>.`, in the run's `error`."""
+    flow = _Stub(stop_time)
+    flow.settings.max_cycles = max_cycles
+    assert judge_evidence(flow, evidence, "error") is False
+    message = flow.results["error"]["message"]
+    assert cause in message, message
+    assert re.fullmatch(r"`stub_sim` reported failure: .+[^.]\. To fix it, [^.]+.*[^.]\.", message)
+    assert message.count("To fix it,") == 1
 
 
 def test_a_failed_end_keeps_the_error_the_run_already_has():
