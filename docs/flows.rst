@@ -2,9 +2,9 @@
 Flows
 *****
 
-A flow is a named sequence of steps performed by one or more tools. ``xeda list-flows`` is the
-authoritative list for your installed version; this page explains how flows are organized and how
-to find your way around one.
+A flow is a named sequence of steps that one or more tools perform. ``xeda list-flows`` lists the
+flows of your installed version. This page explains how flows are organized and how to find your
+way around one.
 
 Discovering flows and their settings
 ====================================
@@ -16,20 +16,23 @@ Discovering flows and their settings
     xeda list-settings <flow>           # every setting: name, type, default, meaning
     xeda list-results <flow>            # every key the flow writes to results.json
 
-``list-flows`` reports a ``category`` derived from the flow's base class:
+``list-flows`` reports a ``category`` that comes from the base class of the flow:
 
 ``simulation``
-    Runs a testbench. Adds settings for ``stop_time``, waveform output, and cocotb.
+    Runs a testbench. Adds the settings ``timeout``, ``fail_severity``, ``stop_time``, the
+    waveform settings and ``cocotb``.
 
 ``fpga_synthesis``
-    Targets an FPGA. Adds an ``fpga`` setting (a part identifier, or a ``board`` name that fills
-    it in) on top of the clock settings. A ``board`` is looked up in the bundled database
-    (``xeda list-boards``) or, with ``custom_boards_file``, in your own: a TOML or YAML file,
-    chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an error), mapping
-    each board name to its ``fpga``, its name in openFPGALoader (``openfpgaloader_board``, optional)
-    and its local ``lpf``. A relative ``custom_boards_file`` resolves against the design directory, and a
-    board's local ``lpf`` against the database file's own directory, in either format. YAML is read
-    as YAML 1.2, like every other YAML file xeda reads::
+    Builds a design for an FPGA. Adds the ``fpga`` setting to the clock settings. ``fpga`` is a
+    part identifier, or a ``board`` name that fills it in. A ``board`` is looked up in the bundled
+    database (``xeda list-boards``) or, with ``custom_boards_file``, in your own database: a TOML
+    or YAML file, chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an
+    error). The database maps each board name to its ``fpga``, its name in openFPGALoader
+    (``openfpgaloader_board``, optional) and its local ``lpf``. A relative ``custom_boards_file``
+    resolves against the design directory, and the local ``lpf`` of a board resolves against the
+    directory of the database file, in either format. Xeda reads a YAML database as YAML 1.2, like
+    every other YAML file it reads. A dotted key such as ``fpga.part`` is not expanded in a
+    database, so write ``fpga`` as a table in YAML::
 
         # boards.yaml
         MY_BOARD:
@@ -38,294 +41,316 @@ Discovering flows and their settings
             part: LFE5U-85F-6BG381C
           lpf: my_board.lpf
 
-    The bundled boards have lower-case names and are found by their name in any letter case:
-    ``ARTY_A7_100T``, ``arty_a7_100t`` and ``Arty_A7_100T`` select the same board, which Xeda
-    stores as ``arty_a7_100t``. The names in your own database are case-sensitive, like file names:
-    ``MY_BOARD`` is not found as ``my_board``. The database's former ``name`` key was renamed
-    ``openfpgaloader_board``; an entry that still has ``name`` is an error that says so.
+    The bundled boards have lower-case names, and Xeda finds them by their name in any letter
+    case: ``ARTY_A7_100T``, ``arty_a7_100t`` and ``Arty_A7_100T`` select the same board, which
+    Xeda stores as ``arty_a7_100t``. The names in your own database are case-sensitive, like file
+    names: ``MY_BOARD`` is not found as ``my_board``. The ``name`` key of a database entry was
+    renamed ``openfpgaloader_board``, and an entry that still has ``name`` is an error that says
+    so.
 
 ``asic_synthesis``
-    Targets a standard-cell process. Adds a ``platform`` setting naming a PDK.
+    Builds a design for a standard-cell process (``dc`` and ``openroad``). ``openroad`` selects
+    the process with the ``platform`` setting, which names a PDK. ``dc`` takes the libraries of
+    the process in ``target_libraries``.
 
 ``synthesis``
-    Synthesis that is neither specifically FPGA nor ASIC.
+    Synthesis that the base class does not tie to an FPGA or an ASIC (``yosys`` and
+    ``ghdl_synth``).
 
-Aliases are folded into their flow rather than listed separately, so ``ghdl`` appears as an alias
-of ``ghdl_sim`` rather than as a flow of its own. Either name works everywhere.
+``other``
+    A flow that is none of the above (``bsc``).
 
-Names are forgiving: ``vivado_synth``, ``vivado-synth`` and ``VivadoSynth`` all resolve to the
-same flow. An unrecognized name suggests close matches.
+``list-flows`` lists an alias with its flow and not as a flow of its own, so ``ghdl`` appears as
+an alias of ``ghdl_sim``. Either name works everywhere.
+
+Flow names are forgiving: ``vivado_synth``, ``vivado-synth`` and ``VivadoSynth`` all resolve to
+the same flow. An unrecognized name gets a list of close matches.
 
 Settings
 ========
 
-Every flow declares its own settings. They can be given in six places, in increasing order of
-precedence:
+Every flow declares its own settings. A setting can come from six places. This is the order from
+the lowest to the highest precedence:
 
-1. the flow's own defaults
-2. a ``xedaproject.yaml``'s ``flows.<flow_name>`` section
-3. the design file's ``flows.<flow_name>`` section
-4. the selected target's ``flows.<flow_name>`` section, if you chose a target with ``--target``
-   (see :ref:`targets`)
-5. the command line, via ``-s``/``--settings``. The ``flow_settings`` argument of ``run()`` and
-   ``plan()`` is this same layer, so messages name it "the command line (``-s``) or
+1. the defaults of the flow
+2. the ``flows.<flow_name>`` section of a project file (``xedaproject.yaml``)
+3. the ``flows.<flow_name>`` section of the design file
+4. the ``flows.<flow_name>`` section of the selected target, if you chose a target with
+   ``--target`` (see :ref:`targets`)
+5. the command line, with ``-s`` or ``--settings``. The ``flow_settings`` argument of ``run()`` and
+   ``plan()`` is the same layer, so messages call it "the command line (``-s``) or
    ``flow_settings``".
-6. the API, via ``flow_overrides``
+6. the API, with ``flow_overrides``
 
-They merge key by key: ``-s clock.freq=100MHz`` changes that one setting of a ``clock`` section
-given in the design file, rather than replacing the whole section. Precedence goes by where a
-setting was given first (project, design, target, command line, API). A target's value wins over
-the design's for the same key, and only for the keys the target writes.
+The layers merge key by key. ``-s clock.freq=100MHz`` changes that one setting of a ``clock``
+section from the design file and does not replace the whole section. A higher layer replaces only
+the keys that it writes. This holds for a target as well: its value wins over the value of the
+design for the same key, and only for the keys that the target writes.
 
-A short form means exactly the table it stands for, in every merge. ``fpga: xc7a35tcpg236-1`` is
-``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote as
-text. ``-s fpga=<part>`` over a design's ``fpga`` table changes the part and keeps the other keys
-the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. The aliases of a setting
-(``nthreads`` and ``ncpus``) and a synthesis flow's clock spellings (``clock`` and
-``clocks``) are read in each layer on its own, so a layer above changes what a layer below wrote
-whichever spelling each used. A value that is no table where a table is expected (``synth: 3``)
-is an error, whatever a higher layer writes over it.
+A short form means exactly the table that it stands for, in every merge. ``fpga: xc7a35tcpg236-1``
+is ``fpga: {part: xc7a35tcpg236-1}``, so ``-s fpga.speed=-2`` refines a part that the design wrote
+as text. ``-s fpga=<part>`` over an ``fpga`` table of the design changes the part and keeps the
+other keys that the design wrote (a speed grade, say), as ``-s fpga.part=<part>`` does. Xeda reads
+the aliases of a setting (``nthreads`` and ``ncpus``) and the clock spellings of a synthesis flow
+(``clock`` and ``clocks``) in each layer on its own, so a higher layer changes what a lower layer
+wrote, whichever spelling each used. A value that is no table where a table is expected
+(``synth: 3``) is an error, whatever a higher layer writes over it.
 
 A flow's settings are written in one place, its own ``flows.<flow_name>`` section, whichever
-flow's run needs it: ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that ``nextpnr``
-places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, naming
-``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow the same rule:
-``vivado_postsynth_sim``'s former ``synth`` section names ``flows.vivado_synth.<key>``, and
-``vivado_power``'s former ``postsynthsim`` section and simulation controls (``elab_debug``,
-``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
-``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` takes timing activity from that flow by
-default, which switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power (see
-:ref:`the functional alternative <power-activity>`). ``openroad`` takes its
-netlist from ``yosys`` the same way, so its synthesis is configured in ``flows.yosys``
-(``optimize``, ``abc_driver_cell``, ...; ``-s flows.yosys.optimize=speed`` with ``xeda run
-openroad``), and ``yosys`` derives everything else from the ``platform`` the two share.
+flow's run needs them. For example, ``-s flows.yosys_fpga.flatten=true`` sets the synthesis that
+``nextpnr`` places. The ``yosys`` section that ``nextpnr`` used to have was removed, and using it
+is an error that names ``flows.yosys_fpga.<key>``. The Vivado simulation and power flows follow
+the same rule:
+
+* The ``synth`` section of ``vivado_postsynth_sim`` was removed. Its error names
+  ``flows.vivado_synth.<key>``.
+* The ``postsynthsim`` section of ``vivado_power`` was removed, and so were its simulation
+  settings (``elab_debug``, ``saif``, ``stop_time``, ``prerun_time``, ``timeout`` and
+  ``fail_severity``). The errors name ``flows.vivado_postsynth_sim.<key>``.
+* ``vivado_power`` takes timing activity from ``vivado_postsynth_sim`` by default, which switches
+  on the ``timing_sim`` setting of that flow. ``vivado_power`` itself has no ``timing_sim`` setting
+  (see :ref:`the functional alternative <power-activity>`).
+
+``openroad`` takes its netlist from ``yosys`` in the same way. Its synthesis is therefore
+configured in ``flows.yosys`` (``optimize``, ``abc_driver_cell`` and others, for example
+``-s flows.yosys.optimize=speed`` with ``xeda run openroad``), and ``yosys`` derives everything
+else from the ``platform`` that the two flows share.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
-of its declared dependencies. ``-s flows.nextpnr.seed=2`` and ``-s seed=2`` are the same setting
-when ``nextpnr`` is the requested flow; giving both different values is an error. A flow that is
-not part of the run is an error too, with the close matches suggested.
+of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
+``-s seed=2`` are the same setting, and giving both different values is an error. A flow that is
+not part of the run is an error too, with a list of close matches.
 
 A ``flows`` table maps flow names to mappings of settings, wherever it is written: in a design
 file, a target, a project file, on the command line or through the API. ``flows`` is a mapping,
 and so is each ``flows.<flow>``. Text, a number or a list in either place is an error that names
-the key and where it was written (``-s flows=3`` and ``-s flows.nextpnr=3`` are errors, and so is
-``flows: []`` in a file), even when it is empty. Only the API also takes a flow's settings as a
-list of ``KEY=VALUE`` text, as ``-s`` does.
+the key and where it was written, even when the value is empty. ``-s flows=3`` and
+``-s flows.nextpnr=3`` are errors, and so is ``flows: []`` in a file. Only the API also accepts
+the settings of a flow as a list of ``KEY=VALUE`` text, as ``-s`` does.
 
-``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first
-token that is not ``KEY=VALUE``, so it never takes the design file for a setting; ``--`` ends the
+``-s`` takes space-separated ``KEY=VALUE`` items. It ends at the next option, or at the first token
+that is not ``KEY=VALUE``, so it never takes the design file for a setting. ``--`` ends the
 options.
 
-Command-line settings take dotted keys for nested values, and several can be given at once::
+The command line takes dotted keys for nested values, and you can give several at once::
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
-``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
-target, ``--design-overrides`` and a ``flows`` table.
+``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
+design file, a target, ``--design-overrides`` and a ``flows`` table.
 
-Some settings hold a dictionary whose keys are names that the tool defines. Vivado's run
-properties are an example, and their names contain dots. A dotted key of such a setting is one
-key, not a path into nested tables::
+Some settings hold a dictionary whose keys are names that a tool defines. The run properties of
+Vivado are an example, and their names contain dots. A dotted key of such a setting is one key and
+not a path into nested tables::
 
     xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
 
 This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
 file, a target, a project file and the API give it in the same way. In a design file, the key
-``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
-written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
-Each origin gives its names, and the origins merge name by name: a higher origin replaces only
-the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
-both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
-a table, as for any setting. ``-s set_synth_properties.A=1`` and
-``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
-A name with a backslash before a dot (``A\.B``) is refused in every origin: the names of the tool
-have no backslash.
+``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property, and the same
+name written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
+Each origin gives its names, and the origins merge name by name: a higher origin replaces only the
+names that it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
+both stay. One origin cannot give both ``A`` and ``A.B``, because it writes a key either as a
+value or as a table, as for any setting. ``-s set_synth_properties.A=1`` and
+``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so Xeda refuses them too. A
+name with a backslash before a dot (``A\.B``) is refused in every origin, because the names of the
+tool have no backslash.
 
 A name with a space is a quoted shell item::
 
     xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
-``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
-its settings) and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
-dotted key is a path into nested tables.
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and ``vivado_project``,
+and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a dotted key is a
+path into nested tables.
 
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
-that names these two spellings: it would be one item, not a list. A setting that also takes plain
-text keeps the text as it is. The lists of the ``cocotb`` section (``testcase``, ``gpi_extra``)
-take text the same way.
+that names these two spellings, because it would be one item and not a list. A setting that also
+takes plain text keeps the text as it is. The lists of the ``cocotb`` section (``testcase`` and
+``gpi_extra``) take text in the same way.
 
-Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
-silently ignored would produce a result that looks fine and is not what you asked for. For the
-same reason a flow has no flow-specific setting that it does not use. A flow that cannot honor a setting of a
-related flow refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so
-it refuses the settings of ``vivado_sim``. The error for a removed setting says "``<name>`` was
-removed: use ..." and names the replacement, or says why nothing replaces it and to delete the setting.
+An unknown setting is an error and not a warning. A mistyped setting that Xeda ignored silently
+would give a result that looks fine and is not what you asked for. For the same reason, a flow has
+no setting of its own that it does not use. A flow that cannot honor a setting of a related flow
+refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so it refuses
+the settings of ``vivado_sim``. The error for a removed setting says "``<name>`` was removed: use
+..." and names the replacement, or says why nothing replaces it and tells you to delete the
+setting.
 
 Settings shared by every flow
 -----------------------------
 
-Beyond the flow-specific ones, every flow accepts the settings below. The tools of some flows have
-no matching option. Such a flow accepts ``ncpus``, ``redirect_stdout`` or ``lib_paths`` and does
+Every flow accepts the settings below, in addition to its own. The tools of some flows have no
+matching option. Such a flow accepts ``ncpus``, ``redirect_stdout`` or ``lib_paths`` and does
 nothing with it.
 
 ``ncpus`` (alias of ``nthreads``)
-    Maximum number of threads the tools may use.
+    The maximum number of threads that the tools may use.
 
 ``dockerized`` / ``docker``
-    Run the flow's tools from a container image instead of the local installation.
+    Run the tools of the flow from a container image and not from the local installation.
 
 ``quiet`` / ``verbose`` / ``debug``
-    How much the flow and its tools say.
+    How much the flow and its tools print.
 
 ``redirect_stdout``
-    Send tool output to files rather than the console. Only the Vivado flows do this.
+    Send the output of the tools to files and not to the console. Only the Vivado flows do this.
 
 ``lib_paths``
     Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
     simulation flows use them.
 
-``xeda list-settings <flow>`` lists these under *Common settings*; pass ``--no-common`` to see
-only the flow-specific ones.
+``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
+to see only the settings of the flow itself.
 
-Dependencies between flows
-==========================
+Producers and consumers
+=======================
 
-A flow may declare that it needs another flow's output. ``xeda list-flows`` shows these under
-*Depends on*, and the runner satisfies them automatically - you run the flow you want, not the
-chain leading to it. To name the stages yourself, see :ref:`flow-chains`.
+A flow can declare that it needs the output of another flow. The flow that makes the output is the
+producer, and the flow that reads it is the consumer. ``xeda list-flows`` shows the producers of a
+flow under *Depends on*, and Xeda runs them first. You ask for the flow that you want and not for
+the chain that leads to it. To name the stages yourself, see :ref:`flow-chains`.
 
 .. code-block:: text
 
-    openfpgaloader  ->  fpga_pack  ->  nextpnr  ->  yosys_fpga
-    vivado_impl     ->  yosys_fpga
-    vivado_power    ->  vivado_postsynth_sim  ->  vivado_synth
-    openroad        ->  yosys
+    yosys_fpga  ->  nextpnr  ->  fpga_pack  ->  openfpgaloader
+    yosys_fpga  ->  vivado_impl
+    vivado_synth  ->  vivado_postsynth_sim  ->  vivado_power
+    yosys  ->  openroad
 
-A dependency runs in its own run directory, a sibling of the flow that launched it. Its settings
-are its own section's (``flows.yosys_fpga``), set from the command line with
-``-s flows.<flow>.<setting>``. For example, to change how the synthesis stage behaves while
-running ``openfpgaloader``::
+A producer runs in its own run directory, a sibling of the run directory of its consumer. Its
+settings are those of its own section (``flows.yosys_fpga``), and you set them on the command line
+with ``-s flows.<flow>.<setting>``. For example, to change how the synthesis stage behaves while
+you run ``openfpgaloader``::
 
     xeda run openfpgaloader blinky.yaml -s flows.yosys_fpga.flatten=true
 
-Some flows declare inputs and outputs (``xeda list-flows --json`` exposes them). ``nextpnr``
-reads a ``netlist``, by default the one ``yosys_fpga`` writes. A source of type ``JsonNetlist``
-in ``rtl.sources`` supplies that input instead and skips synthesis:
+Some flows declare inputs and outputs (``xeda list-flows --json`` shows them). ``nextpnr`` reads a
+``netlist``, by default the one that ``yosys_fpga`` writes. A source of type ``JsonNetlist`` in
+``rtl.sources`` supplies that input instead and skips the synthesis:
 
 .. code-block:: yaml
 
     rtl:
-      sources: [{file: top.json, type: JsonNetlist}]
+      sources:
+        - {file: "top.json", type: JsonNetlist}
       top: top
 
 Xeda resolves the declared producers and their settings before anything runs. A scalar input
-requires exactly one matching source. A default producer that a source or a binding (a chain,
-or ``flows.<flow>.inputs``) displaces is not part of the run: its settings are unused, and
-planning logs each such section. The open FPGA flows declare ``yosys_fpga.netlist`` (enabled by
-``netlist_json``) and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc`` or
-Nexus/Xilinx ``fasm``). ``yosys_fpga`` also declares ``netlist_edif``, which ``vivado_impl``
-reads (see :ref:`vivado-impl`).
-``fpga_pack`` packs that configuration, or a typed ``EcpConfig``, ``IceAsc`` or ``Fasm`` source,
-into its ``bitstream`` output; ``openfpgaloader`` programs that bitstream, or a typed
-``Bitstream`` source, and declares no output.
-An enabled configuration that is missing or stale fails the run; disabled outputs are omitted.
-Output paths are set by the flow, verified and recorded with content digests in ``results.json``.
-Consumers get only those checked records, for newly run and reused producers alike.
+needs exactly one matching source. A source or a binding (a chain, or ``flows.<flow>.inputs``)
+can displace a default producer. A displaced producer is not part of the run, its settings are
+unused, and planning logs each such section. The open FPGA flows declare ``yosys_fpga.netlist``
+(enabled by ``netlist_json``) and ``nextpnr.config`` (the selected ECP5 ``textcfg``, iCE40 ``asc``
+or Nexus and Xilinx ``fasm``). ``yosys_fpga`` also declares ``netlist_edif``, which ``vivado_impl``
+reads (see :ref:`vivado-impl`). ``fpga_pack`` packs that configuration, or a typed ``EcpConfig``,
+``IceAsc`` or ``Fasm`` source, into its ``bitstream`` output. ``openfpgaloader`` programs that
+bitstream, or a typed ``Bitstream`` source, and declares no output. A missing or stale enabled
+configuration fails the run, and disabled outputs are omitted. The flow sets the output paths, and
+Xeda verifies them and records them with content digests in ``results.json``. Consumers get only
+those checked records, for producers that ran now and producers that Xeda reused.
 
-Along a declared edge, shared settings -- ``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, where both endpoints declare them --
-must agree. A ``platform`` is one value, compared by what it describes (a bundled name and the path
-to that platform's ``config.toml`` agree) and handed on whole; a ``corner`` is compared by the
-corner it selects. Leaves given on one node
-apply to both; disjoint leaves combine. Different values for the same leaf, for example ``flows.nextpnr.fpga.part`` in a
-project and ``flows.yosys_fpga.fpga.part`` in a design, fail before anything runs, naming both
-files and sections. A command-line leaf (``-s fpga.part=...`` or
-``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group, preserving unrelated leaves.
-API overrides retain their separate highest-precedence origin. Normal origin-first precedence
-still applies within each node.
+Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
+``prjxray_db``, ``platform``, ``corner`` and ``dont_use_cells``) must agree where both endpoints
+declare them. A ``platform`` is one value. Xeda compares it by what it describes (a bundled name
+and the path to the ``config.toml`` of that platform agree) and hands it on whole. Xeda compares a
+``corner`` by the corner that it selects. A leaf given on one node applies to both, and disjoint
+leaves combine. Different values for the same leaf fail before anything runs, and the error names
+both files and sections. An example is ``flows.nextpnr.fpga.part`` in a project and
+``flows.yosys_fpga.fpga.part`` in a design. A command-line leaf (``-s fpga.part=...`` or
+``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group and keeps the unrelated leaves.
+API overrides keep their own origin with the highest precedence. Within each node, the normal
+precedence of the layers still applies.
 
-While a flow reads any completed producer's outputs, it holds a verified shared lease on that
-run directory until its own launch ends. Another Xeda process cleaning, rebuilding or scrubbing
-the producer waits (POSIX only). Missing or changed completion evidence refuses hand-over.
+A flow that reads the outputs of a completed producer holds a verified shared lease on the run
+directory of that producer until its own launch ends. Another Xeda process that cleans, rebuilds
+or scrubs the producer waits (POSIX only). Missing or changed completion evidence refuses the
+hand-over.
 
 Planning without running
 ------------------------
 
-``xeda run nextpnr blinky.yaml --dry-run`` prints the immutable plan the launcher would execute:
-producers first, directories, hashes, each declared input's source/producer origin and optional
-outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
-It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
-unsupported targets, shared-setting conflicts and any configuration that a flow's settings and
-design rule out fail during planning.
+``xeda run nextpnr blinky.yaml --dry-run`` prints the immutable plan that the launcher would
+execute: the producers first, the directories, the hashes, the source or producer of each declared
+input, and the optional outputs that are switched on for consumers. Add ``--json`` for a document
+(see :doc:`machine-readable`). A dry run starts no tool and changes no run root, marker, lock or
+delivery. Planning fails for invalid settings, for a device or family that a flow does not
+support, for shared-setting conflicts, and for any configuration that the settings of a flow and
+the design rule out.
 
-A request that the design's declarations already rule out is refused first, before a generator
-runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
-refused before those side effects;
-materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan`` (``plan_with_freshness`` adds what each node would do). Planning does not
-call a flow's ``init()``, and ``--dry-run --remote`` is refused.
+Xeda first refuses a request that the declarations of the design already rule out, before a
+generator runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch
+is refused before those side effects. Materialize the sources first, or pass an already
+materialized ``Design`` to ``DefaultRunner.plan`` of the library (``plan_with_freshness`` adds
+what each node would do). Planning does not call ``init()`` of a flow, and ``--dry-run --remote``
+is refused.
 
-The plan also says what a run would do with each flow: ``fresh`` (reused), ``stale: <reason>`` (it
-runs, for the reason the log would give) or ``unknown: <reason>`` (for instance ``depends on
-yosys_fpga`` when a producer would run first, since the answer is what that run hands over). It
-reads the run directories and writes nothing, so after an edit ``--dry-run`` shows what will run
-and why. See :doc:`run-directories`.
+The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
+result), ``stale: <reason>`` (the flow runs, for the reason that the log would give) or
+``unknown: <reason>``. For example, the state is ``unknown: depends on yosys_fpga`` when a producer
+would run first, because the answer then depends on what that run hands over. The dry run reads the
+run directories and writes nothing, so after an edit it shows what will run and why. See
+:doc:`run-directories`.
 
-Runs are make-like by default: a dependency whose trace still matches what it would consume now
-is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
+Runs are make-like by default. Xeda skips a producer whose trace still matches what it would
+consume now and reuses its recorded results. ``--rebuild-all`` runs every flow. See
+:doc:`run-directories`.
 
-A flow is judged on the files its producers handed over, not on their runs. If a producer ran
-again and the outputs a flow takes from it have the same content as the ones it consumed, the flow
-is up to date, and the log says so. ``nextpnr`` also accepts a netlist that differs from the one it
-placed only in the ``src`` attributes of yosys's JSON netlist, the file and line each object came
-from: a comment added above the logic then re-runs ``yosys_fpga`` and leaves ``nextpnr`` and
-``fpga_pack`` up to date. The reports of such a ``nextpnr`` run cite the source locations of the
-netlist it placed. A change to any other part of the netlist, the yosys version included, runs
-``nextpnr`` again, and so does any change when a Python hook (``pre_pack``, ``pre_place``,
-``pre_route``, ``post_route`` or ``py_script``) is set, since a hook can read the source locations.
+Xeda judges a flow on the files that its producers handed over, and not on their runs. If a
+producer ran again and the outputs that a flow takes from it have the same content as the ones the
+flow consumed, the flow is up to date, and the log says so. ``nextpnr`` also accepts a netlist
+that differs from the one it placed only in the ``src`` attributes of the JSON netlist of Yosys,
+which hold the file and line each object came from. When you add a comment above the logic,
+``yosys_fpga`` runs again, and ``nextpnr`` and ``fpga_pack`` stay up to date. The reports of such
+a ``nextpnr`` run cite the source locations of the netlist that it placed. A change to any other
+part of the netlist, the Yosys version included, runs ``nextpnr`` again. So does any change when a
+Python hook (``pre_pack``, ``pre_place``, ``pre_route``, ``post_route`` or ``py_script``) is set,
+because a hook can read the source locations.
 
 .. _flow-chains:
 
 Flow chains and input bindings
 ==============================
 
-``xeda run`` also takes a chain of flows joined by ``+``. Its last flow is the one you ask for;
-each flow before it supplies the next one's inputs:
+``xeda run`` also takes a chain of flows joined by ``+``. You ask for the last flow, and each flow
+before it supplies the inputs of the next one:
 
 .. code-block:: bash
 
     xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 
-That is the build the default route already gives ``xeda run fpga_pack design.yaml``, so a chain
-is for naming stages explicitly: to pick an alternate producer, to override a saved binding, or
+This is the build that ``xeda run fpga_pack design.yaml`` already gives by default, so a chain is
+for naming the stages yourself: to pick an alternative producer, to override a saved binding, or
 to see in one line what a request will run. ``xeda run fpga_pack+openfpgaloader design.yaml``
-builds the bitstream and then programs it. The chain is a *path*, not a list of waypoints: Xeda
-checks each neighboring pair and never searches for a missing stage.
+builds the bitstream and then programs it. A chain is a path and not a list of waypoints. Xeda
+checks each pair of neighbors and never searches for a missing stage.
 
-**What a chain means.**
+Rules for chains
+----------------
 
-* ``+`` is the only separator, and each flow may appear once. A flow is named as anywhere else
-  (canonical name, aliases, dashes), and ``FLOW.OUTPUT`` names the output of a producer that
-  has several: ``nextpnr.config+fpga_pack``.
-* A flow supplies **every compatible required input** of the next one; optional inputs are not
-  bound. An output that fits no input of the next flow, or two outputs that fit, is an error that
-  names the choices. A refused chain suggests a valid one only when another output of the
-  producer, or the flows that the required declared default producers name between the pair,
-  fix it: ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``. Nothing
-  searches all flows, so a refusal with no such route carries no suggestion.
+* ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else
+  (canonical name, alias or dashes). ``FLOW.OUTPUT`` names one output of a producer that has
+  several: ``nextpnr.config+fpga_pack``.
+* A flow supplies every compatible required input of the next one. Optional inputs are not bound.
+  An output that fits no input of the next flow, or two outputs that fit, is an error that names
+  the choices. A refused chain suggests a valid chain only when another output of the producer, or
+  the flows that the required default producers name between the pair, fix it:
+  ``nextpnr+openfpgaloader`` suggests ``nextpnr+fpga_pack+openfpgaloader``. Nothing searches all flows, so a refusal with no
+  such route has no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
-* Only flows that declare their file inputs and outputs (a nonempty ``inputs`` or ``outputs`` in
-  ``xeda list-flows --json``) can be chained: ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader``,
-  ``yosys``, ``openroad``, ``vivado_synth``, ``vivado_alt_synth``, ``vivado_impl``,
-  ``vivado_postsynth_sim`` and ``vivado_power`` today. A flow without declarations (``bsc``, ``bsc_sim``, ``vivado_project``,
-  ``vivado_sim``, ...) runs alone. A chain through it is refused: no output fits an input, or the flow after it takes no required input.
-  No stage is ever fed by reading another flow's ``artifacts``.
+* Only flows that declare their file inputs and outputs can be chained: those with a nonempty
+  ``inputs`` or ``outputs`` in ``xeda list-flows --json``. Today these are ``yosys_fpga``,
+  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``openroad``, ``vivado_synth``,
+  ``vivado_alt_synth``, ``vivado_impl``, ``vivado_postsynth_sim`` and ``vivado_power``. A flow
+  without declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim`` and others) runs
+  alone. A chain through it is refused: no output fits an input, or the flow after it takes no
+  required input. No stage is ever fed by reading the ``artifacts`` of another flow.
 * ``xeda list-flows`` shows, for each declared flow, what it takes and makes and which flows can
-  come directly after it (JSON: ``can_precede``, ``can_follow``); shell completion offers only
-  the flows that can follow the chain typed so far.
+  come directly after it (in JSON: ``can_precede`` and ``can_follow``). Shell completion offers
+  only the flows that can follow the chain typed so far.
 
 Completion returns the whole token, so ``<TAB>`` after a prefix extends the chain:
 
@@ -335,70 +360,70 @@ Completion returns the whole token, so ``<TAB>`` after a prefix extends the chai
     xeda run fpga_pack+<TAB>         ->  fpga_pack+openfpgaloader
     xeda run openfpgaloader+<TAB>    ->  (nothing: a programmer can only end a chain)
 
-**Settings.** ``-s`` sets the last flow, as for any run, and ``-s flows.<flow>.<key>=<value>``
-sets any other flow of the chain; a flow that is not in the run is an error with the close
-matches suggested. A flow's settings are written in one place, its ``flows.<flow>`` section,
-whether it runs because you named it or because it is somebody's default producer:
+``-s`` sets the last flow, as for any run, and ``-s flows.<flow>.<key>=<value>`` sets any other
+flow of the chain. A flow that is not in the run is an error with a list of close matches. A
+flow's settings are written in one place, its ``flows.<flow>`` section, whether the flow runs
+because you named it or because it is the default producer of another flow:
 
 .. code-block:: bash
 
     xeda run yosys_fpga+nextpnr+fpga_pack design.yaml -s flows.nextpnr.seed=2 flows.yosys_fpga.flatten=true
 
-Shared leaves (``fpga``, ``board``, ``clocks``, ...) given at any one node apply to every node
-along the chain's edges. Two different values in files are a conflict that names both nodes and
-their files; a command-line value wins for the whole group. A flow that is not part of the run
-gives no shared leaf: ``vivado_synth+openfpgaloader`` replaces the programmer's default
-producers, so a device written only in ``flows.yosys_fpga`` reaches neither node. Write it for a
-flow of the chain (``flows.vivado_synth.fpga.part``, or a ``board`` for ``openfpgaloader``), or
-give ``-s fpga.part=<part>``. The error that a flow needs ``fpga`` names each section that gives
-it without reaching the flow.
+Shared settings (``fpga``, ``board``, ``clocks`` and others) that are given at any one node apply
+to every node along the edges of the chain. Two different values in files are a conflict that
+names both nodes and their files, and a command-line value wins for the whole group. A flow that is
+not part of the run gives no shared setting. For example, ``vivado_synth+openfpgaloader`` replaces
+the default producers of the programmer, so a device written only in ``flows.yosys_fpga`` reaches
+neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpga.part``, or a
+``board`` for ``openfpgaloader``), or give ``-s fpga.part=<part>``. The error that a flow needs
+``fpga`` names each section that gives it without reaching the flow.
 
-**Results.** ``flow``, ``results``, ``--help-settings`` and the exit status are the last flow's.
+``flow``, ``results``, ``--help-settings`` and the exit status are those of the last flow.
 ``--json`` adds ``request`` (the chain, element by element) and, for every flow of the plan, its
-``node`` name and resolved ``inputs``; a flow that was planned but never entered after a failure
-is listed as ``"state": "not run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the
-last flow's outputs, only after the whole chain succeeded. A chain that ends at ``openfpgaloader``
-has none: ``--outputs-to`` is refused before anything runs, and the error names the setting that
-delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the graph and runs
-no tools.
+``node`` name and its resolved ``inputs``. A flow that Xeda planned but never started after a
+failure is listed as ``"state": "not run"`` (see :doc:`machine-readable`). ``--outputs-to``
+delivers the outputs of the last flow, and only after the whole chain succeeded. A chain that ends
+at ``openfpgaloader`` has no outputs to deliver, so ``--outputs-to`` is refused before anything
+runs. The error names the setting that delivers the bitstream
+(``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the graph and runs no tool.
 
 Input sources and saved bindings
 --------------------------------
 
 Every declared input has one origin, chosen in this order:
 
-1. an **explicit binding** -- a chain adjacency or a saved ``inputs`` entry (below);
-2. otherwise a **typed source** in ``rtl.sources``, in source order -- a ``JsonNetlist`` supplies
-   ``nextpnr``'s ``netlist`` and no synthesis runs;
-3. otherwise the input's **default producer** (``yosys_fpga`` for ``nextpnr``'s ``netlist``).
+1. an explicit binding: a chain adjacency or a saved ``inputs`` entry (below)
+2. otherwise a typed source in ``rtl.sources``, in source order. A ``JsonNetlist`` supplies the
+   ``netlist`` of ``nextpnr``, and no synthesis runs.
+3. otherwise the default producer of the input (``yosys_fpga`` for the ``netlist`` of
+   ``nextpnr``)
 
-Typed sources name their kind (``{file: top.json, type: JsonNetlist}``; ``xeda design-schema``
+A typed source names its kind (``{file: "top.json", type: JsonNetlist}``; ``xeda design-schema``
 lists the kinds), and a source never mixes with a producer for one input. A binding is saved in a
-design or project file under ``flows.<consumer>.inputs`` and names a producer by flow name,
-optionally with its output: ``yosys_fpga.netlist``. It is a reference to a flow's output, never a
-file path; give an external file as a typed source instead. A list input takes an ordered list
-of references.
+design file or a project file under ``flows.<consumer>.inputs``. It names a producer by flow name,
+optionally with its output (``yosys_fpga.netlist``). It is a reference to the output of a flow and
+never a file path. To give an external file, use a typed source. A list input takes an ordered
+list of references.
 
 .. code-block:: yaml
 
     # routed_demo.yaml
     name: routed_demo
     rtl:
-      top: top
       sources:
-        - top.v
+        - "top.v"
+      top: top
     flows:
       nextpnr:
-        fpga:
-          part: LFE5U-85F-6BG381C
+        fpga.part: LFE5U-85F-6BG381C
         inputs:
           netlist: yosys_fpga.netlist
       fpga_pack:
         inputs:
           config: nextpnr.config
 
-These bindings say what the defaults say, so the plan and every hash are those of the file
-without them. They matter when they differ from what the sources or defaults would choose:
+These bindings say what the defaults say, so the plan and every hash are those of the file without
+them. They matter when they differ from what the sources or the defaults would choose:
 
 .. code-block:: yaml
 
@@ -415,56 +440,61 @@ without them. They matter when they differ from what the sources or defaults wou
         fpga:
           part: LFE5U-85F-6BG381C
 
-With it, the source is used unless something binds the input (a saved ``netlist: yosys_fpga``
-does, as does the chain):
+With this file, Xeda uses the source unless something binds the input. A saved
+``netlist: yosys_fpga`` binds it, and so does a chain:
 
 .. code-block:: bash
 
     xeda run nextpnr prebuilt_demo.yaml                 # reads top.json, runs no synthesis
     xeda run yosys_fpga+nextpnr prebuilt_demo.yaml      # synthesizes anyway
 
-``--dry-run`` shows which origin each input has and, for a saved binding, the file and section
-it came from.
+``--dry-run`` shows which origin each input has and, for a saved binding, the file and section it
+came from.
 
-``inputs`` is wiring that the resolver reads, not a setting of the flow: it does not appear in
-``xeda list-settings``, is not part of a flow's ``settings.json`` or of the design hash, and is
-split out of each origin before the settings are validated, so ``flows.nextpnr.inputs`` never
-collides with a ``nextpnr`` setting. What a node's inputs come from does change its identity: the
-same flow with the same settings has another hashed run directory when another producer feeds it
-(see :doc:`run-directories`).
+``inputs`` is wiring that the resolver reads, and not a setting of the flow. It does not appear in
+``xeda list-settings``, and it is no part of the ``settings.json`` of a flow or of the design hash.
+Xeda splits it out of each origin before it validates the settings, so ``flows.nextpnr.inputs``
+never collides with a ``nextpnr`` setting. Where the inputs of a node come from does change its
+identity: the same flow with the same settings has another hashed run directory when another
+producer feeds it (see :doc:`run-directories`).
 
-**Related inputs.** Some inputs of one flow belong together. ``vivado_postsynth_sim`` reads a
-netlist and the SDF that annotates it, so its ``netlist``, ``netlist_timing`` and ``sdf`` have to
-come from one producer. ``vivado_power`` reports power on a routed checkpoint with the activity of
-a simulation, so its ``checkpoint`` has to come from the synthesis whose netlist that simulation
-read. A flow declares such a relation on the input (``xeda list-flows --json`` shows it as
-``same_producer_as``, with ``via`` when the relation goes through the flow that makes the other
-input). A plan that takes the related inputs from different producers is refused before anything
-runs. The error names the inputs, where each comes from and the
-``-s flows.<flow>.inputs.<input>=<producer>.<output>`` bindings that make them agree. The rule
-compares what xeda generates: a file that you list in ``rtl.sources`` is your own choice and is
-not compared. A chain request is judged on declarations only, so ``vivado_alt_synth`` is listed
-before ``vivado_power`` and ``vivado_alt_synth.checkpoint_route+vivado_power`` passes the chain
-check, but planning then refuses it until the simulation's inputs are bound too. To report power
-on the alternative synthesis, bind the inputs of both flows to it:
+Related inputs
+--------------
+
+Some inputs of one flow belong together. ``vivado_postsynth_sim`` reads a netlist and the SDF file
+that annotates it, so its ``netlist``, ``netlist_timing`` and ``sdf`` have to come from one
+producer. ``vivado_power`` reports power on a routed checkpoint with the activity of a simulation,
+so its ``checkpoint`` has to come from the synthesis whose netlist that simulation read. A flow
+declares such a relation on the input. ``xeda list-flows --json`` shows it as ``same_producer_as``,
+with ``via`` when the relation goes through the flow that makes the other input. Xeda refuses a
+plan that takes related inputs from different producers, before anything runs. The error names the
+inputs, where each comes from and the ``-s flows.<flow>.inputs.<input>=<producer>.<output>``
+bindings that make them agree. The rule compares what Xeda generates. A file that you list in
+``rtl.sources`` is your own choice and is not compared.
+
+The chain check looks at declarations only. It lists ``vivado_alt_synth`` before ``vivado_power``,
+and ``vivado_alt_synth.checkpoint_route+vivado_power`` passes it, but planning then refuses that
+chain until the inputs of the simulation are bound too. To report power on the alternative
+synthesis, bind the inputs of both flows to it:
 
 .. code-block:: yaml
 
     # alt_power.yaml
     name: alt_power
     rtl:
-      sources: [top.v]
+      sources:
+        - "top.v"
       top: top
-      clock:
-        port: clk
+      clock.port: clk
     tb:
-      sources: [tb.sv]
+      sources:
+        - "tb.sv"
       top: tb
       uut: dut
     flows:
       vivado_alt_synth:
-        fpga: {part: xc7a35tcpg236-1}
-        clock: {period: 5.0}
+        fpga.part: xc7a35tcpg236-1
+        clock.period: 5.0
       vivado_postsynth_sim:
         inputs:
           netlist: vivado_alt_synth.netlist
@@ -476,43 +506,51 @@ on the alternative synthesis, bind the inputs of both flows to it:
 
 .. _power-activity:
 
-**Power from a functional simulation.** ``vivado_power`` takes the activity of a timing simulation
-by default (``vivado_postsynth_sim.timing_saif``). Vivado also estimates power from the activity
-of a functional simulation of the netlist. That simulation is faster and has none of the problems
-of a timing simulation, but the estimate is less accurate. Bind the ``activity`` input to the
-simulation's ``saif`` output to ask for it; the flow's ``timing_sim`` setting no longer exists, so
-the binding is the only switch:
+Power from a functional simulation
+----------------------------------
+
+``vivado_power`` takes the activity of a timing simulation by default
+(``vivado_postsynth_sim.timing_saif``). Vivado can also estimate power from the activity of a
+functional simulation of the netlist. That simulation is faster and has none of the problems of a
+timing simulation, but the estimate is less accurate. Bind the ``activity`` input to the ``saif``
+output of the simulation to ask for it. ``vivado_power`` has no ``timing_sim`` setting, so the
+binding is the only switch:
 
 .. code-block:: yaml
 
     # power_functional.yaml
     name: power_functional
     rtl:
-      sources: [top.v]
+      sources:
+        - "top.v"
       top: top
-      clock:
-        port: clk
+      clock.port: clk
     tb:
-      sources: [tb.sv]
+      sources:
+        - "tb.sv"
       top: tb
       uut: dut
     flows:
       vivado_synth:
-        fpga: {part: xc7a35tcpg236-1}
-        clock: {period: 5.0}
+        fpga.part: xc7a35tcpg236-1
+        clock.period: 5.0
       vivado_power:
         inputs:
           activity: vivado_postsynth_sim.saif
 
-The same binding on the command line is ``-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
+The same binding on the command line is
+``-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
 
-**Where a binding can be given.** From the lowest rank to the highest: a project file, the
-design file, the command line (a chain, ``-s flows.<consumer>.inputs.<input>=<reference>``, or
-``-s inputs.<input>=<reference>`` for the requested flow) and the API; a higher rank replaces a
-lower one input by input. A chain is command-line input, so it replaces a binding saved in a
-design or project for the same input, and the plan says so
+Where a binding can be given
+----------------------------
+
+From the lowest rank to the highest, you can give a binding in a project file, in the design file,
+on the command line and through the API. On the command line, use a chain,
+``-s flows.<consumer>.inputs.<input>=<reference>``, or ``-s inputs.<input>=<reference>`` for the
+requested flow. A higher rank replaces a lower one input by input. A chain is command-line input,
+so it replaces a binding saved in a design or project for the same input, and the plan says so
 (``overridden``). A chain and an explicit command-line or API binding of the same input are an
-error, even when they are equal and before either is checked:
+error, even when they are equal. Xeda reports the error before it checks either binding:
 
 .. code-block:: text
 
@@ -521,7 +559,7 @@ error, even when they are equal and before either is checked:
     place, even when equal.
 
 A project file given with ``--xedaproject project.yaml`` holds the same ``flows.<flow>.inputs``
-sections, below the design's:
+sections, below those of the design:
 
 .. code-block:: yaml
 
@@ -531,119 +569,128 @@ sections, below the design's:
         inputs:
           netlist: yosys_fpga
 
-Bindings, like chains, are local. ``--remote`` and ``xeda dse`` refuse a chain and any binding
-the request reaches before connecting or starting a worker; a binding saved for a flow the
-request does not reach is ignored.
+Bindings are local, like chains. ``--remote`` and ``xeda dse`` refuse a chain and any binding that
+the request reaches, before they connect or start a worker. They ignore a binding saved for a flow
+that the request does not reach.
 
 What is supported today
 -----------------------
 
-The open FPGA flows -- ``yosys_fpga``, ``nextpnr``, ``fpga_pack``, ``openfpgaloader`` -- for
-ECP5, iCE40, Nexus and Xilinx 7-series are what chains cover. The build-only chain
-``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardware; only a chain that
-ends at ``openfpgaloader`` programs a device. The test suite runs those chains against fake
-tools, and never starts a real programmer.
+Chains cover the open FPGA flows (``yosys_fpga``, ``nextpnr``, ``fpga_pack`` and
+``openfpgaloader``) for ECP5, iCE40, Nexus and Xilinx 7-series. The build-only chain
+``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardware. Only a chain that
+ends at ``openfpgaloader`` programs a device. The test suite runs these chains against fake tools
+and never starts a real programmer.
 
-Chains that start at Bluespec or go through ``vivado_project`` or ``vivado_sim`` are **not**
-available yet, and the command below is refused today (``Flow `bsc` cannot
-precede `yosys_fpga`: `yosys_fpga` takes no required input``). They need the remaining flows to declare their
-inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and
-example designs and targets that use them:
+Chains that start at Bluespec, or go through ``vivado_project`` or ``vivado_sim``, are not
+available yet. Xeda refuses the command below today (``Flow `bsc` cannot precede `yosys_fpga`:
+`yosys_fpga` takes no required input``). These chains need the remaining flows to declare their
+inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and example
+designs and targets that use them:
 
 .. code-block:: bash
 
     # not available yet
     xeda run bsc+yosys_fpga+nextpnr+fpga_pack+openfpgaloader knight.yaml
 
-``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` declare their outputs, each switched on by its own
-setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint``, ``bitstream``), so
-``vivado_synth+openfpgaloader`` is a chain: the loader switches the ``bitstream`` on. It needs
-the design's ``fpga`` and a clock, and it programs a device: plan it with ``--dry-run``.
+``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` declare their outputs, each switched on
+by its own setting (``write_netlist``, ``write_timing_netlist``, ``write_checkpoint`` and
+``bitstream``). So ``vivado_synth+openfpgaloader`` is a chain: the loader switches ``bitstream``
+on. It needs the ``fpga`` of the design and a clock, and it programs a device, so plan it with
+``--dry-run``.
 
 Binding an input called ``design`` is refused for the same reason: no flow declares one.
 
 Open-source FPGA flow targets and tuning
 ========================================
 
-``yosys_fpga`` uses the target's Yosys synthesis pass. It supports ECP5, iCE40, Nexus,
-Xilinx and Gowin synthesis. ``nextpnr`` adds verified device selection, constraints and output
-formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``), Nexus (``fasm``) and Xilinx 7-series
-(``fasm``, with openXC7's ``nextpnr-himbaechel``). ``fpga_pack`` packs ECP5 with ``ecppack``,
-iCE40 with ``icepack`` and 7-series with ``fpga-as``; ``openfpgaloader`` programs the bitstream.
-Each rejects a family it has no tested mapping or packer for before any synthesis runs. The
-former ``open_xc7`` flow was removed: use ``fpga_pack`` to build, ``openfpgaloader`` to program.
+``yosys_fpga`` runs the Yosys synthesis pass of the selected family (``synth_<family>``). It
+supports ECP5, iCE40, Nexus, Xilinx and Gowin. ``nextpnr`` adds verified device selection,
+constraints and output formats for ECP5 (Trellis ``textcfg``), iCE40 (``asc``), Nexus (``fasm``)
+and Xilinx 7-series (``fasm``, with the ``nextpnr-himbaechel`` of openXC7). ``fpga_pack`` packs
+ECP5 with ``ecppack``, iCE40 with ``icepack`` and 7-series with ``fpga-as``, and ``openfpgaloader``
+programs the bitstream. Each flow rejects a family for which it has no tested mapping or packer,
+before any synthesis runs. The ``open_xc7`` flow was removed: use ``fpga_pack`` to build and
+``openfpgaloader`` to program.
 
-The options of Yosys' synthesis passes changed between releases, so ``yosys_fpga`` chooses them
-by the installed Yosys version (0.63 is the minimum; flags are checked through 0.69). ABC9 is
-the default mapper everywhere: opt-in ``-abc9`` for Xilinx before 0.69, built in otherwise.
-``abc9 = false`` maps with classic ABC and ``retime`` enables ``-retime``;
-Yosys 0.69 removed both choices, so there they are errors. On iCE40, ``noabc`` maps LUTs without
-ABC altogether. ``flatten`` left unset on a Xilinx target is ``true``: ``synth_xilinx`` alone
-keeps the hierarchy, and flattening was never worse in 18 measured designs: Fmax rose by a
-factor of 1.08 (1.03 to 1.13). As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and
-``rtl_json``, so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice,
-iCE40 and Gowin passes flatten on their own, so for them an unset ``flatten`` adds nothing, and
-the RTL outputs keep the hierarchy. Under ``synth_pass_only`` an unset ``flatten`` is the pass's
-own choice for every target. A setting the selected pass has no option for is an error rather than
-being ignored. The ``nowidelut`` restriction is off: it can reduce area or timing on one design
-and worsen the other on another. iCE40 UltraPlus DSP and SPRAM inference are available as
-``yosys_fpga``'s ``ice40_dsp`` and ``ice40_spram`` settings.
+The options of the Yosys synthesis passes changed between releases, so ``yosys_fpga`` chooses them
+by the installed Yosys version. Yosys 0.63 is the minimum, and Xeda checked the options through
+0.69. ABC9 is the default mapper everywhere. The pass for Xilinx uses it only with ``-abc9``
+before Yosys 0.69, and Xeda passes that option. The other passes use it unless given ``-noabc9``.
+Since Yosys 0.69, every pass uses ABC9 and cannot turn it off. ``abc9: false`` maps with classic
+ABC, and ``retime`` enables ``-retime``. Yosys 0.69 removed both choices, so with that release
+they are errors. On iCE40, ``noabc`` maps LUTs without ABC at all.
+
+``flatten`` left unset on a Xilinx device is ``true``. ``synth_xilinx`` alone keeps the hierarchy.
+In 18 measured designs, flattening was never worse, and Fmax rose by a factor of 1.08 (1.03 to
+1.13). As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and ``rtl_json``,
+so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice, iCE40 and Gowin
+passes flatten on their own, so for them an unset ``flatten`` adds nothing, and the RTL outputs
+keep the hierarchy. Under ``synth_pass_only``, an unset ``flatten`` is the choice of the pass for
+every family. A setting for which the selected pass has no option is an error and is not ignored.
+``nowidelut`` is off. Turning it on disables the wide LUT implementations that use hard MUX
+resources, and its effect on area and timing differs from design to design. iCE40 UltraPlus DSP
+and SPRAM inference are available as the ``ice40_dsp`` and ``ice40_spram`` settings of
+``yosys_fpga``.
 
 ``stop_after: rtl`` (``yosys`` has it too) elaborates the design, writes the RTL outputs
 (``rtl_json``, ``rtl_verilog`` and ``rtl_graph``) and stops before synthesis. The run succeeds,
-with no netlist and no report. A setting that asks for what synthesis writes is refused before
-anything runs: ``netlist_json`` and ``netlist_verilog``, which are on by default, and
-``netlist_graph``, ``write_blif``, ``sta`` and ``ltp``. So write
-``-s stop_after=rtl netlist_json= netlist_verilog=``. A flow that takes the netlist, such as
-``nextpnr``, cannot follow a stopped flow: the plan is refused, and the message names that flow.
+with no netlist and no report. Xeda refuses, before anything runs, a setting that asks for what
+synthesis writes: ``netlist_json`` and ``netlist_verilog`` (both on by default), ``netlist_graph``,
+``write_blif``, ``sta`` and ``ltp``. So write ``-s stop_after=rtl netlist_json= netlist_verilog=``.
+A flow that takes the netlist, such as ``nextpnr``, cannot follow a stopped flow. Xeda refuses the
+plan, and the message names that flow.
 
-A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device
-and package: ``iCE40UP5K-SG48I`` or ``iCE40HX8K-CT256`` (temperature grade and tape-and-reel
-suffixes are accepted), ``LFE5U-85F-8BG381C``, and for Nexus the full device nextpnr-nexus
-names, ``LIFCL-40-9BG400C`` (``nextpnr-nexus --list-devices``).
+A Lattice ordering code as ``fpga.part`` selects the Yosys timing model and the nextpnr device and
+package. Examples are ``iCE40UP5K-SG48I`` and ``iCE40HX8K-CT256`` (temperature grades and
+tape-and-reel suffixes are accepted), and ``LFE5U-85F-8BG381C``. For Nexus, give the full device
+name that nextpnr-nexus uses, such as ``LIFCL-40-9BG400C`` (``nextpnr-nexus --list-devices``).
 
-nextpnr uses each backend's own default timing-driven placer and router. Specify the actual
-part, package, speed grade and timing constraints before comparing results. ``clock.period``
-sets the target frequency. Put pin files in ``rtl.sources`` with types ``Lpf`` (ECP5),
-``Pcf`` (iCE40), ``Pdc`` (Nexus), or ``Xdc`` (Xilinx). Files of the selected family are
-concatenated in source order; when none are supplied, the selected board's pin file is used.
-Typed ``Sdc`` sources are concatenated separately, followed by the optional ``sdc`` setting's
-file, and passed once through ``--sdc``. A clock may have only one timing constraint across
-pin files, SDC files and flow settings: duplicates name both original paths/lines or the
-clock setting and its period. File-only clocks supply timing without a generated frequency.
-The removed ``lpf_cfg``, ``pcf_cfg`` and ``pdc_cfg`` settings give a typed-source migration error.
-The ``sdc`` setting, hooks and ``py_script`` name files relative to the design root (or with
-``$DESIGN_ROOT``). A setting of another architecture is an error. A fixed ``seed`` makes comparisons
-reproducible; try several fixed seeds when optimizing a particular design. The common
-``placer``, ``router``, HeAP weights and hook settings allow measured experiments. Experimental
-``tmg_ripup``, ``parallel_refine`` and iCE40 ``opt_timing`` stay opt-in. A faster or smaller
-Yosys netlist alone does not establish an improvement in routed Fmax.
+``nextpnr`` uses the timing-driven placer and router that each backend has as its default.
+Specify the actual part, package, speed grade and timing constraints before you compare results.
+``clock.period`` sets the frequency constraint. Put pin files in ``rtl.sources`` with the types
+``Lpf`` (ECP5), ``Pcf`` (iCE40), ``Pdc`` (Nexus) or ``Xdc`` (Xilinx). Xeda concatenates the files
+of the selected family in source order. When there are none, it uses the pin file of the selected
+board. Xeda concatenates typed ``Sdc`` sources separately, appends the file of the optional
+``sdc`` setting, and passes the result once through ``--sdc``. A clock may have only one timing
+constraint across pin files, SDC files and flow settings. An error for a duplicate names both
+original paths and lines, or the clock setting and its period. A clock that only a file
+constrains gets its timing from the file, with no generated frequency. The ``lpf_cfg``,
+``pcf_cfg`` and ``pdc_cfg`` settings were removed: list the pin file in ``rtl.sources`` with its
+type instead (``{file: "pins.lpf", type: Lpf}``). The ``sdc`` setting, the hooks and ``py_script``
+name files relative to the design root (or with ``$DESIGN_ROOT``). A setting of another
+architecture is an error. A fixed ``seed`` makes comparisons reproducible. Try several fixed seeds
+when you optimize a particular design. The common settings ``placer``, ``router``, the HeAP weights
+and the hooks allow measured experiments. The experimental settings ``tmg_ripup``,
+``parallel_refine`` and (for iCE40) ``opt_timing`` stay opt-in. A faster or smaller Yosys netlist
+alone does not show an improvement in routed Fmax.
 
-For example, include ``{file: pins.pcf, type: Pcf}`` in ``rtl.sources``, then::
+For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
     xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
       -s clock.period=20 -s seed=2
     xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
-``openfpgaloader`` to inspect all named settings. ``synth_flags``, ``extra_args`` and
-``fpga_pack``'s ``packer_args`` expose target/version-specific switches that do not have dedicated
-settings; the selected installed tool must support those switches. Placement and programming are
-different operations: ``openfpgaloader`` is the only flow here that writes hardware.
+``openfpgaloader`` to inspect all named settings. ``synth_flags``, ``extra_args`` and the
+``packer_args`` of ``fpga_pack`` expose switches that depend on the device family or the tool
+version and have no setting of their own. The installed tool must support those switches.
+Placement and programming are different operations: ``openfpgaloader`` is the only flow here that
+writes hardware.
 
 Running only the Yosys synthesis pass
 -------------------------------------
 
-By default ``yosys_fpga`` adds Xeda's preparation and cleanup stages around
-``synth_<target>``. ``synth_pass_only = true`` omits those Xeda-owned pre- and post-synthesis
-stages and reads the design's sources as a bare ``yosys <files>`` does: a Verilog source with
-plain ``read_verilog``, a SystemVerilog source with ``read_verilog -sv``. The reader follows
-each source's ``type``, which its suffix gives unless the design states another, so a ``.v``
-file typed ``SystemVerilog`` (or a ``.sv`` typed ``Verilog``) is read as that type, not by its
-suffix as yosys would. The design
-parameters, ``synth_flags`` and an explicitly selected ABC9 script still apply in either mode.
-Settings that request extra Xeda stages, or that make the mode read differently from
-``yosys <files>``, are refused in pass-only mode rather than silently ignored:
+By default, ``yosys_fpga`` adds the preparation and cleanup stages of Xeda around
+``synth_<family>``. ``synth_pass_only: true`` omits those stages and reads the sources of the
+design as a bare ``yosys <files>`` does: a Verilog source with plain ``read_verilog`` and a
+SystemVerilog source with ``read_verilog -sv``. The reader follows the ``type`` of each source,
+which its suffix gives unless the design states another type. So a ``.v`` file typed
+``SystemVerilog`` (or a ``.sv`` file typed ``Verilog``) is read as that type, and not by its suffix
+as Yosys would read it. The parameters of the design, ``synth_flags`` and an explicitly selected
+ABC9 script still apply in either mode. In pass-only mode, Xeda refuses the settings that request
+extra Xeda stages, or that make the mode read differently from ``yosys <files>``. It does not
+ignore them silently:
 
 ``prep``, ``pre_synth_opt``, ``post_synth_opt``, ``splitnets``, ``post_synth_rename``,
 ``black_box``, ``keep_hierarchy``, ``set_attribute``, ``set_mod_attribute``, ``clockgate_map``,
@@ -651,24 +698,24 @@ Settings that request extra Xeda stages, or that make the mode read differently 
 nonempty ``read_verilog_flags``, a ``systemverilog`` front end other than ``default`` and a
 nonempty ``read_systemverilog_flags``.
 
-Three of these are Xeda's own reader choices, which the full recipe keeps, so the mode needs
-their native values written out: ``read_verilog_flags: []``, ``systemverilog: default`` and no
-``read_systemverilog_flags``. ``read_verilog_flags`` defaults to ``-sv``, which Yosys does not
-pass for a ``.v`` file (and ``-sv`` changes what such a file accepts: ``logic`` is a keyword
-under it and an identifier without it). ``systemverilog`` defaults to ``slang``, a plugin whose
-``read_slang`` is not what ``yosys file.sv`` runs; ``default`` is Yosys' built-in
-``read_verilog -sv``, which a ``.sv`` source is read with. They are refused by value, so the
-defaults are refused too. On the command line the empty list is ``-s read_verilog_flags=`` (an
-empty value). The text ``[]`` is refused, as it is for every list setting.
+Three of these are reader choices of Xeda, which the full recipe keeps. The mode needs their native
+values written out: ``read_verilog_flags: []``, ``systemverilog: default`` and no
+``read_systemverilog_flags``. ``read_verilog_flags`` defaults to ``-sv``, which Yosys does not pass
+for a ``.v`` file. The option changes what such a file accepts: ``logic`` is a keyword with
+``-sv`` and an identifier without it. ``systemverilog`` defaults to ``slang``, a plugin whose
+``read_slang`` is not what ``yosys file.sv`` runs. ``default`` is the built-in ``read_verilog -sv``
+of Yosys, which reads a ``.sv`` source. Xeda refuses these three settings by value, so it refuses
+their defaults too. On the command line, the empty list is ``-s read_verilog_flags=`` (an empty
+value). The text ``[]`` is refused, as it is for every list setting.
 
-The default ABC9 behavior depends on the mode. In the full Xeda recipe, an unset ABC9 script
-selects ``flow3`` and a constrained clock supplies a clock-derived ABC9 delay (described below).
-In pass-only mode, an unset script leaves Yosys' synthesis pass choice in effect and Xeda does not
-add that clock-derived delay. ``abc9_script`` can explicitly choose one of Yosys' included scripts in
-either mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
-``flow3mfs``. Script names are taken from the installed Yosys build. The legacy ``flow3`` setting
-is still accepted: ``true`` selects ``flow3`` and ``false`` leaves the script to Yosys. Do not set
-both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9 mapping is enabled.
+The default ABC9 behavior depends on the mode. In the full recipe of Xeda, an unset ABC9 script
+selects ``flow3``, and a constrained clock supplies a clock-derived ABC9 delay (described below).
+In pass-only mode, an unset script leaves the choice to the Yosys synthesis pass, and Xeda adds no
+clock-derived delay. ``abc9_script`` can choose one of the scripts that Yosys includes, in either
+mode: ``default``, ``default.area``, ``default.fast``, ``flow``, ``flow2``, ``flow3`` or
+``flow3mfs``. The script names come from the installed Yosys build. The legacy ``flow3`` setting is
+still accepted: ``true`` selects ``flow3``, and ``false`` leaves the script to Yosys. Do not set
+both ``abc9_script`` and ``flow3``. The script selection matters only when ABC9 mapping is enabled.
 
 .. code-block:: bash
 
@@ -680,71 +727,72 @@ both ``abc9_script`` and ``flow3``. ABC9 script selection matters only when ABC9
       flows.yosys_fpga.read_verilog_flags= flows.yosys_fpga.systemverilog=default
 
 The clock-derived delay is two thirds of ``clock.period``, in picoseconds. Yosys gives it to ABC9
-as the delay target of the LUT mapping (the ``-D`` option of ABC's ``&if`` command). The Yosys log
-shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a target only when
-the mapped logic can meet it. If the target is lower than the least delay that ABC9 can reach,
-ABC9 maps for that least delay, as it does with no target, and the netlist does not change. ABC
-then prints ``ABC: Warning: Cannot meet the target required times (4000.00). Mapping continues
-anyway.`` in the Yosys log. If the target is higher, ABC9 spends the slack on area: the mapping can
-change, and it can get smaller. It can also keep its LUT count and change only the mix of LUT
-sizes. So the netlist changes with ``clock.period`` only when the clock is slow for the design.
-With Yosys 0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps to one netlist
-for every period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns the mapping has
-two more logic levels and 24 fewer LUTs than that netlist. A small design with two levels of logic
-(a block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10 ns. A netlist
-that does not change with the clock period is therefore expected.
+as the required time of the LUT mapping (the ``-D`` option of the ``&if`` command of ABC). The Yosys
+log shows it, for example ``ABC: + &if -W 300 -D 6666.666666666668``. ABC9 can use a required time
+only when the mapped logic can meet it. If the required time is lower than the least delay that
+ABC9 can reach, ABC9 maps for that least delay, as it does with no required time, and the netlist
+does not change. ABC then prints ``ABC: Warning: Cannot meet the target required times (4000.00).
+Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends the slack
+on area. The mapping can change, and it can get smaller. It can also keep its LUT count and change
+only the mix of LUT sizes. So the netlist changes with ``clock.period`` only when the clock is slow
+for the design. With Yosys 0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps
+to one netlist for every period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns
+the mapping has two more logic levels and 24 fewer LUTs than that netlist. A small design with two
+levels of logic (a block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10
+ns. A netlist that does not change with the clock period is therefore expected.
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
-them, match the Yosys version and target, source paths and order, parameters, synthesis-pass
-flags and ABC9 script; the reader is matched by the mode itself. For plain Verilog and for
-SystemVerilog read by Yosys' built-in front end it reproduces the native netlist cell for cell and
-name for name (checked against the installed Yosys). Yosys also embeds source paths in generated
-names, so use the same path spellings on both sides.
+them, match the Yosys version and the FPGA family, the source paths and their order, the
+parameters, the flags of the synthesis pass and the ABC9 script. The mode itself matches the
+reader. For plain Verilog and for SystemVerilog that the built-in front end of Yosys reads, the
+mode reproduces the native netlist cell for cell and name for name (checked against the installed
+Yosys). Yosys also embeds source paths in generated names, so use the same path spellings on both
+sides.
 
-The target synthesis pass reads its own primitive libraries. If ``verilog_lib`` also names one
-of those files, Xeda skips that duplicate read, comparing the file itself (including paths through
-links) against the installed Yosys data directory. Every ``read_verilog`` advances Yosys' shared
-generated-name counter, and ABC9 maps by generated names; an extra library read can therefore
-change the resulting netlist. Xeda gets the data directory from ``yosys-config`` beside the
-selected Yosys executable (or in the selected container image). Cell-count differences alone do
-not establish a quality difference.
+The synthesis pass of the family reads its own primitive libraries. If ``verilog_lib`` also names
+one of those files, Xeda skips that duplicate read. It compares the file itself (including paths
+through links) with the data directory of the installed Yosys. Every ``read_verilog`` advances the
+shared counter of generated names in Yosys, and ABC9 maps by generated names, so an extra library
+read can change the netlist. Xeda gets the data directory from ``yosys-config`` beside the selected
+Yosys executable (or in the selected container image). A difference in cell counts alone does not
+show a difference in quality.
 
 Xilinx 7-series with openXC7
 ----------------------------
 
 Artix-7, Kintex-7, Spartan-7, Virtex-7 and Zynq-7000 parts build with the openXC7 1.0 toolchain:
-its ``yosys``, ``nextpnr-himbaechel`` (the Xilinx backend) and ``fpga-as``. Put its ``bin``
-directory on ``PATH``; Xeda finds the tool data from the resolved ``nextpnr-himbaechel``
-executable, in ``<prefix>/share/nextpnr/himbaechel`` and ``<prefix>/share/nextpnr/prjxray-db``,
-and reads no ``CHIPDB_DIR``-style environment variable. A design for the Arty A7-100T:
+its ``yosys``, its ``nextpnr-himbaechel`` (the Xilinx backend) and ``fpga-as``. Put its ``bin``
+directory on ``PATH``. Xeda finds the tool data from the resolved ``nextpnr-himbaechel``
+executable, in ``<prefix>/share/nextpnr/himbaechel`` and ``<prefix>/share/nextpnr/prjxray-db``, and
+reads no environment variable of the ``CHIPDB_DIR`` kind. This is a design for the Arty A7-100T:
 
 .. code-block:: yaml
 
     name: blinky
     rtl:
       sources:
-        - blinky.v
-        - blinky.xdc        # pins: an Xdc source, typed by its suffix
+        - "blinky.v"
+        - "blinky.xdc"   # pins: an Xdc source, typed by its suffix
       top: blinky
-      clock: {port: clk}
+      clock.port: clk
     flows:
       yosys_fpga:
-        fpga: {part: xc7a100tcsg324-1}
+        fpga.part: xc7a100tcsg324-1
       nextpnr:
-        clock: {freq: 100MHz}
+        clock.freq: 100MHz
 
-``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes, and packs
-``outputs/blinky.bit`` in ``fpga_pack``'s run directory; nothing is programmed. ``xeda run
-openfpgaloader blinky.yaml`` builds the same bitstream if it is not up to date and loads it.
-The part is given once: ``fpga`` is shared along the declared edges.
+``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes the design, and packs
+``outputs/blinky.bit`` in the run directory of ``fpga_pack``. Nothing is programmed. ``xeda run
+openfpgaloader blinky.yaml`` builds the same bitstream if it is not up to date, and loads it. You
+give the part once, because ``fpga`` is shared along the declared edges.
 
 .. warning::
 
-   Some builds of openXC7's ``nextpnr-himbaechel`` write wrong bits and print no error: the
-   build succeeds, the timing is met, and the bitstream can behave differently from the design.
-   The openXC7 1.0 release and ``1.0.0-41-g3e5c2cdd`` (2026-10-05), which the openXC7 toolchain
-   installer pinned, have none of the fixes below. At least these defects are known. Each item
-   says what the design contains, and what goes wrong:
+   Some builds of the openXC7 ``nextpnr-himbaechel`` write wrong bits and print no error. The build
+   succeeds, the timing is met, and the bitstream can behave differently from the design. The
+   openXC7 1.0 release and ``1.0.0-41-g3e5c2cdd`` (2026-10-05), the commit that the installer of
+   the openXC7 toolchain pinned, have none of the fixes below. At least these defects are known.
+   Each item says what the design contains and what goes wrong:
 
    * A multiplication that Yosys maps to a ``DSP48E1``: the DSP ignores its A operand (issue 39,
      pull request 66).
@@ -768,153 +816,172 @@ The part is given once: ``fpga`` is shared along the declared edges.
    * An output of a high-performance bank that an ``ODDR`` or an ``OSERDESE2`` drives: the pad is
      driven around the register (pull request 78).
 
-   The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization
-   report cannot show these defects. Only a test of the bitstream itself can. Use a build of the
-   ``main`` branch of openXC7/nextpnr at commit ``26f5e17a5`` (``1.0.0-75-g26f5e17a``) or later:
-   that commit has every fix in this list. ``nextpnr-himbaechel --version`` names the build. Xeda
-   does not check the build. The authors of the fixes compared the bitstreams with Vivado's for
-   the same netlist; none of the pull requests reports a test on a board.
+   The chain ``yosys_fpga+nextpnr+fpga_pack`` is affected. A timing report or a utilization report
+   cannot show these defects. Only a test of the bitstream itself can. Use a build of the ``main``
+   branch of openXC7/nextpnr at commit ``26f5e17a5`` (``1.0.0-75-g26f5e17a``) or later. That
+   commit has every fix in this list. ``nextpnr-himbaechel --version`` names the build. Xeda does
+   not check the build. The authors of the fixes compared the bitstreams with Vivado's for the same
+   netlist. None of the pull requests reports a test on a board.
 
-``fpga.part`` must be the full ordering part -- device, package, pin count and speed grade
-(``xc7a100tcsg324-1``) -- as the Project X-Ray database lists it; a bare device name is refused
-before synthesis. ``board: arty_a7_100t`` or ``arty_a7_35t`` fills it in (``xeda list-boards``).
-So do ``basys_3`` (``xc7a35tcpg236-1``) and ``stlv7325_v2`` (``xc7k325tffg676-2``).
+``fpga.part`` must be the full ordering part (device, package, pin count and speed grade, for
+example ``xc7a100tcsg324-1``) as the Project X-Ray database lists it. Xeda refuses a bare device
+name before synthesis. ``board: arty_a7_100t`` or ``arty_a7_35t`` fills it in (``xeda
+list-boards``). So do ``basys_3`` (``xc7a35tcpg236-1``) and ``stlv7325_v2`` (``xc7k325tffg676-2``).
 
-**Constraints.** ``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN``/``LOC``
-and ``IOSTANDARD``) and may carry ``create_clock``; with no ``Xdc`` source and a ``board``, the
-board's bundled pin file is used. The bundled Arty files are active, pin-only derivatives of
-Digilent's master XDC and keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0]``,
-``btn[0]``, ...), so a design relying on the fallback names its top-level ports that way; the
-ULX3S file likewise uses the board's own names (``clk_25mhz``, ``led[0]``, ...). They contain no
-clock constraint: timing comes from the flow's ``clock``/``clocks`` or the design's own files,
-one authority per clock. With no clock constraint at all, nextpnr analyzes at its 12 MHz default
-and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It ignores
-``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the second
-form gets no pull-up. The bundled pin files use neither form; a pin file of your own may.
+Constraints
+~~~~~~~~~~~
+
+``Xdc`` sources carry the pins (``set_property`` with ``PACKAGE_PIN`` or ``LOC``, and
+``IOSTANDARD``) and may carry ``create_clock``. With no ``Xdc`` source and a ``board``, Xeda uses
+the bundled pin file of the board. The bundled Arty files are active, pin-only derivatives of the
+master XDC of Digilent, and they keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0]``,
+``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that way.
+The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on). The
+bundled files contain no clock constraint. Timing comes from the ``clock`` or ``clocks`` setting of
+the flow, or from the files of the design, and each clock has one authority. With no clock
+constraint at all, nextpnr analyzes at its default of 12 MHz, and Xeda says so. nextpnr reads
+``set_property PULLTYPE PULLUP [get_ports rst]``. It ignores ``set_property PULLUP true [get_ports
+rst]`` and prints no warning, so a port that uses the second form gets no pull-up. The bundled pin
+files use neither form, and a pin file of your own may.
 
 The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
 buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
 follows. Each file gives the source of every group of pins, and none of the pins is checked on
 hardware.
 
-* ``basys_3`` uses Digilent's names, all LVCMOS33: ``clk``, ``led[15:0]``, the buttons ``btnC``,
-  ``btnU``, ``btnL``, ``btnR`` and ``btnD``, and the UART's ``RsRx`` (an input of the FPGA) and
-  ``RsTx`` (an output). The LEDs and buttons are active high, and ``btnC`` is the reset button.
+* ``basys_3`` uses the names of Digilent, all LVCMOS33: ``clk``, ``led[15:0]``, the buttons
+  ``btnC``, ``btnU``, ``btnL``, ``btnR`` and ``btnD``, and the UART's ``RsRx`` (an input of the
+  FPGA) and ``RsTx`` (an output). The LEDs and buttons are active high, and ``btnC`` is the reset
+  button.
 * ``stlv7325_v2`` has no vendor names. Its ports are ``clk_p`` and ``clk_n`` (the differential
   clock, DIFF_SSTL15: the design needs an ``IBUFDS`` and a ``BUFG``), ``led[7:0]`` and ``btn[1:0]``
   (``btn[0]`` is the reset button), and the UART's ``uart_rx`` (an input) and ``uart_tx`` (an
-  output). The LEDs and buttons are active low. ``btn[1]`` and the UART are in a bank whose
-  voltage the board's jumper J4 sets; their standard, LVCMOS33, is right with J4 at 3.3 V.
+  output). The LEDs and buttons are active low. ``btn[1]`` and the UART are in a bank whose voltage
+  the jumper J4 of the board sets. Their standard, LVCMOS33, is right with J4 at 3.3 V.
 
-**The chip database.** nextpnr needs a database for the die, which openXC7 generates from the
-Project X-Ray data. Xeda generates it on first use and keeps it under the run root, in
-``.cache/xilinx-chipdb/<identity>/<die>.bin``, where every design using that run root shares it.
-The first build of an ``xc7a100t`` takes about a minute and about 3.5 GB of memory (larger dies
-take more); later launches start no generator. The entry is identified by content -- the nextpnr
-and ``bbasm`` executables, the generator and the database family's files -- so another
-installation or an updated one gets its own entry. Entries are never modified, and ``xeda
-scrub`` and ``--clean`` leave them; delete the ``.cache`` directory to reclaim the space.
-``chipdb`` names an existing database file to use instead (nothing is generated), and
-``prjxray_db`` another Project X-Ray database root, which ``nextpnr`` and ``fpga_pack`` must
-agree on. Generation and nextpnr's Python hooks run with bytecode writing off: the installation
-is never written to.
+The chip database
+~~~~~~~~~~~~~~~~~
 
-**Tuning.** ``delay_matrix`` (``build``, the backend's default, or ``off``), ``hold_fix``
-(``true``, or a pass limit) and ``hold_detour_max`` are the Xilinx backend's own options;
-``seed``, ``placer``, ``router`` and the hooks are common to every nextpnr backend.
-``placement`` names a location the placement dump is delivered to.
+nextpnr needs a database for the die, which openXC7 generates from the Project X-Ray data. Xeda
+generates it on first use and keeps it under the run root, in
+``.cache/xilinx-chipdb/<identity>/<die>.bin``. Every design that uses that run root shares it. The
+first build of an ``xc7a100t`` takes about a minute and about 3.5 GB of memory (larger dies take
+more). Later launches start no generator. Xeda identifies an entry by content: the nextpnr and
+``bbasm`` executables, the generator and the files of the database family. Another installation, or
+an updated one, therefore gets its own entry. Xeda never modifies an entry, and ``xeda scrub`` and
+``--clean`` leave the entries alone. Delete the ``.cache`` directory to reclaim the space.
+``chipdb`` names an existing database file to use instead, and then Xeda generates nothing.
+``prjxray_db`` names another Project X-Ray database root, and ``nextpnr`` and ``fpga_pack`` must
+agree on it. Generation and the Python hooks of nextpnr run with bytecode writing off, so Xeda
+never writes to the installation.
 
-**Results.** ``ff`` counts ``SLICE_FFX`` cells, ``bram`` ``RAMB18E1`` plus ``RAMB36E1``, ``dsp``
-``DSP48E1`` and ``io`` pads; ``CARRY4`` and the other cell types are reported under their own
-names. ``device`` is the part and ``fabric`` the die that was routed: every ``available`` total
-in the utilization describes the fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows the
-larger die's totals. ``clock_port`` is given only when the one reported clock domain is itself
-a top-level port; a domain named for a buffer's or a clock generator's output net keeps its raw
-name alone. A run that misses its timing constraint fails with nextpnr's own "Max frequency ...
-(FAIL at ...)" line, unless ``timing_allow_fail`` is set.
+Tuning
+~~~~~~
 
-``lut`` is reported per toolchain and per stage, and ``LUT:STAGE`` and ``LUT:METHOD`` say which:
-after ``nextpnr`` it is the number of distinct LUT locations (tile, site and one of A-D) the
-placement occupies -- a location whose two outputs are both used counts once, and LUTs used as
-distributed RAM or shift registers are included -- while ``yosys_fpga`` estimates it from the
-mapped primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two differ for
-one design, and neither is certified comparable with Vivado's utilization report: compare a
-design against itself across settings or seeds with one toolchain, not across toolchains. The same
-holds for ``Fmax``: nextpnr's timing model is not Vivado's (see :ref:`flow-results`).
+``delay_matrix`` (``build``, the default of the backend, or ``off``), ``hold_fix`` (``true``, or a
+pass limit) and ``hold_detour_max`` are options of the Xilinx backend itself. ``seed``, ``placer``,
+``router`` and the hooks are common to every nextpnr backend. ``placement`` names a location that
+Xeda delivers the placement dump to.
 
-**Packing and programming.** ``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family
-database and the part, into a scratch file in its run directory, and publishes the bitstream
-only when the packer succeeded with a nonempty file: a failed run leaves no partial bitstream.
-A Project X-Ray database often has the part data of one speed grade only. A device and package
-are one die with one pinout, so the speed grade directories of one device and package are
-expected to agree, and ``fpga_pack`` uses the directory of the exact part when the database has
-one. If not, it uses the directory of the same device and package at the lowest other speed grade
-(the smallest grade number; a plain grade comes before its ``L`` variant), and logs which part it
-asked for and which directory it used. It warns if the other grades' ``part.json`` or
-``package_pins.csv`` differ from the one it uses. ``nextpnr`` keeps the exact grade for timing.
-The header of the bitstream, which ``fpga-as`` writes, names the part whose data was used: a
-build for ``xc7k325tffg676-2`` packed with the ``-1`` data says ``xc7k325tffg676-1``. ``fpga_pack``
-never uses another device or package. If the database has no directory for the device and package
-at any speed grade, it fails before any tool runs. The message names the part, the directory it
-searched and the packages of the same device that the database has, with their speed grades.
+Result keys
+~~~~~~~~~~~
 
-``openfpgaloader`` loads into SRAM by default; ``write_flash`` programs the flash, and
-``verify`` is accepted only with it. A ``cable`` takes precedence over the board. With a
-``cable``, the flow passes ``--cable``, and ``--fpga-part`` when the part is known. It passes no
-board name, even when ``board`` is set. Without a ``cable``, when ``board`` is set, the flow
-passes the board's ``openfpgaloader_board`` to openFPGALoader as ``--board``, and no
-``--fpga-part``: openFPGALoader knows the board's part, and the option would replace it. A board
-that openFPGALoader does not know has no ``openfpgaloader_board``; then the flow gives the
-board's part as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name the
-bridge bitstream it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has
-no speed grade. So the flow gives a Xilinx part without it (``xc7a35tcpg236``), and any other
-part as it is. Every bundled board has an ``openfpgaloader_board``, taken from openFPGALoader's
-own board list (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is known,
-from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader detects
-the device. Programming the flash needs the device, so ``write_flash`` is refused before anything
-runs when neither ``fpga`` nor a board gives it. What the loader printed is in
-``openfpgaloader.log`` in its run directory. In a terminal, Xeda runs the loader with a terminal
-of its own, as you would run it by hand: its colors work, and its progress bar is redrawn in
-place. The log has the same text without the escape codes, with one line for each redraw. Without
-a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
-line for each update of the bar.
+``ff`` counts ``SLICE_FFX`` cells, ``bram`` counts ``RAMB18E1`` plus ``RAMB36E1``, ``dsp`` counts
+``DSP48E1`` and ``io`` counts pads. Xeda reports ``CARRY4`` and the other cell types under their
+own names. ``device`` is the part, and ``fabric`` is the die that was routed. Every ``available``
+total in the utilization describes the fabric, so an ``xc7a35t`` (routed as an ``xc7a50t``) shows
+the totals of the larger die. ``clock_port`` is given only when the one reported clock domain is
+itself a port of the top module. A domain that is named for the output net of a buffer or a clock
+generator keeps its raw name alone. A run that misses its timing constraint fails with the
+"Max frequency ... (FAIL at ...)" line that nextpnr prints, unless ``timing_allow_fail`` is set.
+
+``lut`` is reported per toolchain and per stage, and ``LUT:STAGE`` and ``LUT:METHOD`` say which.
+After ``nextpnr`` it is the number of distinct LUT locations (tile, site and one of A-D) that the
+placement occupies. A location whose two outputs are both used counts once, and LUTs used as
+distributed RAM or shift registers are included. ``yosys_fpga`` estimates it from the mapped
+primitives (``LUT:LOGIC``, ``LUT:RAM``, ``LUT:SRL``) before packing. The two numbers differ for one
+design, and neither is certified comparable with the utilization report of Vivado. Compare a
+design against itself across settings or seeds with one toolchain, and not across toolchains. The
+same holds for ``Fmax``: the timing model of nextpnr is not the model of Vivado (see
+:ref:`flow-results`).
+
+Packing and programming
+~~~~~~~~~~~~~~~~~~~~~~~
+
+``fpga_pack`` runs ``fpga-as`` with the Project X-Ray family database and the part. It writes into
+a scratch file in its run directory, and it publishes the bitstream only when the packer succeeded
+with a nonempty file, so a failed run leaves no partial bitstream. A Project X-Ray database often
+has the part data of one speed grade only. A device and package are one die with one pinout, so the
+speed-grade directories of one device and package are expected to agree. ``fpga_pack`` uses the
+directory of the exact part when the database has one. If not, it uses the directory of the same
+device and package at the lowest other speed grade (the smallest grade number; a plain grade comes
+before its ``L`` variant), and it logs which part it asked for and which directory it used. It
+warns if the ``part.json`` or ``package_pins.csv`` of the other grades differ from the one it uses.
+``nextpnr`` keeps the exact grade for timing. The header of the bitstream, which ``fpga-as``
+writes, names the part whose data was used. A build for ``xc7k325tffg676-2`` that is packed with
+the ``-1`` data says ``xc7k325tffg676-1``. ``fpga_pack`` never uses another device or package. If
+the database has no directory for the device and package at any speed grade, the flow fails before
+any tool runs. The message names the part, the directory it searched, and the packages of the same
+device that the database has, with their speed grades.
+
+``openfpgaloader`` loads into SRAM by default. ``write_flash`` programs the flash, and ``verify``
+is accepted only with it. A ``cable`` takes precedence over the board. With a ``cable``, the flow
+passes ``--cable``, and ``--fpga-part`` when the part is known. It passes no board name, even when
+``board`` is set. Without a ``cable``, when ``board`` is set, the flow passes the
+``openfpgaloader_board`` of the board to openFPGALoader as ``--board``, and no ``--fpga-part``.
+openFPGALoader knows the part of the board, and the option would replace it. A board that
+openFPGALoader does not know has no ``openfpgaloader_board``. Then the flow gives the part of the
+board as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name the bridge
+bitstream that it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has no
+speed grade. So the flow gives a Xilinx part without its speed grade (``xc7a35tcpg236``), and any
+other part as it is. Every bundled board has an ``openfpgaloader_board``, taken from the board
+list of openFPGALoader itself (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is
+known, from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader
+detects the device. Programming the flash needs the device, so Xeda refuses ``write_flash`` before
+anything runs when neither ``fpga`` nor a board gives it. What the loader printed is in
+``openfpgaloader.log`` in the run directory of the flow. In a terminal, Xeda runs the loader with a
+terminal of its own, as you would run it by hand: the colors work, and the progress bar is redrawn
+in place. The log has the same text without the escape codes, with one line for each redraw.
+Without a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader
+writes a line for each update of the bar.
 
 Xeda needs openFPGALoader 0.13.1 or newer. It asks the loader for its version (``-V``) before any
 flow of the chain runs, so an older loader fails the launch at once, before Xeda builds anything.
-The error has the version it found and the version it needs. The loader prints the DONE state of a
-Xilinx FPGA only since release 0.13.0, so with an older one a load that left DONE low would pass.
-Release 0.13.0 prints its version as 0.12.1, so Xeda cannot tell it from the older releases and
-refuses it too.
+The error has the version that Xeda found and the version it needs. The loader prints the DONE
+state of a Xilinx FPGA only since release 0.13.0, so with an older loader, a load that left DONE
+low would pass. Release 0.13.0 prints its version as 0.12.1, so Xeda cannot tell it from the older
+releases and refuses it too.
 
 The run fails when the loader exits with a nonzero status. It also fails when the log shows that
 the device was not programmed, because openFPGALoader 1.1.1 exits with status 0 after several
-failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of
-the log that show it. Xeda looks for these signs:
+failures. The error of the run (``ReportedFailure``) says what happened and quotes the lines of the
+log that show it. Xeda looks for these signs:
 
 * DONE stayed low after a load into a Xilinx FPGA. The loader prints a line such as ``ir: 1
   isc_done 0 isc_ena 0 init 1 done 0`` and then the status register of the FPGA. If the register
-  reports an ID error, the bitstream is for another device than the one on the cable: check the
-  board. The loader uses the first cable that matches, so with several boards of the same kind
-  connected it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
+  reports an ID error, the bitstream is for another device than the one on the cable, so check the
+  board. The loader uses the first cable that matches. With several boards of the same kind
+  connected, it can program the wrong one, unless ``cable_index`` or ``usb_serial_num`` (the serial
   number of an FTDI probe) names another. If the register reports a CRC error, the bitstream is
   damaged or incomplete.
 * A step that printed ``FAIL`` or ``Fail``, such as a bitstream file that the loader cannot parse.
 * An error message that the loader prints before it ends with status 0. A flash write that fails
   does this: the loader prints why and exits with status 0. Xeda knows the lines that start with
-  ``Error:``, ``Can't program``, ``FAIL:`` or ``Verification failed at``, and the lines that end
-  with ``Read ID failed``, ``Failed to read flash``, ``flash overflow``, ``disable protection
-  failed``, ``wait: Error`` or ``write en: Error``. They show that the flash does not answer, is
-  write-protected, is too small, does not accept the data, or holds other data than the file.
+  ``Error:``, ``Can't program``, ``FAIL:`` or ``Verification failed at``, and lines that end with,
+  for example, ``Read ID failed``, ``Failed to read flash``, ``flash overflow``, ``disable
+  protection failed``, ``wait: Error`` or ``write en: Error``. They show that the flash does not
+  answer, is write-protected, is too small, does not accept the data, or holds other data than the
+  file.
 * A flash write for which the loader knows no part. The loader names the bridge that writes a flash
   after the part of the FPGA. With ``--board``, it takes the part from its own list of boards, and
-  that list gives some boards no part (``kc705`` is one). The loader then prints ``Can't program SPI
-  flash: missing device-package information``, writes nothing and exits with status 0. Set
+  that list gives some boards no part (``kc705`` is one). The loader then prints ``Can't program
+  SPI flash: missing device-package information``, writes nothing and exits with status 0. Set
   ``cable`` as well (``digilent`` for ``kc705``; ``openFPGALoader --list-boards`` shows the cable
-  of each board, and ``Undefined`` where the part is missing): the flow then gives the loader the
-  part from ``fpga`` (``--fpga-part``) in place of the board's name.
+  of each board, and ``Undefined`` where the part is missing). The flow then gives the loader the
+  part from ``fpga`` (``--fpga-part``) in place of the name of the board.
 
 A flash write on a Xilinx FPGA must also say that it finished, and Xeda fails the run when it does
-not. The loader can stop before it writes without any message, and exit with status 0: a flash of
+not. The loader can stop before it writes without any message, and exit with status 0. A flash of
 the SST26VF family that stays locked after the loader unlocked it does this. The flash then holds
 its old data, or only part of the file when a write stopped half way. A write that finished ends
 with a progress bar and the word ``Done``:
@@ -925,34 +992,34 @@ with a progress bar and the word ``Done``:
    Done
 
 With ``verbose_level: -1`` (or ``--quiet`` in ``extra_args``) the loader prints ``Writing: Done``
-instead. Xeda looks for these lines once for each flash chip it writes (twice with ``target_flash:
-both``). It checked the loader's source from 0.13.1 to 1.1.1 for them. A later release that prints
-another bar fails every Xilinx flash write. The error names the line that this run needs, how many
-finished writes it needs and how many the log shows, and what the log holds after the last one, so
-read the log. ``verify: true`` makes the
-loader read the flash back after a write that finished, and it prints ``Verification failed at``
-and an address if the flash holds other data than the file. The loader does not read the flash
-back when the write stopped, so the lines above are the only check for that.
+instead. Xeda looks for these lines once for each flash chip it writes (twice with
+``target_flash: both``). It checked the source of the loader from 0.13.1 to 1.1.1 for them. A later
+release that prints another bar fails every Xilinx flash write. The error names the line that this
+run needs, how many finished writes it needs and how many the log shows, and what the log holds
+after the last one, so read the log. ``verify: true`` makes the loader read the flash back after a
+write that finished, and it prints ``Verification failed at`` and an address if the flash holds
+other data than the file. The loader does not read the flash back when the write stopped, so the
+lines above are the only check for that.
 
 Xeda requires no other sign of success, because the other families and versions print other words
-or nothing. A load that fails in another way, with status 0 and none of these signs, passes: read
-the log. A run without a log of its own fails, because it leaves no evidence that the device was
-programmed. A Lattice load needs no sign in the log, because the loader exits with a nonzero
+or nothing. A load that fails in another way, with status 0 and none of these signs, passes, so
+read the log. A run without a log of its own fails, because it leaves no evidence that the device
+was programmed. A Lattice load needs no sign in the log, because the loader exits with a nonzero
 status when it fails. An SRAM load needs none either.
 
-What is not noticed: an in-place change of the installed Project X-Ray database alone, with
-``fpga-as`` itself unchanged, when packing a prebuilt ``Fasm`` source (the files a tool reads
-from its own installation are not inputs; ``--rebuild-all`` runs everything). A new directory
-for the exact part is not noticed either. A ``prjxray_db`` you set is a setting that names a
-directory, and Xeda tracks it as it does any such setting.
+Xeda does not notice an in-place change of the installed Project X-Ray database alone, with
+``fpga-as`` itself unchanged, when it packs a prebuilt ``Fasm`` source. The files that a tool reads
+from its own installation are not inputs, and ``--rebuild-all`` runs everything. It does not notice
+a new directory for the exact part either. A ``prjxray_db`` that you set is a setting that names a
+directory, and Xeda tracks it as it tracks any such setting.
 
-The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a
-design or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
+The ``open_xc7`` flow was removed. Running it, or keeping a ``flows.open_xc7`` section in a design
+file or project file, fails with "``open_xc7`` was removed: use fpga_pack to build,
 openfpgaloader to program". Move its ``nextpnr`` settings to ``flows.nextpnr``, its synthesis
-settings to ``flows.yosys_fpga``, and pin files into ``rtl.sources``. ``openfpgaloader``'s
-former ``nextpnr``, ``packer_args`` and ``bitstream_file`` settings are removed the same way:
+settings to ``flows.yosys_fpga``, and its pin files into ``rtl.sources``. The ``nextpnr``,
+``packer_args`` and ``bitstream_file`` settings of ``openfpgaloader`` were removed in the same way:
 use the ``nextpnr`` and ``fpga_pack`` sections, and a ``Bitstream`` source for a prebuilt file.
-``xeda scrub open_xc7 <design>`` still removes the run directories the removed flow left.
+``xeda scrub open_xc7 <design>`` still removes the run directories that the removed flow left.
 
 .. _vivado-impl:
 
@@ -974,14 +1041,14 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     name: blinky
     rtl:
       sources:
-        - blinky.v
-        - blinky.xdc        # pins: an Xdc source, typed by its suffix
+        - "blinky.v"
+        - "blinky.xdc"   # pins: an Xdc source, typed by its suffix
       top: blinky
-      clock: {port: clk}
+      clock.port: clk
     flows:
       vivado_impl:
-        fpga: {part: xc7a35tcpg236-1}
-        clock: {period: 10.0}
+        fpga.part: xc7a35tcpg236-1
+        clock.period: 10.0
 
 .. code-block:: bash
 
@@ -989,21 +1056,24 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit # and a bitstream
     xeda run yosys_fpga+vivado_impl+openfpgaloader blinky.yaml --dry-run     # plan the loader too
 
-``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows and one
-clock period drives yosys's ABC9 delay and Vivado's constraint. The bitstream is written when
-``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as ``openfpgaloader``.
-A bitstream needs every port to be constrained; without ``bitstream``, Vivado stops after routing
-and the flow reports timing and utilization only. The results are those of
-``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp``, ...), read from Vivado's reports of
-the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their options as for
-``vivado_alt_synth``. Only 7-series parts were tested.
+``fpga`` and ``clock`` are shared along the edge, so one section gives them to both flows, and one
+clock period drives the ABC9 delay of Yosys and the constraint of Vivado. Xeda writes the bitstream
+when ``bitstream`` is set, or when a flow after ``vivado_impl`` needs it, such as
+``openfpgaloader``. A bitstream needs every port to be constrained. Without ``bitstream``, Vivado
+stops after routing, and the flow reports timing and utilization only. The results are those of
+``vivado_synth`` (``Fmax``, ``wns``, ``lut``, ``ff``, ``dsp`` and others), read from the reports of
+Vivado for the routed design. ``impl.strategy`` and ``impl.steps`` choose the steps and their
+options as for ``vivado_alt_synth``. Only 7-series parts were tested.
 
-**The routed design's files.** ``vivado_impl`` writes the same files as ``vivado_alt_synth``,
-switched on by the settings of the same names, ``write_checkpoint``,
-``write_netlist`` and ``write_timing_netlist``. Each file is a declared output, with the same
-name and type as in the synthesis flows, so ``vivado_postsynth_sim`` and ``vivado_power`` can read
-them. The checkpoint after placement and the exported constraints are artifacts, not declared
-outputs. There is no synthesis checkpoint, because there is no synthesis.
+Files of the routed design
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``vivado_impl`` writes the same files as ``vivado_alt_synth``, switched on by the settings of the
+same names: ``write_checkpoint``, ``write_netlist`` and ``write_timing_netlist``. Each file is a
+declared output, with the same name and type as in the synthesis flows, so ``vivado_postsynth_sim``
+and ``vivado_power`` can read them. The checkpoint after placement and the exported constraints are
+artifacts and not declared outputs. There is no synthesis checkpoint, because there is no
+synthesis.
 
 .. list-table::
     :header-rows: 1
@@ -1025,7 +1095,7 @@ outputs. There is no synthesis checkpoint, because there is no synthesis.
       - the file the setting names
 
 The consumers take ``vivado_synth`` by default, so bind them to ``vivado_impl`` as for
-``vivado_alt_synth`` (see the related inputs above). The chain check sees declarations only, so
+``vivado_alt_synth`` (see `Related inputs`_). The chain check sees declarations only, so
 ``yosys_fpga+vivado_impl+vivado_power`` passes it, but planning refuses it until the three inputs
 of the simulation that makes the activity come from ``vivado_impl`` too. Add these items to ``-s``
 (the chain binds the checkpoint itself; use the same items with ``vivado_postsynth_sim`` to
@@ -1037,103 +1107,111 @@ simulate the routed netlists alone):
 
 The power report needs a testbench in the design (``tb``), as for the other Vivado flows.
 
-**The EDIF netlist.** ``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif
--pvector bra``, when its settings make a Xilinx synthesis flat: ``flatten: true``, or ``flatten``
-unset and ``synth_pass_only`` off; no ``keep_hierarchy`` (the setting, or an attribute of that name
-in ``set_mod_attribute`` or ``set_attribute``); no ``black_box``; and no ``stop_after``. Nothing
-asks for it, so ``yosys_fpga+nextpnr`` and ``yosys_fpga+vivado_impl`` share one synthesis run.
-``netlist_edif`` names the file, or a location it is delivered to. Vivado reads a flat netlist
-only: for a hierarchical one it finds the modules undefined and treats them as black boxes. So
-where the settings show a hierarchy, the synthesis writes no EDIF netlist, and
-``yosys_fpga+vivado_impl`` is refused while planning, with the setting named (``flatten`` for
-``flatten: false``). The synthesis itself is not refused, and ``netlist_edif`` is an error where
-none is written. The settings cannot show a ``(* keep_hierarchy *)`` attribute in the HDL, or one
-that the design gives in ``rtl.attributes``, but the netlist does: ``vivado_impl`` reads it before
-it starts Vivado, and stops with the modules named.
+The EDIF netlist
+~~~~~~~~~~~~~~~~
 
-Pin constraints name the ports as the netlist does. yosys writes a one-bit bus (``input [0:0] a``)
+``yosys_fpga`` writes ``netlist.edif`` beside its JSON netlist, with ``write_edif -pvector bra``,
+when its settings make a Xilinx synthesis flat. That means ``flatten: true``, or ``flatten`` unset
+and ``synth_pass_only`` off; no ``keep_hierarchy`` (the setting, or an attribute of that name in
+``set_mod_attribute`` or ``set_attribute``); no ``black_box``; and no ``stop_after``. Nothing asks
+for the file, so ``yosys_fpga+nextpnr`` and ``yosys_fpga+vivado_impl`` share one synthesis run.
+``netlist_edif`` names the file, or a location that Xeda delivers it to. Vivado reads a flat
+netlist only: for a hierarchical one it finds the modules undefined and treats them as black boxes.
+So where the settings show a hierarchy, the synthesis writes no EDIF netlist, and Xeda refuses
+``yosys_fpga+vivado_impl`` while planning and names the setting (``flatten`` for ``flatten:
+false``). The synthesis itself is not refused, and ``netlist_edif`` is an error where none is
+written. The settings cannot show a ``(* keep_hierarchy *)`` attribute in the HDL, or one that the
+design gives in ``rtl.attributes``, but the netlist does show it. ``vivado_impl`` reads the netlist
+before it starts Vivado, and stops with the modules named.
+
+Pin constraints name the ports as the netlist does. Yosys writes a one-bit bus (``input [0:0] a``)
 as the scalar port ``a``, so its constraint is ``get_ports a``, and ``get_ports {a[0]}`` matches
 nothing. A port that no constraint matches stops ``write_bitstream``.
 
-**A netlist from elsewhere.** List it in ``rtl.sources``; the ``.edf`` and ``.edif`` suffixes are
-typed ``Edif``, and ``xeda run vivado_impl blinky.yaml`` then runs no synthesis. Whatever the file
-is called, the flow copies it to ``<top>.edif`` in its run directory, because Vivado finds the top
-module of an EDIF netlist by the name of its file. The netlist has to be flat, and written with its
-buses' ranges: in yosys, ``synth_xilinx -flatten -top <top>``, then ``write_edif -pvector bra
-<top>.edif``. The flow stops, before it starts Vivado, for a netlist whose instances refer as
-library cells to modules that the netlist itself defines, which is how yosys writes a hierarchy.
-It cannot tell a black box from a primitive, and cannot see a bus written without its range:
+A netlist from elsewhere
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+List the netlist in ``rtl.sources``. The ``.edf`` and ``.edif`` suffixes are typed ``Edif``, and
+``xeda run vivado_impl blinky.yaml`` then runs no synthesis. Whatever the file is called, the flow
+copies it to ``<top>.edif`` in its run directory, because Vivado finds the top module of an EDIF
+netlist by the name of its file. The netlist has to be flat, and written with the ranges of its
+buses. In Yosys, run ``synth_xilinx -flatten -top <top>``, then ``write_edif -pvector bra
+<top>.edif``. The flow stops before it starts Vivado for a netlist whose instances refer, as
+library cells, to modules that the netlist itself defines, which is how Yosys writes a hierarchy.
+It cannot tell a black box from a primitive, and it cannot see a bus written without its range:
 Vivado reads such a bus with its bits reversed, and says nothing about it. A Verilog netlist is not
-an input: Vivado drops the contents of a block RAM that has undefined bits when it reads one, and
-warns only with a critical warning (``[Netlist 29-72]``).
+an input. When Vivado reads a Verilog netlist, it drops the contents of a block RAM that has
+undefined bits, and it warns only with a critical warning (``[Netlist 29-72]``).
 
 Bluespec
 ========
 
-``bsc`` and ``bsc_sim`` compile Bluespec (BSV, ``.bsv``, and BH -- Bluespec Classic, ``.bs``)
-with the Bluespec compiler, ``bsc``. ``bsc`` generates Verilog for ``rtl.top``; ``bsc_sim``
-compiles a Bluespec testbench and simulates it. Both need bsc 2026.07.1 or newer, checked when
-the flow starts.
+``bsc`` and ``bsc_sim`` compile Bluespec with the Bluespec compiler, ``bsc``. Bluespec is BSV
+(``.bsv``) or BH, Bluespec Classic (``.bs``). ``bsc`` generates Verilog for ``rtl.top``.
+``bsc_sim`` compiles a Bluespec testbench and simulates it. Both need bsc 2026.07.1 or newer, which
+Xeda checks when the flow starts.
 
 Bluespec compiles packages in source order, and the package that defines the top module must come
-last: for ``bsc`` the last Bluespec source in ``rtl.sources`` must define ``rtl.top``; for
-``bsc_sim`` the last one in ``tb.sources`` must define ``tb.top`` (or, for a design without a
-testbench, the last in ``rtl.sources`` ``rtl.top``). A package's name is its file's stem, so a
-multi-package design lists each package's file, the top's last.
+last. For ``bsc``, the last Bluespec source in ``rtl.sources`` must define ``rtl.top``. For
+``bsc_sim``, the last one in ``tb.sources`` must define ``tb.top``. For a design without a
+testbench, the last one in ``rtl.sources`` must define ``rtl.top``. The name of a package is the
+stem of its file, so a design with several packages lists the file of each package, the top last.
 
-``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, the testbench's over the RTL's) are
-passed to bsc as preprocessor macros. bsc's own preprocessor reads BSV only, so a BH (``.bs``)
-source sees them only through the C preprocessor: set ``cpp: true``, which also feeds the macros
-to it; without it, a design that defines macros but whose Bluespec sources are all BH is warned
-about.
+``rtl.defines`` and ``rtl.parameters`` (and, for ``bsc_sim``, those of the testbench on top of the
+RTL's) are passed to bsc as preprocessor macros. The preprocessor of bsc reads BSV only, so a BH
+(``.bs``) source sees the macros only through the C preprocessor. Set ``cpp: true``, which also
+feeds the macros to it. Without it, Xeda warns about a design that defines macros and whose
+Bluespec sources are all BH.
 
-``bsc``'s ``artifacts.verilog`` is the file set a downstream synthesis or simulation flow needs:
-the generated modules, the design's own Verilog sources (listed where they are), and the bsc
-library and ``import "BVI"``-imported modules the design instantiates that are found on the
-Verilog search path, copied into ``verilog_out_dir``. A module the generated Verilog
-instantiates that no Verilog file defines (a vendor primitive, for instance) is left out of the
-list, with a warning: the downstream tool must provide it. With ``positive_reset`` (on by
-default), every file ``bsc`` generated or copied begins with a Verilog macro definition for
-``BSV_POSITIVE_RESET``, so the generated and library modules reset active-high. The design's own
-Verilog sources are left unchanged; a first file, ``bsv_defines.v``, defines the macro ahead of
-them, which sets their reset polarity only where they read the macro themselves. Name the reset
-port with ``reset_prefix`` if a downstream flow expects one.
+``artifacts.verilog`` of ``bsc`` is the set of files that a downstream synthesis or simulation flow
+needs. It holds the generated modules and the Verilog sources of the design itself (listed where
+they are). It also holds the modules of the bsc library and the modules imported with
+``import "BVI"`` that the design instantiates and that are on the Verilog search path. Xeda copies
+those into ``verilog_out_dir``. A module that the generated Verilog instantiates and that no
+Verilog file defines (a vendor primitive, for instance) is left out of the list, with a warning,
+and the downstream tool must provide it. With ``positive_reset`` (on by default), every file that
+``bsc`` generated or copied begins with a Verilog macro definition for ``BSV_POSITIVE_RESET``, so
+the generated and library modules reset active-high. The Verilog sources of the design itself stay
+unchanged. A first file, ``bsv_defines.v``, defines the macro ahead of them, which sets their reset
+polarity only where they read the macro themselves. Name the reset port with ``reset_prefix`` if a
+downstream flow expects one.
 
-``bsc_sim`` runs the testbench with Bluesim (the default), bsc's own cycle-based simulator, or,
-through bsc's ``-vsim`` link step, a Verilog simulator: Verilator, Icarus Verilog, or another one
-bsc supports. Every accepted backend (listed below) requires an observed ``$finish`` or a confirmed
-requested limit, with no runtime event reaching ``fail_severity`` (default ``error``).
-``$finish(n)``'s argument is a verbosity level, not an exit status. A requested Bluesim
-``max_cycles`` passes only with the measured cycle count and final simulated time; an early
-explicit finish remains valid. A silent exit 0 and a drained event queue fail. ``bsc_sim`` refuses
-a run directory whose path has whitespace, with every simulator, before anything is created and
-when planning: bsc's link step runs its tools through a shell without quoting. Use a run root
-without whitespace (``--run-root``).
+``bsc_sim`` runs the testbench with Bluesim (the default), the cycle-based simulator of bsc, or
+with a Verilog simulator through the ``-vsim`` link step of bsc: Verilator, Icarus Verilog or
+another simulator that bsc supports. Every accepted backend (listed below) requires an observed
+``$finish`` or a confirmed requested limit, with no runtime event reaching ``fail_severity``
+(default ``error``). The argument of ``$finish(n)`` is a verbosity level and not an exit status. A
+requested Bluesim ``max_cycles`` passes only with the measured cycle count and the final simulated
+time. An early explicit finish remains valid. A silent exit 0 and a drained event queue fail.
+``bsc_sim`` refuses a run directory whose path has whitespace, with every simulator, before
+anything is created and when planning, because the link step of bsc runs its tools through a shell
+without quoting. Use a run root without whitespace (``--run-root``).
 
 .. code-block:: bash
 
     xeda run bsc examples/bluespec/gcd/gcd.yaml
     xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=verilator
 
-See ``examples/bluespec/`` for self-checking designs in both BSV and BH, including a
-multi-package design, one sized by macros, one importing Verilog with ``import "BVI"``, and one
-mixing BSV and BH.
+See ``examples/bluespec/`` for self-checking designs in BSV and BH. They include a design with
+several packages, one that macros size, one that imports Verilog with ``import "BVI"``, and one
+that mixes BSV and BH.
 
 .. _flow-results:
 
 Results
 =======
 
-After the tools run, a flow parses their reports into ``results``, written to ``results.json`` in
-the run directory. ``results.success`` decides the flow's - and the process's - exit status.
+After the tools run, a flow parses their reports into ``results``, which Xeda writes to
+``results.json`` in the run directory. ``results.success`` decides the exit status of the flow and
+of the process.
 
-Every flow reports a common set of keys (``success``, ``runtime``, ``tools``, ``design``,
-``flow``, ``run_path``, ``timestamp``, hashes). On top of that, each flow reports its own; run
-``xeda list-results <flow>`` for the list.
+Every flow reports a common set of keys (``success``, ``runtime``, ``tools``, ``design``, ``flow``,
+``run_path``, ``timestamp`` and the hashes). Each flow also reports keys of its own. Run ``xeda
+list-results <flow>`` for the list.
 
-Some quantities were historically reported under different names by different flows. The runner
-now also records a canonical name alongside whatever the flow reported, so a script does not need
-to know which flow produced the file:
+Different flows used to report some quantities under different names. Xeda now also records a
+canonical name next to the name that the flow reported, so a script does not need to know which
+flow produced the file:
 
 .. list-table::
    :header-rows: 1
@@ -1150,106 +1228,115 @@ to know which flow produced the file:
 The original keys are kept, so nothing that already reads ``results.json`` breaks.
 
 .. note::
-   ``clock_frequency`` is deliberately *not* aliased to ``Fmax``. It is the frequency that was
-   *constrained*, not the maximum that was *achieved*.
+   ``clock_frequency`` has no alias ``Fmax`` on purpose. It is the frequency that was constrained,
+   and not the maximum that was achieved.
 
 .. note::
-   Every tool times a design with its own model, so compare ``Fmax`` only between runs of the
-   same tool. ``nextpnr`` and Vivado, which place and route with different models, show it. For
-   one Artix-7 design with a block RAM and a multiply-accumulate, ``nextpnr`` reported 453 MHz
-   for the netlist from Yosys and 429 MHz for the netlist from Vivado. Vivado placed and routed
-   the same two netlists and reported 241 MHz and 232 MHz. On a counter that drives LEDs, Vivado
-   timed ``nextpnr``'s own placement and routing, and its result differed from the report of
-   ``nextpnr`` by 0.14 ns.
+   Every tool times a design with its own model, so compare ``Fmax`` only between runs of the same
+   tool. ``nextpnr`` and Vivado, which place and route with different models, show it. For one
+   Artix-7 design with a block RAM and a multiply-accumulate, ``nextpnr`` reported 453 MHz for the
+   netlist from Yosys and 429 MHz for the netlist from Vivado. Vivado placed and routed the same two
+   netlists and reported 241 MHz and 232 MHz. On a counter that drives LEDs, Vivado timed the
+   placement and routing of ``nextpnr``, and its result differed from the report of ``nextpnr`` by
+   0.14 ns.
 
 Simulation results
 ==================
 
-A simulation passes only on evidence that it ended, not on the simulator's exit status alone. A
-cocotb run, on any simulator, needs at least one test that ran and none that failed; a run in
-which every test was skipped fails. Each non-cocotb simulator must report a recognized end:
-``$finish`` (including VHDL ``std.env.finish`` or ``std.env.stop``), a requested and confirmed
-``stop_time``, a measured requested ``max_cycles``, or a user-owned C++ driver's observed exit
-status 0 where that driver contract is supported. A missing or malformed record, unknown end,
-silent exit 0, unrequested stop, or event queue that drains without a finish fails. A nonzero
-tool/driver exit always fails, even after a finish. The normalized record is saved as
-``sim.evidence`` alongside ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
+A simulation passes only on evidence that it ended, and not on the exit status of the simulator
+alone. A cocotb run, on any simulator, needs at least one test that ran and none that failed. A run
+in which every test was skipped fails. Each simulator that does not use cocotb must report a
+recognized end:
+
+* ``$finish`` (including VHDL ``std.env.finish`` and ``std.env.stop``),
+* a requested and confirmed ``stop_time``,
+* a measured requested ``max_cycles``, or
+* the observed exit status 0 of a C++ driver that the user owns, where Xeda supports that driver
+  contract.
+
+A run fails when its record is missing or malformed, when its end is unknown, on a silent exit 0,
+on an unrequested stop, and when the event queue drains without a finish. A nonzero exit status of
+the tool or the driver always fails, even after a finish. Xeda saves the normalized record as
+``sim.evidence`` next to ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
 ``sim.warnings``.
 
 When a simulation fails these checks, ``error.message`` in ``results.json`` says what happened and
 what to do. For a testbench that stops with no finish, it tells you to end the testbench with
 ``std.env.finish`` (VHDL) or ``$finish`` (Verilog), or to set ``stop_time``.
 
-Every ``SimFlow`` exposes ``timeout`` and ``fail_severity``. The default severity is ``error``;
-the choices are ``warning``, ``error``, ``failure`` and ``fatal`` (``failure`` and ``fatal`` have
-the same rank). Any observed event at or above the selected threshold fails. ``timeout`` bounds
-each subprocess invocation that contains simulation, including analysis and elaboration when
-they share that invocation; it is not a cumulative dependency deadline. An unset timeout adds no
-wall-clock limit. Verilog ``$stop`` is an error-rank event and fails at the default threshold. VHDL
+Every simulator flow (every ``SimFlow``) has the settings ``timeout`` and ``fail_severity``. The
+default severity is ``error``, and the choices are ``warning``, ``error``, ``failure`` and
+``fatal`` (``failure`` and ``fatal`` have the same rank). Any observed event at or above the
+selected threshold fails the run. ``timeout`` bounds each subprocess invocation that contains
+simulation, including analysis and elaboration when they share that invocation. It is not a
+cumulative deadline for the producers. An unset ``timeout`` adds no wall-clock limit. A Verilog
+``$stop`` is an event of the rank ``error`` and fails at the default threshold. VHDL
 ``std.env.stop`` is accepted as completion.
 
-GHDL and nvc retain the simulator's actual end time. For their sparse-clock behavior, a stop
-whose observed time differs from the requested ``stop_time`` fails; Xeda does not rewrite the
-reported time to the request. NVC uses a passive VHPI end-time helper, so a C++ compiler is required
-when that helper must be built. Its former ``exit_severity`` setting is removed; use
-``fail_severity``. Bluesim's ``max_cycles`` passes only when the recorded cycle count equals the
-request and the record includes a measured final time and unit. CXXRTL links an exit monitor and
-RTL assertion hook into a user-owned C++ driver: an observed driver exit 0 is valid evidence even
-when simulated time is unknown, but missing records or abnormal exits fail. CXXRTL rejects
-``stop_time`` because the driver controls scheduling.
+GHDL and nvc keep the actual end time of the simulator. A stop whose observed time differs from the
+requested ``stop_time`` fails, which matters for designs with sparse clock events. Xeda does not
+rewrite the reported time to the request. NVC uses a passive VHPI helper for the end time, so a C++
+compiler is needed when that helper must be built. The ``exit_severity`` setting of NVC was
+removed: use ``fail_severity``. A Bluesim ``max_cycles`` passes only when the recorded cycle count
+equals the request and the record includes a measured final time and unit. CXXRTL links an exit
+monitor and an RTL assertion hook into a C++ driver that the user owns. An observed driver exit 0
+is valid evidence even when the simulated time is unknown, but missing records or abnormal exits
+fail. CXXRTL rejects ``stop_time`` because the driver controls scheduling.
 
-ModelSim batch runs require matching native end reason, time and TESTSTATUS observations from
-this run's checkpoint and bounded runtime logfile. Compilation and loading messages do not
-affect the runtime verdict. VHDL ``std.env.stop`` is accepted with native VHDL break evidence,
-while Verilog ``$stop`` fails. VHDL failure and SystemVerilog fatal share the native fatal rank.
-This contract was verified with ModelSim-Intel Starter 2020.1. Vivado 2024.2 was used to verify
-xsim completion, severity, source-qualified VHDL stop and absolute ``stop_time`` behavior across
-prerun and runtime. The requested bound is measured against the actual current time, and further
-execution is skipped after finish or after the bound. Its ``elab_debug`` must preserve source
-information; explicitly disabling it is rejected because VHDL-stop evidence would otherwise be
-ambiguous.
+ModelSim batch runs require matching native observations of the end reason, the time and TESTSTATUS
+from the checkpoint of this run and from a bounded runtime logfile. Compilation and loading
+messages do not affect the runtime verdict. VHDL ``std.env.stop`` is accepted with native VHDL
+break evidence, and Verilog ``$stop`` fails. A VHDL failure and a SystemVerilog fatal share the
+native fatal rank. This contract was verified with ModelSim-Intel Starter 2020.1. Vivado 2024.2
+verified the xsim behavior for completion, severity, a source-qualified VHDL stop and an absolute
+``stop_time``, across prerun and runtime. The requested bound is measured against the actual
+current time, and Xeda skips further execution after a finish or after the bound. The
+``elab_debug`` setting must preserve source information. Disabling it explicitly is rejected,
+because the evidence of a VHDL stop would otherwise be ambiguous.
 
-VCS and Questa adapters are documentation-only and have not been verified against licensed real tools.
-They fail closed when native evidence is not recognizable: VCS quiet ``$finish(0)`` and VHDL
-completion fail without a native finish diagnostic, and a UCLI time checkpoint alone does not
-prove HDL completion. Questa requires the ModelSim-style owned runtime transcript and checkpoint;
-an unrecognized native stop reason or missing source-qualified VHDL evidence fails. Do not treat
-their synthetic-tool coverage as real-tool certification.
-The accepted ``bsc_sim`` backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi
-and xsim. The legacy ``cvc``, ``cver``, ``isim``, ``ncverilog`` and ``veriwell`` engines are
-rejected before compilation because they lack a certified evidence adapter. Icarus's real
-runtime evidence and builtin-task capability checks remain mandatory Linux CI gates; they were
-not run on macOS.
+VCS and Questa adapters are documentation-only and have not been verified against licensed real
+tools. They fail closed when native evidence is not recognizable. VCS quiet ``$finish(0)`` and VHDL
+completion fail without a native finish diagnostic, and a UCLI time checkpoint alone does not prove
+HDL completion. Questa requires the ModelSim-style owned runtime transcript and checkpoint. An
+unrecognized native stop reason or missing source-qualified VHDL evidence fails. Do not treat their
+coverage with synthetic tools as certification on real tools.
+
+The accepted ``bsc_sim`` backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
+xsim. The legacy engines ``cvc``, ``cver``, ``isim``, ``ncverilog`` and ``veriwell`` are rejected
+before compilation, because they lack a certified evidence adapter. The real runtime evidence and
+the builtin-task capability checks of Icarus remain mandatory gates of the Linux CI. They were not
+run on macOS.
 
 Waveforms
 ---------
 
-Every simulator writes a waveform through its own mechanism: a run option, a script command or
-the HDL's ``$dumpfile``. Xeda never writes one itself. A simulator that cannot honor a waveform
+Every simulator writes a waveform through its own mechanism: a run option, a script command or the
+``$dumpfile`` of the HDL. Xeda never writes one itself. A simulator that cannot honor a waveform
 setting refuses it when the run is planned, so no waveform setting is ignored.
 
 All waveform settings read their value by one rule, on the command line and in a design file:
 
-* ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``; ``dump.vcd.gz`` for ``vcdgz``).
-  This is also the name the run writes when you give a location, which is then delivered, so a
+* ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``, ``dump.vcd.gz`` for ``vcdgz``). This
+  is also the name that the run writes when you give a location, which Xeda then delivers, so a
   location and ``true`` are the same run. For the ``saif`` of ``vivado_sim`` and
-  ``vivado_postsynth_sim`` that name is ``outputs/<design>.saif``. ``verilator`` without cocotb
-  accepts no location, only ``true``, because the testbench names the file. On the command line,
+  ``vivado_postsynth_sim``, that name is ``outputs/<design>.saif``. ``verilator`` without cocotb
+  accepts only ``true`` and no location, because the testbench names the file. On the command line,
   ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
 * ``false`` and an empty name write nothing.
-* A name without an extension gets the format's extension.
-* The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``, ``t``,
-  ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with spaces
-  around it. Write ``true`` or a file name.
-* Other text is a name. The setting a name is given to decides the format, never the name: a
-  name that ends in an extension of another format is refused. A format can have several
+* A name without an extension gets the extension of the format.
+* The words that YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``,
+  ``t`` and ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with
+  spaces around it. Write ``true`` or a file name.
+* Other text is a name. The setting that receives a name decides the format, and the name never
+  does: Xeda refuses a name that ends in an extension of another format. A format can have several
   extensions (``.vcd.gz``, ``.vcdgz`` and ``.gz`` are compressed VCD). When the simulator has a
-  setting for the other format, the message names it: ``wave: x.vcd`` on ``ghdl_sim`` says to
-  use ``vcd``. Otherwise it says which extension to use, and a gzip name given to ``vcd`` on a
-  simulator that writes plain VCD says to drop the ``.gz``.
+  setting for the other format, the message names it. For example, ``wave: x.vcd`` on ``ghdl_sim``
+  says to use ``vcd``. Otherwise the message says which extension to use. A gzip name given to
+  ``vcd`` on a simulator that writes plain VCD says to drop the ``.gz``.
 
 A waveform setting is named after its format, so the same name means the same thing on every
-simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHDL's own format, GHW.
+simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHW, the waveform format of
+GHDL itself.
 
 The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
 
@@ -1283,103 +1370,104 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
        ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``, and
        ``fsdb_size_limit`` needs ``fsdb``.
    * - ``yosys_sim``
-     - ``vcd`` is refused. The design's C++ driver writes the waveform with
+     - ``vcd`` is refused. The C++ driver of the design writes the waveform with
        ``cxxrtl::vcd_writer``.
 
 Verilator
 ---------
 
-Verilator's own ``--main`` runs an HDL top, and Xeda's hooks in Verilator's runtime record how the
-run ended: the ``sim.ended_by`` and ``sim.time`` result keys, among others. The run passes when the
-testbench ends it with ``$finish`` and nothing reported reaches ``fail_severity`` (``warning``,
-``error``, ``failure`` or ``fatal``; default ``error``). An event queue that runs empty without a
-``$finish`` fails (``sim.ended_by`` is ``drained``, and ``sim.time`` is empty), and ``timeout``
-stops a run that does not end. The model's output is also copied to ``sim.log`` in ``sim_dir``,
-except under cocotb, whose output goes straight to the terminal.
+The ``--main`` option of Verilator runs an HDL top, and hooks of Xeda in the Verilator runtime
+record how the run ended. They set the ``sim.ended_by`` and ``sim.time`` result keys, among others.
+The run passes when the testbench ends it with ``$finish`` and nothing reported reaches
+``fail_severity`` (``warning``, ``error``, ``failure`` or ``fatal``; default ``error``). An event
+queue that runs empty without a ``$finish`` fails (``sim.ended_by`` is ``drained``, and
+``sim.time`` is empty), and ``timeout`` stops a run that does not end. Xeda also copies the output
+of the model to ``sim.log`` in ``sim_dir``, except under cocotb, whose output goes straight to the
+terminal.
 
 Three drivers can run the model:
 
 * Verilator's own main, by default. The ``main`` setting maps to ``--main``: it is true unless the
   testbench uses cocotb.
-* The design's own C++ ``main`` or ``sc_main``, with ``main: false``. The hooks still record how it
-  ended: the run passes when the main exits with status 0 and nothing reported reaches
+* The ``main`` or ``sc_main`` of the design itself, with ``main: false``. The hooks still record
+  how it ended. The run passes when the main exits with status 0 and nothing reported reaches
   ``fail_severity``. A C++ source with ``main`` unset is a helper (for DPI, for example) and is
   linked into the model.
-* cocotb's own main, when the testbench uses cocotb. cocotb's results decide the run. ``main: true``
-  is an error with cocotb.
+* The main of cocotb, when the testbench uses cocotb. The results of cocotb decide the run.
+  ``main: true`` is an error with cocotb.
 
 A report that ends the run is one event, and ``sim.ended_by`` names its cause: ``error`` for
-``$error``, a failed assertion and ``$stop``, ``fatal`` for ``$fatal`` and for Verilator's own
-fatal errors.
+``$error``, a failed assertion and ``$stop``, and ``fatal`` for ``$fatal`` and for the fatal errors
+of Verilator itself.
 
-The simulated top (``--top-module``) is the testbench's ``tb.top``, or else ``rtl.top``; with
-cocotb, the module cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design with a
-Verilog or SystemVerilog testbench needs ``tb.top``: without it the flow refuses the design, since
-it would simulate ``rtl.top``, which has no stimulus. With ``main: false``, the design's own C++
-main runs the model and the flow needs no ``tb.top``, whatever HDL the testbench also holds (a
-bound checker, for example). ``rtl.parameters`` apply only when the RTL top is the simulated top;
-``tb.parameters`` always do.
+The simulated top (``--top-module``) is ``tb.top`` of the testbench, or else ``rtl.top``. With
+cocotb, it is the module that cocotb drives: ``tb.cocotb.toplevel``, or else ``rtl.top``. A design
+with a Verilog or SystemVerilog testbench needs ``tb.top``. Without it, the flow refuses the
+design, since it would simulate ``rtl.top``, which has no stimulus. With ``main: false``, the main
+in C++ of the design runs the model and the flow needs no ``tb.top``, whatever HDL the testbench
+also holds (a bound checker, for example). ``rtl.parameters`` apply only when the RTL top is the
+simulated top, and ``tb.parameters`` always apply.
 
-Waveforms follow Verilator's own rules. ``vcd``, ``fst`` and ``saif`` build the model with that
-trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one may be set. Without
-cocotb, Xeda writes no waveform: the testbench's ``$dumpfile`` and ``$dumpvars`` (or the design's
-own main) name and write the file, in the run directory, which is the model's working directory.
-Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` for ``vcd``);
-that name is the only one accepted, and the testbench must call ``$dumpfile("dump.<format>")``.
-A run that wrote no ``dump.<format>`` fails and says so: it would otherwise pass with the file
-missing, or with data of the built format under another name. Every other name and every location
-is an error before Verilator runs, because the testbench writes the file, and
-Xeda does not copy it. With cocotb, Xeda names the file (cocotb's ``--trace-file``): ``true``
-writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
-also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
-code gives all changes to the first writer. The trace options (``trace_underscore``,
-``trace_structs``, ``trace_max_width``, ``trace_max_array``) keep Verilator's own defaults unless
-set.
+Waveforms follow the rules of Verilator itself. ``vcd``, ``fst`` and ``saif`` build the model with
+that trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one may be set.
+Without cocotb, Xeda writes no waveform. The testbench (or the main of the design) names and writes
+the file with ``$dumpfile`` and ``$dumpvars``, in the run directory, which is the working directory
+of the model. Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` for
+``vcd``). That name is the only one accepted, and the testbench must call
+``$dumpfile("dump.<format>")``. A run that wrote no ``dump.<format>`` fails and says so. Otherwise
+it would pass with the file missing, or with data of the built format under another name. Every
+other name and every location is an error before Verilator runs, because the testbench writes the
+file and Xeda does not copy it. With cocotb, Xeda names the file (``--trace-file`` of cocotb):
+``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and Xeda delivers a location. A
+testbench that also calls ``$dumpvars`` under cocotb makes the file of cocotb nearly empty, because
+the trace code of Verilator gives all changes to the first writer. The trace options
+(``trace_underscore``, ``trace_structs``, ``trace_max_width`` and ``trace_max_array``) keep the
+defaults of Verilator unless set.
 
 Defaults and limits:
 
-* ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it;
-  ``x_initial`` and ``x_assign`` default to ``"0"`` (they were ``"unique"``).
-* ``timing`` is on by default. It enables Verilator's ``--timing`` support for delays and event
-  controls. This requires a compiler with C++20 coroutine support. Verilator's required C++
-  standard takes precedence over a ``-std=`` flag in ``cflags``. Set ``timing: false`` to disable
-  it; Verilator then ignores delays and warns with ``STMTDLY`` for a delay on a statement
-  (``#10;``) and
-  ``ASSIGNDLY`` for one on an assignment. Such a warning does not fail the run, unless
-  ``warnings_fatal`` is set. A delay that is ignored leaves no event to wait for, so a run
-  without ``$finish`` drains at once and fails; it does not wait for ``timeout``.
+* ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it.
+  ``x_initial`` and ``x_assign`` default to ``"0"`` (earlier releases used ``"unique"``).
+* ``timing`` is on by default. It enables the ``--timing`` support of Verilator for delays and
+  event controls, which needs a compiler with C++20 coroutine support. The C++ standard that
+  Verilator requires takes precedence over a ``-std=`` flag in ``cflags``. Set ``timing: false`` to
+  disable it. Verilator then ignores delays and warns with ``STMTDLY`` for a delay on a statement
+  (``#10;``) and ``ASSIGNDLY`` for a delay on an assignment. Such a warning does not fail the run,
+  unless ``warnings_fatal`` is set. A delay that Verilator ignores leaves no event to wait for, so a
+  run without ``$finish`` drains at once and fails. It does not wait for ``timeout``.
 * ``stop_time`` is an error in every mode, before anything runs. End the testbench with
   ``$finish``, or limit the run with ``timeout``.
-* ``generate_systemc`` needs ``main: false`` and the design's own ``sc_main`` among its C++
-  sources: Verilator's ``--main`` generates a C++ main.
-* A run directory whose path has whitespace is refused, before anything is created and when
-  planning: Verilator's GNU Make build cannot work in such a directory. So is a ``sim_dir`` with
-  whitespace, the directory the model is built in. Use a run root and a ``sim_dir`` without
-  whitespace (``--run-root``).
+* ``generate_systemc`` needs ``main: false`` and an ``sc_main`` of the design among its C++
+  sources, because the ``--main`` option of Verilator generates a C++ main.
+* Xeda refuses a run directory whose path has whitespace, before anything is created and when
+  planning, because the GNU Make build of Verilator cannot work in such a directory. It refuses a
+  ``sim_dir`` with whitespace for the same reason, since the model is built there. Use a run root
+  and a ``sim_dir`` without whitespace (``--run-root``).
 * Verilator 5.048 or newer is required. A ``$finish`` in a ``final`` block does not end a run that
-  drained: it fails, as it does without the block. Since the model runs under Verilator's main,
-  ``--coverage`` in ``compile_args`` writes ``coverage.dat``, and VPI start-up routines run with
-  ``vpi: true``. ``bsc_sim`` with Verilator needs 5.044 or newer.
-* Before the model runs, a file or link left at the coverage file's name in the run directory
-  (``coverage.dat``, or the name ``+verilator+coverage+file+`` gives) is removed, so the model
-  never writes through a link. The flow refuses a coverage name that is a directory, that has
-  ``..`` in it, or that goes through a link leading out of the run directory. A full path outside
-  the run directory is left as it is. In a directory no launcher chose (a flow built directly),
-  the flow deletes nothing and refuses a link at that name.
+  drained: the run fails, as it does without the block. Because the model runs under the main of
+  Verilator, ``--coverage`` in ``compile_args`` writes ``coverage.dat``, and VPI start-up routines
+  run with ``vpi: true``. ``bsc_sim`` with Verilator needs 5.044 or newer.
+* Before the model runs, Xeda removes a file or link that is left at the name of the coverage file
+  in the run directory (``coverage.dat``, or the name that ``+verilator+coverage+file+`` gives), so
+  the model never writes through a link. The flow refuses a coverage name that is a directory, that
+  has ``..`` in it, or that goes through a link leading out of the run directory. A full path
+  outside the run directory is left as it is. In a directory that no launcher chose (a flow built
+  directly), the flow deletes nothing and refuses a link at that name.
 
 Writing a new flow
 ==================
 
-Every new simulator flow must inherit ``SimFlow`` and translate that simulator's current-run
-records into ``SimEvidence`` for the shared ``judge_evidence`` verdict. Add its accepted backend
-to the behavioral oracle and test positive completion, silent/drained failure, severity,
-requested limits, timeout and stale or malformed evidence. Never add an exit-only exemption.
+A new simulator flow must inherit ``SimFlow`` and translate the records of the current run of that
+simulator into ``SimEvidence`` for the shared ``judge_evidence`` verdict. Add its accepted backend
+to the behavioral oracle, and test positive completion, silent and drained failure, severity,
+requested limits, timeout, and stale or malformed evidence. Never add an exemption for an exit
+status alone.
 
 Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Flow``, ``SimFlow``,
 ``SynthFlow``, ``FpgaSynthFlow`` or ``AsicSynthFlow`` and implements:
 
 ``init()`` (optional)
-    Runs after construction, once settings and design are known. It is separate from
+    Runs after construction, once the settings and the design are known. It is separate from
     ``__init__``, so a flow can prepare itself from its effective settings. It adds no producer and
     reads no input: a flow declares the inputs it reads (``Flow.Inputs``), and the launcher runs
     their producers before ``run()``.
@@ -1389,29 +1477,30 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
     invokes the tools.
 
 ``parse_reports()`` (optional)
-    Populates ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()``,
+    Fills ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()`` and
     ``parse_xml()``.
 
-A flow refuses what the settings and the design alone rule out in two class methods that planning,
+A flow refuses what its settings and the design alone rule out in two class methods that planning,
 ``--remote`` and ``xeda dse`` call: ``check_settings_supported(cls, settings)`` and
 ``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
 the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
-(a tool on ``PATH``, an installed database, the inputs a producer handed over) stays in ``init()``
-or ``prepare_inputs()``. A flow that is built directly, without a launcher, still refuses these
-cases: its ``init()`` calls the hook.
+(a tool on ``PATH``, an installed database, the inputs that a producer handed over) stays in
+``init()`` or ``prepare_inputs()``. A flow that is built directly, without a launcher, still
+refuses these cases, because its ``init()`` calls the hook.
 
 A simulator that needs no ``tb.top`` for some designs overrides
-``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an
-optional second argument, which every launch passes. An override with the old signature, which
-takes the design alone, fails with a ``TypeError`` when the launch is planned: add the argument.
+``runs_without_testbench_top(cls, design, settings=None)``. Both methods take the settings of the
+flow as an optional second argument, which every launch passes. An override with the old signature,
+which takes the design alone, fails with a ``TypeError`` when the launch is planned: add the
+argument.
 
-Registration is automatic: ``Flow.__init_subclass__`` derives the flow name from the class name
-(``VivadoSynth`` -> ``vivado_synth``) and registers it, with any extra names listed in ``aliases``.
-Add the class to both the import list and ``__all__`` in ``src/xeda/flows/__init__.py`` so it is
-shipped and discoverable.
+Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from the class name
+(``VivadoSynth`` -> ``vivado_synth``) and registers it, with any extra names listed in
+``aliases``. Add the class to both the import list and ``__all__`` in
+``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it.
 
-Two things a new flow owes its users, and which the test suite enforces:
+The test suite enforces two things that a new flow owes its users:
 
-* a docstring of its own - it is what ``xeda list-flows`` shows
-* a ``description=`` on every settings field, and a ``results_description`` describing the keys it
-  reports (or ``results_description = {}`` if it reports none)
+* a docstring of its own, which ``xeda list-flows`` shows
+* a ``description=`` on every settings field, and a ``results_description`` that describes the keys
+  the flow reports (or ``results_description = {}`` if it reports none)
