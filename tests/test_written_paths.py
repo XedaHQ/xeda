@@ -221,7 +221,7 @@ def test_a_variable_xeda_does_not_know_is_told_every_one_it_expands(tmp_path):
         runner_cwd=tmp_path,
     )
     message = dict(written_path_problems(settings))["bitstream"]
-    assert "not a variable xeda knows" in message, message
+    assert "not a variable Xeda knows" in message, message
     assert all(f"${name}" in message for name in PATH_VARIABLES), message
 
 
@@ -323,4 +323,4 @@ def test_a_known_variable_left_unexpanded_is_named_as_such(tmp_path):
     )
     settings.cocotb.results_xml = Path("$PWD/r.xml")  # on the nested model: nothing expands it
     (message,) = [m for key, m in written_path_problems(settings) if key == "cocotb.results_xml"]
-    assert "$PWD was not expanded here" in message and "not a variable xeda knows" not in message
+    assert "$PWD was not expanded here" in message and "not a variable Xeda knows" not in message

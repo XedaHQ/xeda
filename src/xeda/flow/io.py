@@ -1,13 +1,15 @@
 """Declared inputs and outputs of a flow.
 
 A flow declares its files the way it declares its settings: nested `Inputs` and `Outputs`
-models, one field per input or output, each made with `In(...)` or `Out(...)`. The annotation is
-the cardinality -- `Path` exactly one file, `Path | None` zero or one, `list[Path]` an ordered
-list -- and `In`/`Out` give the accepted source types and, for an input, its default producer.
-The launcher fills `flow.inputs` before the flow's freshness is judged (`init()` never reads
-them), and records what the flow set in `flow.outputs` after a successful run
-(`flow_runner.outputs`). A flow with any declaration is *declared*: the launcher launches its
-producers, and its `init()` registers no dependency.
+models with one field per input or output, each made with `In(...)` or `Out(...)`. The
+annotation sets the cardinality: `Path` is exactly one file, `Path | None` zero or one, and
+`list[Path]` an ordered list. `In` and `Out` give the accepted source types and, for an input,
+its default producer.
+
+The launcher fills `flow.inputs` before it judges whether the flow is up to date (`init()` never
+reads them). After a successful run it records what the flow set in `flow.outputs`
+(`flow_runner.outputs`). The launcher launches the producers of a flow's declared inputs, and
+`init()` adds no dependency.
 """
 
 from __future__ import annotations
@@ -76,22 +78,24 @@ def In(
     equivalence: bool = False,
     description: str,
 ) -> Any:
-    """A declared input: the source types it accepts; `producer`, the flow (by canonical name)
-    whose output feeds it when the design lists no source of those types, and `output`, which
-    of that flow's outputs; `optional` lets a `list[Path]` input be empty.
+    """Declare an input of a flow.
+
+    `types` are the source types the input accepts. `producer` is the flow (by canonical name)
+    whose output feeds the input when the design lists no source of those types, and `output`
+    names which of that flow's outputs. `optional` lets a `list[Path]` input be empty.
 
     `same_producer_as` names another input of the flow that this one belongs with: the plan takes
     both from one producer node. An input that comes from the design's sources or is absent is not
-    compared, because a file the user lists is the user's own choice. `via` moves the comparison one
-    step: it names an input of the flow that makes the other input, and this input has to come
-    from the producer of that input. `vivado_power` uses it for its checkpoint, which must come
-    from the synthesis behind the netlist that the simulation of its `activity` read (the
-    activity's own producer is a simulation, not a synthesis).
+    compared, because a file the user lists is the user's own choice. `via` moves the comparison
+    one step: it names an input of the flow that makes the other input, and this input has to
+    come from the producer of that input. `vivado_power` uses it for its checkpoint, which must
+    come from the synthesis behind the netlist that the simulation of its `activity` read (the
+    producer of the activity is a simulation, not a synthesis).
 
-    `equivalence` makes the input compare what its type calls the same (`xeda.equivalence`)
-    where the content differs: a flow whose results do not depend on what the type's normalizer
-    drops (nextpnr's on the source locations of a JSON netlist) stays up to date when only that
-    differs. The input's types all need a normalizer."""
+    With `equivalence`, the input compares what its type calls the same (`xeda.equivalence`)
+    where the content differs. A flow whose results do not depend on what the normalizer of the
+    type drops (for nextpnr, the source locations of a JSON netlist) stays up to date when only
+    that differs. Every type of the input needs a normalizer."""
     marker: dict[str, Any] = {
         "kind": "input",
         "types": _type_names(types),
@@ -114,8 +118,10 @@ def Out(
     enabled_by: str | None = None,
     description: str,
 ) -> Any:
-    """A declared output: the source types it may have; `enabled_by`, the setting that switches
-    an optional output on -- a true flag, or a path or text that is set."""
+    """Declare an output of a flow.
+
+    `types` are the source types the output may have. `enabled_by` names the setting that
+    switches an optional output on: a true flag, or a path or text that is set."""
     marker: dict[str, Any] = {
         "kind": "output",
         "types": _type_names(types),
@@ -130,17 +136,18 @@ class InputDeclaration:
 
     name: str
     types: tuple[SourceType, ...]
-    #: "one" (`Path`), "optional" (`Path | None`) or "many" (`list[Path]`)
+    #: The cardinality: "one" (`Path`), "optional" (`Path | None`) or "many" (`list[Path]`).
     cardinality: str
     producer: str | None
     output: str | None
     optional: bool
     description: str
-    #: another input of the flow that this one has to come from the same producer as, and, for
-    #: a transitive relation, the input of the flow making that one whose producer this is
+    #: Another input of the flow that must come from the same producer as this one.
     same_producer_as: str | None = None
+    #: With `same_producer_as`, an input of the flow that makes that input. This input must come
+    #: from the producer of that input.
     via: str | None = None
-    #: whether the input compares the equivalence digest of its files (`xeda.equivalence`)
+    #: Whether the input compares the equivalence digest of its files (`xeda.equivalence`).
     equivalence: bool = False
 
     @property
@@ -186,7 +193,7 @@ def _markers(model: type[BaseModel], kind: str) -> dict[str, dict[str, Any]]:
 
 
 def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
-    """`flow_cls`'s declared inputs, by name, in declaration order."""
+    """Return the declared inputs of `flow_cls`, by name, in declaration order."""
     model = flow_cls.Inputs
     return {
         name: InputDeclaration(
@@ -208,7 +215,7 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
 
 
 def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
-    """`flow_cls`'s declared outputs, by name, in declaration order."""
+    """Return the declared outputs of `flow_cls`, by name, in declaration order."""
     model = flow_cls.Outputs
     return {
         name: OutputDeclaration(
@@ -227,7 +234,9 @@ def declared_outputs(flow_cls: Any) -> dict[str, OutputDeclaration]:
 def selected_types(
     flow_cls: Any, settings: Any, name: str, *, output: bool = False
 ) -> tuple[SourceType, ...]:
-    """Check that a pure specialization only narrows its static declaration vocabulary."""
+    """Return the types `flow_cls` selects for `name` under `settings`.
+
+    The selection may only narrow the types the declaration lists."""
     declarations = declared_outputs(flow_cls) if output else declared_inputs(flow_cls)
     hook = flow_cls.output_types if output else flow_cls.input_types
     types = hook(settings, name)
@@ -241,10 +250,13 @@ def selected_types(
 
 
 def check_io_declarations(flow_cls: Any) -> None:
-    """Refuse a malformed declaration when the flow class is defined (a `TypeError`): every
-    field made with `In`/`Out`, annotated `Path`, `Path | None` or `list[Path]`, an output's
-    `enabled_by` naming a setting of an output that may be absent, and an input's
-    `same_producer_as` naming another input of the flow that declares none itself."""
+    """Refuse a malformed declaration with a `TypeError` when the flow class is defined.
+
+    Each field must be made with `In` or `Out`, have a description and be annotated `Path`,
+    `Path | None` or `list[Path]`. An input's `same_producer_as` must name another input that
+    declares none itself. `optional` is for lists only, `output` needs a `producer`, and
+    `equivalence` needs a normalizer for every type of the input. An output's `enabled_by` must
+    name a setting of the flow, and the output must be able to be absent."""
     inputs = declared_inputs(flow_cls)
     for input_declaration in inputs.values():
         _check_relation(flow_cls, input_declaration, inputs)
@@ -282,7 +294,7 @@ def check_io_declarations(flow_cls: Any) -> None:
 def _check_relation(
     flow_cls: Any, declaration: InputDeclaration, inputs: dict[str, InputDeclaration]
 ) -> None:
-    """Refuse a malformed `same_producer_as`/`via` of `declaration` (a `TypeError`)."""
+    """Refuse a malformed `same_producer_as` or `via` of `declaration` with a `TypeError`."""
     where = f"{flow_cls.__qualname__}'s input `{declaration.name}`"
     anchor = declaration.same_producer_as
     if anchor is None:
@@ -309,8 +321,10 @@ def _check_relation(
 
 
 def output_enabled(settings: Any, declaration: OutputDeclaration) -> bool:
-    """Whether the setting that switches `declaration` on (`enabled_by`) is set in `settings`:
-    a true flag, or a non-empty value. An output without one is always enabled."""
+    """Return whether `settings` switches `declaration` on.
+
+    That means its `enabled_by` setting is a true flag or a non-empty value. An output without
+    `enabled_by` is always enabled."""
     if declaration.enabled_by is None:
         return True
     value = getattr(settings, declaration.enabled_by)
@@ -320,9 +334,11 @@ def output_enabled(settings: Any, declaration: OutputDeclaration) -> bool:
 
 
 def switch_on(settings: Any, declaration: OutputDeclaration) -> None:
-    """Switch `declaration` on in `settings` (Q6): its `enabled_by` flag to true, or any other
-    setting to the field's default. A `ValueError` when that does not switch it on (a setting
-    whose default is unset, and which is no flag)."""
+    """Switch `declaration` on in `settings`.
+
+    Set its `enabled_by` flag to true, or any other setting to the default of the field. Raise
+    a `ValueError` when that does not switch the output on (a setting that is no flag and whose
+    default is unset)."""
     assert declaration.enabled_by is not None
     info = type(settings).model_fields[declaration.enabled_by]
     default = info.get_default(call_default_factory=True)

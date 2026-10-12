@@ -28,11 +28,13 @@ class PhysicalClock(XedaBaseModel):
         None,
         description="Clock period in ns. Specify `period` or `freq`; a consistent pair is also accepted.",
     )
-    rise: float = Field(0.0, description="Rising time of clock (ns)")
-    duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(0.5, description="Duty cycle (0.0..1.0)")  # type: ignore
-    uncertainty: Optional[float] = Field(None, description="Clock uncertainty")
-    skew: Optional[float] = Field(None, description="skew")
-    port: Optional[str] = Field(None, description="associated design port")
+    rise: float = Field(0.0, description="Time of the rising edge of the clock, in ns.")
+    duty_cycle: Annotated[float, Field(gt=0.0, lt=1.0)] = Field(
+        0.5, description="Duty cycle, between 0.0 and 1.0 (exclusive)."
+    )  # type: ignore
+    uncertainty: Optional[float] = Field(None, description="Clock uncertainty, in ns.")
+    skew: Optional[float] = Field(None, description="Clock skew, in ns.")
+    port: Optional[str] = Field(None, description="The design port of the clock.")
 
     @field_validator(
         "period",
@@ -53,13 +55,12 @@ class PhysicalClock(XedaBaseModel):
     def duty_cycle_validator(cls, value):
         """Validate the duty cycle as a unitless fraction.
 
-        Unlike the other clock timing fields, ``duty_cycle`` is a ratio rather than a
-        duration.  In particular, passing it through :func:`convert_unit` accidentally
-        made values such as ``"0.5ns"`` look valid while rejecting the more useful
-        percentage spelling with an opaque dimensionality error.  Keep numeric strings
-        accepted because command-line overrides arrive as strings, but reject strings
-        carrying a unit (and other non-numeric values) before Pydantic applies the
-        ``0 < duty_cycle < 1`` bounds.
+        Unlike the other clock timing fields, `duty_cycle` is a ratio and not a duration.
+        Passing it through `convert_unit` would accept values such as `"0.5ns"` and reject the
+        more useful percentage spelling with an opaque dimensionality error. Numeric strings stay
+        accepted, because command-line overrides arrive as strings. Strings that carry a unit,
+        and other non-numeric values, are rejected before pydantic applies the
+        `0 < duty_cycle < 1` bounds.
         """
         if isinstance(value, bool):
             raise ValueError("duty_cycle must be a unitless number between 0 and 1")
@@ -145,13 +146,13 @@ class PhysicalClock(XedaBaseModel):
     @model_validator(mode="before")
     @classmethod
     def root_validate_phys_clock(cls, values: Dict[str, Any], info) -> Dict[str, Any]:
-        # This is a pre=True validator, so values are still raw here: a CLI override such as
-        # `-s clock.period=5.5` arrives as the string "5.5". Normalize before any arithmetic --
-        # dividing by the raw value used to fail with "unsupported operand type(s) for /".
-        # `is not None`, not truthiness, at every step: a zero frequency is a value the user
-        # supplied and must reach the "must be positive" check below. Under `if freq:` it looked
-        # indistinguishable from an omitted `freq` and produced "Neither freq or period were
-        # specified", which names the wrong problem. Same reasoning as the `period` test.
+        # This is a `before` validator, so values are still raw here: a CLI override such as
+        # `-s clock.period=5.5` arrives as the string "5.5". Normalize before any arithmetic,
+        # because dividing by the raw value fails with "unsupported operand type(s) for /".
+        # Test `is not None` at every step, never truthiness: a zero frequency is a value the
+        # user supplied and must reach the "must be positive" check below. Under `if freq:` it
+        # would look the same as an omitted `freq` and produce "Neither `freq` nor `period` was
+        # specified", which names the wrong problem. The same holds for `period`.
         #
         # `values` is already isolated by `xeda.dataclass.model_validator`: construction input is
         # copied in full, while assignment copies only the new field so unrelated model state
@@ -160,7 +161,7 @@ class PhysicalClock(XedaBaseModel):
             return values
         assignment_field = info.field_name if info.data is None else None
         if assignment_field is not None and assignment_field != "period":
-            # Assignment validation re-runs this whole-model validator. Only the stored period
+            # Assignment validation runs this whole-model validator again. Only the stored period
             # concerns it; `freq = ...` is a property assignment that writes `period`.
             return values
         freq = values.pop("freq", None)
@@ -182,7 +183,7 @@ class PhysicalClock(XedaBaseModel):
         elif freq is not None:
             values["period"] = 1000.0 / freq
         else:
-            raise ValueError("Neither freq or period were specified")
+            raise ValueError("Neither `freq` nor `period` was specified")
         if not values.get("name"):
             values["name"] = ""
         return values
@@ -201,21 +202,23 @@ def find_matching_clock(design_clocks: list[Clock], name: str):
 
 
 class SynthFlow(Flow, metaclass=ABCMeta):
-    """Superclass of synthesis flows"""
+    """The base class of synthesis flows."""
 
     requires_physical_clocks = (
         True  # physical clocks are required for each clock port in the design
     )
 
     class Settings(Flow.Settings):
-        """base Synthesis flow settings"""
+        """The settings that all synthesis flows share."""
 
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clock_period": "`clock.period` or `clock.freq`",
         }
 
-        clocks: Dict[str, PhysicalClock] = Field({}, description="Design clocks")
+        clocks: Dict[str, PhysicalClock] = Field(
+            {}, description="Clock constraints of the design, by clock name."
+        )
 
         @classmethod
         def __get_pydantic_json_schema__(cls, core_schema, handler):
@@ -255,14 +258,14 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             named = self.clocks.get("main_clock")
             if named is not None:
                 return named
-            # Keep the historical, deterministic fallback for consumers that support one
-            # timing target only (Yosys/nextpnr).  A named ``main_clock`` remains the
-            # explicit way to choose one; otherwise insertion order identifies the legacy main.
+            # Without a clock named `main_clock`, fall back to the first clock in insertion order.
+            # This is deterministic, and it serves the consumers that support one clock only
+            # (Yosys, nextpnr). A clock named `main_clock` is the explicit way to choose one.
             return first_value(self.clocks)
 
         @property
         def clock(self) -> Optional[PhysicalClock]:
-            """The single/main clock shorthand, derived from the stored `clocks` mapping."""
+            """The single-clock shorthand: the main clock, derived from the stored `clocks`."""
             return self.main_clock
 
         @clock.setter
@@ -282,12 +285,13 @@ class SynthFlow(Flow, metaclass=ABCMeta):
     def reconcile_clocks(
         clocks: Dict[str, PhysicalClock], design: Design, settings_class: type[Flow.Settings]
     ) -> None:
-        """Tie each physical clock of the settings to the design's clock port, in place. A single
-        physical clock beside a single design clock is the same clock, whatever it is named. A
-        physical clock that names no port and matches no design clock raises a
-        `FlowSettingsError`: this is the one judgment of it, which planning
-        (`check_design_supported`) and the flow's constructor both make."""
-        # shorthand for single clock specification
+        """Tie each physical clock of the settings to a clock port of the design, in place.
+
+        A single physical clock beside a single design clock is the same clock, whatever it is
+        named. A physical clock that names no port and matches no design clock raises a
+        `FlowSettingsError`. This is the one judgment of that case: planning
+        (`check_design_supported`) and the constructor of the flow both make it."""
+        # Shorthand for single clock specification.
         if len(clocks) == 1 and len(design.rtl.clocks) == 1:
             clock_name = first_key(clocks)
             assert clock_name is not None
@@ -307,10 +311,18 @@ class SynthFlow(Flow, metaclass=ABCMeta):
             if not physical_clock.port:
                 if clock_name not in (clk.name for clk in design.rtl.clocks):
                     if design.rtl.clocks:
-                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
+                        msg = (
+                            f"Physical clock {clock_name} has no corresponding clock port in the "
+                            "design. Existing clocks: "
+                            f"{', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
+                        )
                     else:
                         described = f"'{clock_name}'" if clock_name else "set by `clock`"
-                        msg = f"No clock ports specified in 'design.rtl', while the physical clock {described} is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
+                        msg = (
+                            f"No clock ports specified in `rtl`, while the physical clock "
+                            f"{described} is set in the flow settings. Set the design clocks with "
+                            "`rtl.clocks` (several clocks) or `rtl.clock.port` (one clock)"
+                        )
                     raise FlowSettingsError([(None, msg, None, None)], settings_class)
                 matched_clock = find_matching_clock(design.rtl.clocks, clock_name)
                 if matched_clock:
@@ -322,7 +334,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         """Refuse a physical clock that no design clock matches, before anything runs."""
         super().check_design_supported(design, settings)
         if isinstance(settings, cls.Settings):
-            # on a copy: the flow's constructor ties the clocks of its own settings
+            # On a copy: the flow's constructor ties the clocks of its own settings.
             clocks = {name: clock.model_copy(deep=True) for name, clock in settings.clocks.items()}
             cls.reconcile_clocks(clocks, design, cls.Settings)
 
@@ -351,34 +363,35 @@ class SynthFlow(Flow, metaclass=ABCMeta):
 
 #: How to give an FPGA flow its device, for `Flow.required_settings`.
 FPGA_REQUIRED = (
-    "the target FPGA device: give its part number with `-s fpga.part=<part>` on the command line, "
+    "the FPGA device: give its part number with `-s fpga.part=<part>` on the command line, "
     "or in the design file as `flows.{flow}.fpga.part: <part>`"
 )
 
 
 class FpgaSynthFlow(SynthFlow, metaclass=ABCMeta):
-    """Superclass of all FPGA synthesis flows"""
+    """The base class of all FPGA synthesis flows."""
 
     required_settings = {"fpga": FPGA_REQUIRED}
 
     class Settings(SynthFlow.Settings):
-        """base FPGA Synthesis flow settings"""
+        """The settings that all FPGA synthesis flows share."""
 
         fpga: Optional[FPGA] = Field(
             None,
-            description="Target FPGA device. Accepts a full part identifier as a string "
+            description="FPGA device. Accepts a full part identifier as a string "
             '(e.g. "xc7a100tftg256-2L") or a mapping of the FPGA fields. A part identifier '
-            "alone is `part: <identifier>` wherever layers merge, so over a mapping it changes "
-            "the part and keeps the other fields that mapping wrote (a speed grade, say).",
+            "alone means `part: <identifier>` wherever layers merge. Over a mapping, it changes "
+            "the part and keeps the other fields that the mapping wrote (a speed grade, for "
+            "example).",
         )
 
 
 class AsicSynthFlow(SynthFlow, metaclass=ABCMeta):
-    """Superclass of ASIC synthesis flows"""
+    """The base class of ASIC synthesis flows."""
 
     class Settings(SynthFlow.Settings):
-        """base ASIC Synthesis flow settings"""
+        """The settings that all ASIC synthesis flows share."""
 
 
 class DseFlow(Flow, metaclass=ABCMeta):
-    """Superclass of design-space exploration flows"""
+    """The base class of design-space exploration flows."""
