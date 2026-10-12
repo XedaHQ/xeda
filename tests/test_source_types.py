@@ -40,7 +40,7 @@ def test_the_members_are_appended_never_reordered():
 
 
 def test_every_member_is_inferred_from_a_suffix_or_given_by_type_only():
-    inferred = {member for member, _variant in SOURCE_SUFFIXES.values()}
+    inferred = set(SOURCE_SUFFIXES.values())
     assert inferred | TYPE_ONLY == set(SourceType)
     assert not inferred & TYPE_ONLY
 
@@ -54,12 +54,12 @@ def test_a_suffix_types_its_source(tmp_path, suffix, expected):
     path = tmp_path / f"f.{suffix}"
     path.write_text("x\n")
     source = DesignSource(path)
-    assert (source.type, source.variant) == expected
+    assert source.type is expected
 
 
 def test_memory_images_and_quartus_bitstreams_are_typed():
-    assert SOURCE_SUFFIXES["init"] == SOURCE_SUFFIXES["hex"] == (SourceType.MemoryFile, None)
-    assert SOURCE_SUFFIXES["sof"] == SOURCE_SUFFIXES["bit"] == (SourceType.Bitstream, None)
+    assert SOURCE_SUFFIXES["init"] is SOURCE_SUFFIXES["hex"] is SourceType.MemoryFile
+    assert SOURCE_SUFFIXES["sof"] is SOURCE_SUFFIXES["bit"] is SourceType.Bitstream
 
 
 @pytest.mark.parametrize("suffix", sorted(AMBIGUOUS_SUFFIXES))
@@ -146,23 +146,13 @@ def test_an_invalid_explicit_type_never_falls_back_to_the_suffix(tmp_path, typ, 
             DesignSource(path, typ=typ)
 
 
-@pytest.mark.parametrize("variant", ["custom", ""])
-def test_a_stated_variant_overrides_suffix_inference(tmp_path, variant):
+def test_a_source_table_keeps_the_callers_table_and_round_trips_its_type(tmp_path):
     path = tmp_path / "top.bsv"
     path.write_text("x\n")
-    source = DesignSource({"file": str(path), "variant": variant})
+    table = {"file": str(path), "type": "Vhdl"}
+    source = DesignSource(table, typ=SourceType.Bluespec)
     assert source.type is SourceType.Bluespec
-    assert source.variant == variant
-    assert DesignSource(source.as_json_value()).variant == variant
-
-
-def test_constructor_arguments_take_none_only_precedence_over_table_metadata(tmp_path):
-    path = tmp_path / "top.bsv"
-    path.write_text("x\n")
-    table = {"file": str(path), "type": "Vhdl", "standard": "2008", "variant": "bh"}
-    source = DesignSource(table, typ=SourceType.Bluespec, standard="", variant="")
-    assert (source.type, source.standard, source.variant) == (SourceType.Bluespec, "", "")
-    assert table == {"file": str(path), "type": "Vhdl", "standard": "2008", "variant": "bh"}
+    assert table == {"file": str(path), "type": "Vhdl"}
 
 
 @pytest.mark.parametrize("checked", [True, False])
@@ -171,16 +161,12 @@ def test_source_construction_and_round_trips_preserve_the_callers_table(tmp_path
     path = tmp_path / "top.v"
     if checked:
         path.write_text("module top; endmodule\n")
-    table = {key: "top.v", "type": "SystemVerilog", "standard": "2012", "variant": "custom"}
+    table = {key: "top.v", "type": "SystemVerilog"}
     before = dict(table)
     source = DesignSource(table, _root_path=tmp_path)
     assert table == before
     again = DesignSource(source.as_json_value())
-    assert (again.type, again.standard, again.variant) == (
-        SourceType.SystemVerilog,
-        "2012",
-        "custom",
-    )
+    assert again.type is SourceType.SystemVerilog
     assert again.as_json_value() == source.as_json_value()
 
 
@@ -190,4 +176,4 @@ def test_the_original_ordinals_still_name_the_original_members():
 
 
 def test_suffix_inference_needs_no_file_to_exist(tmp_path):
-    assert source_type_of(tmp_path / "later.bs") == (SourceType.Bluespec, "bh")
+    assert source_type_of(tmp_path / "later.bs") is SourceType.Bluespec

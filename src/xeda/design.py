@@ -688,63 +688,63 @@ class SourceType(str, Enum):
 
 
 #: The suffix (without its dot, and in its letter case: inference is case-sensitive) each type
-#: is inferred from, with its variant: one member per suffix. A member missing here is given only
-#: by `type` (`TYPE_ONLY`). `tests/test_source_types.py` pins both.
-SOURCE_SUFFIXES: dict[str, tuple[SourceType, str | None]] = {
-    "v": (SourceType.Verilog, None),
-    "vh": (SourceType.VerilogHeader, None),
-    "sv": (SourceType.SystemVerilog, None),
-    "svh": (SourceType.SVHeader, None),
-    "vhd": (SourceType.Vhdl, None),
-    "vhdl": (SourceType.Vhdl, None),
-    "bsv": (SourceType.Bluespec, "bsv"),
-    "bs": (SourceType.Bluespec, "bh"),
-    "bh": (SourceType.Bluespec, "bh"),
-    "xdc": (SourceType.Xdc, None),
-    "sdc": (SourceType.Sdc, None),
-    "mem": (SourceType.MemoryFile, None),
-    "init": (SourceType.MemoryFile, None),
-    "hex": (SourceType.MemoryFile, None),
-    "tcl": (SourceType.Tcl, None),
-    "sc": (SourceType.Chisel, None),
-    "cc": (SourceType.Cpp, None),
-    "cpp": (SourceType.Cpp, None),
-    "cxx": (SourceType.Cpp, None),
-    "py": (SourceType.Cocotb, None),
-    "lpf": (SourceType.Lpf, None),
-    "pcf": (SourceType.Pcf, None),
-    "pdc": (SourceType.Pdc, None),
-    "asc": (SourceType.IceAsc, None),
-    "fasm": (SourceType.Fasm, None),
-    "bit": (SourceType.Bitstream, None),
-    "sof": (SourceType.Bitstream, None),
-    "blif": (SourceType.Blif, None),
-    "edf": (SourceType.Edif, None),
-    "edif": (SourceType.Edif, None),
-    "ucf": (SourceType.Ucf, None),
-    "xcf": (SourceType.Xcf, None),
-    "qsf": (SourceType.Qsf, None),
-    "ldc": (SourceType.Ldc, None),
-    "fdc": (SourceType.Fdc, None),
-    "sdf": (SourceType.Sdf, None),
-    "spef": (SourceType.Spef, None),
-    "saif": (SourceType.Saif, None),
-    "vcd": (SourceType.Vcd, None),
-    "fst": (SourceType.Fst, None),
-    "ghw": (SourceType.Ghw, None),
-    "vpd": (SourceType.Vpd, None),
-    "fsdb": (SourceType.Fsdb, None),
-    "lib": (SourceType.Liberty, None),
-    "def": (SourceType.Def, None),
-    "odb": (SourceType.Odb, None),
-    "gds": (SourceType.Gds, None),
-    "cdl": (SourceType.Cdl, None),
-    "c": (SourceType.C, None),
-    "h": (SourceType.CHeader, None),
-    "hpp": (SourceType.CHeader, None),
-    "o": (SourceType.ObjectFile, None),
-    "a": (SourceType.ObjectFile, None),
-    "vlt": (SourceType.Vlt, None),
+#: is inferred from: one member per suffix. A member missing here is given only by `type`
+#: (`TYPE_ONLY`). `tests/test_source_types.py` pins both.
+SOURCE_SUFFIXES: dict[str, SourceType] = {
+    "v": SourceType.Verilog,
+    "vh": SourceType.VerilogHeader,
+    "sv": SourceType.SystemVerilog,
+    "svh": SourceType.SVHeader,
+    "vhd": SourceType.Vhdl,
+    "vhdl": SourceType.Vhdl,
+    "bsv": SourceType.Bluespec,
+    "bs": SourceType.Bluespec,
+    "bh": SourceType.Bluespec,
+    "xdc": SourceType.Xdc,
+    "sdc": SourceType.Sdc,
+    "mem": SourceType.MemoryFile,
+    "init": SourceType.MemoryFile,
+    "hex": SourceType.MemoryFile,
+    "tcl": SourceType.Tcl,
+    "sc": SourceType.Chisel,
+    "cc": SourceType.Cpp,
+    "cpp": SourceType.Cpp,
+    "cxx": SourceType.Cpp,
+    "py": SourceType.Cocotb,
+    "lpf": SourceType.Lpf,
+    "pcf": SourceType.Pcf,
+    "pdc": SourceType.Pdc,
+    "asc": SourceType.IceAsc,
+    "fasm": SourceType.Fasm,
+    "bit": SourceType.Bitstream,
+    "sof": SourceType.Bitstream,
+    "blif": SourceType.Blif,
+    "edf": SourceType.Edif,
+    "edif": SourceType.Edif,
+    "ucf": SourceType.Ucf,
+    "xcf": SourceType.Xcf,
+    "qsf": SourceType.Qsf,
+    "ldc": SourceType.Ldc,
+    "fdc": SourceType.Fdc,
+    "sdf": SourceType.Sdf,
+    "spef": SourceType.Spef,
+    "saif": SourceType.Saif,
+    "vcd": SourceType.Vcd,
+    "fst": SourceType.Fst,
+    "ghw": SourceType.Ghw,
+    "vpd": SourceType.Vpd,
+    "fsdb": SourceType.Fsdb,
+    "lib": SourceType.Liberty,
+    "def": SourceType.Def,
+    "odb": SourceType.Odb,
+    "gds": SourceType.Gds,
+    "cdl": SourceType.Cdl,
+    "c": SourceType.C,
+    "h": SourceType.CHeader,
+    "hpp": SourceType.CHeader,
+    "o": SourceType.ObjectFile,
+    "a": SourceType.ObjectFile,
+    "vlt": SourceType.Vlt,
 }
 
 #: Suffixes that name several kinds of file: a source with one needs its `type`. Each
@@ -804,8 +804,8 @@ def source_type_named(text: str) -> SourceType:
     raise ValueError(f"unknown source type {text!r}{hint} (the types: {', '.join(names)})")
 
 
-def source_type_of(path: Path) -> tuple[SourceType, str | None]:
-    """The type and variant `path`'s suffix says (`SOURCE_SUFFIXES`); a `ValueError` asking for
+def source_type_of(path: Path) -> SourceType:
+    """The type `path`'s suffix says (`SOURCE_SUFFIXES`); a `ValueError` asking for
     an explicit `type` when the suffix names several kinds of file, is in another letter case
     than the one xeda knows, or is one xeda infers nothing from."""
     suffix = path.suffix[1:]
@@ -819,7 +819,7 @@ def source_type_of(path: Path) -> tuple[SourceType, str | None]:
             f'{{ file = "{path.name}", type = "{candidates[0].name}" }}'
         )
     if suffix.lower() in SOURCE_SUFFIXES:
-        member = SOURCE_SUFFIXES[suffix.lower()][0]
+        member = SOURCE_SUFFIXES[suffix.lower()]
         raise ValueError(
             f"{path}: xeda infers no source type from `.{suffix}` (`.{suffix.lower()}` is "
             f'{member.name}): rename it, or give its type, e.g. {{ file = "{path.name}", '
@@ -833,6 +833,41 @@ def source_type_of(path: Path) -> tuple[SourceType, str | None]:
     )
 
 
+#: The keys of a source table: the file (`file`, or `path` for one not written yet), its `type`
+#: and, for the loader's own use, the directory a relative path resolves against.
+SOURCE_TABLE_KEYS = frozenset({"file", "path", "type", "root_path"})
+
+#: Keys a source table once took, and what to write instead.
+REMOVED_SOURCE_KEYS: dict[str, str] = {
+    "standard": (
+        "a source has no standard of its own: `language.vhdl.standard` sets the VHDL standard "
+        "of the whole design"
+    ),
+    "variant": (
+        "a source has no variant: a Bluespec source's suffix (`.bsv` or `.bs`) says what it is, "
+        "and `type: SystemVerilog` makes a SystemVerilog source"
+    ),
+}
+
+
+def source_table_problems(table: Mapping[str, Any]) -> list[str]:
+    """What is wrong with the keys of a source table, one message for each key: a key that was
+    removed (`REMOVED_SOURCE_KEYS`) says what to write instead, and any other key that is not in
+    `SOURCE_TABLE_KEYS` is a mistake that nothing would read."""
+    problems = []
+    for key in table:
+        if key in SOURCE_TABLE_KEYS:
+            continue
+        if key in REMOVED_SOURCE_KEYS:
+            problems.append(f"`{key}` was removed from a source: {REMOVED_SOURCE_KEYS[key]}")
+        else:
+            problems.append(
+                f"unknown key `{key}` in a source (a source table has `file` or `path`, and "
+                f"`type`)"
+            )
+    return problems
+
+
 class DesignSource(FileResource):
     type: SourceType
 
@@ -840,53 +875,36 @@ class DesignSource(FileResource):
         self,
         path: Union[str, os.PathLike, Dict[str, str]],
         typ: Union[str, SourceType, None] = None,
-        standard: Optional[str] = None,
-        variant: Optional[str] = None,
         _root_path: Optional[Path] = None,
         **kwargs: Any,
     ) -> None:
-        """Build a design source while retaining its stated metadata."""
+        """Build a design source while retaining its stated type."""
         if isinstance(path, dict):
+            problems = source_table_problems(path)
+            if problems:
+                raise ValueError("; ".join(problems))
             path = dict(path)
             stated_type = path.pop("type", None)
             if typ is None:
                 typ = stated_type
-            stated_standard = path.pop("standard", None)
-            if standard is None:
-                standard = stated_standard
-            stated_variant = path.pop("variant", None)
-            if variant is None:
-                variant = stated_variant
             rp = path.pop("root_path", None)
             if not _root_path and rp:
                 _root_path = Path(rp)
         super().__init__(path, _root_path=_root_path, **kwargs)
 
-        self.variant = variant
         if isinstance(typ, SourceType):
             self.type = typ
         elif isinstance(typ, str):
             self.type = source_type_named(typ)
         elif typ is None:
-            self.type, inferred_variant = source_type_of(self.file)
-            if variant is None:
-                self.variant = inferred_variant
+            self.type = source_type_of(self.file)
         else:
             raise ValueError(f"a source's `type` is the name of a source type, not {typ!r}")
-        self.standard = standard
         # What the design *stated*, as opposed to what the filename implied. Only the former is
         # written back out: reloading re-infers the latter from the same suffix, while a stated
         # `type` that contradicts it (`{ file = "legacy.v", type = "SystemVerilog" }`) is lost
         # for good if the dump leaves it out -- and it is part of the design's identity.
-        self._stated: dict[str, Any] = {
-            key: value
-            for key, value in (
-                ("type", str(self.type) if typ is not None else None),
-                ("standard", standard),
-                ("variant", variant),
-            )
-            if value is not None
-        }
+        self._stated: dict[str, Any] = {"type": str(self.type)} if typ is not None else {}
 
     def as_json_value(self) -> Union[str, Dict[str, Any]]:
         """Serialize a source with only the metadata explicitly supplied."""
@@ -906,12 +924,7 @@ class DesignSource(FileResource):
         return super().__hash__()
 
     def __repr__(self) -> str:
-        s = f"file:{self.file} type:{self.type}"
-        if self.variant:
-            s += f" variant: {self.variant}"
-        if self.standard:
-            s += f" standard: {self.standard}"
-        return s
+        return f"file:{self.file} type:{self.type}"
 
     @classmethod
     def _json_schema(cls) -> Dict[str, Any]:
@@ -928,14 +941,6 @@ class DesignSource(FileResource):
                     "type": "string",
                     "enum": [t.name for t in SourceType],
                     "description": "Source type. Inferred from the file extension when omitted.",
-                },
-                "standard": {
-                    "type": "string",
-                    "description": "Language standard for this source, e.g. '2008' for VHDL or '2012' for SystemVerilog.",
-                },
-                "variant": {
-                    "type": "string",
-                    "description": "Language variant, e.g. 'bsv' or 'bh' for Bluespec sources.",
                 },
             }
         )
@@ -1015,8 +1020,8 @@ def _parameters_form(value: Any) -> Any:
 #: What `sources` accepts, shown by `xeda design-schema`.
 SOURCES_DESCRIPTION = (
     "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and "
-    "`$DESIGN_DIR` name it too), or a table `{ file = ..., type = ..., standard = ..., "
-    "variant = ... }` (`path` in place of `file` for one not written yet). A path containing `*` "
+    "`$DESIGN_DIR` name it too), or a table `{ file = ..., type = ... }` (`path` in place of "
+    "`file` for one not written yet). A path containing `*` "
     "is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is "
     "the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` "
     "names exactly that file."
@@ -2681,6 +2686,16 @@ class Design(XedaBaseModel):
         if isinstance(folded.get("rtl"), Mapping):
             for name, message in RtlSettings.removed_input_problems(folded["rtl"]):
                 raise invalid(f"rtl.{name}", message)
+        # A key that a source table does not take (or took once) is the target's own mistake too,
+        # reported whether or not the target is selected.
+        for part in ("rtl", "tb"):
+            section = folded.get(part)
+            entries = (
+                as_source_list(section.get("sources")) if isinstance(section, Mapping) else None
+            )
+            for entry in entries if isinstance(entries, (list, tuple)) else ():
+                for message in source_table_problems(entry) if isinstance(entry, Mapping) else ():
+                    raise invalid(f"{part}.sources", message)
         # A value that is no table where one is expected is the target's own mistake, reported
         # where it is written whether or not the target is selected.
         for path, value in shape_problems(cls, folded):
@@ -3225,8 +3240,6 @@ class Design(XedaBaseModel):
         return {
             "content": source.content_hash,
             "type": str(source.type) if source.type is not None else None,
-            "standard": source.standard,
-            "variant": source.variant,
             "path": Path(os.path.relpath(source.file, self.root_path)).as_posix(),
         }
 

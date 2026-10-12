@@ -271,8 +271,12 @@ When inference is not enough, give a table instead of a string:
       sources:
         - pkg.vhdl
         - {file: legacy.v, type: SystemVerilog}
-        - {file: old.vhdl, standard: '93'}
         - {path: generated/top.v} # not checked for existence
+
+A source table has ``file`` or ``path``, and ``type``. Any other key is an error. In particular,
+a source has no ``standard`` or ``variant`` of its own. The VHDL standard is one setting of the
+whole design (see `language`_), because GHDL and NVC compile all VHDL sources of a run under one
+standard.
 
 ``file`` must exist, and be a file rather than a directory, when the design is loaded; ``path``
 is not checked, for sources a generator will produce. Every source carries a content hash and a
@@ -425,7 +429,8 @@ there.
         standard: '2005'
 
 ``version`` is accepted as an alias of ``standard``. Two-digit forms (``08``) and four-digit forms
-(``2008``) both work.
+(``2008``) both work. The standard applies to every source of the language. One source cannot have
+another standard.
 
 .. _flows:
 

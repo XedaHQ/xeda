@@ -1041,7 +1041,7 @@ vivado.log where it runs (the fake `vivado` does too).
 
 A run is identified by `design_hash` (`Design.parts_hash(Flow.design_parts)`: the `rtl_hash` of
 every flow and the `tb_hash` of one that reads the testbench -- each source's content hash,
-type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
+type, and its position in the source order, plus behavior-affecting
 RTL/testbench metadata) and the run's hash: `flow.flowrun_hash` (flow name + input settings)
 combined with the ordered origins of its declared inputs (`bindings.node_identity`; the
 settings-only hash is kept as `settings_hash`). Both are semantic --
@@ -1858,7 +1858,7 @@ dependency must also share `custom_boards_file`.
   model therefore serializes with `model_dump(mode="json")`, so its fields' own serializers run;
   a `FileResource`/`DesignSource` is not a pydantic model itself, so it defines its JSON form in
   `as_json_value()` -- a bare path string, or the table it cannot be rebuilt without (`{"path":
-  ...}` for an unchecked resource, plus any `type`/`standard`/`variant` the design *stated*).
+  ...}` for an unchecked resource, plus the `type` the design *stated*).
   **Nothing is serialized by reading its `__dict__`**, and a new type that needs a JSON form
   declares `as_json_value()` rather than relying on one. An object's attributes are not a
   serialization format: that is what put a private `_specified_path` into `settings.json`, and
@@ -1959,7 +1959,14 @@ dependency must also share `custom_boards_file`.
   test that it must catch, so extend the offenders with a new kind of state.
   A write into the flow's own copy of its settings is allowed ("The input settings are never
   modified", under Flow lifecycle).
-- **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
+- **A source table takes `file` or `path`, and `type`; nothing else**
+  (`design.SOURCE_TABLE_KEYS`, judged by `source_table_problems` in `DesignSource` and, for an
+  unselected target too, in `_target_overlay`). `standard` and `variant` were removed
+  (`REMOVED_SOURCE_KEYS` says what to write): no flow read them, and GHDL, NVC and the yosys GHDL
+  plugin compile all VHDL of a run under one `--std`, so the VHDL standard is only
+  `language.vhdl.standard`. A flow never reads a standard or variant of a source
+  (`tests/test_source_tables.py` scans for it). `language.verilog.standard` is read by no flow.
+- **Every design source is typed.** `design.SOURCE_SUFFIXES` (suffix to `SourceType`) is the case-sensitive inference
   table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) or mis-cased suffixes need an
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,

@@ -35,7 +35,7 @@ def test_design_source_schema_documents_the_object_form():
     string_form, object_form = item["anyOf"]
     assert string_form["type"] == "string"
     props = object_form["properties"]
-    assert set(props) >= {"file", "path", "type", "standard", "variant"}
+    assert set(props) == {"file", "path", "type"}
     assert props["type"]["enum"] == [t.name for t in SourceType]
 
 
@@ -251,7 +251,6 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
 SOURCE_OBJECT_FORMS = {
     "file": {"file": "design0.sv"},
     "file+type": {"file": "design0.sv", "type": "SystemVerilog"},
-    "unknown key ignored": {"file": "design0.sv", "bogus": 1},
 }
 
 
