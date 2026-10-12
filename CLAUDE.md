@@ -1061,7 +1061,8 @@ calls `super()`), the module-level helpers that code names, the methods of its s
 that code or a template names, and its templates. A validator, a description, a `Literal`, a
 comment, `hasattr` and `setattr` are no read. A name in a literal table counts only where
 `getattr` on the settings takes it (`getattr(ss, name)` for a variable that a table, a loop or a
-dictionary lookup gives). A new unread field fails the test; the fix is one of three. Read it in
+dictionary lookup gives; a lookup gives the dictionary's values, or the one value of a literal key,
+an assignment replaces what the variable held, and branches and loops merge). A new unread field fails the test; the fix is one of three. Read it in
 the flow or its template. Take it out of the flow's model: a flow that gets a base's settings it does
 not use is built on a smaller base (`YosysSynthesisBase` holds the netlist and ABC settings of
 `yosys` and `yosys_fpga`, and `yosys_sim` is a `YosysBase`; `VivadoProject.Settings` is

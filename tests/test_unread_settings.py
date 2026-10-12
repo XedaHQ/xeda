@@ -46,7 +46,7 @@ import inspect
 import re
 import sys
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -98,19 +98,115 @@ def _calls_super(node: ast.AST) -> bool:
     return any(isinstance(n, ast.Name) and n.id == "super" for n in ast.walk(node))
 
 
+@dataclass
+class Held:
+    """The text a value can be, by what the code does with it: `elements` are the text the value
+    is, or yields when it is looped over (the keys of a dictionary); `values` are what a lookup
+    in it gives; `by_key` is what a lookup with a literal key gives."""
+
+    elements: set[str] = field(default_factory=set)
+    values: set[str] = field(default_factory=set)
+    by_key: dict[str, set[str]] = field(default_factory=dict)
+
+    def merged(self, other: "Held") -> "Held":
+        by_key = {
+            key: self.by_key.get(key, set()) | other.by_key.get(key, set())
+            for key in self.by_key.keys() | other.by_key.keys()
+        }
+        return Held(self.elements | other.elements, self.values | other.values, by_key)
+
+
+Env = dict[str, Held]
+
+
+def _merge_envs(envs: list[Env]) -> Env:
+    merged: Env = {}
+    for env in envs:
+        for name, held in env.items():
+            merged[name] = merged[name].merged(held) if name in merged else held
+    return merged
+
+
+def _scalar(texts: set[str]) -> Held:
+    return Held(elements=set(texts), values=set(texts))
+
+
+def _held(expr: ast.AST | None, env: Env) -> Held:
+    """What `expr` can be: the text in a literal tuple, list, set or dictionary, in either
+    branch of a conditional, in what a variable holds, and in what a lookup (`table[key]`,
+    `table.get(key)`) gives: the values of a dictionary, or the one value of a literal key."""
+    if isinstance(expr, ast.Constant):
+        value = expr.value
+        if isinstance(value, str) and IDENTIFIER.fullmatch(value):
+            return _scalar({value})
+        return Held()
+    if isinstance(expr, ast.Name):
+        return env.get(expr.id, Held())
+    if isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
+        return _scalar(set().union(*(_held(item, env).elements for item in expr.elts)))
+    if isinstance(expr, ast.Dict):
+        keys = set().union(*(_held(key, env).elements for key in expr.keys if key is not None))
+        values = set().union(*(_held(value, env).elements for value in expr.values))
+        by_key = {
+            key.value: _held(value, env).elements
+            for key, value in zip(expr.keys, expr.values)
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        return Held(elements=keys, values=values, by_key=by_key)
+    if isinstance(expr, ast.IfExp):
+        return _held(expr.body, env).merged(_held(expr.orelse, env))
+    if isinstance(expr, ast.Starred):
+        return _held(expr.value, env)
+    if isinstance(expr, ast.BinOp):
+        return _held(expr.left, env).merged(_held(expr.right, env))
+    if isinstance(expr, ast.Subscript):
+        return _lookup(_held(expr.value, env), expr.slice)
+    if (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr == "get"
+        and expr.args
+    ):
+        found = _lookup(_held(expr.func.value, env), expr.args[0])
+        if len(expr.args) > 1:
+            found = found.merged(_held(expr.args[1], env))
+        return found
+    return Held()
+
+
+def _lookup(table: Held, key: ast.AST) -> Held:
+    if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value in table.by_key:
+        return _scalar(table.by_key[key.value])
+    return _scalar(table.values)
+
+
+def _module_env(tree: ast.Module) -> Env:
+    """What the module-level variables of a module hold (`_held`)."""
+    env: Env = {}
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign):
+            targets, value = statement.targets, statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
+            targets, value = [statement.target], statement.value
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                env[target.id] = _held(value, env)
+    return env
+
+
 class _Collector(ast.NodeVisitor):
     """The reads of the settings in some code. `settings_code` is true in the methods of a
     settings class, where `self` is the settings. `names` are all the names the code uses, for
     finding the settings methods it calls."""
 
-    def __init__(
-        self, *, settings_code: bool = False, env: dict[str, set[str]] | None = None
-    ) -> None:
+    def __init__(self, *, settings_code: bool = False, env: Env | None = None) -> None:
         self.settings_code = settings_code
         self.attributes: set[str] = set()
-        #: the names of text that each variable can hold, from the literals assigned to it, that it
+        #: the text that each variable can hold (`Held`), from the literals assigned to it, that it
         #: loops over or that a dictionary lookup gives it: a read, when `getattr` takes it
-        self.env: dict[str, set[str]] = {key: set(value) for key, value in (env or {}).items()}
+        self.env: Env = dict(env or {})
         self.names: set[str] = set()
 
     def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
@@ -139,8 +235,8 @@ class _Collector(ast.NodeVisitor):
             key = node.args[1]
             if isinstance(key, ast.Constant) and isinstance(key.value, str):
                 self.attributes.add(key.value)
-            elif isinstance(key, ast.Name):
-                self.attributes |= self.env.get(key.id, set())
+            elif isinstance(key, ast.Name) and key.id in self.env:
+                self.attributes |= self.env[key.id].elements
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -148,14 +244,21 @@ class _Collector(ast.NodeVisitor):
             return
         if node.value is not None:
             self.visit(node.value)
-            self._bind(node.target, node.value)
+            self._bind(node.target, _held(node.value, self.env))
 
     def visit_Assign(self, node: ast.Assign) -> None:
         if any(isinstance(t, ast.Name) and t.id in NAME_TABLES for t in node.targets):
             return
         self.generic_visit(node)
+        value = _held(node.value, self.env)
         for target in node.targets:
-            self._bind(target, node.value)
+            self._bind(target, value)
+
+    def visit_AugAssign(self, node: ast.AugAssign) -> None:
+        self.generic_visit(node)
+        if isinstance(node.target, ast.Name):
+            before = self.env.get(node.target.id, Held())
+            self.env[node.target.id] = before.merged(_held(node.value, self.env))
 
     def visit_Subscript(self, node: ast.Subscript) -> None:
         if ast.unparse(node.value).endswith("Literal"):
@@ -182,65 +285,56 @@ class _Collector(ast.NodeVisitor):
         base = ast.unparse(node)
         return base in SETTINGS_EXPRESSIONS or (self.settings_code and base in SETTINGS_SELF)
 
-    def _bind(self, target: ast.AST, value: ast.AST) -> None:
-        names = _strings_in(value, self.env)
+    def _bind(self, target: ast.AST, value: Held) -> None:
+        """An assignment replaces what the variable held (straight-line code)."""
         for node in ast.walk(target):
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-                self.env.setdefault(node.id, set()).update(names)
+                self.env[node.id] = value
+
+    def _branches(self, *branches: list[ast.stmt], keep_before: bool = False) -> None:
+        """Visit statements that may or may not run, each from the variables as they were before,
+        and hold afterwards what any of them left (and, if none may run, what was before)."""
+        before = dict(self.env)
+        after = [before] if keep_before else []
+        for statements in branches:
+            self.env = dict(before)
+            for statement in statements:
+                self.visit(statement)
+            after.append(self.env)
+        self.env = _merge_envs(after)
+
+    def visit_If(self, node: ast.If) -> None:
+        self.visit(node.test)
+        self._branches(node.body, node.orelse)
 
     def visit_For(self, node: ast.For) -> None:
-        self._bind(node.target, node.iter)
-        self.generic_visit(node)
+        self.visit(node.iter)
+        self._bind(node.target, Held(elements=_held(node.iter, self.env).elements))
+        # a second pass lets an assignment late in the body reach a read early in it
+        self._branches(node.body + node.body, node.orelse, keep_before=True)
 
-    def visit_comprehension(self, node: ast.comprehension) -> None:
-        self._bind(node.target, node.iter)
-        self.generic_visit(node)
+    def visit_While(self, node: ast.While) -> None:
+        self.visit(node.test)
+        self._branches(node.body + node.body, node.orelse, keep_before=True)
 
+    def visit_Try(self, node: ast.Try) -> None:
+        handlers = [handler.body for handler in node.handlers]
+        self._branches(node.body + node.orelse, *handlers, keep_before=bool(handlers))
+        for statement in node.finalbody:
+            self.visit(statement)
 
-def _strings_in(expr: ast.AST | None, env: dict[str, set[str]]) -> set[str]:
-    """The names of text that `expr` can give: the text in a literal tuple, list, set or
-    dictionary, in either branch of a conditional, in what a variable holds, and in the table a
-    lookup (`table[key]`, `table.get(key)`) is made in."""
-    if isinstance(expr, ast.Constant):
-        value = expr.value
-        return {value} if isinstance(value, str) and IDENTIFIER.fullmatch(value) else set()
-    if isinstance(expr, ast.Name):
-        return set(env.get(expr.id, ()))
-    if isinstance(expr, (ast.Tuple, ast.List, ast.Set)):
-        return set().union(*(_strings_in(item, env) for item in expr.elts))
-    if isinstance(expr, ast.Dict):
-        return set().union(*(_strings_in(item, env) for item in (*expr.keys, *expr.values)))
-    if isinstance(expr, ast.IfExp):
-        return _strings_in(expr.body, env) | _strings_in(expr.orelse, env)
-    if isinstance(expr, ast.Starred):
-        return _strings_in(expr.value, env)
-    if isinstance(expr, ast.BinOp):
-        return _strings_in(expr.left, env) | _strings_in(expr.right, env)
-    if isinstance(expr, ast.Subscript):
-        return _strings_in(expr.value, env)
-    if (
-        isinstance(expr, ast.Call)
-        and isinstance(expr.func, ast.Attribute)
-        and expr.func.attr == "get"
-    ):
-        return _strings_in(expr.func.value, env)
-    return set()
+    def _comprehension(self, node: ast.ListComp | ast.SetComp | ast.GeneratorExp | ast.DictComp):
+        before = dict(self.env)
+        for generator in node.generators:
+            self.visit(generator.iter)
+            self._bind(generator.target, Held(elements=_held(generator.iter, self.env).elements))
+            for condition in generator.ifs:
+                self.visit(condition)
+        for part in (node.key, node.value) if isinstance(node, ast.DictComp) else (node.elt,):
+            self.visit(part)
+        self.env = before
 
-
-def _module_env(tree: ast.Module) -> dict[str, set[str]]:
-    """What the module-level variables of a module hold (`_strings_in`)."""
-    env: dict[str, set[str]] = {}
-    for statement in tree.body:
-        if isinstance(statement, ast.Assign):
-            targets, value = statement.targets, statement.value
-        elif isinstance(statement, ast.AnnAssign) and statement.value is not None:
-            targets, value = [statement.target], statement.value
-        else:
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name):
-                env.setdefault(target.id, set()).update(_strings_in(value, env))
-    return env
+    visit_ListComp = visit_SetComp = visit_GeneratorExp = visit_DictComp = _comprehension
 
 
 def template_reads(name: str, text: str) -> set[str]:
@@ -324,9 +418,9 @@ def settings_reads(
     used = frozenset().union(*(template_reads(name, text) for name, text in templates))
     names |= used  # a template calls a settings method as it reads a setting
 
-    envs: dict[str, dict[str, set[str]]] = {}
+    envs: dict[str, Env] = {}
 
-    def module_env(name: str) -> dict[str, set[str]]:
+    def module_env(name: str) -> Env:
         if name not in envs:
             here = module(name)
             envs[name] = _module_env(here.tree) if here is not None else {}
@@ -556,6 +650,8 @@ def unused_helper(ss):
 OPTIONS = ("read_by_table",)
 LOOKUP = {"ecp5": "read_by_lookup", "ice40": "read_by_lookup_too"}
 ALIASES = {"alias": "read_by_unrelated_dict"}
+RENAMES = {"read_by_lookup_key": "read_by_lookup_value"}
+PAIRS = {"a": "read_by_a_value", "b": "read_by_b_value"}
 UNUSED_TABLE = ("read_by_table_nothing_walks",)
 
 class Other:
@@ -598,6 +694,22 @@ class Fixture(Flow):
         getattr(ss, "read_by_getattr")
         for name in ("read_by_local_table", "read_by_second_local_table"):
             value = getattr(self.settings, name)
+        renamed = RENAMES[self.kind]
+        getattr(ss, renamed)
+        name = "read_by_replaced"
+        name = "read_by_replacement"
+        getattr(ss, name)
+        if self.flag:
+            branch = "read_by_if_branch"
+        else:
+            branch = "read_by_else_branch"
+        getattr(ss, branch)
+        mode = "read_before_loop"
+        for item in self.items:
+            mode = "read_in_loop"
+        getattr(ss, mode)
+        chosen = PAIRS["a"]
+        getattr(ss, chosen)
         hasattr(ss, "read_by_hasattr")
         setattr(ss, "read_by_setattr", 1)
         getattr(self.tool, "read_by_getattr_on_another_object")
@@ -650,6 +762,13 @@ def _fixture_reads() -> Reads:
         "read_by_getattr",
         "read_by_local_table",
         "read_by_second_local_table",
+        "read_by_lookup_value",
+        "read_by_replacement",
+        "read_by_if_branch",
+        "read_by_else_branch",
+        "read_by_a_value",
+        "read_before_loop",
+        "read_in_loop",
         "read_in_template",
         "read_through_template_call",
         "read_in_cpp_line",
@@ -674,6 +793,9 @@ def test_the_scan_sees_each_way_of_reading_a_setting(setting: str) -> None:
         "read_by_wrong_base",
         "read_by_assignment",
         "read_by_unrelated_dict",
+        "read_by_lookup_key",
+        "read_by_replaced",
+        "read_by_b_value",
         "read_by_table_nothing_walks",
         "read_by_hasattr",
         "read_by_setattr",
