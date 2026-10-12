@@ -894,10 +894,10 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
-3. A waveform setting (a field marked `json_schema_extra=waveform(<format>)`, a deliverable;
+3. A waveform setting (a field marked `json_schema_extra=waveform(<extension>)`, a deliverable;
    `dataclass.waveform_fields` lists them, `dataclass.waveform_format_of(model, field)` queries one) is read by `dataclass.waveform_value`, for every
    simulator: the text `true`/`false` (any case) is the boolean, `true` is the setting's
-   conventional name (`dump.<format>` unless `waveform(format, conventional)` says otherwise), so
+   conventional name (`dump.<format>` unless `waveform(extension, conventional)` says otherwise), so
    `true` and a location are one run (`identity_settings` counts a location as its conventional
    name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
    boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is

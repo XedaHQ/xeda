@@ -147,7 +147,7 @@ class Nvc(SimFlow):
         )
         wave_format: Optional[Literal["vcd", "fst"]] = Field(
             None,
-            description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension. Needs `wave` or `vcd`. With `wave` only `fst` is valid: the shared `vcd` is always VCD.",
+            description="The format of the waveform. `wave` writes FST, so only `fst` is valid with it, and the shared `vcd` setting writes VCD. Needs `wave` or `vcd`.",
         )
         wave_arrays: Union[int, bool, None] = Field(
             2048,
