@@ -1056,7 +1056,11 @@ class DVSettings(XedaBaseModel):
         "mapping, or a list of `{name, value}` objects. `generics` is accepted as another name "
         "for the same setting.",
     )
-    defines: Dict[str, DefineType] = Field(default={})
+    defines: Dict[str, DefineType] = Field(
+        default={},
+        description="Verilog preprocessor macros, as a mapping of macro name to value. A value of "
+        "`null` defines the macro without a value.",
+    )
 
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {
         "parameters": _parameters_form
@@ -1439,7 +1443,7 @@ class ChiselGenerator(Generator):
 
 
 class RtlSettings(DVSettings):
-    """design.rtl"""
+    """The RTL: sources, top module, clocks, generator, attributes, parameters and defines."""
 
     top: Optional[str] = Field(
         None,
@@ -1690,7 +1694,7 @@ class CocotbTestbench(XedaBaseModel):
 
 
 class TbSettings(DVSettings):
-    """design.tb"""
+    """The testbench: sources, top modules, unit under test, cocotb, parameters and defines."""
 
     sources: List[DesignSource] = Field([], description=SOURCES_DESCRIPTION)
     top: Tuple012 = Field(

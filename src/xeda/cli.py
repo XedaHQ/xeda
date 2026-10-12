@@ -1665,7 +1665,8 @@ SHELLS: Dict[str, Dict[str, Any]] = {
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
     short_help="Shell completion",
-    help=f"Name of the shell. Supported shells are: {', '.join(SHELLS.keys())}",
+    help="Show how to enable shell completion, or print the completion script with --stdout. "
+    f"The shell is one of: {', '.join(SHELLS.keys())}. The default is the shell that the SHELL environment variable names.",
 )
 @click.argument(
     "shell",
