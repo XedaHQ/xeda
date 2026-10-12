@@ -1153,17 +1153,20 @@ setting refuses it when the run is planned, so no waveform setting is ignored.
 All waveform settings read their value by one rule, on the command line and in a design file:
 
 * ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``). This is also the name the run
-  writes when you give a location, which is then delivered. A location and ``true`` are the same
-  run. On the command line, ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
+  writes when you give a location, which is then delivered, so a location and ``true`` are the
+  same run. The ``saif`` of ``vivado_sim`` and ``vivado_postsynth_sim`` is the exception, see
+  below. On the command line, ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the format's extension.
 * The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``) are
   refused, as they are for a boolean setting. Write ``true`` or a file name.
-* Other text is a name.
+* Other text is a name. The setting a name is given to decides the format, never the name: a
+  name that ends in the extension of another format that has a setting of its own is refused,
+  and the message names that setting (``wave: x.vcd`` on ``ghdl_sim`` says to use ``vcd``).
 
-The ``saif`` setting of ``vivado_sim`` is the exception. A location is written as
-``outputs/<design>.saif``, a name that holds the design's name, so ``true`` is refused there:
-give a file name or a location.
+For the ``saif`` setting of ``vivado_sim`` and ``vivado_postsynth_sim``, a location is written as
+``outputs/<design>.saif``. That name holds the design's name, so ``true`` is refused there: give
+a file name or a location.
 
 The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
 
@@ -1174,15 +1177,14 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
    * - Simulator
      - Waveform settings
    * - ``ghdl_sim``
-     - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). A ``wave`` name
-       in the run directory that ends in ``.vcd`` or ``.fst`` selects that format. Only one of the
-       three may be set, and ``read_wave_opt`` needs one of them.
+     - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). Only one of
+       the three may be set, and ``read_wave_opt`` needs one of them.
    * - ``nvc``
-     - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting: ``true`` writes
-       ``dump.fst``. ``wave_format``, or the extension of a name in the run directory, selects
-       the format, and a name whose extension disagrees with ``wave_format`` is refused. Only one of ``vcd`` and ``wave`` may be set. ``wave_format``,
-       ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` need one of them, unless
-       they keep their default values.
+     - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting and writes FST:
+       ``true`` writes ``dump.fst``, and ``wave_format: vcd`` is refused (use ``vcd``). Only one
+       of ``vcd`` and ``wave`` may be set. ``wave_format``, ``wave_include_glob``,
+       ``wave_exclude_glob`` and ``wave_arrays`` need one of them, unless they are set to their
+       default values.
    * - ``modelsim``
      - ``vcd``. ModelSim dumps nothing unless it is set.
    * - ``vivado_sim``, ``vivado_postsynth_sim``

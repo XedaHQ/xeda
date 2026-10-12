@@ -233,13 +233,29 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`)."""
+        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`),
+        and a name that ends in the extension of another format that has a setting of its own.
+        The setting a name is given to decides the format, never the name: a located `wave:
+        x.vcd` is written under the conventional name of `wave` and would be the wrong format,
+        and `true` would then be the same run as a location of another format."""
         super().check_settings_supported(settings)
-        for name in waveform_fields(type(settings)):
-            if name in cls.unsupported_waveforms and getattr(settings, name) is not None:
+        formats = waveform_fields(type(settings))
+        by_format = {extension: name for name, extension in formats.items()}
+        for name, extension in formats.items():
+            value = getattr(settings, name)
+            if value is None:
+                continue
+            if name in cls.unsupported_waveforms:
                 raise FlowSettingsException(
                     f"{cls.name} cannot write a waveform from `{name}`: "
                     f"{cls.unsupported_waveforms[name]}"
+                )
+            suffix = Path(value).suffix.removeprefix(".").lower()
+            other = by_format.get(suffix)
+            if other is not None and suffix != extension:
+                raise FlowSettingsException(
+                    f"`{name}` writes {extension.upper()} data, and its name {value} ends in "
+                    f".{suffix}: give the name to `{other}`, which writes {suffix.upper()} data"
                 )
 
     @classmethod

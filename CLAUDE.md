@@ -901,7 +901,7 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    `true` and a location are one run (`identity_settings` counts a location as its conventional
    name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
    boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
-   refused as a `WaveformText`. A conventional name that holds `{design}` (`vivado_sim`'s `saif`,
+   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in the extension of another format that has its own setting (`wave: x.vcd` on `ghdl_sim`/`nvc` says to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format; nvc's `wave` is FST only (`wave_format: vcd` is refused). A conventional name that holds `{design}` (`vivado_sim`'s `saif`,
    `outputs/{design}.saif`, fixed by the declared-output naming rule) cannot be written without
    the design, so `true` is refused there. A simulator
    writes a waveform through its own mechanism or lists the setting in

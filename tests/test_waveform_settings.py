@@ -325,6 +325,27 @@ def _write(path: Path, text: str) -> Path:
     return path
 
 
+@pytest.mark.parametrize("cls,name,field,extension", FIELDS)
+def test_a_name_never_selects_the_format_of_another_setting(cls, name, field, extension):
+    """The setting a name is given to decides the format. A name that ends in the extension of
+    another format that has a setting of its own is refused, naming that setting: a location is
+    written under the conventional name of this setting, and `true` and a location of another
+    format would otherwise be one run."""
+    formats = waveform_fields(cls.Settings)
+    for other_field, other in formats.items():
+        if other == extension:
+            continue
+        for given in (f"w.{other}", f"/elsewhere/w.{other.upper()}"):
+            settings = build(cls, **{field: given})
+            with pytest.raises(FlowSettingsException) as raised:
+                cls.check_settings_supported(settings)
+            message = str(raised.value)
+            if field in cls.unsupported_waveforms:
+                assert "cannot write a waveform" in message
+            else:
+                assert f"`{other_field}`" in message and f"ends in .{other}" in message
+
+
 # ---------------------------------------------------------------------------------------------
 # settings that refine a waveform need one
 # ---------------------------------------------------------------------------------------------
@@ -339,16 +360,11 @@ def _write(path: Path, text: str) -> Path:
         ("nvc", {"wave_include_glob": "*:x"}, "wave_include_glob. refines the waveform"),
         ("nvc", {"wave_exclude_glob": "*:x"}, "wave_exclude_glob. refines the waveform"),
         ("nvc", {"vcd": "true", "wave": "true"}, "one waveform, and vcd and wave are set"),
-        (
-            "nvc",
-            {"wave": "true", "wave_format": "vcd"},
-            "wave_format is vcd, and wave names dump.fst",
-        ),
-        (
-            "nvc",
-            {"wave": "w.vcd", "wave_format": "fst"},
-            "wave_format is fst, and wave names w.vcd",
-        ),
+        ("nvc", {"wave": "true", "wave_format": "vcd"}, "wave. writes an FST file"),
+        ("nvc", {"wave": "w.vcd"}, r"`wave` writes FST data.*`vcd`"),
+        ("ghdl_sim", {"wave": "w.vcd"}, r"`wave` writes GHW data.*`vcd`"),
+        ("ghdl_sim", {"wave": "/elsewhere/w.fst"}, r"`wave` writes GHW data.*`fst`"),
+        ("ghdl_sim", {"vcd": "w.fst"}, r"`vcd` writes VCD data.*`fst`"),
         ("nvc", {"vcd": "true", "wave_format": "fst"}, "vcd. writes a VCD file"),
         ("ghdl_sim", {"vcd": "true", "fst": "true"}, "one waveform, and vcd, fst are set"),
         ("ghdl_sim", {"wave": "true", "fst": "true"}, "one waveform, and fst, wave are set"),
@@ -373,11 +389,11 @@ def test_a_waveform_setting_that_needs_another_is_refused_without_it(flow, setti
 @pytest.mark.parametrize(
     "flow,settings",
     [
-        ("nvc", {"wave": "w.vcd", "wave_format": "vcd"}),
+        ("nvc", {"wave": "w.fst", "wave_format": "fst"}),
         ("nvc", {"wave": "w", "wave_format": "fst"}),
         ("nvc", {"vcd": "true", "wave": "false"}),
         ("nvc", {"vcd": "true", "wave_format": "vcd", "wave_include_glob": "*:x"}),
-        ("ghdl_sim", {"wave": "w.vcd"}),
+        ("ghdl_sim", {"wave": "w.ghw"}),
         ("ghdl_sim", {"vcd": "true", "read_wave_opt": "w.opt"}),
         ("vcs", {"vpd": "true", "to_vcd": True, "vpd_size_limit": 4}),
         ("vcs", {"fsdb": "true", "to_vcd": True, "fsdb_size_limit": 7}),
@@ -418,11 +434,10 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
         ("vcd", "true", "dump.vcd", "vcd"),
         ("vcd", "waves.vcd", "waves.vcd", "vcd"),
         ("wave", "w.fst", "w.fst", "fst"),
-        ("wave", "w.vcd", "w.vcd", "vcd"),
     ],
 )
 def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value, written, fmt):
-    """The shared `vcd` is `--wave=<file> --format=vcd`, as `wave: <file>.vcd` is."""
+    """The shared `vcd` is `--wave=<file> --format=vcd`; `wave` is nvc's own FST file."""
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)

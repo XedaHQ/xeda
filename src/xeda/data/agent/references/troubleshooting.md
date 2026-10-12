@@ -65,7 +65,7 @@ that holds `main` needs `main: false`; without it, a C++ source is a DPI helper.
 Waveform settings (`vcd`, `fst`, `wave`, `saif`, ...) read `true`/`false` text as booleans, so
 `-s vcd=true` writes `dump.vcd` like YAML `vcd: true` (a location is written as `dump.<format>` too;
 `vivado_sim`'s `saif` has no such name, so `true` is refused there). `yes`, `on` and the other YAML
-1.1 boolean words are refused: write `true` or a file name. A simulator writes the waveform through
+1.1 boolean words are refused: write `true` or a file name. A name that ends in another format's extension is refused (`wave: x.vcd`: use `vcd`). A simulator writes the waveform through
 its own mechanism or refuses the setting when planned: `vcs` refuses `vcd` (use `vpd`, `fsdb`,
 `evcd`; `to_vcd` converts), `yosys_sim` refuses it (the C++ driver writes it), and `nvc` writes
 `vcd` with `--wave --format=vcd`. Two waveform formats at once are refused on `ghdl_sim`, `nvc`,

@@ -550,8 +550,8 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Write the waveforms (GHW): a name in the run directory, or a location it is "
             f"delivered to ({LOCATION_FORMS}). `true` writes `dump.ghw`; a name without an "
-            "extension gets `.ghw`. A name in the run directory that ends in `.vcd` or `.fst` selects "
-            "that format.",
+            "extension gets `.ghw`. A name that ends in `.vcd` or `.fst` is refused: use `vcd` or "
+            "`fst`.",
             json_schema_extra=waveform("ghw"),
         )
         read_wave_opt: Optional[Path] = Field(
@@ -644,15 +644,7 @@ class GhdlSim(Ghdl, SimFlow):
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
         if ss.wave:
-            wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
-            if wave.suffix in (".vcd", ".vcdgz"):
-                ss.vcd = wave
-                ss.wave = None
-            elif wave.suffix == ".fst":
-                ss.fst = wave
-                ss.wave = None
-            else:
-                ss.wave = wave
+            ss.wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
 
         if ss.vcd:
             # FIXME: process_path might be run twice

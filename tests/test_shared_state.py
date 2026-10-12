@@ -66,8 +66,8 @@ FLOWS = [cls for cls, _ in flow_classes()]
 #: Options that make a flow write what it derives from its settings (a waveform's format, the
 #: mode of synthesis, a library merged), which the flipped options do not all reach.
 HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
-    "ghdl_sim": [{"vcd": "w.vcd"}, {"fst": "w.fst"}, {"wave": "w.ghw"}, {"wave": "w.vcd"}],
-    "nvc": [{"wave": "w.vcd"}, {"wave": "w.fst"}],
+    "ghdl_sim": [{"vcd": "w.vcd"}, {"fst": "w.fst"}, {"wave": "w.ghw"}],
+    "nvc": [{"vcd": "w.vcd"}, {"wave": "w.fst"}],
     "vcs": [
         {"ucli_script": "notes.txt"},
         {"gui": True},

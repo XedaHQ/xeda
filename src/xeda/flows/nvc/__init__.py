@@ -141,13 +141,13 @@ class Nvc(SimFlow):
         wave: Union[str, Path, None] = Field(
             None,
             description="Write waveform data to a file. The default is to not write waveform data. "
-            "`true` writes `dump.fst`; a name without an extension gets `.fst`. The shared `vcd` "
-            "setting writes a VCD file the same way.",
+            "`true` writes `dump.fst`; a name without an extension gets `.fst`. A name that ends in "
+            "`.vcd` is refused. The shared `vcd` setting writes a VCD file.",
             json_schema_extra=waveform("fst"),
         )
         wave_format: Optional[Literal["vcd", "fst"]] = Field(
             None,
-            description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension. Needs `wave` or `vcd`; the shared `vcd` is always VCD.",
+            description="Generate waveform data in this format. The default is FST if this option is not provided and `wave` is not a filename. If this option is None `wave` is a filename, the format is selected automatically based on the file extension. Needs `wave` or `vcd`. With `wave` only `fst` is valid: the shared `vcd` is always VCD.",
         )
         wave_arrays: Union[int, bool, None] = Field(
             2048,
@@ -223,13 +223,10 @@ class Nvc(SimFlow):
                     "`vcd` writes a VCD file, and wave_format is fst: use `wave` for an FST file"
                 )
         elif settings.wave:
-            suffix = Path(settings.wave).suffix
-            if settings.wave_format and suffix in (".vcd", ".fst"):
-                if suffix != f".{settings.wave_format}":
-                    raise FlowSettingsException(
-                        f"wave_format is {settings.wave_format}, and wave names {settings.wave}: "
-                        f"name a .{settings.wave_format} file"
-                    )
+            if settings.wave_format == "vcd":
+                raise FlowSettingsException(
+                    "`wave` writes an FST file, and wave_format is vcd: use `vcd` for a VCD file"
+                )
         else:
             for name in ("wave_format", "wave_include_glob", "wave_exclude_glob", "wave_arrays"):
                 if getattr(settings, name) != cls.Settings.model_fields[name].default:
@@ -434,8 +431,6 @@ class Nvc(SimFlow):
             target, wave_format = self.process_path(ss.vcd), "vcd"
         if target:
             run_flags.append(f"--wave={target}")
-            if not wave_format:
-                wave_format = {".vcd": "vcd", ".fst": "fst"}.get(Path(target).suffix)
             if wave_format:
                 run_flags.append(f"--format={wave_format}")
             if ss.wave_include_glob:
