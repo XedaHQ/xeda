@@ -21,7 +21,7 @@
 | --- | --- |
 | `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
-| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says. |
+| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
 | `cannot interpret 'fast' as a quantity: expected a number, optionally followed by a unit` | Write `5.5`, `5.5ns` or `200MHz`. Units are case-sensitive. |
 | a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
@@ -32,7 +32,8 @@
 | Message | Fix |
 | --- | --- |
 | `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
-| `rtl.<key>: Extra inputs are not permitted` | Unknown design key. Mixing the flat form (`sources`, `top`, `clock` at the root) with `rtl.*` fails the same way: write `rtl:`. |
+| `rtl.<key>: Extra inputs are not permitted` | Unknown design key. |
+| `<key>: Extra inputs are not permitted` at the root, often with `rtl.sources: Field required` | The flat form (`sources`, `top`, `clock` at the root) beside an `rtl:` section. Write everything under `rtl:`. |
 | `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
 | `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
 | `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |
@@ -104,8 +105,8 @@ A simulation passes only on recognized evidence that it ended, never on exit sta
   `fail_severity`.
 - ModelSim exits 0 whatever the testbench says; Xeda judges its owned batch log and
   `TESTSTATUS`. Vivado `xsim` needs source-preserving `elab_debug`; turning it off is refused.
-- VCS and Questa adapters are documentation-only: unverified on licensed tools, and unknown
-  native evidence fails closed. `bsc_sim` refuses `cvc`, `cver`, `isim`, `ncverilog` and `veriwell`
+- VCS and Questa adapters judge native evidence and fail closed on evidence they do not recognize.
+  They are unverified on licensed tools. `bsc_sim` refuses `cvc`, `cver`, `isim`, `ncverilog` and `veriwell`
   before compilation.
 
 ### Waveform settings
@@ -151,26 +152,24 @@ A Xilinx 7-series build fails before or during `nextpnr`:
   with quiet bars) did not finish it: a locked flash can stop the loader before it writes. `verify`
   does not report that.
 
-A 7-series bitstream can compute the wrong result with timing met. Some openXC7
-`nextpnr-himbaechel` builds write wrong bits with no error: the 1.0 release and
-`1.0.0-41-g3e5c2cdd` have none of the fixes. Known defects (openXC7/nextpnr pull request in
-brackets): an inferred `DSP48E1` multiply ignores its A operand (66); an initialized
-`RAM32M`/`RAM64M` reads 0 and a falling-edge shift register shifts on the rising edge (70); a
-block RAM with an initial or reset value on its output register (69); an `ODDR` on the T input of a
-tri-state (72); an `MMCME2` or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR`
-(71); a memory of 64K x 1 or deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad
-that an `ODDR` or an `OSERDESE2` drives (78). A timing or utilization report cannot show them. Use
-a build of `main` at `26f5e17a5` (`1.0.0-75-g26f5e17a`, from `nextpnr-himbaechel --version`) or
-later; Xeda does not check the build. `nextpnr` also ignores `set_property PULLUP true` without a
-warning: write `set_property PULLTYPE PULLUP`.
+A 7-series bitstream can compute the wrong result with timing met. Some openXC7 `nextpnr-himbaechel`
+builds write wrong bits with no error: the 1.0 release and `1.0.0-41-g3e5c2cdd` have none of the
+fixes. Known defects: an inferred `DSP48E1` multiply ignores its A operand; an initialized `RAM32M`
+or `RAM64M` reads 0; a falling-edge shift register shifts on the rising edge; a block RAM with an
+initial or reset value on its output register; an `ODDR` on the T input of a tri-state; an `MMCME2`
+or `PLLE2`; a `TMDS_33` input, `LVCMOS33` `DRIVE 16` or an `IDDR`; a memory of 64K x 1 or deeper in
+cascaded `RAMB36E1` pairs; a high-performance bank pad that an `ODDR` or an `OSERDESE2` drives. A
+timing or utilization report cannot show them. Use a build of `main` at `26f5e17a5`
+(`1.0.0-75-g26f5e17a`, from `nextpnr-himbaechel --version`) or later; Xeda does not check the build.
+`nextpnr` also ignores `set_property PULLUP true` without a warning: write `set_property PULLTYPE
+PULLUP`.
 
 ## Reading numbers
 
 - `clock_frequency` is the frequency constrained. `Fmax` is the frequency achieved.
-- `Fmax` is per tool. On one design with a block RAM and a DSP, `nextpnr` reported 429 to 453 MHz
-  and Vivado 232 to 241 MHz for the same netlists. Compare `Fmax` only between runs of one tool.
-- Canonical keys `Fmax`, `lut` and `ff` sit beside the flow's own (`f_max`, `maximum_frequency`,
-  `LUT`, `FF`); prefer them. Keys that start with `_` are internal.
+- `Fmax` is per tool: `nextpnr` and Vivado time the same netlist differently. Compare `Fmax`
+  only between runs of one tool.
+- Prefer the canonical keys `Fmax`, `lut` and `ff`; keys that start with `_` are internal.
 - `xeda list-results <flow> --json` explains every key. When `documented` is `false`, the keys were
   detected from the flow's source: read an actual `results.json`. A flow can report nothing beyond
   the common keys.
@@ -196,11 +195,3 @@ incremental tool state. A flow that runs logs `Running <flow>: <reason>`; an up-
 that and shows its recorded results. If a result looks stale or wrong, run `xeda run ... --dry-run
 --json` to see each node as `fresh`, `stale` (with the reason) or `unknown`, then use `--rebuild-all`
 or `--clean` (see "Rebuilds" in `SKILL.md`).
-
-## `open_xc7` was removed
-
-`open_xc7` was removed: use `fpga_pack` to build and `openfpgaloader` to program. The message
-appears for the flow's name and for a `flows.open_xc7` section in a design or project file alike.
-Move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga`, and
-its pin files into `rtl.sources`. `xeda scrub open_xc7 <design>` still removes its old run
-directories.

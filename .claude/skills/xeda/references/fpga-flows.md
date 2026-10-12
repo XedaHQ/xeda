@@ -1,7 +1,7 @@
 # Open-source FPGA flows and `vivado_impl`
 
 Open this file to build or program an FPGA with `yosys_fpga`, `nextpnr`, `fpga_pack` and
-`openfpgaloader`, to target a bundled board, to constrain pins, or to implement a yosys netlist in
+`openfpgaloader`, to build for a bundled board, to constrain pins, or to implement a yosys netlist in
 Vivado. Chains and bindings: `SKILL.md`. Failures: `troubleshooting.md`.
 
 ## The four flows

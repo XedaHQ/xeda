@@ -24,7 +24,8 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Search for the highest clock frequency | `xeda dse <flow> --design <design> --json` |
 | Remove a flow's old run directories | `xeda scrub <flow> <design> [--target NAME] --json` |
 
-Query commands take `--format {table,json,jsonl,yaml}`; `--json` is `--format json`. On `run`, `dse`
+Query commands take `--format {table,json,jsonl,yaml}` (`design-schema`: `json`, `yaml`); `--json` is
+`--format json`. On `run`, `dse`
 and `scrub`, `--json` moves tool output and logs to stderr. Table output wraps at the terminal
 width, so parse JSON.
 
@@ -107,7 +108,7 @@ nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
 xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
-xeda run openfpgaloader blinky.yaml -s flows.yosys_fpga.flatten=true
+xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
 - `-s` takes `KEY=VALUE` items up to the next option or the first token that is not `KEY=VALUE`.
@@ -231,10 +232,11 @@ producer for reading until it ends; another Xeda process that would rebuild, cle
 directory waits (POSIX).
 
 Xeda creates and marks the run root (`.xeda-run-root`, `.gitignore`, `CACHEDIR.TAG`). Keep nothing
-of yours in it. A directory named like the run root that holds files and has no marker is refused
-(`RunRootError`).
+of yours in it. A directory you name with `--run-root` that holds files and has no marker is
+refused (`RunRootError`); the default `./xeda_run` is adopted.
 
-Each run directory has the tool scripts and logs, `reports/`, `outputs/`, `checkpoints/`, and:
+Each run directory has the tool scripts and logs, `reports/`, `outputs/` and `checkpoints/` when
+the flow writes them, and:
 
 | File | Content |
 | --- | --- |
@@ -286,8 +288,9 @@ xeda run vivado_synth blinky.yaml --outputs-to ./out
 
 ## Remote runs
 
-`--remote HOST` runs on a host with Xeda 0.4.4 or newer and remote protocol 1 or newer. Xeda checks
-the remote's installed package and refuses an older one before it ships anything. A remote run
+`--remote HOST` needs a remote Xeda of the 0.4.4 release line or newer that defines the remote
+protocol marker (`xeda.REMOTE_PROTOCOL_VERSION >= 1`). Xeda probes the remote's installed package
+and refuses one without it, with an upgrade error, before it ships anything. A remote run
 always runs fresh and refuses `--clean`, `--hashed-run-dirs`, `--dry-run`, chains and bindings.
 
 ## When a run fails
@@ -300,6 +303,8 @@ On failure `run` writes a document with `success: false` and `error`, and exits 
 | `FlowSettingsError` (unknown, mistyped or removed setting), `FlowSettingsException` (the request needs what the settings or design lack: `fpga`, a source the flow reads, agreeing shared settings), `NoReadableSource` | Read the message; it names the setting and the fix. `xeda list-settings <flow> --json` lists valid names. |
 | `DesignValidationError` | The message names the key (`rtl.sources:`). Check the file against `xeda design-schema`. |
 | `BadParameter`, `UsageError` (exit 2) | Unknown flow, missing file, malformed chain, removed option. The message suggests close matches. |
+| `DesignFileParseError` | The file does not parse; the message gives the line and column. |
+| `DesignNotSpecified` | Pass the design file as the last argument, or `--design-name` for a project. |
 | `ProjectFileError` | Keep one project file with the keys `designs` and `flows`. |
 | `ExecutableNotFound` | Install the tool, or add `-s dockerized=true`. |
 | `FlowFailed` | The requested flow ran and did not succeed. `results.error` has the cause: `NonZeroExitCode` (the tool exited non-zero; read its log in `run_path`), `ReportedFailure` (the tool exited 0 and its reports or checks say it failed), `MissingOutput` (a declared output is missing or was not written by this run). |

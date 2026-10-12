@@ -74,9 +74,9 @@ only some; `always_runs` says its inputs cannot be judged. The record lives unde
 
 | Key | Meaning |
 | --- | --- |
-| `top` | Testbench top module; a list of up to two. Required when `tb.sources` holds Verilog, SystemVerilog, VHDL, Bluespec or Chisel and the testbench is not cocotb; the simulation flow refuses the design and names `tb.top`. Not needed for a C++ driver of the design's own (`yosys_sim`; `verilator` with `main: false`) or for `ghdl_sim` with a VHDL testbench. |
-| `uut` | Instance name of the unit under test; some flows need it for waveforms or activity capture. |
-| `cocotb` | `true`, or a table with `module`, `toplevel`, `testcase`. A `.py` source turns it on. |
+| `top` | Testbench top module: one string, or a list of at most two (a primary and a secondary top module). Required when `tb.sources` holds Verilog, SystemVerilog, VHDL, Bluespec or Chisel and the testbench is not cocotb; the simulation flow refuses the design and names `tb.top`. Not needed for a C++ driver of the design's own (`yosys_sim`; `verilator` with `main: false`) or for `ghdl_sim` with a VHDL testbench. |
+| `uut` | The instance name of the unit under test in the testbench; some flows need it for waveforms or activity capture. |
+| `cocotb` | `true` for the defaults, or a table with `module`, `toplevel`, `testcase`; `false` means no cocotb testbench. A source of type `Cocotb` (a `.py` file) sets it. |
 
 ## Clocks
 
@@ -247,7 +247,7 @@ A project file's section means the same, below the design's. A chain on the comm
 ## `targets`: one design, several boards
 
 A target is an overlay on the design. It takes the design's own keys (`rtl`, `tb`, `flows`,
-the flat form), not `name` or `targets`. `--target NAME` on `xeda run` and `xeda dse` selects it.
+the flat form), not `name`, `targets`, `target` or `design_root`. `--target NAME` on `xeda run` and `xeda dse` selects it.
 
 ```yaml
 name: knight
