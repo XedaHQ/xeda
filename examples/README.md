@@ -55,7 +55,8 @@ xeda run openfpgaloader --design-name blinky                            # build,
 ```
 
 Only the last command touches hardware. Use `--design-name blinky-vhdl` for the VHDL version.
-`blinky.xeda.yaml` and `blinky_vhdl.xeda.yaml` hold the same two designs as design files. The
+`blinky.xeda.yaml` and `blinky_vhdl.xeda.yaml` hold the same two designs as separate design
+files, with fewer flow settings. The
 `dvi_test` project is a VGA video generator with a DVI encoder:
 
 ```bash
