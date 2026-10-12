@@ -595,12 +595,14 @@ def test_only_shipped_template_suffixes_are_templates() -> None:
     ]
 
 
-def reachable_templates(cls: type[Flow]) -> dict[str, str]:
+def reachable_templates(cls: type[Flow], nodes: Iterable[ast.AST] | None = None) -> dict[str, str]:
     """The templates `cls`'s code can render, by name, with their text: the loader's templates
     (`Flow._create_jinja_env`, the one the flow renders with: its module and its bases', so a
     subclass inherits its parent's) that the code of its MRO names -- a string, or an f-string as
     a pattern (`f"constraints.{ext}"`) -- and every template those include, an include of a
-    computed name (`{% include step + '.tcl' %}`) being any template that matches its tail."""
+    computed name (`{% include step + '.tcl' %}`) being any template that matches its tail.
+    `nodes` are the AST nodes to look for the names in: the default is the code of the class and of
+    its MRO, and a caller that also follows the helpers the code reaches passes that code."""
     env = cls._create_jinja_env(extra_modules=[cls.__module__])
     available = {
         name: env.loader.get_source(env, name)[0]
@@ -608,7 +610,7 @@ def reachable_templates(cls: type[Flow]) -> dict[str, str]:
     }
     names: set[str] = set()
     patterns: set[str] = set()
-    for node in _flow_nodes(cls):
+    for node in _flow_nodes(cls) if nodes is None else nodes:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             names.add(node.value)
         elif isinstance(node, ast.JoinedStr):

@@ -1054,6 +1054,26 @@ is known).
 to have its own docstring (not an inherited base-class one, which `xeda list-flows` would show)
 and to declare `results_description`.
 
+**Every flow reads every one of its settings.** `tests/test_unread_settings.py` finds a field of
+`<Flow>.Settings` that nothing reads, in each product flow: the code of its MRO (a method counts
+where the launcher calls it, `FLOW_API`, or something names it; an override counts only where it
+calls `super()`), the module-level helpers that code names, the methods of its settings classes
+that code or a template names, and its templates. A validator, a description, a `Literal` and
+a comment are no read. A new unread field fails the test; the fix is one of three. Read it in the
+flow or its template. Take it out of the flow's model: a flow that gets a base's settings it does
+not use is built on a smaller base (`YosysSynthesisBase` holds the netlist and ABC settings of
+`yosys` and `yosys_fpga`, and `yosys_sim` is a `YosysBase`; `VivadoProject.Settings` is
+`VivadoSynth.Settings` without `VivadoSim.Settings`) and lists what it dropped in
+`removed_settings`, which names where the setting belongs (`"<key> was removed: use ..."`). Or
+refuse a non-default value in a validator (`vivado_alt_synth`: `REFUSED_WHEN_SET`, probed by the
+test). A reviewed table with a reason is the last resort: `FRAMEWORK_READS` (a module outside
+the flow reads the field, checked), `UNIVERSAL_SETTINGS` (`nthreads`, `lib_paths` and
+`redirect_stdout` are advertised for every flow and only some honor them; each is read by at least
+one flow), the shared leaves the resolver agrees between nodes of a flow that declares I/O, and
+`REVIEWED` (the waveform settings). Only top-level fields are checked. A nested model's leaves
+(`fpga`, `clocks`, `platform`, `cocotb`) and the settings of a nested flow (`ghdl` under the yosys
+flows) are not.
+
 ### Results
 
 Artifact labels map to paths or nested mappings, lists and tuples of paths; relative paths
@@ -2314,11 +2334,10 @@ dependency must also share `custom_boards_file`.
   one is refused before anything runs, by `check_settings_supported`
   (`vivado_synth.out_of_context_conflicts`, a `FlowSettingsError` naming the setting and the
   option), and again where the script is rendered, for a flow built directly. Without
-  `out_of_context` the design's own `-mode` goes through. `vivado_synth.tcl` also sets
-  `set_synth_properties` after the steps, so with `out_of_context` an entry for that property
-  replaces the steps' value, the mode included: it has to carry `-mode out_of_context` itself
-  (`property_mode_conflicts`). `vivado_project.tcl` renders no `set_synth_properties`, so only the
-  steps count for it (`step_mode_conflicts`). What counts as a mode is what Vivado 2024.2 reads
+  `out_of_context` the design's own `-mode` goes through. `vivado_synth.tcl` and
+  `vivado_project.tcl` also set `set_synth_properties` after the steps, so with `out_of_context`
+  an entry for that property replaces the steps' value, the mode included: it has to carry
+  `-mode out_of_context` itself (`property_mode_conflicts`, besides `step_mode_conflicts`). What counts as a mode is what Vivado 2024.2 reads
   (`is_mode_switch`, checked against the real tool): the switch in lower case, or an abbreviation
   of it no other switch shares (`-mod`; `-m` is `max_bram` too), never `-mode=default` or
   `--mode`; the value in either letter case, never abbreviated.
