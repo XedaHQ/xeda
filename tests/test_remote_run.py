@@ -2083,8 +2083,8 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
 def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was_sent(
     tmp_path, remote_host
 ):
-    """`dc` has no declared inputs or outputs, and a bundled platform: the remote resolves the
-    same one-node plan, so its `flow_hash` is the one this side computed."""
+    """`dc` has no declared inputs or outputs: the remote resolves the same one-node plan, so its
+    `flow_hash` is the one this side computed."""
     design_root = tmp_path / "design"
     design_root.mkdir()
     shutil.copy(SQRT / "sqrt.vhdl", design_root)
@@ -2099,7 +2099,7 @@ def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was
         design_root / "sqrt.yaml",
         "dc",
         host="somewhere",
-        flow_settings=["target_libraries=cells.db", "platform=nangate45", "clock.period=5.0"],
+        flow_settings=["target_libraries=cells.db", "clock.period=5.0"],
     )
 
     # the fake `dc_shell` writes no timing report, so the run itself reports failure: what is
