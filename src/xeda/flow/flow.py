@@ -109,6 +109,7 @@ __all__ = [
     "describe_results",
     "flowrun_hash",
     "identity_settings",
+    "is_conventional_template",
     "is_unset",
     "map_written_leaves",
     "output_name",
@@ -319,6 +320,19 @@ def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
     return conventional_output(type(leaf.owner), leaf.field, design)
 
 
+def is_conventional_template(leaf: WrittenLeaf) -> bool:
+    """Whether `leaf` is the conventional name of its deliverable, still holding `{design}`
+    (`true` for a waveform setting named `outputs/{design}.saif`). It stands for the output the
+    run writes, as a location does: a launch writes the design's name in it."""
+    name = output_name(leaf, "{design}")
+    return (
+        name is not None
+        and "{design}" in str(name)
+        and isinstance(leaf.value, (str, os.PathLike))
+        and PurePath(leaf.value) == name
+    )
+
+
 def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
     """What is wrong with the paths `settings` says the flow writes, as
     `(key path, message)`: a working location that is not a name inside the run directory, a
@@ -475,7 +489,7 @@ def identity_settings(
     def conventional(written: WrittenLeaf) -> Any:
         leaf = written.value
         if written.role == DELIVERABLE_ROLE and isinstance(leaf, (str, os.PathLike)):
-            if os.fspath(leaf) and Path(leaf).is_absolute():
+            if (os.fspath(leaf) and Path(leaf).is_absolute()) or is_conventional_template(written):
                 name = output_name(written, design)
                 if name is not None:
                     return Path(name)

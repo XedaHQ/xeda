@@ -67,7 +67,7 @@ FLOWS = [cls for cls, _ in flow_classes()]
 #: mode of synthesis, a library merged), which the flipped options do not all reach.
 HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
     "ghdl_sim": [{"vcd": "w.vcd"}, {"fst": "w.fst"}, {"wave": "w.ghw"}],
-    "nvc": [{"vcd": "w.vcd"}, {"wave": "w.fst"}],
+    "nvc": [{"vcd": "w.vcd"}, {"fst": "w.fst"}],
     "vcs": [
         {"ucli_script": "notes.txt"},
         {"gui": True},

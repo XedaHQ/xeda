@@ -38,8 +38,8 @@ FIELDS = [
 ]
 
 
-def true_name(cls, field: str) -> str | None:
-    """The name `true` stands for, None where the setting has none."""
+def true_name(cls, field: str) -> str:
+    """The name `true` stands for: the conventional name of the setting."""
     found = waveform_format(cls.Settings, field)
     assert found is not None
     return found[1]
@@ -57,7 +57,8 @@ def build(cls, **settings):
 def test_the_marker_is_easy_to_query_by_field():
     settings = get_flow_class("nvc").Settings
     assert waveform_format_of(settings, "vcd") == "vcd"
-    assert waveform_format_of(settings, "wave") == "fst"
+    assert waveform_format_of(settings, "fst") == "fst"
+    assert waveform_format_of(settings, "wave") is None
     assert waveform_format_of(settings, "timeout") is None
     assert waveform_format_of(settings, "no_such_setting") is None
 
@@ -68,7 +69,7 @@ def test_the_sweep_sees_the_simulators_and_their_waveform_settings():
         "ghdl_sim.vcd",
         "ghdl_sim.wave",
         "ghdl_sim.fst",
-        "nvc.wave",
+        "nvc.fst",
         "verilator.saif",
         "vcs.fsdb",
         "vivado_sim.saif",
@@ -84,10 +85,6 @@ def test_the_text_true_or_false_is_the_boolean(cls, name, field, extension):
     assert false_text.model_dump() == false_bool.model_dump()
     assert getattr(build(cls, **{field: ""}), field) is None
     for text in ("true", "True"):
-        if true_name(cls, field) is None:
-            with pytest.raises(FlowSettingsError, match="has no file name"):
-                build(cls, **{field: text})
-            continue
         true_text, true_bool = build(cls, **{field: text}), build(cls, **{field: True})
         assert getattr(true_text, field) == getattr(true_bool, field) is not None
         assert true_text.model_dump() == true_bool.model_dump()
@@ -118,10 +115,7 @@ def test_true_stands_for_the_name_a_location_is_written_under(cls, name, field, 
     expected = true_name(cls, field)
     conventional = build(cls).conventional_output(field, "design")
     assert conventional is not None
-    if expected is None:
-        assert "design" in str(conventional)  # the name holds the design's: `true` cannot say it
-        return
-    assert PurePath(expected) == conventional
+    assert PurePath(expected.format(design="design")) == conventional
     on = identity_settings(build(cls, **{field: "true"}), "design")
     located = identity_settings(build(cls, **{field: "/elsewhere/w.out"}), "design")
     assert on.model_dump(mode="json") == located.model_dump(mode="json")
@@ -159,10 +153,9 @@ def test_the_rule_refuses_the_words_yaml_1_1_reads_as_booleans(value):
         waveform_value(value, "vcd", "dump.vcd")
 
 
-def test_true_is_refused_where_the_setting_has_no_name_for_it():
-    with pytest.raises(WaveformText, match="has no file name"):
-        waveform_value("true", "saif", None)
-    assert waveform_value("false", "saif", None) is None
+def test_true_may_be_a_name_that_holds_the_design_name():
+    assert waveform_value("true", "saif", "outputs/{design}.saif") == "outputs/{design}.saif"
+    assert waveform_value("false", "saif", "outputs/{design}.saif") is None
 
 
 def test_the_command_line_text_gives_the_run_a_boolean_waveform_would(tmp_path):
@@ -189,15 +182,15 @@ HONORED: dict[tuple[str, str | None, str], list[str]] = {
     ("ghdl_sim", None, "fst"): ["--fst=dump.fst"],
     ("ghdl_sim", None, "wave"): ["--wave=dump.ghw"],
     ("nvc", None, "vcd"): ["--wave=dump.vcd", "--format=vcd"],
-    ("nvc", None, "wave"): ["--wave=dump.fst"],
+    ("nvc", None, "fst"): ["--wave=dump.fst"],
     ("modelsim", None, "vcd"): ["vcd file dump.vcd", "vcd add -r"],
     ("vcs", None, "fsdb"): ['dump -file "dump.fsdb" -type FSDB'],
     ("vcs", None, "vpd"): ['dump -file "dump.vpd" -type vpd'],
     ("vcs", None, "evcd"): ['dump -file "dump.evcd" -type evcd'],
     ("vivado_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_sim", None, "saif"): ["open_saif wave.saif"],
+    ("vivado_sim", None, "saif"): ["open_saif outputs/oracle.saif"],
     ("vivado_postsynth_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_postsynth_sim", None, "saif"): ["open_saif wave.saif"],
+    ("vivado_postsynth_sim", None, "saif"): ["open_saif outputs/oracle.saif"],
     ("verilator", None, "vcd"): ["--trace-vcd"],
     ("verilator", None, "fst"): ["--trace-fst"],
     ("verilator", None, "saif"): ["--trace-saif"],
@@ -248,8 +241,7 @@ def test_a_waveform_setting_reaches_the_tool_or_is_refused_when_planned(
         assert f"cannot write a waveform from `{field}`" in str(raised.value)
         return
     calls: list = []
-    # `true` where the setting has a name for it; else the name `HONORED` expects
-    given = "true" if true_name(cls, field) else "wave.saif"
+    given = "true"
     flow = launch_case(
         case, tmp_path, monkeypatch, settings_overrides={field: given}, calls_out=calls
     )
@@ -346,6 +338,28 @@ def test_a_name_never_selects_the_format_of_another_setting(cls, name, field, ex
                 assert f"`{other_field}`" in message and f"ends in .{other}" in message
 
 
+#: The waveform settings that are not named after their format. A setting is named after its
+#: format (`vcd`, `fst`, `saif`, `vpd`, ...), so the same name means the same thing on every
+#: simulator. A tool-native format that no other simulator writes may have a name of the tool.
+NATIVE_NAMES = {
+    ("ghdl_sim", "wave"): "GHDL's own waveform format is GHW, written by its `--wave` option; "
+    "no other simulator writes it, so it has no shared setting to match",
+}
+
+
+def test_a_waveform_setting_is_named_after_its_format():
+    misnamed = {
+        (name, field): extension
+        for cls, name in SIM_FLOWS
+        for field, extension in waveform_fields(cls.Settings).items()
+        if field != extension
+    }
+    assert set(misnamed) == set(
+        NATIVE_NAMES
+    ), f"name a waveform setting after its format, or review it in NATIVE_NAMES: {misnamed}"
+    assert misnamed[("ghdl_sim", "wave")] == "ghw"
+
+
 # ---------------------------------------------------------------------------------------------
 # settings that refine a waveform need one
 # ---------------------------------------------------------------------------------------------
@@ -354,18 +368,15 @@ def test_a_name_never_selects_the_format_of_another_setting(cls, name, field, ex
 @pytest.mark.parametrize(
     "flow,settings,match",
     [
-        ("nvc", {"wave_format": "vcd"}, "wave_format. refines the waveform"),
-        ("nvc", {"wave": "false", "wave_format": "vcd"}, "wave_format. refines the waveform"),
         ("nvc", {"wave_arrays": 8}, "wave_arrays. refines the waveform"),
         ("nvc", {"wave_include_glob": "*:x"}, "wave_include_glob. refines the waveform"),
         ("nvc", {"wave_exclude_glob": "*:x"}, "wave_exclude_glob. refines the waveform"),
-        ("nvc", {"vcd": "true", "wave": "true"}, "one waveform, and vcd and wave are set"),
-        ("nvc", {"wave": "true", "wave_format": "vcd"}, "wave. writes an FST file"),
-        ("nvc", {"wave": "w.vcd"}, r"`wave` writes FST data.*`vcd`"),
+        ("nvc", {"vcd": "true", "fst": "true"}, "one waveform, and vcd and fst are set"),
+        ("nvc", {"fst": "w.vcd"}, r"`fst` writes FST data.*`vcd`"),
+        ("nvc", {"vcd": "w.fst"}, r"`vcd` writes VCD data.*`fst`"),
         ("ghdl_sim", {"wave": "w.vcd"}, r"`wave` writes GHW data.*`vcd`"),
         ("ghdl_sim", {"wave": "/elsewhere/w.fst"}, r"`wave` writes GHW data.*`fst`"),
         ("ghdl_sim", {"vcd": "w.fst"}, r"`vcd` writes VCD data.*`fst`"),
-        ("nvc", {"vcd": "true", "wave_format": "fst"}, "vcd. writes a VCD file"),
         ("ghdl_sim", {"vcd": "true", "fst": "true"}, "one waveform, and vcd, fst are set"),
         ("ghdl_sim", {"wave": "true", "fst": "true"}, "one waveform, and fst, wave are set"),
         ("ghdl_sim", {"read_wave_opt": "w.opt"}, "read_wave_opt. filters the waveform"),
@@ -389,16 +400,16 @@ def test_a_waveform_setting_that_needs_another_is_refused_without_it(flow, setti
 @pytest.mark.parametrize(
     "flow,settings",
     [
-        ("nvc", {"wave": "w.fst", "wave_format": "fst"}),
-        ("nvc", {"wave": "w", "wave_format": "fst"}),
-        ("nvc", {"vcd": "true", "wave": "false"}),
-        ("nvc", {"vcd": "true", "wave_format": "vcd", "wave_include_glob": "*:x"}),
+        ("nvc", {"fst": "w.fst"}),
+        ("nvc", {"fst": "w"}),
+        ("nvc", {"vcd": "true", "fst": "false"}),
+        ("nvc", {"vcd": "true", "wave_include_glob": "*:x"}),
         ("ghdl_sim", {"wave": "w.ghw"}),
         ("ghdl_sim", {"vcd": "true", "read_wave_opt": "w.opt"}),
         ("vcs", {"vpd": "true", "to_vcd": True, "vpd_size_limit": 4}),
         ("vcs", {"fsdb": "true", "to_vcd": True, "fsdb_size_limit": 7}),
         ("vcs", {}),
-        ("nvc", {"wave": "true", "wave_arrays": 8}),
+        ("nvc", {"fst": "true", "wave_arrays": 8}),
         ("nvc", {}),
         ("vivado_sim", {"vcd": "true", "vcd_scope": "/tb", "vcd_level": 2}),
         ("verilator", {"fst": "true", "trace_structs": True}),
@@ -433,11 +444,12 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
     [
         ("vcd", "true", "dump.vcd", "vcd"),
         ("vcd", "waves.vcd", "waves.vcd", "vcd"),
-        ("wave", "w.fst", "w.fst", "fst"),
+        ("fst", "true", "dump.fst", "fst"),
+        ("fst", "w.fst", "w.fst", "fst"),
     ],
 )
 def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value, written, fmt):
-    """The shared `vcd` is `--wave=<file> --format=vcd`; `wave` is nvc's own FST file."""
+    """`vcd` is `--wave=<file> --format=vcd`; `fst` is `--wave=<file>`, nvc's own FST file."""
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
@@ -447,16 +459,15 @@ def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value
     assert wave.stat().st_size > 0
     head = wave.read_bytes()[:16]
     assert (b"$date" in head or b"$version" in head or b"$timescale" in head) == (fmt == "vcd")
-
-
-def test_nvc_writes_dump_fst_for_wave_true(tmp_path):
-    require_nvc_evidence()
-    design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
-    runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(Nvc, design, flow_settings=["wave=true"])
-    assert flow is not None and flow.succeeded
-    assert (flow.run_path / "dump.fst").stat().st_size > 0
     assert not list(flow.run_path.glob("true*"))
+
+
+@pytest.mark.parametrize(
+    "removed,replacement", [("wave", "`fst`"), ("wave_format", "`fst` or `vcd`")]
+)
+def test_nvc_wave_and_wave_format_were_removed(removed, replacement):
+    with pytest.raises(FlowSettingsError, match=rf"`{removed}` was removed: use {replacement}"):
+        build(Nvc, **{removed: "fst"})
 
 
 def test_nvc_filters_the_waveform_with_the_globs(tmp_path):

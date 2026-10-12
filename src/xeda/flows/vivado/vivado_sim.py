@@ -37,8 +37,8 @@ class VivadoSim(Vivado, SimFlow):
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
-            "estimation. Implies `elab_debug`. Give a file name or a location: `outputs/<design>.saif` "
-            "is the name a location is written under, so `true` has no name here.",
+            "estimation. Implies `elab_debug`. `true` writes `outputs/<design>.saif`, the name a "
+            "location is written under.",
             json_schema_extra=waveform("saif", "outputs/{design}.saif"),
         )
         elab_flags: List[str] = Field(

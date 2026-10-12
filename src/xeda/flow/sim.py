@@ -236,7 +236,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`),
         and a name that ends in the extension of another format that has a setting of its own.
         The setting a name is given to decides the format, never the name: a located `wave:
-        x.vcd` is written under the conventional name of `wave` and would be the wrong format,
+        x.vcd` of `ghdl_sim` is written under the conventional name of `wave` and would be the
+        wrong format,
         and `true` would then be the same run as a location of another format."""
         super().check_settings_supported(settings)
         formats = waveform_fields(type(settings))

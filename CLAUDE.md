@@ -901,16 +901,21 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    `true` and a location are one run (`identity_settings` counts a location as its conventional
    name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
    boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
-   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in the extension of another format that has its own setting (`wave: x.vcd` on `ghdl_sim`/`nvc` says to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format; nvc's `wave` is FST only (`wave_format: vcd` is refused). A conventional name that holds `{design}` (`vivado_sim`'s `saif`,
-   `outputs/{design}.saif`, fixed by the declared-output naming rule) cannot be written without
-   the design, so `true` is refused there. A simulator
+   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in the extension of another format that has its own setting (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
+   simulator; `ghdl_sim`'s `wave` (GHW, GHDL's own option) is the one reviewed exception
+   (`NATIVE_NAMES` in the test), and a misnamed new one fails there. nvc has `vcd` and `fst`
+   (`wave` and `wave_format` were removed). A conventional name may hold `{design}` (`vivado_sim`'s
+   `saif`, `outputs/{design}.saif`, fixed by the declared-output naming rule): the setting keeps
+   that text, both `true` and a location count as it in the run's identity
+   (`flow.is_conventional_template`, `identity_settings`), and `deliver.split_deliveries` writes
+   the design's name into it where the run writes the file. A simulator
    writes a waveform through its own mechanism or lists the setting in
    `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
    refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
-   waveform are refused without one (nvc `wave_format`/globs/`wave_arrays`, ghdl_sim `read_wave_opt`, vivado `vcd_scope`/`vcd_level`,
+   waveform are refused without one (nvc globs/`wave_arrays`, ghdl_sim `read_wave_opt`, vivado `vcd_scope`/`vcd_level`,
    vcs `to_vcd`/`vpd_size_limit`/`fsdb_size_limit`, Verilator `trace_*`; a setting with a default is
    judged by value), and so are two waveforms where the tool
-   writes one (`ghdl_sim` `vcd`/`fst`/`wave`, `nvc` `vcd`/`wave`, `vcs` `fsdb`/`vpd`/`evcd`).
+   writes one (`ghdl_sim` `vcd`/`fst`/`wave`, `nvc` `vcd`/`fst`, `vcs` `fsdb`/`vpd`/`evcd`).
    `tests/test_waveform_settings.py` classifies every waveform setting of every simulator
    (`HONORED`, what the tool is handed, or `unsupported_waveforms`): a new one fails there until
    classified.

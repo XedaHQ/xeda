@@ -14,6 +14,7 @@ from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
 from ...units import convert_unit
+from ...utils import LOCATION_FORMS
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +56,8 @@ class Nvc(SimFlow):
         removed_settings: ClassVar[dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
             "exit_severity": "fail_severity",
+            "wave": "`fst`",
+            "wave_format": "`fst` or `vcd`",
         }
         one_shot: bool = Field(
             True,
@@ -138,16 +141,13 @@ class Nvc(SimFlow):
             None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
         )
-        wave: Union[str, Path, None] = Field(
+        fst: Union[str, Path, None] = Field(
             None,
-            description="Write waveform data to a file. The default is to not write waveform data. "
-            "`true` writes `dump.fst`; a name without an extension gets `.fst`. A name that ends in "
-            "`.vcd` is refused. The shared `vcd` setting writes a VCD file.",
+            description="Write the waveform as an FST file: a name in the run directory, or a "
+            f"location it is delivered to ({LOCATION_FORMS}). `true` writes `dump.fst`; a name "
+            "without an extension gets `.fst`. nvc writes one waveform: set `fst` or `vcd`, not "
+            "both.",
             json_schema_extra=waveform("fst"),
-        )
-        wave_format: Optional[Literal["vcd", "fst"]] = Field(
-            None,
-            description="The format of the waveform. `wave` writes FST, so only `fst` is valid with it, and the shared `vcd` setting writes VCD. Needs `wave` or `vcd`.",
         )
         wave_arrays: Union[int, bool, None] = Field(
             2048,
@@ -158,14 +158,14 @@ class Nvc(SimFlow):
             description="""Include signals matching this glob pattern in the waveform data.
             Examples: ':top:*:x', '*:x', ':top:sub:*'
             See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
-            Needs `wave` or `vcd`.""",
+            Needs `vcd` or `fst`.""",
         )
         wave_exclude_glob: Optional[str] = Field(
             None,
             description="""Exclude signals matching this glob pattern from the waveform data.
             Examples: ':top:*:x', '*:x', ':top:sub:*'
             See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
-            Needs `wave` or `vcd`.""",
+            Needs `vcd` or `fst`.""",
         )
         stop_delta: Optional[int] = Field(
             None,
@@ -209,29 +209,19 @@ class Nvc(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """nvc writes one waveform, with `--wave`: the shared `vcd` (always VCD) or `wave`. The
-        settings that refine the waveform need one."""
+        """nvc writes one waveform, with `--wave`: `vcd` or `fst`. The settings that refine the
+        waveform need one."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
-        if settings.vcd is not None:
-            if settings.wave:
-                raise FlowSettingsException(
-                    "nvc writes one waveform, and vcd and wave are set: keep one of them"
-                )
-            if settings.wave_format == "fst":
-                raise FlowSettingsException(
-                    "`vcd` writes a VCD file, and wave_format is fst: use `wave` for an FST file"
-                )
-        elif settings.wave:
-            if settings.wave_format == "vcd":
-                raise FlowSettingsException(
-                    "`wave` writes an FST file, and wave_format is vcd: use `vcd` for a VCD file"
-                )
-        else:
-            for name in ("wave_format", "wave_include_glob", "wave_exclude_glob", "wave_arrays"):
+        if settings.vcd is not None and settings.fst is not None:
+            raise FlowSettingsException(
+                "nvc writes one waveform, and vcd and fst are set: keep one of them"
+            )
+        if settings.vcd is None and settings.fst is None:
+            for name in ("wave_include_glob", "wave_exclude_glob", "wave_arrays"):
                 if getattr(settings, name) != cls.Settings.model_fields[name].default:
                     raise FlowSettingsException(
-                        f"`{name}` refines the waveform, and neither `wave` nor `vcd` is set"
+                        f"`{name}` refines the waveform, and neither `vcd` nor `fst` is set"
                     )
 
     @cached_property
@@ -243,8 +233,8 @@ class Nvc(SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         ss.runtime_flags()
-        if ss.wave and isinstance(ss.wave, (str, Path)):
-            ss.wave = self.process_path(ss.wave)
+        if ss.fst is not None:
+            ss.fst = self.process_path(ss.fst)
 
     def global_options(self) -> List[str]:
         cf: List[str] = []
@@ -424,15 +414,14 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         run_flags = ss.runtime_flags()
 
-        # the shared `vcd` is a VCD file; `wave` is nvc's own setting (`check_settings_supported`)
-        target: Union[str, Path, None] = ss.wave
-        wave_format: Optional[str] = ss.wave_format
+        # one waveform (`check_settings_supported`): `--format=vcd` selects VCD, else nvc writes FST
+        target: Union[str, Path, None] = ss.fst
         if ss.vcd is not None:
-            target, wave_format = self.process_path(ss.vcd), "vcd"
+            target = self.process_path(ss.vcd)
         if target:
             run_flags.append(f"--wave={target}")
-            if wave_format:
-                run_flags.append(f"--format={wave_format}")
+            if ss.vcd is not None:
+                run_flags.append("--format=vcd")
             if ss.wave_include_glob:
                 run_flags.append(f"--include={ss.wave_include_glob}")
             if ss.wave_exclude_glob:

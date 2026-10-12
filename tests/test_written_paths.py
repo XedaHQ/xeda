@@ -67,7 +67,7 @@ ROLES = {
     ("GhdlSim.Settings", "wave"): D,
     ("GhdlSim.Settings", "write_wave_opt"): D,
     ("GhdlSynth.Settings", "verilog_output"): D,
-    ("Nvc.Settings", "wave"): D,
+    ("Nvc.Settings", "fst"): D,
     ("VivadoSim.Settings", "saif"): D,
     ("VivadoSim.Settings", "xelab_log"): W,
     ("VivadoPower.Settings", "power_report_xml"): D,
