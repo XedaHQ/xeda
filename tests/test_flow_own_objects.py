@@ -37,7 +37,7 @@ def test_what_a_flow_does_to_its_design_and_settings_is_not_seen_by_the_caller(t
     flow.design.rtl.top = "something_else"
     flow.design.tb.top = ("a", "b")
     flow.settings.clocks["extra"] = flow.settings.main_clock.model_copy()
-    flow.settings.suppress_msgs.append("Synth 8-0000")
+    flow.settings.elab_flags.append("-written_by_a_test")
     assert (design.model_dump(), settings.model_dump()) == asked
 
 

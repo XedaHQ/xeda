@@ -96,9 +96,13 @@ if {$macros_found != ""} {
     if { [info exists ::env(RTLMP_DEAD_SPACE)]} {
         append additional_rtlmp_args " -dead_space $env(RTLMP_DEAD_SPACE)"
     }
+    {% if settings.rtlmp_config_file %}
+    append additional_rtlmp_args " -config_file [list {{settings.rtlmp_config_file|tcl_word}}]"
+    {% else %}
     if { [info exists ::env(RTLMP_CONFIG_FILE)]} {
         append additional_rtlmp_args " -config_file $env(RTLMP_CONFIG_FILE)"
     }
+    {% endif %}
     if { [info exists ::env(RTLMP_RPT_DIR)]} {
         append additional_rtlmp_args " -report_directory $env(RTLMP_RPT_DIR)"
     }

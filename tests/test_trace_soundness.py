@@ -553,9 +553,9 @@ def test_edited_external_file_with_controlled_mtime_is_unknown(probes, root):
 
 def test_file_valued_abc_script_is_an_input_and_changes_make_yosys_stale(root):
     """The script `init()` resolves is known before the run: an input recorded before it."""
-    from xeda.flows.yosys.common import YosysBase
+    from xeda.flows.yosys.common import YosysSynthesisBase
 
-    class ProbeYosys(YosysBase):
+    class ProbeYosys(YosysSynthesisBase):
         """A no-tool Yosys flow that exercises the real settings initializer."""
 
         results_description: ClassVar[dict[str, str]] = {}
@@ -904,9 +904,9 @@ def test_a_file_a_flow_resolves_in_init_is_an_input_before_any_reuse(
     variable -- and registers the file it names (`Flow.implicit_inputs`). Launched again with the
     same settings from elsewhere, into the same run directory, it names another file: a new
     input, known before the check, not a reuse of the script the first launch read."""
-    from xeda.flows.yosys.common import YosysBase
+    from xeda.flows.yosys.common import YosysSynthesisBase
 
-    class ProbeAbc(YosysBase):
+    class ProbeAbc(YosysSynthesisBase):
         """A no-tool yosys flow that copies the ABC script it would hand yosys."""
 
         results_description: ClassVar[dict[str, str]] = {}

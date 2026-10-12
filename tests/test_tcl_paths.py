@@ -36,7 +36,8 @@ USER_NAMED = re.compile(
     r"^(src|src\.file|file|xdc_file|constraint_file|ucf_file|sdc_file|sdc|make_tracks_tcl"
     r"|design\.(rtl|tb)\.sources"
     r"|settings\.(xcf_file|post_detailed_route_tcl|floorplan_def|footprint|sig_map_file"
-    r"|footprint_tcl|io_constraints|macro_wrappers|macro_placement_file))\s*(\||$)"
+    r"|footprint_tcl|floorplan_tcl|rtlmp_config_file|io_constraints|macro_wrappers"
+    r"|macro_placement_file))\s*(\||$)"
 )
 EXPRESSION = re.compile(r"\{\{-?\s*(.*?)\s*-?\}\}")
 

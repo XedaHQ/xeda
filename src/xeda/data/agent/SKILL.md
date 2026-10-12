@@ -115,12 +115,22 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
-- A setting with `"opaque_keys": true` (Vivado `set_synth_properties` and `set_impl_properties`,
-  ISE `*_options`) takes a dotted tool name as one key:
+- A setting with `"opaque_keys": true` (`set_synth_properties` and `set_impl_properties` of
+  `vivado_synth` and `vivado_project`, ISE `*_options`) takes a dotted tool name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Quote a name with a space.
 - Settings every flow accepts (`"common": true`) include `nthreads` (alias `ncpus`), `dockerized`
   (run the tools from their Docker image), `docker`, `quiet`, `verbose`, `debug`,
-  `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names.
+  `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names. A flow whose
+  tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
+  only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
+  flows read `lib_paths`.
+- A flow uses every other setting it lists, and refuses one that belongs to a related flow,
+  naming that flow: `vivado_project` refuses the settings of `vivado_sim`, `yosys_sim` those of
+  `yosys`, `ghdl_synth` the compiler and linker flags of `ghdl_sim`, and `vivado_alt_synth`
+  refuses `set_synth_properties`, `set_impl_properties` and `show_available_strategies`
+  (non-project mode has no runs). A removed setting fails with "`<name>` was removed: ..."; if
+  nothing replaces it, the message says to delete it (for example `timeout_seconds` is now
+  `timeout`, and `no_console` is gone).
 - A setting accepts its declared type only. `true` and `false` are the only booleans, and a list
   setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
 
@@ -190,6 +200,11 @@ flows:
     inputs:
       netlist: yosys_fpga
 ```
+
+`vivado_power` takes timing activity (`vivado_postsynth_sim.timing_saif`) by default. For the
+faster, less accurate activity of a functional simulation, bind it with
+`-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`; `timing_sim` is no setting of
+`vivado_power`.
 
 Related inputs of one flow must come from one producer (`same_producer_as`, `via` in `list-flows`):
 `vivado_postsynth_sim`'s `netlist`, `netlist_timing` and `sdf`, and `vivado_power`'s `checkpoint`

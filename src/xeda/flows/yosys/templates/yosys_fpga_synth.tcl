@@ -52,7 +52,7 @@ yosys opt -full -fine -purge -sat -undriven
 yosys opt_clean -purge
 
 {% if settings.splitnets -%}
-yosys splitnets
+yosys splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
 {% endif -%}
 {% endif -%}
 

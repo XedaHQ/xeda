@@ -33,32 +33,21 @@ ROLES = {
     ("Bsc.Settings", "verilog_out_dir"): W,
     ("BscSim.Settings", "sim_dir"): W,
     ("DiamondSynth.Settings", "impl_folder"): W,
-    ("Dc.Settings", "alib_dir"): W,
     ("Dc.Settings", "log_file"): W,
     ("Verilator.Settings", "sim_dir"): W,
     ("Verilator.Settings", "vcd"): D,
     ("Verilator.Settings", "fst"): D,
     ("Verilator.Settings", "saif"): D,
-    ("Vcs.Settings", "work_dir"): W,
     ("Vcs.Settings", "vcs_log_file"): W,
     ("Vcs.Settings", "fsdb"): D,
     ("Vcs.Settings", "vpd"): D,
     ("Vcs.Settings", "evcd"): D,
     ("YosysBase.Settings", "log_file"): W,
+    **{("YosysBase.Settings", name): D for name in ("rtl_json", "rtl_verilog", "rtl_graph")},
     **{
-        ("YosysBase.Settings", name): D
-        for name in (
-            "netlist_json",
-            "netlist_verilog",
-            "netlist_graph",
-            "write_blif",
-            "rtl_json",
-            "rtl_verilog",
-            "rtl_graph",
-        )
+        ("YosysSynthesisBase.Settings", name): D
+        for name in ("netlist_json", "netlist_verilog", "netlist_graph", "write_blif")
     },
-    ("YosysSim.Settings", "netlist_json"): D,
-    ("YosysSim.Settings", "netlist_verilog"): D,
     ("Yosys.Settings", "merge_libs_to"): W,
     ("CxxRtl", "filename"): W,
     ("SimFlow.Settings", "vcd"): D,

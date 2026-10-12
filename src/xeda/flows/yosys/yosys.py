@@ -5,7 +5,7 @@ import logging
 import re
 import tempfile
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple, Union
+from typing import ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import WORKING, Field, XedaBaseModel, field_validator, model_validator
 from ...design import SourceType
@@ -16,7 +16,7 @@ from ...utils import replacing_file, unique
 from ..ghdl import GhdlSynth
 from .common import (
     STOP_AFTER_DESCRIPTION,
-    YosysBase,
+    YosysSynthesisBase,
     append_flag,
     process_parameters,
     stop_after_conflicts,
@@ -199,7 +199,7 @@ class HiLoMap(XedaBaseModel):
     singleton: bool = True
 
 
-class Yosys(YosysBase, SynthFlow):
+class Yosys(YosysSynthesisBase, SynthFlow):
     """
     Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
     """
@@ -211,7 +211,14 @@ class Yosys(YosysBase, SynthFlow):
         },
     )
 
-    class Settings(YosysBase.Settings, SynthFlow.Settings):
+    class Settings(YosysSynthesisBase.Settings, SynthFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **YosysSynthesisBase.Settings.removed_settings,
+            "retime": "`abc_dff` (on by default), which passes `-dff` to `abc`, and `abc_flags` "
+            "for more options of `abc`; yosys's `synth` has no retime option",
+            "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
+        }
+        nosynth: bool = Field(False, description="Do not run `synth`.")
         platform: Optional[AsicsPlatform] = Field(
             None,
             description="ASIC platform (PDK) to map to: a bundled platform name (see "

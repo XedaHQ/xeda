@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Literal, Optional, Set
 
 from ...dataclass import Field
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, describe_results
+from ...flow import FpgaSynthFlow, describe_results, NoReplacement
 from ...tool import Docker, Tool
 from ...types import PathLike
 from ...utils import try_convert_to_primitives
@@ -100,6 +100,10 @@ class Quartus(FpgaSynthFlow):
     )
 
     class Settings(FpgaSynthFlow.Settings):
+        removed_settings = {
+            **FpgaSynthFlow.Settings.removed_settings,
+            "synthesis_effort": NoReplacement("xeda passed it to nothing"),
+        }
         # part number (fpga.part) formats are quite complicated.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
         seed: Optional[int] = Field(None, description="Seed")
@@ -162,11 +166,6 @@ class Quartus(FpgaSynthFlow):
         )
         rom_recognition: bool = Field(
             True, description="Infer ROM blocks from constant memory patterns."
-        )
-        synthesis_effort: Literal["auto", "fast"] = Field(
-            "auto",
-            description='Synthesis effort. "fast" compiles noticeably quicker and gives worse '
-            "quality of results.",
         )
         fitter_effort: Literal["STANDARD FIT", "AUTO FIT", "FAST_FIT"] = Field(
             "AUTO FIT",

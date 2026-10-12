@@ -20,8 +20,9 @@
 | Message | Fix |
 | --- | --- |
 | `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
+| `` <flow> runs Vivado in non-project mode, which has no runs to use `<setting>` on: it is a setting of vivado_synth `` | A flow refuses a setting that belongs to a related flow and names that flow. Move the setting there (`flows.vivado_synth.<setting>`). |
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
-| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says. For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
+| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). Settings nothing used were removed, for example `timeout_seconds` (now `timeout`, on the simulators). For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
 | `cannot interpret 'fast' as a quantity: expected a number, optionally followed by a unit` | Write `5.5`, `5.5ns` or `200MHz`. Units are case-sensitive. |
 | a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
@@ -103,7 +104,8 @@ A simulation passes only on recognized evidence that it ended, never on exit sta
   testbench with `$finish`, or set `timeout`. A C++ source that holds `main` needs `main: false`;
   without it, a C++ source is a DPI helper. `yosys_sim` also refuses `stop_time`.
 - `nvc` needs a C++ compiler for non-cocotb runs. Its `exit_severity` was removed: use
-  `fail_severity`.
+  `fail_severity`. `optimization_flags` is a setting of `bsc_sim`, `ghdl_sim`, `vivado_sim` and
+  `vivado_postsynth_sim` only; `nvc` has `optimization_level`.
 - ModelSim exits 0 whatever the testbench says; Xeda judges its owned batch log and
   `TESTSTATUS`. Vivado `xsim` needs source-preserving `elab_debug`; turning it off is refused.
 - VCS and Questa adapters judge native evidence and fail closed on evidence they do not recognize.

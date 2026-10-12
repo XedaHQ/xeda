@@ -290,16 +290,6 @@ class YosysBase(Flow):
             description="Verilog library files read with `-lib`: their modules are used only when "
             "instantiated, and are otherwise treated as black boxes.",
         )
-        splitnets: bool = Field(
-            False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
-        )
-        splitnets_driver: bool = Field(
-            False, description="Pass `-driver` to `splitnets`, so nets are split by their driver."
-        )
-        splitnets_ports: bool = Field(
-            False, description="Pass `-ports` to `splitnets`, so module ports are split too."
-        )
-        rmports: bool = Field(False, description="Remove unused or un-driven ports.")
         set_attribute: Dict[str, Any] = Field(
             {},
             description="Set attributes from a dict (or a json file) orgranized as attr_name -> (object_path -> attr_value)",
@@ -329,153 +319,12 @@ class YosysBase(Flow):
             description="Modules to treat as black boxes: their contents are discarded and only "
             "their interface is kept.",
         )
-        synth_flags: List[str] = Field(
-            [], description="Extra flags passed to yosys' `synth` command."
-        )
-        nosynth: bool = Field(False, description="Do not run `synth`.")
-        noabc: bool = Field(
-            False, description="Do not run `abc` step, also pass `-noabc` to `synth`."
-        )
-        abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
-        abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
-        abc_constr: List[str] = Field(
-            [],
-            description='Lines written to abc\'s constraint file, e.g. "set_driving_cell ..." or '
-            '"set_load ...".',
-        )
-        abc_script: Optional[str] = Field(
-            None,
-            description="Custom abc script, replacing the default mapping script: a script file, "
-            'or the script itself written inline after a "+" ("+strash;map"). Advanced: a '
-            "wrong script silently produces a poor or invalid netlist.",
-        )
         top_is_vhdl: Optional[bool] = Field(
             None,
             description="set to `true` to specify top module is VHDL, or `false` to override "
             "detection based on the last source in a hardware description language that the flow "
             "reads.",
         )
-        post_synth_rename: List[str] = Field(
-            [], description='Flags passed to yosys\' `rename` after synthesis, e.g. ["-hide"].'
-        )
-        netlist_verilog: Optional[Path] = Field(
-            Path("netlist.v"),
-            alias="netlist",
-            description="Write the synthesized gate-level netlist to this Verilog file. Set to "
-            "null to skip.",
-            json_schema_extra=deliverable(),
-        )
-        netlist_attrs: Optional[bool] = Field(
-            True, description="Include cell and wire attributes in the written Verilog netlist."
-        )
-        netlist_expr: Optional[bool] = Field(
-            None,
-            description="Write expressions in the netlist instead of always fully mapping them. "
-            "Null leaves yosys' default.",
-        )
-        netlist_dec: Optional[bool] = Field(
-            False, description="Write constants in the netlist in decimal."
-        )
-        netlist_hex: Optional[bool] = Field(
-            True, description="Write constants in the netlist in hexadecimal."
-        )
-        netlist_blackboxes: Optional[bool] = Field(
-            False, description="Include black-box modules in the written netlist."
-        )
-        netlist_simple_lhs: Optional[bool] = Field(
-            False,
-            description="Write only simple left-hand sides in the netlist, for tools that cannot "
-            "parse concatenations on the left of an assignment.",
-        )
-        netlist_verilog_flags: List[str] = Field(
-            [],
-            description="Extra flags for `write_verilog`, in addition to those the `netlist_*` "
-            "switches above imply.",
-        )
-        netlist_verilog_extmem: List[str] = Field(
-            [],
-            description="Write memory contents to external files rather than inline, using these "
-            "`-extmem` arguments.",
-        )
-        netlist_src_attrs: bool = Field(
-            False,
-            description="Keep `src` attributes (source file and line) in the written netlists "
-            "(JSON, Verilog and BLIF).",
-        )
-        netlist_unset_attributes: List[str] = Field(
-            [], description="Attributes to strip from the design before writing any netlist."
-        )
-        netlist_json: Optional[Path] = Field(
-            Path("netlist.json"),
-            alias="json_netlist",
-            description="Write the synthesized netlist to this JSON file. Required by downstream "
-            "flows such as `nextpnr`.",
-            json_schema_extra=deliverable(),
-        )
-        netlist_graph: Optional[Path] = Field(
-            None,
-            description="Render a `show` graph of the synthesized netlist to this file.",
-            json_schema_extra=deliverable("outputs/{design}_netlist.dot"),
-        )
-        netlist_graph_flags: List[str] = Field(
-            ["-stretch", "-enum", "-width", "-href", "-color maroon3 t:*dff"],
-            description="Flags passed to yosys' `show` when rendering `netlist_graph`.",
-        )
-        write_blif: Optional[Path] = Field(
-            None,
-            description="Write the synthesized netlist to this BLIF file.",
-            json_schema_extra=deliverable("outputs/{design}.blif"),
-        )
-        retime: bool = Field(False, description="Enable flip-flop retiming")
-        sta: bool = Field(
-            False,
-            description="Run a simple static timing analysis (implies `flatten`)",
-        )
-        post_synth_opt: Optional[bool] = Field(
-            False,
-            description="run additional optimization steps after synthesis if complete",
-        )
-        ltp: bool = Field(False, description="Print the longest topological path in the design.")
-
-        def write_verilog_flags(self) -> List[str]:
-            """`write_verilog` flags: `netlist_verilog_flags` plus those the `netlist_*` switches
-            imply (a switch left `None` adds nothing). Computed when the script is written, so a
-            switch set after construction -- as `init` does for `netlist_expr` -- takes effect."""
-            flags = list(self.netlist_verilog_flags)
-            for switch, flag, flag_when in (
-                (self.netlist_dec, "-nodec", False),
-                (self.netlist_hex, "-nohex", False),
-                (self.netlist_expr, "-noexpr", False),
-                (self.netlist_attrs, "-noattr", False),
-                (self.netlist_blackboxes, "-blackboxes", True),
-                (self.netlist_simple_lhs, "-simple-lhs", True),
-            ):
-                if switch is flag_when:
-                    flags.append(flag)
-                elif switch is (not flag_when) and flag in flags:
-                    flags.remove(flag)
-            return unique(flags)
-
-        def attributes_to_unset(self) -> List[str]:
-            """`netlist_unset_attributes`, plus `src` unless `netlist_src_attrs` keeps it.
-
-            Removed before every netlist is written. `netlist_attrs` does not enter into it: it
-            drops attributes from the Verilog netlist only, while the JSON netlist always carries
-            them."""
-            attributes = list(self.netlist_unset_attributes)
-            if not self.netlist_src_attrs:
-                attributes.append("src")
-            return unique(attributes)
-
-        @field_validator("abc_script", mode="before")
-        @classmethod
-        def validate_abc_script(cls, value):
-            """An inline script ("+...") is text; anything else names a script file."""
-            if isinstance(value, str) and value.startswith("+"):
-                return value.replace(" ", ",")
-            if isinstance(value, str) and value:
-                return value
-            return value
 
         @field_validator("verilog_lib", mode="before")
         @classmethod
@@ -548,20 +397,6 @@ class YosysBase(Flow):
                         value[attr] = format_attribute_value(attr_val)
             return value
 
-    @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """A flow that takes an output of this one asks for it. A flow stopped after the RTL
-        (`stop_after`) writes none, so the ask is refused, saying that no flow which takes it can
-        follow. Telling the user to turn the netlist settings off (`stop_after_conflicts`) would
-        send them in a circle: this ask turns them back on."""
-        if getattr(settings, "stop_after", None) == "rtl":  # `yosys_sim` has no `stop_after`
-            raise ValueError(
-                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
-                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
-                "out the flow that takes it"
-            )
-        super().enable_output(settings, name, design_name=design_name)
-
     @property
     def script_ext(self) -> str:
         """Extension of the script template to render (`.ys` or `.tcl`)."""
@@ -598,46 +433,11 @@ class YosysBase(Flow):
         )
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
-    def locate_prepared_inputs(self) -> Optional[List[Path]]:
-        """The ABC script a setting names, as a path (`+` names one of yosys's own)."""
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        if ss.abc_script and not ss.abc_script.startswith("+"):
-            return [
-                self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.design_root)
-            ]
-        return []
-
-    @classmethod
-    def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse what no Yosys flow can honor, before anything runs: the timing analyses `sta`
-        and `ltp` work on the flattened design. A flow that adds to this calls it first."""
-        super().check_settings_supported(settings)
-        assert isinstance(settings, cls.Settings)
-        if (settings.sta or settings.ltp) and settings.flatten is False:
-            raise FlowSettingsException(
-                "sta and ltp analyze the flattened design, so they cannot be combined with "
-                "flatten=false."
-            )
-
     def init(self):
-        """Prepare template helpers and Yosys synthesis settings."""
+        """Prepare the template helpers and the settings every yosys flow shares."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # a flow built directly is not planned; the other rules of a flow's hook stay with its
-        # planning (a stop after the RTL, for one, is rendered by tests that build a flow directly)
-        YosysBase.check_settings_supported(ss)
         self.add_template_helpers()
-        for path in self.locate_prepared_inputs() or ():
-            ss.abc_script = str(path)
-            self.implicit_inputs.append(path)
-        for name in ("adder_map", "clockgate_map"):
-            value = getattr(ss, name, None)
-            if value:
-                setattr(ss, name, self.normalize_path_to_design_root(value))
-        other_maps = getattr(ss, "other_maps", None)
-        if other_maps is not None:
-            setattr(ss, "other_maps", [self.normalize_path_to_design_root(p) for p in other_maps])
         if ss.ghdl is None:
             ss.ghdl = GhdlSynth.Settings()
         if ss.keep_hierarchy:
@@ -646,26 +446,17 @@ class YosysBase(Flow):
                 ss.set_mod_attribute[kh] = {}
             for mod in ss.keep_hierarchy:
                 ss.set_mod_attribute[kh][mod] = 1
-
-        if ss.sta or ss.ltp:
-            ss.flatten = True
-        if ss.abc_dff:
-            append_flag(ss.abc_flags, "-dff")
         ss.set_attribute = hierarchical_merge(self.design.rtl.attributes, ss.set_attribute)
 
         if ss.rtl_json:
             self.artifacts.rtl_json = ss.rtl_json
         if ss.rtl_verilog:
             self.artifacts.rtl_verilog = ss.rtl_verilog
-        if ss.netlist_verilog:
-            self.artifacts.netlist_verilog = ss.netlist_verilog
-        if ss.netlist_json:
-            self.artifacts.netlist_json = ss.netlist_json
 
     def prepare_output_parents(self) -> None:
         """Create output parents only when executing, leaving reused init write-free."""
         assert isinstance(self.settings, self.Settings)
-        for name in ("rtl_json", "rtl_verilog", "netlist_verilog", "netlist_json"):
+        for name in ("rtl_json", "rtl_verilog"):
             path = getattr(self.settings, name)
             if path:
                 self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
@@ -776,6 +567,258 @@ class YosysBase(Flow):
         except json.decoder.JSONDecodeError as e:
             log.error("Failed to decode JSON %s: %s", str(report), e)
             return None
+
+
+class YosysSynthesisBase(YosysBase):
+    """What the flows that map a design to a netlist with yosys share, `yosys` and `yosys_fpga`:
+    the netlist and its writers, the ABC mapping and the passes after synthesis. A flow that
+    only reads the design with yosys (`yosys_sim`) is a `YosysBase` and has none of these."""
+
+    class Settings(YosysBase.Settings):
+        splitnets: bool = Field(
+            False, description="Run `splitnets`, splitting multi-bit nets into individual bits."
+        )
+
+        splitnets_driver: bool = Field(
+            False, description="Pass `-driver` to `splitnets`, so nets are split by their driver."
+        )
+
+        splitnets_ports: bool = Field(
+            False, description="Pass `-ports` to `splitnets`, so module ports are split too."
+        )
+
+        rmports: bool = Field(False, description="Remove unused or un-driven ports.")
+
+        synth_flags: List[str] = Field(
+            [], description="Extra flags passed to yosys' `synth` command."
+        )
+
+        noabc: bool = Field(
+            False, description="Do not run `abc` step, also pass `-noabc` to `synth`."
+        )
+
+        abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
+
+        abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
+
+        abc_constr: List[str] = Field(
+            [],
+            description='Lines written to abc\'s constraint file, e.g. "set_driving_cell ..." or '
+            '"set_load ...".',
+        )
+
+        abc_script: Optional[str] = Field(
+            None,
+            description="Custom abc script, replacing the default mapping script: a script file, "
+            'or the script itself written inline after a "+" ("+strash;map"). Advanced: a '
+            "wrong script silently produces a poor or invalid netlist.",
+        )
+
+        post_synth_rename: List[str] = Field(
+            [], description='Flags passed to yosys\' `rename` after synthesis, e.g. ["-hide"].'
+        )
+
+        netlist_verilog: Optional[Path] = Field(
+            Path("netlist.v"),
+            alias="netlist",
+            description="Write the synthesized gate-level netlist to this Verilog file. Set to "
+            "null to skip.",
+            json_schema_extra=deliverable(),
+        )
+
+        netlist_attrs: Optional[bool] = Field(
+            True, description="Include cell and wire attributes in the written Verilog netlist."
+        )
+
+        netlist_expr: Optional[bool] = Field(
+            None,
+            description="Write expressions in the netlist instead of always fully mapping them. "
+            "Null leaves yosys' default.",
+        )
+
+        netlist_dec: Optional[bool] = Field(
+            False, description="Write constants in the netlist in decimal."
+        )
+
+        netlist_hex: Optional[bool] = Field(
+            True, description="Write constants in the netlist in hexadecimal."
+        )
+
+        netlist_blackboxes: Optional[bool] = Field(
+            False, description="Include black-box modules in the written netlist."
+        )
+
+        netlist_simple_lhs: Optional[bool] = Field(
+            False,
+            description="Write only simple left-hand sides in the netlist, for tools that cannot "
+            "parse concatenations on the left of an assignment.",
+        )
+
+        netlist_verilog_flags: List[str] = Field(
+            [],
+            description="Extra flags for `write_verilog`, in addition to those the `netlist_*` "
+            "switches above imply.",
+        )
+
+        netlist_src_attrs: bool = Field(
+            False,
+            description="Keep `src` attributes (source file and line) in the written netlists "
+            "(JSON, Verilog and BLIF).",
+        )
+
+        netlist_unset_attributes: List[str] = Field(
+            [], description="Attributes to strip from the design before writing any netlist."
+        )
+
+        netlist_json: Optional[Path] = Field(
+            Path("netlist.json"),
+            alias="json_netlist",
+            description="Write the synthesized netlist to this JSON file. Required by downstream "
+            "flows such as `nextpnr`.",
+            json_schema_extra=deliverable(),
+        )
+
+        netlist_graph: Optional[Path] = Field(
+            None,
+            description="Render a `show` graph of the synthesized netlist to this file.",
+            json_schema_extra=deliverable("outputs/{design}_netlist.dot"),
+        )
+
+        netlist_graph_flags: List[str] = Field(
+            ["-stretch", "-enum", "-width", "-href", "-color maroon3 t:*dff"],
+            description="Flags passed to yosys' `show` when rendering `netlist_graph`.",
+        )
+
+        write_blif: Optional[Path] = Field(
+            None,
+            description="Write the synthesized netlist to this BLIF file.",
+            json_schema_extra=deliverable("outputs/{design}.blif"),
+        )
+
+        sta: bool = Field(
+            False,
+            description="Run a simple static timing analysis (implies `flatten`)",
+        )
+
+        post_synth_opt: Optional[bool] = Field(
+            False,
+            description="run additional optimization steps after synthesis if complete",
+        )
+
+        ltp: bool = Field(False, description="Print the longest topological path in the design.")
+
+        def write_verilog_flags(self) -> List[str]:
+            """`write_verilog` flags: `netlist_verilog_flags` plus those the `netlist_*` switches
+            imply (a switch left `None` adds nothing). Computed when the script is written, so a
+            switch set after construction -- as `init` does for `netlist_expr` -- takes effect."""
+            flags = list(self.netlist_verilog_flags)
+            for switch, flag, flag_when in (
+                (self.netlist_dec, "-nodec", False),
+                (self.netlist_hex, "-nohex", False),
+                (self.netlist_expr, "-noexpr", False),
+                (self.netlist_attrs, "-noattr", False),
+                (self.netlist_blackboxes, "-blackboxes", True),
+                (self.netlist_simple_lhs, "-simple-lhs", True),
+            ):
+                if switch is flag_when:
+                    flags.append(flag)
+                elif switch is (not flag_when) and flag in flags:
+                    flags.remove(flag)
+            return unique(flags)
+
+        def attributes_to_unset(self) -> List[str]:
+            """`netlist_unset_attributes`, plus `src` unless `netlist_src_attrs` keeps it.
+
+            Removed before every netlist is written. `netlist_attrs` does not enter into it: it
+            drops attributes from the Verilog netlist only, while the JSON netlist always carries
+            them."""
+            attributes = list(self.netlist_unset_attributes)
+            if not self.netlist_src_attrs:
+                attributes.append("src")
+            return unique(attributes)
+
+        @field_validator("abc_script", mode="before")
+        @classmethod
+        def validate_abc_script(cls, value):
+            """An inline script ("+...") is text; anything else names a script file."""
+            if isinstance(value, str) and value.startswith("+"):
+                return value.replace(" ", ",")
+            if isinstance(value, str) and value:
+                return value
+            return value
+
+    @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """A flow that takes an output of this one asks for it. A flow stopped after the RTL
+        (`stop_after`) writes none, so the ask is refused, saying that no flow which takes it can
+        follow. Telling the user to turn the netlist settings off (`stop_after_conflicts`) would
+        send them in a circle: this ask turns them back on."""
+        if getattr(settings, "stop_after", None) == "rtl":
+            raise ValueError(
+                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
+                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
+                "out the flow that takes it"
+            )
+        super().enable_output(settings, name, design_name=design_name)
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The ABC script a setting names, as a path (`+` names one of yosys's own)."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if ss.abc_script and not ss.abc_script.startswith("+"):
+            return [
+                self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.design_root)
+            ]
+        return []
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse what no Yosys synthesis flow can honor, before anything runs: the timing
+        analyses `sta` and `ltp` work on the flattened design. A flow that adds to this calls it
+        first."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if (settings.sta or settings.ltp) and settings.flatten is False:
+            raise FlowSettingsException(
+                "sta and ltp analyze the flattened design, so they cannot be combined with "
+                "flatten=false."
+            )
+
+    def init(self):
+        """Prepare the synthesis settings, and the shared ones through `YosysBase.init`."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        # a flow built directly is not planned; the other rules of a flow's hook stay with its
+        # planning (a stop after the RTL, for one, is rendered by tests that build a flow directly)
+        YosysSynthesisBase.check_settings_supported(ss)
+        super().init()
+        for path in self.locate_prepared_inputs() or ():
+            ss.abc_script = str(path)
+            self.implicit_inputs.append(path)
+        for name in ("adder_map", "clockgate_map"):
+            value = getattr(ss, name, None)
+            if value:
+                setattr(ss, name, self.normalize_path_to_design_root(value))
+        other_maps = getattr(ss, "other_maps", None)
+        if other_maps is not None:
+            setattr(ss, "other_maps", [self.normalize_path_to_design_root(p) for p in other_maps])
+        if ss.sta or ss.ltp:
+            ss.flatten = True
+        if ss.abc_dff:
+            append_flag(ss.abc_flags, "-dff")
+        if ss.netlist_verilog:
+            self.artifacts.netlist_verilog = ss.netlist_verilog
+        if ss.netlist_json:
+            self.artifacts.netlist_json = ss.netlist_json
+
+    def prepare_output_parents(self) -> None:
+        """Create output parents only when executing, leaving reused init write-free."""
+        super().prepare_output_parents()
+        assert isinstance(self.settings, self.Settings)
+        for name in ("netlist_verilog", "netlist_json"):
+            path = getattr(self.settings, name)
+            if path:
+                self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
 
 
 def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:

@@ -93,8 +93,9 @@ places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, n
 ``vivado_postsynth_sim``'s former ``synth`` section names ``flows.vivado_synth.<key>``, and
 ``vivado_power``'s former ``postsynthsim`` section and simulation controls (``elab_debug``,
 ``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
-``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` asks that flow for timing activity, which
-switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. ``openroad`` takes its
+``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` takes timing activity from that flow by
+default, which switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power (see
+:ref:`the functional alternative <power-activity>`). ``openroad`` takes its
 netlist from ``yosys`` the same way, so its synthesis is configured in ``flows.yosys``
 (``optimize``, ``abc_driver_cell``, ...; ``-s flows.yosys.optimize=speed`` with ``xeda run
 openroad``), and ``yosys`` derives everything else from the ``platform`` the two share.
@@ -157,12 +158,18 @@ text keeps the text as it is. The lists of the ``cocotb`` section (``testcase``,
 take text the same way.
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
-silently ignored would produce a result that looks fine and is not what you asked for.
+silently ignored would produce a result that looks fine and is not what you asked for. For the
+same reason a flow has no flow-specific setting that it does not use. A flow that cannot honor a setting of a
+related flow refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so
+it refuses the settings of ``vivado_sim``. The error for a removed setting says "``<name>`` was
+removed: use ..." and names the replacement, or says why nothing replaces it and to delete the setting.
 
 Settings shared by every flow
 -----------------------------
 
-Beyond the flow-specific ones, every flow accepts:
+Beyond the flow-specific ones, every flow accepts the settings below. The tools of some flows have
+no matching option. Such a flow accepts ``ncpus``, ``redirect_stdout`` or ``lib_paths`` and does
+nothing with it.
 
 ``ncpus`` (alias of ``nthreads``)
     Maximum number of threads the tools may use.
@@ -174,10 +181,11 @@ Beyond the flow-specific ones, every flow accepts:
     How much the flow and its tools say.
 
 ``redirect_stdout``
-    Send tool output to files rather than the console.
+    Send tool output to files rather than the console. Only the Vivado flows do this.
 
 ``lib_paths``
-    Additional HDL libraries, as ``(name, path)`` pairs.
+    Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
+    simulation flows use them.
 
 ``xeda list-settings <flow>`` lists these under *Common settings*; pass ``--no-common`` to see
 only the flow-specific ones.
@@ -465,6 +473,38 @@ on the alternative synthesis, bind the inputs of both flows to it:
       vivado_power:
         inputs:
           checkpoint: vivado_alt_synth.checkpoint_route
+
+.. _power-activity:
+
+**Power from a functional simulation.** ``vivado_power`` takes the activity of a timing simulation
+by default (``vivado_postsynth_sim.timing_saif``). Vivado also estimates power from the activity
+of a functional simulation of the netlist. That simulation is faster and has none of the problems
+of a timing simulation, but the estimate is less accurate. Bind the ``activity`` input to the
+simulation's ``saif`` output to ask for it; the flow's ``timing_sim`` setting no longer exists, so
+the binding is the only switch:
+
+.. code-block:: yaml
+
+    # power_functional.yaml
+    name: power_functional
+    rtl:
+      sources: [top.v]
+      top: top
+      clock:
+        port: clk
+    tb:
+      sources: [tb.sv]
+      top: tb
+      uut: dut
+    flows:
+      vivado_synth:
+        fpga: {part: xc7a35tcpg236-1}
+        clock: {period: 5.0}
+      vivado_power:
+        inputs:
+          activity: vivado_postsynth_sim.saif
+
+The same binding on the command line is ``-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
 
 **Where a binding can be given.** From the lowest rank to the highest: a project file, the
 design file, the command line (a chain, ``-s flows.<consumer>.inputs.<input>=<reference>``, or

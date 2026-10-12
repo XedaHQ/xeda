@@ -1,14 +1,14 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import ClassVar, Dict, List, Literal, Optional, Union
 
 from colorama import Fore as fg
 from colorama import Style as style
 
 from ..dataclass import WORKING, Field, waveform
 from ..design import SourceType
-from ..flow import Flow, FlowSettingsException, SimFlow
+from ..flow import Flow, FlowSettingsException, SimFlow, NoReplacement
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
@@ -101,15 +101,16 @@ class Vcs(SimFlow):
     simv: Tool
 
     class Settings(SimFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **SimFlow.Settings.removed_settings,
+            "optimization_flags": "`vcs_flags`, which reach the `vcs` elaboration, or `cflags` for the C "
+            "compiler",
+            "work_dir": NoReplacement("xeda passed it to nothing"),
+        }
         simv_flags: List[str] = Field(
             [],
             description="Extra arguments passed to the compiled simulator executable (simv). "
             "Ignored when `one_shot_run` is set.",
-        )
-        work_dir: Optional[Path] = Field(
-            Path("work"),
-            description="Directory holding the analyzed design library (vlogan/vhdlan).",
-            json_schema_extra=WORKING,
         )
         sim_no_save: bool = Field(
             True,
