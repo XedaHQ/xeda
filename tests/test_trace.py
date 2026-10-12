@@ -427,14 +427,14 @@ def test_metadata_only_design_changes_come_last(recorded):
 
 def test_another_xeda_version_is_named(recorded):
     run_dir, _, _, expected = recorded
-    assert _check(run_dir, expected, xeda_version="0.6.0").reason == "xeda changed: 0.5.0 -> 0.6.0"
+    assert _check(run_dir, expected, xeda_version="0.6.0").reason == "Xeda changed: 0.5.0 -> 0.6.0"
 
 
 def test_a_change_to_xeda_s_code_is_named(recorded):
     """An editable install keeps its version string across edits: the package digest is what
     notices a changed helper."""
     run_dir, _, _, expected = recorded
-    assert _check(run_dir, expected, xeda_code="y" * 32).reason == "xeda's code changed"
+    assert _check(run_dir, expected, xeda_code="y" * 32).reason == "Xeda's code changed"
 
 
 def test_a_change_to_a_plugin_flow_s_code_is_named(recorded):
@@ -453,10 +453,10 @@ def test_a_trace_of_another_format_is_recorded_by_another_xeda(recorded):
     run_dir, _, _, expected = recorded
     trace = json.loads((run_dir / "trace.json").read_text())
     (run_dir / "trace.json").write_text(json.dumps({**trace, "format": TRACE_FORMAT + 1}))
-    assert _check(run_dir, expected).reason == "recorded by another xeda"
+    assert _check(run_dir, expected).reason == "recorded by another Xeda"
     old = {k: v for k, v in trace.items() if k not in ("xeda_code", "inputs_recorded_ns")}
     (run_dir / "trace.json").write_text(json.dumps({**old, "format": 1}))  # the first trace format
-    assert _check(run_dir, expected).reason == "recorded by another xeda"
+    assert _check(run_dir, expected).reason == "recorded by another Xeda"
 
 
 def test_a_trace_of_another_flow_is_named(recorded):

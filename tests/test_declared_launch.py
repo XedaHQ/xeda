@@ -259,7 +259,7 @@ def test_changed_binding_provenance_invalidates_the_same_file_set(tmp_path, desi
     again = runner.launch_flow(_Taker, design, {})
     assert not again.reused and producers_of(runner, again)[0].reused
     assert {
-        "format": "another xeda",
+        "format": "another Xeda",
         "origin": "made now from __maker.made (was the design's sources)",
     }.get(binding, "declared input bindings changed") in again.stale_reason
 
