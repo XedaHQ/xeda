@@ -1,4 +1,4 @@
-"""Durable run-directory locks and read-only verification of a completed producer generation."""
+"""Durable run-directory locks, and read-only verification of the completed run of a producer."""
 
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ class _Hold:
     writers: int = 0
 
 
-# Authorization belongs to this process and execution thread, never to another thread/worker.
+# The authorization belongs to this process and execution thread, never to another thread or
+# worker.
 _held: dict[tuple[int, int, Path], _Hold] = {}
 
 
@@ -43,7 +44,7 @@ _directory_held: dict[tuple[int, int, int, int], _DirectoryHold] = {}
 
 
 def _after_fork() -> None:
-    # Closing our inherited copy releases no parent lock. LOCK_UN would release it for both.
+    # Closing the inherited copy releases no lock of the parent. LOCK_UN would release it for both.
     for hold in _held.values():
         hold.file.close()
     _held.clear()
@@ -57,15 +58,16 @@ if sys.platform != "win32":
 
 
 def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
-    """The durable lock beside the run directory: `<run dir>.lock` in its parent, which is
-    resolved, so ordinary in-root aliases of the parent share one lock.
+    """Return the durable lock file beside the run directory: `<run directory>.lock` in its parent.
 
-    The last component is resolved only when a run root is given and it is a link that stays
-    inside it: the lock is then beside what the link leads to, so a launch through the link's
-    name and one through the real name serialize on one lock. A link leading out of the run root
-    or nowhere is a `RunDirectoryError`, before anything is created. Without a run root the last
-    component is never resolved (a link is itself, as `RunDirectory.inside` has it), so a run
-    directory that has become a link cannot send the lock file to wherever the link leads."""
+    The parent is resolved, so ordinary aliases of the parent inside the run root share one
+    lock. The last component is resolved only when a run root is given and it is a link that
+    stays inside the run root. The lock is then beside what the link leads to, so a launch
+    through the name of the link and one through the real name serialize on one lock. A link
+    leading out of the run root, or nowhere, is a `RunDirectoryError`, before anything is
+    created. Without a run root the last component is never resolved (a link is itself, as
+    `RunDirectory.inside` has it), so a run directory that has become a link cannot send the
+    lock file to wherever the link leads."""
     run_path = Path(os.path.abspath(run_path))
     if run_root is not None:
         _check_inside(run_path, run_root)
@@ -75,8 +77,10 @@ def lock_file(run_path: Path, run_root: Path | None = None) -> Path:
 
 
 def _check_inside(run_path: Path, run_root: Path) -> None:
-    """Refuse a run directory that is not inside `run_root`: reached through a parent that is a
-    link leading out of it, or itself a link that leads out of it or nowhere."""
+    """Refuse a run directory that is not inside `run_root`.
+
+    Such a directory is reached through a parent that is a link leading out of the run root, or
+    it is itself a link that leads out of the run root or nowhere."""
     root = Path(os.path.realpath(run_root))
     parent = Path(os.path.realpath(run_path.parent))
     if parent != root and not parent.is_relative_to(root):
@@ -130,16 +134,17 @@ def _lock(run_path: Path, exclusive: bool, run_root: Path | None = None) -> Iter
 def run_dir_lock(
     run_path: Path, run_root: Path | None = None
 ) -> contextlib.AbstractContextManager[None]:
-    """Wait for an exclusive writer lock. Reenter only within the owning writer execution.
-    With `run_root`, a run directory whose parent leads out of it is refused (`RunDirectoryError`)
-    before anything is created."""
+    """Wait for an exclusive writer lock, and reenter it only within the owning writer execution.
+
+    With `run_root`, a run directory whose parent leads out of the run root is refused
+    (`RunDirectoryError`) before anything is created."""
     return _lock(run_path, exclusive=True, run_root=run_root)
 
 
 def run_dir_read_lock(
     run_path: Path, run_root: Path | None = None
 ) -> contextlib.AbstractContextManager[None]:
-    """Hold a shared producer lease; an enclosing writer retains its exclusive OS lock."""
+    """Hold a shared lease on a producer. An enclosing writer keeps its exclusive OS lock."""
     return _lock(run_path, exclusive=False, run_root=run_root)
 
 
@@ -147,13 +152,15 @@ def run_dir_read_lock(
 def generator_design_lock(design_root: Path) -> Iterator[None]:
     """Serialize generator loads for one existing design-root directory, without a lock file.
 
-    A content-keyed record lock cannot protect the first generation (there is no record yet), or
-    two different input identities whose generators write the same design tree. POSIX `flock`
-    also works on a read-only directory descriptor, so the tree's existing inode can serve as a
-    lease without creating the run root or writing beside the design. Reentering in one thread is
-    safe; separate threads and processes contend on the descriptor locks as expected.
+    A lock keyed by the content of a record cannot protect the first generation (there is no
+    record yet), or two different input identities whose generators write the same design tree.
+    POSIX `flock` also works on a read-only directory descriptor, so the existing inode of the
+    tree can serve as a lease, without creating the run root or writing beside the design.
+    Reentering in one thread is safe. Separate threads and processes contend on the descriptor
+    locks as expected.
 
-    Windows has no `fcntl.flock` backend here, matching the existing run-directory lock policy.
+    Windows has no `fcntl.flock` backend here, matching the existing policy of the run-directory
+    lock.
     """
     if sys.platform == "win32":
         yield
@@ -214,12 +221,13 @@ def generator_design_lock(design_root: Path) -> Iterator[None]:
 
 @dataclass(frozen=True)
 class CompletedRun:
-    """Files and bookkeeping captured before releasing the producer's exclusive lock.
+    """Files and bookkeeping captured before the exclusive lock of the producer is released.
 
-    Use the trace's existing records where their metadata is conclusive. Include the trace
-    itself, success/results/settings and every run entry, including unregistered outputs, so
-    an untraced producer or byte-identical declared output cannot hide a changed generation.
-    Verification uses the same walker and file records, without clocks, refreshes or writes.
+    The capture uses the existing records of the trace where their metadata is conclusive. It
+    includes the trace itself, the results and settings files, and every run entry, unregistered
+    outputs included, so that an untraced producer or a byte-identical declared output cannot
+    hide a changed run. Verification uses the same walker and file records, without clocks,
+    refreshes or writes.
     """
 
     run_path: Path

@@ -1,14 +1,15 @@
-"""Pure graph resolution, with origin-preserving shared-setting agreement.
+"""Pure graph resolution, with agreement of shared settings that keeps their origins.
 
 An input is supplied, in this order of precedence, by an explicit binding (a chain adjacency,
 or `flows.<consumer>.inputs.<input>` in a file, on the command line or through the API), by
-the design's typed sources, or by its declared default producer. Nodes are told apart by
-`NodeKey`, each resolved once, so every demand on a producer's outputs is known before its
-settings are frozen and hashed.
+the typed sources of the design, or by its declared default producer. Nodes are told apart by
+`NodeKey` and each is resolved once, so every demand on the outputs of a producer is known
+before its settings are frozen and hashed.
 
-Composition precedes agreement: a node keeps the origin-first precedence of `settings_layers`, while explicit
-shared leaves at different nodes are independent evidence. Only CLI/API leaves override the
-whole connected component. No flow instance or execution state is needed to make a plan.
+Composition precedes agreement: a node keeps the origin-first precedence of `settings_layers`,
+while explicit shared leaves at different nodes are independent evidence. Only leaves from the
+command line and the API override the whole connected component. A plan needs no flow instance
+and no execution state.
 """
 
 from __future__ import annotations
@@ -66,8 +67,8 @@ SHARED_SETTINGS = (
     "corner",
     "dont_use_cells",
 )
-#: Shared settings that are one value, compared and propagated whole -- never split into
-#: leaves and merged key by key with another node's: a platform is a model.
+#: Shared settings that are one value. They are compared and propagated whole, never split into
+#: leaves and merged key by key with the leaves of another node. A platform is a model.
 INDIVISIBLE_SETTINGS = ("platform",)
 log = logging.getLogger(__name__)
 
@@ -90,12 +91,12 @@ class ResolvedReference:
 
 @dataclass(frozen=True)
 class ResolvedInput:
-    """An input's ordered sources, its ordered producer references, or permitted absence.
+    """The ordered sources, the ordered producer references, or the permitted absence of an input.
 
-    `producer`/`output` are the first reference's (the only one of a scalar input).
-    `binding_origin` is None for design sources and default producers, else where the explicit
-    binding came from (`BINDING_ORIGINS`); with `binding_location` and `overridden` it explains
-    the edge and is no part of a run's identity.
+    `producer` and `output` are those of the first reference (the only one of a scalar input).
+    `binding_origin` is None for design sources and default producers. Otherwise it says where
+    the explicit binding came from (`BINDING_ORIGINS`). With `binding_location` and
+    `overridden`, it explains the edge, and it is no part of the identity of a run.
     """
 
     name: str
@@ -132,7 +133,7 @@ def _freeze(value: Any) -> Any:
 
 @dataclass(frozen=True)
 class PlanContext:
-    """The captured request, including delivery destinations omitted from run hashes."""
+    """The captured request, including delivery destinations that run hashes leave out."""
 
     design_hash: str
     design_root: Path
@@ -141,8 +142,8 @@ class PlanContext:
     hashed_run_dirs: bool
     debug: bool
     input_settings: Mapping[str, Any]
-    #: the design's selected target: no part of any identity, but where every node runs
-    #: (`<design>/<target>/<flow>`), so a plan belongs to the target it was made for
+    #: The selected target of the design. It is no part of any identity, but it is where every
+    #: node runs (`<design>/<target>/<flow>`), so a plan belongs to the target it was made for.
     target: str | None = None
 
 
@@ -158,8 +159,9 @@ class PlanNode:
     inputs: tuple[ResolvedInput, ...] = ()
     switched_on: tuple[str, ...] = ()
     key: NodeKey | None = None
-    #: the settings-only hash and the ordered input origins `flowrun_hash`, the node's
-    #: identity, is made of (`bindings.node_identity`): kept so the launcher can recompute it
+    #: The settings-only hash and the ordered input origins that `flowrun_hash`, the identity of
+    #: the node, is made of (`bindings.node_identity`). The launcher keeps them so that it can
+    #: recompute the identity.
     settings_hash: str = ""
     origins: tuple[tuple[str, Any], ...] = ()
 
@@ -169,7 +171,7 @@ class PlanNode:
 
     @property
     def node_key(self) -> NodeKey:
-        """The node's identity in its plan; `name` is its label."""
+        """The key of the node in its plan; `name` is its label."""
         return self.key or NodeKey(self.name)
 
 
@@ -180,8 +182,8 @@ class Plan:
     requested: str
     nodes: tuple[PlanNode, ...]
     context: PlanContext
-    #: the request as given (a chain's elements) and its binding layers: explanation and
-    #: validation data, immutable like the rest
+    #: The request as given (the elements of a chain) and its binding layers: data for
+    #: explanation and validation, immutable like the rest.
     request: FlowRequest | None = None
     bindings: tuple[BindingLayer, ...] = ()
 
@@ -198,7 +200,8 @@ def check_launchable(
     design: Design,
     unreached: Mapping[str, str] | None = None,
 ) -> None:
-    """Check final settings and source support without constructing a flow or probing tools.
+    """Check final settings and sources without constructing a flow or probing tools.
+
     `unreached` explains a missing required setting (`Flow.check_required_settings`)."""
     problems = written_path_problems(settings)
     if problems:
@@ -211,10 +214,11 @@ def check_launchable(
 
 
 def _explicit(value: Any) -> Any:
-    """Recover model input without making validator-derived/default fields contributions.
+    """Recover the input of a model without turning derived or default fields into contributions.
 
-    Descend even into unset parent fields: callers can edit a default-created dependency.
-    FPGA part parsing adds fields to fields_set; retain only differences from that parsing.
+    Descend even into unset parent fields: callers can edit a nested model that was created by
+    default. FPGA part parsing adds fields to `fields_set`; retain only the differences from
+    that parsing.
     """
     if isinstance(value, FPGA) and value.part:
         inferred = FPGA(part=value.part)
@@ -289,7 +293,9 @@ def _at(values: dict[str, Any], path: tuple[str, ...]) -> dict[str, Any]:
 
 
 def _overlay(base: _Located, layer: _Located, cls: type[Flow]) -> _Located:
-    """Merge as `settings_layers` does, retaining single-clock spellings until their lower layer is known."""
+    """Merge as `settings_layers` does, keeping single-clock spellings.
+
+    A single-clock spelling stays as written until the lower layer is known."""
     values = deepcopy(layer.values)
     incoming = dict(layer.locations)
     clock_inputs = dict(base.clock_inputs)
@@ -353,7 +359,8 @@ def _clock_inputs(
 def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> _Located:
     values = expand_forms(cls.Settings, merge_layers(_explicit(raw), settings_cls=cls.Settings))
     locations = {path: _Location(label, kind) for path in _leaves(values)}
-    # `settings_layers` synthesizes a name when a singular spelling creates a clock. It is not caller input.
+    # `settings_layers` synthesizes a name when a singular spelling creates a clock. That name is
+    # not input from the caller.
     original = merge_layers(_explicit(raw))
     singular = original.get("clock", {})
     if "clock" in original and isinstance(singular, Mapping) and not singular.get("name"):
@@ -373,7 +380,8 @@ def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: st
         for path, loc in own.locations.items()
     }
     located = _overlay(_Located(), own, cls)
-    # `settings_layers` owns ordinary precedence and aliases; this traversal carries the parallel locations.
+    # `settings_layers` owns ordinary precedence and aliases. This traversal carries the parallel
+    # locations.
     composed = compose_flow_settings(cls, [sections])
     located.values = _located(composed, cls, origin, kind).values
     return located
@@ -387,11 +395,11 @@ class _Request:
     raw: _Located
     requester: str
     inputs: list[ResolvedInput] = field(default_factory=list)
-    #: the distinct producers this node reads, in first-use order
+    #: The distinct producers this node reads, in order of first use.
     children: list[_Request] = field(default_factory=list)
-    #: input name -> its ordered (producer, output key) references
+    #: Maps an input name to its ordered (producer, output key) references.
     producers: dict[str, list[tuple[_Request, str]]] = field(default_factory=dict)
-    #: every output of this node a consumer reads: the union over the whole graph
+    #: Every output of this node that a consumer reads: the union over the whole graph.
     needed: set[str] = field(default_factory=set)
     switched: tuple[str, ...] = ()
     settings: Flow.Settings | None = None
@@ -407,12 +415,14 @@ def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
 
 
 def _given_at(location: _Location | None) -> str:
-    """` at <where it was given>`, or nothing for a value that has no recorded origin."""
+    """Return ` at <where it was given>`, or nothing for a value that has no recorded origin."""
     return f" at {location.label}" if location else ""
 
 
 def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
-    """Components include only edges whose endpoints both expose this shared field."""
+    """Group `requests` into connected components for the shared setting `shared`.
+
+    A component follows only edges whose endpoints both expose this field."""
     neighbors: dict[int, list[_Request]] = {id(r): [] for r in requests}
     for parent in requests:
         for child in parent.children:
@@ -439,17 +449,19 @@ def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
     return components
 
 
-#: one node's contribution to a shared setting at one leaf: the value it propagates, the key
-#: it is compared by (the same value for every leaf but `platform` and `corner`), and
-#: where it was given
+#: The contribution of one node to a shared setting at one leaf: the value it propagates, the
+#: key it is compared by (the same value for every leaf but `platform` and `corner`), and where
+#: it was given.
 _Leaf = tuple[Any, Any, "_Location"]
 
 
 def _platform_key(platform: Any) -> Any:
-    """What a platform is compared by: its validated model, every path in it written relative
-    to its resolved root (one outside the root as itself), together with that root. Two
-    spellings of one platform -- a bundled name and the path to its `config.toml` -- compare
-    equal; two models that share a name and a root but differ anywhere do not."""
+    """Return what a platform is compared by.
+
+    That is its validated model, with every path in it written relative to its resolved root (a
+    path outside the root as itself), together with that root. Two spellings of one platform,
+    a bundled name and the path to its `config.toml`, compare equal. Two models that share a
+    name and a root but differ anywhere do not."""
     if platform is None:
         return None
     root = Path(platform.root_dir).resolve()
@@ -488,7 +500,7 @@ def _normalized_leaves(
                 except ValueError as error:
                     raise _error(request.cls, f"clocks.{name}", str(error)) from error
     if shared in INDIVISIBLE_SETTINGS:
-        # one value, wherever its parts were given: located at the most specific of them
+        # One value, wherever its parts were given: located at the most specific of them.
         rank = {"file": 0, "cli": 1, "api": 2}
         given = [loc for path, loc in request.raw.locations.items() if path and path[0] == shared]
         value = request.raw.values.get(shared)
@@ -536,7 +548,7 @@ def _normalized_leaves(
         except ValueError as error:
             raise _error(request.cls, ".".join(path), f"{error} at {loc.label}") from error
         if shared == "corner" and isinstance(value, list):
-            # propagated as given; compared by the corner it selects, the first of a list
+            # Propagated as given, and compared by the corner it selects: the first of a list.
             key = value[0] if value else None
         else:
             key = value
@@ -545,7 +557,9 @@ def _normalized_leaves(
 
 
 def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, Any]:
-    """Syntax validation must not erase malformed nested values during reconciliation."""
+    """Return a copy of `values` without the shared settings, for syntax validation.
+
+    Validation must not erase malformed nested values during reconciliation."""
     ordinary = deepcopy(dict(values))
     for shared in SHARED_SETTINGS:
         if shared in cls.Settings.model_fields:
@@ -558,7 +572,9 @@ def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, An
 def _shared_locations(
     raw: _Located, cls: type[Flow], context: dict[str, Any]
 ) -> dict[tuple[str, ...], _Leaf]:
-    """Compare composed mappings with validated models without inventing API overrides."""
+    """Return the shared leaves of a composed mapping, as validated models read them.
+
+    No API override is invented."""
     try:
         settings_in_context(cls, _nonshared_input(cls, raw.values), **context)
     except FlowSettingsError as error:
@@ -572,15 +588,16 @@ def _shared_locations(
     return result
 
 
-#: where each agreed leaf of each node was given, by the node's `id`: every node of a group holds
-#: the winning contribution's value, so the winner's location is that value's origin
+#: Where each agreed leaf of each node was given, by the `id` of the node. Every node of a group
+#: holds the value of the winning contribution, so the location of the winner is the origin of
+#: that value.
 _Given = dict[int, dict[tuple[str, ...], "_Location"]]
 
 
 def _agree(
     requests: list[_Request], shared: str, context: dict[str, Any], *, provisional: bool = False
 ) -> _Given:
-    """Agree `shared` along the edges of `requests`, and say where each agreed leaf was given."""
+    """Agree `shared` along the edges of `requests`, and return where each agreed leaf was given."""
     given: _Given = {}
     for group in _components(requests, shared):
         candidates: dict[tuple[str, ...], list[tuple[_Request, Any, Any, _Location]]] = {}
@@ -602,7 +619,7 @@ def _agree(
             rank = {"file": 0, "cli": 1, "api": 2}
             highest = max(rank[loc.kind] for _r, _v, _k, loc in contributions)
             winners = [c for c in contributions if rank[c[3].kind] == highest]
-            # the winner's value is propagated exactly as given; contributions agree by key
+            # The value of the winner is propagated exactly as given. Contributions agree by key.
             first, value, key, location = winners[0]
             for other, alternative, other_key, other_location in winners[1:]:
                 if key != other_key and not provisional:
@@ -642,8 +659,11 @@ def _unreached(
     requests: list[_Request],
     layers: Sequence[tuple[str, Mapping[str, Any], str]],
 ) -> dict[str, str]:
-    """For each required setting `request` lacks, the sections that give it without reaching
-    `request`: a section of a flow that is not part of this run, or of a flow that shares no
+    """Return, for each required setting that `request` lacks, the sections that give it.
+
+    These sections give the setting without reaching `request`.
+
+    Such a section belongs to a flow that is not part of this run, or to a flow that shares no
     edge with `request` along which the setting is shared. A board gives `fpga` too: a
     board-aware flow derives its device from it."""
     assert request.settings is not None
@@ -680,12 +700,14 @@ def _unreached(
 
 
 def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> str:
-    """`; a <Type> source would supply <consumer>'s <input> and skip <producer>`, when that one
-    source takes `producer` out of the plan: exactly one input of the plan reaches it, and by
-    default, which a typed source of a type the input takes replaces. Otherwise the plan keeps
-    `producer` whatever source the design adds -- an input bound to it (a chain, a saved binding,
-    the command line or the API) keeps it, and so does any other input that reaches it -- and the
-    refusal adds nothing."""
+    """Return `; a <Type> source would supply <consumer>'s <input> and skip <producer>`, or "".
+
+    It applies when one source takes `producer` out of the plan. That is the case when exactly
+    one input of the plan reaches the producer, and by default, and a typed source of a type
+    that the input takes replaces it. Otherwise the plan keeps `producer` whatever source the
+    design adds, and the refusal adds nothing. An input bound to the producer (a chain, a saved
+    binding, the command line or the API) keeps it, and so does any other input that reaches
+    it."""
     edges = [
         (consumer, name)
         for consumer in requests
@@ -704,7 +726,7 @@ def _replaceable_by_a_source(producer: _Request, requests: list[_Request]) -> st
 
 
 def _sections(values: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Use the flow-name checks of `settings_layers` while preserving per-layer single-clock input syntax."""
+    """Use the flow-name checks of `settings_layers`, and keep the single-clock input syntax."""
     normalized = merge_flow_sections(values, flow_class_for=registered_flow)
     for name, raw in (values or {}).items():
         cls = registered_flow(name)
@@ -730,12 +752,17 @@ def resolve(
     binding_layers: Sequence[BindingLayer] = (),
     identify_design: bool = True,
 ) -> Plan:
-    """Resolve the graph (explicit bindings, then sources, then default producers), agree
-    settings, union every demand on each producer, enable outputs, validate and freeze.
+    """Resolve the graph, agree settings, union the demands on each producer, and freeze the plan.
+
+    The union covers every demand on the outputs of each producer. Resolution also enables the
+    outputs that consumers need.
+
+    The graph comes from explicit bindings first, then sources, then default producers. The
+    plan is validated before it is frozen.
 
     Without `identify_design`, the plan judges a declared design, whose generated sources may
-    not exist yet (`design.deferring_load_side_effects`): it is not identified by content, and
-    its empty `design_hash` is one no launch accepts (`FlowLauncher._validate_plan`)."""
+    not exist yet (`design.deferring_load_side_effects`). It is not identified by content, and
+    its empty `design_hash` is one that no launch accepts (`FlowLauncher._validate_plan`)."""
     context = dict(design_root=design.root_path, runner_cwd=runner_cwd)
     if isinstance(settings, Flow.Settings) and settings.context:
         context = {key: settings.context.get(key) or value for key, value in context.items()}
@@ -754,8 +781,9 @@ def resolve(
     root_raw = _Located()
     for label, values, kind in layers:
         root_raw = _overlay(root_raw, _compose(flow_cls, values, label, kind), flow_cls)
-    # settings is normally already composed by `settings_layers`. Preserve locations for identical leaves;
-    # only additional caller edits form a final direct-API contribution.
+    # `settings` is normally composed by `settings_layers` already. Preserve the locations of
+    # identical leaves. Only additional edits by the caller form a final contribution of the
+    # direct API.
     supplied = _located(
         _explicit(settings) if settings is not None else {}, flow_cls, API_ORIGIN, "api"
     )
@@ -770,8 +798,8 @@ def resolve(
         and not (known.get(path) == supplied_leaves[path] and path not in root_raw.locations)
     }
     if isinstance(settings, Flow.Settings):
-        # The single-clock normalization puts a generated name in model_fields_set too.
-        # A name equal to its mapping key carries no independent naming contribution.
+        # The single-clock normalization puts a generated name in `model_fields_set` too. A name
+        # equal to its mapping key carries no independent naming contribution.
         supplied.locations = {
             path: loc
             for path, loc in supplied.locations.items()
@@ -784,7 +812,7 @@ def resolve(
         }
     for path, (_value, key, _location) in normalized_supplied.items():
         if path in normalized_known and key == normalized_known[path][1]:
-            # Models store a frequency as period; locate that original contribution too.
+            # Models store a frequency as a period. Locate that original contribution too.
             supplied.locations[path] = normalized_known[path][2]
             if path[-1] == "period":
                 supplied.locations[(*path[:-1], "freq")] = normalized_known[path][2]
@@ -799,8 +827,10 @@ def resolve(
     def bound_output(
         cls: type[Flow], declaration: Any, producer: type[Flow], wanted: str | None, where: str
     ) -> str:
-        """The output key one explicit reference selects, by declared kinds and cardinality.
-        Target-selected types are judged once the final settings agree."""
+        """Return the output key that one explicit reference selects.
+
+        The choice follows the declared kinds and the cardinality. Types that depend on the
+        settings are judged once the final settings agree."""
         outputs = declared_outputs(producer)
         if not outputs:
             raise FlowSettingsException(
@@ -961,7 +991,7 @@ def resolve(
     order: list[_Request] = []  # producers before consumers: the order of the plan
 
     def retain(request: _Request) -> None:
-        """The nodes the requested flow still reaches, each once, with their demands."""
+        """Collect the nodes that the requested flow still reaches, each once, with demands."""
         if any(request is kept for kept in requests):
             return
         requests.append(request)
@@ -1010,9 +1040,9 @@ def resolve(
                 }
                 board = WithFpgaBoardSettings.from_input(raw_board, **context)
                 if board.fpga:
-                    # The device leaves rank as the node's own board does (one it received
-                    # along an edge ranks as a file's), and are located where the board that
-                    # won was written.
+                    # The device leaves rank as the own board of the node does (a board that it
+                    # received along an edge ranks as a file's), and they are located where the
+                    # winning board was written.
                     own = request.raw.locations.get(("board",))
                     written = given.get(id(request), {}).get(("board",), own)
                     location = _Location(
@@ -1034,8 +1064,9 @@ def resolve(
         getattr(r.cls.input_types, "__func__") is not getattr(Flow.input_types, "__func__")
         for r in requests
     ):
-        # A bounded selection pass on copies: a consumer's target breaks provisional ties.
-        # Strict agreement below applies only to edges that survive source displacement.
+        # A bounded selection pass on copies: the device settings of a consumer break
+        # provisional ties. Strict agreement below applies only to edges that survive source
+        # displacement.
         proposals = deepcopy(requests)
         agree_targets(proposals, provisional=True)
         for request, proposal in zip(list(requests), proposals):
@@ -1087,7 +1118,7 @@ def resolve(
                 unused_cls, unused, **context
             )  # syntax only, no launch requirements
             if unused:
-                # a default producer a source or a binding displaced, or one of its producers
+                # A default producer that a source or a binding displaced, or one of its producers.
                 log.info("%s is not part of this run: its settings are unused", unused_name)
     given = agree_targets(requests)
 
@@ -1173,12 +1204,12 @@ def resolve(
             sources = tuple(source.path for source in design.rtl.sources if source.type in types)
             if selected.origin == "source" and sources != selected.sources:
                 raise FlowSettingsException(
-                    f"{where} source selection changed after target agreement"
+                    f"{where} source selection changed after the settings were agreed"
                 )
             # An explicit binding stands whatever sources the design lists for that input.
             if selected.origin != "source" and sources and selected.binding_origin is None:
                 raise FlowSettingsException(
-                    f"{where} source selection changed after target agreement"
+                    f"{where} source selection changed after the settings were agreed"
                 )
             if selected.origin == "none" and declaration.required:
                 raise FlowSettingsException(
@@ -1200,7 +1231,7 @@ def resolve(
                     if not produced or not set(produced) <= set(types):
                         raise FlowSettingsException(
                             f"{where}: {child.cls.name}.{output_name} has no compatible output "
-                            f"for the selected target (takes {kinds(types) or 'nothing'}, "
+                            f"under the selected settings (takes {kinds(types) or 'nothing'}, "
                             f"makes {kinds(produced) or 'nothing'})"
                             + (
                                 f"; bound by {selected.binding_location}"

@@ -1,8 +1,8 @@
-"""Pure request parsing and declared-I/O checks for flow chains.
+"""Pure parsing of chain requests, and checks of chains against declared inputs and outputs.
 
-The request grammar is deliberately separate from graph resolution: parsing canonicalizes names
-and outputs, while the edge predicate uses declared or target-selected types without constructing
-flows or probing tools.
+The grammar of requests is separate from the resolution of the graph. Parsing canonicalizes the
+names of flows and outputs. The edge predicate uses the types that flows declare, or that their
+settings narrow them to, and it constructs no flow and probes no tool.
 """
 
 from __future__ import annotations
@@ -47,27 +47,27 @@ class ChainElement:
 
     @property
     def node(self) -> str:
-        """The canonical request-node name (a request has one node per flow)."""
+        """The canonical name of the request node (a request has one node per flow)."""
         return self.flow_class.name
 
 
 @dataclass(frozen=True)
 class FlowRequest:
-    """A normalized single-flow or adjacent-flow request."""
+    """A normalized request for one flow or for adjacent flows."""
 
     elements: tuple[ChainElement, ...]
 
     @property
     def requested(self) -> type[Flow]:
-        """The requested flow is the final chain element."""
+        """The requested flow: the final element of the chain."""
         return self.elements[-1].flow_class
 
 
 def parse_request(text: str) -> FlowRequest:
-    """Parse ``flow[.output][+flow[.output]...]`` and canonicalize every flow name.
+    """Parse `flow[.output][+flow[.output]...]` and canonicalize every flow name.
 
-    Flow classes are looked up lazily here to keep the request module independent of launcher
-    initialization. The parser does not construct a flow instance.
+    Flow classes are looked up lazily here, to keep the request module independent of the
+    initialization of the launcher. The parser does not construct a flow instance.
     """
     from .default_runner import FlowNotFoundError, get_flow_class
 
@@ -117,9 +117,11 @@ def parse_request(text: str) -> FlowRequest:
 
 
 class _EdgeFailure(Exception):
-    """An adjacent pair that cannot be an edge: its position, the reason, and whether the
-    request can be corrected by another chain (not when an output name does not exist: its
-    own message already names the close matches)."""
+    """An adjacent pair that cannot be an edge.
+
+    It holds the position, the reason, and whether another chain could correct the request.
+    Another chain cannot correct a request whose output name does not exist: the message of
+    that error already names the close matches."""
 
     def __init__(self, index: int, text: str, *, advise: bool = True) -> None:
         super().__init__(text)
@@ -129,15 +131,17 @@ class _EdgeFailure(Exception):
 
 
 def request_text(elements: Sequence[ChainElement]) -> str:
-    """The canonical request text of `elements`: `flow[.output]` joined by `+`."""
+    """Return the canonical request text of `elements`: `flow[.output]` joined by `+`."""
     return "+".join(
         element.node + (f".{element.output}" if element.output else "") for element in elements
     )
 
 
 def _check_chain(elements: Sequence[ChainElement]) -> None:
-    """The one chain validator: action, repeat and edge rules, without instantiation.
-    A pair that is no edge is an `_EdgeFailure`; every other refusal a `FlowSettingsException`."""
+    """Check a chain by the action, repeat and edge rules, without instantiation.
+
+    This is the one chain validator. A pair that is no edge raises `_EdgeFailure`. Every other
+    refusal is a `FlowSettingsException`."""
     if len(elements) <= 1:
         return
     seen: set[str] = set()
@@ -177,9 +181,10 @@ def _valid(elements: Sequence[ChainElement]) -> bool:
 
 
 def validate_chain(elements: Sequence[ChainElement]) -> None:
-    """Validate declaration/action/repeat boundaries and every adjacent edge, without
-    instantiation. A pair that is no edge is refused with the corrected requests that do
-    validate, when there are any (`suggest_chains`)."""
+    """Validate the action and repeat rules and every adjacent edge, without instantiation.
+
+    A pair that is no edge is refused with the corrected requests that do validate, when there
+    are any (`suggest_chains`)."""
     try:
         _check_chain(elements)
     except _EdgeFailure as failure:
@@ -191,14 +196,16 @@ def validate_chain(elements: Sequence[ChainElement]) -> None:
 
 
 def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[ChainElement, ...]]:
-    """Corrected requests for the pair at `index` and `index + 1` that is no edge. Every one is
-    the whole request -- its prefix, its suffix and the other qualifiers kept -- and passes
-    `_check_chain`, so no repeat, action or missing edge is ever advertised.
+    """Return corrected requests for the pair at `index` and `index + 1` that is no edge.
 
-    Two corrections, nothing else: another output of the producer (an ambiguous or unfitting
-    qualifier), and flows inserted between the pair along **required default-producer edges**
-    only (`_default_routes`: a bounded walk back from the consumer through the producers its
-    inputs name). There is no search over all flows and nothing is executed.
+    Every correction is the whole request (its prefix, its suffix and the other qualifiers
+    kept) and passes `_check_chain`, so no repeat, action or missing edge is advertised.
+
+    There are two kinds of correction. One is another output of the producer (for an ambiguous
+    or unfitting qualifier). The other inserts flows between the pair along required
+    default-producer edges only (`_default_routes`: a bounded walk back from the consumer
+    through the producers that its inputs name). There is no search over all flows, and
+    nothing is executed.
     """
     producer, consumer = elements[index], elements[index + 1]
     head, tail = tuple(elements[:index]), tuple(elements[index + 2 :])
@@ -214,7 +221,7 @@ def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[C
     if not found:
         for route in _default_routes(producer.flow_class, consumer.flow_class):
             between = tuple(ChainElement(cls) for cls in route)
-            # the producer's own qualifier first; unqualified only when that one cannot work
+            # The producer's own qualifier first; unqualified only when that one cannot work.
             for output in dict.fromkeys((producer.output, None)):
                 before = len(found)
                 offer(
@@ -230,10 +237,11 @@ def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[C
 
 
 def _default_routes(producer: type[Flow], consumer: type[Flow]) -> list[tuple[type[Flow], ...]]:
-    """The flows between `producer` and `consumer`, in chain order, for each way of reaching
-    `producer` by walking back from `consumer` over the default producers its **required**
-    inputs name. Breadth-first with a visited set (so a cycle of defaults ends), shortest first;
-    only a hint, since the whole candidate chain is validated afterwards."""
+    """Return the flows between `producer` and `consumer`, in chain order, for each route.
+
+    The walk goes back from `consumer` over the default producers that its required inputs
+    name. It is breadth-first with a visited set (so a cycle of defaults ends), shortest first.
+    The result is only a hint, since the whole candidate chain is validated afterwards."""
     from .settings_layers import registered_flow
 
     routes: list[tuple[type[Flow], ...]] = []
@@ -258,22 +266,27 @@ def _default_routes(producer: type[Flow], consumer: type[Flow]) -> list[tuple[ty
 
 @dataclass(frozen=True)
 class ChainEdge:
-    """One way `producer` can directly precede `consumer`: exactly what the chain validator
-    accepts for that adjacency, with the input/output pairs it binds."""
+    """One way `producer` can directly precede `consumer`.
+
+    It is exactly what the chain validator accepts for that adjacency, with the input and
+    output pairs it binds."""
 
     producer: type[Flow]
     consumer: type[Flow]
-    #: the producer's output a qualified request names; None when the unqualified one is valid
+    #: The output of the producer that a qualified request names; None when the unqualified
+    #: request is valid.
     output: str | None
     binds: tuple[tuple[str, str], ...]
-    #: a produced or accepted kind is a union the target narrows, so the final plan decides
+    #: Whether a produced or accepted kind is a union that the settings narrow, so that the
+    #: final plan decides.
     target_dependent: bool
 
 
 def edges(producer: type[Flow], consumer: type[Flow]) -> list[ChainEdge]:
-    """The ways `producer+consumer` is a valid adjacency: the unqualified one, else one
-    qualified request per output of the producer that makes it valid. Judged by the chain
-    validator itself, on declarations alone."""
+    """Return the ways `producer+consumer` is a valid adjacency.
+
+    That is the unqualified request, else one qualified request per output of the producer that
+    makes it valid. The chain validator itself judges, on declarations alone."""
     outputs = declared_outputs(producer)
     found: list[ChainEdge] = []
     for output in (None, *outputs):
@@ -299,17 +312,17 @@ def edges(producer: type[Flow], consumer: type[Flow]) -> list[ChainEdge]:
 
 
 def followers(producer: type[Flow], candidates: Sequence[type[Flow]]) -> list[ChainEdge]:
-    """The edges from `producer` to each of `candidates`, in candidate order."""
+    """Return the edges from `producer` to each of `candidates`, in candidate order."""
     return [edge for consumer in candidates for edge in edges(producer, consumer)]
 
 
 def predecessors(consumer: type[Flow], candidates: Sequence[type[Flow]]) -> list[ChainEdge]:
-    """The edges from each of `candidates` to `consumer`, in candidate order."""
+    """Return the edges from each of `candidates` to `consumer`, in candidate order."""
     return [edge for producer in candidates for edge in edges(producer, consumer)]
 
 
 def _lenient_element(token: str) -> ChainElement | None:
-    """`flow[.output]` as typed so far, or None when it names no flow or is malformed."""
+    """Return `flow[.output]` as typed so far, or None when it names no flow or is malformed."""
     from .default_runner import FlowNotFoundError, get_flow_class
 
     name, dot, output = token.partition(".")
@@ -322,14 +335,15 @@ def _lenient_element(token: str) -> ChainElement | None:
 
 
 def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[str]:
-    """Completions of an unfinished request, each the **whole current token**: what was typed
-    before the last `+`, exactly as typed, followed by the completed element.
+    """Return completions of an unfinished request, each the whole current token.
 
-    After a `+` only flows that the validator accepts as the next element are offered. A flow
-    is offered only if it does not repeat one, does not follow an action, takes a required input
-    and has a compatible edge from the flow before it. In a qualifier (`nextpnr.`) the producer's
-    outputs that lead to some follower are offered. Static: it reads declarations only, loads no
-    design, constructs no flow and probes no tool.
+    A completion is what was typed before the last `+`, exactly as typed, followed by the
+    completed element. After a `+`, only flows that the validator accepts as the next element
+    are offered. A flow is offered only if it does not repeat one, does not follow an action,
+    takes a required input and has a compatible edge from the flow before it. In a qualifier
+    (`nextpnr.`), the outputs of the producer that lead to some follower are offered. The
+    function is static: it reads declarations only, loads no design, constructs no flow and
+    probes no tool.
     """
     head_text, plus, partial = incomplete.rpartition("+")
     head: list[ChainElement] = []
@@ -379,15 +393,17 @@ def fitting_outputs(
     accepted: Sequence[SourceType] | None = None,
     selected_output_types: Mapping[str, Sequence[SourceType]] | None = None,
 ) -> tuple[list[str], list[str]]:
-    """The one edge predicate (PD3), for chain adjacency and explicit bindings alike: the
-    outputs of `producer` that can supply the input `declaration`, and those of a fitting kind
-    that cannot because they are many-valued and the input takes one file.
+    """Return the outputs of `producer` that can supply the input `declaration`.
 
-    An output fits when the types it can make are nonempty and a **subset** of the types the
-    input accepts (an output that may be of a kind the input cannot take does not fit), and a
+    This is the one edge predicate, for chain adjacency and explicit bindings alike. The result
+    is a pair of lists. The second holds the outputs of a fitting kind that cannot supply the
+    input, because they are many-valued and the input takes one file.
+
+    An output fits when the types it can make are nonempty and a subset of the types the input
+    accepts (an output that may be of a kind the input cannot take does not fit), and a
     many-valued output feeds only a many-valued input. `output` restricts the question to one
-    key. When several fit and the input's own default producer is `producer`, its declared
-    default output decides.
+    key. When several outputs fit and the default producer of the input is `producer`, the
+    declared default output decides.
     """
     takes = tuple(declaration.types if accepted is None else accepted)
     fitting: list[str] = []
@@ -418,10 +434,10 @@ def match_required_inputs(
     selected_input_types: Mapping[str, Sequence[SourceType]] | None = None,
     selected_output_types: Mapping[str, Sequence[SourceType]] | None = None,
 ) -> list[tuple[str, str]]:
-    """Return all required compatible ``(input, output)`` pairs in consumer declaration order.
+    """Return all required compatible `(input, output)` pairs in consumer declaration order.
 
     A produced type set must be nonempty and a subset of the accepted input types. A many-valued
-    output can feed only a many-valued input. Optional inputs are intentionally excluded because
+    output can feed only a many-valued input. Optional inputs are excluded on purpose, because
     adjacency is not an opt-in for them.
     """
     inputs = declared_inputs(consumer)
@@ -465,8 +481,10 @@ def match_required_inputs(
 
 
 def close_names(name: str, declared: Sequence[str]) -> str:
-    """` Did you mean `x`?` for the declared names close to `name`, else what is declared (for
-    an input or output name that is no name of the flow), else nothing."""
+    """Return a hint for a name that is no name of the flow, for an input or an output.
+
+    The hint is ` Did you mean `x`?` for the declared names close to `name`, else the list of
+    what is declared, else nothing."""
     close = difflib.get_close_matches(name, list(declared), n=3, cutoff=0.5)
     if close:
         return f" Did you mean {', '.join(f'`{n}`' for n in close)}?"
@@ -474,7 +492,7 @@ def close_names(name: str, declared: Sequence[str]) -> str:
 
 
 def _no_edge(producer: type[Flow], consumer: type[Flow]) -> str:
-    """Why `producer` cannot be chained before `consumer`: what each takes and makes."""
+    """Return why `producer` cannot be chained before `consumer`: what each takes and makes."""
 
     def listed(declarations: Mapping[str, Any]) -> str:
         return (

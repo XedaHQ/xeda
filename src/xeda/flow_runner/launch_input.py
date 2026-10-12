@@ -2,8 +2,8 @@
 
 The input settings of a flow, validated in context, and the refusals that need only the plan.
 
-Free functions with explicit arguments. This module never imports `default_runner`: the
-launcher passes what each function needs.
+The functions are free functions with explicit arguments. This module never imports
+`default_runner`: the launcher passes what each function needs.
 """
 
 from __future__ import annotations
@@ -33,11 +33,11 @@ def input_settings(
     *,
     debug: bool = False,
 ) -> Flow.Settings:
-    """The run's input settings, validated in context and owned by the launcher.
+    """Return the input settings of the run, validated in context and owned by the launcher.
 
-    Never modified afterwards: the flow works on a copy of its own (`flow.settings`), which
-    its `__init__`/`init()`/`run()` may complete with derived values, resolved paths and
-    outputs without any of that leaking into the run's identity.
+    They are never modified afterwards. The flow works on a copy of its own (`flow.settings`),
+    which its `__init__`, `init()` and `run()` may complete with derived values, resolved paths
+    and outputs, without any of that leaking into the identity of the run.
     """
     try:
         settings = settings_in_context(flow_class, flow_settings, design.root_path, runner_cwd)
@@ -52,16 +52,18 @@ def input_settings(
             settings.model_dump_json(exclude_unset=True, indent=2),
         )
         settings.debug = True  # the launcher's `--debug` is part of the input
-    # a path the flow writes that leads out of its run directory, a setting the
+    # A path the flow writes that leads out of its run directory, a setting the
     # flow cannot run without, and a design it cannot run are reported now, before anything
-    # is set up for the run
+    # is set up for the run.
     check_launchable(flow_class, settings, design)
     return settings
 
 
 def setting_naming(flow_class: type[Flow], output: str) -> str | None:
-    """The deliverable setting of `flow_class` that names its output `output`: the one that
-    switches it on (`enabled_by`), else a setting of the output's own name."""
+    """Return the deliverable setting of `flow_class` that names its output `output`.
+
+    That is the setting that switches the output on (`enabled_by`), else a setting with the
+    name of the output."""
     declaration = declared_outputs(flow_class).get(output)
     for name in (declaration.enabled_by if declaration else None, output):
         if name and written_role(flow_class.Settings, name) == DELIVERABLE_ROLE:
@@ -72,13 +74,15 @@ def setting_naming(flow_class: type[Flow], output: str) -> str | None:
 def refuse_outputs_to_a_programmer(
     plan: Plan, node: PlanNode, outputs_to: Path, *, remote: bool = False
 ) -> None:
-    """`--outputs-to` copies what the requested flow writes. A flow that programs a device
-    (`Flow.action_reason`) writes no outputs, so there is nothing to deliver: a `DeliveryError`
-    before anything runs, a dry run alike, naming what would deliver the file it reads -- the
-    setting of the flow that writes it in this plan, given a location (`LOCATION_FORMS`); on a
-    `remote` run, where that setting would deliver on the
-    remote host, the request of that flow, whose own outputs come back -- or the design source it
-    is."""
+    """Refuse `--outputs-to` for a flow that programs a device, before anything runs.
+
+    `--outputs-to` copies what the requested flow writes. A flow with an `action_reason` (it
+    programs a device) writes no outputs, so there is nothing to deliver. The `DeliveryError`
+    also covers a dry run. It names what would deliver the file that the flow reads: the
+    setting of the flow that writes the file in this plan, given a location
+    (`LOCATION_FORMS`); or, on a `remote` run, where that setting would deliver on the remote
+    host, the request of that flow, whose own outputs come back; or the design source that the
+    file is."""
     flow_class = node.flow_class
     if flow_class.action_reason is None:
         return
