@@ -38,17 +38,10 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
 
 ## Run directories
 
-Runs land in the run root `./xeda_run/` (`--run-root`, `XEDA_RUN_ROOT`), which xeda creates and
-marks; keep nothing of yours there. A run directory is one flow's:
-
-| options | path |
-| --- | --- |
-| *(default)* | `<design>/<flow>/` |
-| `--hashed-run-dirs` | `<design>/<flow>_<16-char run hash>/` |
-
-A selected target adds a level (`<design>/<target>/<flow>`). A dependency's run directory is a
-sibling, never nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
-(`tests/test_run_directory_rule.py`).
+A run directory is `<run root>/<design>[/<target>]/<flow>[_<run hash>]` (the hash only with
+`--hashed-run-dirs`; run root `./xeda_run/`). A dependency's run directory is a sibling, never
+nested. Launch and `xeda scrub` share one rule, `run_dir.run_directory_problem`
+(`tests/test_run_directory_rule.py`). User-facing rules: `docs/run-directories.rst`.
 
 ## Architecture
 
@@ -145,11 +138,8 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 - A field holding a subclass needs `SerializeAsAny[...]`. Read state with `utils.model_state()`,
   not `__dict__`. Write JSON through `utils.json_encodable`; a non-pydantic type defines
   `as_json_value()`. Call `invalidate_cached_properties()` after `model_copy(update=...)`.
-- Settings layers, lowest first: defaults < project < design (target folded in) < `-s` < API
-  (`settings_layers.merge_layers`). A flow's settings live only under `flows.<flow>`; every entry
-  point takes the same layers (`tests/test_launch_origins.py`). Dotted keys expand through
-  `utils.set_hierarchy`; a dictionary keyed by tool names declares `opaque_key_fields`
-  (`tests/test_opaque_key_settings.py`).
+- Settings layers merge in one place (`settings_layers.merge_layers`), and every entry point
+  takes the same layers (`tests/test_launch_origins.py`); precedence: `docs/flows.rst`.
 
 ### Writes, caching and isolation
 
@@ -168,13 +158,12 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 ### Templates, tools and the CLI
 
 - Tool scripts are Jinja2 templates in `templates/` beside the flow module (`StrictUndefined`,
-  inherited by subclasses). A new template extension goes into `[tool.setuptools.package-data]`.
+  inherited by subclasses). Add a new template extension to `[tool.setuptools.package-data]`.
 - User text reaches a script only through a filter, never raw or through `eval`: Tcl `tcl_word`,
   `tcl_quote`, `tcl_list`; yosys `read_path`, `path`, `verbatim_path` (`tests/test_tcl_paths.py`,
   `tests/test_yosys_templates.py`).
 - Create a `Tool` inside a flow method (it finds its flow); query its version only with
-  `Tool.probe_stdout`. On a new yosys release, update `PASS_OPTIONS` and `PASS_READS` in
-  `tests/test_yosys_fpga_flags.py` and raise `NEWEST_CHECKED_YOSYS`.
+  `Tool.probe_stdout`, which runs outside the run directory.
 - Fake tools: `tool_utils.use_fake_tools(monkeypatch)` runs Tcl scripts under `tclsh` and
   records tool commands (`fake_calls`, `XEDA_FAKE_TOOL_FAIL`). A new fake is a symlink to
   `tests/fake_tools/fake_tool.py` plus a `fake_tools` entry. No test starts a real
@@ -186,15 +175,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   (`tests/test_hidden_options.py`); options read only declared environment variables; a behavior
   switch is a flag (`tests/test_option_names.py`). Compare help text via `click.unstyle(...)`.
 
-## Changelog and release
+## Changelog
 
 - A user-visible change adds `changelog.d/<slug>.<fixed|added|changed|removed>.md`: a kebab-case
   slug, one Markdown bullet wrapped at 100 columns (later lines indented two spaces), one or two
-  short sentences for users. Never edit `CHANGELOG.md` by hand. Every file in `changelog.d/` is a
-  fragment except `.gitkeep` and `.DS_Store` (`tests/test_changelog_fragments.py`).
-- On release, run `python tools/fold_changelog.py vX.Y.Z` and raise `REMOTE_XEDA_MIN_VERSION` to
-  the published release that carries the current remote protocol. Raise `REMOTE_PROTOCOL_VERSION`
-  and `REMOTE_PROTOCOL_MIN_VERSION` together, at most once per release cycle and only for a
-  remote-visible change, never in an ordinary pull request; then update the pinned key sets in
-  `tests/test_remote_run.py`. Code that `flow_runner/remote.py` ships to a remote uses only the
-  protocol floor's API, and its streaming setup only the standard library.
+  short sentences for users (`tests/test_changelog_fragments.py`). Never edit `CHANGELOG.md` by
+  hand: on release, `python tools/fold_changelog.py vX.Y.Z` folds the fragments into it.

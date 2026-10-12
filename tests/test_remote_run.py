@@ -491,7 +491,7 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
 
 #: The archive accepted by a protocol-1 remote.
 #: Keep these pins explicit: an incompatible archive change requires a protocol-floor bump;
-#: a release raises REMOTE_XEDA_MIN_VERSION as CLAUDE.md describes.
+#: a release raises REMOTE_XEDA_MIN_VERSION.
 ARCHIVE_RTL_KEYS = {
     "attributes",
     "clocks",

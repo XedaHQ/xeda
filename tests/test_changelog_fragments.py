@@ -77,23 +77,15 @@ def test_a_directory_without_fragments_has_no_problem(tmp_path):
 
 def test_the_files_that_are_no_fragments_are_exactly_gitkeep_and_ds_store():
     """The one constant of the script. Every other file must be a fragment, so a third name is a
-    decision: it needs its own tests below, and a line in the script's text and in CLAUDE.md."""
+    decision: it needs its own tests below, and a line in the script's text."""
     assert list(tool.NON_FRAGMENT_FILES) == NON_FRAGMENT_FILES
 
 
-def test_the_script_and_claude_md_name_the_files_that_are_no_fragments():
-    """The names are one constant in the script. The text of the script and the rule in CLAUDE.md
-    say them too, so a name is not added in one place and forgotten in the other."""
-    claude = ROOT / "CLAUDE.md"
-    if not claude.is_file():
-        pytest.skip("CLAUDE.md is not part of this installation")
-    texts = {
-        "the text of the script": tool.__doc__,
-        "CLAUDE.md": claude.read_text(encoding="utf-8"),
-    }
+def test_the_script_names_the_files_that_are_no_fragments():
+    """The names are one constant in the script, and its text says them too, so a name is not
+    added in one place and forgotten in the other."""
     for name in tool.NON_FRAGMENT_FILES:
-        for where, text in texts.items():
-            assert f"`{name}`" in text, f"{where} does not name `{name}`"
+        assert f"`{name}`" in tool.__doc__, f"the text of the script does not name `{name}`"
 
 
 def test_the_walk_of_the_directory_skips_those_two_files_and_no_other(tmp_path):
