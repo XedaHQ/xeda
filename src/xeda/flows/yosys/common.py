@@ -608,10 +608,25 @@ class YosysBase(Flow):
             ]
         return []
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse what no Yosys flow can honor, before anything runs: the timing analyses `sta`
+        and `ltp` work on the flattened design. A flow that adds to this calls it first."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if (settings.sta or settings.ltp) and settings.flatten is False:
+            raise FlowSettingsException(
+                "sta and ltp analyze the flattened design, so they cannot be combined with "
+                "flatten=false."
+            )
+
     def init(self):
         """Prepare template helpers and Yosys synthesis settings."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        # a flow built directly is not planned; the other rules of a flow's hook stay with its
+        # planning (a stop after the RTL, for one, is rendered by tests that build a flow directly)
+        YosysBase.check_settings_supported(ss)
         self.add_template_helpers()
         for path in self.locate_prepared_inputs() or ():
             ss.abc_script = str(path)
@@ -633,11 +648,6 @@ class YosysBase(Flow):
                 ss.set_mod_attribute[kh][mod] = 1
 
         if ss.sta or ss.ltp:
-            if ss.flatten is False:
-                raise FlowSettingsException(
-                    "sta and ltp analyze the flattened design, so they cannot be combined with "
-                    "flatten=false."
-                )
             ss.flatten = True
         if ss.abc_dff:
             append_flag(ss.abc_flags, "-dff")
