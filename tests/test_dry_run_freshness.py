@@ -674,3 +674,64 @@ def test_an_output_record_the_hand_over_refuses_is_unknown_to_a_dry_run(
     # and the launch refuses it
     with pytest.raises(Exception, match="has an invalid record"):
         graph.run()
+
+
+def test_an_invalid_record_of_a_fresh_producer_is_judged_whatever_another_producer_does(
+    tmp_path, monkeypatch, toys
+):
+    """With two producers, one fresh and holding a record the hand-over refuses, the other not
+    fresh: the launch runs the second and fails at the first's hand-over, so a consumer that
+    runs for its own reasons is unknown, not stale."""
+
+    class ToyOther(toys[0]):
+        """Writes its text to outputs/other.txt, as its output `other`."""
+
+        class Outputs(Flow.Outputs):
+            other: Path = Out(SourceType.Data, description="The text.")
+
+        def run(self) -> None:
+            out = self.run_path / "outputs" / "other.txt"
+            out.parent.mkdir(exist_ok=True)
+            out.write_text("other" + self.settings.suffix)
+            self.artifacts.other = out
+            self.outputs.other = out
+
+    class ToyBoth(toys[1]):
+        """Takes the texts of two producers."""
+
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The first text.",
+            )
+            other: Path = In(
+                SourceType.Data,
+                producer="toy_other",
+                output="other",
+                description="The second text.",
+            )
+
+        def run(self) -> None:
+            out = self.run_path / "outputs" / "consumed.txt"
+            out.parent.mkdir(exist_ok=True)
+            out.write_text(self.inputs.produced.read_text() + self.inputs.other.read_text())
+            self.artifacts.consumed = out
+
+    class BothGraph(ToyGraph):
+        flow, producer, consumer = "toy_both", "toy_producer", "toy_both"
+
+    graph = BothGraph(tmp_path, monkeypatch)
+    graph.settings.append("flows.toy_both.always=true")
+    graph.run()
+    graph.run()
+    _forge_record(graph, "toy_producer", _as_a_list)
+    graph.settings.append("flows.toy_other.suffix=!")  # the second producer is not fresh now
+    _, states = graph.dry()
+    assert states["toy_producer"].state == FRESH
+    assert states["toy_other"].state == STALE
+    said = states["toy_both"]
+    assert said.state == UNKNOWN and "has an invalid record" in said.reason, said
+    with pytest.raises(Exception, match="has an invalid record"):
+        graph.run()

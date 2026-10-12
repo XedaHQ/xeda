@@ -12,9 +12,19 @@ lock is taken, no process starts, and nothing is created. A flow is constructed 
 constructs it, with a run directory that is not launched (nothing is written there), and is not
 initialized.
 
-The order of judgment is the launch's: a flow that always runs; `--rebuild-all` and `--clean`;
-then the trace, up to what the producers handed over; then that, if every producer is fresh and
-so its recorded results are the ones a launch would hand over.
+The order of judgment is the launch's:
+
+1. the settings, which a launch checks in the design's context (`unknown` if it refuses them);
+2. the hand-over of the recorded outputs of every producer that is fresh, whatever the others
+   do (`unknown` if one cannot be handed over; a producer that is not fresh is not read, since
+   it is about to be rewritten);
+3. the prepared inputs, located (`unknown` if preparation refuses them);
+4. `always_runs()` (`stale`);
+5. `--clean`, then `--rebuild-all` (`stale`);
+6. a prepared input that is not made yet (`unknown`);
+7. the trace (`stale` with its reason), with what the producers handed over compared last once
+   every producer is fresh; a flow whose producer is not fresh, and that nothing above decided,
+   is `unknown` (`depends on <producer>`).
 """
 
 from __future__ import annotations
@@ -203,25 +213,27 @@ def judge_node(
     debug: bool,
 ) -> NodeFreshness:
     flow_class = node.flow_class
-    # what the producers hand over, where their recorded results can say (a fresh producer's
-    # results are the ones a launch hands over; any other's are about to be made)
+    # what the producers hand over: a fresh producer's recorded results are the ones a launch
+    # hands over, whatever the other producers do; a producer that is not fresh runs first, and
+    # its results are about to be made
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
     waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
     lacks: NodeFreshness | None = None
-    if waiting is None:
-        for item in node.inputs:
-            for ref in item.references:
-                results = _results(plan.node(ref.node))
-                found = (
-                    f"{ref.node} recorded no output `{ref.output}` to hand over"
-                    if results is None
-                    else _entries(results, plan.node(ref.node), ref.output)
-                )
-                if isinstance(found, str):
-                    lacks = NodeFreshness("unknown", found)
-                else:
-                    entries[(ref.node, ref.output)] = found
+    for item in node.inputs:
+        for ref in item.references:
+            if states[ref.node].state != "fresh":
+                continue
+            results = _results(plan.node(ref.node))
+            found = (
+                f"{ref.node} recorded no output `{ref.output}` to hand over"
+                if results is None
+                else _entries(results, plan.node(ref.node), ref.output)
+            )
+            if isinstance(found, str):
+                lacks = lacks or NodeFreshness("unknown", found)
+            else:
+                entries[(ref.node, ref.output)] = found
     try:
         settings = launch_input.input_settings(
             flow_class, node.settings, design, runner_cwd, debug=debug
@@ -234,7 +246,7 @@ def judge_node(
         # context, as it constructs the flow, and would refuse these
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
     # the launch hands over the producers' outputs before it prepares anything or asks the flow
-    # anything: an output it cannot hand over stops it, whatever the flow itself would do
+    # anything: one it cannot hand over stops it
     if lacks is not None:
         return lacks
     # the launch prepares inputs before it asks whether the flow always runs: what preparation

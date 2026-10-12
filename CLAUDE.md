@@ -747,16 +747,17 @@ its output paths inside its run directory.
   fresh producers hand over, or a path standing for them) and **not initialized**; a flow's
   constructor starts no process (`SimFlow.cocotb` is made when first used); `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
   before and after `init()` for every flow and every value of the settings that decide it. The
-  order is the launch's: the hand-over of the fresh producers' recorded outputs (one that cannot be
-  handed over is `unknown`, whatever the flow itself would do), the located prepared inputs (what preparation refuses is `unknown`,
-  whatever else is true), `always_runs()`, then `--clean` / `--rebuild-all` (the launch records
-  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`; a flow that always runs keeps
-  its own), then the trace up to what
-  the producers handed over (`check_trace(refresh=False, edge=False)`: no clock marker, no
-  refresh), then, if every producer is `fresh`, the edge against each producer's recorded
-  `results.json` `outputs` (read only because that producer's own trace vouches for it); a
-  producer that is not fresh makes the node `unknown`, unless the node is stale for its own reasons,
-  which it says. A container image is never located (`plan_freshness.dry_locate` raises
+  order is the launch's: (1) the settings, which a launch checks in the design's context (`unknown`
+  if it refuses them); (2) the hand-over of the recorded outputs of every fresh producer, whatever
+  the others do (`unknown` if one cannot be handed over; a producer that is not fresh is not read,
+  it will be rewritten); (3) the located prepared inputs (`unknown` if preparation refuses them);
+  (4) `always_runs()` (`stale`); (5) `--clean`, then `--rebuild-all` (`stale`; the launch records
+  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`, and a flow that always runs
+  keeps its own); (6) a prepared input not made yet (`unknown`); (7) the trace
+  (`check_trace(refresh=False)`: no clock marker, no refresh), with the edge against each
+  producer's recorded `results.json` `outputs` compared last, once every producer is fresh (read
+  only because that producer's own trace vouches for it); a flow whose producer is not fresh and
+  that nothing above decided is `unknown` (`depends on <producer>`). A container image is never located (`plan_freshness.dry_locate` raises
   `NeedsAProcess`: `docker image inspect` is a process). **Prepared inputs have a locating step**:
   `Flow.locate_prepared_inputs()` (yosys's ABC script, nextpnr's board file and, for Xilinx, its
   chip database via `xilinx.locate_chipdb`) says where `init()` and `prepare_inputs()` register
