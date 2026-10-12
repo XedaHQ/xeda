@@ -4,8 +4,9 @@ Each example has a design file that says what to build. The flows you run on it 
 the commands below from the directory of the example. Add `--dry-run` to any `xeda run` command to
 see the plan without starting a tool.
 
-The cocotb testbenches need `pip install -r examples/requirements.txt`. A flow needs its own tool:
-GHDL, NVC, Verilator, Yosys, nextpnr, Vivado, OpenROAD and so on.
+The cocotb testbenches need `pip install -r examples/requirements.txt`, which you run from the
+root of the repository. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr, Vivado,
+OpenROAD and so on.
 
 ## VHDL
 

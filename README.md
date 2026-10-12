@@ -98,11 +98,11 @@ xeda dse vivado_synth --design sqrt.yaml         # search for the highest clock 
 ```
 
 A flow whose inputs and outputs are declared can follow another flow. A chain joins them with
-`+`, and `--dry-run` shows the plan without starting a tool. This chain ends at the bitstream and
-programs no hardware:
+`+`, and `--dry-run` shows the plan without starting a tool. This chain builds the bitstream of
+the ULX3S example, in `examples/boards/ulx3s/blinky`, and programs no hardware:
 
 ```bash
-xeda run yosys_fpga+nextpnr+fpga_pack design.yaml --dry-run
+xeda run yosys_fpga+nextpnr+fpga_pack ../../boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
 ```
 
 Flow names accept snake case, dashes, CamelCase class names and the documented aliases. Setting

@@ -86,9 +86,10 @@ Xeda rejects an unknown setting, so a typo is an error.
 A flow that declares its file inputs and outputs can follow another flow. Join the flows with
 ``+`` to make a chain. You ask for the last flow, and each flow before it feeds the next one.
 ``xeda list-flows`` shows which flows can follow which, and tab completion offers only those.
-This chain ends at the bitstream::
+This chain ends at the bitstream. It builds the ULX3S example from ``examples/boards/ulx3s/blinky``,
+here named by its path from ``examples/vhdl/sqrt``::
 
-    xeda run yosys_fpga+nextpnr+fpga_pack design.yaml --dry-run
+    xeda run yosys_fpga+nextpnr+fpga_pack ../../boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
 
 ``--dry-run`` shows the plan and runs nothing. The chain above programs no hardware. See
 :ref:`flow-chains`.
