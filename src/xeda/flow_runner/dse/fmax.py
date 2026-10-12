@@ -70,16 +70,16 @@ class FmaxOptimizer(Optimizer):
         resolution: float = 0.1
         stop_after_no_improves: int = 10
 
-        # min improvement in frequency before increasing variations
+        # Minimum improvement in frequency before the variations increase.
         min_improve_inc_variations: float = 5.0
 
         @field_validator("init_freq_high")
         @classmethod
         def validate_init_freq(cls, value, info):
             values = info.data if isinstance(info.data, dict) else {}
-            # `.get`, not `[...]`: `info.data` carries only the fields that validated, so a
-            # missing or non-numeric `init_freq_low` turned `xeda dse` into a bare
-            # `KeyError: 'init_freq_low'` traceback instead of reporting that field's own error.
+            # Use `.get` and not `[...]`: `info.data` carries only the fields that validated, and a
+            # missing or non-numeric `init_freq_low` would turn `xeda dse` into a bare
+            # `KeyError: 'init_freq_low'` traceback instead of the own error of that field.
             low = values.get("init_freq_low")
             if low is not None and value <= low:
                 raise ValueError(
@@ -102,7 +102,7 @@ class FmaxOptimizer(Optimizer):
         # TODO: remove
         self.batch_hashes = set()
 
-        # array of {key -> choice} choices, indexed by flow idx
+        # A list of {key: choice} mappings, indexed by the index of the flow.
         self.variation_choices: List[Dict[str, int]] = []
 
         assert isinstance(self.settings, self.Settings)
@@ -121,10 +121,10 @@ class FmaxOptimizer(Optimizer):
         return self.get_result_value(self.best.results) if self.best else None
 
     def update_bounds(self) -> bool:
-        """
-        update low and high bounds based on previous results
-        It's called _before_ calculation of each iteration batch
-        return False -> stop iteration
+        """Update the low and high bounds based on previous results.
+
+        This is called before the calculation of each iteration batch. Return False to stop the
+        iteration.
         """
         assert isinstance(self.settings, self.Settings)
 
@@ -146,8 +146,8 @@ class FmaxOptimizer(Optimizer):
                 )
                 return False
 
-        # if we have a best_freq (or failed_fmax better than previous lo_freq)
-        #  and little or no improvement during previous iteration, increment num_variations
+        # If there is a best_freq (or a failed_fmax better than the previous lo_freq) and the
+        # previous iteration gave little or no improvement, increase num_variations.
         if best_freq or (self.failed_fmax and self.failed_fmax > self.lo_freq):
             if self.improved_idx is None or (
                 self.last_improvement
@@ -162,10 +162,10 @@ class FmaxOptimizer(Optimizer):
             ):
                 if self.num_variations > 1:
                     self.num_variations -= 1
-                    log.info("Decreased number of variations to to %d", self.num_variations)
+                    log.info("Decreased number of variations to %d", self.num_variations)
         if best_freq:
-            # we have a best_freq, but no improvements this time
-            # increment lo_freq by a small positive random value
+            # There is a best_freq, but no improvement this time. Increase lo_freq by a small
+            # positive random value.
             epsilon = random.uniform(
                 delta,
                 delta + resolution / (self.num_variations + 2),
@@ -210,7 +210,8 @@ class FmaxOptimizer(Optimizer):
                     return False
                 if not self.failed_fmax:
                     log.error(
-                        "All runs in the previous iteration failed without reporting an Fmax! Please check the flow's logs to determine the reason."
+                        "All runs in the previous iteration failed without reporting an Fmax. "
+                        "Check the logs of the flow to find the reason."
                     )
                     return False
 
@@ -222,8 +223,8 @@ class FmaxOptimizer(Optimizer):
                 )
 
                 log.info("Lowering bounds to [%0.2f, %0.2f]", self.lo_freq, self.hi_freq)
-        else:  # -> improvement during last iteration
-            # sanity check, best_freq was set before in case of a successful run
+        else:  # improvement during the last iteration
+            # Sanity check, best_freq was set before in case of a successful run.
             assert best_freq, f"best_freq was None, while improved_idx={self.improved_idx}"
 
             # reset no_improvements
@@ -289,21 +290,19 @@ class FmaxOptimizer(Optimizer):
             return random.randrange(0, min(vlist_len - 1, choice_max) + 1)
 
         base_settings = self.base_settings.model_dump()
-        # Keep the complete clock topology while varying only the period of the
-        # optimizer's target clock.  The old implementation removed every clock
-        # spelling and then created a bare ``clock`` mapping, which discarded
-        # ports and timing attributes and collapsed multi-clock designs.
+        # Keep the complete clock topology while varying only the period of the clock that the
+        # optimizer targets.
         clocks = base_settings.get("clocks")
         if clocks:
             if "main_clock" in clocks:
                 target_clock_name = "main_clock"
             else:
-                # Match SynthFlow.Settings.main_clock: legacy multi-clock designs without an
-                # explicitly named main clock use the first declared clock deterministically.
+                # Match SynthFlow.Settings.main_clock: a multi-clock design without a clock named
+                # main_clock uses the first declared clock.
                 target_clock_name = next(iter(clocks))
         else:
-            # Preserve the historical behavior for a flow with no explicit
-            # physical-clock settings: each candidate supplies the main clock.
+            # A flow with no explicit physical-clock settings: each candidate supplies the main
+            # clock.
             target_clock_name = "main_clock"
         max_var = 0
         stop = False
@@ -390,7 +389,7 @@ class FmaxOptimizer(Optimizer):
         return batch_settings
 
     def process_outcome(self, outcome: FlowOutcome, idx: int) -> bool:
-        """returns True if this was the best result so far"""
+        """Process the outcome of one run. Return True if it is the best result so far."""
         assert isinstance(self.settings, self.Settings)
 
         best_freq = self.best_freq
@@ -400,7 +399,7 @@ class FmaxOptimizer(Optimizer):
         if fmax and not outcome.results.success:
             if not best_freq or fmax > best_freq:
                 # Failed due to negative slack
-                # Keep the Fmax for next iter, if no other runs succeeded
+                # Keep the Fmax for next iter, if no other runs succeeded.
                 if not self.failed_fmax or fmax > self.failed_fmax:
                     log.info("Flow #%d failed, but Fmax=%0.2f was suggested.", idx, fmax)
                     self.failed_fmax = fmax

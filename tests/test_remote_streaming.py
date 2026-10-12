@@ -59,7 +59,7 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         ("0.4.4.dev42+gabc", -1),
         ("0.4.4.dev42+gabc", "1"),
     ):
-        with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
+        with pytest.raises(RemoteIncompatible, match="upgrade the remote Xeda"):
             check_remote_xeda(version, "/site/xeda/__init__.py", "/usr/bin/python3", protocol)
 
     with pytest.raises(RemoteIncompatible) as old:
@@ -70,11 +70,11 @@ def test_the_remote_xeda_must_read_what_this_side_sends():
         "0.2.13.dev1",
         "/home/u/src/xeda/src/xeda",
         "/usr/bin/python3",
-        "upgrade the remote xeda",
+        "upgrade the remote Xeda",
     ):
         assert part in str(old.value)
 
-    with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no xeda"):
+    with pytest.raises(RemoteIncompatible, match="/usr/bin/python3.*no Xeda"):
         check_remote_xeda(None, None, "/usr/bin/python3")
 
 
@@ -94,7 +94,7 @@ def test_a_remote_without_the_protocol_marker_is_refused_not_accepted():
     with pytest.raises(RemoteIncompatible) as refused:
         check_remote_xeda("0.4.4", "/site/xeda/__init__.py", "/usr/bin/python3", 0)
     message = str(refused.value)
-    assert "upgrade the remote xeda" in message
+    assert "upgrade the remote Xeda" in message
     assert "remote protocol 0" in message
     assert f"remote protocol {REMOTE_PROTOCOL_MIN_VERSION} or newer" in message
     assert "0.4.4" in message and "/site/xeda/__init__.py" in message
@@ -260,7 +260,7 @@ def test_the_probe_handles_an_unusable_xeda_import():
         reply = gw.remote_exec(REMOTE_PROBE).receive()
         assert reply[3] is None
         assert reply[5] == 0
-        with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda"):
+        with pytest.raises(RemoteIncompatible, match="upgrade the remote Xeda"):
             check_remote_xeda(reply[3], reply[4], reply[2], reply[5])
     finally:
         gw.exit()

@@ -45,20 +45,22 @@ log = logging.getLogger(__name__)
 
 
 def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
-    """Delete a non-improved worker outcome only after readers finish, checking ownership, with
-    every name of it (`run_directory_names`), so none is left leading nowhere."""
+    """Delete the outcome of a worker that did not improve, with every name of it.
+
+    The names come from `run_directory_names`, so none is left leading nowhere. The deletion
+    waits until readers finish, and it checks ownership."""
     with run_dir_lock(run_path, run_root):
         RunDirectory.claimed(run_path, run_root).delete(
             *run_directory_names(run_path, flow_name, run_root)
         )
 
 
-# Slotted, the `attrs` default: an outcome crosses a process boundary (the worker builds it,
-# `pool.map` returns it) and is written to `best.json`, and it does both without an instance
-# `__dict__` -- `attrs` generates `__getstate__`/`__setstate__` for pickling, and JSON goes
-# through `as_json_value()` below. `slots=False` was there to leave a `__dict__` for a
-# serializer to read, which is not a serialization format: it left `run_path` a `Path` for the
-# encoder to stringify by luck, and nothing stopped a private attribute joining it.
+# Slotted, as `attrs` does by default. An outcome crosses a process boundary (the worker builds
+# it, `pool.map` returns it) and is written to the best-run file of the search. It does both
+# without an instance `__dict__`: `attrs` generates `__getstate__` and `__setstate__` for
+# pickling, and JSON goes through `as_json_value()` below. A `__dict__` is not a serialization
+# format. It would leave `run_path` a `Path` for the encoder to stringify by luck, and nothing
+# would stop a private attribute from joining it.
 @define
 class FlowOutcome:
     settings: Flow.Settings
@@ -69,11 +71,11 @@ class FlowOutcome:
     variation: dict[str, Any] | None = None
 
     def as_json_value(self) -> Dict[str, Any]:
-        """This outcome as JSON: what a design-space exploration records as its best run.
+        """Return this outcome as JSON: what a design-space exploration records as its best run.
 
-        Written out rather than left to whatever its `__dict__` happens to hold -- `run_path` is
-        a `Path`, and the two places that serialize an outcome (the `best.json` a search writes
-        as it improves, and the `--json` document the CLI prints) have to agree.
+        The outcome is written out and not left to whatever its `__dict__` holds. `run_path` is
+        a `Path`, and the two places that serialize an outcome have to agree: the best-run file
+        that a search writes as it improves, and the `--json` document that the CLI prints.
         """
         return {
             "settings": self.settings,
@@ -104,9 +106,11 @@ class Optimizer:
 
     @property
     def variations(self) -> Dict[str, List[Any]]:
-        """The choices the search tries for each setting, best first: the search promotes the
-        choices of a better run in place. It owns these lists: they are a copy of what it was
-        given (the class's default table, the caller's mapping), which stay as they were."""
+        """The choices that the search tries for each setting, best first.
+
+        The search promotes the choices of a better run in place. It owns these lists: they are a
+        copy of what it was given (the default table of the class, the mapping of the caller),
+        which stay as they were."""
         return self._variations
 
     @variations.setter
@@ -125,7 +129,9 @@ def deep_hash(s) -> str:
 
 
 def _variation_delta(candidate: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
-    """The optimizer's changed leaves; unchanged model defaults are not contributions."""
+    """Return the leaves that the optimizer changed.
+
+    Unchanged model defaults are not contributions."""
     candidate, base = as_recorded(candidate), as_recorded(base)
     delta = {}
     for key, value in candidate.items():
@@ -228,7 +234,8 @@ class Dse(FlowLauncher):
     class Settings(FlowLauncher.Settings):
         max_runtime_minutes: int = Field(
             12 * 3600,
-            description="Maximum total running time in minutes, after which no new flow execution will be launched. Flows all ready launched will continue to completion or their timeout.",
+            description="Maximum total running time, in minutes. After that, no new flow is "
+            "launched. Flows that are already launched continue until they complete or time out.",
         )
         keep_optimal_run_dirs: bool = False
 
@@ -240,7 +247,7 @@ class Dse(FlowLauncher):
         )
         timeout: int = 90 * 60  # in seconds
         variations: Optional[Dict[str, List[Any]]] = None
-        #: always: each variant keeps its own directory. Variants (and dependencies) with
+        #: Always true. Each variant keeps its own directory. Variants (and producers) with
         #: identical settings share one, locked while a launch uses it, so the second reuses what
         #: the first ran.
         hashed_run_dirs: Literal[True] = True
@@ -252,7 +259,7 @@ class Dse(FlowLauncher):
         run_root: Union[str, Path, None] = None,
         **kwargs,
     ) -> None:
-        """Configure the optimizer and run root (default `./xeda_run`) for a DSE runner."""
+        """Configure the optimizer and the run root (default `./xeda_run`) of a DSE launcher."""
         super().__init__(run_root, **kwargs)
         assert isinstance(self.settings, self.Settings)
 
@@ -271,8 +278,9 @@ class Dse(FlowLauncher):
             try:
                 optimizer_settings = optimizer_class.Settings(**optimizer_settings)
             except ValidationError as e:
-                # Reported as a flow's settings are, naming each field -- not as pydantic's own
-                # error, which is what `xeda dse` without its frequency bounds printed.
+                # Reported as the settings of a flow are, naming each field. This replaces the
+                # error of pydantic itself, which is what `xeda dse` printed without its
+                # frequency bounds.
                 raise FlowSettingsError(
                     validation_errors(e.errors()), optimizer_class.Settings
                 ) from None
@@ -291,7 +299,7 @@ class Dse(FlowLauncher):
         all_flows_settings: Optional[Dict[str, Any]] = None,
         plan: Plan | None = None,
     ):
-        """Explore flow setting variations and return the best run."""
+        """Explore variations of the flow settings and return the best run."""
         assert isinstance(self.settings, self.Settings)
         timer = Timer()
 
@@ -299,7 +307,7 @@ class Dse(FlowLauncher):
 
         optimizer.max_failed_iters = self.settings.max_failed_iters
 
-        # consecutive "unsuccessful" iterations where in all runs success == False
+        # Consecutive "unsuccessful" iterations where in all runs success == False.
         consecutive_failed_iters = 0
         num_iterations = 0
         future = None
@@ -365,12 +373,12 @@ class Dse(FlowLauncher):
         )
         base_settings = base_plan.node(flow_class.name).settings
 
-        # Once, here: launched in each worker instead, a missing setting (or a design the flow
-        # cannot run) failed every run of the search separately and was reported only as "no
-        # successful run".
+        # Check once, here. Checked in each worker instead, a missing setting (or a design that
+        # the flow cannot run) would fail every run of the search separately, and be reported
+        # only as "no successful run".
         flow_class.check_required_settings(base_settings)
         flow_class.check_design_supported(design, base_settings)
-        # every candidate runs in a sibling of this directory, under the same run root
+        # Every candidate runs in a sibling of this directory, under the same run root.
         flow_class.check_run_directory(
             base_settings,
             self.run_path_of(
@@ -380,7 +388,7 @@ class Dse(FlowLauncher):
                 target=design.target,
             ),
         )
-        # many variants would deliver to one path, so an exploration delivers nothing
+        # Many variants would deliver to one path, so an exploration delivers nothing.
         located = deliverable_locations(base_settings)
         if located or self.settings.outputs_to is not None:
             reason = "an exploration runs many variants, so nothing is delivered"
@@ -437,8 +445,8 @@ class Dse(FlowLauncher):
         optimizer.base_settings = base_settings
         # `post_cleanup_purge` means here that the exploration deletes the runs that did not
         # improve, itself, once their outcome is in. A launch purges its own run directory only
-        # when `post_cleanup` asks for a clean-up too, as before the purge implied one: else the
-        # best run would go as well.
+        # when `post_cleanup` asks for a clean-up too, as it did before the purge implied one.
+        # Otherwise the best run would go as well.
         worker = FlowLauncher(
             self._run_root,
             **{
@@ -469,7 +477,7 @@ class Dse(FlowLauncher):
         flow_setting_hashes = set()
         num_cpus = psutil.cpu_count() or multiprocessing.cpu_count() or 1
         iterate = True
-        # nothing between opening the log and the `try` that closes it
+        # Nothing between opening the log and the `try` that closes it.
         file_handler = add_file_logger(self.run_root / "Logs", timestamp)
         try:
             log.info("Best results are saved to %s", best_json_path)
@@ -656,7 +664,7 @@ class Dse(FlowLauncher):
                         title="Best results",
                         subset=results_sub,
                     )
-                    log.info("Best result were written to %s", best_json_path)
+                    log.info("The best result was written to %s", best_json_path)
                 else:
                     log.error("No successful runs!")
                 log.info(
@@ -665,7 +673,7 @@ class Dse(FlowLauncher):
                     num_iterations,
                 )
             finally:
-                # the search's log is the search's: a later search of the process has its own, and
-                # this runs however the clean-up above ends
+                # The log of the search belongs to the search: a later search of the process has its
+                # own, and this runs however the clean-up above ends.
                 remove_file_logger(file_handler)
         return optimizer.best
