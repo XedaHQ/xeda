@@ -32,8 +32,8 @@ from .utils import (
 
 log = logging.getLogger(__name__)
 
-#: How long `docker kill` of a stopped run's container may take, in seconds: the only bound
-#: of `Docker.run`'s stop hook, which `run_process` runs on the waiting thread, unbounded.
+#: The longest time in seconds that `docker kill` of a stopped run's container may take. It is the
+#: only limit on `Docker.run`'s stop hook, which `run_process` runs on the waiting thread.
 DOCKER_KILL_TIMEOUT = 30
 
 __all__ = [
@@ -92,8 +92,8 @@ class Docker(XedaBaseModel):
 
     @cached_property
     def name(self) -> str:
-        # The basename of the containerized executable: `rsplit("/")[0]` (no `maxsplit`) took
-        # the leading component instead, so any absolute command produced an empty name.
+        # The basename of the containerized executable, so that an absolute command still gives a
+        # name.
         return self.command[0].rsplit("/", 1)[-1] if self.command else "???"
 
     def run(
@@ -110,13 +110,16 @@ class Docker(XedaBaseModel):
         timeout: float | None = None,
         tee: Path | None = None,
     ) -> Union[str, None]:
-        """Run the tool from a docker container: in the directory it runs in (the run directory),
-        mounted writable, with each directory of `read_only` (the design's) mounted read-only.
-        A mount configured in `mounts` stays as configured."""
+        """Run the tool in a Docker container.
+
+        The container mounts the current directory (the run directory) writable and each
+        directory of `read_only` (the design's) read-only. A mount configured in `mounts` stays
+        as configured."""
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
-        # This run's mounts: `mounts`, and the directories this run needs. Kept out of `mounts`:
-        # a later run elsewhere would mount them again -- a version probe's temporary directory
-        # (`Tool.probe_stdout`) is gone by then, and Docker would create it anew.
+        # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
+        # stay out of `mounts`, because a later run would mount them again. A version probe's
+        # temporary directory (`Tool.probe_stdout`) is gone by then, and Docker would create it
+        # anew.
         mounts = dict(self.mounts)
         if self.fix_cpuinfo and self.cpuinfo:
             cpuinfo_file = Path(".cpuinfo").resolve()
@@ -164,14 +167,15 @@ class Docker(XedaBaseModel):
             command = self.command
         else:
             command = [executable]
-        # named, so that stopping the run (a time limit, Ctrl-C) can stop the container itself:
-        # killing the `docker` client leaves it running
+        # Name the container so that stopping the run (a time limit, Ctrl-C) can stop it: killing
+        # the `docker` client leaves the container running.
         container = f"xeda-{uuid.uuid4().hex}"
         cmd = ["run", "--name", container, *docker_args, image, *command, *args]
 
         def kill_container() -> None:
-            # `run_process`'s `on_stop`: the caller waits for it; `DOCKER_KILL_TIMEOUT` bounds it
-            try:  # already gone is fine: `--rm` removed it after it exited on its own
+            # This is `run_process`'s `on_stop` hook. The caller waits for it, and
+            # `DOCKER_KILL_TIMEOUT` limits the wait.
+            try:  # a container that is already gone is fine: `--rm` removed it after it exited
                 run_process(
                     self.cli,
                     ["kill", container],
@@ -229,7 +233,7 @@ VERSION_REGEXP2 = re.compile(VERSION_PATTERN)
 
 
 class Tool(XedaBaseModel):
-    """abstraction for an EDA tool"""
+    """An EDA tool executable, run natively or in a Docker container."""
 
     executable: str
     minimum_version: Union[Tuple[Union[int, str], ...], None] = None
@@ -243,12 +247,12 @@ class Tool(XedaBaseModel):
     print_command: bool = True
     highlight_rules: Optional[Dict[str, str]] = None
     console_colors: bool = True
-    #: Whether the tool wants a terminal to write to when xeda's output is one, for its colors and
-    #: a progress bar that it redraws in place (`run_process(terminal=...)`). It gets one only
-    #: if colors are wanted too (`console_colors`) and it runs here, not in a container.
+    #: Whether the tool wants a terminal when Xeda's own output is one, for its colors and for a
+    #: progress bar that it redraws in place (`run_process(terminal=...)`). It gets one only if
+    #: colors are wanted too (`console_colors`) and it runs here, not in a container.
     pseudo_terminal: ClassVar[bool] = False
-    #: Why the tool needs `minimum_version`, for the message about an older one: the user sees
-    #: what that release lacks, and not only that xeda refuses it.
+    #: Why the tool needs `minimum_version`. The message about an older version shows it, so the
+    #: user sees what that release lacks and not only that Xeda refuses it.
     minimum_version_reason: ClassVar[str] = ""
 
     design_root_: Optional[Path] = Field(None, json_schema_extra={"hidden_from_schema": True})
@@ -258,8 +262,8 @@ class Tool(XedaBaseModel):
     source_dirs_: List[Path] = Field(
         default_factory=list, json_schema_extra={"hidden_from_schema": True}
     )
-    #: the run directory of the flow the tool runs for (`Flow.run_directory`), through which
-    #: the files xeda writes for the tool (`env.sh`) go; None outside a flow
+    #: The run directory of the flow the tool runs for (`Flow.run_directory`). The files that Xeda
+    #: writes for the tool (`env.sh`) go through it. It is None outside a flow.
     _run_directory: Any = PrivateAttr(default=None)
 
     @field_validator("version_flag", mode="before")
@@ -317,8 +321,9 @@ class Tool(XedaBaseModel):
     def validate_docker(cls, value, info):
         """Normalize Docker settings around the tool executable."""
         values = info.data if isinstance(info.data, dict) else {}
-        # The executable alone: `execute` passes `default_args` with every run, as for a tool run
-        # natively, so a command holding them too gave the container each of them twice.
+        # The command is the executable alone. `execute` passes `default_args` with every run, as
+        # for a tool run natively, so a command that held them too would give the container each
+        # of them twice.
         executable = values.get("executable")
         command: List[str] = [executable] if executable else []
         if isinstance(value, dict):
@@ -329,7 +334,7 @@ class Tool(XedaBaseModel):
             # `mounts`, `default_env`, and `command` objects.
             value = value.model_copy(deep=True)
             # The copy inherits the caller's `cached_property` cache, and `command` may be
-            # filled in below -- `Docker.name` is derived from it.
+            # filled in below, and `Docker.name` is derived from it.
             value.invalidate_cached_properties()
         if isinstance(value, str):
             split = value.split(":")
@@ -378,7 +383,7 @@ class Tool(XedaBaseModel):
         if out and out.strip():
             return out
         # Some tools (nextpnr, among others) print their version banner to stderr, so stdout
-        # comes back empty. Retry with stderr folded in rather than reporting no version.
+        # comes back empty. Retry with stderr merged in before giving up on a version.
         try:
             return self.probe_stdout(*version_flags, merge_stderr=True)
         except Exception:  # noqa: BLE001 - retain the first attempt's output when probing fails
@@ -444,10 +449,10 @@ class Tool(XedaBaseModel):
     def _version_is_gte(
         tool_version: Tuple[str, ...], required_version: Tuple[Union[int, str], ...]
     ) -> bool:
-        """check if `tool_version` is greater than or equal to `required_version`
+        """Return whether `tool_version` is at least `required_version`.
 
-        A component the tool's version lacks counts as 0, so 2026.07 is below 2026.07.1 rather
-        than equal to it. A version that could not be read at all (empty) is not compared.
+        A component that the tool's version lacks counts as 0, so 2026.07 is below 2026.07.1.
+        A version that could not be read at all (empty) is not compared.
         """
         log.debug(f"[gte] {tool_version}  ?  {required_version}")
         if not tool_version:
@@ -473,11 +478,13 @@ class Tool(XedaBaseModel):
         return True
 
     def version_gte(self, *args: Union[int, str]) -> bool:
-        """Tool version is greater than or equal to version specified in args"""
+        """Return whether the tool version is at least the version given in `args`."""
         return self._version_is_gte(self.version, args)
 
     def executable_path(self) -> Path | None:
-        """Return the absolute path if the tool executable is in the PATH"""
+        """Return the resolved absolute path of the executable, or None if it is not found.
+
+        An absolute executable must exist and be executable. Any other is looked up on `PATH`."""
         if (
             os.path.isabs(self.executable)
             and os.path.exists(self.executable)
@@ -598,15 +605,15 @@ class Tool(XedaBaseModel):
         raise_on_error: bool = True,
         merge_stderr: bool = False,
     ) -> str | None:
-        """`run_get_stdout` for a query about the tool itself (its version), in a temporary
-        working directory, so that it leaves nothing behind where the flow runs.
+        """Run `run_get_stdout` for a query about the tool itself (its version) in a temporary
+        working directory, so that nothing stays behind where the flow runs.
 
-        A flow creates its tools -- which probes their version -- in `init()` too, in its run
-        directory and before the launcher checks whether the last run is still fresh; every
-        file of a run directory is an output of that run, and some tools write into
-        their working directory even for a version (`vivado -version` starts vivado.jou and
-        vivado.log). An executable named by a relative path would be looked up from the
-        temporary directory: tools are named by name or by absolute path."""
+        A flow creates its tools in `init()`, and that probes their version. `init()` runs in the
+        run directory, before the launcher checks whether the last run is up to date. Every file
+        of a run directory is an output of that run, and some tools write into their working
+        directory even for a version (`vivado -version` creates vivado.jou and vivado.log). A
+        relative executable path would be looked up from the temporary directory, so a tool is
+        named by its name or by an absolute path."""
         with tempfile.TemporaryDirectory(prefix="xeda-probe-") as scratch:
             with WorkingDirectory(scratch):
                 return self.run_get_stdout(

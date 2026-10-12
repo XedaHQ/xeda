@@ -27,14 +27,14 @@ PROJECT_FILE_NAMES = ("xedaproject.yaml", "xedaproject.yml", "xedaproject.toml")
 
 
 class ProjectFileError(XedaException):
-    """A project file (`xedaproject.yaml`, `.yml` or `.toml`) that cannot be found, opened,
-    parsed or used."""
+    """The error for a project file (`xedaproject.yaml`, `.yml` or `.toml`) that cannot be found,
+    opened, parsed or used."""
 
 
 def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
-    """Return the sole conventional project file in *directory*, if present.
+    """Return the sole conventional project file in `directory`, if present.
 
-    Raises `ProjectFileError` when *directory* holds more than one of `PROJECT_FILE_NAMES`.
+    Raise `ProjectFileError` when `directory` holds more than one of `PROJECT_FILE_NAMES`.
     """
     directory = Path(directory)
     found = [directory / name for name in PROJECT_FILE_NAMES if (directory / name).exists()]
@@ -49,10 +49,11 @@ def find_default_xedaproject(directory: str | Path = ".") -> Path | None:
 def resolve_project_file(
     given: str | Path | None = None, directory: str | Path = "."
 ) -> Path | None:
-    """The project file a launch reads, the same for a local and a remote one: the file *given*
-    (which must exist; `""` is no file given), else the sole conventional project file in
-    *directory*, else `None`. Raises `ProjectFileError` for a missing file given and for an
-    ambiguous directory."""
+    """Return the project file that a launch reads, the same for a local and a remote launch.
+
+    It is the file `given` (which must exist; `""` is no file given), else the sole conventional
+    project file in `directory`, else `None`. A missing file `given` and an ambiguous directory
+    raise `ProjectFileError`."""
     if given:
         path = Path(given)
         if not path.exists():
@@ -61,8 +62,8 @@ def resolve_project_file(
     return find_default_xedaproject(directory)
 
 
-#: the top-level keys of a project file: its designs and the settings of its flows, each of which
-#: may be spelled in the singular
+#: The top-level keys of a project file: its designs and the settings of its flows. Each may be
+#: spelled in the singular.
 PROJECT_KEYS = ("designs", "design", "flows", "flow")
 DESIGN_KEYS = ("designs", "design")
 
@@ -72,12 +73,12 @@ class XedaProject:
     # TODO: workspace options
     workspace: Dict[str, Any] = {}
     designs: List[Dict[str, Any]] = []
-    # keep raw dict as flows are dynamically discovered
+    # Keep the raw dict: flows are discovered dynamically.
     flows: Dict[str, dict] = {}  # = attrs.field(default={}, validator=type_validator())
     design_cls: Type[Design] = Design
     root_path: Path = attrs.field(factory=Path.cwd)
-    # applied to a design once, when it is selected (`Design.target_selected`), as they are to a
-    # design file: the entries of `designs` stay as written
+    # Applied to a design once, when it is selected (`Design.target_selected`), as for a design
+    # file. The entries of `designs` stay as written.
     design_overrides: dict[str, Any] = {}
 
     @classmethod
@@ -89,14 +90,14 @@ class XedaProject:
         design_allow_extra: bool = False,
         design_remove_extra: Union[List[str], None] = None,
     ) -> XedaProject:
-        """load xedaproject from file"""
+        """Load a project file."""
         if design_overrides is None:
             design_overrides = {}
         if design_remove_extra is None:
             design_remove_extra = []
         if not isinstance(file, Path):
             file = Path(file)
-        # The table design files are read by: case-sensitive, `.yml` is YAML too.
+        # The suffix table of design files: case-sensitive, and `.yml` is YAML too.
         fmt = DESIGN_FILE_FORMATS.get(file.suffix)
         if fmt is None:
             hint = (
@@ -115,9 +116,9 @@ class XedaProject:
                 else:
                     data = json.load(f)
         if not isinstance(data, dict) or not data:
-            raise ValueError("Invalid xedaproject!")
-        # the design entries are expanded where they are used, one by one, whether `design` is a
-        # table or a list of them
+            raise ValueError("Invalid project file: it must hold a nonempty mapping")
+        # The design entries are expanded where they are used, one by one, whether `design` is a
+        # table or a list of tables.
         entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}
         try:
             data = expand_hierarchy(data)
@@ -172,8 +173,8 @@ class XedaProject:
                         f"Design entry {i} must be a mapping (table), got "
                         f"{type(d).__name__}: {d!r}"
                     )
-            # a design entry is a table of dotted keys like a design file; expanded, a key to
-            # remove has its field name
+            # A design entry is a table of dotted keys, as in a design file. After expansion a key
+            # to remove has its field name.
             expanded = []
             for i, d in enumerate(designs):
                 try:
@@ -209,7 +210,7 @@ class XedaProject:
 
     @property
     def design_names(self) -> List[str]:
-        """The names of the designs as they are loaded: an override of `name` renames each."""
+        """Return the names of the designs as loaded. An override of `name` renames each."""
         renamed = "name" in self.design_overrides
         return [
             str(self.design_overrides["name"] if renamed else d.get("name"))
@@ -218,8 +219,8 @@ class XedaProject:
         ]
 
     def design_index(self, name_or_idx: Union[str, int, None] = None) -> int | None:
-        """The position of the design of that name (the first of that name, if several have it)
-        or position (the first by default); None if there is none."""
+        """Return the position of the design with that name (the first, if several have it) or at
+        that position (the first by default); None if there is none."""
         if name_or_idx is None:
             name_or_idx = 0
         if isinstance(name_or_idx, str):
@@ -233,8 +234,10 @@ class XedaProject:
     def get_design(
         self, name_or_idx: Union[str, int, None] = None, target: str | None = None
     ) -> Design | None:
-        """The project's design of that name or position (the first by default), with `target`
-        selected among its `targets` as `Design.from_file` selects one; None if there is none."""
+        """Return the project's design with that name or at that position (the first by default).
+
+        `target` is selected among its `targets` as `Design.from_file` selects one. Return None if
+        there is no such design."""
         index = self.design_index(name_or_idx)
         if index is None:
             return None
