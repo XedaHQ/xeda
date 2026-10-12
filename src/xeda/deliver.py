@@ -208,7 +208,7 @@ def split_deliveries(settings: Flow.Settings, design: str) -> list[Delivery]:
             problems.append(
                 (
                     key,
-                    f"`{key}` would write {name}, a name xeda keeps for itself in the run "
+                    f"`{key}` would write {name}, a name Xeda keeps for itself in the run "
                     "directory: name the output otherwise",
                 )
             )
@@ -668,7 +668,7 @@ def _check_link(delivery: Delivery, source: Path, run_dir: Path) -> None:
     root = Path(os.path.realpath(run_dir))
     if target.is_dir() and not (target == root or target.is_relative_to(root)):
         raise DeliveryError(
-            f"{what} to {target}, a directory outside the run directory, which xeda does not "
+            f"{what} to {target}, a directory outside the run directory, which Xeda does not "
             "copy: name the files to deliver instead"
         )
 
@@ -689,7 +689,7 @@ def _read_record(path: Path) -> dict[str, Any]:
 def _refused(conflicts: Sequence[Conflict]) -> str:
     listed = "; ".join(f"{c.destination} ({c.why}), named by `{c.delivery.key}`" for c in conflicts)
     return (
-        f"xeda would replace {listed}: it replaces a file of yours only when you say so. Rerun "
+        f"Xeda would replace {listed}: it replaces a file of yours only when you say so. Rerun "
         "with --overwrite-outputs to replace it, or name another path"
     )
 
@@ -744,7 +744,7 @@ def _discard(temporary: Path, source: Path, moved: bool) -> None:
         os.replace(temporary, source)
     except OSError as e:
         raise DeliveryError(
-            f"xeda moved {source} to {temporary} to deliver it, and the delivery failed. "
+            f"Xeda moved {source} to {temporary} to deliver it, and the delivery failed. "
             f"Moving it back failed too ({e}). The output is in {temporary}"
         ) from e
 
@@ -820,7 +820,7 @@ class Deliveries:
             or any(is_run_root(d) for d in (destination, *destination.parents))
         ):
             return (
-                "inside a run root of xeda's, where only xeda's runs live: a bare name puts an "
+                "inside a run root of Xeda's, where only Xeda's runs live: a bare name puts an "
                 "output in its run directory"
             )
         read = self.inputs.directory_of(destination)
@@ -938,7 +938,7 @@ class Deliveries:
         if not os.path.lexists(destination):
             return None
         if destination.is_symlink():
-            return "a symbolic link xeda did not make"
+            return "a symbolic link Xeda did not make"
         if destination.is_dir():
             return None
         entry = self._entry(destination)
@@ -949,9 +949,9 @@ class Deliveries:
         try:
             record, now, reading = self._destination_record(destination, entry)
         except (KeyError, TypeError, ValueError, OSError):
-            return "not known to be xeda's (its record is unreadable)"
+            return "not known to be Xeda's (its record is unreadable)"
         if now.inode != record.inode or now.sha != record.sha:
-            return "changed since xeda wrote it"
+            return "changed since Xeda wrote it"
         self._refresh_entry(entry, now, reading)
         return None
 

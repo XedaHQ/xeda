@@ -42,11 +42,11 @@ __all__ = [
 RUN_ROOT_MARKER = ".xeda-run-root"
 RUN_ROOT_FORMAT = 1
 DEFAULT_RUN_ROOT = "xeda_run"
-GITIGNORE = "# a run root of xeda's: everything here is xeda's own\n*\n"
+GITIGNORE = "# A run root of Xeda: everything here is Xeda's own\n*\n"
 #: The tag file from https://bford.info/cachedir/. Backup tools skip a directory that holds it.
 CACHEDIR_TAG = (
     "Signature: 8a477f597d28d172789f06886806bc55\n"
-    "# This file is a cache directory tag created by xeda.\n"
+    "# This file is a cache directory tag created by Xeda.\n"
     "# For information about cache directory tags, see https://bford.info/cachedir/\n"
 )
 
@@ -116,7 +116,7 @@ def ensure_run_root(
     start = Path.cwd() if start is None else Path(start)
     if root.exists() and not root.is_dir():
         raise RunRootError(
-            f"{root} is not a directory: the run root is the directory xeda keeps its runs in"
+            f"{root} is not a directory: the run root is the directory Xeda keeps its runs in"
         )
     if not root.exists():
         if not create:
@@ -136,15 +136,15 @@ def ensure_run_root(
             return None
         _mark(root)
         log.info(
-            "xeda now keeps its runs in %s, which an earlier xeda made: it is marked as xeda's "
+            "Xeda now keeps its runs in %s, which an earlier Xeda made: it is marked as Xeda's "
             "(%s); keep nothing of yours in it",
             root,
             RUN_ROOT_MARKER,
         )
         return root
     raise RunRootError(
-        f"{root} holds files and is not a run root xeda created (it has no {RUN_ROOT_MARKER}): "
-        "xeda keeps its runs in a directory of its own. Name a new or empty directory with "
-        f"--run-root; if {root} holds nothing but runs of an earlier xeda, delete them, or "
-        f"create {root / RUN_ROOT_MARKER} to hand the directory to xeda."
+        f"{root} holds files and is not a run root Xeda created (it has no {RUN_ROOT_MARKER}): "
+        "Xeda keeps its runs in a directory of its own. Name a new or empty directory with "
+        f"--run-root; if {root} holds nothing but runs of an earlier Xeda, delete them, or "
+        f"create {root / RUN_ROOT_MARKER} to hand the directory to Xeda."
     )

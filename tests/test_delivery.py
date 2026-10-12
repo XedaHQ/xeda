@@ -458,7 +458,7 @@ def test_an_edit_with_its_mtime_restored_is_found_even_after_the_record_was_anch
     os.utime(destination, ns=(destination.stat().st_atime_ns, mtime))
     assert destination.stat().st_mtime_ns == mtime
 
-    with pytest.raises(OutputExistsError, match="changed since xeda wrote it"):
+    with pytest.raises(OutputExistsError, match="changed since Xeda wrote it"):
         _launch(world, netlist="$PWD/net.v")
     assert destination.read_text() == "theirs\n"
 
@@ -480,7 +480,7 @@ def test_another_file_of_the_same_bytes_and_mtime_in_its_place_is_refused_when_a
     assert destination.stat().st_size == recorded.st_size
     assert destination.stat().st_ino != recorded.st_ino
 
-    with pytest.raises(OutputExistsError, match="changed since xeda wrote it"):
+    with pytest.raises(OutputExistsError, match="changed since Xeda wrote it"):
         _launch(world, netlist="$PWD/net.v")
 
 
@@ -565,7 +565,7 @@ def test_a_confirmed_replacement_replaces_a_link_as_itself(world, tmp_path, how)
     _launch(world, launcher, netlist="$PWD/net.v")
     assert not destination.is_symlink() and destination.read_text() == "net\n"
     assert (tmp_path / "target.txt").read_text() == "target\n"
-    assert how == "flag" or [c.why for c in asked] == ["a symbolic link xeda did not make"]
+    assert how == "flag" or [c.why for c in asked] == ["a symbolic link Xeda did not make"]
 
 
 def test_a_no_at_the_prompt_keeps_the_file(world):
@@ -762,7 +762,7 @@ def test_a_destination_in_any_run_root_is_refused(world, tmp_path):
 
 
 def test_a_name_xeda_keeps_is_refused(world):
-    with pytest.raises(FlowSettingsError, match="a name xeda keeps"):
+    with pytest.raises(FlowSettingsError, match="a name Xeda keeps"):
         _launch(world, netlist="results.json")  # a bare name: a location never is one
 
 
@@ -1137,7 +1137,7 @@ def test_the_same_bytes_in_another_file_are_not_xeda_s_copy(world):
     theirs.write_text("a\n")
     os.replace(theirs, world.user / "net.v")  # made while xeda's copy existed: another inode
     RUNS.clear()
-    with pytest.raises(OutputExistsError, match="changed since xeda wrote it"):
+    with pytest.raises(OutputExistsError, match="changed since Xeda wrote it"):
         _launch(world, netlist="$PWD/net.v", text="b\n")
     assert RUNS == [] and (world.user / "net.v").read_text() == "a\n"
 
@@ -1713,7 +1713,7 @@ def test_a_remote_run_checks_its_output_names_before_connecting(world, monkeypat
     from xeda.flow_runner import remote
 
     monkeypatch.setattr(remote, "Connection", lambda *a, **k: pytest.fail("it connected"))
-    with pytest.raises(FlowSettingsError, match="a name xeda keeps"):
+    with pytest.raises(FlowSettingsError, match="a name Xeda keeps"):
         remote.RemoteRunner(world.root).run_remote(
             world.design,
             "yosys_fpga",

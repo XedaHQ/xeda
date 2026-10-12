@@ -241,7 +241,7 @@ class RunDirectory:
     def claimed(cls, path: Path, run_root: Path) -> RunDirectory:
         """Return a run directory that Xeda chose under `run_root`. `path` must lie under it."""
         if not cls.lies_under(path, run_root):
-            raise ValueError(f"{path} is not under the run root {run_root}: it is not xeda's")
+            raise ValueError(f"{path} is not under the run root {run_root}: it is not Xeda's")
         return cls(Path(os.path.realpath(path)), Path(os.path.realpath(run_root)))
 
     @classmethod
@@ -266,7 +266,7 @@ class RunDirectory:
         if lexical == self.path or not parent.is_relative_to(self.path):
             link = self._link_out(lexical.parent)
             why = (
-                f"{link} is a symbolic link out of it (to {os.readlink(link)}), which xeda "
+                f"{link} is a symbolic link out of it (to {os.readlink(link)}), which Xeda "
                 "neither follows nor removes: remove the link, or name another path"
                 if link is not None
                 else "nothing is written or deleted there"
@@ -292,7 +292,7 @@ class RunDirectory:
             current = current / part
             if current.is_symlink():
                 raise RunDirectoryError(
-                    f"{current} is a symbolic link where xeda keeps a cache of its own; "
+                    f"{current} is a symbolic link where Xeda keeps a cache of its own; "
                     "remove the link and run again."
                 )
         return located
@@ -361,7 +361,7 @@ class RunDirectory:
             if self.run_root is None:
                 raise RunDirectoryError(
                     f"{located} is a symbolic link in {self.path}, which no launcher chose: "
-                    "xeda does not remove it"
+                    "Xeda does not remove it"
                 )
             located.unlink()
         return located
@@ -416,7 +416,7 @@ class RunDirectory:
                 continue
             if not Path(os.path.realpath(name.parent)).is_relative_to(self.run_root):
                 raise RunDirectoryError(
-                    f"{name} lies outside the run root {self.run_root}: xeda does not remove it"
+                    f"{name} lies outside the run root {self.run_root}: Xeda does not remove it"
                 )
             names.append(name)
         for name in names:
