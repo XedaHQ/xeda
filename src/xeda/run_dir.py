@@ -353,7 +353,8 @@ class RunDirectory:
 
         Call it before Xeda, or a tool that Xeda points there, writes the file. It removes a
         symbolic link at that name as itself, so the write makes a regular file and never goes
-        through the link. In an `unlaunched` directory it raises a `RunDirectoryError` instead.
+        through the link. In an `unlaunched` directory it does not remove such a link and raises a
+        `RunDirectoryError` instead.
         """
         located = self.inside(path)
         if located.is_symlink():

@@ -229,7 +229,7 @@ def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     that the relation names. `output` is the producer output that a request must name, and None
     when the unqualified request is valid. `binds` lists the input and output pairs that the
     adjacency binds. `target_dependent` tells whether a type that the relation makes or takes is
-    a union that the device settings narrow."""
+    a union that the target settings narrow."""
     return {
         "flow": other.name,
         "output": edge.output,
@@ -246,7 +246,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     the flows that this flow can directly follow (`other+this`). The chain validator judges both
     on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
     cannot disagree. A relation is `target_dependent` when a union of types decides it and the
-    device settings narrow that union. The resolved plan is authoritative.
+    target settings narrow that union. The resolved plan is authoritative.
     """
     cls = _resolve(flow)
     candidates = all_flow_classes()

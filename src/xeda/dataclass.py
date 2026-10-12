@@ -1039,9 +1039,9 @@ class XedaBaseModel(BaseModel):
         """Refuse text or a number given to a `bool` or `Optional[bool]` field, unless the text is
         `true` or `false` (a command line has no other way to write a boolean). The lax booleans
         of pydantic would read `yes`, `on`, `y` and `1` as `True`, but a setting accepts exactly
-        its declared type. The same goes for `true` and `false` given to a deliverable that is no
-        waveform. Every model of Xeda shares this rule: flow settings, the design and nested
-        models. The input is only read and never rewritten."""
+        its declared type. There is one more exception: `true` and `false` given to a deliverable
+        that is no waveform are refused too. Every model of Xeda shares this rule: flow settings,
+        the design and nested models. The input is only read and never rewritten."""
         if not isinstance(values, dict):
             return values
         names = input_names(cls)

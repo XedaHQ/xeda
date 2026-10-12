@@ -767,14 +767,15 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 @click.option(
     "--post-cleanup",
     is_flag=True,
-    help="After the run, keep only settings.json, results.json and the artifacts in each run "
-    "directory.",
+    help="After the run, keep only these files in each run directory: settings.json, "
+    "results.json, the artifacts listed in results.json and the declared output files, with "
+    "their parent directories. Xeda does not reuse a run that was cleaned up.",
 )
 @click.option(
     "--post-cleanup-purge",
     is_flag=True,
-    help="After the run, remove each run directory. An output delivered to a location you named "
-    "is moved there instead of copied, when it can be.",
+    help="After the run, remove each run directory; this implies --post-cleanup. An output "
+    "delivered to a location you named is moved there instead of copied, when it can be.",
 )
 @click.option(
     "--scrub",

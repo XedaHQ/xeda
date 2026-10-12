@@ -385,8 +385,8 @@ def as_source_list(sources: Any) -> Any:
     """Return `sources` as the list it stands for.
 
     One source (a path, a table or a resource) stands for a list of one. This function is the only
-    place that knows the form. The `sources` validator, the generator's re-run decision and the
-    declared load all use it. Anything else is returned unchanged."""
+    place that knows the form. The `sources` validator, the decision to run a generator again and
+    the declared load all use it. Anything else is returned unchanged."""
     if isinstance(sources, (str, os.PathLike, Mapping, FileResource)):
         return [sources]
     return sources
@@ -1704,7 +1704,8 @@ class TbSettings(DVSettings):
     cocotb: Optional[CocotbTestbench] = Field(
         None,
         description="Set this when the testbench is based on the cocotb framework: `true` for "
-        "the defaults, or a table of cocotb settings. `false` means no cocotb testbench.",
+        "the defaults, or a table of cocotb settings. `false` means no cocotb testbench. A source "
+        "of type `Cocotb` sets it automatically.",
     )
 
     @field_validator("top", mode="before")
@@ -2428,7 +2429,7 @@ def target_name_problem(name: Any) -> str | None:
 
 
 def _fold(name: str) -> str:
-    """Return `name` as the command line takes a flow's name: dashes become underscores."""
+    """Return `name` as the command line takes a flow's name: dashes become underscores and the text is lower case."""
     return name.replace("-", "_").lower()
 
 
