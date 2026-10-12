@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FPGA, Flow, FlowFatalError
+from xeda.flow import FPGA, Flow, FlowFatalError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import IseSynth
 from xeda.flows.ise import format_value
@@ -164,7 +164,7 @@ def test_ise_needs_a_top_before_any_tool_runs(tmp_path, monkeypatch) -> None:
     design = Design(name="d", design_root=tmp_path, rtl={"sources": ["top.v"], "clock": "clk"})
     run_dir = tmp_path / "run"
 
-    with pytest.raises(FlowFatalError, match="rtl.top"):
+    with pytest.raises(FlowSettingsException, match="rtl.top"):
         DefaultRunner(run_dir).run_flow(IseSynth, design, ISE_SETTINGS)
     assert not list(run_dir.rglob("fake_xtclsh.calls"))
 
