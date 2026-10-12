@@ -104,13 +104,8 @@ def test_remote_design_archive_preserves_source_compilation_metadata(tmp_path):
         design_root=tmp_path,
         rtl={
             "sources": [
-                {"file": "one/shared.src", "type": "Vhdl", "standard": "2008"},
-                {
-                    "file": "two/shared.src",
-                    "type": "Vhdl",
-                    "standard": "1993",
-                    "variant": "legacy",
-                },
+                {"file": "one/shared.src", "type": "Vhdl"},
+                {"file": "two/shared.src", "type": "Verilog"},
             ],
             "top": "top",
         },
@@ -134,9 +129,7 @@ def test_remote_design_archive_preserves_source_compilation_metadata(tmp_path):
     )
 
     rtl_sources = captured["design"]["rtl"]["sources"]
-    assert [source["standard"] for source in rtl_sources] == ["2008", "1993"]
-    assert [source["type"] for source in rtl_sources] == ["Vhdl", "Vhdl"]
-    assert rtl_sources[1]["variant"] == "legacy"
+    assert [source["type"] for source in rtl_sources] == ["Vhdl", "Verilog"]
     assert rtl_sources[0]["file"] != rtl_sources[1]["file"]
     assert all(source["file"] in captured["names"] for source in rtl_sources)
     assert captured["design"]["tb"]["cocotb"]["module"] == "test"
@@ -217,8 +210,8 @@ def test_plain_local_reference_is_not_a_git_reference():
 def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
     """A source written to JSON has to load back as the same source.
 
-    The serializer emitted a bare path, which drops a stated `type`/`standard`/`variant` -- all
-    part of the design's identity -- and turns an unchecked `{ path = ... }` source into a
+    The serializer emitted a bare path, which drops a stated `type`, which is part of
+    the design's identity, and turns an unchecked `{ path = ... }` source into a
     checked one, so reloading failed on a file the design never promised was there. Worse, the
     dump asked for duck-typed serialization, which skips the schema a field declares, and an
     arbitrary type like `DesignSource` declares its serializer nowhere else: every
@@ -233,7 +226,7 @@ def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
             "sources": [
                 "top.vhd",
                 {"file": "legacy.v", "type": "SystemVerilog"},
-                {"file": "old.vhd", "standard": "93"},
+                {"file": "old.vhd", "type": "Vhdl"},
                 {"path": "generated/later.vhd"},
             ],
             "top": "top",
@@ -244,12 +237,11 @@ def test_json_keeps_what_a_source_cannot_be_rebuilt_without(tmp_path):
 
     assert isinstance(sources[0], str), "a plain source needs no table"
     assert sources[1]["type"] == "SystemVerilog"
-    assert sources[2]["standard"] == "93"
+    assert sources[2]["type"] == "Vhdl"
     assert set(sources[3]) == {"path"}, "an unchecked source must not come back as a checked one"
 
     again = Design(**json.loads(design.model_dump_json()))
     assert [str(s.type) for s in again.rtl.sources] == [str(s.type) for s in design.rtl.sources]
-    assert [s.standard for s in again.rtl.sources] == [s.standard for s in design.rtl.sources]
 
 
 def test_recording_a_design_is_a_fixed_point(tmp_path):
@@ -280,7 +272,7 @@ def test_recording_a_design_is_a_fixed_point(tmp_path):
             "sources": [
                 "$DESIGN_ROOT/rtl/top.vhd",
                 {"file": "rtl/legacy.v", "type": "SystemVerilog"},
-                {"file": "rtl/core.bsv", "variant": "bsv"},
+                "rtl/core.bsv",
                 {"path": "gen/later.v", "type": "Verilog"},
             ],
             "top": "top",

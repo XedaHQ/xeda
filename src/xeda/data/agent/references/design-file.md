@@ -183,9 +183,12 @@ rtl:
   sources:
     - pkg.vhdl
     - {file: legacy.v, type: SystemVerilog}
-    - {file: old.vhdl, standard: '93'}
     - {path: generated/top.v} # not checked for existence
 ```
+
+A source table has `file` or `path`, and `type`; any other key is an error. `standard` and `variant`
+were removed: a source has no standard of its own, and `language.vhdl.standard` sets the VHDL
+standard of the whole design (GHDL and NVC compile all VHDL sources of a run under one standard).
 
 `file` must exist and is checked at load time. `path` is not checked - use it for sources a
 generator will produce. Every source carries a content hash, which is how Xeda tells runs apart
@@ -201,7 +204,7 @@ language:
     standard: '2005'
 ```
 
-`version` is an accepted alias of `standard`. Two-digit (`08`) and four-digit (`2008`) both work.
+`version` is an accepted alias of `standard`. Two-digit (`08`) and four-digit (`2008`) both work. It applies to every source of that language.
 
 ## `flows.<flow_name>` - per-flow settings
 

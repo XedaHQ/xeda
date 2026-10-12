@@ -135,7 +135,7 @@ FLOWS_DIR = Path(xeda.__file__).parent / "flows"
 
 def _suffix(member: SourceType) -> str:
     """A suffix `member` is inferred from, or `dat` for a member given by `type` only."""
-    return next((s for s, (m, _v) in sorted(SOURCE_SUFFIXES.items()) if m is member), "dat")
+    return next((s for s, m in sorted(SOURCE_SUFFIXES.items()) if m is member), "dat")
 
 
 def _settings(root: Path, flow: str) -> dict:

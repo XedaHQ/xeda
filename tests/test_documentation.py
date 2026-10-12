@@ -291,7 +291,7 @@ def test_documented_source_suffixes_match_the_loader(relative):
             for suffix in re.findall(r"`+\.([a-z]+)`+", group):
                 assert suffix not in documented
                 documented[suffix] = names[0]
-    assert documented == {suffix: member.name for suffix, (member, _) in SOURCE_SUFFIXES.items()}
+    assert documented == {suffix: member.name for suffix, member in SOURCE_SUFFIXES.items()}
 
 
 def test_documented_dry_run_json_matches_the_cli(tmp_path, monkeypatch):

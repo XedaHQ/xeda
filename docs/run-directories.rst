@@ -112,7 +112,7 @@ It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. The two h
 run (and are what the trace, described below, checks against); the version is diagnostic metadata
 and is not part of run identity. Both hashes
 depend on what the inputs mean, not on where anything is: the design hash covers each source's
-content hash, type, ``standard`` and ``variant``, and its position in the source order, plus
+content hash, type, and its position in the source order, plus
 behavior-affecting RTL/testbench metadata. Every source also counts by its path relative to the
 design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can resolve other files
 by the source's location. The design hash counts the parts of the design the flow reads: its RTL, and

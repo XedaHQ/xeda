@@ -1773,10 +1773,7 @@ def test_the_archive_names_every_source_s_type(tmp_path, monkeypatch):
         archive.extractall(remote_dir)
     for part in ("rtl", "tb"):
         assert [source["type"] for source in shipped[part]["sources"]] == [m.name for m in members]
-        assert all(
-            set(source) <= {"file", "type", "standard", "variant"}
-            for source in shipped[part]["sources"]
-        )
+        assert all(set(source) <= {"file", "type"} for source in shipped[part]["sources"])
     gw = execnet.makegateway(f"popen//python={sys.executable}")
     try:
         probe = gw.remote_exec(remote_module.REMOTE_PROBE).receive()

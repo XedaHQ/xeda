@@ -196,7 +196,7 @@ class IseSynth(FpgaSynthFlow):
         for source in self.sources_read():
             path = source.path
             inferred = SOURCE_SUFFIXES.get(path.suffix.lstrip("."))
-            if inferred is None or inferred[0] is not source.type:
+            if inferred is not source.type:
                 copied = self.run_directory.writable(
                     Path("typed_sources")
                     / self.design.source_artifact_name(source, extensions[source.type])

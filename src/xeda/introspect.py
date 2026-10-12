@@ -816,6 +816,8 @@ def _open_property_sets(node: Any) -> None:
     unknown keys once the file has been expanded.
     """
     if isinstance(node, dict):
+        if node.get("title") == "DesignSource":
+            return  # a source table is closed: no dotted-key shorthand applies inside it
         if node.get("additionalProperties") is False:
             node.pop("additionalProperties")
         for value in node.values():
