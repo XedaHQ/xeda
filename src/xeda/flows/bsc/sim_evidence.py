@@ -1,4 +1,4 @@
-"""Current-run evidence readers for bsc's linked simulation backends."""
+"""Readers of current-run evidence for the linked simulation backends of bsc."""
 
 import logging
 import re
@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 
 def bluesim_evidence(flow: Flow) -> SimEvidence | None:
-    """Merge task hooks with the owned script's measured time and rising-edge count."""
+    """Merge the events of the task hooks with the time and rising-edge count of the script."""
     evidence = read_sim_evidence(flow, "bluesim_end.json", events_path="bluesim_events.jsonl")
     if evidence is None:
         return None
@@ -29,7 +29,11 @@ def bluesim_evidence(flow: Flow) -> SimEvidence | None:
 
 
 def verilator_evidence(flow: Flow) -> SimEvidence | None:
-    """bsc owns the main; only an observed finish can normalize the generic exit fallback."""
+    """Read the Verilator end record.
+
+    bsc supplies the main program, so the record can say only `exit`. Only an observed `$finish`
+    turns that into `finish`.
+    """
     from ..verilator import parse_end_record
 
     path = flow.report_file("xeda_end.json")
@@ -61,7 +65,11 @@ def verilator_evidence(flow: Flow) -> SimEvidence | None:
 
 
 def iverilog_evidence(flow: Flow) -> SimEvidence | None:
-    """Quiet finish/stop comes from task registration; native runtime diagnostics supply severity."""
+    """Read the Icarus end record.
+
+    The task registration reports a quiet `$finish` or `$stop`. The native runtime diagnostics of
+    the simulator supply the severity.
+    """
     evidence = read_sim_evidence(flow, "xeda_end.json")
     text = read_sim_log(flow, "sim.log")
     if evidence is None or text is None or "XEDA_ICARUS_RUNTIME_START\n" not in text:
@@ -93,21 +101,21 @@ def iverilog_evidence(flow: Flow) -> SimEvidence | None:
 
 
 def modelsim_evidence(flow: Flow) -> SimEvidence | None:
-    """Use ModelSim's native runtime transcript and status checkpoint."""
+    """Read the native runtime transcript and status checkpoint of ModelSim."""
     from ..modelsim.sim_evidence import parse_modelsim_evidence
 
     return parse_modelsim_evidence(flow)
 
 
 def vcs_evidence(flow: Flow) -> SimEvidence | None:
-    """Use VCS native diagnostics and the owned UCLI runtime checkpoint."""
+    """Read the native diagnostics of VCS and the UCLI runtime checkpoint of Xeda."""
     from ..vcs_evidence import parse_vcs_evidence
 
     return parse_vcs_evidence(flow)
 
 
 def xsim_evidence(flow: Flow) -> SimEvidence | None:
-    """Use xsim native diagnostics and the owned runtime checkpoint."""
+    """Read the native diagnostics of xsim and the runtime checkpoint of Xeda."""
     from ..vivado.sim_evidence import parse_xsim_evidence
 
     return parse_xsim_evidence(flow)

@@ -1,4 +1,4 @@
-// Include native declarations before intercepting generated task calls.
+// Include the native declarations before the macros below intercept the generated task calls.
 #ifndef XEDA_BLUESIM_HOOKS_H
 #define XEDA_BLUESIM_HOOKS_H
 #include "bluesim_primitives.h"
@@ -16,7 +16,7 @@ static inline void xeda_bluesim_note(const char* kind, tSimStateHdl hdl, Args...
                   kind, (unsigned long long)bk_now(hdl));
     if (!xeda_sim_append_event(std::getenv("XEDA_SIM_EVENTS"), record)) {
         std::fprintf(stderr, "xeda: cannot write Bluesim task evidence\n");
-        std::exit(1); // a missing diagnostic must never allow a successful checkpoint
+        std::exit(1); // a missing record must not let the checkpoint pass
     }
 }
 #define dollar_finish(...) (xeda_bluesim_note("finish", __VA_ARGS__), dollar_finish(__VA_ARGS__))

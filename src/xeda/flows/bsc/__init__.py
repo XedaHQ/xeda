@@ -1,8 +1,9 @@
-"""Bluespec flows: compile Bluespec (BSV and BH) with the Bluespec compiler, `bsc`.
+"""The Bluespec flows, which compile Bluespec (BSV and BH) with the Bluespec compiler, `bsc`.
 
-`bsc` generates Verilog for the design's top module, together with every Verilog file that
-module needs; `bsc_sim` compiles a Bluespec testbench and simulates it with Bluesim or, through
-bsc's own Verilog link step, with Verilator, Icarus Verilog or another Verilog simulator.
+The `bsc` flow generates Verilog for the design's top module, with every Verilog file that
+module needs. The `bsc_sim` flow compiles a Bluespec testbench and simulates it with Bluesim.
+It can also simulate with Verilator, Icarus Verilog or another Verilog simulator, through the
+Verilog link step of `bsc`.
 """
 
 from __future__ import annotations
@@ -60,8 +61,8 @@ __all__ = [
 #: `-sched-conditions` on by default, stopped generalizing untyped `let`s, removed `-cross-info`,
 #: and made Bluesim exit with a failure status on `$fatal`; 2026.07.1 is its bug-fix release.
 MIN_BSC_VERSION: tuple[int, ...] = (2026, 7, 1)
-#: The oldest Verilator that `bsc_sim` links xeda's runtime hooks into. bsc's own driver runs the
-#: model, so the floor of the `verilator` flow (Verilator's `--main`) does not apply.
+#: The oldest Verilator release that `bsc_sim` links Xeda's runtime hooks into. The model runs under
+#: bsc's own driver, so the floor of the `verilator` flow (Verilator's `--main`) does not apply.
 MIN_BSC_VERILATOR_VERSION: tuple[int, ...] = (5, 44)
 
 #: "bluesim", or a Verilog simulator `bsc -vsim` links a model for (`$BLUESPECDIR/exec`).
@@ -130,12 +131,12 @@ class BscTool(Tool):
 
 
 def _message_list(tags: Sequence[str]) -> str:
-    """bsc's `:`-separated message list."""
+    """Return bsc's `:`-separated message list."""
     return ":".join(tags)
 
 
 def _bsc_path(paths: Iterable[str | Path], what: str) -> str:
-    """A bsc search path: directories separated by `:`, ending with `+`, the current value."""
+    """Return a bsc search path: directories separated by `:`, then `+` for the current value."""
     entries = []
     for path in paths:
         text = str(path)
@@ -149,10 +150,13 @@ def _bsc_path(paths: Iterable[str | Path], what: str) -> str:
 
 
 def _macro_flags(macros: dict[str, Any], what: str, cpp: bool = False) -> list[str]:
-    """`-D NAME` or `-D NAME=value` per macro, for bsc's own (BSV) preprocessor and a Verilog
-    link; with `cpp`, also `-Xcpp -DNAME...` for the C preprocessor, the only one BH sources go
-    through. `True` (or no value) defines a bare macro and `False` leaves it undefined, so a
-    design can switch an `ifdef` on and off."""
+    """Return `-D NAME` or `-D NAME=value` for each macro.
+
+    These flags are for bsc's own (BSV) preprocessor and for a Verilog link. With `cpp`, also
+    return `-Xcpp -DNAME...` for the C preprocessor, the only preprocessor that BH sources go
+    through. `True` (or no value) defines a bare macro. `False` leaves the macro undefined, so a
+    design can switch an `ifdef` on and off.
+    """
     definitions: list[str] = []
     for name, value in macros.items():
         if not _MACRO_NAME.match(str(name)):
@@ -179,12 +183,15 @@ def _macro_flags(macros: dict[str, Any], what: str, cpp: bool = False) -> list[s
 
 
 def _toggle(flag: str, value: bool) -> str:
-    """bsc's `-flag` / `-no-flag`."""
+    """Return bsc's `-flag` when `value` is true and `-no-flag` otherwise."""
     return f"-{flag}" if value else f"-no-{flag}"
 
 
 def _parse_haskell_strings(text: str) -> list[str]:
-    """The strings of a Haskell `show`n `[String]`, as `bsc -print-flags-raw` prints paths."""
+    """Return the strings in the Haskell `show` text of a `[String]`.
+
+    `bsc -print-flags-raw` prints paths in this form.
+    """
     named = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}
     strings: list[str] = []
     i = 0
@@ -217,8 +224,11 @@ def _parse_haskell_strings(text: str) -> list[str]:
 
 
 def _verilog_instances(path: Path, module: str) -> list[str]:
-    """The module types `module` instantiates in the Verilog file at `path`: `Type [#(...)]
-    name (`. Only the module's own body counts: bsc's library files also hold test modules."""
+    """Return the module types that `module` instantiates in the Verilog file at `path`.
+
+    An instance has the form `Type [#(...)] name (`. Only the module's own body counts, because
+    bsc's library files also hold test modules.
+    """
     try:
         text = _VERILOG_COMMENT.sub(" ", path.read_text(errors="replace"))
     except OSError:
@@ -228,7 +238,7 @@ def _verilog_instances(path: Path, module: str) -> list[str]:
 
 
 def _verilog_modules(path: Path) -> list[str]:
-    """Names of the modules a Verilog file declares."""
+    """Return the names of the modules that a Verilog file declares."""
     try:
         text = path.read_text(errors="replace")
     except OSError:
@@ -239,18 +249,18 @@ def _verilog_modules(path: Path) -> list[str]:
 class BscFlow(Flow, metaclass=ABCMeta):
     """Compile Bluespec with bsc: the settings and the compilation `bsc` and `bsc_sim` share."""
 
-    #: The setting naming the output directory, which `cleanup_bobjs` removes modules from
+    #: The name of the setting for the output directory, which `cleanup_bobjs` removes modules from.
     output_dir_setting: ClassVar[str]
 
     #: With the Verilog backend, `_path_flags` puts the testbench's Verilog directories on
-    #: `-vsearch`, so `bsc`, a compilation, reads `tb` as `bsc_sim` does; the Bluesim backend reads
-    #: no Verilog, and `tb` stays declared there as a safe over-approximation
+    #: `-vsearch`, so `bsc` reads `tb` as `bsc_sim` does. The Bluesim backend reads no Verilog.
+    #: `tb` stays declared there, a safe over-approximation.
     design_parts = frozenset({"rtl", "tb"})
 
     reads_sources = frozenset({SourceType.Bluespec, *_VERILOG_TYPES})
 
     class Settings(Flow.Settings):
-        # ------------------------------------------------------------------ directories and paths
+        # Directories and paths
         bobj_dir: Path = Field(
             Path("bobjs"),
             description="Directory for the packages bsc compiles (`.bo`/`.ba` files, `-bdir`), "
@@ -293,20 +303,20 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "elaborates the design, e.g. files opened with `openFile` (`-fdir`); relative to the "
             "design root. Defaults to the run directory.",
         )
-        # ------------------------------------------------------------------ preprocessing
+        # Preprocessing
         cpp: bool = Field(
             False,
             description="Run the C preprocessor on the sources before bsc's own preprocessor "
             "(`-cpp`), and define the design's macros for it too. BH (`.bs`) sources go through "
-            "no other preprocessor, so this is how they see `rtl.defines`: `#ifdef`, not "
-            "`` `ifdef ``.",
+            "no other preprocessor, so this is the only way they see `rtl.defines`. They test a "
+            "macro with `#ifdef`, where BSV uses `` `ifdef ``.",
         )
         cpp_flags: list[str] = Field(
             [],
             description="Arguments passed to the C preprocessor (`-Xcpp`), one per item, "
             "with `cpp`.",
         )
-        # ------------------------------------------------------------------ semantics
+        # Semantics
         aggressive_conditions: bool = Field(
             True,
             description="Propagate the implicit condition of an action in one branch of an "
@@ -355,7 +365,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "`staticAssert` and `dynamicAssert` (`-check-assert`). Without it they are ignored, "
             "so a testbench's `dynamicAssert` can never fail.",
         )
-        # ------------------------------------------------------------------ code generation
+        # Code generation
         unspecified_to: Literal["X", "0", "1", "Z", "A"] = Field(
             "A",
             description="Value the don't-care bits left in the generated code are tied to: "
@@ -476,7 +486,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Also write the elaborated and scheduled modules (`.ba` files, `-elab`), "
             "which Bluetcl needs to inspect a compiled design.",
         )
-        # ------------------------------------------------------------------ diagnostics
+        # Diagnostics
         show_schedule: bool = Field(
             False,
             description="Write each generated module's schedule to a `.sched` file in "
@@ -525,7 +535,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Record a timestamp in the generated files (`-show-timestamps`). Off, so "
             "that unchanged inputs regenerate identical files.",
         )
-        # ------------------------------------------------------------------ messages
+        # Messages
         warn_method_urgency: bool = Field(
             True,
             description="Warn when the urgency between a method and a rule is chosen "
@@ -566,7 +576,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             description="Continue compiling other modules and stages after an error, to report "
             "more errors at once (`-continue-after-errors`).",
         )
-        # ------------------------------------------------------------------ limits and runtime
+        # Limits and runtime
         steps_warn_interval: int = Field(
             2_000_000,
             gt=0,
@@ -622,15 +632,15 @@ class BscFlow(Flow, metaclass=ABCMeta):
         """The bsc tool; constructing it checks bsc's version against `MIN_BSC_VERSION`."""
         return BscTool()
 
-    # ---------------------------------------------------------------------------------- helpers
-
     def _sources_of(self, *types: SourceType, tb: bool) -> list[DesignSource]:
-        """The design's sources of `types` that this flow reads, RTL first, then the testbench's
-        with `tb`."""
+        """Return the sources of `types` that this flow reads.
+
+        The RTL sources come first, then the testbench's if `tb` is true.
+        """
         return [src for src in self.sources_read(rtl=True, tb=tb) if src.type in types]
 
     def _bsc_sources(self, *, tb: bool) -> list[DesignSource]:
-        """The design's Bluespec sources, RTL first, checked for suffixes bsc accepts."""
+        """Return the design's Bluespec sources, RTL first, after checking their suffixes."""
         sources = self._sources_of(SourceType.Bluespec, tb=tb)
         bad = [str(src.file) for src in sources if src.file.suffix not in _BSC_SOURCE_SUFFIXES]
         if bad:
@@ -641,8 +651,12 @@ class BscFlow(Flow, metaclass=ABCMeta):
         return sources
 
     def _macros(self, *, tb: bool) -> dict[str, Any]:
-        """Preprocessor macros: the design's `defines` and `parameters` (the testbench's on top
-        of the RTL's), and `BSV_POSITIVE_RESET`. A fresh mapping: the design is not ours."""
+        """Return the preprocessor macros.
+
+        The macros are the design's `defines` and `parameters`, and `BSV_POSITIVE_RESET`. The
+        testbench's macros go over the RTL's. The mapping is a copy, so the flow never changes the
+        design.
+        """
         assert isinstance(self.settings, BscFlow.Settings)
         macros: dict[str, Any] = {**self.design.rtl.defines, **self.design.rtl.parameters}
         if tb:
@@ -652,24 +666,30 @@ class BscFlow(Flow, metaclass=ABCMeta):
         return macros
 
     def _check_macros(self, sources: list[DesignSource], macros: dict[str, Any]) -> None:
-        """Warn when the design's macros reach none of its sources: bsc's own preprocessor reads
-        BSV only, so BH sees macros only through the C preprocessor (`cpp`). A design mixing
-        the two may well hand its macros to BH through a BSV package, so it is not warned."""
+        """Warn when the design's macros reach none of its sources: all are BH and `cpp` is off.
+
+        bsc's own preprocessor reads BSV only, so BH sources see macros only through the C
+        preprocessor (`cpp`). A design that mixes BSV and BH may pass its macros to BH through a
+        BSV package, so it gets no warning.
+        """
         assert isinstance(self.settings, BscFlow.Settings)
         given = [name for name in macros if name != "BSV_POSITIVE_RESET"]
         bh = [src.file.name for src in sources if src.file.suffix == ".bs"]
         if given and bh and len(bh) == len(sources) and not self.settings.cpp:
             log.warning(
                 "The design's macros (%s) reach none of its sources, all of them BH (%s): bsc "
-                "preprocesses BSV only. Set `cpp = true` to define them for the C preprocessor, "
-                "which BH sources then go through (`#ifdef`).",
+                "preprocesses BSV only. Set the flow setting `cpp: true` to define them for the C "
+                "preprocessor, which BH sources then go through (`#ifdef`).",
                 ", ".join(given),
                 ", ".join(bh),
             )
 
     def _path_flags(self, backend: str, out_dir: Path, sources: list[DesignSource]) -> list[str]:
-        """Where bsc reads and writes: `-bdir`, `-info-dir`, the output directory, `-p` and,
-        for Verilog, `-vsearch`. Absolute, since bsc runs in the run directory."""
+        """Return where bsc reads and writes.
+
+        The flags are `-bdir`, `-info-dir`, the output directory, `-p`, `-fdir` and, for Verilog,
+        `-vsearch`. The paths are absolute, since bsc runs in the run directory.
+        """
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
         bdir = Path(ss.bobj_dir).absolute()
@@ -680,9 +700,9 @@ class BscFlow(Flow, metaclass=ABCMeta):
         package_dirs += [self.normalize_path_to_design_root(p) for p in ss.search_paths]
         flags += ["-p", _bsc_path(package_dirs, "search_paths")]
         if backend == "sim":
-            # Bluesim reads no Verilog (it rejects imported Verilog modules). And without
-            # `-vdir`, bsc warns (S0073) when a `-vsearch` directory is also on `-p`, which its
-            # default Verilog path includes: that of a Bluespec source with Verilog beside it.
+            # Bluesim reads no Verilog (it rejects imported Verilog modules). Without `-vdir`,
+            # bsc warns (S0073) when a `-vsearch` directory is also on `-p`. Its default Verilog
+            # path includes the directory of a Bluespec source that has Verilog beside it.
             return flags + self._fdir_flags()
         verilog_dirs: list[str | Path] = [
             self.normalize_path_to_design_root(p) for p in ss.verilog_search_paths
@@ -692,25 +712,25 @@ class BscFlow(Flow, metaclass=ABCMeta):
         return flags + self._fdir_flags()
 
     def _fdir_flags(self) -> list[str]:
-        """`-fdir`, where relative file names in the design resolve during elaboration."""
+        """Return `-fdir`, where relative file names in the design resolve during elaboration."""
         assert isinstance(self.settings, BscFlow.Settings)
         if not self.settings.fdir:
             return []
         return ["-fdir", str(self.normalize_path_to_design_root(self.settings.fdir))]
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
-        """Directories of bsc's vendor-specific Verilog primitives, searched first."""
+        """Return the directories of bsc's vendor-specific Verilog primitives, searched first."""
         return []
 
     def _runtime_flags(self) -> list[str]:
-        """`haskell_runtime_flags` for bsc's own runtime, which reads them between `+RTS` and
-        `-RTS`."""
+        """Return `haskell_runtime_flags` for bsc's own runtime, which reads them between `+RTS`
+        and `-RTS`."""
         assert isinstance(self.settings, BscFlow.Settings)
         rts = self.settings.haskell_runtime_flags
         return ["+RTS", *rts, "-RTS"] if rts else []
 
     def _verbosity_flags(self) -> list[str]:
-        """`-verbose` for a verbose run, `-quiet` for a quiet one."""
+        """Return `-verbose` for a verbose run and `-quiet` for a quiet one."""
         if self.settings.verbose:
             return ["-verbose"]
         if self.settings.is_quiet:
@@ -718,11 +738,14 @@ class BscFlow(Flow, metaclass=ABCMeta):
         return []
 
     def _compile_flags(self, backend: str) -> list[str]:
-        """Every flag the settings give a compilation for `backend` ("verilog" or "sim")."""
+        """Return every flag that the settings give a compilation for `backend`.
+
+        The backend is "verilog" or "sim".
+        """
         ss = self.settings
         assert isinstance(ss, BscFlow.Settings)
         flags = self._verbosity_flags()
-        # `-split-if` also switches `-aggressive-conditions`, so the latter comes after it
+        # `-split-if` also switches `-aggressive-conditions`, so the latter comes after it.
         flags += [_toggle("split-if", ss.split_if), _toggle("lift", ss.lift)]
         flags += [
             _toggle("aggressive-conditions", ss.aggressive_conditions),
@@ -735,7 +758,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             "-unspecified-to",
             ss.unspecified_to,
         ]
-        # `-synthesize` also switches `-opt-bit-const`, so it comes before the optimization flags
+        # `-synthesize` also switches `-opt-bit-const`, so it comes before the optimization flags.
         flags.append(_toggle("synthesize", ss.synthesize_to_boolean))
         if ss.optimize:
             flags.append("-O")
@@ -755,7 +778,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             _toggle("elab", ss.elab),
         ]
         if backend == "verilog":
-            # bsc rejects `-remove-dollar` for Bluesim, and for every link
+            # bsc rejects `-remove-dollar` for Bluesim and for every link.
             flags.append(_toggle("remove-dollar", ss.remove_dollar))
         if ss.reset_prefix:
             flags += ["-reset-prefix", ss.reset_prefix]
@@ -779,7 +802,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         ]
         for r1, r2 in ss.show_rule_rel:
             flags += ["-show-rule-rel", r1, r2]
-        # an empty list would be taken as the flag's argument by the next flag
+        # An empty list would be taken as the flag's argument by the next flag.
         if ss.promote_warnings:
             flags += ["-promote-warnings", _message_list(ss.promote_warnings)]
         if ss.suppress_warnings:
@@ -800,18 +823,18 @@ class BscFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def backend_of(cls, settings: "BscFlow.Settings") -> str:
-        """The code generation backend bsc runs for these settings: `verilog` or `sim`."""
+        """Return the code generation backend of bsc for these settings: `verilog` or `sim`."""
         return "verilog"
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse combinations bsc refuses, before anything runs, naming the settings."""
+        """Refuse the combinations that bsc refuses, before anything runs, and name the settings."""
         super().check_settings_supported(settings)
         assert isinstance(settings, BscFlow.Settings)
         if settings.unspecified_to in ("X", "Z") and not settings.opt_undetermined_vals:
             raise FlowSettingsException(
-                f'{cls.name}: unspecified_to = "{settings.unspecified_to}" requires '
-                'opt_undetermined_vals = true; otherwise use "0", "1" or "A"'
+                f"{cls.name}: `unspecified_to: {settings.unspecified_to}` requires "
+                '`opt_undetermined_vals: true`; otherwise use "0", "1" or "A"'
             )
         if cls.backend_of(settings) == "sim" and settings.unspecified_to in ("X", "Z"):
             raise FlowSettingsException(
@@ -820,7 +843,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             )
 
     def _warn_about_environment(self) -> None:
-        """Say that `BSC_OPTIONS` makes the run depend on more than the settings."""
+        """Warn that `BSC_OPTIONS` makes the run depend on more than the settings."""
         if "BSC_OPTIONS" in os.environ:
             log.warning(
                 "BSC_OPTIONS is set (%r): bsc prepends it to every command line, so the run "
@@ -845,7 +868,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
             stale = [obj for pattern in ("*.bo", "*.ba") for obj in bdir.glob(pattern)]
             for use_file in out_dir.glob("*.use"):
                 stale += [use_file, use_file.with_suffix(".v")]
-            # an earlier run's packages and generated modules, all in the run directory
+            # These are an earlier run's packages and generated modules, all in the run directory.
             self.run_directory.remove(*(path for path in stale if path.is_file()))
         bdir.mkdir(parents=True, exist_ok=True)
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -870,7 +893,7 @@ class BscFlow(Flow, metaclass=ABCMeta):
         self.bsc.run(*flags, "-u", backend_flag, "-g", top, top_file)
 
     def _top_file(self, sources: list[DesignSource], what: str) -> Path:
-        """The file holding the top module: the last Bluespec source."""
+        """Return the file that holds the top module: the last Bluespec source."""
         if not sources:
             raise FlowSettingsException(f"{self.name}: the design has no Bluespec {what} sources")
         return sources[-1].file
@@ -879,14 +902,15 @@ class BscFlow(Flow, metaclass=ABCMeta):
 class Bsc(BscFlow):
     """Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc.
 
-    Compiles `rtl.sources` in order -- the package defining `rtl.top` last -- and generates
-    Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists
-    the Verilog files the top module needs: the generated modules, the design's own Verilog
-    sources, and the modules of bsc's Verilog library it instantiates, which are copied into
-    `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. A
-    module the generated Verilog instantiates that no Verilog file defines (a vendor primitive,
-    say) is left out with a warning: the downstream tool must provide it. `rtl.defines` and
-    `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only
+    The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It
+    generates Verilog for `rtl.top` and for every `synthesize`d module on the way.
+    `artifacts.verilog` lists the Verilog files that the top module needs: the generated modules,
+    the design's own Verilog sources, and the modules of bsc's Verilog library that it
+    instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream
+    synthesis or simulation flow can take the list as it is. If the generated Verilog
+    instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow
+    leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and
+    `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only
     through the C preprocessor, with `cpp`.
     """
 
@@ -950,14 +974,17 @@ class Bsc(BscFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """bsc generates code for the design's top module, so the design has to name it."""
+        """Require a top module, because bsc generates code for it."""
         super().check_design_supported(design, settings)
         if not design.rtl.top:
             raise FlowSettingsException("bsc needs the design's top module: set `rtl.top`")
 
     def init(self) -> None:
-        """Reject what bsc would reject, and an old bsc, before anything runs. Planning checked
-        the settings and the design; a flow built directly is checked here."""
+        """Reject what bsc would reject, and a bsc that is too old, before anything runs.
+
+        Planning already checks the settings and the design. This method checks them for a flow
+        built directly.
+        """
         assert isinstance(self.settings, self.Settings)
         self.check_design_supported(self.design, self.settings)
         self.check_settings_supported(self.settings)
@@ -965,8 +992,8 @@ class Bsc(BscFlow):
         _ = self.bsc  # constructing it checks its version: an old bsc fails before anything runs
 
     def _vendor_verilog_dirs(self) -> list[str | Path]:
-        """The `verilog_primitives` directory of bsc's library (`%` is bsc's install), which
-        goes ahead of the generic modules on the Verilog search path."""
+        """Return the `verilog_primitives` directory of bsc's library (`%` stands for bsc's
+        installation), which goes ahead of the generic modules on the Verilog search path."""
         assert isinstance(self.settings, self.Settings)
         vendor = self.settings.verilog_primitives
         if vendor == "generic":
@@ -974,8 +1001,11 @@ class Bsc(BscFlow):
         return ["%/Verilog." + {"vivado": "Vivado", "quartus": "Quartus"}[vendor]]
 
     def _verilog_path(self, path_flags: list[str]) -> list[Path]:
-        """The directories bsc searches for Verilog modules, in its order: the value
-        `-print-flags-raw` reports for the same path flags (`%` and `+` expanded)."""
+        """Return the directories that bsc searches for Verilog modules, in its order.
+
+        This is the value that `-print-flags-raw` reports for the same path flags, with `%` and
+        `+` expanded.
+        """
         out = self.bsc.run_get_stdout(*path_flags, "-print-flags-raw") or ""
         match = re.search(r"^\s*vPath\s*=\s*(\[.*\]),?\s*$", out, re.MULTILINE)
         if not match:
@@ -1007,7 +1037,8 @@ class Bsc(BscFlow):
         ]
         self._compile("verilog", sources, top, top_file, flags)
 
-        # read with the compile's own path flags: `extra_flags` may add a `-vsearch`
+        # Read the path with the compile's own path flags, because `extra_flags` may add a
+        # `-vsearch`.
         verilog_path = self._verilog_path([*path_flags, *ss.extra_flags])
         modules, files = self._collect_verilog(top, top_file, vout_dir, verilog_path)
         self.results["modules"] = modules
@@ -1016,7 +1047,7 @@ class Bsc(BscFlow):
     def _collect_verilog(
         self, top: str, top_file: Path, vout_dir: Path, verilog_path: list[Path]
     ) -> tuple[list[str], list[Path]]:
-        """The modules under `top` and the Verilog files that define them.
+        """Return the modules under `top` and the Verilog files that define them.
 
         A module is one bsc generated when its `.use` file (written by `-show-module-use`) and its
         `.v` are in `vout_dir`; its submodules are the lines of the `.use` file. Every other module
@@ -1051,10 +1082,13 @@ class Bsc(BscFlow):
             return (vout_dir / f"{module}.use").is_file() and (vout_dir / f"{module}.v").is_file()
 
         def visit_instances(path: Path, module: str) -> None:
-            """A library or design module's own submodules, which no `.use` file lists: bsc's
-            `MakeResetA` instantiates `SyncResetA`, and a Verilog wrapper the design imports may
-            instantiate a module bsc generated. Only names that resolve to a module count, so a
-            word that merely looks like an instance is never reported missing."""
+            """Visit the submodules of a library or design module, which no `.use` file lists.
+
+            For example, bsc's `MakeResetA` instantiates `SyncResetA`, and a Verilog wrapper that
+            the design imports may instantiate a module that bsc generated. Only names that
+            resolve to a module count, so a word that looks like an instance but is not one is
+            never reported missing.
+            """
             for name in _verilog_instances(path, module):
                 if name != module and (
                     name in defined_in or bsc_generated(name) or in_library(name)
@@ -1062,9 +1096,12 @@ class Bsc(BscFlow):
                     visit(name)
 
         def visit(module: str) -> None:
-            """Record `module` -- generated (its `.use` lists its submodules), a design
-            source's, a library copy, or unresolved -- then its submodules; a generated module's
-            file goes after theirs."""
+            """Record `module` and then its submodules.
+
+            A module is generated by bsc (its `.use` file lists its submodules), defined by a
+            design source, copied from the library, or unresolved. The file of a generated module
+            goes after the files of its submodules.
+            """
             if module in modules or module in unresolved:
                 return
             use_file = vout_dir / f"{module}.use"
@@ -1077,8 +1114,8 @@ class Bsc(BscFlow):
                         + (
                             ""
                             if ss.cleanup_bobjs
-                            else "; with cleanup_bobjs = false the generated file may be from an "
-                            "earlier run"
+                            else "; with `cleanup_bobjs: false` the generated file may be from "
+                            "an earlier run"
                         )
                     )
                 modules.append(module)
@@ -1121,13 +1158,13 @@ class Bsc(BscFlow):
         if ss.positive_reset:
             for path in library + generated:
                 _prepend_define(path, "BSV_POSITIVE_RESET")
-            # the design's own Verilog sources are left as they are: a first file defines the
-            # macro for them too, wherever they come in a compilation unit
+            # The design's own Verilog sources stay as they are. The first file defines the macro
+            # for them too, wherever they come in a compilation unit.
             defines_file = self.run_directory.writable(vout_dir / BSV_DEFINES_FILE)
             with replacing_file(defines_file) as f:
                 f.write(
                     "`define BSV_POSITIVE_RESET\n"
-                    "// Written by xeda's bsc flow, to define it before the design's own Verilog.\n"
+                    "// Written by Xeda's bsc flow, to define it before the design's own Verilog.\n"
                 )
             defines.append(defines_file)
         files = defines + library + [src.file for src in design_verilog] + generated
@@ -1135,9 +1172,11 @@ class Bsc(BscFlow):
 
 
 def _check_link_paths(args: list[str | Path]) -> None:
-    """Reject the paths bsc's link step cannot take: bsc runs the C++ compiler and the Verilog
-    simulator through a shell, unquoted, so a path with whitespace falls apart there (bsc's own
-    compilation copes)."""
+    """Reject the paths that bsc's link step cannot take.
+
+    bsc runs the C++ compiler and the Verilog simulator through a shell, unquoted, so a path with
+    whitespace falls apart there. bsc's own compilation copes with such a path.
+    """
     paths = [part for arg in map(str, args) for part in arg.split(_PATH_SEPARATOR)]
     spaced = unique([p for p in paths if not p.startswith("-") and any(c.isspace() for c in p)])
     if spaced:
@@ -1149,8 +1188,11 @@ def _check_link_paths(args: list[str | Path]) -> None:
 
 
 def _prepend_define(path: Path, macro: str) -> None:
-    """Define `macro` at the top of a Verilog file, once. As bytes: a library or imported
-    module's file need not be UTF-8."""
+    """Define `macro` at the top of a Verilog file, once.
+
+    The function works on bytes, because the file of a library or imported module need not be
+    UTF-8.
+    """
     line = f"`define {macro}\n".encode()
     content = path.read_bytes()
     if not content.startswith(line):
@@ -1161,20 +1203,25 @@ def _prepend_define(path: Path, macro: str) -> None:
 class BscSim(BscFlow, SimFlow):
     """Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator.
 
-    Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining
-    `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when
-    the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or
-    a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock
-    and reset from its `main.v`. Bluesim records generated system-task calls and an owned
-    script measures clock cycles and time; Verilator and Icarus record observed system tasks
-    in the linked runtime. These backends require explicit finish or a confirmed Bluesim cycle
-    limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails.
-    `$finish(n)` uses `n` as a verbosity level. The design's
-    `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which
-    BH (`.bs`) sources see only through the C preprocessor, with `cpp`. Supported simulator
-    backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. Legacy cvc,
-    cver, isim, ncverilog and veriwell are rejected before compilation. Real Icarus evidence and
-    builtin-task registration are required on Linux CI.
+    The flow compiles the design's Bluespec sources in order, RTL first and then the testbench,
+    with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty`
+    interface (`rtl.top` when the design has no testbench). `simulator` selects Bluesim, the
+    cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated
+    Verilog (`bsc -vsim`). The clock and reset come from the `main.v` of bsc.
+
+    Bluesim records the system-task calls in the generated code, and a script of Xeda measures
+    the clock cycles and the time. Verilator and Icarus record the system tasks that the linked
+    runtime observes. For these three simulators, a run passes only if the testbench finishes
+    explicitly (or Bluesim reaches a confirmed `max_cycles` limit) and no event reaches
+    `fail_severity`. A fatal error or a nonzero exit status always fails the run. `$finish(n)`
+    uses `n` as a verbosity level.
+
+    The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over
+    the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
+    The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
+    xsim. The flow rejects the legacy simulators cvc, cver, isim, ncverilog and veriwell before
+    compilation. The Linux CI job checks the real Icarus evidence and the registration of the
+    built-in tasks.
     """
 
     results_description = describe_results(
@@ -1199,16 +1246,22 @@ class BscSim(BscFlow, SimFlow):
 
     @classmethod
     def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
-        """bsc's link step runs its tools through a shell without quoting, whatever the simulator,
-        and every path it is given lies in the run directory: one rule for every backend, with
-        one message. The directory is judged as given and as it resolves, since the Verilator
-        backend's makefile builds in the physical one. `_check_link_paths` stays as the backstop
-        for the design's own paths."""
+        """Refuse a run directory whose path has whitespace.
+
+        bsc's link step runs its tools through a shell without quoting, whatever the simulator,
+        and every path it is given lies in the run directory. One rule with one message therefore
+        serves every backend. The method judges the directory as given and as it resolves,
+        because the makefile of the Verilator backend builds in the physical directory.
+        `_check_link_paths` stays as the backstop for the design's own paths.
+        """
         super().check_run_directory(settings, run_path)
         _check_link_paths([run_path, os.path.realpath(run_path)])
 
     def has_evidence_adapter(self) -> bool:
-        """Every accepted simulator has a family-specific current-run evidence adapter."""
+        """Return whether the simulator has an evidence adapter for the current run.
+
+        Every accepted simulator has one.
+        """
         assert isinstance(self.settings, self.Settings)
         return self.settings.simulator not in _UNCERTIFIED_SIMULATORS
 
@@ -1256,7 +1309,8 @@ class BscSim(BscFlow, SimFlow):
             None,
             gt=0,
             description="Stop a Bluesim simulation after this many measured rising clock edges. "
-            "The owned script confirms the count and final time; an earlier finish is also valid.",
+            "The evidence script of Xeda confirms the count and the final time. A finish before the limit is "
+            "also valid.",
         )
         system_verilog_tasks: bool = Field(
             True,
@@ -1317,8 +1371,11 @@ class BscSim(BscFlow, SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Reject what bsc or the simulator would reject, before anything runs: settings bsc
-        refuses for the backend, and options the chosen simulator lacks."""
+        """Reject, before anything runs, what bsc or the evidence protocol cannot take.
+
+        These are the settings that bsc refuses for the backend, the `sim_args` that override
+        options the flow owns, `stop_time`, and `max_cycles` outside Bluesim.
+        """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if settings.simulator in _UNCERTIFIED_SIMULATORS:
@@ -1359,9 +1416,12 @@ class BscSim(BscFlow, SimFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Reject a testbench bsc cannot simulate, before anything runs: no module to simulate
-        or several, and imported C functions that the Verilator backend cannot link without
-        the DPI. (`SimFlow` refuses a cocotb testbench, with `cocotb_advice`.)"""
+        """Reject a testbench that bsc cannot simulate, before anything runs.
+
+        These are a testbench with no module to simulate or with several, and imported C
+        functions that the Verilator backend cannot link without the DPI. `SimFlow` refuses a
+        cocotb testbench, with `cocotb_advice`.
+        """
         super().check_design_supported(design, settings)
         if not cls._tb_top_of(design):
             raise FlowSettingsException(
@@ -1382,13 +1442,16 @@ class BscSim(BscFlow, SimFlow):
             if settings.simulator == "verilator" and foreign:
                 raise FlowSettingsException(
                     "Verilator links imported C functions through the DPI only: set "
-                    "use_dpi = true"
+                    "`flows.bsc_sim.use_dpi: true`"
                 )
 
     def init(self) -> None:
-        """Reject what bsc or the simulator would reject, and an old bsc, before anything
-        runs. Planning checked the settings; a flow built directly is checked here (its design
-        was checked when it was built)."""
+        """Reject what bsc or the simulator would reject, and a bsc that is too old, before
+        anything runs.
+
+        Planning already checks the settings. This method checks them for a flow built directly,
+        whose design was checked when it was built.
+        """
         ss = self.settings
         assert isinstance(ss, self.Settings)
         self.check_settings_supported(ss)
@@ -1398,13 +1461,15 @@ class BscSim(BscFlow, SimFlow):
             _ = self._verilator()
 
     def _foreign_sources(self) -> list[Path]:
-        """The design's C and C++ sources, objects and archives, which the link step compiles in
-        for imported C functions (`import "BDPI"`)."""
+        """Return the design's C and C++ sources, objects and archives.
+
+        The link step compiles them in for imported C functions (`import "BDPI"`).
+        """
         return [src.file for src in self._sources_of(*_FOREIGN_TYPES, tb=True)]
 
     @staticmethod
     def _tb_top_of(design: Design) -> str | None:
-        """The module to simulate: `tb.top`, or `rtl.top` for a design without a testbench."""
+        """Return the module to simulate: `tb.top`, or `rtl.top` if the design has no testbench."""
         if design.tb.top:
             return design.tb.top[0]
         if not design.tb.sources:
@@ -1412,7 +1477,7 @@ class BscSim(BscFlow, SimFlow):
         return None
 
     def _tb_top(self) -> str | None:
-        """The module this run simulates."""
+        """Return the module that this run simulates."""
         return self._tb_top_of(self.design)
 
     def run(self) -> None:
@@ -1427,8 +1492,8 @@ class BscSim(BscFlow, SimFlow):
         tb_sources = [src for src in sources if src in self.design.tb.sources]
         top_file = self._top_file(tb_sources or sources, "testbench")
         sim_dir = Path(ss.sim_dir).absolute()
-        # bsc's Verilog link searches `sim_dir` first, so a module generated there by an earlier
-        # run must not outlive it
+        # bsc's Verilog link searches `sim_dir` first, so a module that an earlier run generated
+        # there must not outlive that run.
         self._prepare_dirs(sim_dir)
         if bluesim:
             # bsc otherwise reuses C++ objects built with an earlier configuration's flags.
@@ -1442,7 +1507,7 @@ class BscSim(BscFlow, SimFlow):
         path_flags = self._path_flags(backend, sim_dir, sources)
         macros = self._macros(tb=True)
         self._check_macros(sources, macros)
-        # the link step takes the macros as Verilog defines: `-D` only
+        # The link step takes the macros as Verilog defines: `-D` only.
         macro_flags = _macro_flags(macros, "design macros")
         flags = [
             *self._runtime_flags(),
@@ -1452,8 +1517,9 @@ class BscSim(BscFlow, SimFlow):
             *ss.extra_flags,
         ]
         executable = sim_dir / tb_top
-        # a Verilog link finds a module on `-vsearch` only in a file named after it, so the
-        # design's Verilog is named: a file holding another module, or several, counts too
+        # A Verilog link finds a module on `-vsearch` only in a file named after it. The link
+        # therefore names the design's Verilog files, and a file that holds another module, or
+        # several, counts too.
         link_files = [*self._foreign_sources()]
         if not bluesim:
             link_files += [src.file for src in self._sources_of(*_VERILOG_TYPES, tb=True)]
@@ -1501,16 +1567,16 @@ class BscSim(BscFlow, SimFlow):
         elif ss.simulator == "verilator" and ss.fail_severity in ("failure", "fatal"):
             sim_args.append("+verilator+error+limit+2147483647")
         if not bluesim and vcd:
-            # bsc's Verilator driver writes `dump.vcd` on `+bscvcd`; its `main.v` takes a name
+            # bsc's Verilator driver writes `dump.vcd` on `+bscvcd`. Its `main.v` takes a name.
             sim_args.append("+bscvcd" if ss.simulator == "verilator" else f"+bscvcd={vcd}")
-        # A failing run's waveform is the one most wanted, so it is recorded whether or not the
-        # simulation passes -- and an earlier run's goes first, so a waveform found is this run's.
+        # A failing run's waveform is the one most wanted, so the flow records it whether or not
+        # the simulation passes.
         dump: Path | None = None
         dumped = False
         if vcd:
             dump = Path("dump.vcd") if ss.simulator == "verilator" else vcd
-            # The waveform is made anew: an earlier run's goes first, and so does what bsc's
-            # Verilator driver left, both names in the run directory
+            # Remove an earlier run's waveform and any `dump.vcd` that bsc's Verilator driver
+            # left, so a waveform found is this run's. Both names are in the run directory.
             self.run_directory.remove(*unique([vcd, dump]))
         self.results["simulator"] = ss.simulator
         simulation = self.bsc.derive(str(executable), version_flag=None, minimum_version=None)
@@ -1546,21 +1612,21 @@ class BscSim(BscFlow, SimFlow):
         finally:
             if vcd and dump and self.wrote_output(dump):
                 if dump != vcd:
-                    # copied whole, then the dump removed; a link at `vcd` is replaced, never
-                    # written through
+                    # Copy the dump whole, then remove it. A link at `vcd` is replaced, never
+                    # written through.
                     replacing_copy(dump, self.run_directory.writable(vcd))
                     self.run_directory.remove(dump)
                 self.artifacts.vcd = str(vcd)
                 dumped = True
         if vcd and ss.simulator == "verilator" and not dumped:
-            # bsc's Verilator driver dumps on `+bscvcd`; one that wrote nothing is no waveform
+            # bsc's Verilator driver dumps on `+bscvcd`. A run that wrote nothing has no waveform.
             raise FlowFatalError(
                 f"`vcd` asks for a waveform, and bsc's Verilator driver wrote no {dump} in this "
                 "run: the design may end the simulation before it dumps"
             )
 
     def _run_modelsim(self, top: str, plusargs: list[str]) -> None:
-        """Load bsc's compiled work library with the owned ModelSim evidence script."""
+        """Load bsc's compiled work library with Xeda's own ModelSim evidence script."""
         from ..modelsim import ModelsimTool
 
         ss = self.settings
@@ -1619,7 +1685,7 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _run_vcs(self, simulation: Tool, sim_args: list[str]) -> None:
-        """Run the linked bsc VCS executable under xeda's own UCLI adapter."""
+        """Run the linked bsc VCS executable under Xeda's own UCLI adapter."""
         from ..vcs_evidence import RUNTIME_LOG, prepare_vcs_runtime
 
         ss = self.settings
@@ -1638,7 +1704,7 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _run_xsim(self, executable: Path, sim_args: list[str]) -> None:
-        """Load bsc's retained xsim snapshot through the owned xsim runtime script."""
+        """Load bsc's retained xsim snapshot through Xeda's own xsim runtime script."""
         from ..vivado.sim_evidence import PROCESS_LOG, RUNTIME_LOG
 
         ss = self.settings
@@ -1678,19 +1744,22 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _verilator(self) -> Tool:
-        """Require the Verilator release xeda's runtime hooks are built for."""
+        """Return the Verilator tool, after requiring the release that Xeda's hooks need."""
         tool = self.bsc.derive(
             "verilator",
             version_flag=["--version"],
             version_regexps=[r"Verilator (?P<version>\d+(?:\.\d+)+)"],
             minimum_version=MIN_BSC_VERILATOR_VERSION,
         )
-        # derive copies a model; it does not run Tool's constructor/version check.
+        # `derive` copies a model. It does not run the constructor or the version check of `Tool`.
         tool.require_minimum_version()
         return tool
 
     def _build_verilator_hooks(self) -> list[str]:
-        """Compile packaged hooks against the headers in the execution environment."""
+        """Compile the packaged hooks against the headers in the execution environment.
+
+        Return the flags that link the hooks into the model.
+        """
         from ..verilator import HOOK_MACROS
 
         tool = self._verilator()
@@ -1722,7 +1791,7 @@ class BscSim(BscFlow, SimFlow):
         return flags
 
     def _build_iverilog_monitor(self) -> None:
-        """Build the VPI registration adapter locally or with the container's own headers."""
+        """Build the VPI registration adapter, with local headers or the container's own."""
         self.copy_from_template("sim_record.h")
         source = self.copy_from_template("iverilog_evidence.c")
         if self.bsc.dockerized:
@@ -1751,8 +1820,11 @@ class BscSim(BscFlow, SimFlow):
         )
 
     def _link_flags(self, bluesim: bool) -> list[str]:
-        """What the link step needs besides the paths: the simulator, the C/C++ compilation of
-        the model and of imported functions, and what must match the compilation."""
+        """Return what the link step needs besides the paths.
+
+        These are the simulator, the C/C++ compilation of the model and of imported functions,
+        and the options that must match the compilation.
+        """
         ss = self.settings
         assert isinstance(ss, self.Settings)
         flags = [
@@ -1760,7 +1832,7 @@ class BscSim(BscFlow, SimFlow):
             _toggle("use-dpi", ss.use_dpi),
         ]
         if ss.reset_prefix:
-            # also defines `BSV_RESET_NAME`, the port bsc's clock and reset driver resets
+            # This also defines `BSV_RESET_NAME`, the port that bsc's clock and reset driver resets.
             flags += ["-reset-prefix", ss.reset_prefix]
         if bluesim:
             jobs = ss.parallel_sim_link or ss.nthreads
