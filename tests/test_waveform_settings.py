@@ -7,13 +7,15 @@ it. The sweeps below classify every waveform setting of every simulator, so a ne
 simulator fails here until it is classified.
 """
 
-from pathlib import Path
+from pathlib import Path, PurePath
 
 import pytest
+from pydantic import ValidationError
 
 from xeda import Design
-from xeda.dataclass import waveform_fields, waveform_format, waveform_value
-from xeda.flow import FlowSettingsException, SimFlow
+from xeda.dataclass import WaveformText, waveform_fields, waveform_format, waveform_value
+from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
+from xeda.flow.flow import identity_settings
 from xeda.flow_runner import DefaultRunner, get_flow_class
 from xeda.flows import GhdlSim, Nvc
 
@@ -30,7 +32,8 @@ FIELDS = [
 ]
 
 
-def bare(cls, field: str) -> bool:
+def true_name(cls, field: str) -> str | None:
+    """The name `true` stands for, None where the setting has none."""
     found = waveform_format(cls.Settings, field)
     assert found is not None
     return found[1]
@@ -62,64 +65,90 @@ def test_the_sweep_sees_the_simulators_and_their_waveform_settings():
 def test_the_text_true_or_false_is_the_boolean(cls, name, field, extension):
     """`-s <setting>=true` and `<setting>: true` are one setting, for every waveform setting of
     every simulator: the command line can only write text."""
-    true_text, true_bool = build(cls, **{field: "true"}), build(cls, **{field: True})
     false_text, false_bool = build(cls, **{field: "false"}), build(cls, **{field: False})
-    assert getattr(true_text, field) == getattr(true_bool, field) is not None
-    assert getattr(false_text, field) == getattr(false_bool, field)
-    assert not getattr(false_text, field)
-    assert true_text.model_dump() == true_bool.model_dump()
+    assert getattr(false_text, field) is getattr(false_bool, field) is None
     assert false_text.model_dump() == false_bool.model_dump()
-    # an empty name is none, and text that is not a boolean is a name
     assert getattr(build(cls, **{field: ""}), field) is None
-    assert "yes" in str(getattr(build(cls, **{field: "yes"}), field))
-    # an assignment is read by the same rule
-    settings = build(cls)
-    setattr(settings, field, "true")
-    assert getattr(settings, field) == getattr(true_bool, field)
+    for text in ("true", "True"):
+        if true_name(cls, field) is None:
+            with pytest.raises(FlowSettingsError, match="has no file name"):
+                build(cls, **{field: text})
+            continue
+        true_text, true_bool = build(cls, **{field: text}), build(cls, **{field: True})
+        assert getattr(true_text, field) == getattr(true_bool, field) is not None
+        assert true_text.model_dump() == true_bool.model_dump()
+        settings = build(cls)  # an assignment is read by the same rule
+        setattr(settings, field, text)
+        assert getattr(settings, field) == getattr(true_bool, field)
 
 
 @pytest.mark.parametrize("cls,name,field,extension", FIELDS)
-def test_true_stands_for_a_default_name_or_the_tools_own(cls, name, field, extension):
-    value = getattr(build(cls, **{field: "true"}), field)
-    if bare(cls, field):
-        assert value is True  # the tool names the file
-    else:
-        assert Path(value) == Path(f"dump.{extension}")
-        named = getattr(build(cls, **{field: "wave"}), field)
-        assert Path(named) == Path(f"wave.{extension}")
-        kept = getattr(build(cls, **{field: "wave.out"}), field)
-        assert Path(kept) == Path("wave.out")
+def test_the_yaml_boolean_words_are_refused_like_a_boolean_settings(cls, name, field, extension):
+    """A setting is on, off or a name, so `yes` is neither: it names the boolean to write, as for
+    a boolean setting, and the file name that would take its place."""
+    for word in ("yes", "No", "on", "OFF", "y", "n"):
+        with pytest.raises(FlowSettingsError, match=rf"`{word}` is text, not a boolean: write"):
+            build(cls, **{field: word})
+        with pytest.raises(ValidationError, match="not a boolean"):
+            setattr(build(cls), field, word)
+    with pytest.raises(FlowSettingsError, match=r"write `true` \(or give a file name\)"):
+        build(cls, **{field: "yes"})
+    # as part of a name, such a word is a name
+    assert "yes" in str(getattr(build(cls, **{field: "yes.out"}), field))
+
+
+@pytest.mark.parametrize("cls,name,field,extension", FIELDS)
+def test_true_stands_for_the_name_a_location_is_written_under(cls, name, field, extension):
+    """A run is told by what it writes, so `true` and a location are one run when they write one
+    file: the name `true` stands for is the conventional name of a location."""
+    expected = true_name(cls, field)
+    conventional = build(cls).conventional_output(field, "design")
+    assert conventional is not None
+    if expected is None:
+        assert "design" in str(conventional)  # the name holds the design's: `true` cannot say it
+        return
+    assert PurePath(expected) == conventional
+    on = identity_settings(build(cls, **{field: "true"}), "design")
+    located = identity_settings(build(cls, **{field: "/elsewhere/w.out"}), "design")
+    assert on.model_dump(mode="json") == located.model_dump(mode="json")
+    named = getattr(build(cls, **{field: "wave"}), field)
+    assert Path(named) == Path(f"wave.{extension}")
+    kept = getattr(build(cls, **{field: "wave.out"}), field)
+    assert Path(kept) == Path("wave.out")
 
 
 @pytest.mark.parametrize(
-    "value,extension,expected",
+    "value,extension,name,expected",
     [
-        (True, "vcd", "dump.vcd"),
-        ("true", "vcd", "dump.vcd"),
-        ("true", "fst", "dump.fst"),
-        (False, "vcd", None),
-        ("false", "vcd", None),
-        ("", "vcd", None),
-        (None, "vcd", None),
-        ("True", "vcd", "True.vcd"),
-        ("yes", "vcd", "yes.vcd"),
-        ("on", "vcd", "on.vcd"),
-        ("w", "vcd", "w.vcd"),
-        ("w.fst", "vcd", "w.fst"),
-        (Path("d/w"), "vcd", "d/w.vcd"),
-        (3, "vcd", 3),
-        ([], "vcd", []),
+        (True, "vcd", "dump.vcd", "dump.vcd"),
+        ("true", "vcd", "dump.vcd", "dump.vcd"),
+        ("TRUE", "fst", "dump.fst", "dump.fst"),
+        (False, "vcd", "dump.vcd", None),
+        ("false", "vcd", "dump.vcd", None),
+        ("", "vcd", "dump.vcd", None),
+        (None, "vcd", "dump.vcd", None),
+        ("w", "vcd", "dump.vcd", "w.vcd"),
+        ("w.fst", "vcd", "dump.vcd", "w.fst"),
+        ("yes.out", "vcd", "dump.vcd", "yes.out"),
+        (Path("d/w"), "vcd", "dump.vcd", "d/w.vcd"),
+        (3, "vcd", "dump.vcd", 3),
+        ([], "vcd", "dump.vcd", []),
     ],
 )
-def test_the_rule(value, extension, expected):
-    assert waveform_value(value, extension) == expected
+def test_the_rule(value, extension, name, expected):
+    assert waveform_value(value, extension, name) == expected
 
 
-def test_a_bare_setting_keeps_true_and_never_adds_an_extension():
-    assert waveform_value("true", "fst", True) is True
-    assert waveform_value(True, "fst", True) is True
-    assert waveform_value("false", "fst", True) is False
-    assert waveform_value("w", "fst", True) == "w"
+@pytest.mark.parametrize("value", ["yes", "YES", "no", "on", "off", "y", "n", "t", "f", " on "])
+def test_the_rule_refuses_the_words_yaml_1_1_reads_as_booleans(value):
+    with pytest.raises(WaveformText, match="is text, not a boolean"):
+        waveform_value(value, "vcd", "dump.vcd")
+
+
+def test_true_is_refused_where_the_setting_has_no_name_for_it():
+    with pytest.raises(WaveformText, match="has no file name"):
+        waveform_value("true", "saif", None)
+    assert waveform_value("false", "saif", None) is None
 
 
 def test_the_command_line_text_gives_the_run_a_boolean_waveform_would(tmp_path):
@@ -146,15 +175,15 @@ HONORED: dict[tuple[str, str | None, str], list[str]] = {
     ("ghdl_sim", None, "fst"): ["--fst=dump.fst"],
     ("ghdl_sim", None, "wave"): ["--wave=dump.ghw"],
     ("nvc", None, "vcd"): ["--wave=dump.vcd", "--format=vcd"],
-    ("nvc", None, "wave"): ["--wave"],
+    ("nvc", None, "wave"): ["--wave=dump.fst"],
     ("modelsim", None, "vcd"): ["vcd file dump.vcd", "vcd add -r"],
     ("vcs", None, "fsdb"): ['dump -file "dump.fsdb" -type FSDB'],
     ("vcs", None, "vpd"): ['dump -file "dump.vpd" -type vpd'],
     ("vcs", None, "evcd"): ['dump -file "dump.evcd" -type evcd'],
     ("vivado_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_sim", None, "saif"): ["open_saif dump.saif"],
+    ("vivado_sim", None, "saif"): ["open_saif wave.saif"],
     ("vivado_postsynth_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_postsynth_sim", None, "saif"): ["open_saif dump.saif"],
+    ("vivado_postsynth_sim", None, "saif"): ["open_saif wave.saif"],
     ("verilator", None, "vcd"): ["--trace-vcd"],
     ("verilator", None, "fst"): ["--trace-fst"],
     ("verilator", None, "saif"): ["--trace-saif"],
@@ -205,13 +234,15 @@ def test_a_waveform_setting_reaches_the_tool_or_is_refused_when_planned(
         assert f"cannot write a waveform from `{field}`" in str(raised.value)
         return
     calls: list = []
+    # `true` where the setting has a name for it; else the name `HONORED` expects
+    given = "true" if true_name(cls, field) else "wave.saif"
     flow = launch_case(
-        case, tmp_path, monkeypatch, settings_overrides={field: "true"}, calls_out=calls
+        case, tmp_path, monkeypatch, settings_overrides={field: given}, calls_out=calls
     )
     words, text = run_text(flow, calls)
     for needle in HONORED[key]:
         assert needle in words or needle in text, (
-            f"{case.name} was given `{field}: true` and never handed {needle!r} to its tool: "
+            f"{case.name} was given `{field}: {given}` and never handed {needle!r} to its tool: "
             f"{calls}"
         )
 
@@ -294,6 +325,16 @@ def _write(path: Path, text: str) -> Path:
         ("nvc", {"wave_include_glob": "*:x"}, "wave_include_glob. refines the waveform"),
         ("nvc", {"wave_exclude_glob": "*:x"}, "wave_exclude_glob. refines the waveform"),
         ("nvc", {"vcd": "true", "wave": "true"}, "one waveform, and vcd and wave are set"),
+        (
+            "nvc",
+            {"wave": "true", "wave_format": "vcd"},
+            "wave_format is vcd, and wave names dump.fst",
+        ),
+        (
+            "nvc",
+            {"wave": "w.vcd", "wave_format": "fst"},
+            "wave_format is fst, and wave names w.vcd",
+        ),
         ("nvc", {"vcd": "true", "wave_format": "fst"}, "vcd. writes a VCD file"),
         ("ghdl_sim", {"vcd": "true", "fst": "true"}, "one waveform, and vcd, fst are set"),
         ("ghdl_sim", {"wave": "true", "fst": "true"}, "one waveform, and fst, wave are set"),
@@ -317,7 +358,8 @@ def test_a_waveform_setting_that_needs_another_is_refused_without_it(flow, setti
 @pytest.mark.parametrize(
     "flow,settings",
     [
-        ("nvc", {"wave": "true", "wave_format": "vcd"}),
+        ("nvc", {"wave": "w.vcd", "wave_format": "vcd"}),
+        ("nvc", {"wave": "w", "wave_format": "fst"}),
         ("nvc", {"vcd": "true", "wave": "false"}),
         ("nvc", {"vcd": "true", "wave_format": "vcd", "wave_include_glob": "*:x"}),
         ("ghdl_sim", {"wave": "w.vcd"}),
@@ -376,13 +418,13 @@ def test_nvc_writes_the_waveform_through_its_own_option(tmp_path, setting, value
     assert (b"$date" in head or b"$version" in head or b"$timescale" in head) == (fmt == "vcd")
 
 
-def test_nvc_writes_its_own_default_name_for_wave_true(tmp_path):
+def test_nvc_writes_dump_fst_for_wave_true(tmp_path):
     require_nvc_evidence()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     flow = runner.run_flow(Nvc, design, flow_settings=["wave=true"])
     assert flow is not None and flow.succeeded
-    assert (flow.run_path / "tb.fst").stat().st_size > 0
+    assert (flow.run_path / "dump.fst").stat().st_size > 0
     assert not list(flow.run_path.glob("true*"))
 
 

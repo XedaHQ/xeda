@@ -46,6 +46,7 @@ from ..dataclass import (
     ListLiteralText,
     PrivateAttr,
     ValidationError,
+    WaveformText,
     XedaBaseModel,
     annotation_args,
     comma_separated_items,
@@ -189,7 +190,7 @@ def _is_comma_separated_list(annotation: Any) -> bool:
 
 
 def _list_literal_error(
-    model: type, refused: Sequence[Tuple[str, ListLiteralText, Any]]
+    model: type, refused: Sequence[Tuple[str, ListLiteralText | WaveformText, Any]]
 ) -> ValidationError:
     """The validation error of `model` for the list settings `refused`, each a `(key, error,
     value)`: one error per setting, so that every one is reported at once."""
@@ -961,8 +962,8 @@ class Flow(metaclass=ABCMeta):
                (`cocotb.results_xml`).
             3. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
                (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
-               everywhere else, `true` stands for a default name, and a name gets the format's
-               extension.
+               everywhere else, `true` stands for the name the run writes, a name gets the
+               format's extension, and a word such as `yes` is refused.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
@@ -1044,12 +1045,12 @@ class Flow(metaclass=ABCMeta):
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
             names = input_names(cls)
-            refused: List[Tuple[str, ListLiteralText, Any]] = []
+            refused: List[Tuple[str, ListLiteralText | WaveformText, Any]] = []
             for key, value in values.items():
                 if key in names:
                     try:
                         values[key] = cls._normalize_flow_setting(names[key], value, roots)
-                    except ListLiteralText as error:
+                    except (ListLiteralText, WaveformText) as error:
                         refused.append((key, error, value))
             if refused:
                 raise _list_literal_error(cls, refused)
@@ -1061,7 +1062,7 @@ class Flow(metaclass=ABCMeta):
                     value = type(self)._normalize_flow_setting(
                         name, value, self._path_roots(self.context)
                     )
-                except ListLiteralText as error:
+                except (ListLiteralText, WaveformText) as error:
                     raise _list_literal_error(type(self), [(name, error, value)]) from None
             super().__setattr__(name, value)
 

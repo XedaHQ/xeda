@@ -138,12 +138,12 @@ class Nvc(SimFlow):
             None,
             description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
         )
-        wave: Union[bool, str, Path, None] = Field(
+        wave: Union[str, Path, None] = Field(
             None,
             description="Write waveform data to a file. The default is to not write waveform data. "
-            "`true` lets nvc name the file (`<top>.fst` by default). "
-            "The shared `vcd` setting writes a VCD file the same way.",
-            json_schema_extra=waveform("fst", bare=True),
+            "`true` writes `dump.fst`; a name without an extension gets `.fst`. The shared `vcd` "
+            "setting writes a VCD file the same way.",
+            json_schema_extra=waveform("fst"),
         )
         wave_format: Optional[Literal["vcd", "fst"]] = Field(
             None,
@@ -222,7 +222,15 @@ class Nvc(SimFlow):
                 raise FlowSettingsException(
                     "`vcd` writes a VCD file, and wave_format is fst: use `wave` for an FST file"
                 )
-        elif not settings.wave:
+        elif settings.wave:
+            suffix = Path(settings.wave).suffix
+            if settings.wave_format and suffix in (".vcd", ".fst"):
+                if suffix != f".{settings.wave_format}":
+                    raise FlowSettingsException(
+                        f"wave_format is {settings.wave_format}, and wave names {settings.wave}: "
+                        f"name a .{settings.wave_format} file"
+                    )
+        else:
             for name in ("wave_format", "wave_include_glob", "wave_exclude_glob", "wave_arrays"):
                 if getattr(settings, name) != cls.Settings.model_fields[name].default:
                     raise FlowSettingsException(
@@ -420,17 +428,14 @@ class Nvc(SimFlow):
         run_flags = ss.runtime_flags()
 
         # the shared `vcd` is a VCD file; `wave` is nvc's own setting (`check_settings_supported`)
-        target: Union[bool, str, Path, None] = ss.wave
+        target: Union[str, Path, None] = ss.wave
         wave_format: Optional[str] = ss.wave_format
         if ss.vcd is not None:
             target, wave_format = self.process_path(ss.vcd), "vcd"
         if target:
-            if isinstance(target, bool):
-                run_flags.append("--wave")
-            else:
-                run_flags.append(f"--wave={target}")
-                if not wave_format:
-                    wave_format = {".vcd": "vcd", ".fst": "fst"}.get(Path(target).suffix)
+            run_flags.append(f"--wave={target}")
+            if not wave_format:
+                wave_format = {".vcd": "vcd", ".fst": "fst"}.get(Path(target).suffix)
             if wave_format:
                 run_flags.append(f"--format={wave_format}")
             if ss.wave_include_glob:

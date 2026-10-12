@@ -92,6 +92,7 @@ __all__ = [
     "waveform_fields",
     "waveform_format",
     "waveform_value",
+    "WaveformText",
     "written_role",
 ]
 
@@ -607,31 +608,34 @@ def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
 
 
 #: The `json_schema_extra` key of a setting that names a waveform file, with the waveform's
-#: format. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
+#: format and the name `true` stands for. `Flow.Settings` reads a marked setting by one rule
+#: (`waveform_value`).
 WAVEFORM_KEY = "x-xeda-waveform"
 
 
-def waveform(
-    extension: str, conventional: Optional[str] = None, *, bare: bool = False
-) -> Dict[str, Any]:
+def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
     """The marker of a setting that names a waveform file of the format `extension` (`vcd`, `fst`,
-    `ghw`, `saif`, ...). It is a deliverable (`conventional` defaults to
-    `outputs/<design>.<extension>`). With `bare`, `true` stays the boolean, for a tool that names
-    the file itself, and a name is not given an extension."""
-    marker = deliverable(conventional or f"outputs/{{design}}.{extension}")
-    marker[WAVEFORM_KEY] = {"format": extension, "bare": bare}
+    `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name the run writes when the
+    setting is given a location, by default `dump.<extension>`. `true` stands for that same name,
+    so `true` and a location are one run (`flow.identity_settings`). A conventional name that
+    holds the design's name (`outputs/{design}.saif`) cannot be written without the design, so
+    `true` is refused for such a setting."""
+    name = conventional or f"dump.{extension}"
+    marker = deliverable(name)
+    marker[WAVEFORM_KEY] = {"format": extension, "true": None if "{design}" in name else name}
     return marker
 
 
-def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, bool]]:
-    """`(extension, bare)` of `model`'s waveform setting `field` (see `waveform`); None if it is
-    no waveform setting."""
+def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, Optional[str]]]:
+    """`(extension, name)` of `model`'s waveform setting `field` (see `waveform`), `name` being
+    what `true` stands for (None: `true` is refused); None if it is no waveform setting."""
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     mark = extra.get(WAVEFORM_KEY) if isinstance(extra, dict) else None
     if not isinstance(mark, dict):
         return None
-    return str(mark["format"]), bool(mark["bare"])
+    name = mark["true"]
+    return str(mark["format"]), (str(name) if name is not None else None)
 
 
 def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
@@ -641,24 +645,42 @@ def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
     }
 
 
-def waveform_value(value: Any, extension: str, bare: bool = False) -> Any:
+class WaveformText(ValueError):
+    """Text that a waveform setting cannot take: a word YAML 1.1 reads as a boolean (`yes`), or
+    `true` where the setting has no name for it. `message` says what to write."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.message,))
+
+    def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
+        """This refusal as the validation error `boolean_text`."""
+        return PydanticCustomError("boolean_text", self.message)
+
+
+def waveform_value(value: Any, extension: str, true_name: Optional[str] = None) -> Any:
     """A waveform setting as the name it stands for, the one rule for every simulator.
 
-    `true` (the boolean or the text, which is all `-s` can write) is `dump.<extension>`.
-    `false` (likewise) and an empty name are none. A name without an extension gets
-    `.<extension>`. Other text, such as `yes`, is a name. Anything else is left as it is, for the
-    field's own validation. With `bare`, for a tool that names the file itself and a setting that
-    is typed to hold the boolean, `true` stays `true`, `false` stays `false` and a name is not
-    given an extension."""
-    if isinstance(value, str) and value in ("true", "false"):
-        value = value == "true"
+    `true` (the boolean, or the text in any letter case, which is all `-s` can write) is
+    `true_name`, the name the setting's run writes (`waveform`). `false` (likewise) and an empty
+    name are none. A name without an extension gets `.<extension>`. The other words YAML 1.1 reads
+    as a boolean (`yes`, `on`, `n`, ...), given as the whole value, are refused as they are for a
+    boolean field (`boolean_text_message`), since a setting is on, off or a name. Other text is a
+    name. Anything else is left as it is, for the field's own validation."""
+    if isinstance(value, str) and value.lower() in ("true", "false"):
+        value = value.lower() == "true"
+    elif isinstance(value, str) and value.strip().lower() in (_TRUE_WORDS | _FALSE_WORDS):
+        raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
     if value is True:
-        return True if bare else f"dump.{extension}"
-    if value is False:
-        return False if bare else None  # a bare setting is typed to hold the boolean
-    if isinstance(value, str) and value == "":
+        if true_name is None:
+            raise WaveformText("`true` has no file name here: give a file name or a location")
+        return true_name
+    if value is False or (isinstance(value, str) and value == ""):
         return None
-    if not bare and isinstance(value, (str, PurePath)) and not PurePath(value).suffix:
+    if isinstance(value, (str, PurePath)) and not PurePath(value).suffix:
         return f"{value}.{extension}"
     return value
 

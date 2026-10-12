@@ -896,9 +896,14 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    `lib_paths` only the path half of each tuple, never the library name.
 3. A waveform setting (a field marked `json_schema_extra=waveform(<format>)`, a deliverable;
    `dataclass.waveform_fields` lists them) is read by `dataclass.waveform_value`, for every
-   simulator: the text `true`/`false` is the boolean, `true` is `dump.<format>`, `false` or `""`
-   is none, a name without an extension gets `.<format>`. `bare=True` (nvc's `wave`, typed to hold
-   a boolean) keeps `true`/`false` and adds no extension, since nvc names the file. A simulator
+   simulator: the text `true`/`false` (any case) is the boolean, `true` is the setting's
+   conventional name (`dump.<format>` unless `waveform(format, conventional)` says otherwise), so
+   `true` and a location are one run (`identity_settings` counts a location as its conventional
+   name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
+   boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
+   refused as a `WaveformText`. A conventional name that holds `{design}` (`vivado_sim`'s `saif`,
+   `outputs/{design}.saif`, fixed by the declared-output naming rule) cannot be written without
+   the design, so `true` is refused there. A simulator
    writes a waveform through its own mechanism or lists the setting in
    `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
    refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
