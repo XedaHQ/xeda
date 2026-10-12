@@ -44,7 +44,7 @@ def _get_wave_opt_signals(wave_opt_file, extra_top=None):
 
 
 class GhdlTool(Tool):
-    """GHDL VHDL simulation, synthesis, and linting tool: https://ghdl.readthedocs.io"""
+    """GHDL, the VHDL analyzer, simulator and synthesizer: https://ghdl.readthedocs.io"""
 
     docker: Optional[Docker] = Docker(image="hdlc/sim:osvb")  # type: ignore
     executable: str = "ghdl"
@@ -81,7 +81,7 @@ class GhdlTool(Tool):
 
 
 class Ghdl(Flow, metaclass=ABCMeta):
-    """VHDL simulation using GHDL"""
+    """Common settings and steps of the GHDL flows."""
 
     #: GHDL analyzes VHDL.
     reads_sources = frozenset({SourceType.Vhdl})
@@ -97,7 +97,9 @@ class Ghdl(Flow, metaclass=ABCMeta):
         )
         syn_bindings: bool = Field(
             True,
-            description="Use synthesizer rules for component binding. During elaboration, if a component is not bound to an entity using VHDL LRM rules, try to find in any known library an entity whose name is the same as the component name.",
+            description="Use synthesizer rules for component binding. During elaboration, if the "
+            "VHDL LRM rules bind a component to no entity, look in every known library for an "
+            "entity with the name of the component.",
         )
         warn_flags: List[str] = Field(
             [
@@ -112,10 +114,10 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 "--warn-specs",
                 "--warn-no-hide",
                 "--warn-parenthesis",
-                "--warn-port",  # Emit a warning on unconnected input port without defaults (in relaxed mode).
+                "--warn-port",  # warn on an unconnected input port without a default (relaxed mode)
                 "--warn-static",
-                "--warn-port-bounds",  # Emit a warning on bounds mismatch between the actual and formal in a scalar port association
-                "--warn-universal",  # Emit a warning on incorrect use of universal values.
+                "--warn-port-bounds",  # warn on a bounds mismatch in a scalar port association
+                "--warn-universal",  # warn on incorrect use of universal values
             ],
             description="Default warning flags.",
         )
@@ -124,36 +126,37 @@ class Ghdl(Flow, metaclass=ABCMeta):
             description="Additional warning flags.",
         )
         werror: bool = Field(
-            False, alias="warn_error", description="warnings are always considered as errors"
+            False, alias="warn_error", description="Treat every warning as an error."
         )
         elab_werror: bool = Field(
             False,
             alias="elab_warn_error",
-            description="During elaboration, warnings are considered as errors",
+            description="Treat warnings as errors during elaboration.",
         )
         relaxed: bool = Field(
             True,
-            description="Slightly relax some rules to be compatible with various other simulators or synthesizers.",
+            description="Relax some rules slightly, for compatibility with other simulators and "
+            "synthesizers.",
         )
         clean_before_analyze: bool = Field(
             True,
-            description="Run `ghdl remove` before analysis, which removes the work library and "
+            description="Run `ghdl remove` before analysis. It removes the work library and "
             "every file GHDL generated from it in the run directory.",
         )
         diagnostics: bool = Field(
             True, description="Enable both color and source line caret diagnostics."
         )
-        work: Optional[str] = Field(None, description="Set the name of the WORK library")
+        work: Optional[str] = Field(None, description="Name of the WORK library.")
         expect_failure: bool = Field(
             False,
-            description="Expect analysis/elaboration failure.",
+            description="Expect elaboration to fail (`--expect-failure`).",
         )
         synopsys: bool = Field(
             False,
-            description="Allow to use synopsys packages in ieee library.",
+            description="Allow the Synopsys packages in the `ieee` library.",
         )
         psl_in_comments: bool = Field(
-            False, description="Parse PSL assertions within comments (for VHDL-2002 and earlier)"
+            False, description="Parse PSL assertions in comments (for VHDL-2002 and earlier)."
         )
 
         removed_settings: ClassVar[Dict[str, str]] = {
@@ -167,7 +170,7 @@ class Ghdl(Flow, metaclass=ABCMeta):
             cf: List[str] = []
             if vhdl.standard:
                 # GHDL spells the standard with two digits ("2008" is --std=08). The design's
-                # own setting is left as written: the design is shared, and already hashed.
+                # own setting stays as written, because the design is shared and already hashed.
                 standard = vhdl.standard
                 if len(standard) == 4 and standard[:2] in ("20", "19"):
                     standard = standard[2:]
@@ -176,8 +179,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 cf += ["-fsynopsys", "-fexplicit"]
             if self.work:
                 cf.append(f"--work={self.work}")
-            # each entry is a (library name, path) pair; `-P<dir>` adds the path to GHDL's
-            # library search path
+            # Each entry is a (library name, path) pair. `-P<dir>` adds the path to GHDL's
+            # library search path.
             cf += [f"-P{path}" for _, path in self.lib_paths if path is not None]
             return cf
 
@@ -263,8 +266,11 @@ class Ghdl(Flow, metaclass=ABCMeta):
         return tops
 
     def _work_library(self, vhdl: VhdlSettings) -> str:
-        """The file of the work library GHDL analyzes into, in its working directory:
-        `<work>-obj<standard>.cf` (GHDL's default standard, 93c, is `obj93`)."""
+        """Return the file name of the work library that GHDL analyzes into.
+
+        The file lies in GHDL's working directory and is named `<work>-obj<standard>.cf`. GHDL's
+        default standard, 93c, gives `obj93`.
+        """
         assert isinstance(self.settings, self.Settings)
         standard = vhdl.standard or "93"
         if len(standard) == 4 and standard[:2] in ("20", "19"):
@@ -278,11 +284,11 @@ class Ghdl(Flow, metaclass=ABCMeta):
         vhdl: VhdlSettings,
         find_top: bool = True,
     ) -> Tuple012:
-        """Analyze the VHDL `sources` into the work library (after `ghdl remove`, if
-        `clean_before_analyze`).
+        """Analyze the VHDL `sources` into the work library.
 
-        Returns the top unit(s): `top` as given or, when it is empty and `find_top` is set, as
-        discovered with `ghdl find-top`. Empty if neither yields one.
+        Run `ghdl remove` first if `clean_before_analyze` is set. Return the top units: `top` as
+        given or, when it is empty and `find_top` is set, the units that `ghdl find-top` (else
+        the last entity of the sources) finds. Return an empty tuple if neither gives one.
         """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -290,8 +296,8 @@ class Ghdl(Flow, metaclass=ABCMeta):
         if isinstance(top, str):
             top = (top,)
         backend = self.ghdl.info.get("backend", None)
-        # `ghdl remove` deletes the work library in the working directory, the run directory,
-        # and what GHDL built from it.
+        # `ghdl remove` deletes the work library in the working directory (the run directory)
+        # and the files that GHDL built from it.
         library = self._work_library(vhdl)
         if ss.clean_before_analyze and (self.run_path / library).exists():
             self.ghdl.run("remove", *ss.get_flags(vhdl, "remove", backend=backend))
@@ -301,30 +307,27 @@ class Ghdl(Flow, metaclass=ABCMeta):
             log.info("No top units were specified. Trying to discover them with `find-top`.")
             tops = self.find_top(*ss.get_flags(vhdl, "find-top"), sources=sources)
             if tops:
-                # clunky way of converting to tuple, just to be safe and also keep mypy happy
+                # Build the tuple by hand: mypy accepts this form.
                 top = (tops[0],) if len(tops) == 1 else (tops[0], tops[1])
                 log.info(
-                    "[ghdl:find-top] discovered top unit: %s. Set `top` explicitly if this was not the indtended top-level unit.",
+                    "[ghdl:find-top] discovered top unit: %s. "
+                    "Set `top` explicitly if this is not the intended top unit.",
                     ", ".join(top),
                 )
             else:
                 log.error(
                     inspect.cleandoc(
                         """[ghdl:find-top] Unable to determine the top unit.
-                        Please specify `tb.top` (for simulation) and/or `rtl.top` (for synthesis) in the design description."""
+                        Set `tb.top` (for simulation) or `rtl.top` (for synthesis) in the design file."""
                     )
                 )
         return top or ()
 
 
 class GhdlSynth(Ghdl, SynthFlow):
-    """
-    Convert a VHDL design using 'ghdl --synth'
-     (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
-    """
+    """Convert a VHDL design to Verilog with `ghdl --synth`."""
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
+    # The flow reports no result keys beyond the common ones. The empty table says so.
     results_description: dict = {}
 
     requires_physical_clocks = False
@@ -339,15 +342,19 @@ class GhdlSynth(Ghdl, SynthFlow):
             },
         }
         vendor_library: Optional[str] = Field(
-            None, description="Any unit from this library is a black box"
+            None, description="Treat every unit of this library as a black box."
         )
         no_formal: bool = Field(
             True,
-            description="Neither synthesize assert nor PSL. Required for yosys+nextpnr flow.",
+            description="Synthesize neither `assert` nor PSL. Required for the yosys+nextpnr flow.",
         )
-        no_assert_cover: bool = Field(False, description="Cover PSL assertion activation")
-        assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes")
-        assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
+        no_assert_cover: bool = Field(
+            False,
+            description='Pass `--no-assert-cover` to GHDL. Its help text reads: "Cover PSL '
+            'assertion activation".',
+        )
+        assert_assumes: bool = Field(False, description="Treat all PSL asserts like PSL assumes.")
+        assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts.")
         verilog_output: Optional[Path] = Field(
             None,
             description="Output file for the generated Verilog; by default `outputs/<design>.v`. If a "
@@ -386,8 +393,8 @@ class GhdlSynth(Ghdl, SynthFlow):
             self.sources_read(), design.rtl.top, design.language.vhdl, find_top=not per_source
         )
         if per_source:
-            # Every output name is decided before anything is synthesized, so a collision is
-            # reported up front rather than after some outputs were already written.
+            # Decide every output name before synthesizing anything. A collision then fails the
+            # run before any output is written.
             outputs = self._per_source_outputs(ss.verilog_output)
             ss.verilog_output.mkdir(parents=True, exist_ok=True)
             fixed_params = "\n".join(
@@ -416,12 +423,12 @@ class GhdlSynth(Ghdl, SynthFlow):
             self.artifacts.generated_verilog = [ss.verilog_output]
 
     def _per_source_outputs(self, output_dir: Path) -> dict[Path, DesignSource]:
-        """The Verilog file each VHDL source is converted to, in source order.
+        """Return the Verilog file that each VHDL source is converted to, in source order.
 
-        Named after the source's path (`Design.source_artifact_name`), not its stem: two sources
-        under different directories may share one (`rtl/a/fifo.vhd`, `rtl/b/fifo.vhd`). Two
-        sources whose names still coincide are an error naming both, since one output would
-        silently replace the other.
+        Each file is named after the path of its source (`Design.source_artifact_name`), because
+        two sources in different directories can share a stem (`rtl/a/fifo.vhd`,
+        `rtl/b/fifo.vhd`). Two sources whose names still coincide are an error that names both,
+        since one output would silently replace the other.
         """
         design = self.design
         outputs: dict[Path, DesignSource] = {}
@@ -461,7 +468,7 @@ class GhdlSynth(Ghdl, SynthFlow):
 
 
 class GhdlSim(Ghdl, SimFlow):
-    """Simulate a VHDL design using GHDL"""
+    """Simulate a VHDL design with GHDL."""
 
     cocotb_sim_name = "ghdl"
     aliases = ["ghdl"]
@@ -474,25 +481,25 @@ class GhdlSim(Ghdl, SimFlow):
     def runs_without_testbench_top(
         cls, design: Design, settings: Flow.Settings | None = None
     ) -> bool:
-        """A VHDL testbench's top unit is found with `ghdl find-top`."""
+        """Return whether the testbench has a VHDL source, whose top unit `ghdl find-top` finds."""
         return any(src.type is SourceType.Vhdl for src in design.tb.sources)
 
     class Settings(Ghdl.Settings, SimFlow.Settings):
-        run_flags: List[str] = Field(
-            [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."
+        run_flags: List[str] = Field([], description="Extra flags passed to `ghdl run`.")
+        optimization_flags: List[str] = Field(
+            ["-O3"], description="Optimization flags passed to `ghdl make`."
         )
-        optimization_flags: List[str] = Field(["-O3"], description="Simulation optimization flags")
         compiler_flags: List[str] = Field(
             [],
-            description="Compiler flags for the C compiler (Only for LLVM and GCC backends).",
+            description="Flags for the C compiler. Used only with the LLVM and GCC backends.",
         )
         assembler_flags: List[str] = Field(
             [],
-            description="Assembler flags for the assembler (Only for LLVM and GCC backends).",
+            description="Flags for the assembler. Used only with the LLVM and GCC backends.",
         )
         linker_flags: List[str] = Field(
             [],
-            description="Linker flags for the linker (Only for LLVM and GCC backends).",
+            description="Flags for the linker. Used only with the LLVM and GCC backends.",
         )
         asserts: Optional[Literal["disable", "disable-at-0"]] = Field(
             None,
@@ -506,7 +513,8 @@ class GhdlSim(Ghdl, SimFlow):
         )
         sdf: SDF = Field(
             SDF(),
-            description="Do VITAL annotation using SDF files(s). A single string is interpreted as a MAX SDF file.",
+            description="SDF files for VITAL annotation: the optional files `min`, `max` and "
+            "`typ`, and `root`, the region they apply to (`tb.uut` by default).",
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
@@ -518,11 +526,13 @@ class GhdlSim(Ghdl, SimFlow):
         )
         read_wave_opt: Optional[Path] = Field(
             None,
-            description="Filter signals to be dumped to the wave file according to the wave option file provided. Needs a waveform (`vcd`, `vcdgz`, `fst` or `wave`).",
+            description="Wave option file that filters the signals written to the waveform. "
+            "Needs a waveform (`vcd`, `vcdgz`, `fst` or `wave`).",
         )
         write_wave_opt: Optional[Path] = Field(
             None,
-            description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
+            description="Write a wave option file that lists all signals of the design. An "
+            "existing file is replaced.",
             json_schema_extra=deliverable("wave.opt"),
         )
         vcdgz: Optional[Union[str, Path]] = Field(
@@ -534,21 +544,22 @@ class GhdlSim(Ghdl, SimFlow):
         )
         fst: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms into an _fst_ file. `true` writes `dump.fst`; a name "
+            description="Write the waveforms to an FST file. `true` writes `dump.fst`; a name "
             "without an extension gets `.fst`.",
             json_schema_extra=waveform("fst"),
         )
         stop_delta: Optional[str] = Field(
             None,
-            description="Stop the simulation after N delta cycles in the same current time.",
+            description="Stop the simulation after this many delta cycles at the same time.",
         )
         disp_tree: Optional[Literal["inst", "proc", "port"]] = Field(
             None,
-            description="Display the design hierarchy as a tree of instantiated design entities. See GHDL documentation for more details.",
+            description="Display the design hierarchy as a tree of instantiated design "
+            "entities. The GHDL documentation describes the values.",
         )
         vpi: Union[str, List[str], None] = Field(
             None,
-            description="Load VPI library (or multiple libraries)",
+            description="Load one or more VPI libraries.",
         )
         # TODO workdir?
 
@@ -561,7 +572,7 @@ class GhdlSim(Ghdl, SimFlow):
             return value
 
         def runtime_flags(self) -> list[str]:
-            """Copy extra flags and enforce the canonical runtime assertion threshold."""
+            """Return `run_flags` with the `--assert-level` that `fail_severity` selects."""
             threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
             canonical = f"--assert-level={threshold}"
             for flag in self.run_flags:
@@ -574,7 +585,10 @@ class GhdlSim(Ghdl, SimFlow):
 
     @classmethod
     def check_waveforms(cls, settings: Flow.Settings) -> None:
-        """GHDL writes one waveform: `vcd`, `vcdgz`, `fst` and `wave` each select the format of it."""
+        """Refuse more than one waveform, and `read_wave_opt` without one.
+
+        GHDL writes one waveform. `vcd`, `vcdgz`, `fst` and `wave` each select its format.
+        """
         chosen = [
             name for name in ("vcd", "vcdgz", "fst", "wave") if getattr(settings, name) is not None
         ]
@@ -590,7 +604,7 @@ class GhdlSim(Ghdl, SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse run flags that compete with `fail_severity`, before anything runs."""
+        """Refuse conflicting waveform settings and run flags that compete with `fail_severity`."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         cls.check_waveforms(settings)
@@ -604,7 +618,7 @@ class GhdlSim(Ghdl, SimFlow):
     ) -> Tuple012:
         """Analyze `sources` and build the simulation executable of the top unit (`ghdl make`).
 
-        Returns the top unit(s) as a Tuple012.
+        Return the top units as a `Tuple012`.
         """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -619,10 +633,10 @@ class GhdlSim(Ghdl, SimFlow):
             backend_split = backend.split()
             compiler = backend_split[0].lower() if backend_split else None
             backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
-            # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
-            # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
-            # A flag of Apple's linker: only for a GHDL that runs on this macOS host, not in a
-            # (Linux) container, where GNU ld misreads it and the link fails (`-lgcc_s`).
+            # Workaround for linker warnings on macOS/arm64 with older toolchains. The latest
+            # Xcode, Command Line Tools, LLVM, GNAT and GHDL do not need it.
+            # The flag belongs to Apple's linker. Add it only for a GHDL that runs on this macOS
+            # host. In a (Linux) container, GNU ld misreads it and the link fails (`-lgcc_s`).
             runs_on_host = not (self.ghdl.dockerized and self.ghdl.docker)
             if compiler == "llvm" and backend_version and backend_version[0].isdigit():
                 llvm_major = int(backend_version[0])
@@ -632,7 +646,7 @@ class GhdlSim(Ghdl, SimFlow):
                     and platform.system() == "Darwin"
                     and platform.machine() == "arm64"
                     and llvm_major
-                    < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
+                    < 19  # TODO: check the GNAT version too? The LLVM limit is a guess.
                     and ss.linker_flags.count(link_flag) == 0
                 ):
                     log.info("Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend)
@@ -649,7 +663,7 @@ class GhdlSim(Ghdl, SimFlow):
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        # a flow built directly is not planned
+        # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
 
     def has_evidence_adapter(self) -> bool:
@@ -726,8 +740,8 @@ class GhdlSim(Ghdl, SimFlow):
             if ss.vpi is None
             else [ss.vpi] if not isinstance(ss.vpi, (list, tuple)) else list(ss.vpi)
         )
-        # The testbench's generics and top as this run uses them. The design itself is not
-        # touched: every flow of a run shares it, and it has already been hashed.
+        # The testbench's parameters and top module as this run uses them. The design itself
+        # stays unchanged: every flow of a run shares it, and it is already hashed.
         tb_generics = design.tb.generics
         tb_top = design.tb.top
         # TODO factor out cocotb handling
@@ -761,7 +775,7 @@ class GhdlSim(Ghdl, SimFlow):
         run_flags.extend(ss.generics_flags(tb_generics))
 
         tb_top = self.elaborate(self.sources_read(tb=True), tb_top, design.language.vhdl)
-        # as `design.sim_tops`, with the top unit `elaborate` settled on
+        # like `design.sim_tops`, but with the top unit that `elaborate` found
         sim_tops = (design.rtl.top,) if design.tb.cocotb and design.rtl.top else tb_top
         runtime = self.ghdl
         if not self.cocotb:

@@ -20,26 +20,28 @@ log = logging.getLogger(__name__)
 
 
 class NvcEnd(XedaBaseModel):
-    """Passive VHPI checkpoint; pending activity is distinct from an HDL finish."""
+    """The checkpoint that the passive VHPI end monitor writes: the end time and the next event."""
 
     time: int = Field(ge=0, strict=True, description="Actual end time in femtoseconds.")
     time_unit: Literal["1fs"] = Field(description="NVC's native VHPI time unit.")
     next_time: int | None = Field(
-        ge=0, strict=True, description="Next pending event in femtoseconds, or no activity."
+        ge=0,
+        strict=True,
+        description="Time of the next pending event in femtoseconds, or null if none.",
     )
 
 
 class NvcTool(Tool):
-    """NVC VHDL simulation, synthesis, and linting tool: https://github.com/nickg/nvc"""
+    """NVC, the VHDL compiler and simulator: https://github.com/nickg/nvc"""
 
     # docker: Optional[Docker] = None
     executable: str = "nvc"
 
 
 class Nvc(SimFlow):
-    """Simulate VHDL using NVC, with native diagnostics and a passive VHPI end monitor.
+    """Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end monitor.
 
-    Non-cocotb runs require a C++ compiler and NVC's vhpi_user.h, installed under its prefix
+    A run without cocotb needs a C++ compiler and NVC's `vhpi_user.h`, installed under its prefix
     or on the compiler's include search path. The monitor schedules no simulation events.
     """
 
@@ -63,62 +65,70 @@ class Nvc(SimFlow):
         }
         one_shot: bool = Field(
             True,
-            description="Run the analysis, elaboration, and execution in a single command. Set to False to run each step separately, which might be helpful in.",
+            description="Run analysis, elaboration and execution in one `nvc` command. If false, "
+            "run each step as a separate command.",
         )
         ignore_time: bool = Field(
             False,
-            description="Do not check the timestamps of source files when the corresponding design unit is loaded from a library.",
+            description="Do not check the timestamps of source files when the corresponding "
+            "design unit is loaded from a library.",
         )
         heap_size: Optional[str] = Field(
             None,
-            description="Set the maximum size in bytes of the simulation heap. This memory is "
-            "used for temporary process allocations and dynamic allocations by the VHDL 'new' "
-            "operator. The optional k, m, or g suffix selects kilobytes, megabytes, or gigabytes. "
-            "The default is 16 megabytes.",
+            description="Maximum size of the simulation heap, in bytes. The heap holds the "
+            "temporary allocations of processes and the allocations of the VHDL `new` operator. "
+            "A `k`, `m` or `g` suffix selects kilobytes, megabytes or gigabytes. The default is "
+            "16 megabytes.",
         )
         messages: Optional[Literal["full", "compact"]] = Field(
             None,
-            description="Select the format used for printing error and informational messages. The default full message format is designed for readability whereas the compact messages can be easily parsed by tools.",
+            description="Format of error and informational messages. The default, `full`, is "
+            "easy to read. The `compact` format is easy for tools to parse.",
         )
         std_error: Optional[Literal["note", "warning", "error", "failure"]] = Field(
             None,
             description="Print messages at the selected severity or higher to stderr instead of "
-            "stdout. The default sends all messages to stderr. Valid levels are note, warning, "
-            "error, and failure.",
+            "stdout. The default sends all messages to stderr. The levels are `note`, `warning`, "
+            "`error` and `failure`.",
         )
         werror: bool = Field(
             False,
             alias="warn_error",
             description="Treat the warnings of the analysis as errors (`-Werror`).",
         )
-        work: Optional[str] = Field(None, description="Set the name of the WORK library")
+        work: Optional[str] = Field(None, description="Name of the WORK library.")
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
-        ## analysis flags
+        # Settings for analysis.
         analysis_flags: List[str] = Field(
             [], description="Extra flags passed to `nvc -a` when analyzing sources."
         )
         check_synthesis: bool = Field(
             True,
-            description="Issue warnings for common coding mistakes that may cause problems during synthesis such as missing signals from process sensitivity lists.",
+            description="Warn about common coding mistakes that can cause problems in synthesis, "
+            "such as signals missing from a process sensitivity list.",
         )
         psl_in_comments: Optional[bool] = Field(
             None, description="Enable parsing of PSL directives in comments during analysis."
         )
         relaxed: bool = Field(
             False,
-            description="Disable certain pedantic LRM conformance checks or rules that were relaxed by later standards.",
+            description="Disable some pedantic LRM conformance checks and rules that later "
+            "standards relaxed.",
         )
-        ## elaboration flags
+        # Settings for elaboration.
         elab_flags: List[str] = Field(
             [], description="Extra flags passed to `nvc -e` during elaboration."
         )
-        cover: List[str] = Field([], description="Enable code coverage reporting ")
-        cover_spec: Optional[Path] = Field(
-            None, description="Specify the coverage specification file"
-        )
+        cover: List[str] = Field([], description="Kinds of code coverage to collect (`--cover`).")
+        cover_spec: Optional[Path] = Field(None, description="Coverage specification file.")
         jit: bool = Field(
             False,
-            description="""Normally nvc compiles all code ahead-of-time during elaboration. The --jit option defers native code generation until run-time where each function will be compiled separately on a background thread once it has been has been executed often enough in the interpreter to be deemed worthwhile. This dramatically reduces elaboration time at the cost of increased memory and CPU usage while the simulation is executing. This option is beneficial for short-running simulations where the performance gain from ahead-of-time compilation is not so significant.""",
+            description="Defer native code generation to run time (`--jit`). Normally NVC "
+            "compiles all code ahead of time during elaboration. With this setting, NVC compiles "
+            "each function on a background thread after the interpreter has executed it often "
+            "enough. This greatly reduces elaboration time, at the cost of more memory and CPU "
+            "use while the simulation runs. It helps short simulations, where ahead-of-time "
+            "compilation gains little.",
         )
         no_collapse: bool = Field(
             False,
@@ -128,60 +138,65 @@ class Nvc(SimFlow):
         )
         no_save: bool = Field(
             False,
-            description="Do not save the elaborated design to a file. Normally nvc saves the elaborated design to a file in the work library. This file is used by the simulator to load the design quickly. The --no-save option disables this saving and the simulator will have to re-elaborate the design each time it is run. This option is useful for debugging the elaboration process.",
+            description="Do not save the elaborated design to a file (`--no-save`). Normally NVC "
+            "saves the elaborated design in the work library, and the simulator loads it from "
+            "there quickly. Without the file, the simulator elaborates the design again on each "
+            "run. This helps when debugging elaboration.",
         )
         optimization_level: Optional[Literal[0, 1, 2, 3]] = Field(
             3,
-            description="Set the optimization level. The default is 0. Higher levels may improve simulation performance but may also increase elaboration time. The maximum level is 3.",
+            description="Optimization level (`-O`), from 0 to 3. Higher levels can speed up the "
+            "simulation but slow down elaboration.",
         )
         print_verbose: bool = Field(
-            False, description="Prints resource usage information after each elaboration step."
+            False, description="Print resource usage after each elaboration step (`--verbose`)."
         )
-        ## run flags
+        # Settings for the run.
         run_flags: List[str] = Field(
             [], description="Extra flags passed to `nvc -r` when running the simulation."
         )
         ieee_warnings: Optional[bool] = Field(
             None,
-            description="Enable or disable warning messages from the standard IEEE packages. The default is warnings enabled.",
+            description="Turn the warnings of the standard IEEE packages on or off. NVC's "
+            "default is on.",
         )
         fst: Union[str, Path, None] = Field(
             None,
             description="Write the waveform as an FST file: a name in the run directory, or a "
             f"location it is delivered to ({LOCATION_FORMS}). `true` writes `dump.fst`; a name "
-            "without an extension gets `.fst`. nvc writes one waveform: set `fst` or `vcd`, not "
-            "both.",
+            "without an extension gets `.fst`. NVC writes one waveform: set only one of `fst` and "
+            "`vcd`.",
             json_schema_extra=waveform("fst"),
         )
         wave_arrays: Union[int, bool, None] = Field(
             2048,
-            description="Include memories and nested arrays in the waveform data. This is disabled by default as it can have significant performance, memory, and disk space overhead. With optional argument N only arrays with up to this many elements will be dumped.",
+            description="Include memories and nested arrays in the waveform. True includes all "
+            "of them, an integer N only arrays with up to N elements, and false none. Large "
+            "arrays cost performance, memory and disk space.",
         )
         wave_include_glob: Optional[str] = Field(
             None,
-            description="""Include signals matching this glob pattern in the waveform data.
-            Examples: ':top:*:x', '*:x', ':top:sub:*'
-            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
-            Needs `vcd` or `fst`.""",
+            description="Include the signals that match this glob pattern in the waveform. "
+            "Examples: `:top:*:x`, `*:x`, `:top:sub:*`. See "
+            "https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS. Needs `vcd` or `fst`.",
         )
         wave_exclude_glob: Optional[str] = Field(
             None,
-            description="""Exclude signals matching this glob pattern from the waveform data.
-            Examples: ':top:*:x', '*:x', ':top:sub:*'
-            See https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS for more details.
-            Needs `vcd` or `fst`.""",
+            description="Exclude the signals that match this glob pattern from the waveform. "
+            "Examples: `:top:*:x`, `*:x`, `:top:sub:*`. See "
+            "https://www.nickg.me.uk/nvc/manual.html#SELECTING_SIGNALS. Needs `vcd` or `fst`.",
         )
         stop_delta: Optional[int] = Field(
             None,
-            description="Stop the simulation after N delta cycles in the same current time.",
+            description="Stop the simulation after this many delta cycles at the same time.",
         )
-        vhpi: List[Path] = Field([], description="Specify the VHPI libraries to load at startup.")
+        vhpi: List[Path] = Field([], description="VHPI libraries to load at startup.")
         shuffle: bool = Field(
             False,
-            description="""Run processes in random order.
-            The VHDL standard does not specify the execution order of processes and different simulators may exhibit subtly different orderings.
-            This option can help to find and debug code that inadvertently depends on a particular process execution order.
-            This option should only be used during debug as it incurs a significant performance overhead as well as introducing potentially non-deterministic behavior.""",
+            description="Run processes in random order. The VHDL standard does not specify the "
+            "execution order of processes, and simulators differ in subtle ways. This setting "
+            "helps to find code that depends on a particular order. Use it only for debugging: "
+            "it slows the simulation considerably and can make the result non-deterministic.",
         )
         stats: bool = Field(
             False,
@@ -196,7 +211,10 @@ class Nvc(SimFlow):
             return value
 
         def runtime_flags(self) -> list[str]:
-            """Copy flags and reject competing severity/time-limit controls."""
+            """Return `run_flags` with the `--exit-severity` that `fail_severity` selects.
+
+            Refuse a run flag that sets a competing severity or a stop time.
+            """
             threshold = "failure" if self.fail_severity == "fatal" else self.fail_severity
             canonical = f"--exit-severity={threshold}"
             for flag in self.run_flags:
@@ -213,9 +231,12 @@ class Nvc(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse, before anything runs, run flags that compete with `fail_severity` or
-        `stop_time`; and a waveform that nvc cannot write: it writes one, with `--wave` (`vcd` or
-        `fst`), and the settings that refine the waveform need one."""
+        """Refuse run flags that compete with `fail_severity` or `stop_time`, and waveform settings
+        that NVC cannot honor.
+
+        NVC writes one waveform, with `--wave` (`vcd` or `fst`). The settings that refine the
+        waveform need one.
+        """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         settings.runtime_flags()
@@ -238,7 +259,7 @@ class Nvc(SimFlow):
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        # a flow built directly is not planned
+        # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
         if ss.fst is not None:
             ss.fst = self.process_path(ss.fst)
@@ -257,7 +278,7 @@ class Nvc(SimFlow):
         if ss.std_error:
             cf.append(f"--stderr={ss.std_error}")
 
-        # The default standard revision is VHDL-2008
+        # NVC's default standard is VHDL-2008.
         standard = self.design.language.vhdl.standard
         if standard:
             standard = {"93": "1993", "00": "2000", "02": "2002", "08": "2008", "19": "2019"}.get(
@@ -276,9 +297,9 @@ class Nvc(SimFlow):
         return cf
 
     def init_lib(self) -> None:
-        """Initialize the library
-        Initialise the working library directory.
-        This is not normally necessary as the library will be automatically created when using other commands such as `analyze`.
+        """Initialize the working library directory.
+
+        This is not normally needed: other commands, such as `analyze`, create the library.
         """
         self.nvc.run("--init")
 
@@ -300,9 +321,7 @@ class Nvc(SimFlow):
         return flags
 
     def analyze(self, sources=None) -> None:
-        """
-        Analyse one or more files into the work library
-        """
+        """Analyze `sources` into the work library (default: all sources of the design)."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
         if sources is None:
@@ -314,7 +333,7 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         flags = list(ss.elab_flags)
 
-        # Note: Generics in internal instances can be overridden by giving the full dotted path to the generic.
+        # The full dotted path to a generic overrides a generic of an internal instance.
         parameters = self.design.rtl.parameters if self.cocotb else self.design.tb.parameters
         for k, v in parameters.items():
             assert v is not None
@@ -337,7 +356,10 @@ class Nvc(SimFlow):
         return flags
 
     def build_end_monitor(self) -> str:
-        """Build in the run directory, discovering headers in the execution environment."""
+        """Build the end monitor in the run directory and return the path of its library.
+
+        The VHPI headers come from the environment where NVC runs.
+        """
         self.copy_from_template("sim_record.h")
         source = self.copy_from_template("nvc_end.cpp")
         if self.nvc.dockerized:
@@ -412,18 +434,16 @@ class Nvc(SimFlow):
         return evidence
 
     def elaborate(self):
-        """
-        Elaborate a previously analysed top level design unit.
-        """
+        """Elaborate the top units of the simulation, which `analyze` has analyzed."""
         self.nvc.run(*self.global_options(), "-e", *self.design.sim_tops, *self.elaborate_flags())
 
     def execute(self, one_shot=False) -> None:
-        """Run the simulation"""
+        """Run the simulation."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
         run_flags = ss.runtime_flags()
 
-        # one waveform (`check_settings_supported`): `--format=vcd` selects VCD, else nvc writes FST
+        # one waveform (`check_settings_supported`): `--format=vcd` selects VCD, else NVC writes FST
         target: Union[str, Path, None] = ss.fst
         if ss.vcd is not None:
             target = self.process_path(ss.vcd)
