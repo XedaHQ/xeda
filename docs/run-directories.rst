@@ -588,9 +588,12 @@ the copy lands.
 A run is identified by what it writes: whether it writes the output, and the name it writes the
 output under in the run directory. A location is no part of that. A run that is up to date
 therefore delivers to a location you give it later, without running again. If the flow writes the
-output in any case, you can give a location, change it or remove it, and the run stays the same.
-``fpga_pack`` always writes its bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run
-only delivers the file.
+output in any case under its conventional name, you can give a location, change it or remove it,
+and the run stays the same. ``fpga_pack`` always writes its bitstream, so
+``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. Three settings are
+written in any case under a name of their own when they are unset: ``verilog_output`` of
+``ghdl_synth``, ``cxxrtl.filename`` of ``yosys_sim`` and ``placement`` of ``nextpnr`` on Xilinx
+targets. For them, a location is a different file in the run directory, so it is a different run.
 
 A setting that switches an output on works differently. ``vivado_synth`` writes no bitstream until
 ``bitstream`` is set. The first location you give it runs the flow again. Later locations do not.
