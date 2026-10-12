@@ -1056,7 +1056,9 @@ class FlowLauncher:
         launch_identity.claim_run_dir(self._claims, run_path)
 
     def _run_dir_policy(self) -> RunDirPolicy:
-        """Return what this launch does with its run directory (`launch_identity.run_dir_policy`)."""
+        """Return what this launch does with its run directory.
+
+        See `launch_identity.run_dir_policy`."""
         return launch_identity.run_dir_policy(self.settings)
 
     def _producer_read_lease(self, producer: Flow) -> AbstractContextManager[Flow]:

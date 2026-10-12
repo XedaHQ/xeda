@@ -744,10 +744,11 @@ def is_unset(value: Any) -> bool:
 
 
 class NoReplacement(str):
-    """The reason a setting was removed when nothing replaces it. The setting's entry in
-    `removed_settings` is `NoReplacement("no flow read it")`, and the error says "`<name>` was
-    removed: no flow read it; delete it". Any other entry is what to use instead: "`<name>` was
-    removed: use <entry>"."""
+    """The reason a setting was removed when nothing replaces it.
+
+    The entry of the setting in `removed_settings` is `NoReplacement("no flow read it")`, and
+    the error says "`<name>` was removed: no flow read it; delete it". Any other entry is what
+    to use instead: "`<name>` was removed: use <entry>"."""
 
 
 def removed_message(name: str, replacement: str, value: Any) -> str:
@@ -1154,13 +1155,14 @@ class Flow(metaclass=ABCMeta):
             design_root: Path | None = None,
             runner_cwd: Path | None = None,
         ):
-            """Validate settings as a user gave them: path variables are resolved against
-            `design_root` and `runner_cwd`, and invalid input is a `FlowSettingsError` listing
-            every problem. The context stays with the settings, so an assignment resolves paths
-            the same way.
+            """Validate settings as a user gave them.
 
-            Not an `__init__` override: pydantic validates a model with a custom `__init__`
-            through that `__init__`, which loses the validation context.
+            Path variables are resolved against `design_root` and `runner_cwd`, and invalid input
+            is a `FlowSettingsError` that lists every problem. The context stays with the
+            settings, so an assignment resolves paths the same way.
+
+            This is not an `__init__` override: pydantic validates a model with a custom
+            `__init__` through that `__init__`, which loses the validation context.
             """
             context = {"design_root": design_root, "runner_cwd": runner_cwd}
             try:
@@ -1186,8 +1188,10 @@ class Flow(metaclass=ABCMeta):
                 self._attach_context(context)
 
         def _attach_context(self, context: Mapping[str, Any]) -> None:
-            """Attach the input location context (the design root and the start directory) to
-            these settings, so that a later assignment resolves paths as the input did."""
+            """Attach the input location context to these settings.
+
+            The context is the design root and the start directory. A later assignment then
+            resolves paths as the input did."""
             self._context = {k: context.get(k) for k in ("design_root", "runner_cwd")}
 
         @model_validator(mode="before")
@@ -1505,8 +1509,7 @@ class Flow(metaclass=ABCMeta):
         The launcher ignores the return value."""
 
     def purge_run_path(self) -> None:
-        """Empty the run directory (`RunDirectory.clear`; nothing for a flow built without a
-        launcher)."""
+        """Empty the run directory (`RunDirectory.clear`); do nothing without a launcher."""
         self.run_directory.clear()
 
     def start_run(self) -> None:

@@ -963,7 +963,6 @@ def build_trace(
 
         The reason is that the file was written during the run.
 
-
         Where there is a record from before the run, the file is judged against it
         (`changed_since`: identity and metadata, never a clock). Without one, the file-system
         clock of the run directory decides, and only on that same file system. On another file

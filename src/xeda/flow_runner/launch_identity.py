@@ -173,8 +173,10 @@ def run_identity(
 
 
 def claim_run_dir(claims: set[Path], run_path: Path) -> None:
-    """Record in `claims` that the launch entered `run_path`. The plan has one node per flow, so a
-    directory is entered once; a second entry would run over what the first produced."""
+    """Record in `claims` that the launch entered `run_path`.
+
+    The plan has one node per flow, so a directory is entered once. A second entry would run
+    over what the first produced."""
     key = Path(os.path.abspath(run_path))
     if key in claims:
         raise FlowFatalError(f"{run_path} is entered twice in one launch")
