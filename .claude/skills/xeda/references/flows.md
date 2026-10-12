@@ -187,7 +187,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 *runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_impl`, `vivado_postsynth_sim`, `vivado_synth`*
 
-Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file from a timing-annotated netlist simulation of the testbench, then reports power against the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
+Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file, then reports power against the routed checkpoint. By default the activity comes from a timing-annotated netlist simulation of the testbench (`timing_saif`). To take it from a functional simulation of the netlist instead, which is faster and has no timing-simulation problems but is less accurate, bind the input: `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
 
 Required settings: `fpga`
 

@@ -93,8 +93,9 @@ places. ``nextpnr``'s former nested ``yosys`` section was removed and says so, n
 ``vivado_postsynth_sim``'s former ``synth`` section names ``flows.vivado_synth.<key>``, and
 ``vivado_power``'s former ``postsynthsim`` section and simulation controls (``elab_debug``,
 ``saif``, ``stop_time``, ``prerun_time``, ``timeout``, ``fail_severity``) name
-``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` asks that flow for timing activity, which
-switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power. ``openroad`` takes its
+``flows.vivado_postsynth_sim.<key>``. ``vivado_power`` takes timing activity from that flow by
+default, which switches its ``timing_sim`` on, so ``timing_sim`` is no setting of power (see
+:ref:`the functional alternative <power-activity>`). ``openroad`` takes its
 netlist from ``yosys`` the same way, so its synthesis is configured in ``flows.yosys``
 (``optimize``, ``abc_driver_cell``, ...; ``-s flows.yosys.optimize=speed`` with ``xeda run
 openroad``), and ``yosys`` derives everything else from the ``platform`` the two share.
@@ -472,6 +473,38 @@ on the alternative synthesis, bind the inputs of both flows to it:
       vivado_power:
         inputs:
           checkpoint: vivado_alt_synth.checkpoint_route
+
+.. _power-activity:
+
+**Power from a functional simulation.** ``vivado_power`` takes the activity of a timing simulation
+by default (``vivado_postsynth_sim.timing_saif``). Vivado also estimates power from the activity
+of a functional simulation of the netlist. That simulation is faster and has none of the problems
+of a timing simulation, but the estimate is less accurate. Bind the ``activity`` input to the
+simulation's ``saif`` output to ask for it; the flow's ``timing_sim`` setting no longer exists, so
+the binding is the only switch:
+
+.. code-block:: yaml
+
+    # power_functional.yaml
+    name: power_functional
+    rtl:
+      sources: [top.v]
+      top: top
+      clock:
+        port: clk
+    tb:
+      sources: [tb.sv]
+      top: tb
+      uut: dut
+    flows:
+      vivado_synth:
+        fpga: {part: xc7a35tcpg236-1}
+        clock: {period: 5.0}
+      vivado_power:
+        inputs:
+          activity: vivado_postsynth_sim.saif
+
+The same binding on the command line is ``-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif``.
 
 **Where a binding can be given.** From the lowest rank to the highest: a project file, the
 design file, the command line (a chain, ``-s flows.<consumer>.inputs.<input>=<reference>``, or
