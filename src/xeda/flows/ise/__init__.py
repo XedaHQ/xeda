@@ -108,6 +108,16 @@ class IseSynth(FpgaSynthFlow):
     )
 
     class Settings(FpgaSynthFlow.Settings):
+        # The keys are the names ISE gives its project properties (`Keep Hierarchy`), so a dot
+        # in one is part of the name.
+        opaque_key_fields = (
+            "synthesis_options",
+            "map_options",
+            "pnr_options",
+            "translate_options",
+            "trace_options",
+        )
+
         # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx14_7/devref.pdf
         synthesis_options: OptionsType = Field(
             {

@@ -111,7 +111,7 @@ design, key by key) -> command-line `-s` -> the API. Layers merge key by key, so
 `-s clock.freq=100MHz` refines a nested section instead of replacing it. A flow's settings are
 written under its own `flows.<flow>`, never nested in another flow's (`nextpnr.yosys`, `vivado_postsynth_sim.synth` and `vivado_power.postsynthsim` were removed, each naming its replacement). `-s flows.<flow>.key=value` sets a setting of any flow in the run (the
 requested flow or a declared dependency; a typo is an error with suggestions), and `-s key` and
-`-s flows.<requested>.key` are one setting. `-s` takes space-separated KEY=VALUE items and stops
+`-s flows.<requested>.key` are one setting (two values, or a value in one and a key inside it in the other, are an error). `-s` takes space-separated KEY=VALUE items and stops
 at the next option or the first token that is not KEY=VALUE, so put the design before it or end
 the options with `--`.
 
@@ -119,6 +119,16 @@ the options with `--`.
 # dotted keys reach nested settings; several can be given at once
 xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
 ```
+
+A setting that holds a dictionary keyed by the tool's own names takes a name with dots as ONE key:
+`-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0` sets the Vivado run property
+`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM` (the same key in a design file under
+`flows.vivado_synth.set_synth_properties`). Quote a name that has a space:
+`-s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"`. Origins
+merge such tables name by name, so `A` in one origin and `A.B` in another are two properties; one
+origin cannot give both. `xeda list-settings <flow> --json` marks these settings with
+`"opaque_keys": true` (the Vivado `set_synth_properties`/`set_impl_properties`, ISE's `*_options`);
+any other dotted key is a path into nested tables (`synth.steps...`).
 
 Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`,
 `quiet`/`verbose`/`debug`, `redirect_stdout` and `lib_paths`. `xeda list-settings <flow> --json`

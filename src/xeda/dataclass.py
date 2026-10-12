@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
@@ -75,6 +75,11 @@ __all__ = [
     "is_mistake",
     "mapping_form",
     "nested_model",
+    "opaque_key_fields_of",
+    "fold_dotted_keys",
+    "atomic_keys",
+    "AtomicName",
+    "name_inside_another",
     "shape_problems",
     "single_item_fields_of",
     "table_entries",
@@ -385,6 +390,104 @@ def single_item_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("single_item_fields", ())))
     return tuple(fields)
+
+
+def opaque_key_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
+    """The `opaque_key_fields` of `model`: its own and its bases', in the order of the MRO from
+    the base."""
+    fields: Dict[str, None] = {}
+    for klass in reversed(model.__mro__):
+        fields.update(dict.fromkeys(vars(klass).get("opaque_key_fields", ())))
+    return tuple(fields)
+
+
+#: The sequence that `utils.set_hierarchy` keeps whole when it splits a dotted key. The names of
+#: a setting in `opaque_key_fields` have none (`utils.EscapedName`).
+ESCAPED_DOT = "\\."
+
+
+class AtomicName(str):
+    """A name of a setting in `opaque_key_fields` that a merged table keeps whole, dots included.
+
+    Layers of one setting are merged as tables of these (`atomic_keys`): `A` and `A.B` are two
+    names there. Its text is the name with each dot as `ESCAPED_DOT`, which `utils.set_hierarchy`
+    does not split, and the class is what tells it from text a user wrote: that text is a name
+    to fold (`fold_dotted_keys`), and the same text in a user's key is refused."""
+
+    __slots__ = ()
+
+    @classmethod
+    def of(cls, name: str) -> "AtomicName":
+        return cls(name.replace(".", ESCAPED_DOT))
+
+    @property
+    def name(self) -> str:
+        return str.replace(self, ESCAPED_DOT, ".")
+
+
+def fold_dotted_keys(value: Any) -> Any:
+    """The table `value`, given for a setting whose keys are names that contain dots
+    (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), as a table of those names.
+
+    Every origin expands a dotted key into nested tables before it knows the setting's model
+    (`utils.set_hierarchy`). So `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0` arrives as
+    `{"STEPS": {"SYNTH_DESIGN": {"ARGS": {"MAX_BRAM": 0}}}}`. A setting named in
+    `Flow.Settings.opaque_key_fields` joins each path to a value back into one key. The dotted
+    key and the nested tables are the same table, so they are one setting. An `AtomicName` is
+    one name already.
+
+    Only a table with entries is a path. An empty table stays a value, and the setting's type
+    judges it. What cannot be folded also stays as given, for the type to judge: a value that is
+    no table, a key that is not text, and a name given twice (`{"a.b": 1, "a": {"b": 2}}`, which
+    no origin makes). A key with `ESCAPED_DOT` is refused (`utils.EscapedName`).
+    """
+    if not isinstance(value, Mapping):
+        return value
+    folded: Dict[str, Any] = {}
+
+    def fold(table: Mapping[Any, Any], prefix: str) -> bool:
+        for key, entry in table.items():
+            if isinstance(key, AtomicName):
+                name = key.name
+            elif isinstance(key, str):
+                if ESCAPED_DOT in key:
+                    from .utils import EscapedName
+
+                    raise EscapedName(prefix + key)
+                name = key
+            else:
+                return False
+            path = prefix + name
+            if isinstance(entry, Mapping) and entry:
+                if not fold(entry, path + "."):
+                    return False
+                continue
+            if path in folded:
+                return False
+            folded[path] = entry
+        return True
+
+    return folded if fold(value, "") else value
+
+
+def atomic_keys(value: Any) -> Any:
+    """`fold_dotted_keys`, with each name an `AtomicName`: the form in which layers of one
+    setting are merged. The setting's own normalization folds the names back."""
+    folded = fold_dotted_keys(value)
+    if not isinstance(folded, Mapping) or folded is value:
+        return value
+    return {AtomicName.of(key): entry for key, entry in folded.items()}
+
+
+def name_inside_another(names: Iterable[str]) -> Optional[Tuple[str, str]]:
+    """`(name, other)` when `other` is `name` followed by a dot and more, else `None`: of two
+    such names, one is a value and the other sets a key inside it (`utils.set_hierarchy`)."""
+    given = set(names)
+    for name in sorted(given):
+        for other in sorted(given):
+            if other.startswith(name + "."):
+                return name, other
+    return None
 
 
 def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"]], bool]:

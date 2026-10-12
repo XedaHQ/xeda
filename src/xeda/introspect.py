@@ -27,7 +27,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_ar
 from importlib_resources import files
 from pydantic import BaseModel
 
-from .dataclass import PydanticUndefined, input_names, single_item_fields_of, written_role
+from .dataclass import (
+    PydanticUndefined,
+    input_names,
+    opaque_key_fields_of,
+    single_item_fields_of,
+    written_role,
+)
 from .design import (
     DESIGN_NAME,
     FLAT_RTL_KEYS,
@@ -473,6 +479,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "declared_by": declared_by,
                 # "working" or "deliverable": a path the flow writes; None: it is read
                 "writes": written_role(cls.Settings, name),
+                # true: the keys are the tool's names, and a dot in one is part of the name
+                "opaque_keys": name in opaque_key_fields_of(cls.Settings),
                 "json_schema": json_safe(prop),
             }
         )
@@ -491,6 +499,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "common": False,
                 "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
                 "writes": None,
+                "opaque_keys": False,
                 "json_schema": json_safe(prop),
             }
         )

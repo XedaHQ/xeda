@@ -448,7 +448,9 @@ removed before the run, so an earlier success never stands for a run that died
   `vivado_power.timing_sim` has none (power switches it on itself). `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared producers; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
-  error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
+  error, and so is a value in one spelling with a key inside it in the other: the same rule as
+  `set_hierarchy`'s, applied by `split_flow_sections`, which splits an opaque-key setting's names
+  at their dots for it); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
   design file; `--` ends the options. Local runs, remote runs and producers all use
@@ -899,6 +901,34 @@ overlay report it as a `DesignValidationError`, and `dse` as its error document.
 `tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
 to every origin.
 
+**A setting whose keys are the tool's own names takes a dotted key as one key.** Every origin
+expands dotted keys before it knows the model, so Vivado's `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`
+arrives as nested tables. `Flow.Settings.opaque_key_fields` (read along the MRO,
+`dataclass.opaque_key_fields_of`) names the dictionary settings of that kind (`set_synth_properties`
+and `set_impl_properties` on `VivadoSynth.Settings`, which `vivado_alt_synth` and `vivado_project`
+inherit; ISE's five `*_options`). Two places use it. `merge_layers` turns each layer's table into
+its names, each an `AtomicName` (`dataclass.atomic_keys`: a `str` subclass holding the name with
+each dot as `ESCAPED_DOT`, which `set_hierarchy` does not split, and which it keeps whole as a
+class, so a merged table survives being expanded again), and the layers merge name by name, so
+`A` in one origin and `A.B` in another are two properties and a higher origin replaces only the
+names it gives. `_normalize_flow_setting` joins the nested tables of whatever reaches the model
+(`dataclass.fold_dotted_keys`, which unwraps an `AtomicName`) on construction, reload and assignment. The
+nested form and the dotted form are one setting. One origin cannot give `A` and `A.B`: the
+expansion, which knows no model, makes that a `ConflictingKeys` (stopping the expansion at the
+field would need every expansion site to know the flow); `-s A` with `-s flows.<requested>.A.B` is
+one origin and is refused by `split_flow_sections`. User text is never the merged form: a name
+with `ESCAPED_DOT` in a key a user wrote is an `EscapedName` error from every origin (the tool's
+names have no backslash), so `A` with `A\.B` cannot get past the `A`/`A.B` rule, and a table of
+text keys is checked for a name inside another before it is merged (`_atomic_table`; a table of
+`AtomicName`s is a merge of origins and is not). `cli_types._is_key_value` lets `-s` take
+a key that continues after the name of such a setting with spaces and signs (`...ARGS.MORE
+OPTIONS=...`; the names come from the registered flows, read only for a key that is not shaped like
+a setting key), and still ends at the design file. Class creation refuses a name that is no
+dictionary-of-values field; `introspect` shows `opaque_keys`; `tests/test_opaque_key_settings.py`
+gives a property from every origin, checks that the fake Vivado gets one word, and requires every
+dictionary setting of every flow to be opaque or reviewed as nested (`ORDINARY_DICTIONARIES`, with
+the reason).
+
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
 values really are of several kinds, its type says so and whatever consumes it renders each kind
@@ -914,7 +944,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting two conveniences, applied before any field validator runs (by a model `before` validator
+setting its conveniences (the two below, and the join of an opaque-key table described after them), applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around

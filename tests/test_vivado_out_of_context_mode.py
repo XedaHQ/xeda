@@ -209,9 +209,7 @@ def test_a_property_for_something_else_is_not_judged() -> None:
 def test_a_property_that_carries_the_mode_holds_it_once_in_the_script(
     tmp_path, monkeypatch
 ) -> None:
-    """The property is set last, so its value is the run's; the mode is in it once. (The
-    launcher expands the dots of a property name into a hierarchy, so such a setting reaches a
-    flow built directly only.)"""
+    """The property is set last, so its value is the run's; the mode is in it once."""
     use_fake_tools(monkeypatch)
     flow = _built_directly(
         VivadoSynth,

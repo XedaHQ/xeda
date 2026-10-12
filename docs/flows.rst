@@ -123,6 +123,33 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
 target, ``--design-overrides`` and a ``flows`` table.
 
+Some settings hold a dictionary whose keys are names that the tool defines. Vivado's run
+properties are an example, and their names contain dots. A dotted key of such a setting is one
+key, not a path into nested tables::
+
+    xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+
+This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
+file, a target, a project file and the API give it in the same way. In a design file, the key
+``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
+written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
+Each origin gives its names, and the origins merge name by name: a higher origin replaces only
+the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
+both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
+a table, as for any setting. ``-s set_synth_properties.A=1`` and
+``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
+A name with a backslash before a dot (``A\.B``) is refused in every origin: the names of the tool
+have no backslash.
+
+A name with a space is a quoted shell item::
+
+    xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+
+``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
+its settings) and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
+dotted key is a path into nested tables.
+
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain

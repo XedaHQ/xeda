@@ -778,6 +778,9 @@ class VivadoSynth(VivadoImplementation):
     class Settings(VivadoImplementation.Settings):
         """Vivado synthesis settings"""
 
+        # The names of Vivado's run properties contain dots (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`).
+        opaque_key_fields = ("set_synth_properties", "set_impl_properties")
+
         # See https://www.xilinx.com/content/dam/xilinx/support/documents/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
         synth: RunOptions = Field(
             RunOptions(
@@ -837,12 +840,14 @@ class VivadoSynth(VivadoImplementation):
         )
         set_synth_properties: Dict[str, PropertyValue] = Field(
             {},
-            description="Properties to set on the synthesis run (`synth_1`), e.g. "
-            '`{"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM" = 0}`. Values may be text, numbers or booleans.',
+            description="Properties to set on the synthesis run (`synth_1`), by property name, e.g. "
+            "`-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. A name with dots is "
+            "one key. Values may be text, numbers or booleans.",
         )
         set_impl_properties: Dict[str, PropertyValue] = Field(
             {},
-            description="Properties to set on the implementation run (`impl_1`). Values may be "
+            description="Properties to set on the implementation run (`impl_1`), by property "
+            "name. A name with dots is one key, as in `set_synth_properties`. Values may be "
             "text, numbers or booleans.",
         )
         report_power: bool = Field(False, description="Run power estimation after implementation")
