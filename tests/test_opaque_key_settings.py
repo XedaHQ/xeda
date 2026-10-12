@@ -57,7 +57,7 @@ def start_in_tmp_path(tmp_path, monkeypatch):
 
 
 def design_data(flows=None, **more) -> dict:
-    data: dict = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top"}, **more}
+    data: dict = {"name": "d", "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"}, **more}
     if flows is not None:
         data["flows"] = flows
     return data
@@ -176,7 +176,7 @@ def origin_design_file_as_tables(tmp_path):
 
 def origin_design_file_dotted_section(tmp_path):
     text = (
-        "name: d\nrtl: {sources: [top.v], top: top}\nflows:\n  vivado_synth:\n"
+        "name: d\nrtl: {sources: [top.v], top: top, clock: clk}\nflows:\n  vivado_synth:\n"
         f"    fpga: {PART}\n    clock.period: 5.5\n"
         f"    set_synth_properties.{SYNTH_NAME}: 0\n"
         f"    set_impl_properties:\n      {IMPL_NAME}: Explore\n"
@@ -186,7 +186,7 @@ def origin_design_file_dotted_section(tmp_path):
 
 def origin_design_file_dotted_flows_key(tmp_path):
     text = (
-        "name: d\nrtl: {sources: [top.v], top: top}\n"
+        "name: d\nrtl: {sources: [top.v], top: top, clock: clk}\n"
         f"flows.vivado_synth.fpga: {PART}\nflows.vivado_synth.clock.period: 5.5\n"
         f"flows.vivado_synth.set_synth_properties.{SYNTH_NAME}: 0\n"
         f"flows.vivado_synth.set_impl_properties.{IMPL_NAME}: Explore\n"
@@ -253,7 +253,7 @@ def origin_design_object(tmp_path):
     design = Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["top.v"], "top": "top"},
+        rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
         flow=flows_section({SYNTH_NAME: 0}, {IMPL_NAME: "Explore"}),
     )
     return planned(tmp_path, design)
