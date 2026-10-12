@@ -12,11 +12,19 @@ import shutil
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError, NoReplacement
+from xeda.flow import FlowSettingsError, FlowSettingsException, NoReplacement
 from xeda.dataclass import input_names
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import Nvc, Openroad, VivadoAltSynth, VivadoProject, VivadoSynth, YosysFpga
+from xeda.flows import (
+    Nvc,
+    Openroad,
+    VivadoAltSynth,
+    VivadoProject,
+    VivadoSynth,
+    Yosys,
+    YosysFpga,
+)
 
 from .settings_samples import flow_classes, minimal_settings
 from .test_vivado_step_tables import PART, _design, _run, _script
@@ -59,10 +67,10 @@ REFUSED = [
     ("yosys_sim", "nosynth", True, "delete it"),
     ("yosys_sim", "retime", True, "delete it"),
     ("yosys_sim", "netlist_verilog_extmem", [], "delete it"),
-    ("yosys", "retime", True, "yosys_fpga"),
-    ("yosys", "netlist_verilog_extmem", [], "delete it"),
-    ("yosys_fpga", "nosynth", True, "delete it"),
-    ("yosys_fpga", "netlist_verilog_extmem", [], "delete it"),
+    ("yosys", "retime", True, "`abc_dff` (on by default), which passes `-dff` to `abc`"),
+    ("yosys", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
+    ("yosys_fpga", "nosynth", True, "`stop_after: rtl`, which stops after the RTL stage"),
+    ("yosys_fpga", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
     ("ghdl_synth", "compiler_flags", ["-O"], "flows.ghdl_sim.compiler_flags"),
     ("ghdl_synth", "assembler_flags", ["-O"], "flows.ghdl_sim.assembler_flags"),
     ("ghdl_synth", "linker_flags", ["-L"], "flows.ghdl_sim.linker_flags"),
@@ -79,11 +87,11 @@ REFUSED = [
     ],
     ("quartus", "synthesis_effort", "fast", "delete it"),
     ("vcs", "work_dir", "work", "delete it"),
-    ("vcs", "optimization_flags", ["-O"], "delete it"),
-    ("modelsim", "optimization_flags", ["-O"], "delete it"),
-    ("nvc", "optimization_flags", ["-O"], "delete it"),
-    ("verilator", "optimization_flags", ["-O"], "delete it"),
-    ("yosys_sim", "optimization_flags", ["-O"], "delete it"),
+    ("vcs", "optimization_flags", ["-O"], "`vcs_flags`, which reach the `vcs` elaboration"),
+    ("modelsim", "optimization_flags", ["-O"], "`vsim_flags`, which reach `vsim`"),
+    ("nvc", "optimization_flags", ["-O"], "`optimization_level` (`nvc -e -O`)"),
+    ("verilator", "optimization_flags", ["-O"], "`optimize` for the `-O` of Verilator"),
+    ("yosys_sim", "optimization_flags", ["-O"], "`cxxrtl.opt` for `write_cxxrtl -O`"),
     # removed from every flow
     *[
         (flow, name, value, use)
@@ -374,3 +382,43 @@ def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
         with pytest.raises(FlowSettingsError) as refused:
             VivadoProject.Settings.from_input({**SYNTHESIS, spelling: None})
         assert f"`{spelling}` was removed: " in str(refused.value)
+
+
+# ------------------------------------------- what a removal message names reaches the tool
+
+
+@pytest.mark.parametrize("flow_class", [Yosys, YosysFpga])
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_netlist_verilog_flags_reach_write_verilog(flow_class, script_format, tmp_path) -> None:
+    """The message of the removed `netlist_verilog_extmem` names `netlist_verilog_flags`."""
+    from .test_yosys_templates import _asic_settings, _fpga_settings, _render
+
+    make = _asic_settings if flow_class is Yosys else _fpga_settings
+    script = _render(
+        flow_class,
+        make(script_format=script_format, netlist_verilog_flags=["-extmem"]),
+        tmp_path,
+    )
+    assert re.search(r"^(yosys )?write_verilog -extmem\b", script, re.MULTILINE), script
+
+
+def test_yosys_passes_dff_to_abc_by_abc_dff_and_has_no_dff_for_synth(tmp_path) -> None:
+    """The message of the removed `retime` of `yosys` names `abc_dff` and `abc_flags`."""
+    from .test_yosys_templates import _asic_settings, _render
+
+    (tmp_path / "on").mkdir()
+    (tmp_path / "off").mkdir()
+    on = _render(Yosys, _asic_settings(), tmp_path / "on")
+    off = _render(Yosys, _asic_settings(abc_dff=False, abc_flags=["-fast"]), tmp_path / "off")
+    assert re.search(r"^abc -dff\b", on, re.MULTILINE), on
+    assert re.search(r"^abc +-fast\b", off, re.MULTILINE) and "abc -dff" not in off, off
+
+
+def test_yosys_fpga_stops_after_the_rtl_stage_when_no_netlist_is_asked_for() -> None:
+    """The message of the removed `nosynth` names `stop_after: rtl` with the netlist off."""
+    base = {"fpga": {"part": "xc7a100tcsg324-1"}, "clock": {"period": 5.0}, "stop_after": "rtl"}
+    with pytest.raises(FlowSettingsException, match="netlist_json"):
+        YosysFpga.check_settings_supported(YosysFpga.Settings.from_input(base))
+    YosysFpga.check_settings_supported(
+        YosysFpga.Settings.from_input({**base, "netlist_json": None, "netlist_verilog": None})
+    )

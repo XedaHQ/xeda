@@ -9,7 +9,7 @@ from typing import ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...dataclass import WORKING, Field, XedaBaseModel, field_validator, model_validator
 from ...design import SourceType
-from ...flow import Flow, FlowSettingsError, Out, SynthFlow, describe_results, NoReplacement
+from ...flow import Flow, FlowSettingsError, Out, SynthFlow, describe_results
 from ...platforms import AsicsPlatform
 from ...run_dir import RunDirectory
 from ...utils import replacing_file, unique
@@ -214,8 +214,9 @@ class Yosys(YosysSynthesisBase, SynthFlow):
     class Settings(YosysSynthesisBase.Settings, SynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **YosysSynthesisBase.Settings.removed_settings,
-            "retime": NoReplacement("xeda passed it to nothing. `yosys_fpga` has `retime`"),
-            "netlist_verilog_extmem": NoReplacement("xeda passed it to nothing"),
+            "retime": "`abc_dff` (on by default), which passes `-dff` to `abc`, and `abc_flags` "
+            "for more options of `abc`; yosys's `synth` has no retime option",
+            "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
         }
         nosynth: bool = Field(False, description="Do not run `synth`.")
         platform: Optional[AsicsPlatform] = Field(

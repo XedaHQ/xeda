@@ -103,7 +103,8 @@ class Vcs(SimFlow):
     class Settings(SimFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
-            "optimization_flags": NoReplacement("xeda passed it to nothing"),
+            "optimization_flags": "`vcs_flags`, which reach the `vcs` elaboration, or `cflags` for the C "
+            "compiler",
             "work_dir": NoReplacement("xeda passed it to nothing"),
         }
         simv_flags: List[str] = Field(

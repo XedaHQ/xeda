@@ -18,7 +18,6 @@ from ...flow import (
     FlowSettingsException,
     SimFlow,
     describe_results,
-    NoReplacement,
 )
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
@@ -337,7 +336,8 @@ class Verilator(SimFlow):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
-            "optimization_flags": NoReplacement("xeda passed it to nothing"),
+            "optimization_flags": "`optimize` for the `-O` of Verilator, or `cflags` for the C++ compiler "
+            "(`-CFLAGS`)",
         }
 
     @classmethod

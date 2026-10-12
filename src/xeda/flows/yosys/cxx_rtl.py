@@ -78,9 +78,11 @@ class YosysSim(YosysBase, SimFlow):
                 if field not in YosysBase.Settings.model_fields
             },
             **dict.fromkeys(
-                ("nosynth", "retime", "netlist_verilog_extmem", "optimization_flags"),
+                ("nosynth", "retime", "netlist_verilog_extmem"),
                 NoReplacement("xeda passed it to nothing"),
             ),
+            "optimization_flags": "`cxxrtl.opt` for `write_cxxrtl -O`, or `cxxrtl.ccflags` for the "
+            "C++ compiler that builds the model",
         }
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",

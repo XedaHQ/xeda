@@ -4,7 +4,7 @@ from typing import ClassVar, Dict, List, Optional, Union
 
 from ...dataclass import Field
 from ...design import DesignValidationError, SourceType
-from ...flow import SimFlow, NoReplacement
+from ...flow import SimFlow
 from ...flow.flow import describe_results
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
@@ -60,7 +60,8 @@ class Modelsim(SimFlow):
     class Settings(SimFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
-            "optimization_flags": NoReplacement("xeda passed it to nothing"),
+            "optimization_flags": "`vsim_flags`, which reach `vsim`, where ModelSim optimizes the design "
+            "(`-voptargs=...`)",
         }
         sdf: SDF = Field(
             SDF(),
