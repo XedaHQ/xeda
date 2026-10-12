@@ -153,8 +153,9 @@ REVIEWED_FALLBACKS = {
 
 def _fallbacks(fields):
     """`(file, setting)` for each place a flow's code gives one of `fields` another value when it
-    is unset: `x.field or ...` outside a condition, and `if x.field is None:` that assigns
-    `x.field`. A syntactic scan: it cannot see a fallback made by other means."""
+    is unset: `x.field or ...` outside a condition, and `if x.field is None:` or `if not x.field:`
+    that assigns `x.field`. A syntactic scan: it cannot see a fallback made by other means (a
+    default chosen in a helper, a template), so it narrows the review and does not replace it."""
     import ast
 
     import xeda
@@ -177,21 +178,26 @@ def _fallbacks(fields):
                 first = node.values[0]
                 if id(node) not in conditions and getattr(first, "attr", None) in fields:
                     found.add((relative, first.attr))
-            test = getattr(node, "test", None)
-            if (
-                isinstance(node, ast.If)
-                and isinstance(test, ast.Compare)
-                and isinstance(test.left, ast.Attribute)
-                and test.left.attr in fields
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                subject = test.operand  # `if not x.field:`
+            elif (
+                isinstance(test, ast.Compare)
                 and isinstance(test.ops[0], ast.Is)
                 and getattr(test.comparators[0], "value", 0) is None
             ):
+                subject = test.left  # `if x.field is None:`
+            else:
+                continue
+            if isinstance(subject, ast.Attribute) and subject.attr in fields:
                 for inner in ast.walk(ast.Module(body=node.body, type_ignores=[])):
                     if isinstance(inner, ast.Assign) and any(
-                        isinstance(target, ast.Attribute) and target.attr == test.left.attr
+                        isinstance(target, ast.Attribute) and target.attr == subject.attr
                         for target in inner.targets
                     ):
-                        found.add((relative, test.left.attr))
+                        found.add((relative, subject.attr))
     return found
 
 

@@ -1471,8 +1471,8 @@ so another run. `ghdl_synth`'s `verilog_output`, `cxxrtl.filename` and `nextpnr`
 (Xilinx) are always written but, unset, under their own name (`<top>.v`, `<top>.cpp`,
 `placement.json`) and not the conventional one (CXXRTL's header is named after the file, and a C++
 driver includes it): unset and a location are two runs there, pinned by `UNSET_UNDER_OWN_NAME` in
-`tests/test_deliverable_identity.py`. Its sweep covers every deliverable of every flow, and a scan
-of the flows' code (`REVIEWED_FALLBACKS`) fails on a new place that names an unset deliverable. `tests/test_written_paths.py`'s `ROLES` is the one table of every
+`tests/test_deliverable_identity.py`. Its sweep covers every deliverable of every flow, and a syntactic
+scan of the flows' code (`REVIEWED_FALLBACKS`) fails on a new `x.field or ...` or `if x.field is None:` that names an unset deliverable (other forms need review). `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
 nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,
