@@ -1,30 +1,31 @@
-"""Freshness in a dry run: what a launch of a plan would do with each node, without doing it.
+"""Freshness in a dry run: what a launch would do with each node of a plan.
 
-Each node is `fresh` (a launch reuses it), `stale` (a launch runs it, for the reason given, the
-words the launch logs) or `unknown` (nothing can be said without making something: a producer
-that would run, a container image to look up, a prepared input that does not exist yet).
+Each node is `fresh` (a launch reuses it), `stale` (a launch runs it, for the reason the launch
+logs) or `unknown` (nothing can be said without making something first: a producer that would
+run, a container image to look up, a prepared input that does not exist yet).
 
-It judges as the launch does, because it uses what the launch uses: `trace_inputs.expected_run`
-for what the node would consume, `trace.check_trace` for the comparison, and the pure hooks of
-the flows (`Flow.design_scope`, `input_equivalence`, `locate_prepared_inputs`, `always_runs`).
-It is read-only: `check_trace(refresh=False)` makes no clock marker and refreshes no trace, no
-lock is taken, no process starts, and nothing is created. A flow is constructed as the launch
-constructs it, with a run directory that is not launched (nothing is written there), and is not
-initialized.
+The dry run uses what the launch uses. `trace_inputs.expected_run` says what a node would
+consume, `trace.check_trace` compares it with the last run, and the pure hooks of the flows answer
+for their settings (`Flow.design_scope`, `input_equivalence`, `locate_prepared_inputs`,
+`always_runs`). It reads files and writes nothing: `check_trace(refresh=False)` makes no clock
+marker and does not refresh the trace, no lock is taken, no process starts, and nothing is
+created. Each flow is constructed as the launch constructs it, with a run directory that no
+launch has claimed, and is not initialized.
 
-The order of judgment is the launch's:
+A node is judged in the order the launch uses:
 
-1. the settings, which a launch checks in the design's context (`unknown` if it refuses them);
-2. the hand-over of the recorded outputs of every producer that is fresh, whatever the others
-   do (`unknown` if one cannot be handed over; a producer that is not fresh is not read, since
-   it is about to be rewritten);
-3. the prepared inputs, located (`unknown` if preparation refuses them);
-4. `always_runs()` (`stale`);
-5. `--clean`, then `--rebuild-all` (`stale`);
-6. a prepared input that is not made yet (`unknown`);
-7. the trace (`stale` with its reason), with what the producers handed over compared last once
-   every producer is fresh; a flow whose producer is not fresh, and that nothing above decided,
-   is `unknown` (`depends on <producer>`).
+1. The settings, which a launch checks against the design. If it refuses them, the node is
+   `unknown`.
+2. The recorded outputs of every producer that is fresh, whatever the other producers do. If one
+   cannot be handed over, the node is `unknown`. A producer that is not fresh is not read,
+   because it will be rewritten.
+3. The prepared inputs, located. If preparation refuses them, the node is `unknown`.
+4. `always_runs()`: the node is `stale`.
+5. `--clean`, then `--rebuild-all`: the node is `stale`.
+6. A prepared input that is not made yet: the node is `unknown`.
+7. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
+   over is compared last, and only when every producer is fresh. Otherwise a node that nothing
+   above decided is `unknown`, with the reason `depends on <producer>`.
 """
 
 from __future__ import annotations
@@ -213,9 +214,8 @@ def judge_node(
     debug: bool,
 ) -> NodeFreshness:
     flow_class = node.flow_class
-    # what the producers hand over: a fresh producer's recorded results are the ones a launch
-    # hands over, whatever the other producers do; a producer that is not fresh runs first, and
-    # its results are about to be made
+    # A fresh producer's recorded results are the ones a launch hands over, whatever the other
+    # producers do. A producer that is not fresh runs first and its results are rewritten.
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
     waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
@@ -245,8 +245,8 @@ def judge_node(
         # a plan checks no more than the request; a launch checks the settings in the design's
         # context, as it constructs the flow, and would refuse these
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
-    # the launch hands over the producers' outputs before it prepares anything or asks the flow
-    # anything: one it cannot hand over stops it
+    # A launch hands over the outputs before it prepares anything or asks the flow anything. One
+    # it cannot hand over stops the launch.
     if lacks is not None:
         return lacks
     # the launch prepares inputs before it asks whether the flow always runs: what preparation

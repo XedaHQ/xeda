@@ -679,9 +679,9 @@ def test_an_output_record_the_hand_over_refuses_is_unknown_to_a_dry_run(
 def test_an_invalid_record_of_a_fresh_producer_is_judged_whatever_another_producer_does(
     tmp_path, monkeypatch, toys
 ):
-    """With two producers, one fresh and holding a record the hand-over refuses, the other not
-    fresh: the launch runs the second and fails at the first's hand-over, so a consumer that
-    runs for its own reasons is unknown, not stale."""
+    """Two producers: one is fresh and holds a record that the hand-over refuses, the other is
+    not fresh. The launch runs the second producer and fails at the hand-over of the first. A
+    consumer that would run for its own reasons is therefore unknown, not stale."""
 
     class ToyOther(toys[0]):
         """Writes its text to outputs/other.txt, as its output `other`."""
