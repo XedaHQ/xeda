@@ -33,6 +33,7 @@ from xeda.flow.flow import registered_flows
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 from .tool_utils import use_fake_tools
 from xeda.flow_runner import DefaultRunner
+from xeda.units import convert_unit
 from xeda.flows import (
     VivadoPower,
     Bsc,
@@ -182,7 +183,10 @@ CASES: dict[str, Case] = {
         Bsc, "bsc needs the design's top module", design=_bsv(rtl={"sources": ["Probe.bsv"]})
     ),
     "bsc-sim-cocotb-testbench": Case(
-        BscSim, "bsc_sim cannot run cocotb tests", design=_bsv(tb=COCOTB)
+        BscSim,
+        r"bsc_sim cannot run cocotb tests; use one of: .*\. bsc_sim runs Bluespec testbenches; "
+        "for a cocotb testbench, simulate the Verilog that the `bsc` flow generates",
+        design=_bsv(tb=COCOTB),
     ),
     "bsc-sim-two-tops": Case(
         BscSim,
@@ -293,6 +297,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         None,
         "reads the openXC7 installation, the Project X-Ray database and the chip database on disk",
     ),
+    "xeda.board:*": (None, "reads a board database file on disk"),
+    "xeda.digest:*": (None, "reads the files of the run on disk"),
+    "xeda.flow_runner.run_lock:*": (None, "locks files of the run root"),
+    "xeda.proc_utils:*": (None, "runs a tool process"),
+    "xeda.utils:replacing_file": (1, "writes a file of the run root"),
     "xeda.flows.nextpnr:Nextpnr._prepare_chipdb": (1, "needs `nextpnr-himbaechel` on PATH"),
     "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": (
         4,
@@ -302,7 +311,7 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
 }
 
 
-SCANNED_MODULES = ("xeda.flow.", "xeda.flows.", __name__)
+SCANNED_MODULES = ("xeda.", __name__)
 
 
 def _is_xeda_function(obj: Any) -> bool:
@@ -321,7 +330,9 @@ def _tree(fn: types.FunctionType) -> ast.AST:
 
 def _callees(cls: type, fn: types.FunctionType) -> Iterator[types.FunctionType]:
     """The functions of xeda that `fn` calls and the scan can name: methods of the flow (`self.m`,
-    `cls.m`, `super().m`), methods of its settings (`settings.m`, `ss.m`), and module functions."""
+    `cls.m`, `super().m`), methods of its settings (`settings.m`, `ss.m`), and functions of any
+    xeda module (`f`, `module.f`). A property that code reaches by attribute access is not a call
+    and is not followed: code review is the backstop for it."""
     settings = getattr(cls, "Settings", None)
     for node in ast.walk(_tree(fn)):
         if not isinstance(node, ast.Call):
@@ -507,6 +518,15 @@ class _ThroughAModule(_Probe):
 
 def test_the_scan_follows_a_function_called_through_a_module():
     assert f"{__name__}:_helper" in run_time_refusals(_ThroughAModule)
+
+
+class _ThroughAnotherModule(_Probe):
+    def init(self):
+        convert_unit("1 parsec", "ns")  # a helper of `xeda.units`, which raises on a bad unit
+
+
+def test_the_scan_follows_a_helper_in_another_xeda_module():
+    assert any(key.startswith("xeda.units:") for key in run_time_refusals(_ThroughAnotherModule))
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():

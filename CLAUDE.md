@@ -2362,7 +2362,7 @@ dependency must also share `custom_boards_file`.
   `tests/test_refusals_at_planning.py` is the oracle: each case is refused by `plan` and by
   `run_flow` before a run directory exists, a scan lists every `raise` that a product flow's
   `init()`, `prepare_inputs()` or constructor reaches (through `self`, `super()`, its settings and
-  module functions) and fails on one that is not in `REVIEWED_RUN_TIME_REFUSALS` with its reason,
+  the functions of any `xeda` module; a property reached by attribute access is not followed) and fails on one that is not in `REVIEWED_RUN_TIME_REFUSALS` with its reason,
   and another scan fails an override of a hook that drops `super()`.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
