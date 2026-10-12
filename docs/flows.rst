@@ -1490,8 +1490,9 @@ A flow refuses what its settings and the design alone rule out in two class meth
 ``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
 the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
 (a tool on ``PATH``, an installed database, the inputs that a producer handed over) stays in
-``init()`` or ``prepare_inputs()``. A flow that is built directly, without a launcher, still
-refuses these cases, because its ``init()`` calls the hook.
+``init()`` or ``prepare_inputs()``. A flow that is built directly, without a launcher, is checked
+only if its own code calls the two methods, as ``ghdl_sim`` does in ``init()``. Call them at the
+start of the ``init()`` of a new flow.
 
 A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both methods take the settings of the
@@ -1502,7 +1503,10 @@ argument.
 Registration is automatic. ``Flow.__init_subclass__`` derives the flow name from the class name
 (``VivadoSynth`` -> ``vivado_synth``) and registers it, with any extra names listed in
 ``aliases``. Add the class to both the import list and ``__all__`` in
-``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it.
+``src/xeda/flows/__init__.py``, so that Xeda ships it and users can discover it. Then run
+``python tools/generate_flow_catalog.py`` and commit the updated ``src/xeda/flow_catalog.json``.
+Shell completion reads that file. Run the same command again after you change the aliases, the
+inputs, the outputs or the ``action_reason`` of a flow.
 
 The test suite enforces two things that a new flow owes its users:
 
