@@ -17,19 +17,36 @@ ROOT = Path(__file__).parent.parent
 POSITIONAL_BEFORE_COUNT = {"split": 2, "sub": 3, "subn": 3}
 
 
+def _is_flag(node: ast.expr) -> bool:
+    """`re.I`, `re.MULTILINE | re.UNICODE` and the like."""
+    if isinstance(node, ast.BinOp):
+        return _is_flag(node.left) and _is_flag(node.right)
+    return (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "re"
+        and node.attr.isupper()
+    )
+
+
 def positional_counts(tree: ast.Module) -> list[int]:
-    """The line of every `re.split`/`re.sub`/`re.subn` call in `tree` that passes the count by
-    position."""
-    return [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "re"
-        and node.func.attr in POSITIONAL_BEFORE_COUNT
-        and len(node.args) > POSITIONAL_BEFORE_COUNT[node.func.attr]
-    ]
+    """The line of every call in `tree` that passes the count of `re.split`, `re.sub` or
+    `re.subn` by position, and of every call of a compiled pattern's `split`, `sub` or `subn`
+    that passes a flag there."""
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        function = node.func
+        if function.attr not in POSITIONAL_BEFORE_COUNT:
+            continue
+        module_function = isinstance(function.value, ast.Name) and function.value.id == "re"
+        if module_function:
+            if len(node.args) > POSITIONAL_BEFORE_COUNT[function.attr]:
+                found.append(node.lineno)
+        elif any(_is_flag(arg) for arg in node.args):
+            found.append(node.lineno)
+    return found
 
 
 def test_no_flag_is_passed_where_a_count_goes():
@@ -49,6 +66,8 @@ def test_no_flag_is_passed_where_a_count_goes():
         "re.split(p, s, 1)",
         "re.sub(p, r, s, re.MULTILINE | re.UNICODE)",
         "re.subn(p, r, s, re.I)",
+        "pattern.sub(r, s, re.I)",
+        "pattern.split(s, re.MULTILINE | re.UNICODE)",
     ],
 )
 def test_the_scan_sees_a_positional_count(call):
@@ -64,6 +83,8 @@ def test_the_scan_sees_a_positional_count(call):
         "re.sub(p, r, s, flags=re.I)",
         "re.findall(p, s, re.I)",
         "re.search(p, s, re.I)",
+        "pattern.sub(r, s, 1)",
+        "text.split(',', 1)",
     ],
 )
 def test_the_scan_leaves_the_right_forms_alone(call):

@@ -240,7 +240,7 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   `-Wno-STMTDLY -Wno-INITIALDLY`. Verilator then ignores a delay on a statement (`#10;`), so a
   testbench's `#100; $finish` ended at time 0 and passed without a word. Verilator now says so.
   `INITIALDLY` is never raised, and `ASSIGNDLY` (a delay on an assignment) was never hidden. A
-  warning does not fail the run, unless `warnings_fatal` is set. `timing` stays off by default.
+  warning does not fail the run, unless `warnings_fatal` is set.
 
 ### Added
 - `fpga_pack` packs a Xilinx 7-series part whose exact speed grade the Project X-Ray database
@@ -727,8 +727,8 @@ release, tools/fold_changelog.py folds the files into the section of the new rel
   for simulations, `bsc` and `vivado_project`. A `design_hash` in `results.json` and in the trace
   is that of those parts, and a flow's trace records only their files as inputs, so editing a
   testbench no longer makes `vivado_synth`, `yosys` and the other flows that never read it run
-  again. Only the flow's own freshness is scoped: a flow whose producer reads the testbench still
-  runs again with its producer. The first launch after upgrading runs each such flow once.
+  again. Only the flow's own freshness is scoped: a flow whose producer reads the testbench runs
+  again when the outputs it takes from that producer change.
 
 ### Removed
 - **Breaking for flows written outside Xeda: the undeclared dependency mechanism.** A flow can no
