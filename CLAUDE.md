@@ -350,7 +350,8 @@ Four orthogonal abstractions, deliberately decoupled:
   refusals), `launch_identity.py` (hashes, run path, `RunDirPolicy`, claim), `launch_producers.py`
   (`run_producers`; it calls back into `launch_flow` and the read lease through `Protocol`s it
   declares), `launch_run.py` (`execute`, working locations, `refuse_inputs_inside`),
-  `launch_report.py` (results, artifacts table, `print_results`) and `scrub.py` (`xeda scrub` and
+  `launch_report.py` (results, artifacts table, `print_results`), `plan_freshness.py` (what a
+  launch would do with each planned node, for `--dry-run`) and `scrub.py` (`xeda scrub` and
   `--scrub`). **No stage module imports `default_runner`**
   (`tests/test_launcher_modules.py`, which also lists every name `default_runner` once defined,
   `NAMES_BEFORE_THE_SPLIT`, and requires each to stay importable). `MOVED_NAMES` holds only the
@@ -731,8 +732,45 @@ its output paths inside its run directory.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
-  `Design` is plannable.
-  Freshness is not evaluated, and `--remote` is refused.
+  `Design` is plannable. `--remote` is refused.
+- **A dry run says what a launch would do with each node** (`DefaultRunner.plan_with_freshness`,
+  `plan_freshness.judge_plan`; `plan_info(plan, freshness)` adds `state` and `reason` to each node,
+  `_print_plan` prints `fresh`, `stale: <reason>` or `unknown: <reason>`). `fresh` is reused;
+  `stale` runs, and the reason is word for word the one the launch logs and sets as
+  `Flow.stale_reason`; `unknown` is not a claim (`depends on <producer>`, `its container image is
+  checked when it runs`, `a prepared input is not made yet`, `a launch refuses its settings: ...`).
+  **It judges with what the launch uses, so the two cannot drift**: `trace_inputs.expected_run`
+  (explicit arguments; `expectation` is its launch form), `trace.check_trace`, and the pure hooks
+  `Flow.design_scope`, `Flow.input_equivalence`, `Flow.locate_prepared_inputs` and
+  `Flow.always_runs`. A flow is built as the launch builds it (settings, design, a claimed run
+  directory it never writes, as its `inputs` the design sources of its plan and the files its
+  fresh producers hand over, or a path standing for them) and **not initialized**; a flow's
+  constructor starts no process (`SimFlow.cocotb` is made when first used); `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
+  before and after `init()` for every flow and every value of the settings that decide it. The
+  order is the launch's: (1) the settings, which a launch checks in the design's context (`unknown`
+  if it refuses them); (2) the hand-over of the recorded outputs of every fresh producer, whatever
+  the others do (`unknown` if one cannot be handed over; a producer that is not fresh is not read,
+  it will be rewritten); (3) the located prepared inputs (`unknown` if preparation refuses them);
+  (4) `always_runs()` (`stale`); (5) `--clean`, then `--rebuild-all` (`stale`; the launch records
+  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`, and a flow that always runs
+  keeps its own); (6) a prepared input not made yet (`unknown`); (7) the trace
+  (`check_trace(refresh=False)`: no clock marker, no refresh), with the edge against each
+  producer's recorded `results.json` `outputs` compared last, once every producer is fresh (read
+  only because that producer's own trace vouches for it); a flow whose producer is not fresh and
+  that nothing above decided is `unknown` (`depends on <producer>`). A container image is never located (`plan_freshness.dry_locate` raises
+  `NeedsAProcess`: `docker image inspect` is a process). **Prepared inputs have a locating step**:
+  `Flow.locate_prepared_inputs()` (yosys's ABC script, nextpnr's board file and, for Xilinx, its
+  chip database via `xilinx.locate_chipdb`) says where `init()` and `prepare_inputs()` register
+  their files, or None if one is not made yet; the preparation itself uses the same
+  locating code, and `_launch` refuses a flow whose registered files are not exactly the located
+  ones (`located_input_files`), so a dry run cannot judge by a different set.
+  `tests/test_dry_run_freshness.py` runs a matrix of changes on a toy graph and on
+  `yosys_fpga -> nextpnr` and compares every claim with the launch, shows the dry run changes
+  nothing, locks nothing and starts nothing (each of three mistakes that would break it is
+  caught), and `tests/test_prepare_inputs.py` holds the locating step. **Limit**: a dry run never
+  calls `init()`, so `stale` is "not reused", and a flow whose `init()` raises on the settings or the
+  design (Verilator's `stop_time` with a C++ driver; about ten flows raise there) fails in a launch
+  instead of running; a pure check hook per flow would close it.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its
@@ -1121,8 +1159,12 @@ working locations (a setting with the `WORKING` role: `reports`, `outputs`, `che
 flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a role" below), not
 the run directory or run root themselves where a named directory holds them; no size cap, a
 warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
-`Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
-expanded against the start directory or the environment) and the design sources its declared
+`Flow.implicit_inputs` by the end of `init()` and `prepare_inputs()` (`registered_input_files`:
+yosys's `abc_script`, expanded against the start directory or the environment; nextpnr's board
+file and Xilinx chip database; **every registered input has a `Flow.locate_prepared_inputs()`
+counterpart that says where it is without making it, and the launch refuses a flow whose
+registered files differ from the located ones**, `located_input_files`, because a dry run judges by
+the located ones) and the design sources its declared
 inputs take (`source_input_files`; what a producer handed over is the edge's, not a file record) --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record

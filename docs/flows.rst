@@ -229,8 +229,14 @@ A request that the design's declarations already rule out is refused first, befo
 runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
 refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
-decisions are not evaluated, and ``--dry-run --remote`` is refused.
+``DefaultRunner.plan`` (``plan_with_freshness`` adds what each node would do). Planning does not
+call a flow's ``init()``, and ``--dry-run --remote`` is refused.
+
+The plan also says what a run would do with each flow: ``fresh`` (reused), ``stale: <reason>`` (it
+runs, for the reason the log would give) or ``unknown: <reason>`` (for instance ``depends on
+yosys_fpga`` when a producer would run first, since the answer is what that run hands over). It
+reads the run directories and writes nothing, so after an edit ``--dry-run`` shows what will run
+and why. See :doc:`run-directories`.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.

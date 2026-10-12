@@ -286,17 +286,31 @@ class SimFlow(Flow, metaclass=ABCMeta):
         ), "self.settings is not an instance of self.Settings class"
         # launched, the flow was checked already; constructed directly, it is checked here
         self.check_design_supported(self.design, self.settings)
-        self.cocotb: Optional[Cocotb] = (
-            Cocotb(
-                **self.settings.cocotb.model_dump(),
-                sim_name=self.cocotb_sim_name,
-                # pydantic-mypy does not see `Tool`'s fields through the
-                # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
-                dockerized=self.settings.dockerized,  # type: ignore[call-arg]
+
+    @property
+    def uses_cocotb(self) -> bool:
+        """Whether this run is a cocotb simulation, by the simulator and the design alone."""
+        return bool(self.cocotb_sim_name and self.design.tb.cocotb)
+
+    @property
+    def cocotb(self) -> Optional[Cocotb]:
+        """The cocotb support of a cocotb simulation, made when first used: it is a tool, and
+        making one asks it for its version (a process), which a flow's constructor does not do
+        (a dry run constructs flows)."""
+        if not hasattr(self, "_cocotb"):
+            assert isinstance(self.settings, self.Settings)
+            self._cocotb: Optional[Cocotb] = (
+                Cocotb(
+                    **self.settings.cocotb.model_dump(),
+                    sim_name=self.cocotb_sim_name or "",
+                    # pydantic-mypy does not see `Tool`'s fields through the
+                    # `Cocotb(CocotbSettings, Tool)` diamond; `dockerized` is a real field.
+                    dockerized=self.settings.dockerized,  # type: ignore[call-arg]
+                )
+                if self.uses_cocotb
+                else None
             )
-            if self.cocotb_sim_name and self.design.tb.cocotb
-            else None
-        )
+        return self._cocotb
 
     def has_evidence_adapter(self) -> bool:
         """Whether this run's simulator can report how it ended (`simulation_evidence`).
@@ -318,6 +332,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         return judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
 
     def always_runs(self) -> Optional[str]:
-        if self.cocotb is not None and self.cocotb.random_seed == "random":
+        assert isinstance(self.settings, self.Settings)
+        if self.uses_cocotb and self.settings.cocotb.random_seed == "random":
             return "it draws a new random seed"
         return super().always_runs()

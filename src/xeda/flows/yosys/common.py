@@ -598,15 +598,22 @@ class YosysBase(Flow):
         )
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The ABC script a setting names, as a path (`+` names one of yosys's own)."""
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        if ss.abc_script and not ss.abc_script.startswith("+"):
+            return [
+                self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.design_root)
+            ]
+        return []
+
     def init(self):
         """Prepare template helpers and Yosys synthesis settings."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_template_helpers()
-        if ss.abc_script and not ss.abc_script.startswith("+"):
-            path = self.process_path(
-                ss.abc_script, subs_vars=True, resolve_to=self.design.design_root
-            )
+        for path in self.locate_prepared_inputs() or ():
             ss.abc_script = str(path)
             self.implicit_inputs.append(path)
         for name in ("adder_map", "clockgate_map"):

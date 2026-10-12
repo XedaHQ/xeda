@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, NoReturn, Optional, Sequence, Tuple, Union
 
@@ -564,12 +564,16 @@ def _run_document(
     return document
 
 
-def _print_plan(plan: Plan) -> None:
-    """Print each planned flow, its directory, input origins and switched-on outputs."""
+def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
+    """Print each planned flow, its directory, what a launch would do with it (`fresh`,
+    `stale: <reason>` or `unknown: <reason>`), its input origins and switched-on outputs."""
     target = f", target {plan.context.target}" if plan.context.target else ""
     click.echo(f"Plan for {plan.requested}{target} (a dry run: nothing runs)")
     for node in plan.nodes:
         click.echo(f"  {node.name}  {node.run_path}")
+        if freshness is not None:
+            said = freshness[node.name]
+            click.echo(f"      {said.state}" + (f": {said.reason}" if said.reason else ""))
         # static class metadata, never the flow's dynamic `always_runs()`
         if node.flow_class.action_reason:
             click.echo(f"      always runs: {node.flow_class.action_reason}")
@@ -1049,7 +1053,7 @@ def run(
                 debug=debug,
                 outputs_to=outputs_to,
             )
-            plan = launcher.plan(
+            plan, freshness = launcher.plan_with_freshness(
                 chain,
                 xedaproject=xedaproject,
                 design=design,
@@ -1076,12 +1080,12 @@ def run(
                     "success": True,
                     "dry_run": True,
                     "request": request_info(request),
-                    "plan": plan_info(plan),
+                    "plan": plan_info(plan, freshness),
                 },
                 "json",
             )
         else:
-            _print_plan(plan)
+            _print_plan(plan, freshness)
         sys.exit(0)
 
     try:

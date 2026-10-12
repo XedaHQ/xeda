@@ -132,9 +132,12 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
     ]
 
 
-def plan_info(plan: Plan) -> dict[str, Any]:
+def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """A resolved plan as plain data: the design's selected target (or None), producers
     first, directories, input origins, and outputs switched on because a consumer reads them.
+    With `freshness` (`DefaultRunner.plan_with_freshness`), each node also has `state`
+    (`fresh`, `stale` or `unknown`) and `reason`: what a launch would do, and why (the words
+    it logs for a stale node; why nothing can be said for an unknown one; empty if fresh).
     """
     return json_safe(
         {
@@ -149,6 +152,14 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                     "settings_hash": node.settings_hash,
                     "inputs": inputs_info(node),
                     "switched_on": list(node.switched_on),
+                    **(
+                        {
+                            "state": freshness[node.name].state,
+                            "reason": freshness[node.name].reason,
+                        }
+                        if freshness is not None
+                        else {}
+                    ),
                     # static class metadata: a dynamic `always_runs()` is never evaluated here
                     "action_reason": node.flow_class.action_reason,
                     "input_types": {

@@ -18,7 +18,13 @@ from ..flow.io import declared_outputs, output_enabled
 from ..run_dir import RunDirectoryError
 from .trace import OutputEntry
 
-__all__ = ["handed_entries", "handed_over", "record_outputs", "declared_output_files"]
+__all__ = [
+    "handed_entries",
+    "handed_over",
+    "record_outputs",
+    "recorded_entries",
+    "declared_output_files",
+]
 
 
 def declared_output_files(results: dict[str, Any]) -> list[Path]:
@@ -87,14 +93,38 @@ def record_outputs(flow: Flow) -> list[str]:
     return problems
 
 
+def recorded_entries(recorded: Any, many: bool, label: str) -> tuple[OutputEntry, ...]:
+    """The files of one output as `results.json` records them, if the record has the shape the
+    output's cardinality gives it (a list for a list output, a table for any other) and each file
+    a path and a digest: a `FlowDependencyFailure` naming `label` otherwise. The one rule of a
+    recorded output, for the hand-over and for a dry run, which reads no file."""
+    if isinstance(recorded, list) != many or (many and not recorded):
+        raise FlowDependencyFailure(f"{label} has an invalid record")
+    entries = []
+    for entry in recorded if many else [recorded]:
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("path"), str)
+            or not isinstance(entry.get("sha"), str)
+            or re.fullmatch(r"[0-9a-f]{32}", entry["sha"]) is None
+            or not (entry.get("equivalence") is None or isinstance(entry["equivalence"], str))
+        ):
+            raise FlowDependencyFailure(f"{label} has an invalid record")
+        entries.append(
+            OutputEntry(path=entry["path"], sha=entry["sha"], equivalence=entry.get("equivalence"))
+        )
+    return tuple(entries)
+
+
 def handed_entries(producer: Flow, output: str) -> tuple[OutputEntry, ...]:
     """The files of `producer`'s `output` as its run recorded them (`handed_over` has verified
     them): what a consumer is handed, to be compared with what it consumed. Call it after
     `handed_over` has accepted the output."""
     recorded = (producer.results.get("outputs") or {})[output]
-    return tuple(
-        OutputEntry(path=entry["path"], sha=entry["sha"], equivalence=entry.get("equivalence"))
-        for entry in (recorded if isinstance(recorded, list) else [recorded])
+    return recorded_entries(
+        recorded,
+        declared_outputs(type(producer))[output].cardinality == "many",
+        f"{producer.name}'s output `{output}`",
     )
 
 
@@ -118,19 +148,9 @@ def handed_over(producer: Flow, output: str) -> list[Path]:
             "run it again (--rebuild-all)"
         )
     label = f"{producer.name}'s output `{output}`"
-    many = declaration.cardinality == "many"
-    if isinstance(recorded, list) != many or (many and not recorded):
-        raise FlowDependencyFailure(f"{label} has an invalid record")
     paths: list[Path] = []
-    for entry in recorded if many else [recorded]:
-        if (
-            not isinstance(entry, dict)
-            or not isinstance(entry.get("path"), str)
-            or not isinstance(entry.get("sha"), str)
-            or re.fullmatch(r"[0-9a-f]{32}", entry["sha"]) is None
-        ):
-            raise FlowDependencyFailure(f"{label} has an invalid record")
-        path = Path(entry["path"])
+    for entry in recorded_entries(recorded, declaration.cardinality == "many", label):
+        path = Path(entry.path)
         try:
             if (
                 not path.is_absolute()
@@ -142,7 +162,7 @@ def handed_over(producer: Flow, output: str) -> list[Path]:
             digest = content_digest(path)
         except (OSError, ValueError, RuntimeError) as error:
             raise FlowDependencyFailure(f"{label} ({path}) cannot be read: {error}") from error
-        if digest != entry["sha"]:
+        if digest != entry.sha:
             raise FlowDependencyFailure(
                 f"{label} ({path}) changed since its run recorded it -- another xeda process "
                 "may have rebuilt or cleaned it: run again"
