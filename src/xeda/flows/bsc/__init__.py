@@ -1219,7 +1219,7 @@ class BscSim(BscFlow, SimFlow):
     The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over
     the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
     The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and
-    xsim. The flow rejects the legacy simulators cvc, cver, isim, ncverilog and veriwell before
+    xsim. The legacy simulators cvc, cver, isim, ncverilog and veriwell are rejected before
     compilation. The Linux CI job checks the real Icarus evidence and the registration of the
     built-in tasks.
     """
