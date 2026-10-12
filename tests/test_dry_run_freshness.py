@@ -23,7 +23,7 @@ from pydantic import Field
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import Flow, In, Out
+from xeda.flow import Flow, FlowSettingsError, In, Out
 from xeda.flow_runner import DefaultRunner, plan_freshness
 from xeda.flow_runner.run_lock import run_dir_lock
 from xeda.flow_runner.trace import locate_program
@@ -310,17 +310,15 @@ def test_a_prepared_input_a_flow_registers_is_judged_as_the_launch_judges_it(
     assert states["nextpnr"].state == UNKNOWN
 
 
-def test_a_node_whose_settings_a_launch_refuses_in_the_design_s_context_is_unknown(
+def test_a_clock_setting_the_design_has_no_port_for_is_refused_by_the_plan(
     tmp_path, monkeypatch, tools  # noqa: F811
 ):
-    """A plan checks the request; a launch checks the settings against the design too (a clock the
-    design has no port for). The dry run cannot say what a launch that fails would do."""
+    """The plan makes the check a launch makes when it constructs the flow (a clock the design
+    has no port for), so no freshness is judged for a request a launch refuses."""
     graph = FpgaGraph(tmp_path, monkeypatch)
     graph.settings.append("clock.freq=100MHz")
-    plan, states = graph.dry()
-    assert states["nextpnr"].state == UNKNOWN
-    assert states["nextpnr"].reason.startswith("a launch refuses its settings: ")
-    assert "clock" in states["nextpnr"].reason
+    with pytest.raises(FlowSettingsError, match="No clock ports specified"):
+        graph.dry()
 
 
 def test_an_input_a_producer_supplies_is_supplied_to_the_hook_that_asks(

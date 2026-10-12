@@ -302,11 +302,22 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
     "xeda.flow_runner.run_lock:*": (None, "locks files of the run root"),
     "xeda.proc_utils:*": (None, "runs a tool process"),
     "xeda.utils:replacing_file": (1, "writes a file of the run root"),
-    "xeda.flows.nextpnr:Nextpnr._prepare_chipdb": (1, "needs `nextpnr-himbaechel` on PATH"),
-    "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": (
-        4,
+    "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
+        1,
+        "needs `nextpnr-himbaechel` on PATH",
+    ),
+    "xeda.flows.nextpnr:Nextpnr._locate_board_input": (
+        2,
         "judges the resolved `constraints` input (a binding or a source supplies it) and the "
-        "board's files on disk and in the run root",
+        "run root of a directly built flow",
+    ),
+    "xeda.flows.nextpnr:Nextpnr._check_board_cache": (
+        1,
+        "reads a cached board file in the run root",
+    ),
+    "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": (
+        1,
+        "needs the board's pin file on disk",
     ),
 }
 
