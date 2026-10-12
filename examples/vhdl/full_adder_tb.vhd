@@ -5,6 +5,7 @@
 
 library ieee;
 use ieee.std_logic_1164.all;
+use std.env.finish;
 
 entity full_adder_tb is
 end full_adder_tb;
@@ -57,6 +58,6 @@ begin
       report "test_vector " & integer'image(i) & " failed" severity failure;
     end loop;
     report "full_adder_tb finished!";
-    wait;
+    finish;
   end process;
 end;
