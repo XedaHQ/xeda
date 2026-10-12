@@ -66,7 +66,7 @@ class Openroad(AsicSynthFlow):
     required_settings = {
         "platform": "the ASIC platform: a bundled platform's name with `-s platform=<name>` (see "
         "`xeda list-platforms`) or the path to a platform's config.toml; in the design file, as "
-        "`platform` in its `[flows.{flow}]` section"
+        "`flows.{flow}.platform`"
     }
 
     results_description = describe_results(
