@@ -625,9 +625,12 @@ proc read_saif {args} {
 proc __xml_attribute {text} { string map [list & {&amp;} \" {&quot;} < {&lt;} > {&gt;}] $text }
 # `report_power ... -format xml -file <file>` writes the Vivado's XML summary rows that
 # `vivado_power` parses, unless `XEDA_FAKE_POWER_NO_OUTPUT` is set: a fixed estimate, with the
-# checkpoint and activity it was made from. Other formats record only.
+# checkpoint and activity it was made from. Other formats record only. With `-quiet`, a failure
+# named in `XEDA_FAKE_TOOL_FAIL` is swallowed and nothing is written, as Vivado does.
 proc report_power {args} {
-    set result [__call report_power {*}$args]
+    # `-quiet` makes Vivado return success for a command that failed, and write no report
+    if {"-quiet" in $args && [catch {__call report_power {*}$args} result]} { return 1 }
+    if {"-quiet" ni $args} { set result [__call report_power {*}$args] }
     if {[__option $args -file] ne ""} { __vivado_writes [__option $args -file] }
     if {[__option $args -format] ne "xml" || [info exists ::env(XEDA_FAKE_POWER_NO_OUTPUT)]} { return $result }
     set rows [list {Total On-Chip Power (W)} 0.5 {Fake: checkpoint} $::__vivado_checkpoint {Fake: activity} $::__vivado_activity]
