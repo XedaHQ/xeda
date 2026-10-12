@@ -60,8 +60,8 @@ Discovering flows and their settings
 ``other``
     A flow that is none of the above (``bsc``).
 
-``list-flows`` lists an alias with its flow and not as a flow of its own, so ``ghdl`` appears as
-an alias of ``ghdl_sim``. Either name works everywhere.
+``list-flows`` folds an alias into its flow. ``ghdl`` appears as an alias of ``ghdl_sim`` and has no
+row of its own. Either name works everywhere.
 
 Flow names are forgiving: ``vivado_synth``, ``vivado-synth`` and ``VivadoSynth`` all resolve to
 the same flow. An unrecognized name gets a list of close matches.
@@ -173,7 +173,7 @@ that names these two spellings, because it would be one item and not a list. A s
 takes plain text keeps the text as it is. The lists of the ``cocotb`` section (``testcase`` and
 ``gpi_extra``) take text in the same way.
 
-An unknown setting is an error and not a warning. A mistyped setting that Xeda ignored silently
+An unknown setting is an error. A mistyped setting that Xeda ignored silently
 would give a result that looks fine and is not what you asked for. For the same reason, a flow has
 no setting of its own that it does not use. A flow that cannot honor a setting of a related flow
 refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so it refuses
@@ -192,13 +192,13 @@ nothing with it.
     The maximum number of threads that the tools may use.
 
 ``dockerized`` / ``docker``
-    Run the tools of the flow from a container image and not from the local installation.
+    Run the tools of the flow from a container image instead of the local installation.
 
 ``quiet`` / ``verbose`` / ``debug``
     How much the flow and its tools print.
 
 ``redirect_stdout``
-    Send the output of the tools to files and not to the console. Only the Vivado flows do this.
+    Send the output of the tools to files instead of the console. Only the Vivado flows do this.
 
 ``lib_paths``
     Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
@@ -212,8 +212,8 @@ Producers and consumers
 
 A flow can declare that it needs the output of another flow. The flow that makes the output is the
 producer, and the flow that reads it is the consumer. ``xeda list-flows`` shows the producers of a
-flow under *Depends on*, and Xeda runs them first. You ask for the flow that you want and not for
-the chain that leads to it. To name the stages yourself, see :ref:`flow-chains`.
+flow under *Depends on*, and Xeda runs them first. You ask only for the flow that you want. To
+name the stages yourself, see :ref:`flow-chains`.
 
 .. code-block:: text
 
@@ -325,8 +325,8 @@ before it supplies the inputs of the next one:
 This is the build that ``xeda run fpga_pack design.yaml`` already gives by default, so a chain is
 for naming the stages yourself: to pick an alternative producer, to override a saved binding, or
 to see in one line what a request will run. ``xeda run fpga_pack+openfpgaloader design.yaml``
-builds the bitstream and then programs it. A chain is a path and not a list of waypoints. Xeda
-checks each pair of neighbors and never searches for a missing stage.
+builds the bitstream and then programs it. Xeda checks each pair of neighbors in a chain and
+never searches for a missing stage.
 
 Rules for chains
 ----------------
@@ -451,8 +451,8 @@ With this file, Xeda uses the source unless something binds the input. A saved
 ``--dry-run`` shows which origin each input has and, for a saved binding, the file and section it
 came from.
 
-``inputs`` is wiring that the resolver reads, and not a setting of the flow. It does not appear in
-``xeda list-settings``, and it is no part of the ``settings.json`` of a flow or of the design hash.
+``inputs`` is wiring that the resolver reads. It is not a setting of the flow: it does not appear
+in ``xeda list-settings`` and is no part of the ``settings.json`` of a flow or of the design hash.
 Xeda splits it out of each origin before it validates the settings, so ``flows.nextpnr.inputs``
 never collides with a ``nextpnr`` setting. Where the inputs of a node come from does change its
 identity: the same flow with the same settings has another hashed run directory when another
@@ -646,24 +646,27 @@ package. Examples are ``iCE40UP5K-SG48I`` and ``iCE40HX8K-CT256`` (temperature g
 tape-and-reel suffixes are accepted), and ``LFE5U-85F-8BG381C``. For Nexus, give the full device
 name that nextpnr-nexus uses, such as ``LIFCL-40-9BG400C`` (``nextpnr-nexus --list-devices``).
 
-``nextpnr`` uses the timing-driven placer and router that each backend has as its default.
-Specify the actual part, package, speed grade and timing constraints before you compare results.
-``clock.period`` sets the frequency constraint. Put pin files in ``rtl.sources`` with the types
-``Lpf`` (ECP5), ``Pcf`` (iCE40), ``Pdc`` (Nexus) or ``Xdc`` (Xilinx). Xeda concatenates the files
-of the selected family in source order. When there are none, it uses the pin file of the selected
-board. Xeda concatenates typed ``Sdc`` sources separately, appends the file of the optional
-``sdc`` setting, and passes the result once through ``--sdc``. A clock may have only one timing
-constraint across pin files, SDC files and flow settings. An error for a duplicate names both
-original paths and lines, or the clock setting and its period. A clock that only a file
-constrains gets its timing from the file, with no generated frequency. The ``lpf_cfg``,
-``pcf_cfg`` and ``pdc_cfg`` settings were removed: list the pin file in ``rtl.sources`` with its
-type instead (``{file: "pins.lpf", type: Lpf}``). The ``sdc`` setting, the hooks and ``py_script``
-name files relative to the design root (or with ``$DESIGN_ROOT``). A setting of another
-architecture is an error. A fixed ``seed`` makes comparisons reproducible. Try several fixed seeds
-when you optimize a particular design. The common settings ``placer``, ``router``, the HeAP weights
-and the hooks allow measured experiments. The experimental settings ``tmg_ripup``,
-``parallel_refine`` and (for iCE40) ``opt_timing`` stay opt-in. A faster or smaller Yosys netlist
-alone does not show an improvement in routed Fmax.
+``nextpnr`` uses the timing-driven placer and router that each backend has as its default. Specify
+the actual part, package, speed grade and timing constraints before you compare results.
+``clock.period`` sets the frequency constraint.
+
+Put pin files in ``rtl.sources`` with the types ``Lpf`` (ECP5), ``Pcf`` (iCE40), ``Pdc`` (Nexus) or
+``Xdc`` (Xilinx). Xeda concatenates the files of the selected family in source order. When there
+are none, it uses the pin file of the selected board. Xeda concatenates typed ``Sdc`` sources
+separately, appends the file of the optional ``sdc`` setting, and passes the result once through
+``--sdc``. A clock may have only one timing constraint across pin files, SDC files and flow
+settings. An error for a duplicate names both original paths and lines, or the clock setting and
+its period. A clock that only a file constrains gets its timing from the file, with no generated
+frequency. The ``lpf_cfg``, ``pcf_cfg`` and ``pdc_cfg`` settings were removed. Using one is an
+error that names the typed pin file to list in ``rtl.sources`` instead
+(``{file: "pins.lpf", type: Lpf}``).
+
+The ``sdc`` setting, the hooks and ``py_script`` name files relative to the design root (or with
+``$DESIGN_ROOT``). A setting of another architecture is an error. A fixed ``seed`` makes
+comparisons reproducible. Try several fixed seeds when you optimize a particular design. The common
+settings ``placer``, ``router``, the HeAP weights and the hooks allow measured experiments. The
+experimental settings ``tmg_ripup``, ``parallel_refine`` and (for iCE40) ``opt_timing`` stay
+opt-in. A faster or smaller Yosys netlist alone does not show an improvement in routed Fmax.
 
 For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
@@ -835,8 +838,8 @@ Constraints
 ``IOSTANDARD``) and may carry ``create_clock``. With no ``Xdc`` source and a ``board``, Xeda uses
 the bundled pin file of the board. The bundled Arty files are active, pin-only derivatives of the
 master XDC of Digilent, and they keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0]``,
-``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that way.
-The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on). The
+``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that
+way. The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on). The
 bundled files contain no clock constraint. Timing comes from the ``clock`` or ``clocks`` setting of
 the flow, or from the files of the design, and each clock has one authority. With no clock
 constraint at all, nextpnr analyzes at its default of 12 MHz, and Xeda says so. nextpnr reads
@@ -935,9 +938,9 @@ board as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name
 bitstream that it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has no
 speed grade. So the flow gives a Xilinx part without its speed grade (``xc7a35tcpg236``), and any
 other part as it is. Every bundled board has an ``openfpgaloader_board``, taken from the board
-list of openFPGALoader itself (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is
-known, from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader
-detects the device. Programming the flash needs the device, so Xeda refuses ``write_flash`` before
+list of openFPGALoader itself (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no
+part is known, from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and
+openFPGALoader detects the device. Programming the flash needs the device, so Xeda refuses ``write_flash`` before
 anything runs when neither ``fpga`` nor a board gives it. What the loader printed is in
 ``openfpgaloader.log`` in the run directory of the flow. In a terminal, Xeda runs the loader with a
 terminal of its own, as you would run it by hand: the colors work, and the progress bar is redrawn
