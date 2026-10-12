@@ -598,11 +598,11 @@ def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> 
     (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
     setting's own default name.
 
-    `always` marks an output the flow writes whether or not the setting is given. Left unset,
-    the setting then names the conventional name: the flow writes that file, and the run's
-    identity counts it as the value (`flow.identity_settings`), so an unset setting and a
-    location are one run. A setting that switches its output on (unset: nothing is written)
-    is no such output."""
+    `always` marks an output that the flow writes whether or not the setting is given. When the
+    setting is unset, the flow writes the conventional name, and the identity of the run counts
+    that name as the value (`flow.identity_settings`). An unset setting and a location are then
+    one run. A setting that switches its output on (unset: nothing is written) is not such an
+    output."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:
         marker["x-xeda-output"] = conventional

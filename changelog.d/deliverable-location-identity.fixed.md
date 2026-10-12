@@ -1,3 +1,3 @@
 - Giving, changing or removing the location of an output that a flow always writes (the
-  bitstream of `fpga_pack`) no longer runs the flow again: a run that is up to date only
-  delivers.
+  bitstream of `fpga_pack`) no longer runs the flow again. A run that is up to date only delivers
+  the file.
