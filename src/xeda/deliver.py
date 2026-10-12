@@ -738,7 +738,7 @@ def _discard(temporary: Path, source: Path, moved: bool) -> None:
     removed. Put it back where the run left it. If that fails, the error says where the file is.
     """
     if not moved:
-        temporary.unlink(missing_ok=True)  # the temporary file made for this copy, nothing else
+        temporary.unlink(missing_ok=True)  # its own temporary file, never anything else
         return
     try:
         os.replace(temporary, source)
