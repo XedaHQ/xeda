@@ -130,7 +130,7 @@ def _missing_in(document: Any, path: str) -> str | None:
                 if not isinstance(node, dict) or key not in node:
                     return f"{walked} is not in the document"
                 following.append(node[key])
-            elif index:
+            elif index != "":  # "0" is an index too; only "[]" walks every element
                 if not isinstance(node, list) or len(node) <= int(index):
                     return f"{walked} is not in the document"
                 following.append(node[int(index)])
@@ -214,3 +214,13 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
             assert key in _results_keys(words[1]), f"{where}: {words[1]} documents no result {key}"
             path = ".results"
         assert (problem := _missing_in(document, path)) is None, f"{where}: {path}: {problem}"
+
+
+def test_the_path_checker_tells_an_index_from_every_element():
+    """`[0]` is the first element only, and `[]` is every element, as in `jq`."""
+    document = {"items": [{}, {"wanted": True}]}
+    assert _missing_in(document, ".items[1].wanted") is None
+    assert _missing_in(document, ".items[0].wanted") == ".items[0].wanted is not in the document"
+    assert _missing_in(document, ".items[].wanted") == ".items[].wanted is not in the document"
+    assert _missing_in({"items": [{"wanted": 1}]}, ".items[0].wanted") is None
+    assert _missing_in({"items": []}, ".items[0]") == ".items[0] is not in the document"
