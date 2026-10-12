@@ -26,10 +26,11 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   (locks, process groups, pseudo-terminals, file copy, file-system clocks, links) goes into the
   file list of the `macos` job in `.github/workflows/ci.yml`.
 - The suite is parallel-safe and must stay so (`addopts` has no `-n` on purpose). A test writes
-  only under `tmp_path`, takes no fixed name and leaves no process-wide change: use `monkeypatch`
-  (a direct `os.environ` write fails, `tests/test_environment_isolation.py`), never `chdir`, and
-  restore flow registrations with `preserved_flow_registry` (`tests/flow_registry.py`). The
-  checkout guard (`tests/conftest.py`) fails a test that changes a file in the checkout.
+  only under `tmp_path` (opt-in layers: the checkout's `xeda_run/`), takes no fixed name and
+  leaves no process-wide change: use `monkeypatch` (a direct `os.environ` write fails,
+  `tests/test_environment_isolation.py`), never `chdir`, and restore flow registrations with
+  `preserved_flow_registry` (`tests/flow_registry.py`). The checkout guard (`tests/conftest.py`)
+  fails a test that changes a file in the checkout.
 - Real-tool tests skip when the tool is missing (`require_*` in `tests/tool_utils.py`);
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
   `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_ASAP7_PLATFORM`.
@@ -148,8 +149,9 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   `writable(path)`, then `utils.replacing_file` / `replacing_copy`; delete with `remove`,
   `clear`, `delete`. Tool logs go through `utils.live_log` only. Never write, delete or follow
   through a symbolic link: a tool may leave links anywhere in its run directory.
-- Xeda writes nothing outside the run root but deliveries; caches live under it and are named
-  through `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
+- A launch writes nothing outside the run root but deliveries (a design's generator writes its
+  declared sources itself); caches live under the run root and are named through
+  `RunDirectory.unlinked`. `tests/test_isolation.py` checks it (canary sweep, audit hook,
   read-only tree); a new delete or raw write fails until it is added to `REVIEWED_PY_DELETIONS`,
   `REVIEWED_SCRIPT_DELETIONS` or `REVIEWED_WRITES`.
 - Generators and Git fetches run only after the declarative checks pass
