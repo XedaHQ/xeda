@@ -1259,8 +1259,8 @@ A flow refuses what the settings and the design alone rule out in two class meth
 ``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
 the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
 (a tool on ``PATH``, an installed database, the inputs a producer handed over) stays in ``init()``
-or ``prepare_inputs()``. A flow built directly, without a launcher, calls the hooks from
-``init()``.
+or ``prepare_inputs()``. A flow that is built directly, without a launcher, still refuses these
+cases: its ``init()`` calls the hook.
 
 A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an

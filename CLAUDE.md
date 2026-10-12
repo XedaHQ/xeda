@@ -2354,8 +2354,10 @@ dependency must also share `custom_boards_file`.
   methods `check_settings_supported(settings)` and `check_design_supported(design, settings)`, never
   in `init()`, `prepare_inputs()` or a constructor: `xeda run --dry-run`, the remote preflight and
   `dse` call them, and a producer's `init()` runs after the producers before it. Every override calls
-  `super()` first. A flow built directly calls the hook from `init()` (a `SimFlow` calls the design hook from its constructor; a `SynthFlow`
-  ties its clocks there with `reconcile_clocks`, the function the hook uses). What needs the run stays in `init()`
+  `super()`. A flow whose `init()` refused such a rule keeps refusing when built directly: its
+  `init()` calls the hook (or, for `YosysBase`, only the rule it owns); a `SimFlow` calls the design
+  hook from its constructor and a `SynthFlow` ties its clocks there with `reconcile_clocks`, the
+  function its hook uses. What needs the run stays in `init()`
   or `prepare_inputs()` (a tool on `PATH`, installed data, a file on disk, the resolved inputs).
   `tests/test_refusals_at_planning.py` is the oracle: each case is refused by `plan` and by
   `run_flow` before a run directory exists, a scan lists every `raise` that a product flow's

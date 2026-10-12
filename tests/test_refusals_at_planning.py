@@ -210,9 +210,6 @@ CASES: dict[str, Case] = {
     ),
 }
 
-# A flow that has a producer of its own must be refused before the producer's directory is made.
-PRODUCERS = {"vivado_synth"}
-
 
 def _flow_settings(case: Case) -> dict[str, Any]:
     return dict(case.settings)
@@ -235,9 +232,7 @@ def test_a_launch_refuses_before_any_run_directory_exists(tmp_path, name):
     runner = DefaultRunner(tmp_path / "runs", display_results=False)
     with pytest.raises(case.error, match=case.match):
         runner.run_flow(case.flow, design, _flow_settings(case))
-    runs = tmp_path / "runs"
-    made = [path.name for path in runs.rglob("*") if path.is_dir()] if runs.exists() else []
-    assert not [name for name in made if name in PRODUCERS], made
+    assert not (tmp_path / "runs").exists()
 
 
 def test_a_producer_in_the_middle_of_a_chain_is_refused_before_the_first_producer_runs(
@@ -264,27 +259,45 @@ STAGES = ("init", "prepare_inputs", "__init__")
 
 #: Functions that a product flow's `init()`, `prepare_inputs()` or constructor reaches, that raise,
 #: and that are not part of a check hook, as `<module>:<qualified name>`; a module entry
-#: (`<module>:*`) covers all its functions. Each says why the refusal needs the run: it judges a
+#: (`<module>:*`) covers all its functions. The number is how many `raise` statements the function
+#: has: a new one fails the scan until someone reviews it. Each says why the refusal needs the run: it judges a
 #: tool, a file on disk, or the resolved inputs, none of which a plan reads. A refusal that depends
 #: on the settings and the design alone belongs in a hook (`Flow.check_settings_supported`,
 #: `Flow.check_design_supported`), where planning, the remote preflight and the exploration make
 #: it.
-REVIEWED_RUN_TIME_REFUSALS: dict[str, str] = {
-    "xeda.flow.flow:Flow.__init__": "the launcher handed a run directory that is not the path "
-    "given: a bug in the caller, no user input",
-    "xeda.flow.flow:Flow.Settings.from_input": "validates settings given as a mapping to a flow "
-    "built directly; a launched flow gets validated settings",
-    "xeda.flow.flow:Flow.add_template_filter": "a template helper name used twice: a bug in the "
-    "flow, no user input",
-    "xeda.flow.flow:Flow.add_template_global_func": "a template helper name used twice: a bug in "
-    "the flow, no user input",
-    "xeda.flows.fpga_pack:FpgaPack.init": "needs `fpga-as` on PATH and the Project X-Ray data of "
-    "the installation",
-    "xeda.flows.xilinx:*": "reads the openXC7 installation, the Project X-Ray database and the "
-    "chip database on disk",
-    "xeda.flows.nextpnr:Nextpnr._prepare_chipdb": "needs `nextpnr-himbaechel` on PATH",
-    "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": "judges the resolved `constraints` input "
-    "(a binding or a source supplies it) and the board's files on disk and in the run root",
+REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
+    "xeda.flow.flow:Flow.__init__": (
+        1,
+        "the launcher handed a run directory that is not the path given: a bug in the caller, no "
+        "user input",
+    ),
+    "xeda.flow.flow:Flow.Settings.from_input": (
+        2,
+        "validates settings given as a mapping to a flow built directly; a launched flow gets "
+        "validated settings",
+    ),
+    "xeda.flow.flow:Flow.add_template_filter": (
+        1,
+        "a template helper name used twice: a bug in the flow, no user input",
+    ),
+    "xeda.flow.flow:Flow.add_template_global_func": (
+        1,
+        "a template helper name used twice: a bug in the flow, no user input",
+    ),
+    "xeda.flows.fpga_pack:FpgaPack.init": (
+        1,
+        "needs `fpga-as` on PATH and the Project X-Ray data of the installation",
+    ),
+    "xeda.flows.xilinx:*": (
+        None,
+        "reads the openXC7 installation, the Project X-Ray database and the chip database on disk",
+    ),
+    "xeda.flows.nextpnr:Nextpnr._prepare_chipdb": (1, "needs `nextpnr-himbaechel` on PATH"),
+    "xeda.flows.nextpnr:Nextpnr._prepare_board_inputs": (
+        4,
+        "judges the resolved `constraints` input (a binding or a source supplies it) and the "
+        "board's files on disk and in the run root",
+    ),
 }
 
 
@@ -344,18 +357,22 @@ def _key(fn: types.FunctionType) -> str:
     return f"{fn.__module__}:{fn.__qualname__}"
 
 
-def run_time_refusals(cls: type) -> set[str]:
-    """The functions that raise, reached from the run-time stages of `cls`, outside its hooks."""
+def run_time_refusals(cls: type) -> dict[str, int]:
+    """The functions that raise, reached from the run-time stages of `cls`, outside its hooks,
+    with how many `raise` statements each has."""
     hooks = [_function(getattr(cls, name, None)) for name in HOOKS]
     judged = _reachable(cls, [fn for fn in hooks if fn is not None])
     stages = [_function(getattr(cls, name, None)) for name in STAGES]
     reached = _reachable(cls, [fn for fn in stages if fn is not None])
-    found = set()
+    found = {}
     for ident, fn in reached.items():
         if ident in judged:
             continue
-        if any(isinstance(n, ast.Raise) and n.exc is not None for n in ast.walk(_tree(fn))):
-            found.add(_key(fn))
+        raises = sum(
+            isinstance(node, ast.Raise) and node.exc is not None for node in ast.walk(_tree(fn))
+        )
+        if raises:
+            found[_key(fn)] = raises
     return found
 
 
@@ -372,36 +389,41 @@ def product_flows() -> list[type[Flow]]:
     )
 
 
-def _reviewed(key: str) -> bool:
-    return (
-        key in REVIEWED_RUN_TIME_REFUSALS or f"{key.split(':')[0]}:*" in REVIEWED_RUN_TIME_REFUSALS
+def _reviewed(key: str, raises: int) -> bool:
+    entry = REVIEWED_RUN_TIME_REFUSALS.get(key)
+    return (entry is not None and entry[0] == raises) or (
+        f"{key.split(':')[0]}:*" in REVIEWED_RUN_TIME_REFUSALS
     )
 
 
 def test_every_run_time_refusal_of_a_flow_is_reviewed():
     unreviewed = {
-        cls.name: sorted(key for key in run_time_refusals(cls) if not _reviewed(key))
+        cls.name: sorted(
+            key for key, raises in run_time_refusals(cls).items() if not _reviewed(key, raises)
+        )
         for cls in product_flows()
     }
     unreviewed = {name: keys for name, keys in unreviewed.items() if keys}
     assert not unreviewed, (
         "a flow raises in init(), prepare_inputs() or its constructor: if it judges the settings "
         "and the design alone, move it into check_settings_supported or "
-        "check_design_supported; else review it in REVIEWED_RUN_TIME_REFUSALS: "
-        f"{unreviewed}"
+        "check_design_supported; else review it in REVIEWED_RUN_TIME_REFUSALS (with its number of "
+        f"raise statements): {unreviewed}"
     )
 
 
 def test_every_reviewed_run_time_refusal_is_still_there():
-    found = {key for cls in product_flows() for key in run_time_refusals(cls)}
+    found: dict[str, int] = {}
+    for cls in product_flows():
+        found.update(run_time_refusals(cls))
     modules = {key.split(":")[0] for key in found}
     stale = [
         key
-        for key in REVIEWED_RUN_TIME_REFUSALS
+        for key, (raises, _) in REVIEWED_RUN_TIME_REFUSALS.items()
         if (key.endswith(":*") and key[:-2] not in modules)
-        or (not key.endswith(":*") and key not in found)
+        or (not key.endswith(":*") and found.get(key) != raises)
     ]
-    assert not stale, f"a reviewed refusal is gone, remove its entry: {stale}"
+    assert not stale, f"a reviewed refusal is gone or has changed, review its entry: {stale}"
 
 
 def test_every_override_of_a_check_hook_calls_super():
@@ -466,9 +488,9 @@ class _Hooked(_Probe):
 
 
 def test_the_scan_sees_a_raise_in_init_a_settings_method_and_a_helper():
-    assert run_time_refusals(_Direct) == {f"{__name__}:_Direct.init", f"{__name__}:_helper"}
-    assert run_time_refusals(_Probe) == {f"{__name__}:_Settings.judge", f"{__name__}:_helper"}
+    assert run_time_refusals(_Direct) == {f"{__name__}:_Direct.init": 1, f"{__name__}:_helper": 1}
+    assert run_time_refusals(_Probe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():
-    assert run_time_refusals(_Hooked) == {f"{__name__}:_helper"}
+    assert run_time_refusals(_Hooked) == {f"{__name__}:_helper": 1}
