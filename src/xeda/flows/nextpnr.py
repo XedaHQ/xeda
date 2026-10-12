@@ -339,7 +339,7 @@ class Nextpnr(FpgaSynthFlow):
         removed_settings = {
             **WithFpgaBoardSettings.removed_settings,
             **{
-                f"{kind}_cfg": f"`rtl.sources` with a typed pin file: "
+                f"{kind}_cfg": f"`rtl.sources` with a typed pin file, in YAML "
                 f"`{{file: pins.{kind}, type: {kind.capitalize()}}}`"
                 for kind in ("lpf", "pcf", "pdc")
             },
