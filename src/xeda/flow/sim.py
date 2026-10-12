@@ -69,14 +69,109 @@ def time_in_fs(time: int, unit: str) -> int:
     return time * int(match.group(1)) * _FS_PER_UNIT[match.group(2)]
 
 
+def readable_time(time: int, unit: str | None) -> str:
+    """A simulated time in the largest unit that holds it exactly (`80 ns`, not `80000000 1fs`);
+    as given when the unit is missing or not one of ours."""
+    try:
+        femtoseconds = time_in_fs(time, unit or "")
+    except ValueError:
+        return f"{time} {unit}" if unit else str(time)
+    for name in ("s", "ms", "us", "ns", "ps"):
+        if femtoseconds and femtoseconds % _FS_PER_UNIT[name] == 0:
+            return f"{femtoseconds // _FS_PER_UNIT[name]} {name}"
+    return f"{femtoseconds} fs"
+
+
+def record_failure(flow: Any, message: str) -> None:
+    """Make `message` the `error` of the run's `results.json`, unless the run already has an error
+    (a tool's exit status): a failure the flow's checks found, with no exception, would otherwise
+    get the launcher's general message."""
+    if not flow.results.get("error"):
+        name = getattr(flow, "name", "the simulation")
+        flow.results["error"] = {
+            "type": "ReportedFailure",
+            "message": f"`{name}` reported failure: {message}",
+        }
+
+
+def problem(cause: str, fix: str) -> str:
+    """The one form of every failure message of a simulation: the cause, then what to do."""
+    return f"{cause.rstrip('.')}. To fix it, {fix}."
+
+
+LOG_ADVICE = "read the simulation log in the run directory"
+
+
+def _cocotb_problem(results: Any) -> str:
+    """Why cocotb's verdict failed, from the counts it recorded in the run's results."""
+    tests = results.get("cocotb.tests")
+    if tests is None:
+        return problem("cocotb left no readable test results", LOG_ADVICE)
+    errors, failures = results.get("cocotb.errors", 0), results.get("cocotb.failures", 0)
+    if errors or failures:
+        return problem(
+            f"{failures} of {tests} cocotb test(s) failed and {errors} had an error",
+            f"fix the failing tests ({LOG_ADVICE})",
+        )
+    return problem(
+        f"cocotb ran no test: {tests} found, {results.get('cocotb.skipped', 0)} skipped",
+        "make `cocotb.testcase` name a test that exists, or remove it",
+    )
+
+
+FINISH_ADVICE = "end the testbench with `std.env.finish` (VHDL) or `$finish` (Verilog)"
+
+
+def _finish_fix(stop_time: Any) -> str:
+    """What to do about a simulation that stopped by itself: no finish, no requested stop."""
+    if stop_time is None:
+        return f"{FINISH_ADVICE}, or set `stop_time`"
+    return f"set `stop_time` to a time before the testbench stops, or {FINISH_ADVICE}"
+
+
+def _first_event(evidence: SimEvidence, kinds: tuple[str, ...]) -> str:
+    """The first event of one of `kinds`, as text (empty if there is none)."""
+    event = next((e for e in evidence.events if e.kind in kinds), None)
+    if event is None:
+        return ""
+    where = f" at {event.location}" if event.location else ""
+    return f"; the first {event.kind} event{where}: {event.message}"
+
+
+def _event_fix(rank: int) -> str:
+    """What to do about events whose highest rank is `rank`. A threshold above `rank` allows them,
+    but none lies above the fatal rank: a fatal or failure event has to be fixed."""
+    if rank >= SEVERITY_RANK["fatal"]:
+        return (
+            "fix the design or the testbench so that it reports no fatal or failure event; "
+            "no `fail_severity` allows one"
+        )
+    allowed_from = "error" if rank == SEVERITY_RANK["warning"] else "failure"
+    return (
+        f"fix what the event reports, or set `fail_severity` to `{allowed_from}` if it is "
+        "acceptable"
+    )
+
+
 def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) -> bool:
-    """The evidence rule (design 8a, Q12, Q16): a simulation passes only if it ended by
-    `$finish` (at any time), by the `stop_time` the user asked for, or by the testbench's own
-    driver exiting with status 0; and no recorded event reached `fail_severity`. An end record
-    that is missing, or ends by a drained event queue, an error or a fatal error, fails."""
-    if evidence is None:
-        log.error("The simulation left no end record: it did not report how it ended.")
+    """The evidence rule: a simulation passes only if it ended by `$finish` (at any time), by the
+    `stop_time` the user asked for, or by the testbench's own driver exiting with status 0; and no
+    recorded event reached `fail_severity`. An end record that is missing, or ends by a drained
+    event queue, an error or a fatal error, fails. A failure is logged and, unless the run
+    already has an error (a tool's exit status), recorded as the run's `error` in
+    `results.json`, in the form of `problem`: the cause and what to do."""
+
+    def fail(message: str) -> bool:
+        log.error("%s", message[:1].upper() + message[1:])
+        record_failure(flow, message)
         return False
+
+    if evidence is None:
+        return fail(
+            problem(
+                "the simulation left no end record, so xeda cannot tell how it ended", LOG_ADVICE
+            )
+        )
     flow.results["sim.evidence"] = evidence.model_dump(mode="json")
     flow.results["sim.ended_by"] = evidence.ended_by
     flow.results["sim.time"] = evidence.time
@@ -116,48 +211,77 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         "exit": evidence.exit_code == 0,
     }.get(evidence.ended_by, False)
     if not ok:
-        why = {
-            "drained": "its event queue ran empty without a $finish"
-            + (f" before the requested stop_time {stop_time}" if stop_time is not None else ""),
-            "stop_time": (
-                f"the stop could not be confirmed: the record gave no time or time unit "
-                f"(requested stop_time {stop_time})"
-                if stop_time is not None and (evidence.time is None or evidence.time_unit is None)
-                else (
-                    f"it stopped at a time other than the requested stop_time {stop_time}"
-                    if stop_time is not None
-                    else "it stopped at a stop_time nobody asked for"
-                )
-            ),
-            "max_cycles": (
-                f"the cycle stop could not be confirmed: observed {evidence.cycles} cycles "
-                f"(requested max_cycles {max_cycles}); a measured final time and unit are required"
-                if max_cycles is not None
-                else "it stopped at a max_cycles nobody asked for"
-            ),
-            "exit": f"the testbench's driver exited with status {evidence.exit_code}",
-            "error": "an error ended it",
-            "fatal": "a fatal error ended it",
-        }.get(evidence.ended_by, "it did not report how it ended")
-        log.error(
-            "The simulation did not end as intended: %s (time %s %s).",
-            why,
-            evidence.time,
-            evidence.time_unit or "",
+        asked = f" before the requested stop_time {stop_time}" if stop_time is not None else ""
+        stopped = _first_event(evidence, ("stop", "error", "fatal"))
+        at = (
+            f" (at {readable_time(evidence.time, evidence.time_unit)})"
+            if evidence.time is not None
+            else ""
         )
-        return False
+        if evidence.ended_by == "drained":
+            cause, fix = (
+                f"its event queue ran empty without a `$finish`{asked}",
+                _finish_fix(stop_time),
+            )
+        elif evidence.ended_by == "stop_time":
+            if stop_time is None:
+                cause = "it stopped at a stop time that nobody asked for"
+                fix = "set `stop_time` to that time, or remove the stop from the simulator options"
+            elif evidence.time is None or evidence.time_unit is None:
+                cause = (
+                    f"the stop at the requested stop_time {stop_time} could not be confirmed, "
+                    "because the end record gave no time or no time unit"
+                )
+                fix = f"{LOG_ADVICE} to see when it stopped"
+            else:
+                cause = f"it stopped at a time other than the requested stop_time {stop_time}"
+                fix = (
+                    "set `stop_time` to a time at which the design has activity, or remove it and "
+                    + FINISH_ADVICE
+                )
+        elif evidence.ended_by == "max_cycles":
+            if max_cycles is None:
+                cause = "it stopped at a max_cycles limit that nobody asked for"
+                fix = "set `max_cycles` to that count, or remove the limit from the testbench"
+            else:
+                cause = (
+                    f"the stop at max_cycles {max_cycles} could not be confirmed: it observed "
+                    f"{evidence.cycles} cycles, and a confirmed stop needs exactly {max_cycles} "
+                    "cycles and a measured final time"
+                )
+                fix = (
+                    f"check that the design reaches {max_cycles} cycles and that the simulator "
+                    f"reports its final time ({LOG_ADVICE})"
+                )
+        elif evidence.ended_by == "exit":
+            cause = f"the testbench's driver exited with status {evidence.exit_code}"
+            fix = "make the driver exit with status 0 when the run passes"
+        elif evidence.ended_by in ("error", "fatal"):
+            noun = "fatal error" if evidence.ended_by == "fatal" else "error"
+            article = "a" if evidence.ended_by == "fatal" else "an"
+            cause = f"{article} {noun} ended it{stopped}"
+            fix = f"fix that {noun} and run again ({LOG_ADVICE})"
+        else:
+            cause = f"it reported no `$finish`, no stop time and no driver exit{asked}"
+            fix = _finish_fix(stop_time)
+            if stopped:
+                cause += stopped
+            else:
+                cause += ", so its event queue most likely ran empty"
+                fix += f"; if the testbench already ends so, {LOG_ADVICE}"
+        return fail(problem(f"the simulation did not end as intended{at}: {cause}", fix))
     threshold = SEVERITY_RANK[fail_severity]
     worst = [e for e in evidence.events if _EVENT_RANK.get(e.kind, 0) >= threshold]
     if worst:
-        log.error(
-            "The simulation reported %d event(s) at or above fail_severity=%s, the first: %s at %s: %s",
-            len(worst),
-            fail_severity,
-            worst[0].kind,
-            worst[0].location,
-            worst[0].message,
+        first = worst[0]
+        where = f" at {first.location}" if first.location else ""
+        return fail(
+            problem(
+                f"the simulation reported {len(worst)} event(s) at or above "
+                f"fail_severity={fail_severity}, the first: {first.kind}{where}: {first.message}",
+                _event_fix(max(_EVENT_RANK[e.kind] for e in worst)),
+            )
         )
-        return False
     return True
 
 
@@ -325,9 +449,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
         """cocotb's verdict for a cocotb testbench (on every simulator); otherwise the evidence
         rule. Missing evidence fails, including a flow without an adapter."""
         if self.cocotb:
-            return self.cocotb.add_results(
+            passed = self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
             )
+            if not passed:
+                record_failure(self, _cocotb_problem(self.results))
+            return passed
         assert isinstance(self.settings, self.Settings)
         return judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
 

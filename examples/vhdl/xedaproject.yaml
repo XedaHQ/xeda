@@ -1,6 +1,9 @@
 design:
   - name: 'full-adder'
     description: 'Example VHDL design'
+    language:
+      vhdl:
+        standard: 2008
     rtl:
       sources:
         - 'full_adder.vhd'

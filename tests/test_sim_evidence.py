@@ -7,13 +7,22 @@ Power is not in this sweep: it reports power and relies on its declared activity
 producer to pass the simulation evidence rule before hand-over.
 """
 
+import re
 from pathlib import Path
 
 import pytest
 
 from xeda.design import SourceType
 from xeda.flow import registered_flows
-from xeda.flow.sim import SimEvent, SimEvidence, SimFlow, judge_evidence
+from xeda.flow.sim import (
+    SimEvent,
+    SimEvidence,
+    SimFlow,
+    _cocotb_problem,
+    judge_evidence,
+    readable_time,
+    record_failure,
+)
 
 from .flow_registry import preserved_flow_registry
 
@@ -73,6 +82,8 @@ def _readable_source(flow_class: type[SimFlow], root: Path) -> str:
 
 class _Stub:
     """Just what `judge_evidence` reads from a flow."""
+
+    name = "stub_sim"
 
     def __init__(self, stop_time=None):
         self.results = {}
@@ -136,6 +147,183 @@ def test_a_requested_max_cycles_stop_counts():
         is True
     )
     assert judge_evidence(_Stub(), SimEvidence(ended_by="max_cycles", time=100), "error") is False
+
+
+FINISH_ADVICE = ("std.env.finish", "$finish", "stop_time")
+
+
+@pytest.mark.parametrize(
+    ("evidence", "stop_time", "expected"),
+    [
+        (SimEvidence(ended_by="unknown"), None, ("event queue", *FINISH_ADVICE)),
+        (SimEvidence(ended_by="unknown"), "10ns", ("event queue", "10ns", *FINISH_ADVICE)),
+        (SimEvidence(ended_by="drained", time=20), None, ("ran empty", *FINISH_ADVICE)),
+        (SimEvidence(ended_by="drained", time=0), "15ns", ("before the requested", "15ns")),
+        (SimEvidence(ended_by="fatal", time=5), None, ("fatal error",)),
+        (
+            SimEvidence(
+                ended_by="unknown",
+                events=[SimEvent(kind="stop", time=3, location="tb.sv:9", message="halt")],
+            ),
+            None,
+            ("stop event at tb.sv:9: halt", "std.env.finish"),
+        ),
+        (
+            SimEvidence(
+                ended_by="error", time=5, events=[SimEvent(kind="error", message="bad value")]
+            ),
+            None,
+            ("an error ended it", "error event: bad value", "fix that error"),
+        ),
+        (None, None, ("no end record", "simulation log")),
+        (
+            SimEvidence(
+                ended_by="finish", time=5, events=[SimEvent(kind="error", time=3, message="bad")]
+            ),
+            None,
+            ("fail_severity=error", "bad"),
+        ),
+    ],
+)
+def test_a_failed_end_says_what_happened_and_what_to_do_in_the_results(
+    evidence, stop_time, expected
+):
+    """The message is the run's `error`, not only a log line, and names the flow."""
+    flow = _Stub(stop_time)
+    assert judge_evidence(flow, evidence, "error") is False
+    assert flow.results["error"]["type"] == "ReportedFailure"
+    message = flow.results["error"]["message"]
+    assert message.startswith("`stub_sim` reported failure: ")
+    for text in expected:
+        assert text in message, message
+    assert "None" not in message and "  " not in message
+
+
+@pytest.mark.parametrize(
+    ("counts", "expected"),
+    [
+        ({}, "no readable test results"),
+        ({"cocotb.tests": 2, "cocotb.failures": 1, "cocotb.errors": 0}, "1 of 2 cocotb test(s)"),
+        ({"cocotb.tests": 2, "cocotb.failures": 0, "cocotb.errors": 1}, "1 had an error"),
+        ({"cocotb.tests": 2, "cocotb.skipped": 2}, "ran no test: 2 found, 2 skipped"),
+    ],
+)
+def test_a_failed_cocotb_verdict_is_the_error_of_the_results(counts, expected):
+    flow = _Stub()
+    flow.results.update(counts)
+    record_failure(flow, _cocotb_problem(flow.results))
+    assert expected in flow.results["error"]["message"]
+
+
+def test_a_failed_cocotb_run_records_its_counts_through_check_results():
+    class Cocotb:
+        def add_results(self, results, results_file=None):
+            results.update({"cocotb.tests": 3, "cocotb.failures": 2, "cocotb.errors": 0})
+            return False
+
+        results_xml = "results.xml"
+
+    flow = _Stub()
+    flow.cocotb = Cocotb()
+    flow.report_file = lambda path: None
+    assert SimFlow.check_results(flow) is False
+    assert flow.results["error"]["message"].startswith("`stub_sim` reported failure: 2 of 3")
+
+
+ENDINGS = [
+    # every way judge_evidence can fail, as (evidence, stop_time, max_cycles, text of the cause)
+    (None, None, None, "no end record"),
+    (SimEvidence(ended_by="unknown"), None, None, "event queue most likely ran empty"),
+    (
+        SimEvidence(ended_by="unknown", events=[SimEvent(kind="stop", message="halt")]),
+        None,
+        None,
+        "the first stop event: halt",
+    ),
+    (SimEvidence(ended_by="drained", time=5), "10ns", None, "ran empty"),
+    (SimEvidence(ended_by="stop_time", time=5, time_unit="1ns"), None, None, "nobody asked for"),
+    (SimEvidence(ended_by="stop_time", time=5), "10ns", None, "no time or no time unit"),
+    (
+        SimEvidence(ended_by="stop_time", time=5, time_unit="1ns"),
+        "10ns",
+        None,
+        "other than the requested stop_time 10ns",
+    ),
+    (SimEvidence(ended_by="max_cycles", cycles=3), None, None, "nobody asked for"),
+    (SimEvidence(ended_by="max_cycles", cycles=3), None, 10, "it observed 3 cycles"),
+    (SimEvidence(ended_by="exit", exit_code=2), None, None, "exited with status 2"),
+    (SimEvidence(ended_by="error"), None, None, "an error ended it"),
+    (SimEvidence(ended_by="fatal"), None, None, "a fatal error ended it"),
+    (
+        SimEvidence(ended_by="finish", time=1, events=[SimEvent(kind="fatal", message="m")]),
+        None,
+        None,
+        "1 event(s) at or above fail_severity=error",
+    ),
+]
+EVENT_FIXES = [
+    ("warning", "warning", "set `fail_severity` to `error`"),
+    ("error", "error", "set `fail_severity` to `failure`"),
+    ("error", "stop", "set `fail_severity` to `failure`"),
+    ("error", "fatal", "no `fail_severity` allows one"),
+    ("fatal", "fatal", "no `fail_severity` allows one"),
+]
+
+
+@pytest.mark.parametrize(
+    ("evidence", "stop_time", "max_cycles", "cause"),
+    ENDINGS,
+    ids=[f"{i}-{e.ended_by if e else 'none'}" for i, (e, *_) in enumerate(ENDINGS)],
+)
+def test_every_failed_ending_gives_its_cause_and_what_to_do(evidence, stop_time, max_cycles, cause):
+    """One form: the cause, then `To fix it, <what to do>.`, in the run's `error`."""
+    flow = _Stub(stop_time)
+    flow.settings.max_cycles = max_cycles
+    assert judge_evidence(flow, evidence, "error") is False
+    message = flow.results["error"]["message"]
+    assert cause in message, message
+    assert re.fullmatch(r"`stub_sim` reported failure: .+[^.]\. To fix it, [^.]+.*[^.]\.", message)
+    assert message.count("To fix it,") == 1
+
+
+@pytest.mark.parametrize(("severity", "kind", "fix"), EVENT_FIXES)
+def test_an_event_fix_names_a_threshold_only_where_one_allows_the_event(severity, kind, fix):
+    """`fatal` and `failure` have the highest rank: no `fail_severity` lets one pass."""
+    flow = _Stub()
+    evidence = SimEvidence(ended_by="finish", time=1, events=[SimEvent(kind=kind, message="m")])
+    assert judge_evidence(flow, evidence, severity) is False
+    message = flow.results["error"]["message"]
+    assert fix in message, message
+    if "no `fail_severity`" in fix:
+        assert "set `fail_severity`" not in message
+
+
+def test_a_failed_end_keeps_the_error_the_run_already_has():
+    flow = _Stub()
+    flow.results["error"] = {"type": "NonZeroExitCode", "message": "exit 1"}
+    assert judge_evidence(flow, SimEvidence(ended_by="unknown"), "error") is False
+    assert flow.results["error"] == {"type": "NonZeroExitCode", "message": "exit 1"}
+
+
+def test_a_passing_end_records_no_error():
+    flow = _Stub()
+    assert judge_evidence(flow, SimEvidence(ended_by="finish", time=1), "error") is True
+    assert "error" not in flow.results
+
+
+@pytest.mark.parametrize(
+    ("time", "unit", "text"),
+    [
+        (80_000_000, "1fs", "80 ns"),
+        (15_000, "1ps", "15 ns"),
+        (0, "1fs", "0 fs"),
+        (1500, "1fs", "1500 fs"),
+        (7, None, "7"),
+        (7, "weird", "7 weird"),
+    ],
+)
+def test_a_time_is_shown_in_the_largest_exact_unit(time, unit, text):
+    assert readable_time(time, unit) == text
 
 
 def test_the_verdict_is_recorded_in_the_results():

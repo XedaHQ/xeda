@@ -2092,7 +2092,18 @@ dependency must also share `custom_boards_file`.
   `SimEvidence` through `judge_evidence` (`flow/sim.py`), never by the tool's exit status alone:
   what the simulator's own end record shows (`sim.ended_by`, `sim.time`, ... result keys), against
   `fail_severity`. cocotb, on every simulator, needs at least one test that ran and none that
-  failed (an all-skipped run fails). Verilator has three drivers, and xeda has no
+  failed (an all-skipped run fails).
+  A failed verdict is also the run's `error` in `results.json` (`ReportedFailure`, from
+  `record_failure`, unless a tool exit status set one first): every message has one form, the cause
+  then `To fix it, <what to do>.` (`sim.problem`), for each ending of the evidence rule (no record,
+  drained or unknown end, stop time, `max_cycles`, driver exit, error or fatal, events at
+  `fail_severity`) and for a cocotb verdict. A new ending builds its message with `problem`
+  (`tests/test_sim_evidence.py::ENDINGS` lists every ending).
+  `tests/test_example_simulations.py` runs every example with a testbench on
+  the simulators in its table (a new example with a testbench fails the scan until listed), and
+  `tests/test_documented_commands.py` runs the `xeda` commands of the README, quickstart, tutorial
+  and agent skill (planned with `--dry-run` unless an installed open-source simulator runs them).
+  Verilator has three drivers, and xeda has no
   main of its own. (1) An HDL top (`tb.top`, else `rtl.top`): Verilator's own `--main` runs the
   model, and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`, built with `-DXEDA_VERILATOR_MAIN`)
   record every `$finish`/`$stop`/`$error`/`$fatal` and Verilator runtime warning (an HDL
