@@ -130,7 +130,7 @@ under the name that you can type as ``-s <name>=<value>``:
           "type": "integer",
           "required": false,
           "default": null,
-          "description": "Max number of threads",
+          "description": "Maximum number of threads.",
           "enum": null,
           "writes": null,
           "opaque_keys": false,
@@ -139,7 +139,7 @@ under the name that you can type as ``-s <name>=<value>``:
           "json_schema": {
             "anyOf": [{"type": "integer"}, {"type": "null"}],
             "default": null,
-            "description": "Max number of threads",
+            "description": "Maximum number of threads.",
             "title": "Ncpus"
           }
         }
@@ -570,9 +570,9 @@ producer.
 
 ``switched_on`` names the optional outputs that Xeda enabled because a consumer needs them. It does
 not list every output that the settings already enable. ``input_types`` and ``output_types`` report
-the effective types of each declaration after the targets agree. For example, iCE40 selects ``Pcf``
-pin constraints and the ``IceAsc`` configuration. The static flow catalog lists the full vocabulary
-of declared types.
+the effective types of each declaration after the settings of the nodes agree. For example, iCE40
+selects ``Pcf`` pin constraints and the ``IceAsc`` configuration. The static flow catalog lists the
+full vocabulary of declared types.
 
 Each node also says what a launch would do with it. ``state`` is ``fresh`` (the launch reuses the
 recorded run), ``stale`` (the launch runs the node) or ``unknown`` (nothing can be said without

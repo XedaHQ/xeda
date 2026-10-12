@@ -475,8 +475,9 @@ class FlowLauncher:
         #: `rebuild_all`).
         clean: bool = False
         backups: bool = False
-        #: Remove the files of a flow after the run, except settings.json, results.json and
-        #: the artifacts.
+        #: Remove the files of a flow after the run. The prune keeps settings.json, results.json,
+        #: the artifacts and the declared output files, with their parent directories. It
+        #: removes trace.json first.
         post_cleanup: bool = False
         #: Remove the run directory of a flow, with all of its contents, after the run. It
         #: needs no `post_cleanup`: `_run_dir_policy` makes one imply the other.

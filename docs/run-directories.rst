@@ -515,7 +515,7 @@ remote protocol 1 or newer. Protocol 1 is the first one released. It provides:
 
 Before it ships the design, Xeda checks the package that the remote interpreter actually imports. A
 release without the protocol marker, or with a lower protocol, is refused with an "upgrade the
-remote xeda" error.
+remote Xeda" error.
 
 A remote run (``--remote``) always runs fresh on the remote. Xeda mirrors its results locally in the
 hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings never
