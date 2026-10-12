@@ -13,7 +13,8 @@ The rule
 Commands fall into two kinds, and each kind has its own mechanism.
 
 Query commands print a document. They take ``--format {table,json,jsonl,yaml}``, which defaults to
-``table``. ``--json`` is shorthand for ``--format json``:
+``table``. ``design-schema`` takes ``--format {json,yaml}`` and defaults to ``json``. ``--json`` is
+shorthand for ``--format json``:
 
 .. code-block:: bash
 
