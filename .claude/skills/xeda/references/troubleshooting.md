@@ -1,338 +1,205 @@
 # Troubleshooting Xeda runs
 
-## First move: read `settings.json`
-
-Every run directory contains `settings.json`: `flow_settings`, the run's input (the flow's
-defaults, the project's and design file's `flows.<flow>` sections and the command-line `-s`
-overrides, merged key by key), and `effective_flow_settings`, what the flow made of it -- plus the
-design as Xeda resolved it.
-
-When a run did something unexpected, this is the difference between what you think you asked for
-and what was actually asked of the tool. `xeda run --json` reports its path.
-
-## Failure modes
-
-### `FlowSettingsError: Extra inputs are not permitted: <name>`
-
-The setting does not exist on that flow. Settings are validated strictly - a typo fails rather
-than being ignored, on purpose.
-
-```bash
-xeda list-settings <flow> --json | jq -r '.fields[].name'
-```
-
-Check for an `alias`: some settings have two accepted names (`vcd`/`waveform`,
-`nthreads`/`ncpus`). Check the flow too - a dependency's settings belong to its own flow, e.g.
-`-s flows.yosys_fpga.flatten=true`, not `flatten`.
-
-### `FlowSettingsError` with a type error
-
-The value does not match the setting's type. `xeda list-settings <flow> --json` gives each
-field's `type` and, where the value is constrained, its `enum`. Text that spells a number is read
-as one, so `-s clock.period=5.5` is fine but `-s clock.period=fast` is not. The reverse does not
-happen: a text setting needs text in a design file (`compile_args: ["-j", "8"]`), not a number,
-and `true`/`false` are not text. The declared `Code` fields used for FPGA speed grades and device
-generations are the exception: `speed = -1` is accepted and stored as text. A list setting also
-accepts comma-separated text (`-s xdc_files=a.xdc,b.xdc`).
-
-### A simulation fails with "no evidence" or an all-skipped cocotb run
-
-A simulation passes only on recognized evidence that it ended, not on exit status alone. Read
-`results.json`: `sim.evidence` is the normalized record; `sim.ended_by`, `sim.time`,
-`sim.time_unit`, `sim.errors` and `sim.warnings` summarize it. A silent exit 0, missing or
-malformed record, unknown end, or event queue that drained without a finish fails. `$finish`
-(including VHDL `std.env.finish` and `std.env.stop`) is accepted; Verilog `$stop` is an error-rank
-event and fails at the default threshold.
-`error.message` in `results.json` states the cause and the fix: a testbench that ends with `wait;`
-needs `std.env.finish` / `$finish`, or a `stop_time`.
-A requested `stop_time` needs a matching observed time. Bluesim `max_cycles` needs the exact
-measured cycle count and final time. A supported user-owned C++ driver may pass on observed exit
-0. Nonzero execution always fails, even after finish.
-
-Every simulator flow uses shared `timeout` and `fail_severity` settings. The default severity is
-`error`; choices are `warning`, `error`, `failure` and `fatal` (`failure` and `fatal` have the
-same rank). Timeout bounds each subprocess invocation containing simulation, including analysis
-and elaboration when combined; it is not a dependency-wide deadline. For GHDL and nvc, sparse
-clock stops that miss the requested time fail at their actual reported time. NVC builds a
-passive VHPI monitor and needs a C++ compiler for non-cocotb runs; its removed `exit_severity`
-setting must be replaced with `fail_severity`. CXXRTL accepts an observed exit 0 from its linked
-user-owned driver even if simulated time is unknown; it rejects `stop_time` because that driver
-controls scheduling.
-Verilator rejects `stop_time` too: end the testbench with `$finish`, or use `timeout`. Its `vcd`,
-`fst` and `saif` only build tracing into the model (set them to `true`): without cocotb, the
-testbench's `$dumpfile("dump.<format>")` and `$dumpvars` write the file, and a name or location is an
-error. A C++ source
-that holds `main` needs `main: false`; without it, a C++ source is a DPI helper.
-
-Waveform settings (`vcd`, `fst`, `wave`, `saif`, ...) read `true`/`false` text as booleans, so
-`-s vcd=true` writes `dump.vcd` like YAML `vcd: true` (a location is written as that name too;
-`vivado_sim`'s `saif` is `outputs/<design>.saif`). `yes`, `on` and the other YAML
-1.1 boolean words are refused: write `true` or a file name. `true` or `false` with spaces around it is refused too. A name that ends in another format's extension (`.vcdgz`, `.vcd.gz` and `.gz` are compressed VCD, the `vcdgz` format) is refused (`wave: x.vcd` on `ghdl_sim`: use `vcd`). A simulator writes the waveform through
-its own mechanism or refuses the setting when planned: `vcs` refuses `vcd` (use `vpd`, `fsdb`,
-`evcd`; `to_vcd` converts), `yosys_sim` refuses it (the C++ driver writes it), and `nvc` has `vcd`
-(`--wave=<file> --format=vcd`) and `fst`; its `wave` and `wave_format` were removed. `ghdl_sim` writes compressed VCD with `vcdgz`; `vcd` is always plain, so a gzip name given to it is refused. A Verilator run without cocotb needs the testbench to call `$dumpfile("dump.<format>")`: a run that wrote no such file fails. Two waveform formats at once are refused on `ghdl_sim`, `nvc`,
-`vcs` and `verilator`.
-
-ModelSim batch evidence requires a matching runtime checkpoint, native stop reason/time,
-TESTSTATUS and the bounded runtime section of its owned logfile. VHDL `std.env.stop` is accepted
-with source-qualified native evidence; Verilog `$stop` fails. ModelSim-Intel Starter 2020.1 and
-Vivado 2024.2 are the real releases verified for these contracts. Vivado xsim requires
-source-preserving `elab_debug`; setting it to `off` is rejected so VHDL `std.env.stop` can be
-distinguished from `$stop`.
-
-VCS and Questa adapters are documentation-only and have not been verified against licensed real
-tools; unknown native evidence fails closed. VCS quiet `$finish(0)` and VHDL completion fail
-unless a native finish diagnostic is visible. UCLI time checkpoints alone do not prove HDL
-completion. `bsc_sim` rejects legacy `cvc`, `cver`, `isim`, `ncverilog` and `veriwell` before
-compilation. Real Icarus evidence and builtin-task capability checks remain mandatory Linux CI
-gates; macOS skips them.
-
-### `-s` took the design file, or a setting names the wrong flow
-
-`-s` ends at the next option or the first token that is not KEY=VALUE; put the design first, or end
-the options with `--`. To set a dependency's setting, use `-s flows.<flow>.key=value`; an unknown
-flow or a misdirected key is an error that suggests the right flow.
-
-### `FlowNotFoundError`
-
-Unknown flow name. The message suggests close matches. Names are forgiving about separators and
-case (`vivado_synth`, `vivado-synth`, `VivadoSynth` all work), so this usually means a genuinely
-wrong name. `xeda list-flows --json` is the list, and `aliases` are equally valid names.
-
-### `ExecutableNotFound`
-
-The tool is not on `PATH`. Either install it, or run the flow's tools from a container:
-
-```bash
-xeda run <flow> <design> -s dockerized=true
-```
-
-`results.json`'s `tools` array records which executables Xeda found and their versions.
-
-### `NonZeroExitCode`
-
-The EDA tool itself failed. The generated script and the tool's log are in the run directory
-(`run_path` in the `--json` output). Re-run with `--debug` for verbose logging and a traceback.
-
-### `FlowFailed`
-
-The verdict at the top of the `--json` document: the requested flow itself ran to its end without
-raising and did not succeed (often report parsing found a tool error or a timing violation). A flow
-that raises is named by its exception class instead, and a failed producer is
-`FlowDependencyFailure`. The document keeps the parsed `results`; inspect them and the reports under
-`run_path`.
-
-### `ReportedFailure`
-
-The cause, not the verdict: a node's `results.json` says `error.type = "ReportedFailure"` when its
-own reports or checks failed without an exception or a tool exit status (a tool that exited 0 and
-wrote no netlist, for instance; `openfpgaloader` when its log shows DONE low, `FAIL`, an `Error:`
-message or another failed flash write, with the lines quoted in `error.message`: an ID error means
-the bitstream is for another device than the one on the cable, so check the board; `Can't program
-SPI flash: missing device-package information` means the loader's own list gives the board no
-part, so set `cable` as well; a Xilinx `write_flash` whose log lacks `Writing: [...] 100.00%` and
-`Done` did not finish the write, for instance when a locked SST26VF flash stopped it before it
-wrote, and the flash holds its old data or part of the file). A declared output that xeda finds
-missing after the flow's own checks passed is `MissingOutput` instead. The names differ on purpose:
-`FlowFailed` is the top of the document, what happened to the request; `ReportedFailure` is inside
-a node, why it failed. Its consumers quote the message ("dependency yosys_fpga failed: ..."), and the
-top-level `--json` document of the request carries `FlowDependencyFailure` (a producer failed) or
-`FlowFailed` (the requested flow itself). Read the log and the reports in the failing node's
-run directory: the `nodes` of the document list every run directory, and a flow that was planned
-but never entered shows `"state": "not run"`.
-
-### A chain is refused
-
-`xeda run a+b` fails with exit status 2 before anything runs, and says why:
-
-- `no compatible output for a required input` or `takes no required input`: the pair does not
-  fit. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no inputs and no outputs, so
-  they cannot be part of a chain yet; run each alone. When another output of the producer, or the flows between the pair
-  on the required default routes, make a pair fit, the message ends with `Did you mean ...?`, a whole valid chain (`nextpnr+openfpgaloader` ->
-  `nextpnr+fpga_pack+openfpgaloader`). Otherwise there is no suggestion; `xeda list-flows --json`
-  has `can_follow`/`can_precede` for finding a flow that fits.
-- `programs a device and can only end a chain`: `openfpgaloader` must be last.
-- `appears more than once`: a chain is a path; each flow once.
-- `--remote` and `xeda dse` refuse chains and bindings; run locally.
-
-A binding that fails is a settings error naming the consumer, the input and where it was written
-(`unknown input`, `unknown producer`, `declares no inputs`), and a chain and an explicit
-command-line or API binding of the same input is an error even when they are equal: bind it in
-one place. A saved binding is a reference to a flow's output (`yosys_fpga.netlist`), never a file
-path; give a file as a typed source.
-
-### "`<flow>` needs `fpga`" although the design gives a part
-
-A flow's settings are its own `flows.<flow>` section, and a shared leaf such as `fpga` travels
-only along the edges of the run's own graph. A chain replaces default producers: in
-`vivado_synth+openfpgaloader` the bitstream comes from `vivado_synth`, so `fpga_pack`, `nextpnr`
-and `yosys_fpga` are not part of the run, and a part written only under `flows.yosys_fpga`
-reaches neither node. Planning logs "yosys_fpga is not part of this run: its settings are
-unused", and the error names the section that does not count: the `fpga` in `flows.yosys_fpga`
-of the design file does not reach vivado_synth, since yosys_fpga is not part of this run (the
-programmer needs a device only to program the flash). Write the part for a flow of the run
-(`flows.vivado_synth.fpga.part`, or a `board` for `openfpgaloader`; it reaches the other node
-along their `fpga` edge), or give `-s fpga.part=<part>`. Only `nextpnr`, `fpga_pack` and
-`openfpgaloader` take a `board`; `yosys_fpga` and the Vivado flows take `fpga.part`.
-
-### `NoSuccessfulRun`
-
-A design-space exploration completed without a successful candidate. Inspect the attempted run
-directories, then correct the flow settings or adjust the search range.
-
-### `RunRootError`
-
-The run root (`--run-root`/`XEDA_RUN_ROOT`, default `./xeda_run`) holds files but carries no marker
-xeda created (`.xeda-run-root`), or it lies somewhere xeda cannot write. The message names the
-directory. Move it aside, or run `touch <dir>/.xeda-run-root` to hand it to xeda -- but only if you
-are sure nothing of yours is in there: everything under a marked run root is xeda's from then on.
-The one exception is by name and location, not history: a directory named `xeda_run` directly in
-the start directory is adopted automatically, whatever put files there -- xeda does not check who
-created it. Keep nothing of your own in a directory called `xeda_run` beside where you run xeda
-from.
-
-### `DeliveryError`
-
-A setting or `--outputs-to` named a location xeda could not deliver the output to: the run did not
-write the file the setting expects, or the destination is an input the launch reads (a
-dependency's, or the design's own), a directory where a file was expected, a path inside a run
-root, or a destination that two outputs of the launch name, or one inside another (the message
-names both settings: give each its own path). The role -- *working* or *deliverable* -- belongs to the setting itself, not to
-the value you gave it (`xeda list-settings <flow> --json` shows each setting's `"writes"`): a
-*working* setting always stays a bare name inside the run directory, whatever it is given, and is
-never delivered anywhere; only a *deliverable* setting given a location -- a path under `$PWD`,
-`$DESIGN_ROOT` or `$DESIGN_DIR`, or an absolute path -- is copied out.
-
-### `OutputExistsError`
-
-A subclass of `DeliveryError`: the destination already holds a file, and it is not xeda's own
-earlier, unchanged delivery there, so replacing it needs your say-so. Rerun with
-`--overwrite-outputs`, or, at an interactive terminal, answer the prompt; under `--json` or with no
-terminal, only the flag works.
-
-### `DesignValidationError`
-
-The design file is invalid. `xeda design-schema` describes its structure, but deliberately leaves
-property sets open because the loader accepts dotted-key shorthands before validation; loading the
-file is the authoritative unknown-field check. Common causes are a source file that does not exist
-(relative paths resolve against the *design file's* directory, not the working directory), an
-unknown field, or a missing `sources` list.
-
-### The flow "succeeds" but timing is not met
-
-Flows that enforce timing fail on negative slack by default. If timing results look wrong, check
-`wns`/`whs` in `results.json` and whether `fail_timing` (Vivado) or `timing_allow_fail` (nextpnr)
-was turned off.
-
-### `<flow> cannot read the design's Vhdl source(s) ...` / `<flow> reads none of the design's sources`
-
-Every flow that reads the design's sources declares the types it reads and refuses, at
-planning, a source in another hardware language (`verilator` reads no VHDL; `ghdl_sim`, `nvc` and
-`ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog) and a design with no source it
-reads. Pick a flow that reads the design's languages, or give the source its right `type`. A
-simulator judges `tb.sources` too. C/C++ files are never refused.
-
-### Simulation passes but nothing ran
-
-Check `results.json`'s cocotb counts: `cocotb.tests` of 0 means no test was collected. Verify the
-testbench source is present in `tb.sources` and that `tb.top` is set for non-cocotb testbenches.
-
-### `open_xc7` was removed
-
-"`open_xc7` was removed: use fpga_pack to build, openfpgaloader to program" -- for the flow's
-name and for a `flows.open_xc7` section in a design or project file alike. Move its placement
-settings to `flows.nextpnr`, synthesis settings to `flows.yosys_fpga`, and pin files into
-`rtl.sources`; `xeda scrub open_xc7 <design>` still removes its old run directories.
-
-### A 7-series build fails before or during nextpnr
-
-- "needs the full part": give `fpga.part` with package, pins and speed grade
-  (`xc7a100tcsg324-1`), as the Project X-Ray database lists it.
-- A missing Himbaechel share tree, generator, `bbasm` or Project X-Ray database names the path
-  searched: put openXC7 1.0's `bin` first on `PATH` (another `nextpnr-himbaechel` on `PATH`, without
-  the openXC7 share tree, cannot serve), or set `chipdb`/`prjxray_db`.
-- The first build seems to hang: it is generating the chip database (about a minute, gigabytes
-  of memory), once per run root.
-- "timing constraints are not met: Max frequency ... (FAIL at ...)": relax the clock, or set
-  `timing_allow_fail` to keep the result.
-- "nextpnr constraint error" names the original constraint file and line.
-- A `NonZeroExitCode` of nextpnr ends with "nextpnr error: ...", the first error lines this run's
-  log holds (an unplaceable cell, for example); more are in `nextpnr.log`.
-
-### A 7-series bitstream builds but computes the wrong result
-
-Some openXC7 `nextpnr-himbaechel` builds write wrong bits with no error and with timing met. The
-openXC7 1.0 release and `1.0.0-41-g3e5c2cdd` have none of the fixes. At least these defects are
-known (openXC7/nextpnr pull request in brackets): an inferred multiplier (`DSP48E1`) that ignores
-its A operand (66, issue 39); an initialized `RAM32M`/`RAM64M`, whose LUTs read 0 (70); a
-falling-edge shift register that shifts on the rising edge (70); a block RAM with an initial or
-reset value on its output register (69); an `ODDR` on the T input of a tri-state (72); an `MMCME2`
-or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR` (71); a memory of 64K x 1 or
-deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad that an `ODDR` or an
-`OSERDESE2` drives (78). A timing or utilization report cannot show them; only a test of the
-bitstream itself can. Use a build of `main` at `26f5e17a5` (`1.0.0-75-g26f5e17a`, from
-`nextpnr-himbaechel --version`) or later: that commit has all of them. Xeda does not check the
-build. The authors compared bitstreams with Vivado's and tested none
-on a board.
-
-Also, nextpnr ignores `set_property PULLUP true` without a warning. Write `set_property PULLTYPE
-PULLUP` for a pull-up. The bundled pin files use neither.
-
-## Reading numbers correctly
-
-- **`clock_frequency` is not `Fmax`.** `clock_frequency` is the frequency that was *constrained*;
-  `Fmax` is the maximum that was *achieved*.
-- **`Fmax` is per tool.** nextpnr's timing model is not Vivado's. On one design with a block RAM
-  and a DSP they reported 429 to 453 MHz and 232 to 241 MHz for the same two netlists; on a counter
-  Vivado's timing of nextpnr's own routing differed from nextpnr's report by 0.14 ns. Compare
-  `Fmax` only between runs of the same tool.
-- Canonical keys `Fmax`, `lut` and `ff` are added by the runner alongside whatever the flow
-  reported (`f_max`, `maximum_frequency`, `LUT`, `FF`), so prefer the canonical ones.
-- Keys beginning with `_` are internal and may change without notice.
-- `xeda list-results <flow> --json` explains every key. When its `documented` field is `false`, the
-  keys listed were detected from the flow's source as a best effort - read an actual `results.json`
-  instead.
-- Some flows report nothing beyond the common keys - `xeda list-results <flow>` says so
-  explicitly for those.
-- `nextpnr` reports timing and utilization parsed from the JSON report named by its `report`
-  setting (kept as the `report` artifact). Its canonical `lut`/`ff`/`bram`/`dsp`/`io` keys are
-  given for ECP5 and Xilinx 7-series; for another `fpga.family` you get the raw nextpnr bel-type
-  counts (`ICESTORM_LC`, `OXIDE_COMB`, ...) instead, plus timing, which is family-independent.
-- **`lut` is per toolchain and per stage**, and `LUT:STAGE`/`LUT:METHOD` say which. For 7-series,
-  `nextpnr` counts distinct occupied LUT locations in its placement (not `SLICE_LUTX`, which
-  counts both halves of a fractured LUT), and `yosys_fpga` estimates from mapped primitives
-  (`LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`). Neither is certified comparable with Vivado's count:
-  compare one toolchain with itself. `fabric` names the die whose `available` totals are shown
-  (an `xc7a35t` is routed as an `xc7a50t`); `clock_port` appears only when the reported clock
-  domain is itself a top-level port.
-- `nextpnr`'s `wns` is derived: nextpnr reports achieved *frequencies*, not slack, so slack is the
-  difference between the constrained and achieved clock periods. With several constrained clock
-  domains, `Fmax` is the lowest achieved frequency across them while `wns` comes from the
-  least-slack domain -- these may be different domains -- and the scalar `clock_frequency` and
-  `clock_period` keys are omitted as ambiguous. With a single constrained domain both *are*
-  reported, taken from that domain's constraint (not its achieved frequency). `clock_domains`
-  gives the count either way, and per-domain detail is always in `_fmax`.
-
-## Re-running cleanly
-
-`xeda run` is make-like **by default**: a flow only re-runs when something it consumed or produced
-changed since its last successful run. A flow that runs logs why (`Running <flow>: <reason>`);
-one left alone logs that it is up to date and shows its recorded results. `--cached-dependencies`
-and `--incremental`/`--no-incremental` no longer exist - they fail naming their replacement below.
-
-To see what will run, and why, before running: `xeda run ... --dry-run` (add `--json`). Each node is
-`fresh` (reused), `stale` with the reason the log would give, or `unknown` with why (for example
-`depends on yosys_fpga`, a producer that runs first). It writes nothing and starts no process.
-
-| Situation | Option |
+## Triage order
+
+1. `error.type` and `error.message` of the `--json` document. Usage errors (exit 2) are
+   `BadParameter` and `UsageError`.
+2. `FlowFailed`: the cause is `results.error` (the same as `error` in `results_json`).
+   `FlowDependencyFailure`: open the failed producer's `results.json` (the message names it) and
+   start there. `nodes` lists every run directory; a node planned but never entered shows
+   `"state": "not run"`.
+3. `settings.json` in `run_path`: `flow_settings` is what you asked for, `effective_flow_settings`
+   is what the flow made of it.
+4. The tool log and the generated scripts in `run_path`. Add `--debug` for verbose logs and a
+   traceback.
+
+## Messages and fixes
+
+### Settings
+
+| Message | Fix |
 | --- | --- |
-| Stale tool state is suspected, or you want every flow to re-run from nothing | `--clean` |
-| Force every flow to run even though nothing changed | `--rebuild-all` |
-| Keep each settings variant of a flow in its own directory | `--hashed-run-dirs` |
-| Want previous runs of this flow removed first | `--scrub` |
+| `Extra inputs are not permitted: <name> (extra_forbidden)` | No such setting on this flow. `xeda list-settings <flow> --json \| jq -r '.fields[].name'`. A producer's setting goes under `-s flows.<producer>.<name>=...`. |
+| `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
+| `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says. |
+| `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
+| `cannot interpret 'fast' as a quantity: expected a number, optionally followed by a unit` | Write `5.5`, `5.5ns` or `200MHz`. Units are case-sensitive. |
+| a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
+| `` `true` is a switch, and `bitstream` names a file `` | Give a name or location, or leave it unset. |
 
-By default a flow reuses one directory per design (`xeda_run/<design>/<flow>/`; per target,
-`xeda_run/<design>/<target>/<flow>/`), which keeps
-incremental tool state between runs - good while iterating, occasionally the cause of a confusing
-result; `--clean` empties it first and reruns everything ("make clean, then make"). A dependency
-gets its own directory, a sibling of the flow that launched it, never nested under it.
+### Design
+
+| Message | Fix |
+| --- | --- |
+| `rtl.sources: Value error, source file does not exist: <path>` | Relative paths resolve against the design file's directory. A file a generator writes is `{path: "gen/top.v"}`. |
+| `rtl.<key>: Extra inputs are not permitted` | Unknown design key. Mixing the flat form (`sources`, `top`, `clock` at the root) with `rtl.*` fails the same way: write `rtl:`. |
+| `` `.json` names several kinds of file ... give its type `` | Add `type` (`{file: "top.json", type: JsonNetlist}`). |
+| `` `standard` was removed from a source `` | Use `language.vhdl.standard`. |
+| `<flow> reads none of the design's sources: ...` (`NoReadableSource`) | The design lists no source the flow reads. Pick a flow for the design's languages, or give a source its `type`. |
+| `<flow> cannot read the design's Vhdl source(s) ...; it reads ...` | Same: `verilator` reads no VHDL; `ghdl_sim`, `nvc` and `ghdl_synth` read only VHDL; `bsc` reads Bluespec and Verilog. A simulator checks `tb.sources` too. |
+| `` <flow> needs `fpga`, the target FPGA device ... `` | Give `flows.<flow>.fpga.part` or `-s fpga.part=<part>` (or a `board`). A shared setting travels only along the edges of the run's graph. In `vivado_synth+openfpgaloader` the part under `flows.yosys_fpga` reaches neither node (`yosys_fpga is not part of this run`). Only `nextpnr`, `fpga_pack` and `openfpgaloader` take `board`. |
+| `<flow> cannot run cocotb tests; use one of: ghdl_sim, nvc, verilator` | Pick a cocotb simulator, or drop the `.py` testbench. |
+
+### Chains
+
+A malformed chain is `BadParameter` (exit 2) before anything runs.
+
+| Message | Fix |
+| --- | --- |
+| `` Flow `a` has no compatible output for a required input of `b` `` / `` ... takes no required input `` | The pair does not fit. `Did you mean ...?` names a valid chain. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no I/O: run each alone. |
+| `` Flow `openfpgaloader` programs a device and can only end a chain `` | Put it last. |
+| `` Flow `a` appears more than once `` | A chain is a path; each flow once. |
+| a binding error naming the consumer, input and where it was written | `unknown input`, `unknown producer` or `declares no inputs`. A binding names a flow's output (`yosys_fpga.netlist`), never a file. A chain and a command-line or API binding of one input conflict even when equal: bind it in one place. |
+| `` vivado_power: `checkpoint` must come from the producer of the `netlist_timing` ... `` | Related inputs come from one producer. Add the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings the message lists. |
+
+`--remote` and `xeda dse` refuse chains and bindings; run locally.
+
+### Run root, run directories and deliveries
+
+| Message or type | Fix |
+| --- | --- |
+| `RunRootError: <dir> holds files and is not a run root xeda created (it has no .xeda-run-root)` | Name a new or empty directory with `--run-root`. If it holds only earlier Xeda runs, delete them or create `<dir>/.xeda-run-root`; everything in a marked run root is Xeda's. A directory named `xeda_run` in the start directory is adopted without the marker. |
+| `RunDirectoryError` | A run directory would lie outside the run root, or a write would go through a link Xeda does not control. Read the message. |
+| `DeliveryError` | A setting or `--outputs-to` named a location Xeda cannot deliver to: the run wrote no such file; the destination is an input of the launch, a directory, or inside a run root; or two outputs name one destination (the message names both settings). Only a deliverable setting (`"writes": "deliverable"`) given a location is copied out; a working setting stays a bare name in the run directory. |
+| `OutputExistsError` | The destination holds a file that is not Xeda's own unchanged earlier delivery. Rerun with `--overwrite-outputs`. At a terminal you can answer the prompt; under `--json` only the flag works. |
+| `Invalid value for '--outputs-to': Directory '<x>' is a file.` | `--outputs-to` takes a directory. |
+
+### Tools
+
+- `ExecutableNotFound`: `Executable 'ghdl' was not found in PATH. flow:ghdl_sim, tool:GhdlTool`.
+  Install the tool, or run it from a container with `-s dockerized=true`. `results.json`'s `tools`
+  lists the executables Xeda found and their versions.
+- `NonZeroExitCode`: `Command '...' exited with code 1!`. The generated script and the tool's log
+  are in `run_path`.
+- `ReportedFailure`: a node's `results.json` says so when its reports or checks failed with no
+  exception and no tool exit status, for example a tool that exited 0 and wrote no netlist. The
+  top-level document says `FlowFailed`; consumers quote the message
+  (`dependency yosys_fpga failed: ...`).
+- `MissingOutput`: a declared output is absent, unreadable, outside the run directory or not
+  written by this run. `nextpnr` reports its own missing configuration as `FlowFatalError`, naming
+  the setting and path.
+
+## Simulation verdicts
+
+A simulation passes only on recognized evidence that it ended, never on exit status alone.
+`results.json` holds `sim.evidence` (the normalized record), `sim.ended_by`, `sim.time`,
+`sim.time_unit`, `sim.errors` and `sim.warnings`. `error.message` states the cause and the fix.
+
+- A silent exit 0, a missing or malformed end record, an unknown end, or a drained event queue
+  fails. A testbench that ends with `wait;` needs `std.env.finish` or `$finish`, or a `stop_time`.
+  Fix: end the testbench with `$finish` (VHDL `std.env.finish`).
+- `$finish`, VHDL `std.env.finish` and `std.env.stop` are accepted. Verilog `$stop` is an
+  error-rank event and fails at the default threshold. A nonzero exit always fails.
+- cocotb: at least one test must run and none may fail; an all-skipped run fails. `cocotb.tests: 0`
+  in `results.json` means no test was collected: check `tb.sources`.
+- Every simulator has `timeout` (per subprocess invocation that contains simulation) and
+  `fail_severity` (`warning`, `error`, `failure`, `fatal`; default `error`; `failure` and `fatal`
+  rank alike).
+- A requested `stop_time` needs a matching observed time. GHDL and nvc report the actual stop time;
+  a sparse clock that misses it fails. Bluesim `max_cycles` needs the exact measured cycle count.
+- `verilator` refuses `stop_time` (`verilator cannot stop at a simulated time`): end the
+  testbench with `$finish`, or set `timeout`. A C++ source that holds `main` needs `main: false`;
+  without it, a C++ source is a DPI helper. `yosys_sim` also refuses `stop_time`.
+- `nvc` needs a C++ compiler for non-cocotb runs. Its `exit_severity` was removed: use
+  `fail_severity`.
+- ModelSim exits 0 whatever the testbench says; Xeda judges its owned batch log and
+  `TESTSTATUS`. Vivado `xsim` needs source-preserving `elab_debug`; turning it off is refused.
+- VCS and Questa adapters are documentation-only: unverified on licensed tools, and unknown
+  native evidence fails closed. `bsc_sim` refuses `cvc`, `cver`, `isim`, `ncverilog` and `veriwell`
+  before compilation.
+
+### Waveform settings
+
+`vcd`, `fst`, `vcdgz`, `saif` and the other waveform settings take `true` (the conventional file,
+`dump.<format>`), `false`, a file name, or a location. `-s vcd=true` is `vcd: true`. `yes` and `on`
+are refused.
+
+| Message | Fix |
+| --- | --- |
+| `` `wave` writes GHW data, and its name x.vcd ends in .vcd: give the name to `vcd` `` | A name that ends in another format's extension goes to that format's setting. |
+| `` `vcd` writes VCD data, and its name x.vcd.gz ends in .vcd.gz: give the name to `vcdgz` `` | `ghdl_sim` writes compressed VCD with `vcdgz`. `vcd` is plain VCD. |
+| `ghdl_sim writes one waveform, and vcd, fst are set: keep one of them` | One format at a time on `ghdl_sim`, `nvc`, `vcs` and `verilator`. |
+| `` `vcd` names a waveform file, but without cocotb xeda writes no waveform ... Set `vcd: true` `` | `verilator` without cocotb: `vcd`, `fst` or `saif` set to `true` builds the model with that trace format, and the testbench calls `$dumpfile("dump.<format>")` and `$dumpvars`. A run that wrote no such file fails. |
+| `` vcs cannot write a waveform from `vcd`: ... set `vpd`, `fsdb` or `evcd` `` | `to_vcd` converts FSDB or VPD to VCD. |
+| `` yosys_sim cannot write a waveform from `vcd` `` | The design's C++ driver writes the waveform. |
+
+`nvc` has `vcd` and `fst` (`wave` and `wave_format` were removed). `ghdl_sim` has `vcd`, `vcdgz`,
+`fst` and `wave` (GHW). `modelsim` writes no dump unless `vcd` is set. `vivado_sim`'s `saif` is
+`outputs/<design>.saif`.
+
+## Open-source FPGA flows
+
+A Xilinx 7-series build fails before or during `nextpnr`:
+
+- `nextpnr-himbaechel needs the full part in fpga.part`: give `fpga.part` with package, pins and speed grade (`xc7a100tcsg324-1`),
+  as the Project X-Ray database lists it.
+- A missing Himbaechel share tree, generator, `bbasm` or Project X-Ray database names the path
+  searched: put openXC7 1.0's `bin` first on `PATH` (another `nextpnr-himbaechel` without the
+  openXC7 share tree cannot serve), or set `chipdb` or `prjxray_db`.
+- The first build seems to hang: it generates the chip database (about a minute, gigabytes of
+  memory), once per run root.
+- `nextpnr: timing constraints are not met: Max frequency ... (FAIL at ...)`: relax the clock, or set
+  `timing_allow_fail`.
+- `nextpnr constraint error` names the original constraint file and line.
+- A `NonZeroExitCode` of `nextpnr` ends with `nextpnr error: ...`, the first error lines of this
+  run's log; more are in `nextpnr.log`.
+- `openfpgaloader`: the loader can exit 0 after a failure. Xeda reads `openfpgaloader.log` and
+  fails with `ReportedFailure`, quoting the lines. An ID error means the bitstream is for another
+  device than the one on the cable. `Can't program SPI flash: missing device-package information`
+  means the loader's list gives the board no part: set `cable` as well. A Xilinx `write_flash`
+  whose log lacks `Writing: [...] 100.00%` and `Done` did not finish the write (a locked flash can
+  stop it before it writes); set `verify: true` too.
+
+A 7-series bitstream can compute the wrong result with timing met. Some openXC7
+`nextpnr-himbaechel` builds write wrong bits with no error: the 1.0 release and
+`1.0.0-41-g3e5c2cdd` have none of the fixes. Known defects (openXC7/nextpnr pull request in
+brackets): an inferred `DSP48E1` multiply ignores its A operand (66); an initialized
+`RAM32M`/`RAM64M` reads 0 and a falling-edge shift register shifts on the rising edge (70); a
+block RAM with an initial or reset value on its output register (69); an `ODDR` on the T input of a
+tri-state (72); an `MMCME2` or `PLLE2` (68); a `TMDS_33` input, `LVCMOS33` `DRIVE 16`, an `IDDR`
+(71); a memory of 64K x 1 or deeper in cascaded `RAMB36E1` pairs (67); a high-performance bank pad
+that an `ODDR` or an `OSERDESE2` drives (78). A timing or utilization report cannot show them. Use
+a build of `main` at `26f5e17a5` (`1.0.0-75-g26f5e17a`, from `nextpnr-himbaechel --version`) or
+later; Xeda does not check the build. `nextpnr` also ignores `set_property PULLUP true` without a
+warning: write `set_property PULLTYPE PULLUP`.
+
+## Reading numbers
+
+- `clock_frequency` is the frequency constrained. `Fmax` is the frequency achieved.
+- `Fmax` is per tool. On one design with a block RAM and a DSP, `nextpnr` reported 429 to 453 MHz
+  and Vivado 232 to 241 MHz for the same netlists. Compare `Fmax` only between runs of one tool.
+- Canonical keys `Fmax`, `lut` and `ff` sit beside the flow's own (`f_max`, `maximum_frequency`,
+  `LUT`, `FF`); prefer them. Keys that start with `_` are internal.
+- `xeda list-results <flow> --json` explains every key. When `documented` is `false`, the keys were
+  detected from the flow's source: read an actual `results.json`. A flow can report nothing beyond
+  the common keys.
+- Flows that enforce timing fail on negative slack by default. Check `wns` and `whs`, and whether
+  `fail_timing` (Vivado) or `timing_allow_fail` (`nextpnr`) was turned off.
+- `lut` is per toolchain and stage; `LUT:STAGE` and `LUT:METHOD` say which. For 7-series, `nextpnr`
+  counts distinct occupied LUT locations in its placement, and `yosys_fpga` estimates from mapped
+  primitives (`LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`). Neither is certified comparable with Vivado's
+  count: compare one toolchain with itself. `fabric` names the die whose `available` totals are
+  shown (an `xc7a35t` is routed as an `xc7a50t`).
+- `nextpnr` parses timing and utilization from the JSON report named by its `report` setting. Its
+  `lut`, `ff`, `bram`, `dsp` and `io` are given for ECP5 and Xilinx 7-series; other families get
+  raw bel-type counts (`ICESTORM_LC`, `OXIDE_COMB`) plus timing.
+- `nextpnr`'s `wns` is derived: the difference between the constrained and achieved clock periods.
+  With several constrained clock domains, `Fmax` is the lowest achieved frequency and `wns` is the
+  least-slack domain's (they may differ), and the scalar `clock_frequency` and `clock_period` are
+  omitted. `clock_domains` gives the count; per-domain detail is in `_fmax`.
+
+## Stale or surprising reuse
+
+A run reuses `xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` with a target), which keeps
+incremental tool state. A flow that runs logs `Running <flow>: <reason>`; an up-to-date flow logs
+that and shows its recorded results. If a result looks stale or wrong, run `xeda run ... --dry-run
+--json` to see each node as `fresh`, `stale` (with the reason) or `unknown`, then use `--rebuild-all`
+or `--clean` (see "Rebuilds" in `SKILL.md`).
+
+## `open_xc7` was removed
+
+`open_xc7` was removed: use `fpga_pack` to build and `openfpgaloader` to program. The message
+appears for the flow's name and for a `flows.open_xc7` section in a design or project file alike.
+Move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga`, and
+its pin files into `rtl.sources`. `xeda scrub open_xc7 <design>` still removes its old run
+directories.

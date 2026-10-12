@@ -23,7 +23,7 @@ from xeda.agent_skill import (
 from xeda.introspect import all_flow_classes
 
 REPO_ROOT = Path(__file__).parent.parent
-STATIC_REFERENCES = ("design-file.md", "troubleshooting.md")
+STATIC_REFERENCES = ("design-file.md", "fpga-flows.md", "troubleshooting.md")
 
 
 def test_packaged_skill_files_exist():
