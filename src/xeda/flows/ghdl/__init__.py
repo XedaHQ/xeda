@@ -610,11 +610,19 @@ class GhdlSim(Ghdl, SimFlow):
                     return "dump" + ext if value else None
             return value
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse run flags that compete with `fail_severity`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        settings.runtime_flags()
+
     def init(self) -> None:
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.runtime_flags()
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
 
     def has_evidence_adapter(self) -> bool:
         return not self.cocotb

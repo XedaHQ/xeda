@@ -9,7 +9,7 @@ from typing import ClassVar, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, deliverable, field_validator
 from ...design import DesignSource, SourceType, VhdlSettings
-from ...flow import FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
@@ -207,11 +207,20 @@ class Nvc(SimFlow):
     def nvc(self):
         return NvcTool()  # pyright: ignore[reportCallIssue]
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse run flags that compete with `fail_severity` or `stop_time`, before anything
+        runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        settings.runtime_flags()
+
     def init(self) -> None:
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.runtime_flags()
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
         if ss.wave and isinstance(ss.wave, (str, Path)):
             ss.wave = self.process_path(ss.wave)
 
