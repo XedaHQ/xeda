@@ -833,9 +833,8 @@ def source_type_of(path: Path) -> SourceType:
     )
 
 
-#: The keys of a source table: the file (`file`, or `path` for one not written yet), its `type`
-#: and, for the loader's own use, the directory a relative path resolves against.
-SOURCE_TABLE_KEYS = frozenset({"file", "path", "type", "root_path"})
+#: The keys of a source table: the file (`file`, or `path` for one not written yet) and its `type`.
+SOURCE_TABLE_KEYS = frozenset({"file", "path", "type"})
 
 #: Keys a source table once took, and what to write instead.
 REMOVED_SOURCE_KEYS: dict[str, str] = {
@@ -844,7 +843,7 @@ REMOVED_SOURCE_KEYS: dict[str, str] = {
         "of the whole design"
     ),
     "variant": (
-        "a source has no variant: a Bluespec source's suffix (`.bsv` or `.bs`) says what it is, "
+        "a source has no variant: a Bluespec source's suffix (`.bsv`, `.bs` or `.bh`) says what it is, "
         "and `type: SystemVerilog` makes a SystemVerilog source"
     ),
 }
@@ -887,9 +886,6 @@ class DesignSource(FileResource):
             stated_type = path.pop("type", None)
             if typ is None:
                 typ = stated_type
-            rp = path.pop("root_path", None)
-            if not _root_path and rp:
-                _root_path = Path(rp)
         super().__init__(path, _root_path=_root_path, **kwargs)
 
         if isinstance(typ, SourceType):
@@ -935,6 +931,8 @@ class DesignSource(FileResource):
             "extension unless 'type' is given explicitly."
         )
         object_schema = field_schema["anyOf"][1]
+        # A source table takes exactly these keys, as `source_table_problems` judges it.
+        object_schema["additionalProperties"] = False
         object_schema["properties"].update(
             {
                 "type": {

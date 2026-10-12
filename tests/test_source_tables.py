@@ -164,7 +164,7 @@ def test_the_schema_offers_exactly_the_keys_a_table_takes() -> None:
     object_form = Design.model_json_schema()["$defs"]["RtlSettings"]["properties"]["sources"][
         "items"
     ]["anyOf"][1]
-    assert set(object_form["properties"]) == SOURCE_TABLE_KEYS - {"root_path"}
+    assert set(object_form["properties"]) == SOURCE_TABLE_KEYS
 
 
 # ---------------------------------------------------------------------------- the supported way
