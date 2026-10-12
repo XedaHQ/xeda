@@ -1,9 +1,9 @@
 """Tests for `xeda scrub` / `scrub_runs`.
 
-Ground truth (see CLAUDE.md's run-directory table, and `DefaultRunner.get_flow_run_path`): a
-flow's run directory hash suffix only appears with hashed run directories. The default,
-unhashed `<design>/<flow>/` directory that every ordinary run creates must still be removable by
-`xeda scrub`.
+Ground truth (see the layout table in docs/run-directories.rst, and
+`DefaultRunner.get_flow_run_path`): a flow's run directory hash suffix only appears with hashed
+run directories. The default, unhashed `<design>/<flow>/` directory that every ordinary run
+creates must still be removable by `xeda scrub`.
 """
 
 import json
