@@ -770,9 +770,12 @@ its output paths inside its run directory.
   `yosys_fpga -> nextpnr` and compares every claim with the launch, shows the dry run changes
   nothing, locks nothing and starts nothing (each of three mistakes that would break it is
   caught), and `tests/test_prepare_inputs.py` holds the locating step. **Limit**: a dry run never
-  calls `init()`, so `stale` is "not reused", and a flow whose `init()` raises on the settings or the
-  design (Verilator's `stop_time` with a C++ driver; about ten flows raise there) fails in a launch
-  instead of running; a pure check hook per flow would close it.
+  calls `init()`, so `stale` is "not reused", and a flow whose `init()` or `prepare_inputs()` raises
+  fails in a launch instead of running. What is left there needs the run itself, not only the
+  settings and the design (`REVIEWED_RUN_TIME_REFUSALS` in `tests/test_refusals_at_planning.py`):
+  `fpga_pack` needs `fpga-as` on `PATH` and the Project X-Ray data, `nextpnr` needs
+  `nextpnr-himbaechel`, the board's pin file and its cached board files, and the Xilinx helpers read
+  the installation and the chip database.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its
@@ -1060,8 +1063,8 @@ Artifact labels map to paths or nested mappings, lists and tuples of paths; rela
 are rooted at the flow's run directory. Use `artifacts.iter_artifact_paths` to visit their
 path leaves and `artifacts.map_artifact_paths` to rewrite paths without losing the grouping.
 The remote runner rewrites every fetched path to its local copy; `--post-cleanup` keeps
-the artifacts in `results.json`, their parent directories, the two JSON documents and the
-run-directory marker.
+`settings.json`, `results.json`, the artifacts in `results.json` and the declared output files, with
+their parent directories (`_clean_up`). It removes `trace.json` first, so a pruned run is not reused.
 
 Flows document the keys they write to `results.json` via a class-level `results_description`, built
 with `describe_results(*shared_keys, **flow_specific)` from `xeda.flow`. Shared keys come from
