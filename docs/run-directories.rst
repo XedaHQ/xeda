@@ -810,7 +810,9 @@ the search starts.
 ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and only from its
 local mirror, once the remote's results are there. The mirror always uses the hashed layout,
 ``<design>[/<target>]/<flow>_<hash>/``, whatever ``--hashed-run-dirs`` says for local runs. Xeda
-refuses a deliverable that is given as a location before it ships anything. For a remote run,
+refuses a deliverable that is given as a location before it ships anything, because the flow runs on
+the remote host and would write the location there, on the remote file system. Use ``--outputs-to``:
+it delivers from the artifacts that Xeda fetched into the local mirror. For a remote run,
 ``--outputs-to`` may never land on or in anything that the requested flow reads. Xeda takes this
 from the settings that the launch uses (the ``flows.<flow>`` section with ``-s`` over it), plus
 whatever the section of every other flow names as written. The local side cannot know which
