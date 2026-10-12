@@ -876,7 +876,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting two conveniences, applied before any field validator runs (by a model `before` validator
+setting three conveniences, applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
@@ -894,6 +894,20 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
+3. A waveform setting (a field marked `json_schema_extra=waveform(<format>)`, a deliverable;
+   `dataclass.waveform_fields` lists them) is read by `dataclass.waveform_value`, for every
+   simulator: the text `true`/`false` is the boolean, `true` is `dump.<format>`, `false` or `""`
+   is none, a name without an extension gets `.<format>`. `bare=True` (nvc's `wave`, typed to hold
+   a boolean) keeps `true`/`false` and adds no extension, since nvc names the file. A simulator
+   writes a waveform through its own mechanism or lists the setting in
+   `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
+   refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
+   waveform are refused without one (nvc `wave_format`/globs, vivado `vcd_scope`/`vcd_level`,
+   vcs `to_vcd`/`vpd_size_limit`, Verilator `trace_*`), and so are two waveforms where the tool
+   writes one (`ghdl_sim` `vcd`/`fst`/`wave`, `nvc` `vcd`/`wave`, `vcs` `fsdb`/`vpd`/`evcd`).
+   `tests/test_waveform_settings.py` classifies every waveform setting of every simulator
+   (`HONORED`, what the tool is handed, or `unsupported_waveforms`): a new one fails there until
+   classified.
 
 **The variables and the forms of a location are defined once**, in `utils.py`: `PATH_VARIABLES`
 maps each variable xeda gives a setting's path to the validation-context entry holding its value
@@ -2075,7 +2089,7 @@ dependency must also share `custom_boards_file`.
   `bsc.MIN_BSC_VERILATOR_VERSION`, 5.044, as it runs bsc's own driver).
   Waveforms follow Verilator's own rules and xeda never opens one: `vcd`/`fst`/`saif` only compile
   tracing in with that format (`--trace-<format>`; one at most, `check_settings_supported`), and
-  `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`, so that name is
+  `true` is the value (`dataclass.waveform_value` makes it `dump.<format>`, so that name is
   accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
   the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
   name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through

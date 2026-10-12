@@ -62,6 +62,13 @@ testbench's `$dumpfile` and `$dumpvars` name and write the file, and a name or l
 error. A C++ source
 that holds `main` needs `main: false`; without it, a C++ source is a DPI helper.
 
+Waveform settings (`vcd`, `fst`, `wave`, `saif`, ...) read `true`/`false` text as booleans, so
+`-s vcd=true` writes `dump.vcd` like YAML `vcd: true`. A simulator writes the waveform through
+its own mechanism or refuses the setting when planned: `vcs` refuses `vcd` (use `vpd`, `fsdb`,
+`evcd`; `to_vcd` converts), `yosys_sim` refuses it (the C++ driver writes it), and `nvc` writes
+`vcd` with `--wave --format=vcd`. Two waveform formats at once are refused on `ghdl_sim`, `nvc`,
+`vcs` and `verilator`.
+
 ModelSim batch evidence requires a matching runtime checkpoint, native stop reason/time,
 TESTSTATUS and the bounded runtime section of its owned logfile. VHDL `std.env.stop` is accepted
 with source-qualified native evidence; Verilog `$stop` fails. ModelSim-Intel Starter 2020.1 and

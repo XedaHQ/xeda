@@ -1143,6 +1143,52 @@ rejected before compilation because they lack a certified evidence adapter. Icar
 runtime evidence and builtin-task capability checks remain mandatory Linux CI gates; they were
 not run on macOS.
 
+Waveforms
+---------
+
+Every simulator writes a waveform through its own mechanism: a run option, a script command or
+the HDL's ``$dumpfile``. Xeda never writes one itself. A simulator that cannot honor a waveform
+setting refuses it when the run is planned, so no waveform setting is ignored.
+
+All waveform settings read their value by one rule, on the command line and in a design file:
+
+* ``true`` writes a default name, ``dump.<format>`` (``dump.vcd`` for ``vcd``). On the command
+  line, ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
+* ``false`` and an empty name write nothing.
+* A name without an extension gets the format's extension.
+* Other text, such as ``yes``, is a name.
+
+The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Simulator
+     - Waveform settings
+   * - ``ghdl_sim``
+     - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). A ``wave`` name
+       that ends in ``.vcd`` or ``.fst`` selects that format. Only one of the three may be set.
+   * - ``nvc``
+     - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting: ``true`` lets
+       nvc name the file, and ``wave_format`` or the file extension selects the format. Only one of
+       ``vcd`` and ``wave`` may be set. ``wave_format``, ``wave_include_glob`` and
+       ``wave_exclude_glob`` need one of them.
+   * - ``modelsim``
+     - ``vcd``. ModelSim dumps nothing unless it is set.
+   * - ``vivado_sim``, ``vivado_postsynth_sim``
+     - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``.
+   * - ``bsc_sim``
+     - ``vcd``, on every backend.
+   * - ``verilator``
+     - ``vcd``, ``fst`` and ``saif``. See the Verilator section below.
+   * - ``vcs``
+     - ``vpd``, ``fsdb`` and ``evcd``, only one at a time. ``vcd`` is refused: set ``vpd`` or
+       ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``.
+   * - ``yosys_sim``
+     - ``vcd`` is refused. The design's C++ driver writes the waveform with
+       ``cxxrtl::vcd_writer``.
+
 Verilator
 ---------
 
