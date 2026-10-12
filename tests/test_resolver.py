@@ -153,8 +153,8 @@ def test_conflicting_values_are_an_error_naming_both_places(tmp_path):
         PART,
         OTHER,
         "fpga.part",
-        "[flows.__place] in the project file",
-        "[flows.__synth] in the design file",
+        "`flows.__place` in the project file",
+        "`flows.__synth` in the design file",
     ):
         assert text in message, text
 
@@ -490,7 +490,7 @@ def test_a_required_setting_given_where_no_edge_carries_it_is_named(tmp_path):
     with pytest.raises(FlowSettingsException, match=f"{taker.name} needs `fpga`") as raised:
         _plan(tmp_path, taker, {}, {maker.name: {"fpga": PART}})
     assert (
-        f"The `fpga` in [flows.{maker.name}] in the supplied flow sections does not reach "
+        f"The `fpga` in `flows.{maker.name}` in the supplied flow sections does not reach "
         f"{taker.name}: no edge of this run carries `fpga` from {maker.name} to it"
         in str(raised.value)
     )

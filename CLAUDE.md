@@ -899,7 +899,16 @@ a value or a table, never both: `-s timing=true timing.x=1` and `-s timing.x=1 t
 `ValueError` (a validator turns it into the field's error). `design.from_file` and a target's
 overlay report it as a `DesignValidationError`, and `dse` as its error document.
 `tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
-to every origin.
+to every origin. A written design is expanded in one place, `Design.expanded`, which
+`Design.target_selected` applies to the data and to the overrides (a design file, a project's
+`designs` entry and an API caller's overrides alike; a target's overlay in `select_target`), and
+`XedaProject.from_file` expands the root of the project file once (its `flows` included) and each
+design entry, single or in a list, only when designs are wanted and before it removes keys (a key
+conflict there is a `ValueError` naming the file and the entry, a `ProjectFileError` from the
+runner); `tests/test_key_hierarchy.py` writes the same design with dotted keys
+and with tables in every origin and compares them.
+A project file's root has only `designs`/`design` and `flows`/`flow` (`xedaproject.PROJECT_KEYS`); any
+other key is a `ValueError` naming the file, the accepted keys and a close match, never ignored.
 
 **A setting whose keys are the tool's own names takes a dotted key as one key.** Every origin
 expands dotted keys before it knows the model, so Vivado's `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`

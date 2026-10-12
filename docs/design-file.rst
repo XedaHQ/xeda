@@ -27,6 +27,11 @@ Ordinary aliases and core explicit tags are accepted; merge keys, recursive alia
 non-core tags are rejected. Use two-space indentation and a complete source entry per list
 item. TOML and JSON designs and projects remain accepted.
 
+A dotted key stands for nested tables: ``tb.top: x`` is ``tb: {top: x}``. This holds in a design
+file, in a design entry and the ``flows`` of a project file, in a target, and in design
+overrides. A key cannot hold a value and also have keys inside it (``tb: 3`` with ``tb.top: x``);
+that is an error naming both keys.
+
 Top level
 =========
 
@@ -618,3 +623,6 @@ A ``xedaproject.yaml`` can hold several designs, plus top-level ``flows`` settin
 into each. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted; automatic discovery
 requires exactly one of these names in the directory. Select a design with ``--design-name``, or
 let Xeda prompt you interactively.
+
+A project file has the keys ``designs`` (or ``design``) and ``flows`` (or ``flow``). Any other key at its
+root is an error that names the accepted keys.

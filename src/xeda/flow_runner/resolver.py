@@ -366,7 +366,7 @@ def _located(raw: Mapping[str, Any], cls: type[Flow], label: str, kind: str) -> 
 
 
 def _compose(cls: type[Flow], sections: Mapping[str, Any], origin: str, kind: str) -> _Located:
-    own = _located(sections.get(cls.name, {}), cls, f"[flows.{cls.name}] in {origin}", kind)
+    own = _located(sections.get(cls.name, {}), cls, f"`flows.{cls.name}` in {origin}", kind)
     # Attach the original location to each leaf, before composition loses that route.
     own.locations = {
         path: _Location(f"{loc.label} ({'.'.join(path)})", loc.kind)
@@ -671,7 +671,7 @@ def _unreached(
                         else f"no edge of this run carries `{name}` from {flow} to it"
                     )
                     notes.append(
-                        f"The `{key}` in [flows.{flow}] in {label} does not reach "
+                        f"The `{key}` in `flows.{flow}` in {label} does not reach "
                         f"{request.cls.name}: {why}"
                     )
         if notes:

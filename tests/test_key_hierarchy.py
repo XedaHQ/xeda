@@ -112,3 +112,115 @@ def test_a_failed_conflict_changes_nothing_that_was_set():
         set_hierarchy(table, "b", 3)
 
     assert table == {"a": 1, "b": {"c": 2}}
+
+
+# ------------------------------------------------------------------ one rule in every origin
+#
+# A dotted key is a path in every place a design or a flow setting is written: a design file, a
+# project's design entry, a target, the design overrides (the command line's and an API caller's),
+# and the `flows` of a design and of a project. The same data written with dotted keys and as
+# nested tables must give the same design and the same settings.
+
+import json
+from pathlib import Path
+
+from xeda.design import Design
+from xeda.xedaproject import XedaProject
+
+DESIGN = {
+    "language": {"vhdl": {"standard": "2008"}},
+    "rtl": {"sources": ["a.vhd"], "top": "a", "clock": {"port": "clk"}},
+    "tb": {"top": "tb"},
+    "flows": {"vivado_synth": {"fpga": {"part": "xc7a12tcsg325-1"}, "clock": {"period": 5.0}}},
+}
+#: the same keys, written as dotted keys at every level
+DOTTED = {
+    "language.vhdl.standard": "2008",
+    "rtl.sources": ["a.vhd"],
+    "rtl.top": "a",
+    "rtl.clock.port": "clk",
+    "tb.top": "tb",
+    "flows.vivado_synth.fpga.part": "xc7a12tcsg325-1",
+    "flows.vivado_synth.clock.period": 5.0,
+}
+OVERLAY_NESTED = {"tb": {"top": "other"}, "flows": {"vivado_synth": {"clock": {"period": 4.0}}}}
+OVERLAY_DOTTED = {"tb.top": "other", "flows.vivado_synth.clock.period": 4.0}
+
+
+def _dump(design: Design, root: Path) -> dict:
+    """The design as data, with the directory it was written in left out of every path."""
+    return json.loads(design.model_dump_json().replace(str(root), "ROOT"))
+
+
+def _root(tmp_path: Path) -> Path:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "a.vhd").write_text("entity a is end;\n")
+    return tmp_path
+
+
+def _design_file(tmp_path: Path, data: dict) -> Design:
+    path = _root(tmp_path) / "d.json"
+    path.write_text(json.dumps({"name": "d", **data}))
+    return Design.from_file(path)
+
+
+def _project(tmp_path: Path, entry: dict, flows: dict | None = None, **options) -> Design:
+    path = _root(tmp_path) / "xedaproject.json"
+    path.write_text(json.dumps({"design": [{"name": "d", **entry}], "flows": flows or {}}))
+    design = XedaProject.from_file(path, **options).get_design(0)
+    assert design is not None
+    return design
+
+
+ORIGINS = {
+    "design file": lambda tmp, dotted: _design_file(tmp, DOTTED if dotted else DESIGN),
+    "project design entry": lambda tmp, dotted: _project(tmp, DOTTED if dotted else DESIGN),
+    "target": lambda tmp, dotted: _design_file(
+        tmp,
+        {
+            **(DESIGN),
+            "targets": {"t": OVERLAY_DOTTED if dotted else OVERLAY_NESTED},
+        },
+    ),
+    "design overrides of a design file": lambda tmp, dotted: _overridden_file(tmp, dotted),
+    "design overrides of a project": lambda tmp, dotted: _project(
+        tmp, DESIGN, design_overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED
+    ),
+    "target in a project design entry": lambda tmp, dotted: _project(
+        tmp, {**DESIGN, "targets": {"t": OVERLAY_DOTTED if dotted else OVERLAY_NESTED}}
+    ),
+}
+
+
+def _overridden_file(tmp_path: Path, dotted: bool) -> Design:
+    path = _root(tmp_path) / "d.json"
+    path.write_text(json.dumps({"name": "d", **DESIGN}))
+    return Design.from_file(path, overrides=OVERLAY_DOTTED if dotted else OVERLAY_NESTED)
+
+
+@pytest.mark.parametrize("origin", ORIGINS)
+def test_a_dotted_key_means_the_same_in_every_origin_of_a_design(origin, tmp_path):
+    nested = _dump(ORIGINS[origin](tmp_path / "nested", False), tmp_path / "nested")
+    dotted = _dump(ORIGINS[origin](tmp_path / "dotted", True), tmp_path / "dotted")
+    assert dotted == nested
+
+
+def test_a_dotted_key_in_a_projects_flows_means_the_same(tmp_path):
+    nested = {"vivado_synth": {"fpga": {"part": "p"}, "clock": {"period": 5.0}}}
+    dotted = {"vivado_synth": {"clock.period": 5.0}, "vivado_synth.fpga.part": "p"}
+    (tmp_path / "nested").mkdir()
+    (tmp_path / "dotted").mkdir()
+    flows = {}
+    for name, table in (("nested", nested), ("dotted", dotted)):
+        path = tmp_path / name / "xedaproject.json"
+        path.write_text(json.dumps({"flows": table}))
+        flows[name] = XedaProject.from_file(path).flows
+    assert flows["dotted"] == flows["nested"]
+
+
+def test_a_project_reports_a_value_and_a_key_inside_it_as_it_does_in_a_design_file(tmp_path):
+    entry = {"tb": 3, "tb.top": "x"}
+    with pytest.raises(Exception, match=r"`tb` is set to a value, and `tb.top`"):
+        _design_file(tmp_path / "file", entry)
+    with pytest.raises(Exception, match=r"`tb` is set to a value, and `tb.top`"):
+        _project(tmp_path / "project", entry)

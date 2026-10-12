@@ -3052,12 +3052,6 @@ class Design(XedaBaseModel):
         if not isinstance(design_file, Path):
             design_file = Path(design_file)
         design_dict = _read_design_file(design_file)
-        try:
-            design_dict = expand_hierarchy(design_dict)
-        except ConflictingKeys as e:  # a key given as a value and as a table
-            raise DesignValidationError(
-                [(e.value_key, str(e), "", "value_error")], file=str(design_file.absolute())
-            ) from e
         if allow_extra:
             cls = model_with_allow_extra(cls)
         try:
@@ -3092,6 +3086,19 @@ class Design(XedaBaseModel):
             raise e
 
     @classmethod
+    def expanded(cls, data: Mapping[str, Any]) -> dict[str, Any]:
+        """`data`, a design description or an overlay on one, with each dotted key made the
+        tables it stands for (`tb.top: x` is `tb: {top: x}`): the one place a written design is
+        expanded, whether it came from a design file, a project's `designs` entry or a caller's
+        overrides. A key given as a value and as a table is a `DesignValidationError`."""
+        try:
+            return expand_hierarchy(dict(data))
+        except ConflictingKeys as e:
+            raise DesignValidationError(
+                [(e.value_key, str(e), "", "value_error")], data=dict(data)
+            ) from e
+
+    @classmethod
     def target_selected(
         cls,
         data: Mapping[str, Any],
@@ -3104,8 +3111,8 @@ class Design(XedaBaseModel):
         loader records the name there. The overrides are an overlay on the design like a target
         is, and are merged by the same rule (`_merge_target`), except that their `sources`
         replace the design's: only a target adds its sources to the design's."""
-        selected = cls.select_target(data, target)
-        overrides = deepcopy(dict(overrides or {}))
+        selected = cls.select_target(cls.expanded(data), target)
+        overrides = cls.expanded(deepcopy(dict(overrides or {})))
         if "target" in overrides:
             raise DesignValidationError(
                 [

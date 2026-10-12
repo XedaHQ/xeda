@@ -488,6 +488,7 @@ KEY_ORIGINS = [
     "flows table of a design",
     "flows table of the API",
     "flows table of a project",
+    "project design entry",
     "section of a flows table",
     "target flows table",
 ]
@@ -528,6 +529,12 @@ def _plan_with_keys(
         project = directory / PROJECT_FILE
         project.write_text(json.dumps({"flows": dict(flow_items)}))
         return runner.plan("verilator", design, xedaproject=str(project))
+    if origin == "project design entry":
+        _write_design(directory)
+        entry = {"name": "top", "rtl": {"sources": ["top.v"], "top": "top"}, **dict(items)}
+        project = directory / PROJECT_FILE
+        project.write_text(json.dumps({"design": [entry]}))
+        return runner.plan("verilator", None, xedaproject=str(project))
     if origin == "section of a flows table":
         section = [("clock", value), ("clock.period", 5)]
         if child_first:
