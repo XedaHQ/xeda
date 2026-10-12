@@ -9,7 +9,7 @@ from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import SourceType
-from ...flow import AsicSynthFlow, describe_results
+from ...flow import AsicSynthFlow, describe_results, NoReplacement
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
 
@@ -109,7 +109,9 @@ class Dc(AsicSynthFlow):
                     "alib_dir",
                     "additional_search_path",
                 ),
-                "no setting: xeda passed it to nothing. Set it in a TCL script that `hooks` names",
+                NoReplacement(
+                    "xeda passed it to nothing. Set it in a TCL script that `hooks` names"
+                ),
             ),
         }
         log_file: Optional[Path] = Field(

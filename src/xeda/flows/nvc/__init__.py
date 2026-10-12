@@ -9,7 +9,7 @@ from typing import ClassVar, List, Literal, Optional, Union
 
 from ...dataclass import Field, XedaBaseModel, field_validator, waveform
 from ...design import DesignSource, SourceType, VhdlSettings
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results, NoReplacement
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import parse_nvc_log, read_sim_log
 from ...tool import Tool
@@ -58,7 +58,7 @@ class Nvc(SimFlow):
             "exit_severity": "fail_severity",
             "wave": "`fst`",
             "wave_format": "`fst` or `vcd`",
-            "optimization_flags": "no setting: xeda passed it to nothing",
+            "optimization_flags": NoReplacement("xeda passed it to nothing"),
         }
         one_shot: bool = Field(
             True,

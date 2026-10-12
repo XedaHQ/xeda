@@ -6,7 +6,7 @@ from xml.etree import ElementTree
 
 from ...dataclass import Field, deliverable
 from ...design import SourceType
-from ...flow import FpgaSynthFlow, In
+from ...flow import FpgaSynthFlow, In, NoReplacement
 from . import Vivado
 
 logger = logging.getLogger(__name__)
@@ -61,10 +61,14 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
-            "suppress_msgs": "no setting: power reports from files, and xeda passed it to nothing",
+            "suppress_msgs": NoReplacement(
+                "power reports from files, and xeda passed it to nothing"
+            ),
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
-            "timing_sim": "no setting: power asks for timing activity, which switches "
-            "`flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
+            "timing_sim": NoReplacement(
+                "power asks for timing activity, which switches "
+                "`flows.vivado_postsynth_sim.timing_sim` on itself"
+            ),
             **{
                 key: f"`flows.vivado_postsynth_sim.{key}`"
                 for key in (

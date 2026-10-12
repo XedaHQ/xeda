@@ -29,7 +29,7 @@ REMOVED = {
     "fail_severity": ("error", "flows.vivado_postsynth_sim.fail_severity"),
     "timing_sim": (
         True,
-        "switches `flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
+        "switches `flows.vivado_postsynth_sim.timing_sim` on itself; delete it",
     ),
 }
 

@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from ...dataclass import WORKING, Field, waveform
 from ...design import DesignValidationError, SourceType
-from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results, NoReplacement
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
 from ...utils import SDF
@@ -36,10 +36,11 @@ class VivadoSim(Vivado, SimFlow):
     class Settings(Vivado.Settings, SimFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
-            "suppress_msgs": "no setting: a simulation runs no synthesis, and xeda passed it to "
-            "nothing",
-            "initialize_zeros": "no setting: xeda passed it to nothing",
-            "read_oneshot": "no setting: xeda passed it to nothing",
+            "suppress_msgs": NoReplacement(
+                "a simulation runs no synthesis, and xeda passed it to nothing"
+            ),
+            "initialize_zeros": NoReplacement("xeda passed it to nothing"),
+            "read_oneshot": NoReplacement("xeda passed it to nothing"),
         }
         saif: Optional[Path] = Field(
             None,

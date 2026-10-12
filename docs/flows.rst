@@ -160,7 +160,8 @@ Unknown settings are a hard error, not a warning. This is deliberate: a mistyped
 silently ignored would produce a result that looks fine and is not what you asked for. For the
 same reason a flow has no flow-specific setting that it does not use. A flow that cannot honor a setting of a
 related flow refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so
-it refuses the settings of ``vivado_sim``.
+it refuses the settings of ``vivado_sim``. The error for a removed setting says "``<name>`` was
+removed: use ..." and names the replacement, or says why nothing replaces it and to delete the setting.
 
 Settings shared by every flow
 -----------------------------

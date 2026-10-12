@@ -333,8 +333,8 @@ class GhdlSynth(Ghdl, SynthFlow):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Ghdl.Settings.removed_settings,
             **{
-                name: "no setting: `ghdl --synth` compiles and links nothing. The simulation flow "
-                f"has it: `flows.ghdl_sim.{name}`"
+                name: f"`flows.ghdl_sim.{name}`, the simulation flow's: `ghdl --synth` compiles and "
+                "links nothing"
                 for name in ("compiler_flags", "assembler_flags", "linker_flags")
             },
         }

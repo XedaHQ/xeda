@@ -8,7 +8,7 @@ from colorama import Style as style
 
 from ..dataclass import WORKING, Field, waveform
 from ..design import SourceType
-from ..flow import Flow, FlowSettingsException, SimFlow
+from ..flow import Flow, FlowSettingsException, SimFlow, NoReplacement
 from ..flow.flow import describe_results
 from ..flow.sim import SimEvidence
 from ..tool import Tool
@@ -103,8 +103,8 @@ class Vcs(SimFlow):
     class Settings(SimFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
-            "optimization_flags": "no setting: xeda passed it to nothing",
-            "work_dir": "no setting: xeda passed it to nothing",
+            "optimization_flags": NoReplacement("xeda passed it to nothing"),
+            "work_dir": NoReplacement("xeda passed it to nothing"),
         }
         simv_flags: List[str] = Field(
             [],

@@ -12,7 +12,7 @@ import shutil
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
+from xeda.flow import FlowSettingsError, NoReplacement
 from xeda.dataclass import input_names
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -42,27 +42,27 @@ REFUSED = [
     ("vivado_project", "fail_severity", "error", "flows.vivado_sim.fail_severity"),
     ("vivado_project", "saif", "a.saif", "flows.vivado_sim.saif"),
     ("vivado_project", "optimization_flags", ["-O3"], "flows.vivado_sim.optimization_flags"),
-    ("vivado_project", "initialize_zeros", True, "no setting"),
-    ("vivado_project", "read_oneshot", True, "no setting"),
-    ("vivado_sim", "initialize_zeros", True, "no setting"),
-    ("vivado_sim", "read_oneshot", True, "no setting"),
-    ("vivado_sim", "suppress_msgs", [], "no setting"),
-    ("vivado_postsynth_sim", "initialize_zeros", True, "no setting"),
-    ("vivado_postsynth_sim", "read_oneshot", True, "no setting"),
-    ("vivado_postsynth_sim", "suppress_msgs", [], "no setting"),
-    ("vivado_power", "suppress_msgs", [], "no setting"),
-    ("yosys_sim", "netlist", "out.v", "no setting"),
-    ("yosys_sim", "netlist_json", "out.json", "no setting"),
-    ("yosys_sim", "splitnets", True, "no setting"),
-    ("yosys_sim", "abc_script", "+strash", "no setting"),
-    ("yosys_sim", "sta", True, "no setting"),
-    ("yosys_sim", "nosynth", True, "no setting"),
-    ("yosys_sim", "retime", True, "no setting"),
-    ("yosys_sim", "netlist_verilog_extmem", [], "no setting"),
+    ("vivado_project", "initialize_zeros", True, "delete it"),
+    ("vivado_project", "read_oneshot", True, "delete it"),
+    ("vivado_sim", "initialize_zeros", True, "delete it"),
+    ("vivado_sim", "read_oneshot", True, "delete it"),
+    ("vivado_sim", "suppress_msgs", [], "delete it"),
+    ("vivado_postsynth_sim", "initialize_zeros", True, "delete it"),
+    ("vivado_postsynth_sim", "read_oneshot", True, "delete it"),
+    ("vivado_postsynth_sim", "suppress_msgs", [], "delete it"),
+    ("vivado_power", "suppress_msgs", [], "delete it"),
+    ("yosys_sim", "netlist", "out.v", "delete it"),
+    ("yosys_sim", "netlist_json", "out.json", "delete it"),
+    ("yosys_sim", "splitnets", True, "delete it"),
+    ("yosys_sim", "abc_script", "+strash", "delete it"),
+    ("yosys_sim", "sta", True, "delete it"),
+    ("yosys_sim", "nosynth", True, "delete it"),
+    ("yosys_sim", "retime", True, "delete it"),
+    ("yosys_sim", "netlist_verilog_extmem", [], "delete it"),
     ("yosys", "retime", True, "yosys_fpga"),
-    ("yosys", "netlist_verilog_extmem", [], "no setting"),
-    ("yosys_fpga", "nosynth", True, "no setting"),
-    ("yosys_fpga", "netlist_verilog_extmem", [], "no setting"),
+    ("yosys", "netlist_verilog_extmem", [], "delete it"),
+    ("yosys_fpga", "nosynth", True, "delete it"),
+    ("yosys_fpga", "netlist_verilog_extmem", [], "delete it"),
     ("ghdl_synth", "compiler_flags", ["-O"], "flows.ghdl_sim.compiler_flags"),
     ("ghdl_synth", "assembler_flags", ["-O"], "flows.ghdl_sim.assembler_flags"),
     ("ghdl_synth", "linker_flags", ["-L"], "flows.ghdl_sim.linker_flags"),
@@ -70,27 +70,27 @@ REFUSED = [
         ("dc", name, value, use)
         for name, value, use in (
             ("platform", "nangate45", "target_libraries"),
-            ("extra_link_libraries", ["a.db"], "no setting"),
-            ("mw_ref_lib", "lib", "no setting"),
-            ("mw_tf", "x.tf", "no setting"),
-            ("alib_dir", "alib", "no setting"),
-            ("additional_search_path", "dir", "no setting"),
+            ("extra_link_libraries", ["a.db"], "delete it"),
+            ("mw_ref_lib", "lib", "delete it"),
+            ("mw_tf", "x.tf", "delete it"),
+            ("alib_dir", "alib", "delete it"),
+            ("additional_search_path", "dir", "delete it"),
         )
     ],
-    ("quartus", "synthesis_effort", "fast", "no setting"),
-    ("vcs", "work_dir", "work", "no setting"),
-    ("vcs", "optimization_flags", ["-O"], "no setting"),
-    ("modelsim", "optimization_flags", ["-O"], "no setting"),
-    ("nvc", "optimization_flags", ["-O"], "no setting"),
-    ("verilator", "optimization_flags", ["-O"], "no setting"),
-    ("yosys_sim", "optimization_flags", ["-O"], "no setting"),
+    ("quartus", "synthesis_effort", "fast", "delete it"),
+    ("vcs", "work_dir", "work", "delete it"),
+    ("vcs", "optimization_flags", ["-O"], "delete it"),
+    ("modelsim", "optimization_flags", ["-O"], "delete it"),
+    ("nvc", "optimization_flags", ["-O"], "delete it"),
+    ("verilator", "optimization_flags", ["-O"], "delete it"),
+    ("yosys_sim", "optimization_flags", ["-O"], "delete it"),
     # removed from every flow
     *[
         (flow, name, value, use)
         for flow in sorted(PRODUCT_NAMES)
         for name, value, use in (
             ("timeout_seconds", 5, "`timeout`"),
-            ("no_console", True, "no setting"),
+            ("no_console", True, "delete it"),
         )
     ],
 ]
@@ -107,6 +107,7 @@ def test_a_flow_refuses_a_setting_it_does_not_use_and_says_where_it_belongs(
         cls.Settings.from_input({**minimal_settings(cls), setting: value})
     assert f"`{setting}` was removed: " in str(refused.value)
     assert use in str(refused.value)
+    assert "use no setting" not in str(refused.value)
 
 
 @pytest.mark.parametrize("flow", ["bsc_sim", "ghdl_sim", "vivado_sim"])
@@ -265,17 +266,103 @@ def test_openroad_sources_the_floorplan_script_and_hands_the_macro_placer_its_co
 # ----------------------------------------------------------------------- the removal sweeps
 
 
+#: What this change removed from each flow (`timeout_seconds` and `no_console` from every one),
+#: taken from the settings of the flows on origin/main: each name was a setting, or an
+#: alias of one, of that flow there. A removal entry on a class that never had the setting would
+#: refuse an unknown name as a removed one.
+FORMER_FIELDS = {
+    "dc": {
+        "additional_search_path",
+        "alib_dir",
+        "extra_link_libraries",
+        "mw_ref_lib",
+        "mw_tf",
+        "platform",
+    },
+    "ghdl_synth": {"assembler_flags", "compiler_flags", "linker_flags"},
+    "modelsim": {"optimization_flags"},
+    "nvc": {"optimization_flags"},
+    "quartus": {"synthesis_effort"},
+    "vcs": {"optimization_flags", "work_dir"},
+    "verilator": {"optimization_flags"},
+    "vivado_postsynth_sim": {"initialize_zeros", "read_oneshot", "suppress_msgs"},
+    "vivado_power": {"suppress_msgs"},
+    "vivado_sim": {"initialize_zeros", "read_oneshot", "suppress_msgs"},
+    "yosys": {"netlist_verilog_extmem", "retime"},
+    "yosys_fpga": {"netlist_verilog_extmem", "nosynth"},
+    "yosys_sim": {
+        *("abc_constr", "abc_dff", "abc_flags", "abc_script", "json_netlist", "ltp", "netlist"),
+        *("netlist_attrs", "netlist_blackboxes", "netlist_dec", "netlist_expr", "netlist_graph"),
+        *("netlist_graph_flags", "netlist_hex", "netlist_json", "netlist_simple_lhs"),
+        *("netlist_src_attrs", "netlist_unset_attributes", "netlist_verilog"),
+        *("netlist_verilog_extmem", "netlist_verilog_flags", "noabc", "nosynth"),
+        *("optimization_flags", "post_synth_opt", "post_synth_rename", "retime", "rmports"),
+        *("splitnets", "splitnets_driver", "splitnets_ports", "sta", "synth_flags", "write_blif"),
+    },
+    "vivado_project": {
+        *("analyze_flags", "cocotb", "debug_traces", "elab_debug", "elab_flags", "fail_severity"),
+        *("initialize_zeros", "optimization_flags", "prerun_time", "read_oneshot", "saif", "sdf"),
+        *("sim_flags", "stop_time", "timeout", "vcd", "vcd_level", "vcd_scope", "waveform"),
+        *("work_lib", "xelab_log"),
+    },
+}
+
+#: The removed settings that origin/main already had, by flow, besides `clean`.
+EARLIER_REMOVALS = {
+    "dc": {"clock_period"},
+    "diamond_synth": {"clock_period"},
+    "fpga_pack": {"clock_period"},
+    "ghdl_synth": {"clock_period"},
+    "ise_synth": {"clock_period"},
+    "nextpnr": {"clock_period", "lpf_cfg", "pcf_cfg", "pdc_cfg", "yosys"},
+    "nvc": {"exit_severity", "wave", "wave_format"},
+    "openfpgaloader": {"bitstream_file", "clock_period", "nextpnr", "packer_args"},
+    "openroad": {"abc_driver_cell", "abc_load_in_ff", "blocks", "clock_period", "optimize"},
+    "quartus": {"clock_period"},
+    "verilator": {"clean_before_run"},
+    "vivado_alt_synth": {"clock_period"},
+    "vivado_impl": {"clock_period"},
+    "vivado_postsynth_sim": {"clock_period", "synth"},
+    "vivado_power": {
+        *("clock_period", "elab_debug", "fail_severity", "postsynthsim", "prerun_time", "saif"),
+        *("stop_time", "timeout", "timing_sim"),
+    },
+    "vivado_project": {"clock_period"},
+    "vivado_synth": {"clock_period"},
+    "yosys": {"clock_period"},
+    "yosys_fpga": {"clock_period"},
+}
+EVERYWHERE = {"clean", "timeout_seconds", "no_console"}
+
+
 @pytest.mark.parametrize("flow", sorted(PRODUCT_NAMES))
 def test_every_removed_setting_of_a_flow_is_refused_as_removed(flow) -> None:
     """A key in `removed_settings` is no field and no alias of the flow, and giving it says it
-    was removed (never `Extra inputs are not permitted`)."""
+    was removed (never `Extra inputs are not permitted`). A removal with a replacement says "use
+    <replacement>"; one without says why and to delete the setting, never "use no setting"."""
     cls = registered_flows[flow][1]
     names = input_names(cls.Settings)
-    for key in cls.Settings.removed_setting_replacements():
+    for key, replacement in cls.Settings.removed_setting_replacements().items():
         assert key not in names, f"{flow}: {key} is a setting and was removed"
         with pytest.raises(FlowSettingsError) as refused:
             cls.Settings.from_input({**minimal_settings(cls), key: "x"})
-        assert f"`{key}` was removed: use " in str(refused.value)
+        message = str(refused.value)
+        if isinstance(replacement, NoReplacement):
+            assert f"`{key}` was removed: {replacement}; delete it" in message
+        else:
+            assert f"`{key}` was removed: use " in message
+        assert "use no setting" not in message and "no setting:" not in message
+
+
+@pytest.mark.parametrize("flow", sorted(PRODUCT_NAMES))
+def test_a_removal_entry_is_on_a_flow_that_had_the_setting(flow) -> None:
+    """The keys of `removed_settings` are what the flow had on origin/main (`FORMER_FIELDS`) or
+    already refused there (`EARLIER_REMOVALS`). A flow that never had a name refuses it as an
+    unknown setting, not as a removed one."""
+    cls = registered_flows[flow][1]
+    known = EVERYWHERE | FORMER_FIELDS.get(flow, set()) | EARLIER_REMOVALS.get(flow, set())
+    removed = set(cls.Settings.removed_setting_replacements())
+    assert removed == known, f"{flow}: {sorted(removed ^ known)}"
 
 
 def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
@@ -286,4 +373,4 @@ def test_vivado_project_refuses_every_setting_of_a_simulation() -> None:
             continue
         with pytest.raises(FlowSettingsError) as refused:
             VivadoProject.Settings.from_input({**SYNTHESIS, spelling: None})
-        assert f"`{spelling}` was removed: use " in str(refused.value)
+        assert f"`{spelling}` was removed: " in str(refused.value)

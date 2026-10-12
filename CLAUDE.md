@@ -437,7 +437,8 @@ removed before the run, so an earlier success never stands for a run that died
   node are merged by precedence, never an error. **A flow's settings are written in one place, `flows.<flow>`**:
   `nextpnr.yosys` was removed and fails with "`yosys` was removed: use
   `flows.yosys_fpga.<key>`" (`Flow.Settings.removed_settings`; a `<key>` in a replacement names
-  each key the removed value gave). **A producer's settings never depend
+  each key the removed value gave; a removal that nothing replaces is `NoReplacement(reason)`, which
+  says "`<name>` was removed: <reason>; delete it", never "use no setting"). **A producer's settings never depend
   on which consumer asked**: there are no consumer-given producer defaults, so `yosys_fpga`
   requested alone and as `nextpnr`'s producer is one configuration, one identity and one run
   (`yosys_fpga` keeps `src` attributes by its own default, since nextpnr's reports cite them).
@@ -1067,7 +1068,8 @@ the flow or its template. Take it out of the flow's model: a flow that gets a ba
 not use is built on a smaller base (`YosysSynthesisBase` holds the netlist and ABC settings of
 `yosys` and `yosys_fpga`, and `yosys_sim` is a `YosysBase`; `VivadoProject.Settings` is
 `VivadoSynth.Settings` without `VivadoSim.Settings`) and lists what it dropped in
-`removed_settings`, which names where the setting belongs (`"<key> was removed: use ..."`). Or
+`removed_settings`, which names where the setting belongs (`"<key> was removed: use ..."`, or
+`NoReplacement(reason)` when nothing replaces it). A key goes on the class that had the setting. Or
 refuse a non-default value in a validator (`vivado_alt_synth`: `REFUSED_WHEN_SET`, probed by the
 test). A reviewed table with a reason is the last resort: `FRAMEWORK_READS` (a module outside
 the flow reads the field, checked), `UNIVERSAL_SETTINGS` (`nthreads`, `lib_paths` and

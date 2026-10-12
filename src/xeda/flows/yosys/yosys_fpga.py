@@ -13,6 +13,7 @@ from ...flow import (
     FlowSettingsError,
     FlowSettingsException,
     FpgaSynthFlow,
+    NoReplacement,
     Out,
     describe_results,
 )
@@ -172,9 +173,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     class Settings(YosysSynthesisBase.Settings, FpgaSynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **YosysSynthesisBase.Settings.removed_settings,
-            "nosynth": "no setting: the flow runs the synthesis pass of the target, which has no "
-            "switch to skip it",
-            "netlist_verilog_extmem": "no setting: xeda passed it to nothing",
+            "nosynth": NoReplacement(
+                "the flow runs the synthesis pass of the target, which has no switch to skip it"
+            ),
+            "netlist_verilog_extmem": NoReplacement("xeda passed it to nothing"),
         }
         netlist_src_attrs: bool = Field(
             True,

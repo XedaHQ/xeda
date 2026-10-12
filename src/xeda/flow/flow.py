@@ -704,6 +704,20 @@ def is_unset(value: Any) -> bool:
     return isinstance(value, (str, list, tuple, set, frozenset, dict)) and len(value) == 0
 
 
+class NoReplacement(str):
+    """The reason a setting was removed when nothing replaces it. The setting's entry in
+    `removed_settings` is `NoReplacement("no flow read it")`, and the error says "`<name>` was
+    removed: no flow read it; delete it". Any other entry is what to use instead: "`<name>` was
+    removed: use <entry>"."""
+
+
+def removed_message(name: str, replacement: str, value: Any) -> str:
+    """What giving the removed setting `name` is refused with."""
+    if isinstance(replacement, NoReplacement):
+        return f"`{name}` was removed: {replacement}; delete it"
+    return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
+
+
 def _removed_replacement(replacement: str, value: Any) -> str:
     """A removed setting's replacement; a `<key>` in it names each key the removed value gave."""
     if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
@@ -997,13 +1011,14 @@ class Flow(metaclass=ABCMeta):
         #: A subclass adds to its bases' (`dataclass.opaque_key_fields_of`).
         opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
-        #: Settings that no longer exist, with what replaced them. Giving one is an error that
-        #: says so, instead of pydantic's "extra inputs are not permitted".
+        #: Settings that no longer exist, with what replaced them (`NoReplacement(reason)` when
+        #: nothing did). Giving one is an error that says so, instead of pydantic's "extra inputs
+        #: are not permitted". The key was a setting of this class once, never a name it never had.
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)",
-            "timeout_seconds": "`timeout`, on the flows that have one (the simulators). No flow limited a "
-            "tool's run time with it",
-            "no_console": "no setting: no flow read it",
+            "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "
+            "flow limits a tool's run time",
+            "no_console": NoReplacement("no flow read it"),
         }
 
         @classmethod
@@ -1119,9 +1134,7 @@ class Flow(metaclass=ABCMeta):
             if isinstance(values, dict):
                 for name, replacement in cls.removed_setting_replacements().items():
                     if name in values:
-                        raise ValueError(
-                            f"`{name}` was removed: use {_removed_replacement(replacement, values[name])}"
-                        )
+                        raise ValueError(removed_message(name, replacement, values[name]))
             if info.field_name is not None and info.data is None:
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)

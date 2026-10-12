@@ -4,7 +4,14 @@ from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from ...dataclass import WORKING, Field, XedaBaseModel, deliverable, input_names
 from ...design import Design, SourceType
-from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsException,
+    NoReplacement,
+    SimFlow,
+    describe_results,
+)
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
@@ -66,13 +73,13 @@ class YosysSim(YosysBase, SimFlow):
         removed_settings: ClassVar[Dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
             **{
-                spelling: "no setting: CXXRTL simulation does not synthesize"
+                spelling: NoReplacement("CXXRTL simulation does not synthesize")
                 for spelling, field in input_names(YosysSynthesisBase.Settings).items()
                 if field not in YosysBase.Settings.model_fields
             },
             **dict.fromkeys(
                 ("nosynth", "retime", "netlist_verilog_extmem", "optimization_flags"),
-                "no setting: xeda passed it to nothing",
+                NoReplacement("xeda passed it to nothing"),
             ),
         }
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
