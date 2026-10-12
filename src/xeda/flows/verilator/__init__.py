@@ -10,10 +10,10 @@ from random import randint
 from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...cocotb import cocotb_toplevel
-from ...dataclass import WORKING, Field, deliverable, field_validator
+from ...dataclass import WORKING, Field, waveform
 from ...design import Design, SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
-from ...flow.sim import SimEvent, SimEvidence, waveform_name
+from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...utils import replacing_copy, unique
 
@@ -283,19 +283,19 @@ class Verilator(SimFlow):
             "the value is the file cocotb writes: `true` writes `dump.vcd`, a name without an "
             "extension gets `.vcd`, and a location is delivered. Only one of `vcd`, `fst` and "
             "`saif` may be set.",
-            json_schema_extra=deliverable("outputs/{design}.vcd"),
+            json_schema_extra=waveform("vcd"),
         )
         fst: Union[None, str, Path] = Field(
             None,
             description="Build the model with FST tracing (`--trace-fst`), far more compact than "
             "VCD for long simulations. Used as `vcd` is: `true` selects the format.",
-            json_schema_extra=deliverable("outputs/{design}.fst"),
+            json_schema_extra=waveform("fst"),
         )
         saif: Union[None, str, Path] = Field(
             None,
             description="Build the model with SAIF tracing (`--trace-saif`), for power "
             "estimation. Used as `vcd` is: `true` selects the format.",
-            json_schema_extra=deliverable("outputs/{design}.saif"),
+            json_schema_extra=waveform("saif"),
         )
         threads: int = Field(
             0,
@@ -327,11 +327,6 @@ class Verilator(SimFlow):
             "Verilator's default.",
         )
 
-        @field_validator("fst", "saif", mode="before")
-        @classmethod
-        def _validate_trace_name(cls, value, info):
-            return waveform_name(value, info.field_name)
-
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
@@ -340,7 +335,7 @@ class Verilator(SimFlow):
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse what Verilator cannot do in any mode, before anything runs: stopping at a
-        simulated time, and more than one trace format."""
+        simulated time, more than one trace format, and a trace option with no trace."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if settings.stop_time is not None:
@@ -354,6 +349,19 @@ class Verilator(SimFlow):
                 f"verilator takes one trace format, and {', '.join(formats)} are set: "
                 "keep one of them"
             )
+        if not formats:
+            for name in (
+                "trace_underscore",
+                "trace_structs",
+                "trace_threads",
+                "trace_max_width",
+                "trace_max_array",
+            ):
+                if getattr(settings, name):
+                    raise FlowSettingsException(
+                        f"`{name}` refines the trace, and no trace format is set: "
+                        "set `vcd`, `fst` or `saif`"
+                    )
 
     def init(self) -> None:
         super().init()

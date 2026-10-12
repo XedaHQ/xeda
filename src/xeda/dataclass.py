@@ -88,6 +88,10 @@ __all__ = [
     "input_names",
     "model_validator",
     "validation_errors",
+    "waveform",
+    "waveform_fields",
+    "waveform_format",
+    "waveform_value",
     "written_role",
 ]
 
@@ -600,6 +604,63 @@ def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
     if conventional is not None:
         marker["x-xeda-output"] = conventional
     return marker
+
+
+#: The `json_schema_extra` key of a setting that names a waveform file, with the waveform's
+#: format. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
+WAVEFORM_KEY = "x-xeda-waveform"
+
+
+def waveform(
+    extension: str, conventional: Optional[str] = None, *, bare: bool = False
+) -> Dict[str, Any]:
+    """The marker of a setting that names a waveform file of the format `extension` (`vcd`, `fst`,
+    `ghw`, `saif`, ...). It is a deliverable (`conventional` defaults to
+    `outputs/<design>.<extension>`). With `bare`, `true` stays the boolean, for a tool that names
+    the file itself, and a name is not given an extension."""
+    marker = deliverable(conventional or f"outputs/{{design}}.{extension}")
+    marker[WAVEFORM_KEY] = {"format": extension, "bare": bare}
+    return marker
+
+
+def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, bool]]:
+    """`(extension, bare)` of `model`'s waveform setting `field` (see `waveform`); None if it is
+    no waveform setting."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    mark = extra.get(WAVEFORM_KEY) if isinstance(extra, dict) else None
+    if not isinstance(mark, dict):
+        return None
+    return str(mark["format"]), bool(mark["bare"])
+
+
+def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
+    """Every waveform setting of `model` (see `waveform`), with its format."""
+    return {
+        name: found[0] for name in model.model_fields if (found := waveform_format(model, name))
+    }
+
+
+def waveform_value(value: Any, extension: str, bare: bool = False) -> Any:
+    """A waveform setting as the name it stands for, the one rule for every simulator.
+
+    `true` (the boolean or the text, which is all `-s` can write) is `dump.<extension>`.
+    `false` (likewise) and an empty name are none. A name without an extension gets
+    `.<extension>`. Other text, such as `yes`, is a name. Anything else is left as it is, for the
+    field's own validation. With `bare`, for a tool that names the file itself and a setting that
+    is typed to hold the boolean, `true` stays `true`, `false` stays `false` and a name is not
+    given an extension."""
+    if isinstance(value, str) and value in ("true", "false"):
+        value = value == "true"
+    if value is True:
+        return True if bare else f"dump.{extension}"
+    if value is False:
+        return False if bare else None  # a bare setting is typed to hold the boolean
+    if isinstance(value, str) and value == "":
+        return None
+    if not bare and isinstance(value, (str, PurePath)) and not PurePath(value).suffix:
+        return f"{value}.{extension}"
+    return value
 
 
 def written_role(model: type[BaseModel], field: str) -> Optional[str]:

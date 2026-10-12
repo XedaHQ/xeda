@@ -2,9 +2,9 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from ...dataclass import WORKING, Field, deliverable
+from ...dataclass import WORKING, Field, waveform
 from ...design import DesignValidationError, SourceType
-from ...flow import FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
 from ...utils import SDF
@@ -37,8 +37,8 @@ class VivadoSim(Vivado, SimFlow):
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
-            "estimation. Implies `elab_debug`.",
-            json_schema_extra=deliverable("outputs/{design}.saif"),
+            "estimation. Implies `elab_debug`. `true` writes `dump.saif`.",
+            json_schema_extra=waveform("saif"),
         )
         elab_flags: List[str] = Field(
             ["-relax"], description="Extra flags passed to `xelab` during elaboration."
@@ -77,17 +77,28 @@ class VivadoSim(Vivado, SimFlow):
         )
         vcd_scope: str = Field(
             "",
-            description="Hierarchical scope to dump to the VCD. Empty means the whole testbench.",
+            description="Hierarchical scope to dump to the VCD. Empty means the whole testbench. "
+            "Needs `vcd`.",
         )
         vcd_level: int = Field(
             0,
-            description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level.",
+            description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level. "
+            "Needs `vcd`.",
         )
         read_oneshot: bool = Field(
             False,
             description="Analyze all sources in a single tool invocation instead of one per file. "
             "Faster, but gives less precise error locations.",
         )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """`vcd_scope` and `vcd_level` choose what the VCD holds."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        for name in ("vcd_scope", "vcd_level"):
+            if getattr(settings, name) and settings.vcd is None:
+                raise FlowSettingsException(f"`{name}` selects what the VCD holds: set `vcd`")
 
     def has_evidence_adapter(self) -> bool:
         return True

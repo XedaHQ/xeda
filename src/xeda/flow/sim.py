@@ -6,10 +6,10 @@ import logging
 import re
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, XedaBaseModel, deliverable, field_validator
+from ..dataclass import Field, XedaBaseModel, waveform, waveform_fields
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
@@ -161,19 +161,6 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     return True
 
 
-def waveform_name(value: Any, extension: str) -> Any:
-    """A waveform setting as the name it stands for: `true` is `dump.<extension>`, `false` or an
-    empty name is none, and a name without an extension gets `.<extension>`. Anything else is
-    left as it is, for the field's own validation."""
-    if value is True:
-        return f"dump.{extension}"
-    if value is False or value == "":
-        return None
-    if isinstance(value, (str, Path)) and not Path(value).suffix:
-        return f"{value}.{extension}"
-    return value
-
-
 class SimFlow(Flow, metaclass=ABCMeta):
     """superclass of all simulation flows"""
 
@@ -181,6 +168,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     #: a simulation runs the testbench
     design_parts = frozenset({"rtl", "tb"})
+
+    #: The waveform settings (`dataclass.waveform`) that this simulator cannot honor, each with
+    #: what to do instead. A simulator writes a waveform through its own mechanism (a run option,
+    #: a script command, the HDL's `$dumpfile`), or refuses the setting when planned: no waveform
+    #: setting is ignored. `tests/test_waveform_settings.py` classifies every setting of every
+    #: simulator.
+    unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
     class Settings(Flow.Settings):
         timeout: float | None = Field(
@@ -200,9 +194,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
         vcd: Union[str, Path, None] = Field(
             None,
             alias="waveform",
-            description="Write a waveform to this file. `true` writes `dump.vcd`; a name without "
-            "an extension gets `.vcd`; `false` or an empty name writes none.",
-            json_schema_extra=deliverable("outputs/{design}.vcd"),
+            description="Write a VCD waveform to this file. `true` writes `dump.vcd`; a name "
+            "without an extension gets `.vcd`; `false` or an empty name writes none. A simulator "
+            "that cannot write VCD refuses it, and names its own waveform settings.",
+            json_schema_extra=waveform("vcd"),
         )
         stop_time: Union[str, int, float, None] = Field(
             None,
@@ -217,11 +212,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
             [],
             description="Extra optimization flags passed to the simulator's compiler/elaborator.",
         )
-
-        @field_validator("vcd", mode="before")
-        @classmethod
-        def _validate_vcd(cls, vcd):
-            return waveform_name(vcd, "vcd")
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
@@ -240,6 +230,17 @@ class SimFlow(Flow, metaclass=ABCMeta):
         itself (GHDL's `find-top`), or runs a C++ driver of the design's own (`yosys_sim`;
         `verilator` with `main: false`, which only its settings say), says so by overriding this."""
         return False
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`)."""
+        super().check_settings_supported(settings)
+        for name in waveform_fields(type(settings)):
+            if name in cls.unsupported_waveforms and getattr(settings, name) is not None:
+                raise FlowSettingsException(
+                    f"{cls.name} cannot write a waveform from `{name}`: "
+                    f"{cls.unsupported_waveforms[name]}"
+                )
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:

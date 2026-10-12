@@ -74,8 +74,10 @@ def launch_case(
     positive: bool = False,
     settings_overrides=None,
     foreign_source: bool = False,
+    calls_out: list | None = None,
 ):
-    """Launch a real flow against successful build and silent/positive runtime stand-ins."""
+    """Launch a real flow against successful build and silent/positive runtime stand-ins.
+    `calls_out` receives every tool invocation as `(executable, arguments)`."""
     work.mkdir(parents=True, exist_ok=True)
     source = work / ("Top.bsv" if case.backend else "tb.sv")
     source.write_text(
@@ -115,7 +117,7 @@ def launch_case(
     if case.flow == "vcs" or case.backend in ("vcs", "vcsi"):
         use_fake_vcs(monkeypatch)
     original = Tool.execute
-    calls = []
+    calls = calls_out if calls_out is not None else []
     runtime_options = []
 
     def execute(tool, executable, *args, **kwargs):

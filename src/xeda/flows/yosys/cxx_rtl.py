@@ -43,6 +43,11 @@ class YosysSim(YosysBase, SimFlow):
     # The design's C++ driver is compiled with the model.
     reads_sources = READ_SOURCE_TYPES | {SourceType.Cpp}
 
+    unsupported_waveforms = {
+        "vcd": "the design's C++ driver writes the waveform (with `cxxrtl::vcd_writer`, which "
+        "needs `cxxrtl.debug`), and xeda passes it no file name"
+    }
+
     _end_record: Path | None = None
     _events_record: Path | None = None
     _driver_exit_code: int | None = None

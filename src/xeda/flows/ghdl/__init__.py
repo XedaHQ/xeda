@@ -9,7 +9,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, deliverable, field_validator
+from ...dataclass import Field, deliverable, field_validator, waveform
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import (
     Flow,
@@ -548,9 +548,10 @@ class GhdlSim(Ghdl, SimFlow):
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms: a name in the run directory, or a location it is "
-            f"delivered to ({LOCATION_FORMS}).",
-            json_schema_extra=deliverable("outputs/{design}.ghw"),
+            description="Write the waveforms (GHW): a name in the run directory, or a location it is "
+            f"delivered to ({LOCATION_FORMS}). `true` writes `dump.ghw`; a name without an "
+            "extension gets `.ghw`; a `.vcd` or `.fst` name selects that format.",
+            json_schema_extra=waveform("ghw"),
         )
         read_wave_opt: Optional[Path] = Field(
             None,
@@ -563,8 +564,9 @@ class GhdlSim(Ghdl, SimFlow):
         )
         fst: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms into an _fst_ file.",
-            json_schema_extra=deliverable("outputs/{design}.fst"),
+            description="Write the waveforms into an _fst_ file. `true` writes `dump.fst`; a name "
+            "without an extension gets `.fst`.",
+            json_schema_extra=waveform("fst"),
         )
         stop_delta: Optional[str] = Field(
             None,
@@ -600,15 +602,15 @@ class GhdlSim(Ghdl, SimFlow):
                     )
             return [flag for flag in self.run_flags if flag != canonical] + [canonical]
 
-        @field_validator("wave", "fst", mode="before")
-        @classmethod
-        def validate_wave(cls, value, info):  # pylint: disable=no-self-argument
-            if value is not None:
-                name = info.field_name
-                ext = ".ghw" if name == "wave" else ".fst" if name == "fst" else ""
-                if isinstance(value, bool):
-                    return "dump" + ext if value else None
-            return value
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """GHDL writes one waveform: `vcd`, `fst` and `wave` each select the format of it."""
+        super().check_settings_supported(settings)
+        chosen = [name for name in ("vcd", "fst", "wave") if getattr(settings, name) is not None]
+        if len(chosen) > 1:
+            raise FlowSettingsException(
+                f"ghdl_sim writes one waveform, and {', '.join(chosen)} are set: keep one of them"
+            )
 
     def init(self) -> None:
         super().init()
@@ -644,8 +646,6 @@ class GhdlSim(Ghdl, SimFlow):
             elif wave.suffix == ".fst":
                 ss.fst = wave
                 ss.wave = None
-            elif not wave.suffix != ".ghw":
-                ss.wave = wave.with_suffix(".ghw")
             else:
                 ss.wave = wave
 

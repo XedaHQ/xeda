@@ -55,6 +55,8 @@ from ..dataclass import (
     input_names,
     model_validator,
     validation_errors,
+    waveform_format,
+    waveform_value,
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
@@ -937,7 +939,7 @@ class Flow(metaclass=ABCMeta):
                 merged.update(vars(klass).get("removed_settings", {}))
             return merged
 
-        # Every flow setting shares two input conveniences, applied by `_normalize_flow_setting`
+        # Every flow setting shares three input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
         # normalized value: on construction and `settings.json` reload through
         # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
@@ -957,10 +959,17 @@ class Flow(metaclass=ABCMeta):
             2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
+            3. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
+               (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
+               everywhere else, `true` stands for a default name, and a name gets the format's
+               extension.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            waveform = waveform_format(cls, name)
+            if waveform is not None:
+                value = waveform_value(value, *waveform)
             if isinstance(value, str) and _is_comma_separated_list(annotation):
                 value = comma_separated_items(name, value)
             if value == "" and _is_optional_path(annotation):
