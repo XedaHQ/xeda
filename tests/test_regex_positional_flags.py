@@ -1,9 +1,9 @@
 """A count or a flag is never passed by position to `re.split`, `re.sub` or `re.subn`.
 
-Their third (`split`) or fourth (`sub`, `subn`) positional parameter is a count, not the flags:
-`re.split(pattern, text, re.MULTILINE)` splits at most 8 times and `re.sub(..., re.MULTILINE |
-re.UNICODE)` replaces at most 40 matches. Python 3.13 deprecates the positional form. The scan
-covers xeda's source, the tests and the tools.
+The third positional parameter of `re.split` and the fourth of `re.sub` and `re.subn` is a
+count. A flag given there becomes a count: `re.split(pattern, text, re.MULTILINE)` splits at most
+8 times, and `re.sub(..., re.MULTILINE | re.UNICODE)` replaces at most 40 matches. Python 3.13
+deprecates the positional form. The scan covers the source, the tests and the tools.
 """
 
 import ast
