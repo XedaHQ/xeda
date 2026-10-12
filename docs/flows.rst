@@ -1174,7 +1174,8 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
      - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting: ``true`` lets
        nvc name the file. ``wave_format``, or the extension of a name in the run directory,
        selects the format. Only one of ``vcd`` and ``wave`` may be set. ``wave_format``,
-       ``wave_include_glob`` and ``wave_exclude_glob`` need one of them.
+       ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` need one of them, unless
+       they keep their default values.
    * - ``modelsim``
      - ``vcd``. ModelSim dumps nothing unless it is set.
    * - ``vivado_sim``, ``vivado_postsynth_sim``
@@ -1185,7 +1186,8 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
      - ``vcd``, ``fst`` and ``saif``. See the Verilator section below.
    * - ``vcs``
      - ``vpd``, ``fsdb`` and ``evcd``, only one at a time. ``vcd`` is refused: set ``vpd`` or
-       ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``.
+       ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``, and
+       ``fsdb_size_limit`` needs ``fsdb``.
    * - ``yosys_sim``
      - ``vcd`` is refused. The design's C++ driver writes the waveform with
        ``cxxrtl::vcd_writer``.

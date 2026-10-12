@@ -253,7 +253,7 @@ def test_the_options_that_refine_a_waveform_reach_the_tool(tmp_path, monkeypatch
         SimCase("vcs"),
         tmp_path / "vcs",
         monkeypatch,
-        settings_overrides={"vpd": "true", "vpd_size_limit": 4, "fsdb_size_limit": 7},
+        settings_overrides={"vpd": "true", "vpd_size_limit": 4},
         calls_out=calls,
     )
     words = {word for _, args in calls for word in args}
@@ -290,6 +290,7 @@ def _write(path: Path, text: str) -> Path:
     [
         ("nvc", {"wave_format": "vcd"}, "wave_format. refines the waveform"),
         ("nvc", {"wave": "false", "wave_format": "vcd"}, "wave_format. refines the waveform"),
+        ("nvc", {"wave_arrays": 8}, "wave_arrays. refines the waveform"),
         ("nvc", {"wave_include_glob": "*:x"}, "wave_include_glob. refines the waveform"),
         ("nvc", {"wave_exclude_glob": "*:x"}, "wave_exclude_glob. refines the waveform"),
         ("nvc", {"vcd": "true", "wave": "true"}, "one waveform, and vcd and wave are set"),
@@ -300,6 +301,7 @@ def _write(path: Path, text: str) -> Path:
         ("vcs", {"to_vcd": True}, "to_vcd. converts an FSDB or VPD waveform"),
         ("vcs", {"to_vcd": True, "evcd": "true"}, "to_vcd. converts an FSDB or VPD waveform"),
         ("vcs", {"vpd_size_limit": 4}, "vpd_size_limit. limits the VPD waveform"),
+        ("vcs", {"fsdb_size_limit": 7}, "fsdb_size_limit. limits the FSDB waveform"),
         ("vivado_sim", {"vcd_scope": "/tb"}, "vcd_scope. selects what the VCD holds"),
         ("vivado_sim", {"vcd_level": 2}, "vcd_level. selects what the VCD holds"),
         ("verilator", {"trace_structs": True}, "trace_structs. refines the trace"),
@@ -320,7 +322,10 @@ def test_a_waveform_setting_that_needs_another_is_refused_without_it(flow, setti
         ("nvc", {"vcd": "true", "wave_format": "vcd", "wave_include_glob": "*:x"}),
         ("ghdl_sim", {"wave": "w.vcd"}),
         ("vcs", {"vpd": "true", "to_vcd": True, "vpd_size_limit": 4}),
-        ("vcs", {"fsdb": "true", "to_vcd": True}),
+        ("vcs", {"fsdb": "true", "to_vcd": True, "fsdb_size_limit": 7}),
+        ("vcs", {}),
+        ("nvc", {"wave": "true", "wave_arrays": 8}),
+        ("nvc", {}),
         ("vivado_sim", {"vcd": "true", "vcd_scope": "/tb", "vcd_level": 2}),
         ("verilator", {"fst": "true", "trace_structs": True}),
     ],

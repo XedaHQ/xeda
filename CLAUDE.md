@@ -902,8 +902,9 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    writes a waveform through its own mechanism or lists the setting in
    `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
    refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
-   waveform are refused without one (nvc `wave_format`/globs, vivado `vcd_scope`/`vcd_level`,
-   vcs `to_vcd`/`vpd_size_limit`, Verilator `trace_*`), and so are two waveforms where the tool
+   waveform are refused without one (nvc `wave_format`/globs/`wave_arrays`, vivado `vcd_scope`/`vcd_level`,
+   vcs `to_vcd`/`vpd_size_limit`/`fsdb_size_limit`, Verilator `trace_*`; a setting with a default is
+   judged by value), and so are two waveforms where the tool
    writes one (`ghdl_sim` `vcd`/`fst`/`wave`, `nvc` `vcd`/`wave`, `vcs` `fsdb`/`vpd`/`evcd`).
    `tests/test_waveform_settings.py` classifies every waveform setting of every simulator
    (`HONORED`, what the tool is handed, or `unsupported_waveforms`): a new one fails there until

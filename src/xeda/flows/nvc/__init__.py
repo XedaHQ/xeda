@@ -223,8 +223,8 @@ class Nvc(SimFlow):
                     "`vcd` writes a VCD file, and wave_format is fst: use `wave` for an FST file"
                 )
         elif not settings.wave:
-            for name in ("wave_format", "wave_include_glob", "wave_exclude_glob"):
-                if getattr(settings, name) is not None:
+            for name in ("wave_format", "wave_include_glob", "wave_exclude_glob", "wave_arrays"):
+                if getattr(settings, name) != cls.Settings.model_fields[name].default:
                     raise FlowSettingsException(
                         f"`{name}` refines the waveform, and neither `wave` nor `vcd` is set"
                     )

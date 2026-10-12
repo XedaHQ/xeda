@@ -50,8 +50,7 @@ class Vcs(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """VCS writes one waveform, and `to_vcd` and the VPD size limit need the format they act
-        on."""
+        """VCS writes one waveform, and `to_vcd` and the size limits need the format they act on."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         chosen = [name for name in ("fsdb", "vpd", "evcd") if getattr(settings, name) is not None]
@@ -65,6 +64,9 @@ class Vcs(SimFlow):
             )
         if settings.vpd_size_limit is not None and settings.vpd is None:
             raise FlowSettingsException("`vpd_size_limit` limits the VPD waveform: set `vpd`")
+        default_limit = cls.Settings.model_fields["fsdb_size_limit"].default
+        if settings.fsdb_size_limit != default_limit and settings.fsdb is None:
+            raise FlowSettingsException("`fsdb_size_limit` limits the FSDB waveform: set `fsdb`")
 
     def has_evidence_adapter(self) -> bool:
         return True
