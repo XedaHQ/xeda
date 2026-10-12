@@ -248,11 +248,12 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
             fix = f"fix that {noun} and run again ({LOG_ADVICE})"
         else:
             cause = f"it reported no `$finish`, no stop time and no driver exit{asked}"
+            fix = _finish_fix(stop_time)
             if stopped:
                 cause += stopped
             else:
                 cause += ", so its event queue most likely ran empty"
-            fix = _finish_fix(stop_time)
+                fix += f"; if the testbench already ends so, {LOG_ADVICE}"
         return fail(problem(f"the simulation did not end as intended{at}: {cause}", fix))
     threshold = SEVERITY_RANK[fail_severity]
     worst = [e for e in evidence.events if _EVENT_RANK.get(e.kind, 0) >= threshold]
