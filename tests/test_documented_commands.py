@@ -24,6 +24,7 @@ import pytest
 from click.testing import CliRunner
 
 from xeda.cli import cli
+from xeda.design import Design
 
 from . import tool_utils
 
@@ -116,7 +117,9 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
         words += ["--run-root", str(tmp_path / "xeda_run")]
         if flow in REAL_SIMULATORS:
             REAL_SIMULATORS[flow]()
-            tool_utils.require_cocotb()
+            design_file = next(word for word in words[2:] if word.endswith(".yaml"))
+            if Design.from_file(SQRT_DIR / design_file).tb.cocotb:
+                tool_utils.require_cocotb()
         elif "--dry-run" not in words:
             words.append("--dry-run")
     result = CliRunner().invoke(cli, words)

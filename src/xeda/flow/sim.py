@@ -177,6 +177,21 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     }.get(evidence.ended_by, False)
     if not ok:
         stop_asked = f" before the requested stop_time {stop_time}" if stop_time is not None else ""
+        event = next((e for e in evidence.events if e.kind in ("stop", "error", "fatal")), None)
+        recorded = ""
+        if event is not None:
+            where = f" at {event.location}" if event.location else ""
+            recorded = f" The first such event: {event.kind}{where}: {event.message}"
+        if event is None:
+            unknown = (
+                f"it reported no `$finish`, no stop time and no driver exit{stop_asked}, so its "
+                "event queue most likely ran empty. " + _ending_advice(stop_time)
+            )
+        else:
+            unknown = (
+                f"it reported no `$finish`, no stop time and no driver exit{stop_asked}."
+                f"{recorded}. " + _ending_advice(stop_time)
+            )
         why = {
             "drained": f"its event queue ran empty without a `$finish`{stop_asked}. "
             + _ending_advice(stop_time),
@@ -197,13 +212,9 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
                 else "it stopped at a max_cycles nobody asked for"
             ),
             "exit": f"the testbench's driver exited with status {evidence.exit_code}",
-            "error": "an error ended it",
-            "fatal": "a fatal error ended it",
-        }.get(
-            evidence.ended_by,
-            f"it reported no `$finish`, no stop time and no driver exit{stop_asked}, so its event "
-            "queue most likely ran empty. " + _ending_advice(stop_time),
-        )
+            "error": "an error ended it." + recorded,
+            "fatal": "a fatal error ended it." + recorded,
+        }.get(evidence.ended_by, unknown)
         at = ""
         if evidence.time is not None:
             at = f" (at {readable_time(evidence.time, evidence.time_unit)})"

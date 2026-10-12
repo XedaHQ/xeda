@@ -43,6 +43,8 @@ A simulation passes only on recognized evidence that it ended, not on exit statu
 malformed record, unknown end, or event queue that drained without a finish fails. `$finish`
 (including VHDL `std.env.finish` and `std.env.stop`) is accepted; Verilog `$stop` is an error-rank
 event and fails at the default threshold.
+`error.message` in `results.json` states the cause and the fix: a testbench that ends with `wait;`
+needs `std.env.finish` / `$finish`, or a `stop_time`.
 A requested `stop_time` needs a matching observed time. Bluesim `max_cycles` needs the exact
 measured cycle count and final time. A supported user-owned C++ driver may pass on observed exit
 0. Nonzero execution always fails, even after finish.

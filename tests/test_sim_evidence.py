@@ -159,6 +159,21 @@ FINISH_ADVICE = ("std.env.finish", "$finish", "stop_time")
         (SimEvidence(ended_by="drained", time=20), None, ("ran empty", *FINISH_ADVICE)),
         (SimEvidence(ended_by="drained", time=0), "15ns", ("before the requested", "15ns")),
         (SimEvidence(ended_by="fatal", time=5), None, ("fatal error",)),
+        (
+            SimEvidence(
+                ended_by="unknown",
+                events=[SimEvent(kind="stop", time=3, location="tb.sv:9", message="halt")],
+            ),
+            None,
+            ("stop at tb.sv:9: halt", "std.env.finish"),
+        ),
+        (
+            SimEvidence(
+                ended_by="error", time=5, events=[SimEvent(kind="error", message="bad value")]
+            ),
+            None,
+            ("an error ended it", "error: bad value"),
+        ),
         (None, None, ("no end record", "simulation log")),
         (
             SimEvidence(
@@ -197,6 +212,21 @@ def test_a_failed_cocotb_verdict_is_the_error_of_the_results(counts, expected):
     flow.results.update(counts)
     record_failure(flow, _cocotb_problem(flow.results))
     assert expected in flow.results["error"]["message"]
+
+
+def test_a_failed_cocotb_run_records_its_counts_through_check_results():
+    class Cocotb:
+        def add_results(self, results, results_file=None):
+            results.update({"cocotb.tests": 3, "cocotb.failures": 2, "cocotb.errors": 0})
+            return False
+
+        results_xml = "results.xml"
+
+    flow = _Stub()
+    flow.cocotb = Cocotb()
+    flow.report_file = lambda path: None
+    assert SimFlow.check_results(flow) is False
+    assert flow.results["error"]["message"].startswith("`stub_sim` reported failure: 2 of 3")
 
 
 def test_a_failed_end_keeps_the_error_the_run_already_has():
