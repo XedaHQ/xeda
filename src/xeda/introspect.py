@@ -73,7 +73,8 @@ def json_safe(value: Any) -> Any:
 
     The value is encoded by `json` with `utils.json_encodable`, the encoder behind every JSON
     file Xeda writes, and read back. A document that the CLI prints therefore agrees with
-    `settings.json` or `best.json` on the same value.
+    `settings.json` or the `fmax_<design>_<flow>_<timestamp>.json` file of a search on the same
+    value.
 
     The round trip replaces a walk over the value, because a walk re-derives the rules of `json`
     and gets some wrong: `json` writes the key `True` as `"true"`, `None` as `"null"` and a `str`
