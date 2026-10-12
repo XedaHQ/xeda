@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import sys
 import textwrap
 import types
 from collections.abc import Iterator
@@ -335,6 +336,10 @@ def _callees(cls: type, fn: types.FunctionType) -> Iterator[types.FunctionType]:
             else:
                 found.append(getattr(cls, func.attr, None))
                 found.append(getattr(settings, func.attr, None))
+                if isinstance(func.value, ast.Name):  # `module.function(...)`
+                    module = fn.__globals__.get(func.value.id)
+                    if isinstance(module, types.ModuleType):
+                        found.append(getattr(module, func.attr, None))
         for obj in found:
             callee = _function(obj)
             if callee is not None:
@@ -490,6 +495,18 @@ class _Hooked(_Probe):
 def test_the_scan_sees_a_raise_in_init_a_settings_method_and_a_helper():
     assert run_time_refusals(_Direct) == {f"{__name__}:_Direct.init": 1, f"{__name__}:_helper": 1}
     assert run_time_refusals(_Probe) == {f"{__name__}:_Settings.judge": 1, f"{__name__}:_helper": 1}
+
+
+this_module = sys.modules[__name__]
+
+
+class _ThroughAModule(_Probe):
+    def init(self):
+        this_module._helper()
+
+
+def test_the_scan_follows_a_function_called_through_a_module():
+    assert f"{__name__}:_helper" in run_time_refusals(_ThroughAModule)
 
 
 def test_the_scan_leaves_alone_what_a_hook_judges():
