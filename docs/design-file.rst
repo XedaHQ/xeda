@@ -521,7 +521,7 @@ given on the command line replaces a saved binding of the same input.
 .. _targets:
 
 Targets
-=======
+========
 
 One design file can describe the design for several boards. Each entry of ``targets`` is an
 overlay on the design. It takes the keys of the design file, merged over them, and ``--target
@@ -576,9 +576,9 @@ NAME`` selects one.
 * The clock of the design is ``clock`` or ``clocks``, two spellings of one list of clocks. The
   ``clocks`` of a target, in any form, replace the list of the design. The ``clock`` of a target
   names the first clock of the design and changes it key by key (``clock: {name: sys}`` keeps the
-  port of the design). ``clock: null`` and an empty table (``clock: {}``)
-  mean no clock, in the design and in a target. A clock that is neither text nor a table
-  (``clock: 0`` or ``clock: false``) is an error at the key as written, in a target as well (at
+  port of the design). ``clock: null`` and an empty table (``clock: {}``) mean no clock, in the
+  design and in a target. A clock that is neither text nor a table (``clock: 0`` or
+  ``clock: false``) is an error at the key as written, in a target as well (at
   ``targets.<name>.rtl.clock``). Two spellings of the clock in the design, or in the selected
   target, are an error. Xeda checks a target that is not selected only for the form of its values.
   The removed ``clock_port`` is an error in the design, in a target (selected or not) and in
@@ -609,21 +609,20 @@ NAME`` selects one.
   ``sources`` override (``rtl.sources`` or ``tb.sources``) replaces the whole list, the sources of
   the selected target included, as an override of any other list does. The designs of a project
   take overrides in the same way.
-* A target name starts with a letter and holds only letters, digits, ``_`` and ``-``. It
-  is not the name or an alias of a flow. There is one spelling, ``targets.<name>``. A design file
-  has no ``target`` key.
-* A selected target yields an ordinary design, with the same hash and results as the
-  file written out flat with the keys of the target applied by hand. The name of the target is
-  reported (``target`` in the ``--json`` documents, ``null`` without one), and it is no part of
-  the identity of the design.
-* A selected target has run directories of its own,
-  ``<run root>/<design>/<target>/<flow>`` (``<flow>_<hash>`` with ``--hashed-run-dirs``). This
-  also holds when Xeda selected the target because it is the only one. A design without targets
-  keeps ``<design>/<flow>``. Two targets that yield the same design therefore build separately,
-  and each stays up to date, although they have the same hashes. A launch for a target leaves a
-  run made before targets existed alone. ``xeda scrub FLOW DESIGN --target NAME`` removes only the
-  runs of that target. ``xeda scrub FLOW DESIGN`` removes the runs of every target and the older
-  ones too.
+* A target name starts with a letter and holds only letters, digits, ``_`` and ``-``. It is not
+  the name or an alias of a flow. There is one spelling, ``targets.<name>``. A design file has no
+  ``target`` key.
+* A selected target yields an ordinary design, with the same hash and results as the file written
+  out flat with the keys of the target applied by hand. The name of the target is reported
+  (``target`` in the ``--json`` documents, ``null`` without one), and it is no part of the
+  identity of the design.
+* A selected target has run directories of its own, ``<run root>/<design>/<target>/<flow>``
+  (``<flow>_<hash>`` with ``--hashed-run-dirs``). This also holds when Xeda selected the target
+  because it is the only one. A design without targets keeps ``<design>/<flow>``. Two targets that
+  yield the same design therefore build separately, and each stays up to date, although they have
+  the same hashes. A launch for a target leaves a run made before targets existed alone.
+  ``xeda scrub FLOW DESIGN --target NAME`` removes only the runs of that target.
+  ``xeda scrub FLOW DESIGN`` removes the runs of every target and the older ones too.
 
 ``xeda run`` and ``xeda dse`` take ``--target``. The designs in a project file take targets in the
 same way.
