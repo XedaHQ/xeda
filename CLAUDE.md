@@ -1072,8 +1072,9 @@ refuse a non-default value in a validator (`vivado_alt_synth`: `REFUSED_WHEN_SET
 test). A reviewed table with a reason is the last resort: `FRAMEWORK_READS` (a module outside
 the flow reads the field, checked), `UNIVERSAL_SETTINGS` (`nthreads`, `lib_paths` and
 `redirect_stdout` are advertised for every flow and only some honor them; each is read by at least
-one flow), the shared leaves the resolver agrees between nodes of a flow that declares I/O, and
-`REVIEWED` (the waveform settings). Only top-level fields are checked. A nested model's leaves
+one flow), the shared leaves the resolver agrees between nodes of a flow that declares I/O, a
+waveform setting in `SimFlow.unsupported_waveforms` (refused when set, probed per simulator), and
+`REVIEWED` (empty: an entry needs a reason). Only top-level fields are checked. A nested model's leaves
 (`fpga`, `clocks`, `platform`, `cocotb`) and the settings of a nested flow (`ghdl` under the yosys
 flows) are not.
 

@@ -45,7 +45,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 Simulate VHDL using NVC, with native diagnostics and a passive VHPI end monitor. Non-cocotb runs require a C++ compiler and NVC's vhpi_user.h, installed under its prefix or on the compiler's include search path. The monitor schedules no simulation events.
 
-35 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
+34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
 Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 

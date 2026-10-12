@@ -50,7 +50,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from xeda.flow import Flow, FlowSettingsError
+from xeda.dataclass import waveform_fields
+from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner.resolver import SHARED_SETTINGS
 
 from .flow_registry import preserved_flow_registry
@@ -167,11 +168,22 @@ def _held(expr: ast.AST | None, env: Env) -> Held:
         and expr.func.attr == "get"
         and expr.args
     ):
-        found = _lookup(_held(expr.func.value, env), expr.args[0])
-        if len(expr.args) > 1:
-            found = found.merged(_held(expr.args[1], env))
+        table = _held(expr.func.value, env)
+        found = _lookup(table, expr.args[0])
+        if len(expr.args) > 1 and not _in_table(table, expr.args[0]):
+            # the default is what `.get` gives when the key is absent, or may be absent
+            default = _held(expr.args[1], env)
+            return default if _is_literal_key(expr.args[0]) else found.merged(default)
         return found
     return Held()
+
+
+def _is_literal_key(key: ast.AST) -> bool:
+    return isinstance(key, ast.Constant) and isinstance(key.value, str)
+
+
+def _in_table(table: Held, key: ast.AST) -> bool:
+    return isinstance(key, ast.Constant) and key.value in table.by_key
 
 
 def _lookup(table: Held, key: ast.AST) -> Held:
@@ -564,14 +576,7 @@ REFUSED_WHEN_SET: dict[tuple[str, str], object] = {
 }
 
 #: `(flow, setting)` -> why the flow does not read the setting and that is fine.
-REVIEWED: dict[tuple[str, str], str] = {
-    ("nvc", "vcd"): "waveform settings: the waveform work reads or refuses them",
-    ("nvc", "wave_include_glob"): "waveform settings: the waveform work reads or refuses them",
-    ("nvc", "wave_exclude_glob"): "waveform settings: the waveform work reads or refuses them",
-    ("vcs", "vcd"): "waveform settings: the waveform work reads or refuses them",
-    ("vcs", "vpd_size_limit"): "waveform settings: the waveform work reads or refuses them",
-    ("yosys_sim", "vcd"): "waveform settings: the waveform work reads or refuses them",
-}
+REVIEWED: dict[tuple[str, str], str] = {}
 
 
 def _declares_io(cls: type[Flow]) -> bool:
@@ -588,6 +593,7 @@ def findings(cls: type[Flow], name: str) -> list[str]:
         and not (setting in RESOLVER_SETTINGS and _declares_io(cls))
         and (name, setting) not in REVIEWED
         and (name, setting) not in REFUSED_WHEN_SET
+        and setting not in getattr(cls, "unsupported_waveforms", {})
     ]
 
 
@@ -621,6 +627,21 @@ def test_a_refused_setting_is_refused_and_its_default_is_not(name: str, setting:
         cls.Settings.from_input({**base, setting: REFUSED_WHEN_SET[(name, setting)]})
 
 
+@pytest.mark.parametrize(("cls", "name"), PRODUCT_FLOWS, ids=[name for _, name in PRODUCT_FLOWS])
+def test_a_waveform_setting_a_simulator_cannot_write_is_refused(cls: type[Flow], name: str) -> None:
+    """`SimFlow.unsupported_waveforms` names the waveform settings that a simulator has no way to
+    write. Nothing reads them, and the planning check of the simulator refuses a value."""
+    unsupported = getattr(cls, "unsupported_waveforms", {})
+    formats = waveform_fields(cls.Settings)
+    for setting in unsupported:
+        assert setting in unread_settings(cls), f"{name} reads {setting} now: drop it"
+        settings = cls.Settings.from_input(
+            {**minimal_settings(cls), setting: f"dump.{formats[setting]}"}
+        )
+        with pytest.raises(FlowSettingsException, match=setting):
+            cls.check_settings_supported(settings)
+
+
 def test_every_framework_read_is_there() -> None:
     for setting, (module, attribute, reason) in FRAMEWORK_READS.items():
         text = inspect.getsource(importlib.import_module(module))
@@ -652,6 +673,7 @@ LOOKUP = {"ecp5": "read_by_lookup", "ice40": "read_by_lookup_too"}
 ALIASES = {"alias": "read_by_unrelated_dict"}
 RENAMES = {"read_by_lookup_key": "read_by_lookup_value"}
 PAIRS = {"a": "read_by_a_value", "b": "read_by_b_value"}
+KNOWN = {"known": "read_by_known_value"}
 UNUSED_TABLE = ("read_by_table_nothing_walks",)
 
 class Other:
@@ -704,6 +726,12 @@ class Fixture(Flow):
         else:
             branch = "read_by_else_branch"
         getattr(ss, branch)
+        picked = KNOWN.get("known", "read_by_unused_default")
+        getattr(ss, picked)
+        absent = KNOWN.get("absent", "read_by_default_of_an_absent_key")
+        getattr(ss, absent)
+        either = KNOWN.get(self.key, "read_by_default_of_a_variable_key")
+        getattr(ss, either)
         mode = "read_before_loop"
         for item in self.items:
             mode = "read_in_loop"
@@ -767,6 +795,9 @@ def _fixture_reads() -> Reads:
         "read_by_if_branch",
         "read_by_else_branch",
         "read_by_a_value",
+        "read_by_known_value",
+        "read_by_default_of_an_absent_key",
+        "read_by_default_of_a_variable_key",
         "read_before_loop",
         "read_in_loop",
         "read_in_template",
@@ -796,6 +827,7 @@ def test_the_scan_sees_each_way_of_reading_a_setting(setting: str) -> None:
         "read_by_lookup_key",
         "read_by_replaced",
         "read_by_b_value",
+        "read_by_unused_default",
         "read_by_table_nothing_walks",
         "read_by_hasattr",
         "read_by_setattr",

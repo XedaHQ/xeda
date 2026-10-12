@@ -7,7 +7,7 @@ import os
 import re
 from abc import ABCMeta
 from pathlib import Path
-from typing import Any, ClassVar, Dict, List, Literal, Mapping, Optional, Union
+from typing import Any, ClassVar, Dict, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
 from ..dataclass import (
