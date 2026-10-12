@@ -76,6 +76,7 @@ def toys():
 
         class Settings(Flow.Settings):
             shout: bool = Field(False, description="Upper-case the text.")
+            always: bool = Field(False, description="Run every time, as a fresh seed does.")
 
         class Inputs(Flow.Inputs):
             produced: Path = In(
@@ -84,6 +85,10 @@ def toys():
                 output="produced",
                 description="The producer's text.",
             )
+
+        def always_runs(self):
+            assert isinstance(self.settings, self.Settings)
+            return "it draws a new random seed" if self.settings.always else None
 
         def run(self) -> None:
             out = self.run_path / "outputs" / "consumed.txt"
@@ -603,9 +608,10 @@ def _as_a_table(outputs: dict) -> None:
     outputs["produced"] = outputs["produced"][0]
 
 
+@pytest.mark.parametrize("always", [False, True], ids=["reusable", "always runs"])
 @pytest.mark.parametrize("shape", ["a scalar output as a list", "a list output as a table"])
 def test_an_output_record_the_hand_over_refuses_is_unknown_to_a_dry_run(
-    shape, tmp_path, monkeypatch, toys
+    shape, always, tmp_path, monkeypatch, toys
 ):
     """The dry run reads a producer's recorded outputs as the hand-over reads them (one function,
     `outputs.recorded_entries`): a record of the wrong shape for the declared cardinality is not
@@ -649,9 +655,16 @@ def test_an_output_record_the_hand_over_refuses_is_unknown_to_a_dry_run(
         graph, edit = ManyGraph(tmp_path, monkeypatch), _as_a_table
     else:
         graph, edit = ToyGraph(tmp_path, monkeypatch), _as_a_list
-    graph.settle()
+    if always:  # the launch fails to hand the output over before it asks the flow anything
+        graph.settings.append(f"flows.{graph.consumer}.always=true")
+    if always:
+        graph.run()
+        graph.run()
+    else:
+        graph.settle()
     _, states = graph.dry()
-    assert (states[graph.producer].state, states[graph.consumer].state) == (FRESH, FRESH)
+    assert states[graph.producer].state == FRESH
+    assert states[graph.consumer].state == (STALE if always else FRESH)
     _forge_record(graph, graph.producer, edit)
     _, states = graph.dry()
     assert states[graph.producer].state == FRESH, "only the record is wrong"

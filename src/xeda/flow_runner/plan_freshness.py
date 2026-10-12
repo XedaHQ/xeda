@@ -233,6 +233,10 @@ def judge_node(
         # a plan checks no more than the request; a launch checks the settings in the design's
         # context, as it constructs the flow, and would refuse these
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
+    # the launch hands over the producers' outputs before it prepares anything or asks the flow
+    # anything: an output it cannot hand over stops it, whatever the flow itself would do
+    if lacks is not None:
+        return lacks
     # the launch prepares inputs before it asks whether the flow always runs: what preparation
     # refuses it refuses whatever else is true, and one it can still make does not stop a run
     try:
@@ -250,8 +254,6 @@ def judge_node(
         return NodeFreshness(
             "unknown", "a prepared input is not made yet: a launch makes it before judging"
         )
-    if lacks is not None:
-        return lacks
     expected: Expectation = expected_run(
         flow_class=flow_class,
         name=flow.name,
