@@ -1,44 +1,49 @@
-**********************
+******************
 Reporting problems
-**********************
+******************
 
 Please open an issue at https://github.com/XedaHQ/xeda/issues.
 
 What to include
 ===============
 
-A flow failure is much easier to diagnose with the run directory's contents than without, because
-Xeda records everything it decided there:
+Xeda records its decisions in the run directory, so the contents of the directory help to diagnose
+a failed flow:
 
 ``settings.json``
-    The run's input settings (``flow_settings``: defaults, design and project sections and ``-s``
-    overrides, merged) and what the flow made of them (``effective_flow_settings``). The latter
-    answers "what did Xeda actually ask the tool to do", which is usually the first question.
+    The input settings of the run (``flow_settings``: the defaults, the design and project
+    sections, and the ``-s`` overrides, merged) and what the flow made of them
+    (``effective_flow_settings``). The effective settings show what Xeda asked the tool to do.
+    That is usually the first question.
 
 ``results.json``
-    What was parsed back out of the tool's reports.
+    What Xeda parsed from the reports of the tool.
+
+``trace.json``
+    What the run consumed and produced. Xeda uses it to decide whether a later run is up to date.
 
 The generated tool scripts and logs
-    The ``.tcl``, ``.ys``, ``.sdc``/``.xdc`` scripts Xeda generated, and the tool's own log files.
+    The ``.tcl``, ``.ys`` and ``.sdc``/``.xdc`` scripts that Xeda generated, and the log files of
+    the tool.
 
-Re-running with ``--debug`` turns on verbose logging and re-raises exceptions with a full
-traceback instead of reporting a failure, which is what you want in a bug report::
+Run the command again with ``--debug``. It turns on verbose logging, and it raises an exception
+with a full traceback instead of reporting a failure. Both help in a bug report::
 
     xeda run <flow> <design> --debug
 
 Also include:
 
 * the output of ``xeda --version``
-* the EDA tool and its version (``results.json`` records the versions Xeda detected)
+* the EDA tool and its version (``results.json`` records the versions that Xeda detected)
 * your operating system and Python version
 
-Settings that are rejected
-==========================
+Rejected settings
+=================
 
-Xeda rejects unknown settings rather than ignoring them, so a typo surfaces as a
-``FlowSettingsError`` instead of silently doing nothing. If a setting you expected is rejected,
-check the exact spelling against::
+Xeda rejects an unknown setting, so a typo is a ``FlowSettingsError``. A setting that Xeda removed
+is rejected too, and the error names the setting to use instead. If Xeda rejects a setting that
+you expected to work, compare the spelling with the output of::
 
     xeda list-settings <flow>
 
-That is not a bug unless the setting is documented and still rejected.
+This is a bug only if the setting is documented and Xeda still rejects it.

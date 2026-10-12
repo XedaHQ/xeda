@@ -8,15 +8,15 @@ Install
 Xeda supports every Python release series that has not reached end of life. Currently, that means
 Python 3.11 through 3.15.
 
-For command-line use, the preferred installation is an isolated ``uv`` tool environment::
+For command-line use, install Xeda in an isolated ``uv`` tool environment::
 
     uv tool install --upgrade xeda
 
-`pipx <https://pipx.pypa.io/stable/>`_ is an equivalent alternative::
+`pipx <https://pipx.pypa.io/stable/>`_ does the same::
 
     pipx install --force xeda
 
-To use Xeda as a library as well, install it into a virtual environment::
+To use Xeda as a library as well, install it in a virtual environment::
 
     python3 -m pip install -U xeda
 
@@ -27,8 +27,8 @@ Check the installation::
 Shell completion
 ================
 
-Xeda supports Bash 4.4 or newer, zsh, and fish. Generate a completion script once so a new shell
-can load it without starting Xeda.
+Xeda supports completion for Bash 4.4 or newer, zsh and fish. Generate a completion script once, so
+that a new shell can load it without starting Xeda.
 
 For Bash::
 
@@ -47,46 +47,23 @@ For fish::
     mkdir -p ~/.config/fish/completions
     xeda completion fish --stdout > ~/.config/fish/completions/xeda.fish
 
-Command names, options, and single flow names use a lightweight completion path. Completing a
-flow chain or an output qualifier loads the flow declarations to offer only valid candidates.
-Regenerate the script after upgrading Xeda if its shell integration changes.
+Completion of command names, options and single flow names does not load the flows. Completion of
+a chain or of an output name (``flow.output``) loads the flow declarations, so that it offers only
+valid candidates. Generate the script again after you upgrade Xeda.
 
-Describe your design
-====================
+The design file
+===============
 
-A design description is a single YAML, TOML or JSON file. YAML is the recommended format. It says
-what the design is, not how to build it - tool choices stay out of it, except for optional per-flow
-settings at the end.
+A design file says what the design is: its sources, top module, clock port and, optionally, a
+testbench. It names no tool, apart from the optional settings of each flow at the end. It is a
+YAML, TOML or JSON file, and YAML is recommended. This is ``examples/vhdl/sqrt/sqrt.yaml``:
 
-``sqrt.yaml``:
+.. literalinclude:: ../examples/vhdl/sqrt/sqrt.yaml
+   :language: yaml
 
-.. code-block:: yaml
-
-    name: sqrt
-    description: Iterative computation of square-root of an integer
-    language:
-      vhdl:
-        standard: '2008'
-
-    rtl:
-      sources: ['sqrt.vhdl']
-      top: sqrt
-      clock: {port: clk}
-      parameters: {G_IN_WIDTH: 32}
-
-    tb:
-      sources: ['tb_sqrt.py']
-      cocotb: true
-
-    flows:
-      vivado_synth:
-        fpga:
-          part: xc7a100tftg256-2L
-        clock:
-          period: 5.0
-
-Paths are resolved relative to the directory holding the design file, so the file is portable
-along with its sources. See :doc:`design-file` for the full reference.
+Paths are relative to the directory of the design file, so the file moves together with its
+sources. A dotted key such as ``clock.period`` stands for a nested table. The command line takes
+the same keys. See :doc:`design-file` for the full reference.
 
 Run a flow
 ==========
@@ -99,33 +76,32 @@ To synthesize it for an FPGA with Vivado::
 
     xeda run vivado_synth sqrt.yaml
 
-The ``flows.vivado_synth`` mapping of the design file supplies that flow's settings. Override
-any of them on the command line with ``-s``/``--settings``, using dotted keys for nested values::
+The ``flows.vivado_synth`` section of the design file holds the settings of that flow. Override
+any of them on the command line with ``-s``/``--settings``. Nested settings use dotted keys::
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5 impl.strategy=Performance_ExplorePostRoutePhysOpt
 
-Unknown settings are rejected rather than ignored, so a typo fails loudly instead of quietly
-doing nothing.
+Xeda rejects an unknown setting, so a typo is an error.
 
-Flows that declare their file inputs and outputs can be named as a chain, joined by ``+``: the
-last flow is the one you ask for and each flow before it feeds the next. ``xeda list-flows`` shows
-which flows can follow which, and tab completion offers only those. The open FPGA flows are the
-ones that chain today::
+A flow that declares its file inputs and outputs can follow another flow. Join the flows with
+``+`` to make a chain. You ask for the last flow, and each flow before it feeds the next one.
+``xeda list-flows`` shows which flows can follow which, and tab completion offers only those.
+This chain ends at the bitstream::
 
     xeda run yosys_fpga+nextpnr+fpga_pack design.yaml --dry-run
 
-``--dry-run`` shows the plan and runs nothing; this chain ends at the bitstream and programs no
-hardware. See :ref:`flow-chains`.
+``--dry-run`` shows the plan and runs nothing. The chain above programs no hardware. See
+:ref:`flow-chains`.
 
 Find out what is available
 ==========================
 
-Nothing here needs to be memorized; the CLI is self-describing.
+The command line describes itself:
 
 .. code-block:: bash
 
-    xeda list-flows                     # every flow: aliases, category, dependencies, what it takes,
-                                        # makes and can be followed by in a chain
+    xeda list-flows                     # every flow: category, what it takes and makes, and what
+                                        # can follow it in a chain
     xeda list-settings vivado_synth     # every setting of a flow, with type, default and meaning
     xeda list-results vivado_synth      # the keys that flow writes to results.json
     xeda list-boards                    # bundled FPGA board definitions
@@ -137,15 +113,17 @@ Add ``--json`` to any of them for machine-readable output. See :doc:`machine-rea
 Where the output goes
 =====================
 
-Each run gets its own directory under ``./xeda_run/``, holding the generated scripts, the tool
-logs, ``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (the settings, as given and
-as used) and ``results.json`` (what was parsed back out). See :doc:`run-directories`.
+Each run has its own directory under ``./xeda_run/``, the run root. The run directory holds the
+generated scripts, the tool logs, ``reports/`` and ``outputs/``. It also holds three JSON files:
+``settings.json`` (the settings as given and as used), ``results.json`` (what Xeda parsed from the
+reports) and ``trace.json`` (what Xeda needs to decide later whether the run is up to date). See
+:doc:`run-directories`.
 
 Explore the design space
 ========================
 
 ``xeda dse`` runs many instances of a flow in parallel under an optimizer. The default optimizer
-searches for the maximum clock frequency::
+searches for the highest clock frequency::
 
     xeda dse vivado_synth --design sqrt.yaml
 

@@ -1,26 +1,23 @@
-design:
-  - name: 'full-adder'
-    description: 'Example VHDL design'
-    language:
-      vhdl:
-        standard: 2008
+designs:
+  - name: full-adder
+    description: Full adder in VHDL
+    language.vhdl.standard: 2008
     rtl:
       sources:
-        - 'full_adder.vhd'
-      top: 'full_adder'
+        - "full_adder.vhd"
+      top: full_adder
     tb:
       sources:
-        - 'full_adder_tb.vhd'
-      top: 'full_adder_tb'
+        - "full_adder_tb.vhd"
+      top: full_adder_tb
 flows:
   ghdl_sim:
     warn_error: true
   vivado_synth:
-    fpga:
-      part: 'xc7a12tcsg325-1'
+    fpga.part: xc7a12tcsg325-1
   ise_synth:
     fpga:
-      family: 'virtex5'
-      device: 'XC5VLX50'
+      family: virtex5
+      device: XC5VLX50
       speed: -1
-      package: 'FFG676C'
+      package: FFG676C

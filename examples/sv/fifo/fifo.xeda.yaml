@@ -1,19 +1,15 @@
-sources:
-  - fifo.sv
-top: fifo
-
-clock:
-  port: clk
-
+description: FIFO in SystemVerilog with a SystemVerilog testbench
+rtl:
+  sources:
+    - "fifo.sv"
+  top: fifo
+  clock.port: clk
 tb:
   sources:
-    - fifo_tb.sv
-    # - tb/fifo_tb.py
-  # cocotb: true
+    - "fifo_tb.sv"
   top: fifo_tb
-  defines:
-    DUMP_VCD: null
-
+  # The testbench writes dump.vcd when DUMP_VCD is defined.
+  defines.DUMP_VCD: null
 flows:
   verilator:
     timing: true

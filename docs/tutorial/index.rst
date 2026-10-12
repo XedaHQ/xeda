@@ -2,50 +2,30 @@
 Tutorial
 ********
 
-This walks a small VHDL design through simulation, FPGA synthesis and a frequency search, using
-the ``sqrt`` example that ships with Xeda (``examples/vhdl/sqrt``).
-
-The design is an iterative integer square root with a single clock, a parameterized input width,
-and a cocotb testbench.
+This tutorial takes a small VHDL design through simulation, FPGA synthesis and a frequency
+search. The design is the ``sqrt`` example, in ``examples/vhdl/sqrt`` of the Xeda repository. It
+is an iterative integer square root with one clock, a parameterized input width and a cocotb
+testbench. Run the commands in that directory.
 
 1. Write the design file
 ========================
 
-``sqrt.yaml`` describes the design and nothing about how to build it, apart from the per-flow
-sections at the end:
+``sqrt.yaml`` describes the design and nothing about how to build it, apart from the sections of
+the flows at the end:
 
-.. code-block:: yaml
+.. literalinclude:: ../../examples/vhdl/sqrt/sqrt.yaml
+   :language: yaml
 
-    name: sqrt
-    description: Iterative computation of square-root of an integer
-    language:
-      vhdl:
-        standard: '2008'
+Notes on the file:
 
-    rtl:
-      sources: ['sqrt.vhdl']
-      top: sqrt
-      clock: {port: clk}
-      parameters: {G_IN_WIDTH: 32}
-
-    tb:
-      sources: ['tb_sqrt.py']
-      cocotb: true
-
-    flows:
-      vivado_synth:
-        fpga:
-          part: xc7a100tftg256-2L
-        clock:
-          period: 5.0
-
-Three things worth noticing:
-
-* ``clock`` names the design's clock *port*. The clock's *period* is a flow setting, because it
-  constrains a particular build rather than describing the design.
-* ``sources`` is in compilation order, and paths resolve against the design file's directory.
-* The ``.py`` testbench source is recognized as cocotb automatically; ``cocotb: true`` is
-  redundant here but harmless.
+* ``clock.port`` names the clock port of the design. The period of the clock is a setting of each
+  flow, because it constrains one build.
+* ``sources`` is in compilation order. Paths are relative to the directory of the design file.
+* A dotted key such as ``clock.port`` stands for a nested table: ``clock`` with the key ``port``.
+  The command line uses the same keys.
+* A ``.py`` testbench source makes the testbench a cocotb one. No other key is needed.
+* Each flow has its own section under ``flows``. The device is a setting of each flow, so the
+  sections repeat ``fpga.part``.
 
 2. Simulate
 ===========
@@ -54,14 +34,14 @@ Three things worth noticing:
 
     xeda run ghdl_sim sqrt.yaml
 
-Xeda analyzes the VHDL with GHDL, elaborates it, and runs the cocotb regression. The results table
-reports the cocotb test counts, and the exit status is non-zero if any test failed.
+Xeda analyzes the VHDL with GHDL, elaborates it and runs the cocotb regression. The results table
+shows the cocotb test counts. The exit status is non-zero if any test failed.
 
-To capture a waveform:
+To write a waveform:
 
 .. code-block:: bash
 
-    xeda run ghdl_sim sqrt.yaml -s waveform=dump.vcd
+    xeda run ghdl_sim sqrt.yaml -s vcd=dump.vcd
 
 A simulation passes only if it ends on purpose. The testbench calls ``$finish`` (``std.env.finish``
 in VHDL), the cocotb tests complete, or the run reaches the ``stop_time`` that you set. Use
@@ -69,14 +49,18 @@ in VHDL), the cocotb tests complete, or the run reaches the ``stop_time`` that y
 Do not use it with this design. cocotb ends the simulation itself, and a ``stop_time`` earlier than
 the end of the tests makes cocotb report that the simulation ended too early.
 
-Any simulator will do. The design file does not change:
+Another simulator runs the same design file and testbench:
 
 .. code-block:: bash
 
-    xeda run nvc sqrt.yaml                          # NVC
-    xeda run verilator ../../sv/fifo/fifo.xeda.yaml # Verilator, for a Verilog/SystemVerilog design
+    xeda run nvc sqrt.yaml
 
-The second command runs the ``fifo`` example, a SystemVerilog design with its own testbench.
+Verilator simulates Verilog and SystemVerilog. This command runs the ``fifo`` example, a
+SystemVerilog design with its own testbench:
+
+.. code-block:: bash
+
+    xeda run verilator ../../sv/fifo/fifo.xeda.yaml
 
 3. Synthesize
 =============
@@ -85,21 +69,27 @@ The second command runs the ``fifo`` example, a SystemVerilog design with its ow
 
     xeda run vivado_synth sqrt.yaml
 
-The ``flows.vivado_synth`` mapping supplies the part and the clock period. Tighten the period
-from the command line without editing the file:
+The ``flows.vivado_synth`` section supplies the part and the clock period. To tighten the period,
+use the command line and leave the file as it is:
 
 .. code-block:: bash
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.0
 
-To find out what else that flow accepts:
+To see all the settings of the flow:
 
 .. code-block:: bash
 
     xeda list-settings vivado_synth
 
-For an open-source toolchain instead, ``yosys_fpga`` synthesizes and ``nextpnr`` places and
-routes. ``nextpnr`` depends on ``yosys_fpga``, so running it runs both:
+To see what a command would run, add ``--dry-run``. Xeda prints the plan and starts no tool:
+
+.. code-block:: bash
+
+    xeda run vivado_synth sqrt.yaml --dry-run
+
+An open-source toolchain uses ``yosys_fpga`` to synthesize and ``nextpnr`` to place and route.
+``nextpnr`` needs the netlist of ``yosys_fpga``, so running ``nextpnr`` runs both:
 
 .. code-block:: bash
 
@@ -108,11 +98,12 @@ routes. ``nextpnr`` depends on ``yosys_fpga``, so running it runs both:
 4. Read the results
 ===================
 
-Each run leaves a directory under ``./xeda_run/`` containing the generated scripts, the tool logs,
-``reports/``, ``outputs/``, and two JSON files: ``settings.json`` (both the re-runnable input and
-the final effective settings) and ``results.json`` (what was parsed back out).
+Each run leaves a directory under ``./xeda_run/``. It holds the generated scripts, the tool logs,
+``reports/`` and ``outputs/``. It also holds three JSON files: ``settings.json`` (the input
+settings and the effective settings), ``results.json`` (what Xeda parsed from the reports) and
+``trace.json`` (what Xeda needs to decide later whether the run is up to date).
 
-From a script, skip the file-hunting:
+A script can read the results from the ``--json`` document that the command writes to stdout:
 
 .. code-block:: bash
 
@@ -123,21 +114,22 @@ From a script, skip the file-hunting:
 5. Search for the maximum frequency
 ===================================
 
-Instead of guessing at the clock period, let Xeda search. ``xeda dse`` runs many instances of a
-flow in parallel under an optimizer; the default one binary-searches for the highest frequency
-that still meets timing:
+To find the clock period, let Xeda search for it. ``xeda dse`` runs many instances of a flow in
+parallel under an optimizer. The default optimizer searches for the highest frequency that still
+meets timing:
 
 .. code-block:: bash
 
     xeda dse vivado_synth --design sqrt.yaml --max-workers 4
 
-The best result is written to a JSON file in the working directory as the search improves, so a
-long search is never lost. ``xeda list-optimizers`` shows the optimizers and their settings.
+Each time the search improves, Xeda writes the best result to a JSON file in the run root,
+``xeda_run/fmax_<design>_<flow>_<timestamp>.json``. A search that stops early keeps its best
+result. ``xeda list-optimizers`` shows the optimizers and their settings.
 
 Where to go next
 ================
 
-* :doc:`../design-file` - the full design-file reference
-* :doc:`../flows` - how flows, settings and dependencies fit together
-* :doc:`../run-directories` - the run directory and ``results.json``
-* :doc:`../machine-readable` - JSON output, for scripts and coding agents
+* :doc:`../design-file`: the reference of the design file
+* :doc:`../flows`: how flows, settings and producers fit together
+* :doc:`../run-directories`: the run directory and ``results.json``
+* :doc:`../machine-readable`: JSON output, for scripts and coding agents
