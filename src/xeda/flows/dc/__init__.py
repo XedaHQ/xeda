@@ -10,7 +10,6 @@ from box import Box
 from ...dataclass import WORKING, Field, field_validator
 from ...design import SourceType
 from ...flow import AsicSynthFlow, describe_results
-from ...platforms import AsicsPlatform
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
 
@@ -99,6 +98,21 @@ class Dc(AsicSynthFlow):
     )
 
     class Settings(AsicSynthFlow.Settings):
+        removed_settings = {
+            **AsicSynthFlow.Settings.removed_settings,
+            **{
+                name: "no setting: xeda passed it to nothing. Give DC the same through a hook "
+                "in `hooks`"
+                for name in (
+                    "platform",
+                    "extra_link_libraries",
+                    "mw_ref_lib",
+                    "mw_tf",
+                    "alib_dir",
+                    "additional_search_path",
+                )
+            },
+        }
         log_file: Optional[Path] = Field(
             Path("dc.log"),
             description="Path to the log file. If not set, the log will only be printed to stdout.",
@@ -152,12 +166,6 @@ class Dc(AsicSynthFlow):
                 )
             return value
 
-        platform: Optional[AsicsPlatform] = Field(
-            None,
-            description="ASIC platform (PDK) supplying the target/link libraries: a bundled "
-            "platform name (see `xeda list-platforms`) or a path to a config.toml. An alternative "
-            "to setting `target_libraries` by hand.",
-        )
         hdlin: Dict[str, str] = Field(
             {
                 "infer_mux": "default",
@@ -186,22 +194,6 @@ class Dc(AsicSynthFlow):
             [],
             description="Target library or libraries (liberty `.db` files). Required: the flow "
             "refuses to launch without one.",
-        )
-        extra_link_libraries: List[Path] = Field([], description="Additional link libraries")
-        mw_ref_lib: Optional[Path] = Field(
-            None, description="Milkyway reference library, for flows that write a Milkyway design."
-        )
-        mw_tf: Optional[Path] = Field(
-            None, description="Milkyway technology file (.tf) matching `mw_ref_lib`."
-        )
-        alib_dir: Optional[Path] = Field(
-            None,
-            description="Directory for DC's cached alib library analysis, a name inside the run "
-            "directory.",
-            json_schema_extra=WORKING,
-        )
-        additional_search_path: Optional[Path] = Field(
-            None, description="Extra directory appended to DC's `search_path`."
         )
         default_max_input_delay: Optional[float] = Field(
             0.0, description="Default max delay to set on all non-clock input ports"
@@ -243,11 +235,6 @@ class Dc(AsicSynthFlow):
             description="Path to the TLUplus (tech2itf) map file. Required if topographical_mode is set to True.",
         )
 
-        @field_validator("platform", mode="before")
-        @classmethod
-        def _validate_platform(cls, value):
-            return AsicsPlatform.from_setting(value)
-
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
@@ -282,10 +269,6 @@ class Dc(AsicSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # if ss.platform:
-        #     if not ss.target_libraries:
-        #         ss.liberty = ss.platform.default_corner_settings.lib_files
-
         # prepend the generated constraints.sdc file to the list of user SDC files
         # if you don't want to use the generated clock and I/O constraints, simply don't set
         #   any PhysicalClock settings (clock.freq, etc) in the flow settings

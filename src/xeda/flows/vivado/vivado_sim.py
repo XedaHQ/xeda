@@ -34,6 +34,13 @@ class VivadoSim(Vivado, SimFlow):
     # Can run multiple configurations (a.k.a testvectors) in a single run of Vivado through "run_configs"
 
     class Settings(Vivado.Settings, SimFlow.Settings):
+        removed_settings = {
+            **Vivado.Settings.removed_settings,
+            "suppress_msgs": "no setting: a simulation runs no synthesis, and xeda passed it to "
+            "nothing",
+            "initialize_zeros": "no setting: xeda passed it to nothing",
+            "read_oneshot": "no setting: xeda passed it to nothing",
+        }
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
@@ -70,7 +77,6 @@ class VivadoSim(Vivado, SimFlow):
             '"10ns". Useful to skip an initial reset sequence.',
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
-        initialize_zeros: bool = Field(False, description="Initialize all signals with zero")
         xelab_log: Optional[Path] = Field(
             Path("xeda_xelab.log"),
             description="File the elaboration (`xelab`) log is written to.",
@@ -85,11 +91,6 @@ class VivadoSim(Vivado, SimFlow):
             0,
             description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level. "
             "Needs `vcd`.",
-        )
-        read_oneshot: bool = Field(
-            False,
-            description="Analyze all sources in a single tool invocation instead of one per file. "
-            "Faster, but gives less precise error locations.",
         )
 
     @classmethod

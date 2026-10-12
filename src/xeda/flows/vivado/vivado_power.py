@@ -61,6 +61,7 @@ class VivadoPower(Vivado, FpgaSynthFlow):
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
+            "suppress_msgs": "no setting: power reports from files, and xeda passed it to nothing",
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
             "timing_sim": "no setting: power asks for timing activity, which switches "
             "`flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",

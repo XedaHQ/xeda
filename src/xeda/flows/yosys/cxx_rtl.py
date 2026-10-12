@@ -1,15 +1,15 @@
 import logging
 from pathlib import Path
-from typing import Any, List, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from ...dataclass import WORKING, Field, XedaBaseModel, deliverable
+from ...dataclass import WORKING, Field, XedaBaseModel, deliverable, input_names
 from ...design import Design, SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...flow.sim_evidence import read_sim_evidence
 from ...flows.ghdl import GhdlSynth
 from ...tool import NonZeroExitCode
-from .common import READ_SOURCE_TYPES, YosysBase, process_parameters
+from .common import READ_SOURCE_TYPES, YosysBase, YosysSynthesisBase, process_parameters
 
 log = logging.getLogger(__name__)
 
@@ -62,24 +62,20 @@ class YosysSim(YosysBase, SimFlow):
         return cls.has_cpp_driver(design)
 
     class Settings(YosysBase.Settings, SimFlow.Settings):
+        # CXXRTL simulation maps nothing to a netlist: it has none of the synthesis settings
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **SimFlow.Settings.removed_settings,
+            **{
+                spelling: "no setting: CXXRTL simulation does not synthesize"
+                for spelling, field in input_names(YosysSynthesisBase.Settings).items()
+                if field not in YosysBase.Settings.model_fields
+            },
+            "optimization_flags": "no setting: xeda passed it to nothing",
+        }
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",
             description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "
             "accepted by write_cxxrtl for common designs.",
-        )
-        # CXXRTL simulation writes no netlist: the synthesis flows' defaults are cleared, under
-        # the same names (and aliases) as theirs.
-        netlist_verilog: Optional[Path] = Field(
-            None,
-            alias="netlist",
-            description="Unused by CXXRTL simulation.",
-            json_schema_extra=deliverable("outputs/{design}_netlist.v"),
-        )
-        netlist_json: Optional[Path] = Field(
-            None,
-            alias="json_netlist",
-            description="Unused by CXXRTL simulation.",
-            json_schema_extra=deliverable("outputs/{design}_netlist.json"),
         )
         cxxrtl: CxxRtl = Field(
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."

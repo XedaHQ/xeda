@@ -1,7 +1,7 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, Literal, Optional, Union
+from typing import ClassVar, Dict, List, Literal, Optional, Union
 
 from colorama import Fore as fg
 from colorama import Style as style
@@ -101,15 +101,15 @@ class Vcs(SimFlow):
     simv: Tool
 
     class Settings(SimFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **SimFlow.Settings.removed_settings,
+            "optimization_flags": "no setting: xeda passed it to nothing",
+            "work_dir": "no setting: xeda passed it to nothing",
+        }
         simv_flags: List[str] = Field(
             [],
             description="Extra arguments passed to the compiled simulator executable (simv). "
             "Ignored when `one_shot_run` is set.",
-        )
-        work_dir: Optional[Path] = Field(
-            Path("work"),
-            description="Directory holding the analyzed design library (vlogan/vhdlan).",
-            json_schema_extra=WORKING,
         )
         sim_no_save: bool = Field(
             True,

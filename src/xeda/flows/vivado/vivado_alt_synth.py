@@ -476,6 +476,17 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
                 )
             return value
 
+        @field_validator("set_synth_properties", "set_impl_properties", "show_available_strategies")
+        @classmethod
+        def _no_runs(cls, value, info):
+            """Reject the settings of a project's runs: non-project mode has none."""
+            if value:
+                raise ValueError(
+                    "vivado_alt_synth runs Vivado in non-project mode, which has no runs to use "
+                    f"`{info.field_name}` on: it is a setting of vivado_synth"
+                )
+            return value
+
         @field_validator("synth", "impl")
         @classmethod
         def validate_synth(cls, value, info):

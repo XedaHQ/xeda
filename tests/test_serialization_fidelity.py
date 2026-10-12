@@ -512,7 +512,7 @@ def test_a_dse_outcome_is_one_view_wherever_it_is_written(tmp_path):
     assert from_file == _dse_best_document(outcome)
     assert from_file["run_path"] == str(tmp_path / "run"), "a path is written as text"
     assert from_file["results"]["Fmax"] == 123.4
-    assert from_file["settings"]["timeout_seconds"] == Flow.Settings().timeout_seconds
+    assert from_file["settings"]["nthreads"] == Flow.Settings().nthreads
 
 
 # ---------------------------------------------------------------------------------------------

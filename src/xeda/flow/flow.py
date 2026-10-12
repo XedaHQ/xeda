@@ -923,13 +923,11 @@ class Flow(metaclass=ABCMeta):
         redirect_stdout: bool = Field(
             False, description="Redirect stdout from execution of tools to files."
         )
-        timeout_seconds: int = Field(3600 * 2, json_schema_extra={"hidden_from_schema": True})
         nthreads: Optional[int] = Field(
             None,
             alias="ncpus",
             description="Max number of threads",
         )
-        no_console: bool = Field(False, json_schema_extra={"hidden_from_schema": True})
         reports_dir: Path = Field(
             Path("reports"), json_schema_extra={"hidden_from_schema": True, **WORKING}
         )
@@ -1002,7 +1000,9 @@ class Flow(metaclass=ABCMeta):
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
         removed_settings: ClassVar[Dict[str, str]] = {
-            "clean": "the --clean option (clean=True on the launcher)"
+            "clean": "the --clean option (clean=True on the launcher)",
+            "timeout_seconds": "no setting: no flow read it",
+            "no_console": "no setting: no flow read it",
         }
 
         @classmethod

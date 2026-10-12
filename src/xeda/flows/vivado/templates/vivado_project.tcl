@@ -45,16 +45,17 @@ set_property top {{design.rtl.top|tcl_word}} [get_fileset sources_1]
 set_property top {{design.tb.top[0]|tcl_word}} [get_fileset sim_1]
 {% endif %}
 
-# set avail_synth_strategies [join [list_property_value strategy [get_runs synth_1] ] " "]
-# puts "\n Available synthesis strategies:\n  $avail_synth_strategies\n"
+{%- if settings.show_available_strategies %}
+set avail_synth_strategies [join [list_property_value strategy [get_runs synth_1] ] " "]
+puts "\n Available synthesis strategies:\n  $avail_synth_strategies\n"
+set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
+puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
+{%- endif %}
 
 {%- if settings.synth.strategy %}
 puts "Using {{settings.synth.strategy|tcl_quote}} strategy for synthesis."
 set_property strategy {{settings.synth.strategy|tcl_word}} [get_runs synth_1]
 {%- endif %}
-
-# set avail_impl_strategies [join [list_property_value strategy [get_runs impl_1] ] " "]
-# puts "\n Available implementation strategies:\n  $avail_impl_strategies\n"
 
 {%- if settings.impl.strategy %}
 puts "Using {{settings.impl.strategy|tcl_quote}} strategy for implementation."
@@ -115,6 +116,12 @@ set_property {{("STEPS." ~ step ~ "." ~ name)|tcl_word}} {{value|tcl_word}} [get
 {%- endfor %}
 {%- endfor %}
 
+{% for k,v in settings.set_synth_properties.items() -%}
+set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs synth_1]
+{% endfor -%}
+{% for k,v in settings.set_impl_properties.items() -%}
+set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs impl_1]
+{% endfor -%}
 
 #-----
 

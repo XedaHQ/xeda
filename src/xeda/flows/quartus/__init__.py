@@ -100,6 +100,10 @@ class Quartus(FpgaSynthFlow):
     )
 
     class Settings(FpgaSynthFlow.Settings):
+        removed_settings = {
+            **FpgaSynthFlow.Settings.removed_settings,
+            "synthesis_effort": "no setting: xeda passed it to nothing",
+        }
         # part number (fpga.part) formats are quite complicated.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
         seed: Optional[int] = Field(None, description="Seed")
@@ -162,11 +166,6 @@ class Quartus(FpgaSynthFlow):
         )
         rom_recognition: bool = Field(
             True, description="Infer ROM blocks from constant memory patterns."
-        )
-        synthesis_effort: Literal["auto", "fast"] = Field(
-            "auto",
-            description='Synthesis effort. "fast" compiles noticeably quicker and gives worse '
-            "quality of results.",
         )
         fitter_effort: Literal["STANDARD FIT", "AUTO FIT", "FAST_FIT"] = Field(
             "AUTO FIT",

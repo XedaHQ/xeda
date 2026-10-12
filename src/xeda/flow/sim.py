@@ -343,10 +343,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
             CocotbSettings(),  # type: ignore
             description="Settings for the cocotb testbench, used when design.tb.cocotb is set.",
         )
-        optimization_flags: List[str] = Field(
-            [],
-            description="Extra optimization flags passed to the simulator's compiler/elaborator.",
-        )
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:

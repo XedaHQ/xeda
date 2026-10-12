@@ -410,8 +410,13 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         )
         extra_reports: bool = Field(
             False,
-            description="Generate additional Vivado reports (hierarchical utilization, detailed "
-            "timing, ...). Slower, but useful for analysis.",
+            description="Write the clock utilization and methodology reports after routing, "
+            "which takes more time. The flows that run without a project also write the DRC and "
+            "power reports.",
+        )
+        report_power: bool = Field(
+            False,
+            description="Write a power estimate (`power.xml`) with the reports after routing.",
         )
         qor_suggestions: bool = Field(
             False,
@@ -433,6 +438,13 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
         )
         default_min_output_delay: Optional[float] = Field(
             None, description="Default min delay to set on all output ports"
+        )
+        suppress_msgs: List[str] = Field(
+            [
+                "Vivado 12-7122",  # Auto Incremental Compile: No reference checkpoint was found
+            ],
+            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
+            "messages are not printed and never trigger `fail_critical_warning`.",
         )
         xdc_files: List[Union[str, Path]] = Field([], description="List of XDC constraint files.")
         write_checkpoint: bool = Field(
@@ -850,7 +862,6 @@ class VivadoSynth(VivadoImplementation):
             "name. A name with dots is one key, as in `set_synth_properties`. Values may be "
             "text, numbers or booleans.",
         )
-        report_power: bool = Field(False, description="Run power estimation after implementation")
 
     class Outputs(_VivadoSynthOutputs):
         sdf_min: Path | None = Out(

@@ -152,18 +152,6 @@ class Ghdl(Flow, metaclass=ABCMeta):
             False,
             description="Allow to use synopsys packages in ieee library.",
         )
-        compiler_flags: List[str] = Field(
-            [],
-            description="Compiler flags for the C compiler (Only for LLVM and GCC backends).",
-        )
-        assembler_flags: List[str] = Field(
-            [],
-            description="Assembler flags for the assembler (Only for LLVM and GCC backends).",
-        )
-        linker_flags: List[str] = Field(
-            [],
-            description="Linker flags for the linker (Only for LLVM and GCC backends).",
-        )
         psl_in_comments: bool = Field(
             False, description="Parse PSL assertions within comments (for VHDL-2002 and earlier)"
         )
@@ -328,56 +316,6 @@ class Ghdl(Flow, metaclass=ABCMeta):
                 )
         return top or ()
 
-    def elaborate(
-        self,
-        sources: List[DesignSource],
-        top: Union[str, Tuple012, None],
-        vhdl: VhdlSettings,
-    ) -> Tuple012:
-        """Analyze `sources` and build the simulation executable of the top unit (`ghdl make`).
-
-        Returns the top unit(s) as a Tuple012.
-        """
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        top = self.analyze(sources, top, vhdl)
-        if not top:
-            raise FlowException("Unable to determine the top unit")
-        backend = self.ghdl.info.get("backend", None)
-        args = ss.get_flags(vhdl, "make", backend=backend)
-        if isinstance(ss, SimFlow.Settings):
-            args += ss.optimization_flags
-        if backend:
-            log.info("GHDL backend: %s", backend)
-            backend_split = backend.split()
-            compiler = backend_split[0].lower() if backend_split else None
-            backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
-            # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
-            # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
-            # A flag of Apple's linker: only for a GHDL that runs on this macOS host, not in a
-            # (Linux) container, where GNU ld misreads it and the link fails (`-lgcc_s`).
-            runs_on_host = not (self.ghdl.dockerized and self.ghdl.docker)
-            if compiler == "llvm" and backend_version and backend_version[0].isdigit():
-                llvm_major = int(backend_version[0])
-                link_flag = "-Wl,-no_compact_unwind"
-                if (
-                    runs_on_host
-                    and platform.system() == "Darwin"
-                    and platform.machine() == "arm64"
-                    and llvm_major
-                    < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
-                    and ss.linker_flags.count(link_flag) == 0
-                ):
-                    log.info("Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend)
-                    ss.linker_flags.append(link_flag)
-            if compiler in ("llvm", "gcc"):
-                args += (f"-Wc,{x}" for x in ss.compiler_flags)
-                args += (f"-Wa,{x}" for x in ss.assembler_flags)
-                args += (f"-Wl,{x}" for x in ss.linker_flags)
-        args += list(top)
-        self.ghdl.run("make", *args)
-        return top
-
 
 class GhdlSynth(Ghdl, SynthFlow):
     """
@@ -392,6 +330,14 @@ class GhdlSynth(Ghdl, SynthFlow):
     requires_physical_clocks = False
 
     class Settings(Ghdl.Settings, SynthFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Ghdl.Settings.removed_settings,
+            **{
+                name: "no setting: `ghdl --synth` compiles and links nothing. The simulation flow "
+                f"has it: `flows.ghdl_sim.{name}`"
+                for name in ("compiler_flags", "assembler_flags", "linker_flags")
+            },
+        }
         vendor_library: Optional[str] = Field(
             None, description="Any unit from this library is a black box"
         )
@@ -536,6 +482,18 @@ class GhdlSim(Ghdl, SimFlow):
             [], description="Extra flags passed to `ghdl run` (or the elaborated executable)."
         )
         optimization_flags: List[str] = Field(["-O3"], description="Simulation optimization flags")
+        compiler_flags: List[str] = Field(
+            [],
+            description="Compiler flags for the C compiler (Only for LLVM and GCC backends).",
+        )
+        assembler_flags: List[str] = Field(
+            [],
+            description="Assembler flags for the assembler (Only for LLVM and GCC backends).",
+        )
+        linker_flags: List[str] = Field(
+            [],
+            description="Linker flags for the linker (Only for LLVM and GCC backends).",
+        )
         asserts: Optional[Literal["disable", "disable-at-0"]] = Field(
             None,
             description="Disable user assertion failures entirely (`disable`) or only those firing "
@@ -637,6 +595,55 @@ class GhdlSim(Ghdl, SimFlow):
         assert isinstance(settings, cls.Settings)
         cls.check_waveforms(settings)
         settings.runtime_flags()
+
+    def elaborate(
+        self,
+        sources: List[DesignSource],
+        top: Union[str, Tuple012, None],
+        vhdl: VhdlSettings,
+    ) -> Tuple012:
+        """Analyze `sources` and build the simulation executable of the top unit (`ghdl make`).
+
+        Returns the top unit(s) as a Tuple012.
+        """
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        top = self.analyze(sources, top, vhdl)
+        if not top:
+            raise FlowException("Unable to determine the top unit")
+        backend = self.ghdl.info.get("backend", None)
+        args = ss.get_flags(vhdl, "make", backend=backend)
+        args += ss.optimization_flags
+        if backend:
+            log.info("GHDL backend: %s", backend)
+            backend_split = backend.split()
+            compiler = backend_split[0].lower() if backend_split else None
+            backend_version = backend_split[1].split(".") if len(backend_split) > 1 else []
+            # Workaround for annoying warnings on macOS/arm64 with earlier versions of the toolchains.
+            # Not required when using the latest versions of Xcode/CommandLineTools, LLVM, GNAT, and GHDL.
+            # A flag of Apple's linker: only for a GHDL that runs on this macOS host, not in a
+            # (Linux) container, where GNU ld misreads it and the link fails (`-lgcc_s`).
+            runs_on_host = not (self.ghdl.dockerized and self.ghdl.docker)
+            if compiler == "llvm" and backend_version and backend_version[0].isdigit():
+                llvm_major = int(backend_version[0])
+                link_flag = "-Wl,-no_compact_unwind"
+                if (
+                    runs_on_host
+                    and platform.system() == "Darwin"
+                    and platform.machine() == "arm64"
+                    and llvm_major
+                    < 19  # TODO Probably need to check the GNAT version? Also, no idea about the version number.
+                    and ss.linker_flags.count(link_flag) == 0
+                ):
+                    log.info("Adding no_compact_unwind linker flags for macOS/arm64 %s" % backend)
+                    ss.linker_flags.append(link_flag)
+            if compiler in ("llvm", "gcc"):
+                args += (f"-Wc,{x}" for x in ss.compiler_flags)
+                args += (f"-Wa,{x}" for x in ss.assembler_flags)
+                args += (f"-Wl,{x}" for x in ss.linker_flags)
+        args += list(top)
+        self.ghdl.run("make", *args)
+        return top
 
     def init(self) -> None:
         super().init()

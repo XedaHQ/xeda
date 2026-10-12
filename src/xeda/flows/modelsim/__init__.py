@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import ClassVar, Dict, List, Optional, Union
 
 from ...dataclass import Field
 from ...design import DesignValidationError, SourceType
@@ -58,6 +58,10 @@ class Modelsim(SimFlow):
         return parse_modelsim_evidence(self)
 
     class Settings(SimFlow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **SimFlow.Settings.removed_settings,
+            "optimization_flags": "no setting: xeda passed it to nothing",
+        }
         sdf: SDF = Field(
             SDF(),
             description="SDF timing-annotation files to back-annotate onto the netlist, per delay "

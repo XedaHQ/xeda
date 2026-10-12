@@ -330,6 +330,7 @@ class Verilator(SimFlow):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
+            "optimization_flags": "no setting: xeda passed it to nothing",
         }
 
     @classmethod

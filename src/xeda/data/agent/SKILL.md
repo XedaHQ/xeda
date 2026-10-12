@@ -132,7 +132,10 @@ any other dotted key is a path into nested tables (`synth.steps...`).
 
 Every flow also accepts `ncpus` (alias `nthreads`), `dockerized`/`docker`,
 `quiet`/`verbose`/`debug`, `redirect_stdout` and `lib_paths`. `xeda list-settings <flow> --json`
-marks these with `"common": true`; `--no-common` omits them.
+marks these with `"common": true`; `--no-common` omits them. A flow whose tool has no matching
+option ignores `ncpus`, `redirect_stdout` or `lib_paths` (only the Vivado flows redirect). Any
+other setting a flow lists, it uses: a flow refuses one it does not use, as `vivado_project` does
+the settings of `vivado_sim`.
 
 A setting may have an `alias`; both names work (`vcd`/`waveform`, `nthreads`/`ncpus`).
 

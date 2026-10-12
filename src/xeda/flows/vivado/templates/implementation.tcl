@@ -94,6 +94,10 @@ report_methodology                 -file [file join ${rep_dir} methodology.rpt]
 report_qor_suggestions             -file [file join ${rep_dir} qor_suggestions.rpt]
 {%- endif %}
 
+{% if settings.report_power -%}
+report_power -quiet                -file [file join ${rep_dir} power.xml] -format xml
+{%- endif %}
+
 set timing_slack [get_property SLACK [get_timing_paths]]
 
 if {[string is double -strict $timing_slack]} {

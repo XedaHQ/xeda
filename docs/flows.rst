@@ -157,12 +157,17 @@ text keeps the text as it is. The lists of the ``cocotb`` section (``testcase``,
 take text the same way.
 
 Unknown settings are a hard error, not a warning. This is deliberate: a mistyped setting that was
-silently ignored would produce a result that looks fine and is not what you asked for.
+silently ignored would produce a result that looks fine and is not what you asked for. For the
+same reason a flow has no flow-specific setting that it does not use. A flow that cannot honor a setting of a
+related flow refuses it and names the flow that has it: ``vivado_project`` runs no simulation, so
+it refuses the settings of ``vivado_sim``.
 
 Settings shared by every flow
 -----------------------------
 
-Beyond the flow-specific ones, every flow accepts:
+Beyond the flow-specific ones, every flow accepts the settings below. The tools of some flows have
+no matching option. Such a flow accepts ``ncpus``, ``redirect_stdout`` or ``lib_paths`` and does
+nothing with it.
 
 ``ncpus`` (alias of ``nthreads``)
     Maximum number of threads the tools may use.
@@ -174,10 +179,11 @@ Beyond the flow-specific ones, every flow accepts:
     How much the flow and its tools say.
 
 ``redirect_stdout``
-    Send tool output to files rather than the console.
+    Send tool output to files rather than the console. Only the Vivado flows do this.
 
 ``lib_paths``
-    Additional HDL libraries, as ``(name, path)`` pairs.
+    Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
+    simulation flows use them.
 
 ``xeda list-settings <flow>`` lists these under *Common settings*; pass ``--no-common`` to see
 only the flow-specific ones.

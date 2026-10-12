@@ -164,7 +164,9 @@ class Openroad(AsicSynthFlow):
             description="DEF file with a ready-made floorplan, used instead of generating one.",
         )
         floorplan_tcl: Optional[Path] = Field(
-            None, description="TCL script sourced at the end of floorplanning, for custom tweaks."
+            None,
+            description="TCL script sourced when the floorplan is made, after the tracks and "
+            "`footprint_tcl` and before the floorplan is saved.",
         )
         resynth_for_timing: bool = Field(
             False,

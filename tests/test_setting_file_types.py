@@ -24,7 +24,6 @@ FILE_NAMES = re.compile(r"(_file|_files|_script|_dirs?|_folder|ini|_libs?)$|path
 NOT_INPUTS = {
     "yosys.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
     "yosys_fpga.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
-    "yosys_sim.abc_script": "inline scripts are text; file scripts are registered as implicit inputs",
     "dc.sdf_inst_name": "an instance name in the design hierarchy",
     "dc.sdf_version": "the SDF format version to write",
     "vcs.sdf_instance": "an instance name in the design hierarchy",
@@ -32,10 +31,8 @@ NOT_INPUTS = {
     "modelsim.sdf.root": "an instance path in the design hierarchy",
     "vivado_sim.sdf.root": "an instance path in the design hierarchy",
     "vivado_postsynth_sim.sdf.root": "an instance path in the design hierarchy",
-    "vivado_project.sdf.root": "an instance path in the design hierarchy",
     "vivado_sim.work_lib": "a library name",
     "vivado_postsynth_sim.work_lib": "a library name",
-    "vivado_project.work_lib": "a library name",
 }
 
 
@@ -114,7 +111,6 @@ def test_an_inline_abc_script_is_text_and_a_script_file_a_path(tmp_path):
 INPUT_DIRECTORIES = {
     "lib_paths": "compiled libraries a tool reads",
     "include_dirs": "include directories Verilator searches",
-    "additional_search_path": "a directory DC searches for libraries",
     "prjxray_db": "the Project X-Ray database nextpnr and fpga_pack read for 7-series",
     "search_paths": "directories bsc searches for imported Bluespec packages",
     "verilog_search_paths": "directories bsc searches for the Verilog of imported modules",
