@@ -7,6 +7,7 @@ it. The sweeps below classify every waveform setting of every simulator, so a ne
 simulator fails here until it is classified.
 """
 
+import gzip
 from pathlib import Path, PurePath
 
 import pytest
@@ -14,6 +15,7 @@ from pydantic import ValidationError
 
 from xeda import Design
 from xeda.dataclass import (
+    COMPRESSED_FORMATS,
     WAVEFORM_SUFFIXES,
     WaveformText,
     format_of_waveform_name,
@@ -45,6 +47,10 @@ def true_name(cls, field: str) -> str:
     found = waveform_format(cls.Settings, field)
     assert found is not None
     return found[1]
+
+
+def name_of_flow(cls) -> str:
+    return cls.name
 
 
 def build(cls, **settings):
@@ -195,32 +201,67 @@ def test_the_command_line_text_gives_the_run_a_boolean_waveform_would(tmp_path):
 # no waveform setting is ignored
 # ---------------------------------------------------------------------------------------------
 
-#: What each simulator hands its tool for a waveform setting set to `true`. Every item is an
-#: argument of a tool command, or a text in a script xeda wrote for the tool. A setting a
-#: simulator cannot honor is not here: it is `unsupported_waveforms`, refused when planned.
-HONORED: dict[tuple[str, str | None, str], list[str]] = {
-    ("ghdl_sim", None, "vcd"): ["--vcd=dump.vcd"],
-    ("ghdl_sim", None, "fst"): ["--fst=dump.fst"],
-    ("ghdl_sim", None, "wave"): ["--wave=dump.ghw"],
-    ("nvc", None, "vcd"): ["--wave=dump.vcd", "--format=vcd"],
-    ("nvc", None, "fst"): ["--wave=dump.fst"],
-    ("modelsim", None, "vcd"): ["vcd file dump.vcd", "vcd add -r"],
-    ("vcs", None, "fsdb"): ['dump -file "dump.fsdb" -type FSDB'],
-    ("vcs", None, "vpd"): ['dump -file "dump.vpd" -type vpd'],
-    ("vcs", None, "evcd"): ['dump -file "dump.evcd" -type evcd'],
-    ("vivado_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_sim", None, "saif"): ["open_saif outputs/oracle.saif"],
-    ("vivado_postsynth_sim", None, "vcd"): ["open_vcd dump.vcd"],
-    ("vivado_postsynth_sim", None, "saif"): ["open_saif outputs/oracle.saif"],
-    ("verilator", None, "vcd"): ["--trace-vcd"],
-    ("verilator", None, "fst"): ["--trace-fst"],
-    ("verilator", None, "saif"): ["--trace-saif"],
-    ("bsc_sim", "bluesim", "vcd"): ["-V", "dump.vcd"],
-    ("bsc_sim", "verilator", "vcd"): ["+bscvcd"],
+#: What each simulator hands its tool for a waveform setting set to `true`: `(where, needle)`.
+#: `where` names the command or script that must carry the needle, so a flag that another
+#: command takes does not count: `("tool", name, word)` is the arguments of the commands of tool
+#: `name` that have the argument `word` (any when None), `("script", file)` a script xeda wrote,
+#: `("tcl",)` a command a fake Tcl tool recorded, and `("last",)` the last command that ran.
+#: A setting that a simulator cannot honor is not here: it is `unsupported_waveforms`, refused
+#: when planned.
+HONORED: dict[tuple[str, str | None, str], list[tuple[tuple, str]]] = {
+    ("ghdl_sim", None, "vcd"): [(("tool", "ghdl", "run"), "--vcd=dump.vcd")],
+    ("ghdl_sim", None, "vcdgz"): [(("tool", "ghdl", "run"), "--vcdgz=dump.vcd.gz")],
+    ("ghdl_sim", None, "fst"): [(("tool", "ghdl", "run"), "--fst=dump.fst")],
+    ("ghdl_sim", None, "wave"): [(("tool", "ghdl", "run"), "--wave=dump.ghw")],
+    ("nvc", None, "vcd"): [
+        (("tool", "nvc", "-r"), "--wave=dump.vcd"),
+        (("tool", "nvc", "-r"), "--format=vcd"),
+    ],
+    ("nvc", None, "fst"): [(("tool", "nvc", "-r"), "--wave=dump.fst")],
+    ("modelsim", None, "vcd"): [(("tcl",), "vcd file dump.vcd"), (("tcl",), "vcd add -r")],
+    ("vcs", None, "fsdb"): [(("script", "vcs_runtime.tcl"), 'dump -file "dump.fsdb" -type FSDB')],
+    ("vcs", None, "vpd"): [(("script", "vcs_runtime.tcl"), 'dump -file "dump.vpd" -type vpd')],
+    ("vcs", None, "evcd"): [(("script", "vcs_runtime.tcl"), 'dump -file "dump.evcd" -type evcd')],
+    ("vivado_sim", None, "vcd"): [(("tcl",), "open_vcd dump.vcd")],
+    ("vivado_sim", None, "saif"): [(("tcl",), "open_saif outputs/oracle.saif")],
+    ("vivado_postsynth_sim", None, "vcd"): [(("tcl",), "open_vcd dump.vcd")],
+    ("vivado_postsynth_sim", None, "saif"): [(("tcl",), "open_saif outputs/oracle.saif")],
+    ("verilator", None, "vcd"): [(("tool", "verilator", None), "--trace-vcd")],
+    ("verilator", None, "fst"): [(("tool", "verilator", None), "--trace-fst")],
+    ("verilator", None, "saif"): [(("tool", "verilator", None), "--trace-saif")],
+    ("bsc_sim", "bluesim", "vcd"): [(("last",), "-V"), (("last",), "dump.vcd")],
+    ("bsc_sim", "verilator", "vcd"): [(("last",), "+bscvcd")],
+    ("bsc_sim", "modelsim", "vcd"): [(("script", "bsc_modelsim_runtime.tcl"), "+bscvcd=dump.vcd")],
+    ("bsc_sim", "questa", "vcd"): [(("script", "bsc_modelsim_runtime.tcl"), "+bscvcd=dump.vcd")],
+    ("bsc_sim", "xsim", "vcd"): [(("tool", "xsim", None), "+bscvcd=dump.vcd")],
 }
-#: bsc's Verilog drivers take the name as a plusarg
-for _backend in ("iverilog", "modelsim", "questa", "vcs", "vcsi", "xsim"):
-    HONORED[("bsc_sim", _backend, "vcd")] = ["+bscvcd=dump.vcd"]
+#: bsc's Verilog drivers take the name as a plusarg of the simulation command
+for _backend in ("iverilog", "vcs", "vcsi"):
+    HONORED[("bsc_sim", _backend, "vcd")] = [(("last",), "+bscvcd=dump.vcd")]
+
+
+def handed(where: tuple, needle: str, flow, calls) -> bool:
+    """Whether the command or script `where` names carries `needle`."""
+    kind = where[0]
+    if kind == "tool":
+        _, tool, word = where
+        words = [
+            word_
+            for executable, args in calls
+            if Path(executable).name == tool and (word is None or word in args)
+            for word_ in args
+        ]
+        return needle in words
+    if kind == "script":
+        script = flow.run_path / where[1]
+        return script.is_file() and needle in script.read_text(encoding="utf-8")
+    if kind == "tcl":
+        try:
+            return any(" ".join(call).startswith(needle) for call in fake_calls(flow.run_path))
+        except FileNotFoundError:
+            return False
+    assert kind == "last"
+    return needle in calls[-1][1]
 
 
 def waveform_cases():
@@ -228,21 +269,6 @@ def waveform_cases():
         cls = get_flow_class(case.flow)
         for field in waveform_fields(cls.Settings):
             yield pytest.param(case, field, id=f"{case.name}.{field}")
-
-
-def run_text(flow, calls) -> tuple[set[str], str]:
-    """What the tool is handed: the arguments of every tool command, and the text of the scripts
-    xeda wrote for it (including the commands a fake Tcl tool recorded)."""
-    words = {word for _, args in calls for word in args}
-    text = []
-    for path in flow.run_path.glob("*"):
-        if path.suffix in (".tcl", ".do") and not path.name.startswith("fake_"):
-            text.append(path.read_text(encoding="utf-8"))
-    try:
-        text += [" ".join(call) for call in fake_calls(flow.run_path)]
-    except FileNotFoundError:
-        pass
-    return words, "\n".join(text)
 
 
 @pytest.mark.parametrize("case,field", list(waveform_cases()))
@@ -266,12 +292,26 @@ def test_a_waveform_setting_reaches_the_tool_or_is_refused_when_planned(
     flow = launch_case(
         case, tmp_path, monkeypatch, settings_overrides={field: given}, calls_out=calls
     )
-    words, text = run_text(flow, calls)
-    for needle in HONORED[key]:
-        assert needle in words or needle in text, (
-            f"{case.name} was given `{field}: {given}` and never handed {needle!r} to its tool: "
+    for where, needle in HONORED[key]:
+        assert handed(where, needle, flow, calls), (
+            f"{case.name} was given `{field}: {given}` and never handed {needle!r} to {where}: "
             f"{calls}"
         )
+
+
+def run_text(flow, calls) -> tuple[set[str], str]:
+    """Everything the tool is handed: the arguments of every command, and the text of the
+    scripts xeda wrote (including the commands a fake Tcl tool recorded)."""
+    words = {word for _, args in calls for word in args}
+    text = []
+    for path in flow.run_path.glob("*"):
+        if path.suffix in (".tcl", ".do") and not path.name.startswith("fake_"):
+            text.append(path.read_text(encoding="utf-8"))
+    try:
+        text += [" ".join(call) for call in fake_calls(flow.run_path)]
+    except FileNotFoundError:
+        pass
+    return words, "\n".join(text)
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
@@ -339,26 +379,71 @@ def _write(path: Path, text: str) -> Path:
 
 
 @pytest.mark.parametrize("cls,name,field,extension", FIELDS)
-def test_a_name_never_selects_the_format_of_another_setting(cls, name, field, extension):
-    """The setting a name is given to decides the format. A name that ends in the extension of
-    another format that has a setting of its own is refused, naming that setting: a location is
-    written under the conventional name of this setting, and `true` and a location of another
-    format would otherwise be one run."""
-    formats = waveform_fields(cls.Settings)
-    for other_field, other in formats.items():
+def test_a_name_never_selects_another_format(cls, name, field, extension):
+    """The setting a name is given to decides the format. A name that ends in an extension of
+    another format is refused, whether or not this simulator has a setting for that format: a
+    location is written under the conventional name of this setting, and `true` and a location
+    of another format would otherwise be one run. The advice names the setting of the other
+    format when this simulator has one that works, and never one that it refuses."""
+    usable = {
+        other: other_field
+        for other_field, other in waveform_fields(cls.Settings).items()
+        if other_field not in cls.unsupported_waveforms
+    }
+    for other, suffixes in WAVEFORM_SUFFIXES.items():
         if other == extension:
             continue
-        for suffix in WAVEFORM_SUFFIXES[other]:
+        for suffix in suffixes:
             for given in (f"w.{suffix}", f"/elsewhere/w.{suffix.upper()}"):
-                settings = build(cls, **{field: given})
                 with pytest.raises(FlowSettingsException) as raised:
-                    cls.check_settings_supported(settings)
+                    cls.check_settings_supported(build(cls, **{field: given}))
                 message = str(raised.value)
                 if field in cls.unsupported_waveforms:
                     assert "cannot write a waveform" in message
+                    continue
+                assert f"ends in .{suffix}" in message
+                if other in usable:
+                    assert f"give the name to `{usable[other]}`" in message
+                elif COMPRESSED_FORMATS.get(other) == extension:
+                    assert f"{name_of_flow(cls)} writes plain {extension.upper()}" in message
                 else:
-                    assert f"give the name to `{other_field}`" in message
-                    assert f"ends in .{suffix}" in message
+                    assert f"use a .{extension} name" in message
+                for refused in cls.unsupported_waveforms:
+                    assert f"`{refused}`," not in message.split("ends in")[1]
+
+
+@pytest.mark.parametrize(
+    "flow,field,given,advice",
+    [
+        ("modelsim", "vcd", "x.fst", "use a .vcd name"),
+        ("modelsim", "vcd", "x.ghw", "use a .vcd name"),
+        ("modelsim", "vcd", "x.vpd", "use a .vcd name"),
+        ("modelsim", "vcd", "x.saif", "use a .vcd name"),
+        ("vcs", "vpd", "x.vcd", "use a .vpd name"),
+        ("ghdl_sim", "wave", "x.vcd", "give the name to `vcd`"),
+        ("ghdl_sim", "vcd", "x.vcd.gz", "give the name to `vcdgz`"),
+        ("ghdl_sim", "vcd", "W.VCD.GZ", "give the name to `vcdgz`"),
+        ("ghdl_sim", "vcd", "x.vcdgz", "give the name to `vcdgz`"),
+        ("ghdl_sim", "vcd", "x.gz", "give the name to `vcdgz`"),
+        ("ghdl_sim", "vcd", "/dir/w.vcd.gz", "give the name to `vcdgz`"),
+        ("ghdl_sim", "vcdgz", "x.vcd", "give the name to `vcd`"),
+        ("ghdl_sim", "vcdgz", "x.fst.gz", "uncompressed"),
+        ("ghdl_sim", "fst", "x.fst.gz", "uncompressed"),
+        ("nvc", "vcd", "w.vcdgz", "writes plain VCD data: drop the gzip ending"),
+        ("nvc", "vcd", "w.vcd.gz", "writes plain VCD data: drop the gzip ending"),
+        ("nvc", "vcd", "w.gz", "writes plain VCD data: drop the gzip ending"),
+        ("modelsim", "vcd", "x.vcd.gz", "writes plain VCD data: drop the gzip ending"),
+        ("verilator", "vcd", "x.vcdgz", "writes plain VCD data: drop the gzip ending"),
+        ("vivado_sim", "vcd", "/d/x.vcd.gz", "writes plain VCD data: drop the gzip ending"),
+        ("bsc_sim", "vcd", "x.GZ", "writes plain VCD data: drop the gzip ending"),
+        ("nvc", "fst", "x.fst.gz", "uncompressed"),
+        ("nvc", "vcd", "x.fst", "give the name to `fst`"),
+    ],
+)
+def test_some_refusals_by_name(flow, field, given, advice):
+    cls = get_flow_class(flow)
+    with pytest.raises(FlowSettingsException, match=advice):
+        cls.check_settings_supported(build(cls, **{field: given}))
 
 
 @pytest.mark.parametrize("cls,name,field,extension", FIELDS)
@@ -382,12 +467,14 @@ def test_every_waveform_format_has_its_extensions_in_the_one_table():
     "name,expected",
     [
         ("w.vcd", ("vcd", "vcd")),
-        ("W.VCDGZ", ("vcd", "vcdgz")),
-        ("d/w.vcd.gz", ("vcd", "vcd.gz")),
-        ("w.fst", ("fst", "fst")),
-        ("w.gz", None),
+        ("W.VCD", ("vcd", "vcd")),
+        ("d/w.fst", ("fst", "fst")),
+        ("w.gz", ("vcdgz", "gz")),
+        ("w.vcd.gz", ("vcdgz", "vcd.gz")),
+        ("w.vcdgz", ("vcdgz", "vcdgz")),
         ("vcd", None),
         ("w.vcdx", None),
+        ("w.out", None),
         (3, None),
     ],
 )
@@ -496,15 +583,42 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
     assert not list(flow.run_path.glob("true*"))
 
 
-@pytest.mark.parametrize("name", ["w.vcdgz", "w.vcd.gz"])
-def test_ghdl_writes_a_compressed_vcd_for_the_vcd_setting(tmp_path, name):
-    """GHDL's `--vcdgz` is chosen by the name of `vcd`; the data are gzip, not GHW or VCD text."""
+@pytest.mark.parametrize(
+    "value,written",
+    [("true", "dump.vcd.gz"), ("w.vcdgz", "w.vcdgz"), ("w.vcd.gz", "w.vcd.gz"), ("w", "w.vcdgz")],
+)
+def test_ghdl_writes_a_compressed_vcd_for_the_vcdgz_setting(tmp_path, value, written):
+    """`vcdgz` always passes `--vcdgz`: the file is gzip, and it holds VCD."""
     require_ghdl()
     design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcd={name}"])
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={value}"])
     assert flow is not None and flow.succeeded
-    assert (flow.run_path / name).read_bytes()[:2] == b"\x1f\x8b"
+    data = (flow.run_path / written).read_bytes()
+    assert data[:2] == b"\x1f\x8b"
+    assert gzip.decompress(data).startswith(b"$date") or b"$var" in gzip.decompress(data)
+
+
+def test_ghdl_delivers_a_compressed_vcd_to_a_location_as_a_copy(tmp_path):
+    require_ghdl()
+    design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
+    target = tmp_path / "out" / "waves.vcd.gz"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcdgz={target}"])
+    assert flow is not None and flow.succeeded
+    assert (flow.run_path / "dump.vcd.gz").read_bytes()[:2] == b"\x1f\x8b"
+    assert b"$var" in gzip.decompress(target.read_bytes())
+
+
+def test_ghdl_vcd_is_plain_whatever_the_case_of_the_name(tmp_path):
+    require_ghdl()
+    design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run_flow(GhdlSim, design, flow_settings=["vcd=w.VCD"])
+    assert flow is not None and flow.succeeded
+    assert b"$var" in (flow.run_path / "w.VCD").read_bytes()
+    with pytest.raises(FlowSettingsException, match="give the name to `vcdgz`"):
+        runner.plan("ghdl_sim", design, flow_settings=["vcd=w.vcd.gz"])
 
 
 @pytest.mark.parametrize(
@@ -563,3 +677,56 @@ def test_nvc_filters_the_waveform_with_the_globs(tmp_path):
     assert flow is not None and flow.succeeded
     text = (flow.run_path / "f.vcd").read_text()
     assert " keep " in text and " drop " not in text
+
+
+# ---------------------------------------------------------------------------------------------
+# a flow built directly, and the plan
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_flow_built_directly_writes_the_design_name_into_a_template(tmp_path):
+    """Only the launcher delivers, but a flow made without it resolves `true` for `saif` to the
+    path it writes, by the function the launcher uses."""
+    from xeda.flows import VivadoSim
+
+    from .test_vivado import _vivado_sim_design
+
+    design = _vivado_sim_design(tmp_path / "design")
+    flow = VivadoSim({"saif": True}, design, tmp_path / "run")
+    assert isinstance(flow.settings, VivadoSim.Settings)
+    assert flow.settings.saif == Path("outputs/simdesign.saif")
+    located = VivadoSim({"saif": str(tmp_path / "x.saif")}, design, tmp_path / "run2")
+    assert located.settings.saif == Path(str(tmp_path / "x.saif"))  # delivery fills it in
+
+
+@pytest.mark.parametrize(
+    "flow_class,settings",
+    [
+        (Nvc, {"vcd": "true", "fst": "true"}),
+        (GhdlSim, {"vcd": "true", "vcdgz": "true"}),
+        (GhdlSim, {"read_wave_opt": "wave.opt"}),
+    ],
+)
+def test_a_flow_built_directly_refuses_what_planning_refuses(tmp_path, flow_class, settings):
+    design = _evidence_design(tmp_path, "std.env.finish;")
+    flow = flow_class(settings, design, tmp_path / "run")
+    with pytest.raises(FlowSettingsException):
+        flow.init()
+
+
+def test_saif_true_a_location_and_the_power_demand_are_one_run(tmp_path):
+    from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
+
+    write_vivado_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+
+    def simulation(*extra: str):
+        plan = runner.plan(
+            "vivado_power", tmp_path / "design.yaml", flow_settings=[*VIVADO_SETTINGS, *extra]
+        )
+        return plan.node("vivado_postsynth_sim")
+
+    demand = simulation()
+    on = simulation("flows.vivado_postsynth_sim.saif=true")
+    located = simulation(f"flows.vivado_postsynth_sim.saif={tmp_path}/elsewhere/a.saif")
+    assert demand.flowrun_hash == on.flowrun_hash == located.flowrun_hash

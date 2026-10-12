@@ -974,18 +974,19 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 3. A waveform setting (a field marked `json_schema_extra=waveform(<extension>)`, a deliverable;
    `dataclass.waveform_fields` lists them, `dataclass.waveform_format_of(model, field)` queries one) is read by `dataclass.waveform_value`, for every
    simulator: the text `true`/`false` (any case, no spaces around it, as for a boolean field) is the boolean, `true` is the setting's
-   conventional name (`dump.<format>` unless `waveform(extension, conventional)` says otherwise), so
+   conventional name (`dump.<format>` unless `waveform(extension, conventional)` says otherwise; `vcdgz` is `dump.vcd.gz`), so
    `true` and a location are one run (`identity_settings` counts a location as its conventional
    name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
    boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
-   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in an extension of another format that has its own setting (`dataclass.WAVEFORM_SUFFIXES` is the one table of every extension a format is written under: VCD has `vcd`, `vcdgz`, `vcd.gz`; `format_of_waveform_name` reads it) (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
+   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in an extension of another format that has its own setting (`dataclass.WAVEFORM_SUFFIXES` is the one table of every extension a format is written under: VCD has `vcd`, `vcdgz`, `vcd.gz`; `format_of_waveform_name` reads it) (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`; every simulator is judged, not only those with a setting of the other format, and the advice never names a setting the simulator refuses: `modelsim`'s `vcd: x.fst` says to use a `.vcd` name; a gzip name (`.gz`, `.vcdgz`, `.vcd.gz`, the `vcdgz` format) given to a plain-VCD setting says to drop the gzip ending, and `ghdl_sim`'s `vcdgz` is the one setting that writes gzip VCD, so a name never selects `--vcd` or `--vcdgz`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
    simulator; `ghdl_sim`'s `wave` (GHW, GHDL's own option) is the one reviewed exception
    (`NATIVE_NAMES` in the test), and a misnamed new one fails there. nvc has `vcd` and `fst`
    (`wave` and `wave_format` were removed). A conventional name may hold `{design}` (`vivado_sim`'s
    `saif`, `outputs/{design}.saif`, fixed by the declared-output naming rule): the setting keeps
    that text, both `true` and a location count as it in the run's identity
-   (`flow.is_conventional_template`, `identity_settings`), and `deliver.split_deliveries` writes
-   the design's name into it where the run writes the file. A simulator
+   (`flow.is_conventional_template`, for waveform settings only, `identity_settings`), and
+   `flow.resolve_conventional_templates` writes the design's name into it where the run writes the
+   file: `deliver.split_deliveries` for a launch, `Flow.__init__` for a flow built directly. A simulator
    writes a waveform through its own mechanism or lists the setting in
    `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
    refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
@@ -2201,7 +2202,8 @@ dependency must also share `custom_boards_file`.
   tracing in with that format (`--trace-<format>`; one at most, `check_settings_supported`), and
   `true` is the value (`dataclass.waveform_value` makes it `dump.<format>`, so that name is
   accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
-  the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
+  the testbench's `$dumpfile("dump.<format>")` (or the design's main) writes the file, and a run that
+  passed but wrote no `dump.<format>` of this run fails (`Verilator.check_results`; `bsc_sim`'s Verilator driver the same), so any other
   name or location is refused at planning (`Verilator.check_design_supported`, on the settings as
   given: a located `vcd` is `dump.vcd` once the run starts) naming `$dumpfile`; with cocotb xeda names it through
   `--trace-file` and a location is delivered. The trace options default to Verilator's own

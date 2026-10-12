@@ -1190,20 +1190,23 @@ setting refuses it when the run is planned, so no waveform setting is ignored.
 
 All waveform settings read their value by one rule, on the command line and in a design file:
 
-* ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``). This is also the name the run
-  writes when you give a location, which is then delivered, so a location and ``true`` are the
-  same run. ``verilator`` without cocotb is the exception: it accepts no location, only
-  ``true``, because the testbench names the file. For the ``saif`` of ``vivado_sim`` and ``vivado_postsynth_sim`` that name is
-  ``outputs/<design>.saif``. On the command line, ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
+* ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``; ``dump.vcd.gz`` for ``vcdgz``).
+  This is also the name the run writes when you give a location, which is then delivered, so a
+  location and ``true`` are the same run. For the ``saif`` of ``vivado_sim`` and
+  ``vivado_postsynth_sim`` that name is ``outputs/<design>.saif``. ``verilator`` without cocotb
+  accepts no location, only ``true``, because the testbench names the file. On the command line,
+  ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the format's extension.
-* The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``) are
-  refused, as they are for a boolean setting. So is ``true`` or ``false`` with spaces around it.
-  Write ``true`` or a file name.
+* The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``, ``t``,
+  ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with spaces
+  around it. Write ``true`` or a file name.
 * Other text is a name. The setting a name is given to decides the format, never the name: a
-  name that ends in an extension of another format that has a setting of its own is refused
-  (a format can have several: ``.vcd``, ``.vcdgz`` and ``.vcd.gz`` are VCD),
-  and the message names that setting (``wave: x.vcd`` on ``ghdl_sim`` says to use ``vcd``).
+  name that ends in an extension of another format is refused. A format can have several
+  extensions (``.vcd.gz``, ``.vcdgz`` and ``.gz`` are compressed VCD). When the simulator has a
+  setting for the other format, the message names it: ``wave: x.vcd`` on ``ghdl_sim`` says to
+  use ``vcd``. Otherwise it says which extension to use, and a gzip name given to ``vcd`` on a
+  simulator that writes plain VCD says to drop the ``.gz``.
 
 A waveform setting is named after its format, so the same name means the same thing on every
 simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHDL's own format, GHW.
@@ -1217,8 +1220,10 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
    * - Simulator
      - Waveform settings
    * - ``ghdl_sim``
-     - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). Only one of
-       the three may be set, and ``read_wave_opt`` needs one of them.
+     - ``vcd`` (plain VCD, ``--vcd``), ``vcdgz`` (gzip-compressed VCD, ``--vcdgz``), ``fst``
+       (``--fst``) and ``wave`` (GHW, ``--wave``). Only one of the four may be set, and
+       ``read_wave_opt`` needs one of them. The name never selects the option: ``vcd`` always
+       writes plain VCD.
    * - ``nvc``
      - ``vcd`` (``--wave=<file> --format=vcd``) and ``fst`` (``--wave=<file>``). Only one of
        the two may be set. ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` apply
@@ -1229,7 +1234,8 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
    * - ``vivado_sim``, ``vivado_postsynth_sim``
      - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``.
    * - ``bsc_sim``
-     - ``vcd``, on every backend.
+     - ``vcd``, on every backend. With the Verilator backend, a run whose driver wrote no
+       ``dump.vcd`` fails.
    * - ``verilator``
      - ``vcd``, ``fst`` and ``saif``. See the Verilator section below.
    * - ``vcs``
@@ -1279,10 +1285,12 @@ trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one 
 cocotb, Xeda writes no waveform: the testbench's ``$dumpfile`` and ``$dumpvars`` (or the design's
 own main) name and write the file, in the run directory, which is the model's working directory.
 Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` for ``vcd``);
-that name is accepted as "on", and the testbench's ``$dumpfile`` still chooses the file. Every
-other name and every location is an error before Verilator runs, because Xeda cannot know the
-name the testbench chooses. With cocotb, Xeda names the file (cocotb's
-``--trace-file``): ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
+that name is the only one accepted, and the testbench must call ``$dumpfile("dump.<format>")``.
+A run that wrote no ``dump.<format>`` fails and says so: it would otherwise pass with the file
+missing, or with data of the built format under another name. Every other name and every location
+is an error before Verilator runs, because the testbench writes the file, and
+Xeda does not copy it. With cocotb, Xeda names the file (cocotb's ``--trace-file``): ``true``
+writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
 also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
 code gives all changes to the first writer. The trace options (``trace_underscore``,
 ``trace_structs``, ``trace_max_width``, ``trace_max_array``) keep Verilator's own defaults unless

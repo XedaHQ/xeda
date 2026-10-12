@@ -27,7 +27,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 Simulate a VHDL design using GHDL
 
-34 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
+35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
 Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 

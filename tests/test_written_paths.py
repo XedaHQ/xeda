@@ -65,6 +65,7 @@ ROLES = {
     ("CocotbSettings", "results_xml"): D,
     ("GhdlSim.Settings", "fst"): D,
     ("GhdlSim.Settings", "wave"): D,
+    ("GhdlSim.Settings", "vcdgz"): D,
     ("GhdlSim.Settings", "write_wave_opt"): D,
     ("GhdlSynth.Settings", "verilog_output"): D,
     ("Nvc.Settings", "fst"): D,

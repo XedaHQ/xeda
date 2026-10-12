@@ -402,6 +402,25 @@ class Verilator(SimFlow):
         # a flow built directly is not planned (its design was checked when it was built)
         self.check_settings_supported(self.settings)
 
+    def waveform_problem(self) -> str | None:
+        """A run without cocotb wrote the waveform it was built to dump: the testbench names the
+        file, and `dump.<format>` is the one name that `true` and a location stand for. A model
+        built for one format whose testbench dumps to another name writes data of that format
+        under it, so the file would be a different one."""
+        assert isinstance(self.settings, self.Settings)
+        if self.cocotb:
+            return None
+        for name in TRACE_FORMATS:
+            if getattr(self.settings, name) is None:
+                continue
+            if self.report_file(self.run_path / f"dump.{name}") is None:
+                return (
+                    f"The model was built with {name.upper()} tracing (`{name}`), and it wrote "
+                    f"no dump.{name} in this run: the testbench must call "
+                    f'$dumpfile("dump.{name}") and $dumpvars'
+                )
+        return None
+
     def always_runs(self) -> Optional[str]:
         assert isinstance(self.settings, self.Settings)
         if self.settings.random_init and self.settings.random_seed == "random":

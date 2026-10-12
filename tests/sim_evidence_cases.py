@@ -271,6 +271,10 @@ def launch_case(
                 assert Path(words[words.index("-Xl") + 1]).is_file()
             program = "#!" + sys.executable + "\nimport json, os\nfrom pathlib import Path\n"
             program += "Path('oracle.runtime').write_text('runtime executed')\n"
+            if case.backend == "verilator":
+                # bsc's driver dumps `dump.vcd` on `+bscvcd`
+                program += "import sys\nif '+bscvcd' in sys.argv:\n"
+                program += "    Path('dump.vcd').write_text('$date\\n$end\\n')\n"
             if case.backend == "iverilog":
                 program += "print('XEDA_ICARUS_RUNTIME_START', flush=True)\n"
             if positive:

@@ -96,6 +96,7 @@ __all__ = [
     "waveform",
     "waveform_fields",
     "waveform_format",
+    "COMPRESSED_FORMATS",
     "WAVEFORM_SUFFIXES",
     "format_of_waveform_name",
     "waveform_format_of",
@@ -742,11 +743,13 @@ def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, s
 
 
 #: Every extension a tool writes a waveform format under, by format (without the dot, compared in
-#: lower case, the longest match winning). A format has more than one when a tool compresses it:
-#: GHDL's `--vcdgz` writes a compressed VCD, named `.vcdgz` or `.vcd.gz`. The one table the check
-#: of a name against the format of its setting reads (`format_of_waveform_name`).
+#: lower case, the longest match winning). The one table the check of a name against the format
+#: of its setting reads (`format_of_waveform_name`). A format may have more than one extension.
+#: `vcdgz` is VCD compressed with gzip (GHDL's `--vcdgz`): a name that ends in `.gz` is one,
+#: whatever comes before, and `vcd` is always plain.
 WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
-    "vcd": ("vcd", "vcdgz", "vcd.gz"),
+    "vcd": ("vcd",),
+    "vcdgz": ("vcd.gz", "vcdgz", "gz"),
     "fst": ("fst",),
     "ghw": ("ghw",),
     "saif": ("saif",),
@@ -756,10 +759,17 @@ WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
 }
 
 
+#: A format that is another format compressed, and the plain format it is made of.
+COMPRESSED_FORMATS: Dict[str, str] = {"vcdgz": "vcd"}
+
+
 def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
     """`(format, suffix)` of a waveform file name that ends in an extension of
-    `WAVEFORM_SUFFIXES`, the longest one; None for any other name."""
-    lowered = os.fspath(name).lower() if isinstance(name, (str, os.PathLike)) else ""
+    `WAVEFORM_SUFFIXES`, the longest one; None for any other name. The suffix is shown in lower
+    case."""
+    if not isinstance(name, (str, os.PathLike)):
+        return None
+    lowered = os.fspath(name).lower()
     found: Optional[Tuple[str, str]] = None
     for extension, suffixes in WAVEFORM_SUFFIXES.items():
         for suffix in suffixes:

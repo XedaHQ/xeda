@@ -114,6 +114,8 @@ __all__ = [
     "flowrun_hash",
     "identity_settings",
     "is_conventional_template",
+    "resolve_conventional_templates",
+    "resolved_template",
     "is_unset",
     "map_written_leaves",
     "output_name",
@@ -325,9 +327,13 @@ def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
 
 
 def is_conventional_template(leaf: WrittenLeaf) -> bool:
-    """Whether `leaf` is the conventional name of its deliverable, still holding `{design}`
-    (`true` for a waveform setting named `outputs/{design}.saif`). It stands for the output the
-    run writes, as a location does: a launch writes the design's name in it."""
+    """Whether `leaf` is the conventional name of its waveform setting, still holding `{design}`
+    (`true` for `saif`, named `outputs/{design}.saif`). It stands for the output the run writes,
+    as a location does; the design's name is written into it where the run writes the file
+    (`resolve_conventional_templates`). No other deliverable takes its template text for a
+    value: a setting is a name or a location, whatever its text says."""
+    if waveform_format(type(leaf.owner), leaf.field) is None:
+        return False
     name = output_name(leaf, "{design}")
     return (
         name is not None
@@ -335,6 +341,24 @@ def is_conventional_template(leaf: WrittenLeaf) -> bool:
         and isinstance(leaf.value, (str, os.PathLike))
         and PurePath(leaf.value) == name
     )
+
+
+def resolved_template(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
+    """The name for the design `design` that `leaf` stands for when it is the conventional
+    template (`is_conventional_template`); None for any other value."""
+    return output_name(leaf, design) if is_conventional_template(leaf) else None
+
+
+def resolve_conventional_templates(settings: "Flow.Settings", design: str) -> None:
+    """In place: each waveform setting that is its conventional template becomes the name for
+    the design `design`. The launcher does it with the deliveries (`deliver.split_deliveries`),
+    and a flow built directly does it when it is made, so the path a flow writes is the same."""
+
+    def fill(written: WrittenLeaf) -> Any:
+        name = resolved_template(written, design)
+        return Path(name) if name is not None else written.value
+
+    map_written_leaves(settings, fill)
 
 
 def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
@@ -1321,6 +1345,7 @@ class Flow(metaclass=ABCMeta):
         settings.outputs_dir = self.process_path(settings.outputs_dir)
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
+        resolve_conventional_templates(settings, design.name)
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 

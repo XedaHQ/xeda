@@ -556,12 +556,19 @@ class GhdlSim(Ghdl, SimFlow):
         )
         read_wave_opt: Optional[Path] = Field(
             None,
-            description="Filter signals to be dumped to the wave file according to the wave option file provided. Needs a waveform (`vcd`, `fst` or `wave`).",
+            description="Filter signals to be dumped to the wave file according to the wave option file provided. Needs a waveform (`vcd`, `vcdgz`, `fst` or `wave`).",
         )
         write_wave_opt: Optional[Path] = Field(
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
             json_schema_extra=deliverable("wave.opt"),
+        )
+        vcdgz: Optional[Union[str, Path]] = Field(
+            None,
+            description="Write the waveforms as a gzip-compressed VCD file (`--vcdgz`). `true` "
+            "writes `dump.vcd.gz`; a name without an extension gets `.vcdgz`. `vcd` writes plain "
+            "VCD, and a gzip name given to it is refused.",
+            json_schema_extra=waveform("vcdgz", "dump.vcd.gz"),
         )
         fst: Optional[Union[str, Path]] = Field(
             None,
@@ -605,15 +612,18 @@ class GhdlSim(Ghdl, SimFlow):
 
     @classmethod
     def check_waveforms(cls, settings: Flow.Settings) -> None:
-        """GHDL writes one waveform: `vcd`, `fst` and `wave` each select the format of it."""
-        chosen = [name for name in ("vcd", "fst", "wave") if getattr(settings, name) is not None]
+        """GHDL writes one waveform: `vcd`, `vcdgz`, `fst` and `wave` each select the format of it."""
+        chosen = [
+            name for name in ("vcd", "vcdgz", "fst", "wave") if getattr(settings, name) is not None
+        ]
         if len(chosen) > 1:
             raise FlowSettingsException(
                 f"ghdl_sim writes one waveform, and {', '.join(chosen)} are set: keep one of them"
             )
         if not chosen and getattr(settings, "read_wave_opt", None) is not None:
             raise FlowSettingsException(
-                "`read_wave_opt` filters the waveform, and none is set: set `vcd`, `fst` or `wave`"
+                "`read_wave_opt` filters the waveform, and none is set: set `vcd`, `vcdgz`, `fst` or "
+                "`wave`"
             )
 
     @classmethod
@@ -657,11 +667,12 @@ class GhdlSim(Ghdl, SimFlow):
         if ss.vcd:
             # FIXME: process_path might be run twice
             ss.vcd = self.process_path(ss.vcd, subs_vars=True, resolve_to=None)
-            if ss.vcd.suffix in (".gz", ".vcdgz"):
-                run_flags.append(f"--vcdgz={ss.vcd}")
-            else:
-                run_flags.append(f"--vcd={ss.vcd}")
+            run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", ss.vcd)
+        elif ss.vcdgz:
+            ss.vcdgz = self.process_path(ss.vcdgz, subs_vars=True, resolve_to=None)
+            run_flags.append(f"--vcdgz={ss.vcdgz}")
+            log.warning("Dumping compressed VCD to %s", ss.vcdgz)
         elif ss.fst:
             # FIXME: process_path might be run twice
             ss.fst = self.process_path(ss.fst, subs_vars=True, resolve_to=None)
@@ -671,7 +682,7 @@ class GhdlSim(Ghdl, SimFlow):
             run_flags += setting_flag(ss.wave, name="wave")
             log.warning("Dumping GHW to %s", ss.wave)
 
-        if ss.wave or ss.vcd or ss.fst:
+        if ss.wave or ss.vcd or ss.vcdgz or ss.fst:
             if not ss.read_wave_opt and not ss.write_wave_opt:
                 ss.write_wave_opt = Path("wave.opt")
 
