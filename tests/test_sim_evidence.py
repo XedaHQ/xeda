@@ -261,6 +261,13 @@ ENDINGS = [
         "1 event(s) at or above fail_severity=error",
     ),
 ]
+EVENT_FIXES = [
+    ("warning", "warning", "set `fail_severity` to `error`"),
+    ("error", "error", "set `fail_severity` to `failure`"),
+    ("error", "stop", "set `fail_severity` to `failure`"),
+    ("error", "fatal", "no `fail_severity` allows one"),
+    ("fatal", "fatal", "no `fail_severity` allows one"),
+]
 
 
 @pytest.mark.parametrize(
@@ -277,6 +284,18 @@ def test_every_failed_ending_gives_its_cause_and_what_to_do(evidence, stop_time,
     assert cause in message, message
     assert re.fullmatch(r"`stub_sim` reported failure: .+[^.]\. To fix it, [^.]+.*[^.]\.", message)
     assert message.count("To fix it,") == 1
+
+
+@pytest.mark.parametrize(("severity", "kind", "fix"), EVENT_FIXES)
+def test_an_event_fix_names_a_threshold_only_where_one_allows_the_event(severity, kind, fix):
+    """`fatal` and `failure` have the highest rank: no `fail_severity` lets one pass."""
+    flow = _Stub()
+    evidence = SimEvidence(ended_by="finish", time=1, events=[SimEvent(kind=kind, message="m")])
+    assert judge_evidence(flow, evidence, severity) is False
+    message = flow.results["error"]["message"]
+    assert fix in message, message
+    if "no `fail_severity`" in fix:
+        assert "set `fail_severity`" not in message
 
 
 def test_a_failed_end_keeps_the_error_the_run_already_has():

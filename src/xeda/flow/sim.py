@@ -138,6 +138,21 @@ def _first_event(evidence: SimEvidence, kinds: tuple[str, ...]) -> str:
     return f"; the first {event.kind} event{where}: {event.message}"
 
 
+def _event_fix(rank: int) -> str:
+    """What to do about events whose highest rank is `rank`. A threshold above `rank` allows them,
+    but none lies above the fatal rank: a fatal or failure event has to be fixed."""
+    if rank >= SEVERITY_RANK["fatal"]:
+        return (
+            "fix the design or the testbench so that it reports no fatal or failure event; "
+            "no `fail_severity` allows one"
+        )
+    allowed_from = "error" if rank == SEVERITY_RANK["warning"] else "failure"
+    return (
+        f"fix what the event reports, or set `fail_severity` to `{allowed_from}` if it is "
+        "acceptable"
+    )
+
+
 def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) -> bool:
     """The evidence rule: a simulation passes only if it ended by `$finish` (at any time), by the
     `stop_time` the user asked for, or by the testbench's own driver exiting with status 0; and no
@@ -264,7 +279,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
             problem(
                 f"the simulation reported {len(worst)} event(s) at or above "
                 f"fail_severity={fail_severity}, the first: {first.kind}{where}: {first.message}",
-                "fix what the event reports, or raise `fail_severity` if it is acceptable",
+                _event_fix(max(_EVENT_RANK[e.kind] for e in worst)),
             )
         )
     return True
