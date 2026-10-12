@@ -231,15 +231,34 @@ def test_a_simulator_that_is_given_no_waveform_is_asked_for_none(
     assert case.backend != "bluesim" or "-V" not in words
 
 
-@pytest.mark.parametrize(
-    "case",
-    [case for case in CASES if get_flow_class(case.flow).unsupported_waveforms],
-    ids=lambda case: case.name,
-)
-def test_a_refused_waveform_names_the_setting_to_use_instead(case):
-    for field, advice in get_flow_class(case.flow).unsupported_waveforms.items():
-        assert field in waveform_fields(get_flow_class(case.flow).Settings)
-        assert advice and "`" in advice, "the refusal says what to set instead"
+def test_the_options_that_refine_a_waveform_reach_the_tool(tmp_path, monkeypatch):
+    calls: list = []
+    launch_case(
+        SimCase("nvc"),
+        tmp_path / "nvc",
+        monkeypatch,
+        settings_overrides={
+            "vcd": "true",
+            "wave_include_glob": "*:keep",
+            "wave_exclude_glob": "*:drop",
+            "wave_arrays": 8,
+        },
+        calls_out=calls,
+    )
+    (run,) = [words for _, words in calls if "-r" in words]
+    assert {"--wave=dump.vcd", "--format=vcd", "--include=*:keep", "--exclude=*:drop"} <= set(run)
+    assert "--dump-arrays=8" in run
+    calls = []
+    launch_case(
+        SimCase("vcs"),
+        tmp_path / "vcs",
+        monkeypatch,
+        settings_overrides={"vpd": "true", "vpd_size_limit": 4, "fsdb_size_limit": 7},
+        calls_out=calls,
+    )
+    words = {word for _, args in calls for word in args}
+    assert "+vpdfilesize+4" in words
+    assert not [word for word in words if word.startswith("+fsdb")]
 
 
 def test_a_refused_waveform_is_refused_when_planned_and_starts_no_tool(tmp_path):

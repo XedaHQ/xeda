@@ -550,7 +550,8 @@ class GhdlSim(Ghdl, SimFlow):
             None,
             description="Write the waveforms (GHW): a name in the run directory, or a location it is "
             f"delivered to ({LOCATION_FORMS}). `true` writes `dump.ghw`; a name without an "
-            "extension gets `.ghw`; a `.vcd` or `.fst` name selects that format.",
+            "extension gets `.ghw`. A name in the run directory that ends in `.vcd` or `.fst` selects "
+            "that format.",
             json_schema_extra=waveform("ghw"),
         )
         read_wave_opt: Optional[Path] = Field(

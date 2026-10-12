@@ -1168,12 +1168,13 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
      - Waveform settings
    * - ``ghdl_sim``
      - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). A ``wave`` name
-       that ends in ``.vcd`` or ``.fst`` selects that format. Only one of the three may be set.
+       in the run directory that ends in ``.vcd`` or ``.fst`` selects that format. Only one of the
+       three may be set.
    * - ``nvc``
      - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting: ``true`` lets
-       nvc name the file, and ``wave_format`` or the file extension selects the format. Only one of
-       ``vcd`` and ``wave`` may be set. ``wave_format``, ``wave_include_glob`` and
-       ``wave_exclude_glob`` need one of them.
+       nvc name the file. ``wave_format``, or the extension of a name in the run directory,
+       selects the format. Only one of ``vcd`` and ``wave`` may be set. ``wave_format``,
+       ``wave_include_glob`` and ``wave_exclude_glob`` need one of them.
    * - ``modelsim``
      - ``vcd``. ModelSim dumps nothing unless it is set.
    * - ``vivado_sim``, ``vivado_postsynth_sim``
