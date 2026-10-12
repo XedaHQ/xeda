@@ -556,7 +556,7 @@ class GhdlSim(Ghdl, SimFlow):
         )
         read_wave_opt: Optional[Path] = Field(
             None,
-            description="Filter signals to be dumped to the wave file according to the wave option file provided.",
+            description="Filter signals to be dumped to the wave file according to the wave option file provided. Needs a waveform (`vcd`, `fst` or `wave`).",
         )
         write_wave_opt: Optional[Path] = Field(
             None,
@@ -611,6 +611,10 @@ class GhdlSim(Ghdl, SimFlow):
         if len(chosen) > 1:
             raise FlowSettingsException(
                 f"ghdl_sim writes one waveform, and {', '.join(chosen)} are set: keep one of them"
+            )
+        if not chosen and getattr(settings, "read_wave_opt", None) is not None:
+            raise FlowSettingsException(
+                "`read_wave_opt` filters the waveform, and none is set: set `vcd`, `fst` or `wave`"
             )
 
     def init(self) -> None:

@@ -1176,7 +1176,7 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
    * - ``ghdl_sim``
      - ``vcd`` (``--vcd``), ``fst`` (``--fst``) and ``wave`` (GHW, ``--wave``). A ``wave`` name
        in the run directory that ends in ``.vcd`` or ``.fst`` selects that format. Only one of the
-       three may be set.
+       three may be set, and ``read_wave_opt`` needs one of them.
    * - ``nvc``
      - ``vcd`` is ``--wave=<file> --format=vcd``. ``wave`` is nvc's own setting: ``true`` writes
        ``dump.fst``. ``wave_format``, or the extension of a name in the run directory, selects
