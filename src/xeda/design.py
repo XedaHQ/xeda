@@ -833,19 +833,19 @@ def source_type_of(path: Path) -> SourceType:
         candidates = AMBIGUOUS_SUFFIXES[suffix]
         raise ValueError(
             f"{path}: `.{suffix}` names several kinds of file "
-            f"({', '.join(m.name for m in candidates)} among them): give its type, e.g. "
-            f"{{file: {path.name}, type: {candidates[0].name}}}"
+            f"({', '.join(m.name for m in candidates)} among them): give its type as a table, "
+            f"in YAML {{file: {path.name}, type: {candidates[0].name}}}"
         )
     if suffix.lower() in SOURCE_SUFFIXES:
         member = SOURCE_SUFFIXES[suffix.lower()]
         raise ValueError(
             f"{path}: Xeda infers no source type from `.{suffix}` (`.{suffix.lower()}` is "
-            f"{member.name}): rename it, or give its type, e.g. {{file: {path.name}, "
+            f"{member.name}): rename it, or give its type as a table, in YAML {{file: {path.name}, "
             f"type: {member.name}}}"
         )
     what = f"`.{suffix}`" if suffix else "a file without a suffix"
     raise ValueError(
-        f"{path}: Xeda infers no source type from {what}: give its type, e.g. "
+        f"{path}: Xeda infers no source type from {what}: give its type as a table, in YAML "
         f"{{file: {path.name}, type: Data}}. `Data` has no automatic HDL frontend (test "
         f"vectors, a script's input). The types: {', '.join(m.name for m in SourceType)}"
     )
@@ -1037,7 +1037,7 @@ def _parameters_form(value: Any) -> Any:
 #: What `sources` accepts, shown by `xeda design-schema`.
 SOURCES_DESCRIPTION = (
     "Source files, in compile order: a path relative to the design root (`$DESIGN_ROOT` and "
-    "`$DESIGN_DIR` name it too), or a table `{file: ..., type: ...}` (`path` in place of "
+    "`$DESIGN_DIR` name it too), or a table, in YAML `{file: ..., type: ...}` (`path` in place of "
     "`file` for one not written yet). A path containing `*` "
     "is a pattern: its files are inserted in sorted order, and it must match at least one. `*` is "
     "the only pattern character: `?`, `[` and `]` are part of a file name, so `rtl/fifo[1].v` "
@@ -1132,7 +1132,7 @@ class DVSettings(XedaBaseModel):
                 except FileNotFoundError as e:
                     raise MissingFile(
                         f"source file does not exist: {e.filename} (give a source that a "
-                        "generator writes later as `{path: <file>}`)"
+                        "generator writes later as a table, in YAML `{path: <file>}`)"
                     ) from e
             if not source_already_exists(src):
                 sources.append(src)
@@ -2433,7 +2433,9 @@ def target_name_problem(name: Any) -> str | None:
 
 
 def _fold(name: str) -> str:
-    """Return `name` as the command line takes a flow's name: dashes become underscores and the text is lower case."""
+    """Return `name` as the command line takes a flow's name.
+
+    Dashes become underscores and the text is lower case."""
     return name.replace("-", "_").lower()
 
 
