@@ -118,10 +118,6 @@ NEXTPNR_FAMILIES = ("ecp5", "ice40", "nexus", "xilinx")
 #: The executable of an architecture that is not `nextpnr-<architecture>`.
 EXECUTABLES = {"xilinx": "nextpnr-himbaechel"}
 
-#: Where the placement dump goes when the `placement` setting names no file: it is always
-#: written, since the canonical LUT count is read from it.
-XILINX_PLACEMENT = Path("placement.json")
-
 #: Seconds a board's pin-constraint download may wait on its server, to connect and for each
 #: read (not the whole transfer): a stalled server fails the run instead of holding its lock.
 BOARD_FILE_TIMEOUT_S = 60
@@ -546,8 +542,9 @@ class Nextpnr(FpgaSynthFlow):
         placement: Path | None = Field(
             None,
             description="Xilinx placement dump (JSON: cell to tile, site and bel). It is always "
-            "written in the run directory, where the LUT count is read from it.",
-            json_schema_extra=deliverable("outputs/{design}_placement.json"),
+            "written in the run directory, where the LUT count is read from it. By default "
+            "`outputs/<design>_placement.json`.",
+            json_schema_extra=deliverable("outputs/{design}_placement.json", always=True),
         )
 
         @field_validator("hold_fix")
@@ -1097,7 +1094,8 @@ class Nextpnr(FpgaSynthFlow):
                 )
             # The Xilinx backend takes its files as `-o name=value` options of the uarch, and
             # never `--freq`: its clocks are the `create_clock`s of the XDC and SDC files.
-            placement = ss.placement or XILINX_PLACEMENT
+            placement = self._placement_dump()
+            self.run_directory.inside(placement).parent.mkdir(parents=True, exist_ok=True)
             args: list[Any] = ["--device", self._xilinx_selection.name]
             args += ["--chipdb", self._chipdb, "--json", netlist_json]
             if pin_file:
@@ -1312,6 +1310,16 @@ class Nextpnr(FpgaSynthFlow):
             pass  # no netlist to consult (a flow built for its report alone)
         return None
 
+    def _placement_dump(self) -> Path:
+        """Where the Xilinx placement dump goes: the `placement` setting, else its conventional
+        name. It is always written, since the canonical LUT count is read from it."""
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.placement is not None:
+            return self.settings.placement
+        conventional = self.settings.conventional_output("placement", self.design.name)
+        assert conventional is not None  # the field is a deliverable with a conventional name
+        return Path(conventional)
+
     def _count_xilinx_luts(self, positions: Any) -> None:
         """Report `lut` as the physical LUTs this run's placement dump shows occupied.
 
@@ -1319,7 +1327,7 @@ class Nextpnr(FpgaSynthFlow):
         a dump that is missing, a previous run's, unreadable or disagreeing gives no count.
         """
         assert isinstance(self.settings, self.Settings)
-        path = self.run_path / (self.settings.placement or XILINX_PLACEMENT)
+        path = self.run_path / self._placement_dump()
         try:
             if self.report_file(path) is None:
                 raise ValueError("nextpnr did not write it")

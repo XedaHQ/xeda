@@ -425,7 +425,11 @@ under `$PWD`, `$DESIGN_ROOT` or `$DESIGN_DIR`, or an absolute path: the run stil
 inside the run directory, and once the whole run has finished xeda copies it to the location you
 named. With `--post-cleanup-purge`, a flow that ran is purged after the launch and xeda moves its
 output instead when it can; a flow found up to date keeps its directory, and its output is copied.
-Moving or renaming that destination later never re-runs the flow. `--outputs-to DIR`
+Moving or renaming that destination later never re-runs the flow, and neither does giving a
+location to an output the flow writes anyway (`fpga_pack`'s `bitstream`, `ghdl_synth`'s `verilog_output`): a fresh run only delivers.
+A setting that switches an output on (`vivado_synth`'s `bitstream`, unset: none) runs again the first
+time it is set. A setting that names an output file
+refuses `true` and `false`; only a waveform setting (`vcd`, `fst`, `saif`, `wave`) takes them. `--outputs-to DIR`
 delivers the requested flow's artifacts the same way, each at its path inside the run directory:
 
 ```bash

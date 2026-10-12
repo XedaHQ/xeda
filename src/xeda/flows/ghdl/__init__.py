@@ -404,8 +404,10 @@ class GhdlSynth(Ghdl, SynthFlow):
         assume_asserts: bool = Field(False, description="Treat all PSL assumes like PSL asserts")
         verilog_output: Optional[Path] = Field(
             None,
-            description="Output file for the generated Verilog. Required. If a directory is provided, each VHDL source file is converted to a Verilog file in that directory.",
-            json_schema_extra=deliverable("outputs/{design}.v"),
+            description="Output file for the generated Verilog; by default `outputs/<design>.v`. If a "
+            "directory is provided, each VHDL source file is converted to a Verilog file in that "
+            "directory.",
+            json_schema_extra=deliverable("outputs/{design}.v", always=True),
         )
 
     def init(self) -> None:
@@ -424,7 +426,9 @@ class GhdlSynth(Ghdl, SynthFlow):
         flags = self.synth_args(ss, design, one_shot_elab=False)
         flags += ["--out=verilog", "--warn-nowrite"]
         if ss.verilog_output is None:
-            ss.verilog_output = Path(design.rtl.top or design.name).with_suffix(".v")
+            conventional = ss.conventional_output("verilog_output", design.name)
+            assert conventional is not None  # the field is a deliverable with a conventional name
+            ss.verilog_output = Path(conventional)
         per_source = ss.verilog_output.is_dir() or (
             not ss.verilog_output.exists() and ss.verilog_output.suffix not in {".v", ".sv"}
         )

@@ -132,7 +132,7 @@ def test_every_7_series_family_runs_nextpnr_himbaechel(tmp_path, monkeypatch, pr
         "-o",
         "fasm=config.fasm",
     ]
-    assert tool.vopts()[2:] == ["placement=placement.json"]
+    assert tool.vopts()[2:] == [f"placement=outputs/{flow.design.name}_placement.json"]
     assert not [a for a in args if re.match(r"--(xdc|fasm|freq|lpf|pcf|pdc|json=|device=)", a)]
     assert "--report=report.json" in args and "--log=nextpnr.log" in args
     assert flow.outputs.config == flow.run_path / "config.fasm"
@@ -320,7 +320,9 @@ def test_the_measured_counter_reports_occupied_luts_not_positions(tmp_path, monk
     # `clk`, does not prove the domain is that port's (logic on an MMCM's output is not).
     assert list(r["_fmax"]) == ["$abc$2027$aiger$o71"]
     assert "clock_port" not in r
-    assert flow.artifacts["placement"] == flow.run_path / "placement.json"
+    assert (
+        flow.artifacts["placement"] == flow.run_path / f"outputs/{flow.design.name}_placement.json"
+    )
 
 
 def test_the_two_outputs_of_a_lut6_2_are_two_locations(tmp_path, monkeypatch, prefix):
@@ -392,8 +394,9 @@ def test_an_unusable_placement_dump_gives_no_lut_count(tmp_path, monkeypatch, pr
 
 def test_a_previous_run_s_placement_dump_is_not_counted(tmp_path, monkeypatch, prefix):
     flow, tool = _flow(tmp_path, monkeypatch, prefix)
-    flow.run_path.mkdir(parents=True)
-    (flow.run_path / "placement.json").write_text(json.dumps({"a": _lut("SLICE_X0Y56", "A6LUT")}))
+    (flow.run_path / "outputs").mkdir(parents=True)
+    dump = flow.run_path / f"outputs/{flow.design.name}_placement.json"
+    dump.write_text(json.dumps({"a": _lut("SLICE_X0Y56", "A6LUT")}))
     flow.start_run()
     tool.report = {**REPORT, "utilization": {"SLICE_LUTX": {"used": 1, "available": 2}}}
     tool.skip = ("placement",)
@@ -406,8 +409,8 @@ def test_files_a_previous_run_left_are_not_this_run_s_artifacts(tmp_path, monkey
     """An artifact is a file this run wrote, the rule every other artifact follows: an earlier
     run's SDF, routed netlist or placement dump that the tool did not write again is not one."""
     flow, tool = _flow(tmp_path, monkeypatch, prefix, sdf="routed.sdf", write="routed.json")
-    flow.run_path.mkdir(parents=True)
-    for name in ("routed.sdf", "routed.json", "placement.json"):
+    (flow.run_path / "outputs").mkdir(parents=True)
+    for name in ("routed.sdf", "routed.json", f"outputs/{flow.design.name}_placement.json"):
         (flow.run_path / name).write_text("{}\n")
     flow.start_run()
     tool.skip = ("placement",)

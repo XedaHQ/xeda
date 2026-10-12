@@ -60,6 +60,7 @@ from ..dataclass import (
     opaque_key_fields_of,
     table_entries,
     validation_errors,
+    written_always,
     waveform_format,
     waveform_value,
     written_role,
@@ -327,13 +328,10 @@ def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
 
 
 def is_conventional_template(leaf: WrittenLeaf) -> bool:
-    """Whether `leaf` is the conventional name of its waveform setting, still holding `{design}`
-    (`true` for `saif`, named `outputs/{design}.saif`). It stands for the output the run writes,
-    as a location does; the design's name is written into it where the run writes the file
-    (`resolve_conventional_templates`). No other deliverable takes its template text for a
-    value: a setting is a name or a location, whatever its text says."""
-    if waveform_format(type(leaf.owner), leaf.field) is None:
-        return False
+    """Whether `leaf` is the conventional name of its deliverable setting, still holding `{design}`
+    (`true` for the waveform `saif`, named `outputs/{design}.saif`). It stands for the output the
+    run writes, as a location does; the design's name is written into it where the run writes the
+    file (`resolve_conventional_templates`). One rule for every deliverable."""
     name = output_name(leaf, "{design}")
     return (
         name is not None
@@ -350,7 +348,7 @@ def resolved_template(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
 
 
 def resolve_conventional_templates(settings: "Flow.Settings", design: str) -> None:
-    """In place: each waveform setting that is its conventional template becomes the name for
+    """In place: each deliverable that is its conventional template becomes the name for
     the design `design`. The launcher does it with the deliveries (`deliver.split_deliveries`),
     and a flow built directly does it when it is made, so the path a flow writes is the same."""
 
@@ -506,10 +504,10 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
 def identity_settings(
     settings: "Flow.Settings", design_name: Optional[str] = None
 ) -> "Flow.Settings":
-    """`settings` as a run's identity sees them: a copy in which every deliverable given as
-    a location is its
-    conventional name (`output_name`), the name the run writes the output under whatever the
-    location. Where an output is delivered, and what it is called there, is never part of what
+    """`settings` as a run's identity sees them: a copy in which every deliverable is the name
+    the run writes it under in its run directory (`output_name`). One given as a location is its
+    conventional name, and so is one that is written always (`deliverable(always=True)`) and
+    left unset. Where an output is delivered, and what it is called there, is never part of what
     the run is. Without `design_name`, `{design}` stays as written."""
     copy = settings.model_copy(deep=True)
     design = design_name if design_name is not None else "{design}"
@@ -524,7 +522,25 @@ def identity_settings(
         return leaf
 
     map_written_leaves(copy, conventional)
+    _name_unset_outputs(copy, design)
     return copy
+
+
+def _name_unset_outputs(model: BaseModel, design: str, prefix: str = "") -> None:
+    """In place: each deliverable of `model`, and of the models nested in it, that the flow
+    writes always and that is unset, is its conventional name."""
+    for name in type(model).model_fields:
+        value = getattr(model, name)
+        if written_role(type(model), name) == DELIVERABLE_ROLE:
+            if value is None and written_always(type(model), name):
+                conventional = output_name(
+                    WrittenLeaf(prefix + name, DELIVERABLE_ROLE, None, model, name), design
+                )
+                assert conventional is not None, f"{prefix}{name}: written always, so named"
+                setattr(model, name, Path(conventional))
+            continue
+        for key, nested in _nested_models(value, prefix + name):
+            _name_unset_outputs(nested, design, key + ".")
 
 
 _path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", default={})

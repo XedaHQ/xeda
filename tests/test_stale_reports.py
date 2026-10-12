@@ -267,7 +267,7 @@ DIRECT = {
         {"fpga": {"part": "xc7a100tcsg324-1"}},
         lambda flow: {
             flow.run_path / "report.json": NEXTPNR_XILINX_REPORT,
-            flow.run_path / "placement.json": XILINX_PLACEMENT,
+            flow.run_path / f"outputs/{flow.design.name}_placement.json": XILINX_PLACEMENT,
         },
     ),
 }

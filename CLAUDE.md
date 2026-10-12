@@ -1567,7 +1567,26 @@ directory whatever it is given (`sim_dir`, `bobj_dir`, `impl_folder`, a log path
 always writes the fixed `conventional` name in the run directory (by convention
 `outputs/<design>.<ext>`; `flow.output_name`). `dataclass.written_role(model, field)` reads the
 marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) exposes it through
-`xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
+`xeda list-settings --json`. **A run's identity is what it writes, never where it is delivered**
+(`flow.identity_settings`, read by `flowrun_hash`): a location counts as the conventional name,
+and a deliverable the flow writes in any case (`deliverable(..., always=True)`: `fpga_pack`'s
+`bitstream`, default `None`, no switch) counts as the conventional name when unset, so unset, a
+location and a second location are one run, and a fresh run still delivers. A setting that
+switches its output on (`vivado_synth`'s `bitstream`, `None` = nothing written) differs between
+unset and a location, as the outputs differ; a bare name is another file in the run directory,
+so another run. `ghdl_synth`'s `verilog_output` and `nextpnr`'s `placement` (Xilinx) are written in
+any case, so they are `always=True` and, unset, written under the conventional name (nothing is
+left in `UNSET_UNDER_OWN_NAME` of `tests/test_deliverable_identity.py`; a flow that needs a
+file name for its own purpose makes the setting a working location, as `cxxrtl.filename`: the
+design's C++ driver includes the header named after it). The sweep in that file covers every
+deliverable of every flow, and a syntactic scan of the flows' code (`REVIEWED_FALLBACKS`) fails on
+a new `x.field or ...` or `if x.field is None:` that names an unset deliverable (other forms need
+review). **One identity rule for every deliverable**, waveform or not: a location, the conventional
+name and its `{design}` template text (`flow.is_conventional_template`; a waveform's `true` is that
+text) are one name. **`true`/`false` (text, any case, or boolean) are refused for a deliverable that
+is no waveform** (`dataclass.waveform_format_of` is None, the one place that says `true` means on):
+`XedaBaseModel`'s `_booleans_are_not_text` validator reports `` `true` is a switch, and `bitstream`
+names a file ``, so no file named `true` is written. `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
 nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,

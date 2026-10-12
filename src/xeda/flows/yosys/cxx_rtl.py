@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Any, List, Literal, Optional
 
-from ...dataclass import Field, XedaBaseModel, deliverable
+from ...dataclass import WORKING, Field, XedaBaseModel, deliverable
 from ...design import Design, SourceType
 from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
@@ -17,9 +17,11 @@ log = logging.getLogger(__name__)
 class CxxRtl(XedaBaseModel):
     filename: Optional[Path] = Field(
         None,
-        description="The C++ file CXXRTL writes the simulation model to; by default "
-        "`<top>.cpp`, in the run directory.",
-        json_schema_extra=deliverable("outputs/{design}.cpp"),
+        description="The C++ file CXXRTL writes the simulation model to: a name in the run "
+        "directory, by default `<top>.cpp`. The design's C++ driver includes the generated "
+        "header, `<name>.h`, so this is a working file name and has no location. Use "
+        "`--outputs-to` to copy the file elsewhere.",
+        json_schema_extra=WORKING,
     )
     header: bool = True
     flatten: bool = True

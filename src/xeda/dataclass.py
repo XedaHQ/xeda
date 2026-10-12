@@ -93,6 +93,7 @@ __all__ = [
     "input_names",
     "model_validator",
     "validation_errors",
+    "written_always",
     "waveform",
     "waveform_fields",
     "waveform_format",
@@ -704,14 +705,27 @@ DELIVERABLE_ROLE = "deliverable"
 WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
 
 
-def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
+def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:
     """The marker of a setting whose path is an output the user may want delivered, with its
     `conventional` name: what the run writes it as when the setting is given a location
     (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
-    setting's own default name."""
+    setting's own default name.
+
+    `always` marks an output that the flow writes whether or not the setting is given. When the
+    setting is unset, the flow writes the conventional name, and the identity of the run counts
+    that name as the value (`flow.identity_settings`). An unset setting and a location are then
+    one run. A setting that switches its output on (unset: nothing is written) is not such an
+    output.
+
+    A deliverable that is no waveform (`waveform`) names a file: a model refuses `true` and
+    `false` for it, since the text would become a file named `true`."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:
         marker["x-xeda-output"] = conventional
+    if always:
+        if conventional is None:
+            raise ValueError("an output written always needs a conventional name")
+        marker["x-xeda-always"] = True
     return marker
 
 
@@ -848,6 +862,24 @@ def written_role(model: type[BaseModel], field: str) -> Optional[str]:
     extra = info.json_schema_extra if info is not None else None
     role = extra.get("x-xeda-writes") if isinstance(extra, dict) else None
     return role if isinstance(role, str) else None
+
+
+def written_always(model: type[BaseModel], field: str) -> bool:
+    """Whether `model`'s deliverable `field` is an output the flow writes even when the setting
+    is unset (`deliverable(always=True)`)."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    return isinstance(extra, dict) and extra.get("x-xeda-always") is True
+
+
+def _deliverable_message(key: str, value: Any) -> str:
+    """Why `true` or `false` is no value of the deliverable `key`."""
+    from .utils import LOCATION_FORMS
+
+    return (
+        f"`{str(value).lower()}` is a switch, and `{key}` names a file: give a name or a "
+        f"location ({LOCATION_FORMS}), or leave it unset"
+    )
 
 
 def conventional_output(model: type[BaseModel], field: str, design: str) -> Optional[PurePath]:
@@ -997,6 +1029,24 @@ class XedaBaseModel(BaseModel):
         problems = []
         for key, value in values.items():
             if not (isinstance(key, str) and key in names):
+                continue
+            if (
+                written_role(cls, names[key]) == DELIVERABLE_ROLE
+                and waveform_format_of(cls, names[key]) is None
+                and (
+                    isinstance(value, bool)
+                    or (isinstance(value, str) and value.lower() in ("true", "false"))
+                )
+            ):
+                problems.append(
+                    InitErrorDetails(
+                        type=PydanticCustomError(
+                            "deliverable_switch", _deliverable_message(key, value)
+                        ),
+                        loc=(key,),
+                        input=value,
+                    )
+                )
                 continue
             if isinstance(value, str):
                 if value.lower() in ("true", "false"):  # how a command line writes a boolean

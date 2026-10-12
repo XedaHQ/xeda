@@ -60,7 +60,7 @@ ROLES = {
     ("YosysSim.Settings", "netlist_json"): D,
     ("YosysSim.Settings", "netlist_verilog"): D,
     ("Yosys.Settings", "merge_libs_to"): W,
-    ("CxxRtl", "filename"): D,
+    ("CxxRtl", "filename"): W,
     ("SimFlow.Settings", "vcd"): D,
     ("CocotbSettings", "results_xml"): D,
     ("GhdlSim.Settings", "fst"): D,
@@ -303,7 +303,7 @@ def test_every_deliverable_has_a_conventional_name_of_its_own(flow):
         assert names.setdefault(name, f"{owner}.{field}") == f"{owner}.{field}", (flow, name)
 
 
-NESTED_DELIVERABLES = [("ghdl_sim", "cocotb.results_xml"), ("yosys_sim", "cxxrtl.filename")]
+NESTED_DELIVERABLES = [("ghdl_sim", "cocotb.results_xml")]
 
 
 @pytest.mark.parametrize("flow, dotted", NESTED_DELIVERABLES)
