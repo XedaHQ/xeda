@@ -441,8 +441,9 @@ def run_process(
 ) -> Union[None, str]:
     """Run `executable`, and return its captured stdout when `stdout` is True.
 
-    `timeout` stops the process, and those that it started, after this many seconds and raises
-    `ProcessTimeout`. `tee` also writes every line of the output to this file. The output is
+    `timeout` stops the process after this many seconds and raises `ProcessTimeout`. On POSIX it
+    also stops the processes that the child started, which share its process group. On other
+    systems it stops only the child. `tee` also writes every line of the output to this file. The output is
     then not captured, so `tee` with a `stdout` other than `None` is a `ValueError`. A `stdout`
     that is a path sends the output to that file alone. Either file is the log of a tool. Xeda
     makes it as a new file at the given name before the tool starts and writes it as the output

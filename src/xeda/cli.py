@@ -281,7 +281,8 @@ def list_results(flow, output_format: str, json_flag: bool):
 def design_schema_cmd(output_format: str, json_flag: bool):
     """Print the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
-    Use it to validate a design file or to write one.
+    Use it to check the structure of a design file or to write one. The schema does not catch
+    every invalid file: it accepts unknown keys, which the design loader refuses.
     """
     emit_structured(design_schema(), resolve_format(output_format, json_flag))
 
