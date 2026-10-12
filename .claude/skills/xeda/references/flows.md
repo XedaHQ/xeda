@@ -15,7 +15,7 @@ Flows with declared file I/O chain with `+`: `xeda run yosys_fpga+nextpnr+fpga_p
 
 ### `bsc_sim`
 
-Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. Compiles the design's Bluespec sources, RTL then testbench, in order -- the package defining `tb.top` last -- and simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` picks Bluesim, bsc's own cycle-based simulator, or a Verilog simulator that bsc links the generated Verilog with (`bsc -vsim`), driving clock and reset from its `main.v`. Bluesim records generated system-task calls and an owned script measures clock cycles and time; Verilator and Icarus record observed system tasks in the linked runtime. These backends require explicit finish or a confirmed Bluesim cycle limit, with no event at or above `fail_severity`; a fatal error or nonzero exit always fails. `$finish(n)` uses `n` as a verbosity level. The design's `defines` and `parameters`, the testbench's over the RTL's, are preprocessor macros, which BH (`.bs`) sources see only through the C preprocessor, with `cpp`. Supported simulator backends are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. Legacy cvc, cver, isim, ncverilog and veriwell are rejected before compilation. Real Icarus evidence and builtin-task registration are required on Linux CI.
+Simulate a Bluespec testbench compiled by bsc, with Bluesim or a Verilog simulator. The flow compiles the design's Bluespec sources in order, RTL first and then the testbench, with the package that defines `tb.top` last. It simulates `tb.top`, a module with an `Empty` interface (`rtl.top` when the design has no testbench). `simulator` selects Bluesim, the cycle-based simulator of bsc, or a Verilog simulator that bsc links with the generated Verilog (`bsc -vsim`). The clock and reset come from the `main.v` of bsc. Bluesim records the system-task calls in the generated code, and a script of Xeda measures the clock cycles and the time. Verilator and Icarus record the system tasks that the linked runtime observes. For these three simulators, a run passes only if the testbench finishes explicitly (or Bluesim reaches a confirmed `max_cycles` limit) and no event reaches `fail_severity`. A fatal error or a nonzero exit status always fails the run. `$finish(n)` uses `n` as a verbosity level. The design's `defines` and `parameters` are preprocessor macros, and the testbench's go over the RTL's. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`. The supported simulators are Bluesim, Verilator, Icarus, ModelSim, Questa, VCS, vcsi and xsim. The flow rejects the legacy simulators cvc, cver, isim, ncverilog and veriwell before compilation. The Linux CI job checks the real Icarus evidence and the registration of the built-in tasks.
 
 76 flow-specific settings (plus the common ones): `xeda list-settings bsc_sim --json`
 
@@ -25,7 +25,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 *aliases: `ghdl` | supports cocotb testbenches*
 
-Simulate a VHDL design using GHDL
+Simulate a VHDL design with GHDL.
 
 35 flow-specific settings (plus the common ones): `xeda list-settings ghdl_sim --json`
 
@@ -33,7 +33,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `modelsim`
 
-Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated with timing from an SDF file via the `sdf` setting. Batch evidence requires this run's native stop reason, time and TESTSTATUS checkpoint plus its bounded runtime logfile. VHDL ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the default severity. Verified with ModelSim-Intel Starter 2020.1.
+Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Simulate RTL and gate-level netlists. A netlist simulation can use the timing of SDF files (`sdf` setting). A run passes only on evidence from this run: the native stop reason, the time and a TESTSTATUS checkpoint, plus the bounded runtime log file. VHDL `std.env.stop` is accepted when the evidence shows a native break from a known VHDL source. Verilog `$stop` fails at the default `fail_severity`. Verified with ModelSim-Intel Starter 2020.1.
 
 10 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
 
@@ -43,7 +43,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 *supports cocotb testbenches*
 
-Simulate VHDL using NVC, with native diagnostics and a passive VHPI end monitor. Non-cocotb runs require a C++ compiler and NVC's vhpi_user.h, installed under its prefix or on the compiler's include search path. The monitor schedules no simulation events.
+Simulate VHDL with NVC, using its native diagnostics and a passive VHPI end monitor. A run without cocotb needs a C++ compiler and NVC's `vhpi_user.h`, installed under its prefix or on the compiler's include search path. The monitor schedules no simulation events.
 
 34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
@@ -51,7 +51,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 ### `vcs`
 
-Synopsys VCS simulator with runtime evidence in split and one-shot modes. This adapter is documentation-only and is not verified against a licensed VCS release. Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
+Simulate a design with Synopsys VCS and judge it by runtime evidence. The flow runs `vcs` and `simv` as two steps, or as one step with `one_shot_run`. This adapter is documentation-only and is not verified against a licensed VCS release. A quiet `$finish(0)` and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
 
 41 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
@@ -61,7 +61,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 *supports cocotb testbenches*
 
-Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verilator compiles the design to C++ (or SystemC) and builds a native executable, which makes it the fastest open-source simulator for large designs. Supports cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST/SAIF waveform tracing. Three drivers run the model. By default, Verilator's own `--main` runs an HDL top (the `main` setting). With `main: false`, the design's own C++ `main` or `sc_main` runs it. With cocotb, cocotb's own main runs it, and cocotb's results decide the run. The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with HDL testbench sources needs `tb.top` when Verilator supplies its main); with cocotb, the module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's main, the run passes when the testbench ends it with `$finish` and nothing reported reaches `fail_severity`; an event queue that runs empty without a `$finish` fails. Under the design's own main, the run passes when that main exits with status 0 and nothing reported reaches `fail_severity`. `stop_time` is refused: end the testbench with `$finish`, or use `timeout`. A waveform setting (`vcd`, `fst`, `saif`) builds the model with that trace format. Without cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write the file, and name it; xeda opens no waveform.
+Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verilator compiles the design to C++ or SystemC and builds a native executable. The flow supports cocotb testbenches, plain C++ and SystemC harnesses, and VCD, FST and SAIF waveform tracing. Three drivers run the model. By default, Verilator's own `--main` runs an HDL top (the `main` setting). With `main: false`, the design's own C++ `main` or `sc_main` runs it. With cocotb, cocotb's own main runs it, and cocotb's results decide the run. The simulated top module is `tb.top`, else `rtl.top`. A design with HDL testbench sources needs `tb.top` when Verilator supplies its main. With cocotb, the simulated top module is the one cocotb drives: `tb.cocotb.toplevel`, else `rtl.top`. The parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when the simulated top module is the RTL top, and `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the simulation ended. Xeda's hooks record that evidence in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's main, the run passes when the testbench ends it with `$finish` and nothing reported reaches `fail_severity`. An event queue that runs empty without a `$finish` fails. Under the design's own main, the run passes when that main exits with status 0 and nothing reported reaches `fail_severity`. The flow refuses `stop_time`: end the testbench with `$finish`, or use `timeout`. A waveform setting (`vcd`, `fst` or `saif`) builds the model with that trace format. Without cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write and name the file. Xeda opens no waveform.
 
 34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
@@ -71,7 +71,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 *runs first: `vivado_synth` | can be followed by: `vivado_power`*
 
-Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
+Simulate the testbench on the routed netlist that `vivado_synth` writes. The producer `vivado_synth` runs with `write_netlist` and `write_timing_netlist`. This flow simulates the functional netlist (`netlist`). With `timing_sim`, it simulates the timing netlist (`netlist_timing`) annotated with the slow-corner SDF (`sdf`).
 
 24 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
@@ -79,7 +79,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 ### `vivado_sim`
 
-Simulate using Xilinx Vivado simulator (xsim). ``elab_debug`` must preserve source information so VHDL ``std.env.stop`` can be distinguished from Verilog ``$stop``; explicitly disabling it is rejected. ``stop_time`` is an absolute bound across prerun and runtime, measured from xsim's actual current time. Verified with Vivado 2024.2.
+Simulate a design with the Vivado simulator (`xsim`). `elab_debug` must keep source information, so that Xeda can tell VHDL `std.env.stop` from Verilog `$stop`. Xeda refuses `elab_debug: off`. `stop_time` is an absolute limit across the pre-run and the run, measured from the current time that `xsim` reports. Verified with Vivado 2024.2.
 
 20 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
 
@@ -87,7 +87,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 ### `yosys_sim`
 
-Simulate with CXXRTL
+Simulate a design with a CXXRTL model that Yosys generates.
 
 28 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
@@ -97,7 +97,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 ### `diamond_synth`
 
-FPGA synthesis, place & route for Lattice devices using Lattice Diamond. Runs the full Diamond implementation flow (synthesis through bitstream generation) in batch mode and reports resource utilization and timing. The bitstream, `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
+Synthesize, place and route a design for a Lattice FPGA with Lattice Diamond. Run the full Diamond implementation flow (synthesis through bitstream generation) in batch mode. Report resource utilization and timing. The bitstream, `<impl_folder>/<design>_<impl_name>.bit`, is recorded as the `bitstream` artifact.
 
 Required settings: `fpga`
 
@@ -109,7 +109,7 @@ Reports: `clock_period`, `clock_frequency`, `clock_port`, `wns`, `whs`, `lut`, `
 
 *runs first: `nextpnr` | can follow: `nextpnr` (depends on the target) | can be followed by: `openfpgaloader`*
 
-Pack a routed FPGA design into a bitstream. Its `config` input is the routed configuration of the target's family: a typed design source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the one `nextpnr` records after `yosys_fpga` -> `nextpnr`. It is packed with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer writes to scratch space in the run directory, and the bitstream is published only once the packer has exited successfully with a nonempty file: a failed packing never leaves a partial bitstream, nor replaces an earlier one. Nothing is programmed; `openfpgaloader` programs a bitstream.
+Pack a routed FPGA design into a bitstream. The `config` input is the routed configuration of the device's family. It is a typed design source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the `config` output of `nextpnr`. The flow packs it with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer writes to scratch space in the run directory. The flow publishes the bitstream only after the packer exits successfully with a nonempty file, so a failed packing leaves no partial bitstream and keeps an earlier one. The flow programs nothing. `openfpgaloader` programs a bitstream.
 
 Required settings: `fpga`
 
@@ -119,7 +119,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `ise_synth`
 
-FPGA synthesis, implementation and bitstream generation using Xilinx ISE. Runs XST synthesis, translate, map and place & route ("Implement Design"), then bitgen ("Generate Programming File") in an ISE project, and reports resource utilization and timing. The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
+Synthesize, implement and generate a bitstream for a design with Xilinx ISE. Run XST synthesis, translate, map and place and route ("Implement Design"), then bitgen ("Generate Programming File"), in an ISE project. Report resource utilization and timing. The bitstream, `<top>.bit`, is recorded as the `bitstream` artifact.
 
 Required settings: `fpga`
 
@@ -131,7 +131,7 @@ Reports: `minimum_period`, `maximum_frequency`, `Fmax`, `wns`, `lut`, `ff`, `sli
 
 *runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `fpga_pack` (depends on the target)*
 
-Place and route an FPGA design with nextpnr, the portable open-source PnR tool. Its `netlist` input is a `JsonNetlist` design source or, by default, the recorded netlist synthesized by `yosys_fpga`. This flow places and routes that input with the nextpnr variant matching `fpga.family` -- `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq) -- then parses nextpnr's JSON report for achieved frequency, slack and resource utilization. A 7-series target needs the full part (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or a board's); its chip database is generated once per run root unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series; other families report raw bel-type counts. `lut` is counted at this stage by the method `LUT:METHOD` names -- for 7-series, the physical LUTs occupied, from the placement dump -- and is not certified comparable with another toolchain's. `Fmax` is nextpnr's own timing: compare it only with other nextpnr runs. A target without a tested device/constraint/output mapping is rejected before synthesis.
+Place and route an FPGA design with nextpnr. The input `netlist` is a `JsonNetlist` design source or, by default, the netlist that `yosys_fpga` produces. The flow runs the nextpnr variant for `fpga.family`: `nextpnr-ecp5`, `nextpnr-ice40`, `nextpnr-nexus`, or openXC7's `nextpnr-himbaechel` for Xilinx 7-series (Artix, Kintex, Spartan, Virtex, Zynq). It then parses the JSON report of nextpnr for the achieved frequency, the slack and the resource utilization. A 7-series part needs the full part name (`xc7a100tcsg324-1`) and pin constraints (typed `Xdc` sources, or the pin constraints of a board). The chip database is generated once for each run root, unless `chipdb` names one. Canonical resource names (`lut`, `ff`, ...) are mapped for ECP5 and 7-series. Other families report raw bel-type counts. `lut` is counted at this stage by the method that `LUT:METHOD` names. For 7-series it is the number of occupied physical LUTs, read from the placement dump. It is not certified comparable with the count of another toolchain. `Fmax` is the timing of nextpnr itself: compare it only with other nextpnr runs. A family without a tested mapping of device, constraints and output is refused before any producer runs.
 
 Required settings: `fpga`
 
@@ -143,7 +143,7 @@ Reports: `Fmax`, `wns`, `clock_frequency`, `clock_period`, `clock_domains`, `tim
 
 *runs first: `fpga_pack` | can follow: `fpga_pack`, `vivado_alt_synth`, `vivado_impl`, `vivado_synth` | programs a device and can only end a chain*
 
-Program a bitstream onto an FPGA board with openFPGALoader. Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` -> `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board database), when it has one. The FPGA part is given when the board is not named and the part is known: a Xilinx part without its speed grade, any other as it is. Without a part, openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The loader's output is kept in `openfpgaloader.log` in the run directory. It needs openFPGALoader 0.13.1 or newer, and refuses an older loader before it builds or programs anything. The run fails when the loader exits with a nonzero status, and also when its output shows that the device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error the FPGA reports), a step that printed FAIL, or an error message, such as a flash that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always runs, since it changes a device rather than a file, and it is the only flow here that touches hardware.
+Program a bitstream onto an FPGA board with openFPGALoader. The `bitstream` input is a typed `Bitstream` design source (a file built elsewhere, by any toolchain) or, by default, the `bitstream` output of `fpga_pack`. The flow builds and packs nothing itself. The settings of the earlier stages belong to their own sections (`flows.nextpnr`, `flows.fpga_pack`). The flow selects the device with `cable`, else with the name of the board in openFPGALoader (`openfpgaloader_board` in the board database) when the board has one. The flow passes the FPGA part when the part is known and either `cable` is set or no board name is passed: a Xilinx part without its speed grade, any other part as it is. Without a part, openFPGALoader detects the device. Programming the flash (`write_flash`) needs the part. The flow keeps the output of the loader in `openfpgaloader.log` in the run directory. It needs openFPGALoader 0.13.1 or newer and refuses an older loader before it builds or programs anything. The run fails when the loader exits with a nonzero status. It also fails when the output shows that the device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID or CRC error that the FPGA reports), a step that printed FAIL, or an error message such as a flash that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always runs, because it changes a device and no file. It is the only built-in flow that programs a device.
 
 20 flow-specific settings (plus the common ones): `xeda list-settings openfpgaloader --json`
 
@@ -151,7 +151,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `quartus`
 
-FPGA synthesis using Intel Quartus
+Compile a design for an Intel FPGA with Quartus.
 
 Required settings: `fpga`
 
@@ -163,7 +163,7 @@ Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
 *can be followed by: `openfpgaloader`, `vivado_power`*
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode. A generated TCL script reads the design and runs synth_design through route_design on it in memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports utilization and timing. See `vivado_synth` for the same in project mode. The outputs are switched as in `vivado_synth`, but this flow writes one SDF corner (the slow one) and so declares no `sdf_min`: `write_netlist` writes the functional netlist `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`); `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and `impl_timesim.sdf` (`sdf`); `write_checkpoint` the three checkpoints (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`); `bitstream` the bitstream.
+Synthesize and implement a design for an FPGA with Vivado in non-project mode. A generated Tcl script reads the design and runs the steps from `synth_design` through `route_design` in memory. Each step gets the options of its `synth` or `impl` strategy and steps. The script reports utilization and timing. `vivado_synth` does the same in project mode. Settings switch the outputs on as in `vivado_synth`. This flow writes one SDF corner (the slow one), so it declares no `sdf_min`. `write_netlist` writes the functional netlist `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and `impl_timesim.sdf` (`sdf`). `write_checkpoint` writes the three checkpoints (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`). `bitstream` writes the bitstream.
 
 Required settings: `fpga`
 
@@ -175,7 +175,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 *runs first: `yosys_fpga` | can follow: `yosys_fpga` | can be followed by: `openfpgaloader`, `vivado_power`*
 
-Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. Its `netlist` input is an `Edif` design source or, by default, the EDIF netlist that `yosys_fpga` writes for a flattened Xilinx synthesis, so `xeda run yosys_fpga+vivado_impl design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here. A generated TCL script reads the constraints and the netlist, links the design, and runs `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after placement); it reports timing and utilization, and writes a bitstream when `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`. The outputs are switched as in `vivado_alt_synth`, which also runs Vivado in non-project mode, by the settings of the same names: `write_checkpoint` writes the routed checkpoint `checkpoints/post_route.dcp` (`checkpoint_route`), and the one after placement beside it; `write_netlist` the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the constraints `outputs/impl.xdc` (`xdc_exported`); `write_timing_netlist` the timing netlist `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF `outputs/impl_timesim.sdf` (`sdf`); `bitstream` the bitstream. A design has no synthesis checkpoint here, so there is no `checkpoint_synth`. Vivado finds the top module of an EDIF netlist by the name of its file, so the flow copies the netlist to `<top>.edif` in its run directory, whatever the file was called. The design needs `rtl.top` for that, and `fpga` and a clock as for any Vivado flow. Pin constraints are `Xdc` design sources or `xdc_files`. A netlist from another source has to be flat, and written with its buses' ranges: yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it starts Vivado, and stops for one that is not flat, naming its modules. It cannot see the ranges. Without them Vivado links the design with every bus reversed and says nothing.
+Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. The `netlist` input is an `Edif` design source or, by default, the EDIF netlist that `yosys_fpga` writes for a flat Xilinx synthesis. So `xeda run yosys_fpga+vivado_impl design.yaml` implements the open-source synthesis with Vivado. Vivado does no synthesis here. A generated TCL script reads the constraints and the netlist, links the design, and runs `opt_design`, `place_design` and `route_design` on it in memory, with the optimizations that `impl` asks for (the default strategy adds `opt_design` and `phys_opt_design` after placement). The flow reports timing and utilization. It writes a bitstream when `bitstream` is set or a consumer needs it. The results are those of `vivado_synth`. The outputs follow `vivado_alt_synth`, which also runs Vivado in non-project mode, and the settings of the same names switch them on. `write_checkpoint` writes the routed checkpoint `checkpoints/post_route.dcp` (`checkpoint_route`) and the one after placement beside it. `write_netlist` writes the functional netlist `outputs/impl_funcsim.v` (`netlist`) and the constraints `outputs/impl.xdc` (`xdc_exported`). `write_timing_netlist` writes the timing netlist `outputs/impl_timesim.v` (`netlist_timing`) and its slow-corner SDF `outputs/impl_timesim.sdf` (`sdf`). `bitstream` writes the bitstream. The flow does no synthesis, so it has no `checkpoint_synth`. Vivado finds the top module of an EDIF netlist by the name of its file. The flow therefore copies the netlist to `<top>.edif` in its run directory, whatever the file was called. For that, the design needs `rtl.top`. It also needs `fpga` and a clock, as for any Vivado flow. Pin constraints are `Xdc` design sources or `xdc_files`. A netlist from another source must be flat and must carry the ranges of its buses. Use yosys's `write_edif -pvector bra` after `synth_xilinx -flatten`. The flow reads the netlist before it starts Vivado. It stops for a netlist that is not flat, and it names the modules. It cannot check the ranges. Without them, Vivado links the design with every bus reversed and gives no message.
 
 Required settings: `fpga`
 
@@ -187,7 +187,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 *runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_impl`, `vivado_postsynth_sim`, `vivado_synth`*
 
-Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file, then reports power against the routed checkpoint. By default the activity comes from a timing-annotated netlist simulation of the testbench (`timing_saif`). To take it from a functional simulation of the netlist instead, which is faster and has no timing-simulation problems but is less accurate, bind the input: `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
+Estimate post-implementation power from the switching activity of a simulation. The producer `vivado_postsynth_sim` (which runs `vivado_synth` first) writes a SAIF activity file. This flow reports the power of the routed checkpoint for that activity. By default the activity comes from a simulation of the timing-annotated netlist with the testbench (`timing_saif`). A simulation of the functional netlist is faster and avoids the problems of timing simulation, but it is less accurate. To use it, bind the input: `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. A vectorless estimate ignores the test vectors. This result follows them, so use a representative testbench.
 
 Required settings: `fpga`
 
@@ -197,7 +197,7 @@ Reports: `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effecti
 
 ### `vivado_project`
 
-Create a Xilinx Vivado project for the design, to work on in Vivado. The project holds the design's sources and testbench, its constraints, the synthesis and implementation strategies and step settings, and the hooks that write `vivado_synth`'s reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or set `gui` to have the flow open it. For synthesis and implementation in batch, use `vivado_synth`.
+Create an AMD-Xilinx Vivado project for the design, to work on in Vivado. The project holds the design's sources and testbench, its constraints, the synthesis and implementation strategies and step settings, and the hooks that write the reports of `vivado_synth` after each step. The flow runs no synthesis or implementation. Open the project (`artifacts.project`) in Vivado, or set `gui` to let the flow open it. For synthesis and implementation in batch, use `vivado_synth`.
 
 Required settings: `fpga`
 
@@ -209,7 +209,7 @@ Reports no results beyond the keys every flow reports.
 
 *can be followed by: `openfpgaloader`, `vivado_power`*
 
-FPGA synthesis and implementation with AMD-Xilinx Vivado, in project mode, in batch. Creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing; with a `bitstream` requested it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. The outputs asked for are registered as artifacts (label in parentheses). `write_checkpoint`: `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist`, all in `outputs/route_design/`: the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist`, in the same directory: the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast- and slow-corner SDF `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`, recorded as the output `sdf`). `bitstream`: the bitstream (`bitstream`), with a .bin of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). The flow fails unless each run completes the step it is launched to (Vivado's own status of the run, which the `status` result records), and, with a bitstream asked for, unless the bitstream is where it is registered. Each file has its own switch, and a file is a declared output (recorded in `results.json`'s `outputs` with its digest) where its setting is named here. `write_netlist` writes the functional netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`, a plain artifact). `write_timing_netlist` writes the timing netlist `timesim.v` (`netlist_timing`) and both SDF corners, `timesim.max.sdf` (`sdf`) and `timesim.min.sdf` (`sdf_min`). `write_checkpoint` writes both checkpoints (`checkpoint_synth`, `checkpoint_route`); `bitstream` writes the bitstream (`bitstream`).
+Synthesize and implement an FPGA design with AMD-Xilinx Vivado, in project mode, in batch. The flow creates a Vivado project in the run directory, runs its synthesis and implementation, and reports utilization, timing and (optionally) power. See `vivado_alt_synth` for the same in non-project mode, and `vivado_project` to create a project to work on in Vivado. The implementation run stops after routing. With a `bitstream` requested, it goes on through Vivado's `write_bitstream` step, which `impl.steps.WRITE_BITSTREAM` configures. Each output has its own setting. The flow registers each file that it writes as an artifact (the label is in parentheses). `write_checkpoint` writes `outputs/synth_design/post_synth.dcp` (`checkpoint_synth`) and `outputs/route_design/post_route.dcp` (`checkpoint_route`). `write_netlist` writes, in `outputs/route_design/`, the functional Verilog netlist `funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`). `write_timing_netlist` writes, in the same directory, the timing Verilog netlist `timesim.v` (`netlist_timing`) and the fast-corner and slow-corner SDF files `timesim.min.sdf` (`sdf_min`) and `timesim.max.sdf` (`sdf_max`). `bitstream` writes the bitstream (`bitstream`), with a .bin file of the same name beside it when the `write_bitstream` step writes one (`ARGS.BIN_FILE`). Each of these files is also a declared output, recorded in the `outputs` of `results.json` with its digest, except `xdc_exported`, which is a plain artifact. The output `sdf` is `timesim.max.sdf`. The flow fails unless each run completes the step that it was launched to. The `status` result records Vivado's own status of the run. With a bitstream requested, the flow also fails unless the bitstream exists where the flow registers it.
 
 Required settings: `fpga`
 
@@ -221,7 +221,7 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 *can be followed by: `nextpnr`, `vivado_impl`*
 
-Yosys Open SYnthesis Suite: FPGA synthesis
+Synthesize a design for an FPGA device with Yosys.
 
 Required settings: `fpga`
 
@@ -233,7 +233,7 @@ Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LU
 
 ### `dc`
 
-Synopsys Design Compiler (R) synthesis flow
+Synthesize a design for an ASIC with Synopsys Design Compiler.
 
 Required settings: `target_libraries`
 
@@ -245,7 +245,7 @@ Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_vio
 
 *runs first: `yosys` | can follow: `yosys`*
 
-OpenROAD open-source ASIC synthesis flow
+Place and route a gate-level netlist for an ASIC platform with OpenROAD. The netlist comes from the `yosys` flow or from a source of type `VerilogNetlist`. With `generate_gds`, the flow also writes GDSII using KLayout, if KLayout is installed.
 
 Required settings: `platform`
 
@@ -257,7 +257,7 @@ Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violatio
 
 ### `ghdl_synth`
 
-Convert a VHDL design using 'ghdl --synth' (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
+Convert a VHDL design to Verilog with `ghdl --synth`.
 
 22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
@@ -267,7 +267,7 @@ Reports no results beyond the keys every flow reports.
 
 *can be followed by: `openroad`*
 
-Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
+Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
 70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
@@ -277,7 +277,7 @@ Reports: `area`, `cells`
 
 ### `bsc`
 
-Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. Compiles `rtl.sources` in order -- the package defining `rtl.top` last -- and generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists the Verilog files the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library it instantiates, which are copied into `verilog_out_dir` so any downstream synthesis or simulation flow can take the list as is. A module the generated Verilog instantiates that no Verilog file defines (a vendor primitive, say) is left out with a warning: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros; BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
+Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc. The flow compiles `rtl.sources` in order, with the package that defines `rtl.top` last. It generates Verilog for `rtl.top` and for every `synthesize`d module on the way. `artifacts.verilog` lists the Verilog files that the top module needs: the generated modules, the design's own Verilog sources, and the modules of bsc's Verilog library that it instantiates. The flow copies the library modules into `verilog_out_dir`, so a downstream synthesis or simulation flow can take the list as it is. If the generated Verilog instantiates a module that no Verilog file defines (a vendor primitive, for example), the flow leaves the module out and warns: the downstream tool must provide it. `rtl.defines` and `rtl.parameters` are passed to bsc as preprocessor macros. BH (`.bs`) sources see them only through the C preprocessor, with `cpp`.
 
 60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 
