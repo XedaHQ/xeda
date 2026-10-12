@@ -100,18 +100,17 @@ class Dc(AsicSynthFlow):
     class Settings(AsicSynthFlow.Settings):
         removed_settings = {
             **AsicSynthFlow.Settings.removed_settings,
-            **{
-                name: "no setting: xeda passed it to nothing. Give DC the same through a hook "
-                "in `hooks`"
-                for name in (
-                    "platform",
+            "platform": "`target_libraries`. The flow never read a platform",
+            **dict.fromkeys(
+                (
                     "extra_link_libraries",
                     "mw_ref_lib",
                     "mw_tf",
                     "alib_dir",
                     "additional_search_path",
-                )
-            },
+                ),
+                "no setting: xeda passed it to nothing. Set it in a TCL script that `hooks` names",
+            ),
         }
         log_file: Optional[Path] = Field(
             Path("dc.log"),

@@ -46,13 +46,16 @@ REFUSED = [
     ("yosys_sim", "splitnets", True, "no setting"),
     ("yosys_sim", "abc_script", "+strash", "no setting"),
     ("yosys_sim", "sta", True, "no setting"),
+    ("yosys_sim", "nosynth", True, "no setting"),
+    ("yosys_sim", "retime", True, "no setting"),
+    ("yosys_sim", "netlist_verilog_extmem", [], "no setting"),
     ("yosys", "retime", True, "yosys_fpga"),
     ("yosys", "netlist_verilog_extmem", [], "no setting"),
     ("yosys_fpga", "nosynth", True, "no setting"),
     ("yosys_fpga", "netlist_verilog_extmem", [], "no setting"),
     ("ghdl_synth", "compiler_flags", ["-O"], "flows.ghdl_sim.compiler_flags"),
     ("ghdl_synth", "linker_flags", ["-L"], "flows.ghdl_sim.linker_flags"),
-    ("dc", "platform", "nangate45", "no setting"),
+    ("dc", "platform", "nangate45", "target_libraries"),
     ("dc", "mw_ref_lib", "lib", "no setting"),
     ("quartus", "synthesis_effort", "fast", "no setting"),
     ("vcs", "work_dir", "work", "no setting"),
@@ -229,3 +232,4 @@ def test_openroad_sources_the_floorplan_script_and_hands_the_macro_placer_its_co
     script = (flow.run_path / "orflow_0_11.tcl").read_text()
     assert f'source "{floorplan}"' in script
     assert f'-config_file [list "{config}"]' in script
+    assert script.count("-config_file") == 1, "the setting replaces the environment variable's"

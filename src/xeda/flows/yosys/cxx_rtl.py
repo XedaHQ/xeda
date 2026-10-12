@@ -70,7 +70,10 @@ class YosysSim(YosysBase, SimFlow):
                 for spelling, field in input_names(YosysSynthesisBase.Settings).items()
                 if field not in YosysBase.Settings.model_fields
             },
-            "optimization_flags": "no setting: xeda passed it to nothing",
+            **dict.fromkeys(
+                ("nosynth", "retime", "netlist_verilog_extmem", "optimization_flags"),
+                "no setting: xeda passed it to nothing",
+            ),
         }
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",

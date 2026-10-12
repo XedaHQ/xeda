@@ -25,8 +25,9 @@ A read of the setting `x` is:
 
 * in Python, the attribute `x` of an expression that holds the settings (`settings`, `ss`,
   `self.settings`, `flow.settings`, or `self` and `cls` inside a settings class), or the exact text
-  `"x"` where the code uses it as data, such as a table of option names that `getattr` walks. Text
-  in a docstring, in `Field(...)`, in a decorator or in a `Literal[...]` is no read;
+  `"x"` where the code uses it as a name: in the second argument of `getattr`, or in a tuple, list,
+  set or dictionary, such as a table of option names. Text in a docstring, in `Field(...)`, in a
+  decorator or in a `Literal[...]`, and a value that the code assigns or compares, is no read;
 * in a template, `settings.x` or `settings["x"]` outside a comment.
 
 Known limit: only the top-level fields of a flow's `Settings` are checked. The leaves of a nested
@@ -127,6 +128,8 @@ class _Collector(ast.NodeVisitor):
         name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
         if name in ("Field", "deliverable"):
             return  # a description and an alias are no use of a setting
+        if name in ("getattr", "hasattr", "setattr", "delattr") and len(node.args) > 1:
+            self._name(node.args[1])
         self.generic_visit(node)
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -161,9 +164,26 @@ class _Collector(ast.NodeVisitor):
     def visit_Name(self, node: ast.Name) -> None:
         self.names.add(node.id)
 
-    def visit_Constant(self, node: ast.Constant) -> None:
-        if isinstance(node.value, str) and IDENTIFIER.fullmatch(node.value):
+    def _name(self, node: ast.AST) -> None:
+        if (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and IDENTIFIER.fullmatch(node.value)
+        ):
             self.strings.add(node.value)
+
+    def _names(self, node: ast.Tuple | ast.List | ast.Set) -> None:
+        for item in node.elts:
+            self._name(item)
+        self.generic_visit(node)
+
+    visit_Tuple = visit_List = visit_Set = _names
+
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for item in (*node.keys, *node.values):
+            if item is not None:
+                self._name(item)
+        self.generic_visit(node)
 
 
 def template_reads(name: str, text: str) -> set[str]:
@@ -349,6 +369,11 @@ FRAMEWORK_READS: dict[str, tuple[str, str, str]] = {
         "verbose",
         "a producer takes its consumer's verbosity",
     ),
+    "debug": (
+        "xeda.flow_runner.settings_layers",
+        "debug",
+        "a producer takes its consumer's debug mode, and the launcher's `--debug` sets it",
+    ),
     "quiet": (
         "xeda.flow_runner.launch_run",
         "is_quiet",
@@ -383,6 +408,7 @@ REFUSED_WHEN_SET: dict[tuple[str, str], object] = {
 
 #: `(flow, setting)` -> why the flow does not read the setting and that is fine.
 REVIEWED: dict[tuple[str, str], str] = {
+    ("nvc", "vcd"): "waveform settings: the waveform work reads or refuses them",
     ("nvc", "wave_include_glob"): "waveform settings: the waveform work reads or refuses them",
     ("nvc", "wave_exclude_glob"): "waveform settings: the waveform work reads or refuses them",
     ("vcs", "vcd"): "waveform settings: the waveform work reads or refuses them",
@@ -502,6 +528,9 @@ class Fixture(Flow):
         for name in OPTIONS:
             getattr(ss, name)
         self.name.read_by_wrong_base
+        ss.wave_format = "read_by_assignment"
+        if ss.wave_format == "read_by_comparison":
+            pass
 '''
 
 FIXTURE_TEMPLATES = [
@@ -563,6 +592,8 @@ def test_the_scan_sees_each_way_of_reading_a_setting(setting: str) -> None:
         "read_by_other_flow",
         "read_by_results_table",
         "read_by_wrong_base",
+        "read_by_assignment",
+        "read_by_comparison",
         "read_in_tcl_comment",
         "read_in_jinja_comment",
     ],
