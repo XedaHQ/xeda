@@ -68,7 +68,7 @@ def test_an_ambiguous_suffix_asks_for_a_type(tmp_path, suffix):
     path.write_text("x\n")
     with pytest.raises(ValueError, match=rf"`\.{suffix}` names several kinds of file") as raised:
         DesignSource(path)
-    assert "type = " in str(raised.value)
+    assert "type: " in str(raised.value)
 
 
 def test_an_unknown_suffix_asks_for_a_type_and_offers_data(tmp_path):
@@ -76,7 +76,7 @@ def test_an_unknown_suffix_asks_for_a_type_and_offers_data(tmp_path):
     path.write_text("x\n")
     with pytest.raises(ValueError, match=r"infers no source type from `\.txt`") as raised:
         DesignSource(path)
-    assert '"Data"' in str(raised.value)
+    assert "type: Data" in str(raised.value)
 
 
 def test_a_file_without_a_suffix_asks_for_a_type(tmp_path):
