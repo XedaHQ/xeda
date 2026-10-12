@@ -35,7 +35,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 Simulate a VHDL, Verilog, SystemVerilog or mixed-language design with Siemens ModelSim. Handles both RTL and gate-level netlist simulation; a netlist simulation can be annotated with timing from an SDF file via the `sdf` setting. Batch evidence requires this run's native stop reason, time and TESTSTATUS checkpoint plus its bounded runtime logfile. VHDL ``std.env.stop`` is accepted with source-qualified evidence; Verilog ``$stop`` fails at the default severity. Verified with ModelSim-Intel Starter 2020.1.
 
-11 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
+10 flow-specific settings (plus the common ones): `xeda list-settings modelsim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -45,7 +45,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 Simulate VHDL using NVC, with native diagnostics and a passive VHPI end monitor. Non-cocotb runs require a C++ compiler and NVC's vhpi_user.h, installed under its prefix or on the compiler's include search path. The monitor schedules no simulation events.
 
-35 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
+34 flow-specific settings (plus the common ones): `xeda list-settings nvc --json`
 
 Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -53,7 +53,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 Synopsys VCS simulator with runtime evidence in split and one-shot modes. This adapter is documentation-only and is not verified against a licensed VCS release. Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
 
-43 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
+41 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -63,7 +63,7 @@ Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.error
 
 Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer. Verilator compiles the design to C++ (or SystemC) and builds a native executable, which makes it the fastest open-source simulator for large designs. Supports cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST/SAIF waveform tracing. Three drivers run the model. By default, Verilator's own `--main` runs an HDL top (the `main` setting). With `main: false`, the design's own C++ `main` or `sc_main` runs it. With cocotb, cocotb's own main runs it, and cocotb's results decide the run. The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with HDL testbench sources needs `tb.top` when Verilator supplies its main); with cocotb, the module cocotb drives: `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are `rtl.parameters` updated by `tb.parameters` when the simulated top is the RTL top, and `tb.parameters` alone otherwise. Without cocotb, a run passes only on evidence of how the simulation ended, which xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's main, the run passes when the testbench ends it with `$finish` and nothing reported reaches `fail_severity`; an event queue that runs empty without a `$finish` fails. Under the design's own main, the run passes when that main exits with status 0 and nothing reported reaches `fail_severity`. `stop_time` is refused: end the testbench with `$finish`, or use `timeout`. A waveform setting (`vcd`, `fst`, `saif`) builds the model with that trace format. Without cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write the file, and name it; xeda opens no waveform.
 
-35 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
+34 flow-specific settings (plus the common ones): `xeda list-settings verilator --json`
 
 Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `cocotb.time`, `cocotb.sim_time_ns`, `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -73,7 +73,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 Simulate the testbench on the routed netlist `vivado_synth` writes. Runs `vivado_synth` with `write_netlist` and `write_timing_netlist`, then simulates its functional netlist (`netlist`), or with `timing_sim` its timing netlist (`netlist_timing`) annotated with its slow-corner SDF (`sdf_max`).
 
-27 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
+24 flow-specific settings (plus the common ones): `xeda list-settings vivado_postsynth_sim --json`
 
 Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
@@ -81,7 +81,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 Simulate using Xilinx Vivado simulator (xsim). ``elab_debug`` must preserve source information so VHDL ``std.env.stop`` can be distinguished from Verilog ``$stop``; explicitly disabling it is rejected. ``stop_time`` is an absolute bound across prerun and runtime, measured from xsim's actual current time. Verified with Vivado 2024.2.
 
-23 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
+20 flow-specific settings (plus the common ones): `xeda list-settings vivado_sim --json`
 
 Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`, `sim.evidence`
 
@@ -89,7 +89,7 @@ Reports: `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warning
 
 Simulate with CXXRTL
 
-60 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
+28 flow-specific settings (plus the common ones): `xeda list-settings yosys_sim --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 
@@ -155,7 +155,7 @@ FPGA synthesis using Intel Quartus
 
 Required settings: `fpga`
 
-20 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
+19 flow-specific settings (plus the common ones): `xeda list-settings quartus --json`
 
 Reports: `Fmax`, `wns`, `whs`, `lut`, `ff`
 
@@ -179,7 +179,7 @@ Place and route a netlist with AMD-Xilinx Vivado, in non-project mode. Its `netl
 
 Required settings: `fpga`
 
-21 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
+22 flow-specific settings (plus the common ones): `xeda list-settings vivado_impl --json`
 
 Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_violations`, `hold_violations`, `lut`, `ff`, `slice`, `dsp`, `lut_logic`, `lut_mem`, `latch`, `bram_RAMB36`, `bram_RAMB18`
 
@@ -187,11 +187,11 @@ Reports: `Fmax`, `clock_period`, `clock_frequency`, `wns`, `whs`, `tns`, `setup_
 
 *runs first: `vivado_postsynth_sim` -> `vivado_synth` | can follow: `vivado_alt_synth`, `vivado_impl`, `vivado_postsynth_sim`, `vivado_synth`*
 
-Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file from a timing-annotated netlist simulation of the testbench, then reports power against the routed checkpoint. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
+Estimate post-implementation power from real switching activity. Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity file, then reports power against the routed checkpoint. By default the activity comes from a timing-annotated netlist simulation of the testbench (`timing_saif`). To take it from a functional simulation of the netlist instead, which is faster and has no timing-simulation problems but is less accurate, bind the input: `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. Unlike a vectorless estimate, the result reflects the actual testvectors, so a representative testbench matters.
 
 Required settings: `fpga`
 
-7 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
+6 flow-specific settings (plus the common ones): `xeda list-settings vivado_power --json`
 
 Reports: `Total On-Chip Power (W)`, `Dynamic (W)`, `Device Static (W)`, `Effective TJA (C/W)`, `Junction Temperature (C)`, `Thermal Margin (C)`, `Confidence Level`, `Component Power: <component>`
 
@@ -201,7 +201,7 @@ Create a Xilinx Vivado project for the design, to work on in Vivado. The project
 
 Required settings: `fpga`
 
-50 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
+30 flow-specific settings (plus the common ones): `xeda list-settings vivado_project --json`
 
 Reports no results beyond the keys every flow reports.
 
@@ -225,7 +225,7 @@ Yosys Open SYnthesis Suite: FPGA synthesis
 
 Required settings: `fpga`
 
-72 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys_fpga --json`
 
 Reports: `LUT`, `lut`, `ff`, `LUT:LOGIC`, `LUT:RAM`, `LUT:SRL`, `LUT:STAGE`, `LUT:METHOD`, `FF`
 
@@ -237,7 +237,7 @@ Synopsys Design Compiler (R) synthesis flow
 
 Required settings: `target_libraries`
 
-33 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
+27 flow-specific settings (plus the common ones): `xeda list-settings dc --json`
 
 Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
 
@@ -259,7 +259,7 @@ Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violatio
 
 Convert a VHDL design using 'ghdl --synth' (Please take a look at 'Yosys' flow (or other synthesis flows) for general VHDL, Verilog, or mixed-language synthesis targeting FPGAs or ASICs)
 
-25 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
+22 flow-specific settings (plus the common ones): `xeda list-settings ghdl_synth --json`
 
 Reports no results beyond the keys every flow reports.
 
@@ -269,7 +269,7 @@ Reports no results beyond the keys every flow reports.
 
 Yosys Open SYnthesis Suite: ASICs and generic gate/LUT synthesis
 
-72 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
 Reports: `area`, `cells`
 

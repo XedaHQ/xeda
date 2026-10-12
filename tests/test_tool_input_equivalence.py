@@ -98,6 +98,24 @@ PLATFORMS = Path(xeda.__file__).parent / "platforms"
 #: for any one key; a key that itself holds `/`, such as a file's path, is named whole) and the
 #: reason, per request. It is removed from the golden and from what is observed before they are
 #: compared. A tuple of keys names each key whole.
+#: Settings that went from every flow, or from a nested flow's settings.
+_REMOVED_EVERYWHERE = {
+    **{
+        f"nodes/*/effective_flow_settings/{key}": "no flow read this setting: it is removed"
+        for key in ("timeout_seconds", "no_console")
+    },
+    **{
+        f"nodes/*/effective_flow_settings/ghdl/{key}": "a nested flow's settings: the same "
+        "settings, or ones `ghdl_synth` does not use (it compiles and links nothing)"
+        for key in (
+            "timeout_seconds",
+            "no_console",
+            "compiler_flags",
+            "assembler_flags",
+            "linker_flags",
+        )
+    },
+}
 _SYNTH = "nodes/sim/vivado_synth"
 _SYNTH_DELTAS = {
     f"{_SYNTH}/effective_flow_settings/write_timing_netlist": "A new setting "
@@ -122,6 +140,11 @@ _POSTSYNTH_DELTAS = {
     "the synthesis node's own complete settings remain compared with the golden",
     f"{_SIM}/effective_flow_settings/fpga": "FPGA shared leaves agree along declared edges",
     f"{_SIM}/effective_flow_settings/clocks": "clock shared leaves agree along declared edges",
+    **{
+        f"{_SIM}/effective_flow_settings/{key}": "a simulation has no use for it, and nothing "
+        "read it: it is a setting of the flows that synthesize"
+        for key in ("suppress_msgs", "initialize_zeros", "read_oneshot")
+    },
     f"{_SIM}/results/outputs": "checked activity output records; their file contents "
     "remain compared independently",
 }
@@ -144,6 +167,7 @@ _POWER_SETTINGS_REMOVED = (
     "sdf",
     "sim_flags",
     "stop_time",
+    "suppress_msgs",
     "timeout",
     "timing_sim",
     "vcd",
@@ -226,6 +250,10 @@ _YOSYS_ASIC_DELTAS: dict[tuple[str, ...] | str, str] = {
     ("nodes", _YOSYS, "results", "outputs"): (
         "yosys declares its netlist: the declared output's record is new"
     ),
+    **{
+        ("nodes", _YOSYS, "effective_flow_settings", key): "no flow of the settings read it"
+        for key in ("retime", "netlist_verilog_extmem")
+    },
 }
 _YOSYS_ASIC_RENAMES = {
     # longest first: the merged library, by its path and as the script names it
@@ -262,6 +290,9 @@ for _name in REVIEWED_RENAMES:
         ("nodes", _OPENROAD, "effective_flow_settings", "blocks")
     ] = "blocks was removed; configure flows.yosys.black_box instead"
 REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
+
+for _deltas in REVIEWED_DELTAS.values():
+    _deltas.update(_REMOVED_EVERYWHERE)
 
 
 def activity_recording_delta(record: dict, name: str, *, baseline: bool = False) -> dict:

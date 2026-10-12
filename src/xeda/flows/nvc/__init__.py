@@ -58,6 +58,8 @@ class Nvc(SimFlow):
             "exit_severity": "fail_severity",
             "wave": "`fst`",
             "wave_format": "`fst` or `vcd`",
+            "optimization_flags": "`optimization_level` (`nvc -e -O`), or `elab_flags` for other options of "
+            "`nvc -e`",
         }
         one_shot: bool = Field(
             True,
@@ -85,7 +87,9 @@ class Nvc(SimFlow):
             "error, and failure.",
         )
         werror: bool = Field(
-            False, alias="warn_error", description="warnings are always considered as errors"
+            False,
+            alias="warn_error",
+            description="Treat the warnings of the analysis as errors (`-Werror`).",
         )
         work: Optional[str] = Field(None, description="Set the name of the WORK library")
         # clean: bool = Field(False, description="Run 'clean' before elaboration")
@@ -282,6 +286,8 @@ class Nvc(SimFlow):
         ss = self.settings
         assert isinstance(ss, self.Settings)
         flags = list(ss.analysis_flags)
+        if ss.werror:
+            flags.append("-Werror")
         if ss.psl_in_comments:
             flags.append("--psl")
         if ss.relaxed:

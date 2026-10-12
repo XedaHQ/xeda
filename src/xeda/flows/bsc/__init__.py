@@ -1228,6 +1228,11 @@ class BscSim(BscFlow, SimFlow):
         return xsim_evidence(self)
 
     class Settings(BscFlow.Settings, SimFlow.Settings):
+        optimization_flags: list[str] = Field(
+            [],
+            description="Extra optimization flags passed to the simulator's compiler: the C++ "
+            "compiler for Bluesim, the Verilog simulator otherwise.",
+        )
         simulator: SimulatorName = Field(
             "bluesim",
             description='The simulator: "bluesim", or a supported Verilog simulator bsc links '

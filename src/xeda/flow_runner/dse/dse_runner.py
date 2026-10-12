@@ -411,19 +411,12 @@ class Dse(FlowLauncher):
             max_nthreads = max(2, multiprocessing.cpu_count() // self.settings.max_workers)
             base_settings.nthreads = min(base_settings.nthreads, max_nthreads)
 
-        if (
-            not base_settings.timeout_seconds
-            or base_settings.timeout_seconds > self.settings.timeout
-        ):
-            base_settings.timeout_seconds = self.settings.timeout
-
         adjustments = {
             key: getattr(base_settings, key)
             for key in (
                 "redirect_stdout",
                 "print_commands",
                 "nthreads",
-                "timeout_seconds",
             )
         }
         candidate_input = merge_layers(flow_settings, adjustments, settings_cls=flow_class.Settings)

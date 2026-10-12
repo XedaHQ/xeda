@@ -29,7 +29,7 @@ REMOVED = {
     "fail_severity": ("error", "flows.vivado_postsynth_sim.fail_severity"),
     "timing_sim": (
         True,
-        "switches `flows.vivado_postsynth_sim.timing_sim` on itself, so remove it",
+        "takes timing activity (`vivado_postsynth_sim.timing_saif`) by default",
     ),
 }
 
@@ -125,3 +125,19 @@ def test_failed_activity_prevents_power_reporter_execution(tmp_path, monkeypatch
     assert not (tmp_path / "run/sim/vivado_power/vivado_power.tcl").exists()
     result = json.loads((tmp_path / "run/sim/vivado_power/results.json").read_text())
     assert not result["success"]
+
+
+def test_power_takes_functional_activity_when_its_input_is_bound_to_the_saif(tmp_path):
+    """The documented alternative to the removed `timing_sim`: faster, and less accurate."""
+    write_vivado_design(tmp_path)
+    plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
+        "vivado_power",
+        tmp_path / "design.yaml",
+        flow_settings=[
+            *VIVADO_SETTINGS,
+            "flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif",
+        ],
+    )
+    simulation = plan.node("vivado_postsynth_sim")
+    assert simulation.settings.timing_sim is False
+    assert "saif" in simulation.switched_on and "timing_saif" not in simulation.switched_on

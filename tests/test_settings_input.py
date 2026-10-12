@@ -298,7 +298,7 @@ def test_cocotb_text_for_a_list_is_refused_the_same_through_a_flow():
     ("flow", "setting", "section", "key"),
     [
         ("ghdl_sim", {"cocotb": {"testcase": "[]"}}, "cocotb", "testcase"),
-        ("yosys", {"ghdl": {"compiler_flags": "[a]"}}, "ghdl", "compiler_flags"),
+        ("yosys", {"ghdl": {"analysis_flags": "[a]"}}, "ghdl", "analysis_flags"),
     ],
     ids=["cocotb", "nested flow settings"],
 )
@@ -379,7 +379,7 @@ def test_real_path_list_setting_expands_design_root(tmp_path):
     from xeda.flows.dc import Dc
 
     settings = Dc.Settings.from_input(
-        {"platform": "asap7", "target_libraries": ["$DESIGN_ROOT/lib/cells.lib"]},
+        {"target_libraries": ["$DESIGN_ROOT/lib/cells.lib"]},
         design_root=tmp_path,
     )
 
@@ -404,7 +404,7 @@ def test_real_path_list_setting_expands_design_root(tmp_path):
         # a mapping's values
         (
             "dc",
-            {"platform": "asap7", "target_libraries": []},
+            {"target_libraries": []},
             "hooks",
             {"pre_elab": "$DESIGN_ROOT/pre.tcl", "post_elab": None},
             {"pre_elab": "{root}/pre.tcl", "post_elab": None},
@@ -441,7 +441,7 @@ def test_comma_separated_path_list_expands_each_design_root(tmp_path):
     from xeda.flows.dc import Dc
 
     settings = Dc.Settings.from_input(
-        {"platform": "asap7", "target_libraries": "$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib"},
+        {"target_libraries": "$DESIGN_ROOT/lib/a.lib,$DESIGN_ROOT/lib/b.lib"},
         design_root=tmp_path,
     )
 

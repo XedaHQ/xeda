@@ -12,7 +12,13 @@ from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tupl
 from ...cocotb import cocotb_toplevel
 from ...dataclass import WORKING, Field, waveform
 from ...design import Design, SourceType
-from ...flow import Flow, FlowFatalError, FlowSettingsException, SimFlow, describe_results
+from ...flow import (
+    Flow,
+    FlowFatalError,
+    FlowSettingsException,
+    SimFlow,
+    describe_results,
+)
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
 from ...utils import replacing_copy, unique
@@ -330,6 +336,8 @@ class Verilator(SimFlow):
         removed_settings: ClassVar[Dict[str, str]] = {
             **Flow.Settings.removed_settings,
             "clean_before_run": "the --clean option",
+            "optimization_flags": "`optimize` for the `-O` of Verilator, or `cflags` for the C++ compiler "
+            "(`-CFLAGS`)",
         }
 
     @classmethod

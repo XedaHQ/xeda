@@ -127,6 +127,11 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   creation). A setting the flow cannot run without goes in `Flow.required_settings`, never on the
   model or in `run()` (`tests/test_required_settings.py`). No custom `__init__`; user input goes
   through `from_input`.
+- A flow's code or templates read every setting its model has, or the model refuses it; a setting
+  no flow reads is removed, not kept (`tests/test_unread_settings.py`).
+- A removed setting fails with "`<name>` was removed:" and either the setting to use or, for
+  `NoReplacement`, why there is none ("...; delete it"). The entry is in `removed_settings` of the
+  class that had the field (`tests/test_settings_a_flow_does_not_use.py`).
 - A setting accepts exactly its type; never add an implicit conversion. A boolean takes only
   `true`/`false`; list text is comma-separated and `[...]` text is refused; `Code` is for
   number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).
