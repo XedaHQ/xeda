@@ -603,8 +603,8 @@ on. It needs the ``fpga`` of the design and a clock, and it programs a device, s
 
 Binding an input called ``design`` is refused for the same reason: no flow declares one.
 
-Open-source FPGA flow targets and tuning
-========================================
+Open-source FPGA flows: devices and tuning
+==========================================
 
 ``yosys_fpga`` runs the Yosys synthesis pass of the selected family (``synth_<family>``). It
 supports ECP5, iCE40, Nexus, Xilinx and Gowin. ``nextpnr`` adds verified device selection,
@@ -624,8 +624,7 @@ ABC, and ``retime`` enables ``-retime``. Yosys 0.69 removed both choices, so wit
 they are errors. On iCE40, ``noabc`` maps LUTs without ABC at all.
 
 ``flatten`` left unset on a Xilinx device is ``true``. ``synth_xilinx`` alone keeps the hierarchy.
-In 18 measured designs, flattening was never worse, and Fmax rose by a factor of 1.08 (1.03 to
-1.13). As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and ``rtl_json``,
+Flattening measured better in the designs that were tried. As with ``flatten: true``, Xeda flattens before it writes ``rtl_verilog`` and ``rtl_json``,
 so those files are flat too. ``flatten: false`` keeps the hierarchy. The Lattice, iCE40 and Gowin
 passes flatten on their own, so for them an unset ``flatten`` adds nothing, and the RTL outputs
 keep the hierarchy. Under ``synth_pass_only``, an unset ``flatten`` is the choice of the pass for
@@ -740,11 +739,8 @@ does not change. ABC then prints ``ABC: Warning: Cannot meet the target required
 Mapping continues anyway.`` in the Yosys log. If the required time is higher, ABC9 spends the slack
 on area. The mapping can change, and it can get smaller. It can also keep its LUT count and change
 only the mix of LUT sizes. So the netlist changes with ``clock.period`` only when the clock is slow
-for the design. With Yosys 0.69, PicoSoC (the RISC-V system on a chip of the PicoRV32 project) maps
-to one netlist for every period from 2.5 ns to 8.5 ns, the same netlist as with no delay. At 10 ns
-the mapping has two more logic levels and 24 fewer LUTs than that netlist. A small design with two
-levels of logic (a block RAM and a multiply-accumulate) maps to one netlist at 3 ns, 4 ns and 10
-ns. A netlist that does not change with the clock period is therefore expected.
+for the design. A design with little logic to trade can map to the same netlist at every period. A
+netlist that does not change with the clock period is therefore expected.
 
 Pass-only mode does not by itself guarantee the same result as a native Yosys command. To compare
 them, match the Yosys version and the FPGA family, the source paths and their order, the
@@ -870,8 +866,8 @@ The chip database
 nextpnr needs a database for the die, which openXC7 generates from the Project X-Ray data. Xeda
 generates it on first use and keeps it under the run root, in
 ``.cache/xilinx-chipdb/<identity>/<die>.bin``. Every design that uses that run root shares it. The
-first build of an ``xc7a100t`` takes about a minute and about 3.5 GB of memory (larger dies take
-more). Later launches start no generator. Xeda identifies an entry by content: the nextpnr and
+first build of a die runs a generator that takes noticeable time and memory, and larger dies need
+more. Later launches start no generator. Xeda identifies an entry by content: the nextpnr and
 ``bbasm`` executables, the generator and the files of the database family. Another installation, or
 an updated one, therefore gets its own entry. Xeda never modifies an entry, and ``xeda scrub`` and
 ``--clean`` leave the entries alone. Delete the ``.cache`` directory to reclaim the space.
