@@ -23,13 +23,14 @@ Discovering flows and their settings
     waveform settings and ``cocotb``.
 
 ``fpga_synthesis``
-    Builds a design for an FPGA. Adds the ``fpga`` setting to the clock settings. ``fpga`` is a
-    part identifier, or a ``board`` name that fills it in. A ``board`` is looked up in the bundled
-    database (``xeda list-boards``) or, with ``custom_boards_file``, in your own database: a TOML
-    or YAML file, chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an
+    Builds a design for an FPGA. Adds the ``fpga`` setting to the clock settings. ``fpga`` is a part
+    identifier, or a ``board`` name that fills it in. A ``board`` is looked up in the bundled
+    database (``xeda list-boards``) or, with ``custom_boards_file``, in your own database: a TOML or
+    YAML file, chosen by its suffix (``.toml``, ``.yaml`` or ``.yml``; any other suffix is an
     error). The database maps each board name to its ``fpga``, its name in openFPGALoader
-    (``openfpgaloader_board``, optional) and its local ``lpf``. A relative ``custom_boards_file``
-    resolves against the design directory, and the local ``lpf`` of a board resolves against the
+    (``openfpgaloader_board``, optional) and its local pin file. The pin file has the key of the pin
+    format of the family: ``lpf``, ``pcf``, ``pdc`` or ``xdc``. A relative ``custom_boards_file``
+    resolves against the design directory, and the local pin file of a board resolves against the
     directory of the database file, in either format. Xeda reads a YAML database as YAML 1.2, like
     every other YAML file it reads. A dotted key such as ``fpga.part`` is not expanded in a
     database, so write ``fpga`` as a table in YAML::
@@ -163,9 +164,9 @@ A name with a space is a quoted shell item::
     xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
-``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and ``vivado_project``,
-and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a dotted key is a
-path into nested tables.
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` and the flows that share
+its settings, and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
+dotted key is a path into nested tables.
 
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
@@ -577,16 +578,17 @@ What is supported today
 -----------------------
 
 Chains cover the open FPGA flows (``yosys_fpga``, ``nextpnr``, ``fpga_pack`` and
-``openfpgaloader``) for ECP5, iCE40, Nexus and Xilinx 7-series. The build-only chain
-``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardware. Only a chain that
+``openfpgaloader``). ``yosys_fpga`` and ``nextpnr`` work for ECP5, iCE40, Nexus and Xilinx 7-series.
+``fpga_pack`` packs ECP5, iCE40 and Xilinx 7-series, and it has no packer for Nexus. The build-only
+chain ``yosys_fpga+nextpnr+fpga_pack`` runs no programmer and touches no hardware. Only a chain that
 ends at ``openfpgaloader`` programs a device. The test suite runs these chains against fake tools
 and never starts a real programmer.
 
-Chains that start at Bluespec, or go through ``vivado_project`` or ``vivado_sim``, are not
-available yet. Xeda refuses the command below today (``Flow `bsc` cannot precede `yosys_fpga`:
-`yosys_fpga` takes no required input``). These chains need the remaining flows to declare their
-inputs and outputs, a design value that ``bsc`` produces and the flows after it read, and example
-designs and targets that use them:
+Chains that start at Bluespec, or go through ``vivado_project`` or ``vivado_sim``, are not available
+yet. Xeda refuses the command below today. The error starts with ``Flow `bsc` cannot precede
+`yosys_fpga`: `yosys_fpga` takes no required input``. These chains need the remaining flows to
+declare their inputs and outputs, a design value that ``bsc`` produces and the flows after it read,
+and example designs and targets that use them:
 
 .. code-block:: bash
 
@@ -839,13 +841,13 @@ Constraints
 the bundled pin file of the board. The bundled Arty files are active, pin-only derivatives of the
 master XDC of Digilent, and they keep its port names (``CLK100MHZ``, ``led[0]``, ``sw[0]``,
 ``btn[0]`` and so on). A design that relies on the fallback names the ports of its top module that
-way. The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on). The
-bundled files contain no clock constraint. Timing comes from the ``clock`` or ``clocks`` setting of
-the flow, or from the files of the design, and each clock has one authority. With no clock
-constraint at all, nextpnr analyzes at its default of 12 MHz, and Xeda says so. nextpnr reads
-``set_property PULLTYPE PULLUP [get_ports rst]``. It ignores ``set_property PULLUP true [get_ports
-rst]`` and prints no warning, so a port that uses the second form gets no pull-up. The bundled pin
-files use neither form, and a pin file of your own may.
+way. The ULX3S file likewise uses the names of the board (``clk_25mhz``, ``led[0]`` and so on), and
+it sets a 25 MHz constraint on ``clk_25mhz``. The bundled Xilinx files contain no clock constraint.
+Timing comes from the ``clock`` or ``clocks`` setting of the flow, or from the files of the design,
+and each clock has one authority. With no clock constraint at all, nextpnr analyzes at its default
+of 12 MHz, and Xeda says so. nextpnr reads ``set_property PULLTYPE PULLUP [get_ports rst]``. It
+ignores ``set_property PULLUP true [get_ports rst]`` and prints no warning, so a port that uses the
+second form gets no pull-up. The bundled pin files use neither form, and a pin file of your own may.
 
 The bundled ``basys_3`` and ``stlv7325_v2`` files constrain the clock, every user LED, the user
 buttons and the USB-UART, and nothing else. A design that relies on them names its ports as
@@ -927,8 +929,8 @@ the database has no directory for the device and package at any speed grade, the
 any tool runs. The message names the part, the directory it searched, and the packages of the same
 device that the database has, with their speed grades.
 
-``openfpgaloader`` loads into SRAM by default. ``write_flash`` programs the flash, and ``verify``
-is accepted only with it. A ``cable`` takes precedence over the board. With a ``cable``, the flow
+``openfpgaloader`` loads into SRAM by default. ``write_flash`` programs the flash, and ``verify`` is
+accepted only with it. A ``cable`` takes precedence over the board. With a ``cable``, the flow
 passes ``--cable``, and ``--fpga-part`` when the part is known. It passes no board name, even when
 ``board`` is set. Without a ``cable``, when ``board`` is set, the flow passes the
 ``openfpgaloader_board`` of the board to openFPGALoader as ``--board``, and no ``--fpga-part``.
@@ -937,16 +939,16 @@ openFPGALoader does not know has no ``openfpgaloader_board``. Then the flow give
 board as ``--fpga-part``. openFPGALoader uses ``--fpga-part`` as written to name the bridge
 bitstream that it needs to write a flash (``spiOverJtag_<device><package>.bit.gz``), which has no
 speed grade. So the flow gives a Xilinx part without its speed grade (``xc7a35tcpg236``), and any
-other part as it is. Every bundled board has an ``openfpgaloader_board``, taken from the board
-list of openFPGALoader itself (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no
-part is known, from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and
-openFPGALoader detects the device. Programming the flash needs the device, so Xeda refuses ``write_flash`` before
+other part as it is. Every bundled board has an ``openfpgaloader_board``, taken from the board list
+of openFPGALoader itself (``basys_3`` is ``basys3``, ``ulx3s_85f`` is ``ulx3s``). When no part is
+known, from ``fpga`` or from the board, the flow gives no ``--fpga-part``, and openFPGALoader
+detects the device. Programming the flash needs the device, so Xeda refuses ``write_flash`` before
 anything runs when neither ``fpga`` nor a board gives it. What the loader printed is in
 ``openfpgaloader.log`` in the run directory of the flow. In a terminal, Xeda runs the loader with a
 terminal of its own, as you would run it by hand: the colors work, and the progress bar is redrawn
-in place. The log has the same text without the escape codes, with one line for each redraw.
-Without a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader
-writes a line for each update of the bar.
+in place. The log has the same text without the escape codes, with one line for each redraw. Without
+a terminal (a pipe, a file, a CI log), or with ``console_colors`` switched off, the loader writes a
+line for each update of the bar.
 
 Xeda needs openFPGALoader 0.13.1 or newer. It asks the loader for its version (``-V``) before any
 flow of the chain runs, so an older loader fails the launch at once, before Xeda builds anything.
