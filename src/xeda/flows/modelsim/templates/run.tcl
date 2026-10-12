@@ -3,7 +3,7 @@ onerror {exit -code 1}
 puts "\n===========================( Compiling HDL Sources )==========================="
 {%- for src in sources_read(rtl=true, tb=true) %}
 {%- if src.type.name in ("Verilog", "SystemVerilog") %}
-if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" or src.variant == "systemverilog" %} -sv{% endif %} {{vlog_opts|map("tcl_word")|join(' ')}} } error]} {
+if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" %} -sv{% endif %} {{vlog_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error
     exit -code 1
 }

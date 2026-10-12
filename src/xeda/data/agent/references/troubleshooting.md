@@ -43,6 +43,8 @@ A simulation passes only on recognized evidence that it ended, not on exit statu
 malformed record, unknown end, or event queue that drained without a finish fails. `$finish`
 (including VHDL `std.env.finish` and `std.env.stop`) is accepted; Verilog `$stop` is an error-rank
 event and fails at the default threshold.
+`error.message` in `results.json` states the cause and the fix: a testbench that ends with `wait;`
+needs `std.env.finish` / `$finish`, or a `stop_time`.
 A requested `stop_time` needs a matching observed time. Bluesim `max_cycles` needs the exact
 measured cycle count and final time. A supported user-owned C++ driver may pass on observed exit
 0. Nonzero execution always fails, even after finish.
@@ -317,6 +319,10 @@ PULLUP` for a pull-up. The bundled pin files use neither.
 changed since its last successful run. A flow that runs logs why (`Running <flow>: <reason>`);
 one left alone logs that it is up to date and shows its recorded results. `--cached-dependencies`
 and `--incremental`/`--no-incremental` no longer exist - they fail naming their replacement below.
+
+To see what will run, and why, before running: `xeda run ... --dry-run` (add `--json`). Each node is
+`fresh` (reused), `stale` with the reason the log would give, or `unknown` with why (for example
+`depends on yosys_fpga`, a producer that runs first). It writes nothing and starts no process.
 
 | Situation | Option |
 | --- | --- |

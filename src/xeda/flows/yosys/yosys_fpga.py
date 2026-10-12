@@ -865,6 +865,7 @@ class YosysFpga(YosysBase, FpgaSynthFlow):
         runs, and under `xeda run --dry-run`. `run()` checks the pass-only conflicts again once
         `init()` has merged the design's own attributes in, which this cannot see.
         """
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         cls._refuse(settings.synth_pass_only_conflicts() + stop_after_conflicts(settings))
         # judged by value, as every setting is: a file name other than the default asks for one

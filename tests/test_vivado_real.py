@@ -574,3 +574,27 @@ def test_vivado_impl_implements_block_ram_dsp_and_carry_chains_and_the_result_wo
     )
     assert len(expected.splitlines()) > 1900
     assert routed == expected
+
+
+def test_vivado_synth_sets_a_run_property_given_with_dots(work_dir) -> None:
+    """A property name with dots reaches `set_property` as one name: the synthesis run keeps it,
+    and `synth_design` gets the option it stands for."""
+    root = work_dir / "design"
+    _write(root / "rtl" / "inv.v", INVERTER_V)
+    _write(root / "rtl" / "top.vhd", TOP_VHD)
+    design = Design(
+        name="props",
+        design_root=root,
+        rtl={"sources": ["rtl/inv.v", "rtl/top.vhd"], "top": "top", "clock": "clk"},
+    )
+    flow = DefaultRunner(work_dir / "run").run_flow(
+        VivadoSynth,
+        design,
+        {
+            "fpga": PART,
+            "clock": {"period": 10.0},
+            "set_synth_properties": {"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": 0},
+        },
+    )
+    assert flow is not None and flow.succeeded
+    assert _logged(flow.run_path, "-max_bram 0")

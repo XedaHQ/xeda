@@ -604,9 +604,8 @@ class GhdlSim(Ghdl, SimFlow):
             return [flag for flag in self.run_flags if flag != canonical] + [canonical]
 
     @classmethod
-    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+    def check_waveforms(cls, settings: Flow.Settings) -> None:
         """GHDL writes one waveform: `vcd`, `fst` and `wave` each select the format of it."""
-        super().check_settings_supported(settings)
         chosen = [name for name in ("vcd", "fst", "wave") if getattr(settings, name) is not None]
         if len(chosen) > 1:
             raise FlowSettingsException(
@@ -617,11 +616,20 @@ class GhdlSim(Ghdl, SimFlow):
                 "`read_wave_opt` filters the waveform, and none is set: set `vcd`, `fst` or `wave`"
             )
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse run flags that compete with `fail_severity`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        cls.check_waveforms(settings)
+        settings.runtime_flags()
+
     def init(self) -> None:
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.runtime_flags()
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
 
     def has_evidence_adapter(self) -> bool:
         return not self.cocotb

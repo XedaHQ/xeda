@@ -49,9 +49,8 @@ class Vcs(SimFlow):
     }
 
     @classmethod
-    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+    def check_waveforms(cls, settings: Flow.Settings) -> None:
         """VCS writes one waveform, and `to_vcd` and the size limits need the format they act on."""
-        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         chosen = [name for name in ("fsdb", "vpd", "evcd") if getattr(settings, name) is not None]
         if len(chosen) > 1:
@@ -245,12 +244,21 @@ class Vcs(SimFlow):
             "simulation overwrites older history. Needs `vpd`.",
         )
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """VCS annotates an SDF file onto one instance, so it needs both, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        cls.check_waveforms(settings)
+        if settings.sdf_file and settings.sdf_instance is None:
+            raise FlowSettingsException("SDF instance is required when SDF file is provided")
+
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
         if ss.sdf_file:
-            if ss.sdf_instance is None:
-                raise FlowSettingsException("SDF instance is required when SDF file is provided")
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
         rules = self.highlight_rules
         # none of the tools is asked for its version: VCS is not verified on a licensed release,

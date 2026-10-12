@@ -22,8 +22,8 @@ LOADER_LOG = "openfpgaloader.log"
 FLASH_NEEDS_THE_DEVICE = (
     "the target FPGA device, since `write_flash` programs the flash through a bridge made for "
     "the part: give its part number with `-s fpga.part=<part>`, or a board that has one with "
-    "`-s board=<name>` (see `xeda list-boards`); in the design file, as `fpga.part` or `board` "
-    "in its `[flows.{flow}]` section"
+    "`-s board=<name>` (see `xeda list-boards`); in the design file, as "
+    "`flows.{flow}.fpga.part` or `flows.{flow}.board`"
 )
 
 
@@ -465,7 +465,7 @@ class Openfpgaloader(FpgaSynthFlow):
     class Settings(WithFpgaBoardSettings):
         removed_settings = {
             **WithFpgaBoardSettings.removed_settings,
-            "nextpnr": "the nextpnr flow's own settings: a [flows.nextpnr] section, or "
+            "nextpnr": "the nextpnr flow's own settings: a `flows.nextpnr` section, or "
             "`-s flows.nextpnr.<setting>=<value>`",
             "packer_args": "flows.fpga_pack.packer_args",
             "bitstream_file": "flows.fpga_pack.bitstream to name or deliver the packed "

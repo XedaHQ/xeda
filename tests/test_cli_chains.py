@@ -629,15 +629,12 @@ def test_list_flows_table_names_takes_makes_followers_and_the_boundary(monkeypat
     assert "declared" not in rows["bsc"] and "runs alone" not in rows["bsc"]
 
 
-def test_action_reason_is_class_metadata_the_dry_run_shows_without_running_flows(
-    tmp_path, monkeypatch
+def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run_would_do(
+    tmp_path,
 ):
-    from xeda.flow import Flow
-
-    def forbidden(self):
-        raise AssertionError("a dry run never asks a flow whether it always runs")
-
-    monkeypatch.setattr(Flow, "always_runs", forbidden)
+    """`action_reason` is why a flow can only end a chain, a fact of its class; what a run would do
+    with the flow is the freshness of the node, a separate answer (the flow here does not
+    override `always_runs`, so it is judged like any other)."""
     design = tmp_path / "design.yaml"
     design.write_text(yaml.safe_dump({"name": "demo", "rtl": {"sources": []}}))
     request = "__chain_simple_producer+__chain_action"
@@ -646,6 +643,8 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_without_running_flows
     nodes = {node["name"]: node for node in document["plan"]["nodes"]}
     assert nodes["__chain_action"]["action_reason"] == "performs a test action"
     assert nodes["__chain_simple_producer"]["action_reason"] is None
+    assert nodes["__chain_action"]["state"] == "stale"
+    assert nodes["__chain_action"]["reason"] == "no successful previous run"
     text = _xeda("run", request, design, "--dry-run").output
     assert "always runs: performs a test action" in text
     assert text.count("always runs") == 1

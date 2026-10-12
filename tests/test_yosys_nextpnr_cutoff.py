@@ -138,3 +138,22 @@ def test_an_edit_of_the_logic_runs_all_three(build):
     build.source.write_text(text.replace(old, new))
     build.launch()
     assert build.ran() == STAGES, build.ran()
+
+
+def test_the_dry_run_agrees_with_the_run_on_the_real_tools(build):
+    """Programs, a depfile of yosys's own files and the declared outputs of three real flows:
+    the dry run says fresh, then, after an edit, which flow runs and why; the run agrees."""
+    runner = build.runner.__class__(build.run_root, display_results=False)
+    plan, states = runner.plan_with_freshness(REQUEST, build.design)
+    assert {s.state for s in states.values()} == {"fresh"}, states
+    old = "// a comment"
+    build.source.write_text(build.source.read_text() + f"\n{old}\n")
+    runner = build.runner.__class__(build.run_root, display_results=False)
+    plan, states = runner.plan_with_freshness(REQUEST, build.design)
+    assert states["yosys_fpga"].state == "stale"
+    assert states["yosys_fpga"].reason.startswith("input changed: ")
+    assert states["nextpnr"].state == states["fpga_pack"].state == "unknown"
+    assert states["nextpnr"].reason == "depends on yosys_fpga"
+    build.launch()
+    assert build.ran() == ("yosys_fpga",)
+    assert build.stage("yosys_fpga").stale_reason == states["yosys_fpga"].reason

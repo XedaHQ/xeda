@@ -49,12 +49,16 @@ from ..dataclass import (
     WaveformText,
     XedaBaseModel,
     annotation_args,
+    annotation_kind,
     comma_separated_items,
     conventional_output,
     field_annotation,
     field_validator,
+    fold_dotted_keys,
     input_names,
     model_validator,
+    opaque_key_fields_of,
+    table_entries,
     validation_errors,
     waveform_format,
     waveform_value,
@@ -936,6 +940,24 @@ class Flow(metaclass=ABCMeta):
                     "without a default: give the field a default (`None`, or an empty value) "
                     "and name it in `required_settings`."
                 )
+            for name in opaque_key_fields_of(cls):
+                info = cls.model_fields.get(name)
+                if (
+                    info is None
+                    or annotation_kind(info.annotation)[0] != "dict"
+                    or table_entries(info.annotation) is not None
+                ):
+                    raise TypeError(
+                        f"{cls.__qualname__}: `{name}` is in `opaque_key_fields`, so it must be a "
+                        "setting that holds a dictionary of values (`Dict[str, int]`), not "
+                        "dictionaries."
+                    )
+
+        #: Settings that hold a dictionary whose keys are names of the tool (a Vivado run
+        #: property, `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), which may contain dots. A dotted key
+        #: of such a setting is one key, whichever way it is given (`dataclass.fold_dotted_keys`).
+        #: A subclass adds to its bases' (`dataclass.opaque_key_fields_of`).
+        opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
@@ -954,7 +976,7 @@ class Flow(metaclass=ABCMeta):
                 merged.update(vars(klass).get("removed_settings", {}))
             return merged
 
-        # Every flow setting shares three input conveniences, applied by `_normalize_flow_setting`
+        # Every flow setting shares four input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
         # normalized value: on construction and `settings.json` reload through
         # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
@@ -974,7 +996,9 @@ class Flow(metaclass=ABCMeta):
             2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
-            3. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
+            3. A setting whose keys are opaque names (`opaque_key_fields`) takes a dotted key as
+               one key: the nested tables that every origin makes of it are joined again.
+            4. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
                (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
                everywhere else, `true` stands for the name the run writes, a name gets the
                format's extension, and a word such as `yes` is refused.
@@ -982,6 +1006,8 @@ class Flow(metaclass=ABCMeta):
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            if name in opaque_key_fields_of(cls):
+                value = fold_dotted_keys(value)
             waveform = waveform_format(cls, name)
             if waveform is not None:
                 value = waveform_value(value, *waveform)
@@ -1151,7 +1177,18 @@ class Flow(metaclass=ABCMeta):
         Producer inputs are filled and held for reading. This stage runs even on a fresh
         launch; it must not write the flow's run directory. Register resolved files in
         ``implicit_inputs`` so freshness and delivery reservations see them before execution.
+        What it registers, `locate_prepared_inputs` says without making anything.
         """
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The files `init()` and `prepare_inputs()` register in `implicit_inputs`, found by the
+        settings, the design and the declared inputs that are design sources alone: it writes
+        nothing, starts no process and reads no producer's file. None if one is not made yet (a
+        chip database no run has generated), then the files of a launch do not exist to be
+        compared. A dry run judges freshness with it, on a flow that was not initialized;
+        the launch asks it after `prepare_inputs()` and refuses a flow whose registrations are
+        not exactly these (`tests/test_prepare_inputs.py`)."""
+        return []
 
     @classmethod
     def _create_jinja_env(

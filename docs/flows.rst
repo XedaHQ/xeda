@@ -123,6 +123,33 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
 target, ``--design-overrides`` and a ``flows`` table.
 
+Some settings hold a dictionary whose keys are names that the tool defines. Vivado's run
+properties are an example, and their names contain dots. A dotted key of such a setting is one
+key, not a path into nested tables::
+
+    xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+
+This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
+file, a target, a project file and the API give it in the same way. In a design file, the key
+``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
+written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
+Each origin gives its names, and the origins merge name by name: a higher origin replaces only
+the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
+both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
+a table, as for any setting. ``-s set_synth_properties.A=1`` and
+``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
+A name with a backslash before a dot (``A\.B``) is refused in every origin: the names of the tool
+have no backslash.
+
+A name with a space is a quoted shell item::
+
+    xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+
+``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
+its settings) and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
+dotted key is a path into nested tables.
+
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain
@@ -223,14 +250,21 @@ Planning without running
 producers first, directories, hashes, each declared input's source/producer origin and optional
 outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
 It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
-unsupported targets and shared-setting conflicts fail during planning.
+unsupported targets, shared-setting conflicts and any configuration that a flow's settings and
+design rule out fail during planning.
 
 A request that the design's declarations already rule out is refused first, before a generator
 runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
 refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
-decisions are not evaluated, and ``--dry-run --remote`` is refused.
+``DefaultRunner.plan`` (``plan_with_freshness`` adds what each node would do). Planning does not
+call a flow's ``init()``, and ``--dry-run --remote`` is refused.
+
+The plan also says what a run would do with each flow: ``fresh`` (reused), ``stale: <reason>`` (it
+runs, for the reason the log would give) or ``unknown: <reason>`` (for instance ``depends on
+yosys_fpga`` when a producer would run first, since the answer is what that run hands over). It
+reads the run directories and writes nothing, so after an edit ``--dry-run`` shows what will run
+and why. See :doc:`run-directories`.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
@@ -1102,6 +1136,10 @@ tool/driver exit always fails, even after a finish. The normalized record is sav
 ``sim.evidence`` alongside ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
 ``sim.warnings``.
 
+When a simulation fails these checks, ``error.message`` in ``results.json`` says what happened and
+what to do. For a testbench that stops with no finish, it tells you to end the testbench with
+``std.env.finish`` (VHDL) or ``$finish`` (Verilog), or to set ``stop_time``.
+
 Every ``SimFlow`` exposes ``timeout`` and ``fail_severity``. The default severity is ``error``;
 the choices are ``warning``, ``error``, ``failure`` and ``fatal`` (``failure`` and ``fatal`` have
 the same rank). Any observed event at or above the selected threshold fails. ``timeout`` bounds
@@ -1154,7 +1192,8 @@ All waveform settings read their value by one rule, on the command line and in a
 
 * ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``). This is also the name the run
   writes when you give a location, which is then delivered, so a location and ``true`` are the
-  same run. For the ``saif`` of ``vivado_sim`` and ``vivado_postsynth_sim`` that name is
+  same run. ``verilator`` without cocotb is the exception: it accepts no location, only
+  ``true``, because the testbench names the file. For the ``saif`` of ``vivado_sim`` and ``vivado_postsynth_sim`` that name is
   ``outputs/<design>.saif``. On the command line, ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the format's extension.
@@ -1303,8 +1342,15 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
     Populates ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()``,
     ``parse_xml()``.
 
-A flow that refuses a design overrides ``check_design_supported(cls, design, settings=None)``, and
-a simulator that needs no ``tb.top`` for some designs overrides
+A flow refuses what the settings and the design alone rule out in two class methods that planning,
+``--remote`` and ``xeda dse`` call: ``check_settings_supported(cls, settings)`` and
+``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
+the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
+(a tool on ``PATH``, an installed database, the inputs a producer handed over) stays in ``init()``
+or ``prepare_inputs()``. A flow that is built directly, without a launcher, still refuses these
+cases: its ``init()`` calls the hook.
+
+A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an
 optional second argument, which every launch passes. An override with the old signature, which
 takes the design alone, fails with a ``TypeError`` when the launch is planned: add the argument.

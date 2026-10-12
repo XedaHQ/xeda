@@ -209,10 +209,12 @@ class Nvc(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """nvc writes one waveform, with `--wave`: `vcd` or `fst`. The settings that refine the
-        waveform need one."""
+        """Refuse, before anything runs, run flags that compete with `fail_severity` or
+        `stop_time`; and a waveform that nvc cannot write: it writes one, with `--wave` (`vcd` or
+        `fst`), and the settings that refine the waveform need one."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
+        settings.runtime_flags()
         if settings.vcd is not None and settings.fst is not None:
             raise FlowSettingsException(
                 "nvc writes one waveform, and vcd and fst are set: keep one of them"
@@ -232,7 +234,8 @@ class Nvc(SimFlow):
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.runtime_flags()
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
         if ss.fst is not None:
             ss.fst = self.process_path(ss.fst)
 

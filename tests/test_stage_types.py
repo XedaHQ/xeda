@@ -176,7 +176,7 @@ def test_the_chain_check_finds_no_edge_between_the_crossed_netlists():
 def test_the_stage_types_are_given_by_type_only_and_a_checkpoint_suffix_asks_for_one(tmp_path):
     for member in (*FPGA_NETLISTS, *CHECKPOINTS):
         assert member in TYPE_ONLY
-        assert member not in {typed for typed, _variant in SOURCE_SUFFIXES.values()}
+        assert member not in set(SOURCE_SUFFIXES.values())
     assert "dcp" not in SOURCE_SUFFIXES
     assert AMBIGUOUS_SUFFIXES["dcp"] == CHECKPOINTS
     path = tmp_path / "top.dcp"

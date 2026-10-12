@@ -35,7 +35,7 @@ def convert(args):
     with open(args.config_mk) as f:
         content = f.read()
     # line continuations
-    content = re.sub(r"[^\S\r\n]*\\[^\S\r\n]*\n[^\S\r\n]*", " ", content, re.MULTILINE | re.UNICODE)
+    content = re.sub(r"[^\S\r\n]*\\[^\S\r\n]*\n[^\S\r\n]*", " ", content)
 
     content = re.sub(r"export\s+(\w+)\s*(\??=)\s*([^\n]+)\s*", callback, content)
     with open(Path(args.config_mk).parent / "config.toml", "w") as f:

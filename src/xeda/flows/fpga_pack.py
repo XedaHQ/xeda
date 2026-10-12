@@ -97,6 +97,7 @@ class FpgaPack(FpgaSynthFlow):
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Reject a target that cannot be packed before anything is synthesized or placed."""
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         fpga = settings.fpga
         assert fpga is not None, "checked at launch (`required_settings`)"

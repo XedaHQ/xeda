@@ -379,10 +379,6 @@ def send_design(
                     place = archived(src)
                 spec: Dict[str, Any] = {"file": place.as_posix()}
                 spec["type"] = str(src.type)
-                if src.standard is not None:
-                    spec["standard"] = src.standard
-                if src.variant is not None:
-                    spec["variant"] = src.variant
                 packaged.append(spec)
             return packaged
 

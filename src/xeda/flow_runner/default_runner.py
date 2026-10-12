@@ -106,6 +106,12 @@ from .launch_report import (
 from .launch_run import refuse_inputs_inside
 from .outputs import declared_output_files
 from .resolver import Plan, PlanNode, resolve as resolve_plan
+from .plan_freshness import (
+    EVERY_FLOW_RUNS_CLEAN,
+    EVERY_FLOW_RUNS_REBUILD_ALL,
+    NodeFreshness,
+    judge_plan,
+)
 from .scrub import run_directory_names, scrub_runs
 from .run_lock import CompletedRun, run_dir_lock
 from .settings_layers import (
@@ -135,6 +141,7 @@ from .trace_inputs import (
     design_files,
     expectation,
     register_read_settings,
+    located_input_files,
     registered_input_files,
     setting_files,
     snapshot_inputs,
@@ -1182,6 +1189,14 @@ class FlowLauncher:
                     with recording_programs() as programs:
                         flow.prepare_inputs()
                     prepared = registered_input_files(flow)
+                    located = located_input_files(flow)
+                    if located != prepared:
+                        raise FlowFatalError(
+                            f"{flow.name} registered {[str(p) for p in prepared]} as its prepared "
+                            f"inputs, and locate_prepared_inputs() says "
+                            f"{[str(p) for p in located] if located is not None else None}: a "
+                            "dry run would judge it by the latter"
+                        )
                     self._read_inputs.add(prepared)
                     refuse_inputs_inside(flow.run_path, flow.name, prepared)
                 except Exception as e:  # noqa: BLE001 - recorded, then re-raised
@@ -1239,6 +1254,11 @@ class FlowLauncher:
                         return flow
                     flow.stale_reason = (
                         freshness.reason or f"no successful results in {results_json}"
+                    )
+                    log.info("Running %s: %s", flow.name, flow.stale_reason)
+                else:
+                    flow.stale_reason = (
+                        EVERY_FLOW_RUNS_CLEAN if policy.clean else EVERY_FLOW_RUNS_REBUILD_ALL
                     )
                     log.info("Running %s: %s", flow.name, flow.stale_reason)
 
@@ -1685,7 +1705,74 @@ class FlowLauncher:
         """Plan what run() would execute, refusing side-effecting design loading, and what
         run() would refuse before anything runs (a run directory a flow refuses, `--outputs-to`
         a programmer)."""
-        _request, plan = self._judged_request(
+        return self._plan(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+            target,
+        )[1]
+
+    @with_debug_logging
+    def plan_with_freshness(
+        self,
+        flow: type[Flow] | str,
+        design: str | Path | Design | dict[str, Any] | None = None,
+        xedaproject: str | None = None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings = [],
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any] = [],
+        select_design_in_project=None,
+        design_overrides: Iterable[str] | dict[str, Any] | None = None,
+        design_allow_extra: bool = False,
+        design_remove_fields: list[str] = [],
+        target: str | None = None,
+    ) -> tuple[Plan, dict[str, NodeFreshness]]:
+        """`plan()`, and what `run()` would do with each node: `fresh` (reused), `stale` (run,
+        for the reason it logs) or `unknown` (not without running a producer or looking up
+        something only a process can). Read-only: nothing is created, locked, refreshed or
+        started (`plan_freshness`). `--rebuild-all` and `--clean` make every node stale."""
+        request, plan = self._plan(
+            flow,
+            design,
+            xedaproject,
+            flow_settings,
+            flow_overrides,
+            select_design_in_project,
+            design_overrides,
+            design_allow_extra,
+            design_remove_fields,
+            target,
+        )
+        states = judge_plan(
+            plan,
+            request.design,
+            run_root=self._run_root,
+            runner_cwd=Path.cwd(),
+            rebuild_all=self.settings.rebuild_all,
+            clean=self._run_dir_policy().clean,
+            debug=self.debug or self.settings.debug,
+        )
+        return plan, states
+
+    def _plan(
+        self,
+        flow: type[Flow] | str,
+        design: str | Path | Design | dict[str, Any] | None,
+        xedaproject: str | None,
+        flow_settings: list[str] | tuple[str, ...] | Mapping[str, Any] | Flow.Settings,
+        flow_overrides: list[str] | tuple[str, ...] | Mapping[str, Any],
+        select_design_in_project,
+        design_overrides: Iterable[str] | dict[str, Any] | None,
+        design_allow_extra: bool,
+        design_remove_fields: list[str],
+        target: str | None,
+    ) -> tuple[_Request, Plan]:
+        request, plan = self._judged_request(
             flow,
             design,
             xedaproject,
@@ -1699,7 +1786,7 @@ class FlowLauncher:
             planning=True,
         )
         self._refuse_planned(plan)
-        return plan
+        return request, plan
 
     def _refuse_planned(self, plan: Plan) -> None:
         """What a launch refuses of a resolved plan before anything runs, which a plan reports
