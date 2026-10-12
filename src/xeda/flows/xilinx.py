@@ -1,9 +1,10 @@
-"""Selection, validation and owned cache preparation of openXC7 chip databases.
+"""Selection, validation and cache preparation of openXC7 chip databases.
 
-An installation is located through the resolved nextpnr executable, never environment
-variables or directory globs. Generation identities describe content and a fixed recipe,
-independent of installation paths. Header validation is a structural guard, not a content
-integrity record: callers must trace explicit binaries and digest published cache entries.
+The functions find an installation through the resolved `nextpnr` executable. They read no
+environment variable and search no directory by glob. A generation identity describes the
+content and a fixed recipe, and does not depend on installation paths. The header check
+validates structure only. It is no integrity record of the content, so callers must trace
+explicit binaries and digest published cache entries.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from ..utils import NonZeroExitCode, replacing_file, semantic_hash
 
 log = logging.getLogger(__name__)
 
-# Generating unmeasured larger dies may take much longer than the measured a100t.
+# Larger dies were not measured and may take much longer than the xc7a100t.
 CHIPDB_GENERATION_TIMEOUT = 1800.0
 
 CHIPDB_MAGIC = 0x00CA7CA7
@@ -50,7 +51,7 @@ _DEVICE_NAME = re.compile(r"xc7[a-z0-9]+")
 
 @dataclass(frozen=True)
 class XilinxLayout:
-    """Resolved installed data paths; explicit chipdbs need no generation tools."""
+    """The resolved paths of the installed data. An explicit chipdb needs no generation tools."""
 
     nextpnr: Path
     himbaechel: Path
@@ -62,10 +63,10 @@ class XilinxLayout:
 
 @dataclass(frozen=True)
 class XilinxSelection:
-    """A full ordering part, its mapped device and the fabric actually routed.
+    """A full part, its mapped device and the fabric that is routed.
 
-    ``name`` is the part as the database spells it, which nextpnr's ``--device`` must be
-    given: it matches case-sensitively (``xc7a100tcsg324-2L``, never ``-2l``).
+    `name` is the part as the database spells it. Give this name to the `--device` option of
+    `nextpnr`, which matches case-sensitively (`xc7a100tcsg324-2L`, not `-2l`).
     """
 
     part: str
@@ -78,7 +79,7 @@ class XilinxSelection:
 
 @dataclass(frozen=True)
 class XilinxChipdbIdentity:
-    """Content inputs and fixed generation recipe for an immutable cache entry."""
+    """The content inputs and the fixed generation recipe of an immutable cache entry."""
 
     key: str
     fabric: str
@@ -95,7 +96,7 @@ class XilinxChipdbIdentity:
 
 @dataclass(frozen=True)
 class XilinxChipdbHeader:
-    """The bounded version-6 structural header, including its relative location."""
+    """The version-6 header of a chip database, read from a bounded part of the file."""
 
     offset: int
     version: int
@@ -109,11 +110,11 @@ class XilinxChipdbHeader:
 def find_xilinx_layout(
     nextpnr: Path, *, prjxray_db: Path | None = None, chipdb: Path | None = None
 ) -> XilinxLayout:
-    """Locate the supported ``bin/`` and ``share/nextpnr/`` openXC7 layout.
+    """Locate the supported openXC7 layout of `bin/` and `share/nextpnr/`.
 
-    ``nextpnr`` is the executable already selected by the caller. ``prjxray_db``
-    replaces the database root; ``chipdb`` names one file, never a search directory.
-    This does not probe tools, extract resources or create files.
+    `nextpnr` is the executable that the caller already selected. `prjxray_db` replaces the
+    database root. `chipdb` names one file, not a directory to search. The function runs no
+    tool, extracts no resource and creates no file.
     """
     try:
         binary = nextpnr.resolve()
@@ -156,9 +157,9 @@ def find_xilinx_layout(
 
 
 def _mapping(path: Path, part: str) -> dict[str, tuple[str, object]]:
-    """Load mapping YAML while preserving a useful part/path error boundary.
+    """Load a mapping YAML file, and name the part and the path in an error.
 
-    Keys are matched in lower case; each entry keeps the name as the file spells it.
+    Keys match in lower case. Each entry keeps the name as the file spells it.
     """
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -184,9 +185,11 @@ def _mapped_name(entry: object, field: str, path: Path, part: str) -> str:
 
 
 def find_prjxray_database(executable: Path, prjxray_db: Path | None = None) -> Path:
-    """The Project X-Ray database root a tool of an openXC7 installation reads: ``prjxray_db``
-    when given, else ``share/nextpnr/prjxray-db`` under the prefix of the resolved
-    ``executable`` (``<prefix>/bin/fpga-as``). Read-only; no environment variable is consulted.
+    """Return the Project X-Ray database root that a tool of an openXC7 installation reads.
+
+    The root is `prjxray_db` when given. Otherwise it is `share/nextpnr/prjxray-db` under the
+    prefix of the resolved `executable` (`<prefix>/bin/fpga-as`). The function only reads, and
+    consults no environment variable.
     """
     try:
         if prjxray_db is not None:
@@ -210,12 +213,12 @@ def find_prjxray_database(executable: Path, prjxray_db: Path | None = None) -> P
 
 
 def select_xilinx(part: str, layout: XilinxLayout) -> XilinxSelection:
-    """Select part -> device -> fabric using the installed Project X-Ray mappings."""
+    """Select the device and the fabric of a part with the installed Project X-Ray mappings."""
     return select_xilinx_part(part, layout.database)
 
 
 def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
-    """Select part -> device -> fabric from the mappings of the database root ``database``."""
+    """Select the device and the fabric of a part with the mappings of the root `database`."""
     normalized = part.lower()
     family = _FAMILIES.get(FPGA(normalized).family or "")
     if family is None:
@@ -242,17 +245,17 @@ def select_xilinx_part(part: str, database: Path) -> XilinxSelection:
     return XilinxSelection(normalized, family, device, fabric, database, name)
 
 
-#: The files of a part's directory that describe its die and its pinout. The directories of one
-#: device and package, at their speed grades, are expected to agree in them.
+#: The files of a part's directory that describe its die and its pinout. The directories of the
+#: speed grades of one device and package are expected to agree in them.
 PINOUT_FILES = ("part.json", "package_pins.csv")
 
 
 @dataclass(frozen=True)
 class PartData:
-    """The Project X-Ray part data ``fpga-as`` packs one part with.
+    """The Project X-Ray part data that `fpga-as` packs a part with.
 
-    ``name`` is the part whose directory ``directory`` is: the part asked for, or another speed
-    grade of the same device and package.
+    `name` is the part whose directory is `directory`. It is the part asked for, or another
+    speed grade of the same device and package.
     """
 
     requested: str
@@ -265,13 +268,13 @@ class PartData:
 
 
 def _speed_grade_order(name: str) -> tuple[int, int, str]:
-    """Order of a part's speed grades: the number, then a plain grade before its ``L`` variant."""
+    """Return the sort key of a speed grade: its number, then a plain grade before `L`."""
     match = re.fullmatch(r"(\d+)(L?)", (FPGA(name).speed or "").lstrip("-").upper())
     return (int(match[1]), len(match[2]), name) if match else (sys.maxsize, 0, name)
 
 
 def _package_of(name: str) -> str | None:
-    """The package of a part, with its pin count (``ffg676``), or ``None`` if not a part name."""
+    """Return the package of a part with its pin count (`ffg676`), or `None` for a non-part."""
     try:
         fpga = FPGA(name)
     except ValueError:
@@ -280,8 +283,9 @@ def _package_of(name: str) -> str | None:
 
 
 def _no_part_data(selection: XilinxSelection, root: Path, with_data: list[str]) -> FlowFatalError:
-    """The error for a part whose package has no part data at any speed grade, naming what the
-    database has for the same device in other packages."""
+    """Build the error for a part whose package has no part data at any speed grade.
+
+    The error names the part data that the database has for the same device in other packages."""
     package = _package_of(selection.part) or selection.part
     grades: dict[str, list[str]] = {}
     for name in sorted(with_data, key=_speed_grade_order):
@@ -301,17 +305,18 @@ def _no_part_data(selection: XilinxSelection, root: Path, with_data: list[str]) 
 
 
 def locate_part_data(selection: XilinxSelection) -> PartData:
-    """The part data directory of ``selection``: the exact part's, if the database has it.
+    """Return the part data directory of `selection`: the exact part's, if the database has it.
 
-    A device and package are one die with one pinout, so the speed grade directories of one
-    device and package are expected to agree in ``part.json`` and ``package_pins.csv`` (``nextpnr``
+    A device and package are one die with one pinout. The speed grade directories of one device
+    and package are therefore expected to agree in `part.json` and `package_pins.csv` (`nextpnr`
     keeps the exact grade for timing), and a database often has the directory of one grade only.
     When the exact part has none, the directory of the lowest speed grade of the same device and
-    package stands in: the smallest grade number, a plain grade before its ``L`` variant. The
-    caller logs the choice. If the other grades' directories differ from it in those two files,
-    this logs a warning naming them. Never another device or package: with no directory of that
-    device and package that holds a ``part.json``, this raises a ``FlowFatalError`` that names the
-    part, the directory searched and the data the database has for other packages of the device.
+    package stands in: the smallest grade number, with a plain grade before its `L` variant. The
+    caller logs the choice. If the directories of the other grades differ from it in those two
+    files, this function logs a warning that names them. It never uses another device or package.
+    If no directory of that device and package holds a `part.json`, it raises a `FlowFatalError`
+    that names the part, the directory searched and the data that the database has for other
+    packages of the device.
     """
     root = selection.database / selection.family
     exact = root / selection.name
@@ -354,7 +359,7 @@ def locate_part_data(selection: XilinxSelection) -> PartData:
 
 
 def _content(path: Path) -> bytes | None:
-    """The bytes of a file, or ``None`` if there is none."""
+    """Return the bytes of a file, or `None` if there is none."""
     try:
         return path.read_bytes()
     except OSError:
@@ -364,11 +369,12 @@ def _content(path: Path) -> bytes | None:
 def _tree_contents(
     root: Path, ancestors: frozenset[Path] = frozenset()
 ) -> tuple[tuple[str, str], ...]:
-    """Sorted relative names/content using the shared walker and digest helpers.
+    """Return the sorted relative names and content digests of a directory tree.
 
-    Directory links are read by content too. Expand them separately because the
-    walker's visit-once policy otherwise omits the content of a second directory alias.
-    A cyclic or unreadable input cannot identify a generated database.
+    The function uses the shared walker and digest helpers. Directory links count by content
+    too. It expands them separately, because the walker visits each directory once and would
+    omit the content of a second alias of a directory. A cyclic or unreadable input cannot
+    identify a generated database.
     """
     resolved = root.resolve()
     if resolved in ancestors:
@@ -393,12 +399,13 @@ def _tree_contents(
 
 
 def chipdb_identity(layout: XilinxLayout, selection: XilinxSelection) -> XilinxChipdbIdentity:
-    """Hash generation inputs afresh, including installed binaries and whole data trees.
+    """Hash the generation inputs from scratch, including installed binaries and whole data trees.
 
-    The generator passes ``--xray <family> --device <fabric> --bba <temporary>``;
-    bbasm always uses ``-l``. No interpreter version, install path, version probe or
-    persistent metadata-only hash cache participates. Kintex/Virtex also read the
-    Artix timing directory in openXC7 1.0, so include those fallback inputs.
+    The generator receives `--xray <family> --device <fabric> --bba <temporary>`. `bbasm`
+    always receives `-l`. The hash includes no interpreter version, install path or version
+    probe, and no persistent hash cache that checks metadata alone is used. Kintex and Virtex
+    also read the Artix timing directory in openXC7 1.0, so the hash includes those fallback
+    inputs.
     """
     if layout.chipdb is not None or layout.generator is None or layout.bbasm is None:
         raise FlowFatalError(
@@ -462,12 +469,12 @@ def chipdb_identity(layout: XilinxLayout, selection: XilinxSelection) -> XilinxC
 
 
 def validate_chipdb(path: Path, selection: XilinxSelection) -> XilinxChipdbHeader:
-    """Validate version-6 header and exact EOF strings with small bounded reads.
+    """Validate the version-6 header and the exact strings at the end of a chip database file.
 
-    The first signed little-endian offset points to the header. Each string offset
-    is relative to its own pointer field, not the file or header. The selected
-    fabric, rather than the part's marketing device, determines the expected die.
-    Large routing tables are not read here; this is not whole-file authentication.
+    The function reads only small, bounded parts of the file. The first offset (signed,
+    little-endian) points to the header. Each string offset is relative to its own pointer
+    field. The selected fabric determines the expected die, not the part's device. The
+    function does not read the large routing tables and does not authenticate the whole file.
     """
     try:
         if not path.is_file():
@@ -516,11 +523,12 @@ def validate_chipdb(path: Path, selection: XilinxSelection) -> XilinxChipdbHeade
 
 
 def _cache_path(owner: RunDirectory, path: Path) -> Path:
-    """Guard the lexical namespace before locks, reads, creates or publication.
+    """Check that no link is on the path of a cache entry or lock, and return the path.
 
-    Cache entries and durable locks never use links, including links within the root:
-    replacing a lock's name would split process coordination between different inodes.
-    `RunDirectory.unlinked` is that one rule, shared with every other cache under a run root.
+    The check runs before any lock, read, creation or publication. Cache entries and durable
+    locks never use links, not even links inside the run root: replacing the name of a lock
+    would split the coordination of processes between different inodes. `RunDirectory.unlinked`
+    is this rule, and every cache under a run root shares it.
     """
     return owner.unlinked(path)
 
@@ -531,7 +539,7 @@ def _cached_chipdb(
     selection: XilinxSelection,
     identity: XilinxChipdbIdentity,
 ) -> Path:
-    """Read an immutable entry; corruption is a repairable error, never a cache miss."""
+    """Read an immutable cache entry. A corrupt entry is an error to repair, never a cache miss."""
     try:
         chipdb = _cache_path(owner, entry / f"{selection.fabric}.bin")
         manifest = _cache_path(owner, entry / "manifest.yaml")
@@ -548,14 +556,14 @@ def _cached_chipdb(
         return chipdb
     except (OSError, ValueError, FlowFatalError, yaml.YAMLError) as error:
         raise FlowFatalError(
-            f"Corrupt Xilinx chipdb cache entry {entry}: {error}; remove this entry and rerun."
+            f"Corrupt Xilinx chipdb cache entry {entry}: {error}; remove this entry and run again."
         ) from error
 
 
 def _generate_chipdb(
     layout: XilinxLayout, selection: XilinxSelection, temporary: RunDirectory, entry: Path
 ) -> Path:
-    """Run bounded native generator/assembler processes without flow-directory writes."""
+    """Run the generator and the assembler with a time limit. Write in no run directory."""
     assert layout.generator is not None and layout.bbasm is not None
     if selection.fabric == "xc7a100t":
         log.info(
@@ -623,13 +631,15 @@ def locate_chipdb(
     run_directory: RunDirectory,
     identity: XilinxChipdbIdentity | None = None,
 ) -> Path | None:
-    """Where `prepare_chipdb` leaves the chip database of `selection`, if it is there: an explicit
-    chipdb, validated; else the cache entry of the identity of the installation and the device
-    data, validated as a hit is in `prepare_chipdb`. None if nothing is there, or the run root is
-    not a marked one: a launch would generate it. Reads files to form the identity and to check
-    the entry; writes nothing and starts no program. `identity` is the identity of this
-    installation and device data, if the caller has just formed it (hashing them is most of the
-    cost); it is formed here otherwise."""
+    """Return where `prepare_chipdb` leaves the chip database of `selection`, if it is there.
+
+    The result is an explicit chipdb, validated, or else the cache entry for the identity of the
+    installation and the device data, validated as `prepare_chipdb` validates a hit. The result
+    is `None` if nothing is there or the run root is not a marked one, because a launch would
+    generate the database. The function reads files to form the identity and to check the entry.
+    It writes nothing and starts no program. `identity` is the identity of this installation and
+    device data, if the caller has just formed it (hashing them is most of the cost). Otherwise
+    this function forms it."""
     if layout.chipdb is not None:
         validate_chipdb(layout.chipdb, selection)
         return layout.chipdb
@@ -639,7 +649,7 @@ def locate_chipdb(
     owner = RunDirectory(root, root)
     identity = identity or chipdb_identity(layout, selection)
     entry = _cache_path(owner, _cache_path(owner, root / ".cache/xilinx-chipdb") / identity.key)
-    # an entry is checked as a hit is (`FlowFatalError` if it is corrupt): the launch refuses it
+    # check an entry as for a hit: a corrupt one raises `FlowFatalError`, and the launch refuses it
     return _cached_chipdb(owner, entry, selection, identity) if entry.exists() else None
 
 
@@ -649,13 +659,13 @@ def prepare_chipdb(
     run_directory: RunDirectory,
     identity: XilinxChipdbIdentity | None = None,
 ) -> Path:
-    """Validate an explicit chipdb or prepare a shared content-keyed immutable entry.
+    """Validate an explicit chipdb, or prepare a shared immutable cache entry named by content.
 
-    Generation requires a claimed, marked root, never one reconstructed from a flow
-    directory. A sibling durable lock coordinates POSIX processes using the existing
-    lock machinery; Windows retains its existing absence of process locking. Scrubbing
-    ordinary flow directories leaves this cache and its locks alone. A cache hit starts
-    no program: the manifest is its generator provenance. `identity` is the identity of this
+    Generation needs a claimed `RunDirectory` under a marked run root. The function never
+    rebuilds the run root from a flow's run directory. A durable lock beside the entry
+    coordinates POSIX processes with the existing lock code. Windows has no process locking.
+    `xeda scrub` leaves this cache and its locks alone. A cache hit starts no program. The
+    manifest records the provenance of the generator. `identity` is the identity of this
     installation and device data, if the caller has formed it already (`chipdb_identity`).
     """
     if layout.chipdb is not None:
@@ -674,16 +684,18 @@ def prepare_chipdb(
     _cache_path(owner, lock_file(entry))
     cache.mkdir(parents=True, exist_ok=True)
     with run_dir_lock(entry):
-        # Recheck authority after waiting, before reading or writing the entry.
+        # Check the paths again after the wait, before reading or writing the entry.
         _cache_path(owner, entry)
         _cache_path(owner, lock_file(entry))
         if entry.exists():
             return _cached_chipdb(owner, entry, selection, identity)
-        # Hash the installation again only when about to generate: a hit hashed it once.
+        # Hash the installation again only before generating. A hit hashed it once.
         if chipdb_identity(layout, selection) != identity:
-            raise FlowFatalError(f"Xilinx chipdb inputs changed while waiting for {entry}; rerun.")
-        # Holding the entry's exclusive lock, no process is generating this key, so any
-        # scratch directory of it is the remains of a killed generation (multi-GB).
+            raise FlowFatalError(
+                f"Xilinx chipdb inputs changed while waiting for {entry}; run again."
+            )
+        # The entry's exclusive lock is held, so no process is generating this key. Any
+        # scratch directory of the key is the remains of a killed generation (several GB).
         for interrupted in sorted(cache.glob(f"{identity.key}.tmp-*")):
             owner.remove(_cache_path(owner, interrupted))
         temporary = Path(tempfile.mkdtemp(prefix=f"{identity.key}.tmp-", dir=cache))
@@ -702,7 +714,7 @@ def prepare_chipdb(
                 yaml.safe_dump(manifest, stream, sort_keys=True)
             if chipdb_identity(layout, selection) != identity:
                 raise FlowFatalError(
-                    f"Xilinx chipdb inputs changed during generation for {entry}; rerun."
+                    f"Xilinx chipdb inputs changed during generation for {entry}; run again."
                 )
             _cache_path(owner, entry)
             _cache_path(owner, temporary)

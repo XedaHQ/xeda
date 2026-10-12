@@ -194,7 +194,7 @@ def test_corrupt_published_entry_is_an_error_without_replacement(api, generation
     else:
         (chipdb.parent / "manifest.yaml").unlink()
     before = chipdb.read_bytes()
-    with pytest.raises(FlowFatalError, match="remove.*rerun") as error:
+    with pytest.raises(FlowFatalError, match="remove.*run again") as error:
         _prepare(api, generation)
     assert str(chipdb.parent) in str(error.value)
     assert chipdb.read_bytes() == before
