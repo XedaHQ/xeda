@@ -91,6 +91,7 @@ __all__ = [
     "waveform",
     "waveform_fields",
     "waveform_format",
+    "waveform_format_of",
     "waveform_value",
     "WaveformText",
     "written_role",
@@ -636,6 +637,13 @@ def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, O
         return None
     name = mark["true"]
     return str(mark["format"]), (str(name) if name is not None else None)
+
+
+def waveform_format_of(model: type[BaseModel], field: str) -> Optional[str]:
+    """The format of `model`'s waveform setting `field` (`vcd`, `fst`, `ghw`, ...); None if it
+    is no waveform setting. The marker is the one place that says a setting takes `true` as on."""
+    found = waveform_format(model, field)
+    return found[0] if found else None
 
 
 def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:

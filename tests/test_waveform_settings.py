@@ -13,7 +13,13 @@ import pytest
 from pydantic import ValidationError
 
 from xeda import Design
-from xeda.dataclass import WaveformText, waveform_fields, waveform_format, waveform_value
+from xeda.dataclass import (
+    WaveformText,
+    waveform_fields,
+    waveform_format,
+    waveform_format_of,
+    waveform_value,
+)
 from xeda.flow import FlowSettingsError, FlowSettingsException, SimFlow
 from xeda.flow.flow import identity_settings
 from xeda.flow_runner import DefaultRunner, get_flow_class
@@ -46,6 +52,14 @@ def build(cls, **settings):
 # ---------------------------------------------------------------------------------------------
 # one rule for the text and the boolean
 # ---------------------------------------------------------------------------------------------
+
+
+def test_the_marker_is_easy_to_query_by_field():
+    settings = get_flow_class("nvc").Settings
+    assert waveform_format_of(settings, "vcd") == "vcd"
+    assert waveform_format_of(settings, "wave") == "fst"
+    assert waveform_format_of(settings, "timeout") is None
+    assert waveform_format_of(settings, "no_such_setting") is None
 
 
 def test_the_sweep_sees_the_simulators_and_their_waveform_settings():

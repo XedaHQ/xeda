@@ -895,7 +895,7 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
 3. A waveform setting (a field marked `json_schema_extra=waveform(<format>)`, a deliverable;
-   `dataclass.waveform_fields` lists them) is read by `dataclass.waveform_value`, for every
+   `dataclass.waveform_fields` lists them, `dataclass.waveform_format_of(model, field)` queries one) is read by `dataclass.waveform_value`, for every
    simulator: the text `true`/`false` (any case) is the boolean, `true` is the setting's
    conventional name (`dump.<format>` unless `waveform(format, conventional)` says otherwise), so
    `true` and a location are one run (`identity_settings` counts a location as its conventional
@@ -2098,7 +2098,8 @@ dependency must also share `custom_boards_file`.
   `true` is the value (`dataclass.waveform_value` makes it `dump.<format>`, so that name is
   accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
   the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
-  name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through
+  name or location is refused when planned (`Verilator.check_design_supported`, on the settings as given: a
+  located `vcd` is `dump.vcd` once the run starts) naming `$dumpfile`; with cocotb xeda names it through
   `--trace-file` and a location is delivered. The trace options default to Verilator's own
   (`trace_underscore`/`trace_structs` off, no max width or array unless set). A cocotb testbench
   whose HDL also dumps gets a nearly empty file from cocotb's dumper (the second writer takes

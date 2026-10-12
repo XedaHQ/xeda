@@ -380,16 +380,6 @@ class Verilator(SimFlow):
                 "generate_systemc needs `main: false` and the design's own `sc_main` among its "
                 "C++ sources: Verilator's `--main` generates a C++ main"
             )
-        for name in TRACE_FORMATS:
-            value = getattr(ss, name)
-            if value is not None and Path(value) != Path(f"dump.{name}"):
-                raise FlowSettingsException(
-                    f"`{name}` names a waveform file, but without cocotb xeda writes no "
-                    "waveform: the testbench's `$dumpfile` (or the design's own C++ main) names "
-                    f"and writes the file. Set `{name}: true` (stored as `dump.{name}`, the only "
-                    f"name accepted) to build the model with {name.upper()} tracing, and call "
-                    "`$dumpfile` and `$dumpvars` in the testbench"
-                )
 
     def always_runs(self) -> Optional[str]:
         assert isinstance(self.settings, self.Settings)
@@ -431,6 +421,26 @@ class Verilator(SimFlow):
                 "a directory whose path has whitespace. Use a run root (`--run-root`) and a "
                 "`sim_dir` whose paths have none."
             )
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Without cocotb, the testbench or the design's own main names and writes the waveform,
+        so a trace setting can only be `true`. This is judged on the settings as given: a located
+        `vcd` becomes the conventional name `dump.vcd` once the run starts, and could not be told
+        from `true`."""
+        super().check_design_supported(design, settings)
+        if not isinstance(settings, cls.Settings) or design.tb.cocotb:
+            return
+        for name in TRACE_FORMATS:
+            value = getattr(settings, name)
+            if value is not None and Path(value) != Path(f"dump.{name}"):
+                raise FlowSettingsException(
+                    f"`{name}` names a waveform file, but without cocotb xeda writes no "
+                    "waveform: the testbench's `$dumpfile` (or the design's own C++ main) names "
+                    f"and writes the file. Set `{name}: true` (stored as `dump.{name}`, the only "
+                    f"name accepted) to build the model with {name.upper()} tracing, and call "
+                    "`$dumpfile` and `$dumpvars` in the testbench"
+                )
 
     @classmethod
     def runs_without_testbench_top(
