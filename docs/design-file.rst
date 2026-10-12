@@ -225,16 +225,19 @@ A path string is enough when its extension identifies the type:
      - ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
 
 Every source has a type. Xeda matches a suffix exactly as written: it infers no type for
-``TOP.VHD``, and the error names ``.vhd``. The suffixes ``.json``, ``.bin``, ``.cfg``,
-``.config`` and ``.dcp`` name several kinds of file, and a suffix that is not in the table names
-nothing that Xeda knows. A source with such a suffix needs a ``type``. Some types are only ever
-given this way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``,
-``FpgaNetlist``, ``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb``,
-``Data`` and the legacy ``Checkpoint``, which no flow takes. Type names are case-tolerant, and
-suffixes are not. ``Data`` is for a file with no automatic HDL front end, such as test vectors or
-the input of a script. A flow or the design can still read it. An invalid ``type`` is an error
-that names the closest types. A ``.v`` file is ``Verilog``. To list a gate-level netlist, write
-``{file: "net.v", type: VerilogNetlist}``.
+``TOP.VHD``, and the error names ``.vhd``. A source needs an explicit ``type`` when its suffix gives
+it none. Xeda infers nothing from ``.json``, ``.cfg`` and ``.config``, because these suffixes are
+used for many kinds of file. The error suggests ``JsonNetlist`` for ``.json`` and ``EcpConfig`` for
+``.cfg`` and ``.config``. ``.bin`` and ``.dcp`` each name several of the types of Xeda: ``.bin`` is
+a ``Bitstream`` or a ``Chipdb``, and ``.dcp`` is a ``SynthCheckpoint`` or a ``RoutedCheckpoint``. A
+suffix that is not in the table names nothing that Xeda knows. Some types are only ever given this
+way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
+``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb``, ``Data`` and the
+legacy ``Checkpoint``, which no flow takes. Type names are case-tolerant, and suffixes are not.
+``Data`` is for a file with no automatic HDL front end, such as test vectors or the input of a
+script. A flow or the design can still read it. An invalid ``type`` is an error that names the
+closest types. A ``.v`` file is ``Verilog``. To list a gate-level netlist, write ``{file: "net.v",
+type: VerilogNetlist}``.
 
 Xeda types a netlist and a checkpoint by what it is, and not only by its file format. A
 ``VerilogNetlist`` is a standard-cell netlist, which ``openroad`` reads. An ``FpgaNetlist`` is a
