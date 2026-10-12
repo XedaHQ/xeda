@@ -76,9 +76,7 @@ def test_a_run_whose_report_power_wrote_nothing_fails_naming_it(
 
 @needs_tclsh
 @pytest.mark.parametrize("flow_class", FLOWS)
-def test_a_power_report_of_an_earlier_run_does_not_count(
-    flow_class, tmp_path, monkeypatch
-) -> None:
+def test_a_power_report_of_an_earlier_run_does_not_count(flow_class, tmp_path, monkeypatch) -> None:
     """A report that an earlier run left is not this run's. The earlier run did not read it, so
     the launcher does not remove it before the next run."""
     use_fake_tools(monkeypatch)
