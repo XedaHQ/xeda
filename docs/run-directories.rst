@@ -2,38 +2,44 @@
 Run directories and results
 ******************************
 
-Every flow execution gets its own directory. Everything Xeda decided and everything the tools
-produced is there, which makes a run reproducible and a failure diagnosable after the fact.
+Every run gets its own directory. The directory holds the settings Xeda used, the results it parsed
+and everything the tools wrote. This makes a run reproducible and a failure easy to diagnose
+afterward.
 
 Where it goes
 =============
 
-Every run directory lies in the **run root**, ``./xeda_run`` by default; change it with
-``--run-root`` or the ``XEDA_RUN_ROOT`` environment variable (the API's ``run_root``). The first
-time Xeda uses a run root, it creates it (or takes an existing empty directory) and marks it: a
-``.xeda-run-root`` file, a ``.gitignore`` of ``*``, and a ``CACHEDIR.TAG``, so that version control
-and backup tools leave the whole tree alone. Everything under a marked run root is Xeda's -- keep
-nothing of yours there; see `xeda's space and yours`_.
+Every run directory lies in the run root. The default run root is ``./xeda_run``. Change it with
+``--run-root``, the ``XEDA_RUN_ROOT`` environment variable or the API's ``run_root``. The first time
+Xeda uses a run root, it creates the directory (or takes an existing empty one) and marks it with
+three files. The ``.xeda-run-root`` file is the marker. The ``.gitignore`` file holds ``*`` and the
+``CACHEDIR.TAG`` file is the standard cache-directory tag, so version control and backup tools leave
+the tree alone. Everything under a marked run root belongs to Xeda. Keep nothing of yours there (see
+`Xeda's space and yours`_).
 
-A directory named as the run root that already holds files and carries no marker is refused,
-naming it and the fix, before anything runs: move it aside, or create ``<dir>/.xeda-run-root`` to
-hand it to Xeda. The one exception is by *name and location*, not by history: a directory named
-``xeda_run`` directly in the start directory is taken as Xeda's run root and marked, whatever put
-files there -- Xeda does not check who created it, only where it is and what it is called. **Keep
-nothing of your own in a directory named** ``xeda_run`` **beside where you run Xeda from**;
-anything already there when it is adopted becomes Xeda's from then on, the same as everywhere else
-under a run root. Marking adds a ``.xeda-run-root`` file, a ``.gitignore`` of ``*`` and a
-``CACHEDIR.TAG`` under whichever of those three names is not already present; an existing file by
-one of those names (a ``.gitignore`` of your own, say) is left exactly as it is. The exception
-follows the *resolved path* alone, not which option produced it: an explicit ``--run-root`` (or
-``XEDA_RUN_ROOT``, or the API's ``run_root``) that also resolves to ``xeda_run`` directly under the
-start directory is adopted the same way as the default; naming anything else -- another name, or
-``xeda_run`` somewhere other than directly under the start directory -- gets no exception. A
-leftover ``xeda_run_dse`` or ``xeda_run_<optimizer>`` left by an older Xeda (from before ``xeda
-dse`` shared this same default) is not named ``xeda_run``, so it gets no exception either: delete
-it, or create its own ``.xeda-run-root``.
+A directory that is named as the run root, holds files and has no marker is refused before anything
+runs. The error names the directory and the fix: move it aside, or create ``<dir>/.xeda-run-root``
+to hand the directory to Xeda.
 
-Within the run root, the layout depends on ``--hashed-run-dirs``:
+The one exception depends on the name and the location of the directory, not on who made it. A
+directory named ``xeda_run`` directly in the start directory is adopted and marked, whatever put
+files there. Xeda does not check who created it.
+
+.. warning::
+
+   Keep nothing of yours in a directory named ``xeda_run`` in the directory where you run Xeda.
+   When Xeda adopts that directory, everything in it becomes Xeda's, as everywhere else under a
+   run root.
+
+Marking adds each of the three files that is not there yet. An existing file with one of those
+names, such as a ``.gitignore`` of your own, stays as it is. The exception looks at the resolved
+path only, not at the option that produced it. An explicit ``--run-root`` (or ``XEDA_RUN_ROOT``, or
+the API's ``run_root``) that resolves to ``xeda_run`` directly under the start directory is adopted
+in the same way as the default. Any other name is not, and neither is ``xeda_run`` in any other
+place. An older Xeda wrote ``xeda_run_dse`` and ``xeda_run_<optimizer>`` for ``xeda dse``. Xeda does
+not adopt those either: delete them, or create a ``.xeda-run-root`` file in them.
+
+Inside the run root, the layout depends on ``--hashed-run-dirs``:
 
 .. list-table::
    :header-rows: 1
@@ -46,109 +52,124 @@ Within the run root, the layout depends on ``--hashed-run-dirs``:
    * - ``--hashed-run-dirs``
      - ``<design>/<flow>_<16-char run hash>/``
 
-A design selected as a *target* (``targets.<name>`` in its design file, selected with
-``--target`` or, when it has only one, by itself) lies one level deeper, in a directory of the
-target's own: ``<design>/<target>/<flow>/`` (``<design>/<target>/<flow>_<16-char run hash>/`` with
-``--hashed-run-dirs``). A design without a target, or with an empty ``targets`` table, keeps
-``<design>/<flow>/``. The target's name is no part of the run hash, so two targets that yield the
-same design have the same flow directory names in two places: each is built once, and each stays
-up to date without the other re-running it. A run made before targets existed
-(``<design>/<flow>``) is not taken for a target's, and a target's launch never reads or removes it.
+A design selected as a target (``targets.<name>`` in its design file) has one more level, a
+directory named for the target: ``<design>/<target>/<flow>/``, or
+``<design>/<target>/<flow>_<16-char run hash>/`` with ``--hashed-run-dirs``. Select a target with
+``--target``. A design with one target needs no selection. A design with no target, or with an empty
+``targets`` table, keeps ``<design>/<flow>/``. The target name is not part of the run hash. Two
+targets that yield the same design therefore have the same directory names in two places. Each one
+is built once and stays up to date without the other running it again. A run made before targets
+existed (``<design>/<flow>``) is not a target's run. A launch for a target never reads or removes
+it.
 
-A dependency gets its own directory, a **sibling** of the flow that launched it, in the same
-layout, within the same target -- never nested under it. ``--hashed-run-dirs`` names each by its run hash (the first 16
-characters of its ``flowrun_hash``), so two variants of one flow (a design's own run and a
-dependency's, or two DSE candidates) coexist instead of overwriting each other. The run hash
-covers the flow's input settings and, for a flow that declares inputs, where each of them comes
-from: the producing flow's own run hash and output, or the design's sources. So a consumer whose
-settings did not change gets another directory when its producer's settings do, or when another
-producer or output feeds it. Editing a source file never moves a directory: the run hash reads no
-file, and a source counts only as the origin of an input (the trace, not the directory name,
-notices a changed file). There used to be a third layer,
-``<design>_<design_hash>/``, dropped when ``--incremental`` was off; it is gone (delete any such
-directories by hand -- Xeda no longer looks for them).
+The run directory of a producer is a sibling of the run directory of its consumer. It has the same
+layout and the same target, and it is never nested under the consumer. With ``--hashed-run-dirs``,
+each run directory is named by the first 16 characters of the run's ``flowrun_hash``. Two variants
+of one flow, such as a design's own run and a producer's run, or two candidates of a design-space
+exploration, then exist side by side and do not overwrite each other.
+
+The run hash covers the flow's input settings. For a flow that declares inputs, it also covers where
+each input comes from: the producing flow's own run hash and output, or the design's sources. A
+consumer with unchanged settings therefore gets another directory when its producer's settings
+change, or when another producer or output feeds it. Editing a source file never moves a directory.
+The run hash reads no file, and a source counts only as the origin of an input. The trace notices a
+changed file (see `trace.json`_).
+
+An earlier Xeda also used a third level, ``<design>_<design_hash>/``, when ``--incremental`` was
+off. That level is gone and Xeda no longer looks for it. Delete such directories by hand.
 
 A run directory is a directory named ``<flow>`` or ``<flow>_<16-char run hash>``. It can also be a
-symbolic link, but only a link that leads to such a directory of the same flow in the same
-directory: ``<design>/<flow>`` can lead to ``<design>/<flow>_<hash>``, for example. Xeda follows
-the whole chain of links and judges where it ends. Xeda neither runs a flow in, nor scrubs, a
-link that leads anywhere else. That includes a target's directory, another flow's run directory,
-a directory below or above, a place outside the run root, a file, and nowhere. A launch refuses
-such a link, naming it and what it leads to, before it writes anything. ``xeda scrub`` skips it
-(see below). The same rule decides both.
+symbolic link, but only a link that leads to such a directory of the same flow in the same parent
+directory. For example, ``<design>/<flow>`` can lead to ``<design>/<flow>_<hash>``. Xeda follows the
+whole chain of links and judges where it ends. A link that leads anywhere else is neither used for a
+run nor scrubbed. This includes a link to a target's directory, to the run directory of another
+flow, to a directory below or above, to a place outside the run root, to a file, or to nowhere. A
+launch refuses such a link before it writes anything, and the error names the link and what it leads
+to. ``xeda scrub`` skips it (see `Cleaning up`_). One rule decides both.
 
-Xeda reuses a flow's directory across runs by default, which is what you want while iterating:
-incremental tool state (a synthesis checkpoint, a compiled library) survives between runs. Use
-``--clean`` for a run that must start from nothing; see `Rebuilding only what changed`_.
+By default, Xeda reuses the directory of a flow from run to run. This helps while you iterate,
+because incremental tool state (a synthesis checkpoint, a compiled library) survives between runs.
+Use ``--clean`` for a run that must start from nothing (see `Rebuilding only what changed`_).
 
 What is in it
 =============
+
+A run directory of ``vivado_synth`` looks like this, for example:
 
 .. code-block:: text
 
     xeda_run/sqrt/vivado_synth/
       settings.json          the run's input settings, and what the flow made of them
-      results.json           what was parsed back out of the reports
-      trace.json             what the run consumed and produced -- see below
+      results.json           what Xeda parsed out of the reports
+      trace.json             what the run consumed and produced (see below)
       vivado_synth.tcl       generated tool script
       clock.xdc              generated constraints
       vivado.log             the tool's own log
       reports/               reports the tool produced
-      outputs/               netlists, bitstreams, and other deliverables
+      outputs/               netlists, bitstreams and other deliverables
       checkpoints/           tool checkpoints, where the flow writes them
 
 ``settings.json``
 -----------------
 
-``flow_settings`` holds the run's *input*: the flow's defaults, the project's and design file's
-``flows.<flow>`` sections and the command-line ``-s`` overrides, merged key by key. It is exactly
-what the run is identified by, so it can be fed back to reproduce the run.
-``effective_flow_settings`` holds what the flow made of them while preparing and executing the run
-(resolved paths, derived options and generated outputs) -- the difference between what you asked
-for and what was asked of the tool, and the first thing to read when a run did something you did
-not expect. It also records the design as Xeda resolved it.
+The ``flow_settings`` key holds the run's input: the layers merged key by key, from the flow's
+defaults, the project's and the design file's ``flows.<flow>`` sections (the selected target's
+included) and the ``-s`` items of the command line. Xeda computes the identity of the run from these
+settings. A deliverable that has a location counts as the name the run writes under (see `Outputs
+where you name them`_). You can feed the settings back to reproduce the run.
 
-It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. The two hashes identify the
-run (and are what the trace, described below, checks against); the version is diagnostic metadata
-and is not part of run identity. Both hashes
-depend on what the inputs mean, not on where anything is: the design hash covers each source's
-content hash, type, and its position in the source order, plus
-behavior-affecting RTL/testbench metadata. Every source also counts by its path relative to the
-design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can resolve other files
-by the source's location. The design hash counts the parts of the design the flow reads: its RTL, and
-the testbench for a flow that reads one (a simulation, and ``bsc`` and ``vivado_project``, which read
-the testbench's sources too), so a synthesis flow stays up to date when only a testbench changes, and its trace records no testbench file as an input. (A flow that
-consumes another flow's outputs runs again when those outputs change, not whenever that flow runs.
-A flow can also be judged on the types of source it takes, as ``nextpnr`` is.) A parameter whose value is a path
-under the design root, such as one given as a file relative to it, counts relative to it; one
-outside the root counts as the location it names, and a parameter file's content is not hashed.
-``flowrun_hash`` covers settings, with a path counted as its text relative to the design
-(``$DESIGN_ROOT/c.xdc``), and where each declared input of the flow comes from, in order: the
-producing flow's own ``flowrun_hash`` and output, or the design's sources. A producer's settings
-therefore count for the flows that consume it. ``settings_hash``, beside it in ``results.json``,
-covers the settings alone. Moving a whole design anywhere keeps both hashes (unless a parameter
-names a file outside it); starting Xeda from another directory does too. The hashes never read a
-file a setting names: whether its content changed since the last run is the trace's business
-(see ``trace.json`` below).
+The ``effective_flow_settings`` key holds what the flow made of the input while it prepared and ran:
+resolved paths, derived options and generated outputs. It shows the difference between what you
+asked for and what Xeda asked of the tool. Read it first when a run did something you did not
+expect. The file also records the design as Xeda resolved it.
 
-How an input was asked for -- a chain, a ``flows.<flow>.inputs`` binding in a design, a project, on
-the command line or through the API -- is not part of either hash; only what it selects is. A
-chain, a saved binding and the defaults that choose the same producer and output give the same
-hashes and the same directories, and a chain that selects another producer or another output gives
-the consumer another ``flowrun_hash`` (with ``--hashed-run-dirs``, another directory). Without
-hashed directories the consumer keeps its directory, and the trace says why it ran again:
-``declared input bindings changed``. See :ref:`flow-chains`.
+The file records ``design_hash``, ``flowrun_hash``, ``settings_hash`` and ``xeda_version`` too. The
+hashes identify the run, and the trace (see below) checks against them. The version is diagnostic
+information and is not part of the identity. Both ``design_hash`` and ``flowrun_hash`` depend on
+what the inputs mean, not on where they are:
+
+* The design hash covers each source's content hash, its type and its position in the source order.
+  It also covers the RTL and testbench metadata that affects behavior. Each source also counts by
+  its path relative to the design root, outside the root too (``../lib/defs.vh``), because a tool
+  can find other files from the location of a source.
+* The design hash covers the parts of the design that the flow reads. These are the RTL, and the
+  testbench for a flow that reads it (a simulation, ``bsc`` and ``vivado_project``). A synthesis
+  flow therefore stays up to date when only a testbench changes, and its trace records no testbench
+  file as an input. A flow can also be judged on the source types it takes, as ``nextpnr`` is. A
+  consumer runs again when what it takes from a producer changes, not whenever the producer runs.
+* A parameter whose value is a path under the design root, such as a file given relative to it,
+  counts relative to the root. A path outside the root counts as the location it names. The content
+  of a parameter file is not hashed.
+* ``flowrun_hash`` covers the settings, with each path counted as its text relative to the design
+  (``$DESIGN_ROOT/c.xdc``). It also covers where each declared input of the flow comes from, in
+  order: the producing flow's own ``flowrun_hash`` and output, or the design's sources. The settings
+  of a producer therefore count for its consumers. ``settings_hash`` covers the settings alone.
+  ``results.json`` records it too.
+
+Moving a whole design keeps both hashes, unless a parameter names a file outside the design.
+Starting Xeda from another directory keeps them too. The hashes never read a file that a setting
+names. The trace decides whether the content of such a file changed since the last run (see
+`trace.json`_).
+
+How you asked for an input is not part of either hash. This applies to a chain, to a
+``flows.<flow>.inputs`` binding in a design, a project, the command line or the API. Only the
+producer and the output it selects count. A chain, a saved binding and the defaults that choose the
+same producer and output give the same hashes and the same directories. A chain that selects another
+producer or another output gives the consumer another ``flowrun_hash``, and with
+``--hashed-run-dirs`` another directory. Without hashed directories, the consumer keeps its
+directory and the trace gives the reason for the new run: ``declared input bindings changed``. See
+:ref:`flow-chains`.
 
 ``results.json``
 ----------------
 
-What the flow parsed out of the tool's reports. A run that fails after it has started (a failing
-tool, or a failing dependency) still writes it, as a failure document: ``success`` is ``false``, and
-``error.type`` and ``error.message`` say what failed, beside the run's identity (a flow whose
-reports or checks failed without a tool error says ``ReportedFailure``, and a flow downstream of a
-failed one ``FlowDependencyFailure``, quoting it). The previous
-``results.json`` is removed before a run starts, so an earlier success never stands for a run that
-failed. Every flow reports:
+This file holds what the flow parsed out of the tool's reports. A run that fails after it has
+started still writes the file, as a failure document. This covers a failing tool and a failing
+producer. The ``success`` key is ``false``, and ``error.type`` and ``error.message`` say what
+failed. The run's identity is in the document too. A flow whose reports or checks failed without a
+tool error says ``ReportedFailure``. A consumer of a failed producer says ``FlowDependencyFailure``
+and quotes the cause. Xeda removes the previous ``results.json`` before a run starts, so an earlier
+success never stands for a run that failed. Every flow reports these keys:
 
 .. list-table::
    :header-rows: 1
@@ -167,291 +188,341 @@ failed. Every flow reports:
    * - ``design``, ``flow``
      - Names of what was run.
    * - ``design_hash``, ``flow_hash``, ``settings_hash``
-     - Hashes identifying the design, the run (its settings and where its declared inputs come
+     - Hashes that identify the design, the run (its settings and where its declared inputs come
        from) and the settings alone.
    * - ``run_path``
      - Absolute path of this directory.
    * - ``timestamp``
      - When the run finished, as ``YYYY-MM-DD-HHMMSS``.
 
-Flows with declared outputs also record ``outputs``: each enabled output's absolute path and
-content digest (an ordered list for list outputs). Consumers receive those checked records under
-a verified read lease; see :doc:`machine-readable`. Output-record validation failures use
-``MissingOutput`` and the normal failure document; nextpnr checks its enabled configuration
-earlier and raises ``FlowFatalError`` if the tool did not write it.
+A flow with declared outputs also records ``outputs``. This key holds the absolute path and the
+content digest of each enabled output (an ordered list for a list output). A consumer receives these
+checked records under a verified read lease (see :doc:`machine-readable`). A failed output check
+uses ``MissingOutput`` and the normal failure document. ``nextpnr`` checks its enabled configuration
+earlier and raises ``FlowFatalError`` if the tool did not write the file.
 
-On top of that each flow reports its own keys - ``xeda list-results <flow>`` lists them. Keys
-beginning with ``_`` are internal detail and may change without notice.
+Each flow also reports keys of its own. ``xeda list-results <flow>`` lists them. Keys that start
+with ``_`` are internal and may change without notice.
 
 Reading results from a script
 =============================
 
-``xeda run --json`` writes the whole run as one JSON document to stdout, with tool output and log
-messages on stderr, so no file-hunting is needed::
+``xeda run --json`` writes the whole run as one JSON document to stdout. Tool output and log
+messages go to stderr. You do not need to look for files::
 
     xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
 
-The exit status is non-zero when the flow fails. The JSON document then carries an ``error``
-object alongside any parsed results. See :doc:`machine-readable`.
+The exit status is not zero when the flow fails. The JSON document then has an ``error`` object
+beside any parsed results. See :doc:`machine-readable`.
 
 Rebuilding only what changed
 =============================
 
-``xeda run`` is make-like *by default*: it re-runs a flow only when something it consumed or
-produced changed since its last successful run; ``--rebuild-all`` runs every flow
-unconditionally, and so does ``--clean``. A flow that runs logs why (``Running <flow>: <reason>``); a flow left alone logs
-that it is up to date, and its previously recorded results are shown as if it had just run.
+``xeda run`` is make-like by default. It runs a flow again only when something the flow consumed or
+produced changed since its last successful run. ``--rebuild-all`` runs every flow, and so does
+``--clean``. A flow that runs logs why (``Running <flow>: <reason>``). A flow that is up to date
+logs that, and Xeda shows its recorded results as if it had just run.
 
 What makes a flow stale
 ------------------------
 
-- there is no successful previous run (none yet, or the last one failed);
-- the flow always runs: it programs a device, draws a new random seed, or reads pin constraints
-  fetched from a URL -- see `Flows that always run`_;
-- its settings changed -- the reason names which ones -- or a path a setting names now points
-  elsewhere (from another start directory, or for another design tree);
-- Xeda changed: its version, or any file of the installed package (code, templates, bundled data
-  -- an editable install keeps one version string across edits); for a flow defined outside Xeda,
-  its own modules and templates;
-- a program it started (an executable's path, size or mtime; a container image's ID) changed, or
-  was replaced while the run was going on;
-- what a dependency handed over changed -- the files of the outputs the flow takes from it, not
-  the dependency's run: a dependency that ran again with the same outputs leaves the flow up to
-  date, and the log says so;
-- an input was added, removed, changed, or has gone missing -- a file in a directory a setting
-  names too (a library recompiled in place) -- or was modified while the run that read it was
-  going on, so that what the run read is unknown;
-- an output was deleted or edited (by hand, or by another tool) since the run that produced it --
-  in a run directory Xeda manages, that is any file the run left there, declared as an artifact
-  or not, or the file a symbolic link there points to; the flows depending on it re-run only if
-  what they take from it changed;
-- a file appeared in a run directory Xeda manages since its run ("new file in the run
-  directory"): the directory is Xeda's alone, and a depender reading it could find the file;
-- the design's metadata changed (``top``, parameters, defines, and other behavior-affecting
-  fields -- not merely where files live).
+A flow is stale, and runs again, in any of these cases:
 
-``xeda run --dry-run`` applies these rules without running anything: each planned flow is
-``fresh`` (reused), ``stale: <reason>`` (it runs, and the reason is the one the log gives) or
-``unknown: <reason>``. A flow is unknown when its answer needs something only a launch makes: it
-depends on a producer that would run first (the flow is judged by the outputs that run hands over),
-a container image would have to be looked up, or a prepared input, such as a chip database, does
-not exist yet. The dry run takes no lock, refreshes no trace and starts no process. With
-``--rebuild-all`` or ``--clean`` every flow is stale, once its prepared inputs pass. A flow a run would otherwise reuse has the
-reason ``every flow runs (--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records
-too; a flow that always runs keeps its own reason (``it draws a new random seed``).
+- There is no successful previous run, because there is none yet or the last one failed.
+- The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
+  fetched from a URL (see `Flows that always run`_).
+- Its settings changed (the reason names which ones), or a path that a setting names now points
+  elsewhere, from another start directory or for another design tree.
+- Xeda changed: its version, or any file of the installed package (code, templates, bundled data).
+  An editable install keeps one version string across edits. For a flow defined outside Xeda, its
+  own modules and templates count.
+- A program the flow started changed (the path, size or mtime of an executable, or the ID of a
+  container image), or was replaced while the run was going on.
+- What a producer handed over changed. This means the files of the outputs that the flow takes from
+  the producer, not the producer's run. A producer that ran again with the same outputs leaves the
+  consumer up to date, and the log says so.
+- An input was added, removed, changed or is missing. This includes a file in a directory that a
+  setting names, such as a library recompiled in place. It also includes an input that was modified
+  while the run that read it was going on, because what the run read is then unknown.
+- An output was deleted or edited, by hand or by another tool, after the run that made it. In a run
+  directory that Xeda manages, every file the run left there is an output, whether or not it is an
+  artifact. So is the file that a symbolic link there points to. The consumers of that output run
+  again only if what they take from it changed.
+- A file appeared in the run directory after the run (``new file in the run directory``). The
+  directory belongs to Xeda alone, and a consumer that reads it could find the file.
+- The design's metadata changed: ``top``, parameters, defines and other fields that affect behavior.
+  A change in the place of the files is not a change in the metadata.
 
-A run directory is reused from run to run, so a report the previous run left is still there when
-a flow runs again. A flow reads only the reports its own run wrote: right before the run, Xeda
-notes what the run directory holds -- each file's device, inode, size and times -- and a report
-found unchanged since then (or under a directory it could not read) counts as missing -- "not
-written by this run", decided by the file itself, never by a clock -- so a tool that fails before
-it writes its reports never passes on the previous run's.
+``xeda run --dry-run`` applies these rules and runs nothing. It reports each planned flow as
+``fresh`` (the launch reuses it), ``stale: <reason>`` (the launch runs it, for the reason that the
+log gives) or ``unknown: <reason>``. A flow is unknown when the answer needs something that only a
+launch makes:
 
-Dependencies are always brought up to date before the flow that depends on them is judged, so a
-stale dependency reruns first. A launch has one run per flow, so it enters each run directory once.
+- The flow needs the output of a producer that would run first. The launch judges the flow by the
+  outputs that the run hands over, and the reason is ``depends on <producer>``.
+- Xeda would have to look up a container image.
+- A prepared input, such as a chip database, does not exist yet.
+- A launch would refuse the settings in the context of the design, or could not hand over a recorded
+  output of a producer.
+
+The dry run takes no lock, does not refresh a trace and starts no process. With ``--rebuild-all`` or
+``--clean``, every flow is stale once its prepared inputs pass. The reason is ``every flow runs
+(--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records too. A flow that always
+runs keeps its own reason (``it draws a new random seed``).
+
+A run directory is reused, so a report that the previous run left is still there when the flow runs
+again. A flow reads only the reports that its own run wrote. Right before the run, Xeda notes what
+the run directory holds: the device, inode, size and times of each file. A report that is unchanged
+since then, or that lies under a directory Xeda could not read, counts as missing (``not written by
+this run``). The file itself decides this, never a clock. A tool that fails before it writes its
+reports therefore never passes on the previous run's reports.
+
+Xeda brings the producers of a flow up to date before it judges the flow, so a stale producer runs
+first. A launch has one run per flow and enters each run directory once.
 
 ``trace.json``
 ---------------
 
-Written last, atomically, only after a run succeeds, and removed before the *next* run of that
-directory executes -- so its presence alone means "the last run here completed and succeeded". It
-records:
+Xeda writes the trace last and atomically, only after a run succeeds. It removes the trace before
+the next run in that directory executes. The presence of the trace alone therefore means that the
+last run here completed and succeeded. The trace records:
 
-- the run's identity (``flowrun_hash``: its settings and where its declared inputs come from),
-  the hash of its settings alone (``settings_hash``) and the design hash;
-- the Xeda version, a digest of every file of the installed Xeda package, and one of the flow's
-  own modules when it is defined outside Xeda;
-- the programs it started, each as a file record (below) of the resolved executable -- size,
-  mtime, inode change time, inode and content hash -- so a program replaced during the run is
-  caught the same way any other input is; a program whose record from the previous run still
-  vouches for it (see below) is not read again; a container image is recorded by its ID alone;
-- its **inputs**, recorded *as the run found them when it started*: every file the design's
-  ``rtl`` and ``tb`` name (sources, and a parameter or define given as a file, such as
-  ``$readmemh`` data), every existing file a path-typed setting names (a relative path under both
-  the design root and the start directory; nested settings too, such as the ghdl plugin's inside
-  yosys's), every entry under a directory a path-typed setting names (a compiled library in
-  ``lib_paths``, Verilator's ``include_dirs``, a PDK directory: recursively, a symbolic link
-  followed -- cycles broken by device and inode, and a link that leads back into a place already
-  pruned is not re-entered -- so a library reached only through a link is tracked like any other;
-  version control's ``.git``, ``.hg`` and ``.svn`` left out; the flow's own working locations --
-  ``reports``, ``outputs``, ``checkpoints``, OpenROAD's ``results`` and the like -- excepted, as is
-  the run directory and run root themselves where a named directory holds them), every file a flow
-  resolves before it runs (yosys's ``abc_script``, expanded against the start directory or the
-  environment), and the dependencies' outputs. A file whose record from the previous run still
-  vouches for it (see below) is not read again;
-- its **implicit inputs**, known only after the run: files a tool reported reading via a depfile
-  (``yosys -E``), and files a flow reads on its own while it runs (a board's pin constraints);
-- its **outputs**: every entry in the run directory after the run, recursively -- a depender may
-  read any of them by path (``vivado_power`` reads the routed checkpoint of ``vivado_synth``) --
-  plus the artifacts outside it. A regular file is a file record (below); a directory is recorded
-  by its metadata alone (a fixed ``"directory"`` digest, never descended into for its own record --
-  its entries are recorded in their own right); a FIFO, socket or device is recorded by its
-  metadata and a ``"special:<kind>"`` digest, never read; a symbolic link is recorded by its
-  target text and, when that names a file, that file's content too -- a directory it points to is
-  not walked, since the run directory's own listing never follows a link. Only the names Xeda
-  reserves are left out (see `Locking`_). The reports a flow read while parsing its results
-  (``Flow.reports_read``) are removed from the run directory only when the next run turns out not
-  to be fresh, right before it executes -- not right after the trace that recorded them, so a
-  fresh run's own outputs, reports included, are left alone -- so a tool that fails before writing
-  its own report can never leave a previous run's report to be read as if it were this run's;
-- each file above as a **file record**: ``(size, mtime, inode change time, inode, content hash)``;
-- where each path-typed setting points, by its name (``lib_paths[0][1]``): an absolute path (a
-  path under ``$PWD``, ``$DESIGN_ROOT`` or ``$DESIGN_DIR``, once expanded) as itself, a relative one as each existing
-  path it is found at under the design root and the start directory. A run's identity counts
-  ``$PWD/libs`` as written, so launched from another start directory -- or for another design
-  tree whose design file reads the same -- it has the same identity; a setting that names a
-  directory (a compiled library) is bound by nothing else, and pointing elsewhere makes the run
-  stale ("``lib_paths[0][1]`` now names ``<B>/libs`` (was ``<A>/libs``)");
-- ordered declared-input bindings: name, source/producer/none origin, producer identity and
-  consumed paths. A changed binding invalidates reuse even if the file set is unchanged;
-- a ``run_id`` for this run, and the ``run_id`` of each dependency's run it consumed, keyed by
-  that dependency's run directory.
+- The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
+  ``settings_hash`` (the settings alone) and the design hash.
+- The Xeda version, a digest of every file of the installed Xeda package, and a digest of the flow's
+  own modules when the flow is defined outside Xeda.
+- The programs the run started, each as a file record (below) of the resolved executable: size,
+  mtime, inode change time, inode and content hash. A program that was replaced during the run is
+  caught like any other input. A program whose record from the previous run still vouches for it
+  (see below) is not read again. A container image is recorded by its ID only.
+- The inputs of the run, recorded as the run found them when it started:
 
-Recording the inputs before the run is what makes an edit made *during* a long run count: the
-file no longer matches the trace, so the next launch runs again. A file that no one could record
-before the run (one a depfile names for the first time, a program) and that was written while the
-run went on is recorded as unknown, which never matches.
+  - the files that the parts of the design which the flow reads name (``rtl`` and, for a flow that
+    reads it, ``tb``): the sources, and a parameter or define given as a file, such as ``$readmemh``
+    data;
+  - every existing file that a path-typed setting names. A relative path is looked up under the
+    design root and under the start directory. Nested settings count too, such as the GHDL plugin
+    setting inside the Yosys settings;
+  - every entry under a directory that a path-typed setting names, such as a compiled library in
+    ``lib_paths``, the ``include_dirs`` of Verilator or a PDK directory. Xeda lists the directory
+    recursively and follows symbolic links. It breaks cycles by device and inode, and does not enter
+    again a place that a link leads back to. A library that is reached only through a link is
+    therefore tracked like any other. The listing leaves out the directories of version control
+    (``.git``, ``.hg`` and ``.svn``). It also leaves out the working locations of the flow
+    (``reports``, ``outputs``, ``checkpoints``, the ``results`` of OpenROAD and similar), and the
+    run directory and run root where a named directory holds them;
+  - every file that a flow resolves before it runs, such as the ``abc_script`` of Yosys, expanded
+    against the start directory or the environment;
+  - the design sources that its declared inputs take.
 
-Location is how Xeda tells a run's file from a user's edit. The run directory -- always under the run root -- is the run's alone: every entry in it
-is the run's output, whether the run wrote it or not; a file that appears there since the last run
-makes the run stale ("new file in the run directory"). Anywhere else, a file named by a setting, a
-depfile, or the design stays an input; if it was absent before the run or changed during it (its
-mtime, or its inode change time, at or after the run started), its record is unknown and the next
-launch re-runs.
+- The implicit inputs, which are known only after the run. These are the files that a tool reported
+  through a depfile (``yosys -E``) and the files that the flow registers as read, such as a chip
+  database wherever it was found.
+- The outputs: every entry in the run directory after the run, recursively, and the artifacts
+  outside the run directory. A consumer may read any entry of the run directory by path. For
+  example, ``vivado_power`` reads the routed checkpoint of ``vivado_synth``. Each kind of entry has
+  its own record:
 
-Every file under a directory a setting names is an input, with no limit on how many: a limit
-would let a change past it go unnoticed. Each is checked by its metadata at every launch and
-hashed only when that cannot vouch for it; a listing of more than 10,000 files, or one that
-takes more than 2 seconds, is logged as a warning naming the setting.
+  - A regular file has a file record.
+  - A directory is recorded by its metadata alone, with the fixed digest ``"directory"``. Xeda does
+    not descend into it for its own record, because its entries have records of their own.
+  - A FIFO, socket or device is recorded by its metadata and a ``"special:<kind>"`` digest. Xeda
+    never reads it.
+  - A symbolic link is recorded by its target text and, when it names a file, the content of that
+    file. Xeda does not walk a directory that a link points to, because the listing of a run
+    directory never follows a link.
 
-Times are read from the clock of the run directory's file system -- by touching a marker file
-there -- not from the computer's clock, since they are compared with the times of files. A check
-that finds a read-only run directory still checks, and only skips saving what it learned.
+  Only the names that Xeda reserves are left out (see `Locking`_). Xeda removes the reports that a
+  flow read while it parsed its results (``Flow.reports_read``) from the run directory only when the
+  next run turns out not to be up to date, right before it executes. It does not remove them right
+  after the trace that recorded them. The outputs of a run that is found up to date, reports
+  included, stay. This way a tool that fails before it writes its report can never leave the report
+  of a previous run to be read as if it were new.
+- A file record for each file above: ``(size, mtime, inode change time, inode, content hash)``.
+- Where each path-typed setting points, by its name (such as ``lib_paths[0][1]``). An absolute path
+  is recorded as it is, after Xeda has expanded ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR``. A
+  relative path is recorded as each existing path that it is found at, under the design root and
+  under the start directory. The identity of a run counts ``$PWD/libs`` as written, so a launch from
+  another start directory, or for another design tree with a design file that reads the same, has
+  the same identity. A setting that names a directory, such as a compiled library, is bound by
+  nothing else. If it points elsewhere, the run is stale (``lib_paths[0][1]`` now names ``<B>/libs``
+  (was ``<A>/libs``)).
+- The ordered bindings of the declared inputs: the name, the origin (source, producer or none), the
+  identity of the producer and the consumed paths. A changed binding stops Xeda from reusing the
+  run, even if the set of files is the same. The files that a producer handed over are not file
+  records of the consumer. The trace compares the path and the digest of each handed file with the
+  current record of the producer.
+- A ``run_id`` for the run, and the ``run_id`` of each producer run that it consumed, keyed by the
+  run directory of that producer.
 
-A file counts as unchanged when its size, mtime, inode change time (``ctime``) and inode match
-its record and it did not change within 2 seconds of being recorded (to rule out a racy
-timestamp); otherwise its content hash decides. So a bare ``touch``, a ``chmod``, a copy that
-keeps the mtime (``cp -p``), or checking out a branch and back, costs a content hash -- not a
-re-run -- while an edit given back its old mtime (``touch -r``, restoring a backup) is still
-noticed: no one can set a file's inode change time back. A run's outputs are hashed once,
-after it, and later checks go by the same rule. A file hashed at a check because it had changed
-too recently to be trusted is recorded afresh once that window has passed, so later checks do
-not read it again.
+Xeda records the inputs before the run starts. An edit made during a long run therefore counts: the
+file no longer matches its record, and the next launch runs again. Xeda decides whether a file
+changed during the run by comparing it with its record from before the run: the size, mtime, inode
+change time and inode. It judges a program the same way, against its state when Xeda started it.
+
+A file that Xeda first knows after the run, such as one that a depfile names for the first time, has
+no record from before the run. If the file is on the file system of the run directory, Xeda compares
+it with the clock of that file system, and the file counts as changed if it was written after the
+run started. If the file is on another file system, no clock can tell. Its record is then unknown,
+so the next launch runs once more and says so. An unknown record never matches.
+
+Location tells Xeda a run's own file from an edit of yours. The run directory always lies under the
+run root, and it belongs to the run alone. Every entry in it is an output of the run, whether the
+run wrote it or not. A file that appears there after the last run makes the run stale. Outside the
+run directory, a file that a setting, a depfile or the design names stays an input. If such a file
+was not there before the run, or changed during it, its record is unknown, and the next launch runs
+again.
+
+Every file under a directory that a setting names is an input, and there is no limit on how many. A
+limit would let a change past it go unnoticed. Xeda checks each file by its metadata at every launch
+and hashes it only when the metadata cannot vouch for it. A listing of more than 10,000 files, or
+one that takes more than 2 seconds, is logged as a warning that names the setting.
+
+Xeda reads times from the clock of the run directory's file system, by touching a marker file there,
+not from the clock of the computer. It compares them with the times of files. If the run directory
+is read only, the check still works and only skips saving what it learned.
+
+A file counts as unchanged when its size, mtime, inode change time (``ctime``) and inode match its
+record, and the record was taken more than 2 seconds after the file last changed (this rules out a
+racy timestamp). Otherwise the content hash decides. A bare ``touch``, a ``chmod``, a copy that
+keeps the mtime (``cp -p``), and checking out a branch and back therefore cost a content hash and do
+not cause a new run. An edit that is given back its old mtime (``touch -r``, restoring a backup) is
+still noticed, because no one can set the inode change time of a file back. Xeda hashes the outputs
+of a run once, after the run, and later checks follow the same rule. A check that had to hash a file
+because it changed too recently to trust records the file again once that window has passed, so
+later checks do not read it again.
 
 ``--clean``
 ------------
 
-Empties each flow's run directory before it runs, and runs every flow -- "make clean, then make".
-It replaces the old ``--no-incremental``, the per-flow ``clean`` setting, GHDL's ``clean`` (now
-``clean_before_analyze``), Verilator's ``clean_before_run``, and the launcher's
-``cleanup_before_run`` setting -- each of those names now fails with what to use instead.
+``--clean`` empties the run directory of each flow before the flow runs, and runs every flow. It is
+"make clean, then make". Several older names did the same job and now fail with a message that says
+what to use: ``--no-incremental``, the per-flow ``clean`` setting, GHDL's ``clean`` (now
+``clean_before_analyze``), Verilator's ``clean_before_run`` and the launcher setting
+``cleanup_before_run``.
 
 Flows that always run
 ----------------------
 
-Some runs can never be reused, and say why: they always run, keep no trace, and report the reason
-(``Running <flow>: <reason>``, and ``nodes[].reason`` under ``--json``):
+Some runs can never be reused. These flows always run, keep no trace and report the reason
+(``Running <flow>: <reason>``, and ``nodes[].reason`` with ``--json``):
 
-- ``openfpgaloader``: "it programs a device" -- that changes the outside world. The stages that
-  build its bitstream (``yosys_fpga``, ``nextpnr``, ``fpga_pack``) are ordinary nodes, reused
-  when nothing changed.
-- A flow asked for a fresh random seed: "it draws a new random seed". Every seed is a setting with
-  a fixed default, so equal inputs give equal outputs: Verilator's random initialization (off unless ``random_init`` is set) uses
-  ``random_seed`` (default 1) and cocotb's ``random_seed`` defaults to 1. Ask for a new seed per
-  run with ``random_seed: random``, or with ``randomize_seed: true`` for ``nextpnr`` (off
-  by default).
-- ``nextpnr`` when a board's pin constraints are fetched from a URL: "its constraints are fetched
-  from a URL" -- no trace can verify a file on the network. It is fetched into guarded scratch
-  in the run directory only when the flow executes. Local typed constraint sources and local
-  board fallbacks are tracked before freshness is checked. Bundled archive board files are
-  materialized under the run root's content-keyed ``.cache/board-files/`` directory.
+- ``openfpgaloader`` has the reason "it programs a device", which changes the outside world. The
+  stages that build its bitstream (``yosys_fpga``, ``nextpnr`` and ``fpga_pack``) are ordinary
+  nodes, and Xeda reuses them when nothing changed.
+- A flow that is asked for a fresh random seed has the reason "it draws a new random seed". Every
+  seed is a setting with a fixed default, so equal inputs give equal outputs. The random
+  initialization of Verilator is off unless ``random_init`` is set, and then it uses ``random_seed``
+  (default 1). The ``cocotb.random_seed`` setting also defaults to 1. To get a new seed on each run,
+  set ``random_seed: random`` for Verilator with ``random_init``, ``cocotb.random_seed: random`` for
+  cocotb, or ``randomize_seed: true`` for ``nextpnr`` (off by default).
+- ``nextpnr`` with pin constraints fetched from a URL has the reason "its constraints are fetched
+  from a URL", because no trace can verify a file on the network. Xeda fetches the file into guarded
+  scratch space in the run directory, and only when the flow executes. Xeda tracks local typed
+  constraint sources and local board fallbacks before it judges whether the flow is up to date. It
+  writes the board files that the package bundles in an archive to the content-keyed directory
+  ``.cache/board-files/`` of the run root.
 
-The run root also holds what several designs share. ``nextpnr`` for a Xilinx 7-series part
-generates the die's chip database once, into ``.cache/xilinx-chipdb/<identity>/`` (about a minute
-and 3.5 GB of memory for an ``xc7a100t``), and every later launch under that run root -- of any
-design -- reads the same file; it is registered as an input before freshness is judged, so an
-unchanged relaunch starts nothing. The identity is the content of the installed toolchain's
-generator, executables and device data, never a version string. One lock per identity (POSIX)
-keeps two launches from generating it twice; an interrupted generation leaves only scratch, which
-the next one removes. ``--clean``, post-cleanup and ``xeda scrub`` leave the cache alone.
+The run root also holds what several designs share. For a Xilinx 7-series part, ``nextpnr``
+generates the chip database of the die once, into ``.cache/xilinx-chipdb/<identity>/``. An
+``xc7a100t`` takes about a minute and 3.5 GB of memory. Every later launch under that run root, for
+any design, reads the same file. Xeda registers the file as an input before it judges whether the
+flow is up to date, so a launch that changes nothing starts nothing. The identity is the content of
+the generator, the executables and the device data of the installed toolchain, never a version
+string. On POSIX, one lock per identity keeps two launches from generating the database twice. An
+interrupted generation leaves only scratch files, which the next one removes. ``--clean``,
+post-cleanup and ``xeda scrub`` leave the cache alone.
 
-A design whose sources a generator writes (``rtl.generator``) keeps its record there too, in
-``.cache/generators/``: the content of what the generator reads -- its ``sources``, which may be
-directories outside the design, and its selected direct executable -- identifies an entry holding
-the digest of every source its last generation left, so the generator runs again only when one of
-them changed. Indirect tools and dependencies remain outside that identity. A
-POSIX lock on the existing design-root directory serializes generations for the same tree,
-including bootstrap and differing identities, without creating a marker beside the design or
-making the run root early. Separate design roots that write to one external destination are not
-coordinated; Windows retains the existing no-interprocess-lock behavior.
-A generation happens while the design is *loaded*, before any flow or run directory exists, which
-is why its record lives in the run root rather than beside the design, and why a design loaded
-with no run root in sight generates every time. ``--rebuild-all`` and ``--clean`` regenerate as
-they re-run every flow. See :ref:`generators`.
+A design whose sources a generator writes (``rtl.generator``) keeps its record in the run root too,
+in ``.cache/generators/``. The content of what the generator reads identifies an entry: its
+``sources`` (which can be directories outside the design) and its selected direct executable. The
+entry holds the digest of every source that the last generation left. The generator therefore runs
+again only when one of its inputs changed. Indirect tools and the packages that the generator uses
+stay outside this identity. On POSIX, a lock on the existing design-root directory serializes the
+generations for the same tree, including the first one and generations with different identities. It
+creates no marker beside the design and does not make the run root early. Separate design roots that
+write to one external destination are not coordinated. Windows keeps its existing behavior of no
+interprocess lock.
+
+A generation happens while Xeda loads the design, before any flow or run directory exists. This is
+why the record lives in the run root and not beside the design. It is also why a design that is
+loaded with no run root generates every time. ``--rebuild-all`` and ``--clean`` regenerate, as they
+run every flow again. See :ref:`generators`.
 
 What is not tracked
 ---------------------
 
-Each of these can make a stale result look fresh; ``--rebuild-all`` is the escape:
+Each of these can make a stale result look up to date. ``--rebuild-all`` is the way out:
 
-- **Programs started indirectly** -- a compiler run by ``make`` (Verilator's model build), Python
-  packages such as cocotb imported by a simulator: only the programs Xeda starts itself are
-  recorded.
-- **Environment variables.** A flow that reads one without declaring it as a setting can change
-  behavior invisibly to the trace, and so can a design generator: a generator's environment is
-  deliberately not part of its identity, so that one record is reusable from another shell.
-- **Files a tool finds on its own without reporting them** -- a Vivado IP repository, tool data
-  outside any setting, anything not named by a setting and not listed in a depfile.
-- **What a symbolic link in a run directory points to, when that is a directory** -- the link is
-  recorded by its target, the directory's contents are not.
-- **Filesystem clock differences across filesystems.** Run start and input snapshot times come
-  from the run directory's filesystem. A named input on another filesystem whose clock differs
-  may be misclassified as changed during the run (or not changed during it).
+- Programs that a tool starts indirectly. Examples are a compiler that ``make`` runs (the model
+  build of Verilator) and Python packages that a simulator imports, such as cocotb. Xeda records
+  only the programs that it starts itself.
+- Environment variables. A flow that reads one without declaring it as a setting can change behavior
+  in a way the trace cannot see. So can a design generator. The environment of a generator is not
+  part of its identity on purpose, so that one record can be reused from another shell.
+- Files that a tool finds on its own and does not report, such as a Vivado IP repository, tool data
+  outside any setting, and anything that no setting names and no depfile lists.
+- What a symbolic link in a run directory points to, when that is a directory. Xeda records the link
+  by its target and does not record the contents of the directory.
 
-Pin constraints fetched from a URL are not verifiable either, which is why a flow using them
-always runs (`Flows that always run`_).
+Xeda cannot verify pin constraints fetched from a URL either, which is why a flow that uses them
+always runs (see `Flows that always run`_).
 
 Locking
 --------
 
-A durable lock file, ``<run dir>.lock`` beside the run directory -- never inside it --
-serializes writers to the same directory (POSIX only; there is no lock on Windows). A consumer
-holds each completed dependency's lock *shared*, after verifying completion evidence under the
-acquired lease, until its own launch ends, including results and trace writing. This protects
-every producer, including those without a trace. A change in the gap
-between producer completion and shared-lock acquisition refuses hand-over; matching declared
-output bytes alone do not prove the rest of the completed run is unchanged.
+A durable lock file, ``<run dir>.lock``, lies beside the run directory and never inside it. It
+serializes the writers of one directory. This works on POSIX only, and Windows has no lock. A
+consumer takes a shared lock on the run directory of each completed producer. It verifies the
+completion evidence under the lock it acquired, and holds the lock until its own launch ends,
+including the writing of results and trace. This protects every producer, including a producer that
+has no trace. If the producer directory changes between the producer's completion and the
+acquisition of the shared lock, Xeda refuses the hand-over. Matching bytes of the declared outputs
+do not prove that the rest of the completed run is unchanged.
 
-Compatible readers overlap. Rebuild, cleanup, scrub and DSE purge take the same lock exclusively
-and wait for readers. Within one process, same-mode and exclusive-to-shared reentry keep the OS
-lock; shared-to-exclusive reentry is refused before writes. ``xeda scrub`` retains the lock file
-when deleting a run directory so waiting processes continue to use the same lock identity.
-Sibling scrub happens before the current run lock is taken, avoiding deadlocks between settings
-variants. Lock acquisition failures name the producer, path, shared mode and OS error.
+Readers that are compatible overlap. A rebuild, a clean-up, a scrub and the purge of a design-space
+exploration take the same lock exclusively and wait for the readers. Inside one process, a lock that
+is requested again in the same mode, or exclusive and then shared, keeps the operating system lock.
+A request for exclusive access while the process holds the lock shared is refused before anything is
+written. ``xeda scrub`` keeps the lock file when it deletes a run directory, so waiting processes
+continue to use the same lock identity. Scrub removes sibling run directories before the launch
+takes its own run lock. This avoids deadlocks between variants of the settings. A failure to take
+the lock names the producer, its path, the shared mode and the error of the operating system.
 
-Xeda reserves these names at the top of a run directory, and never counts them as a run's
-outputs: ``trace.json``, ``trace.json.tmp`` (a trace being written), and ``.xeda-time-*`` (a
-marker touched to read the file system's clock, removed at once). A flow must not write files by
-these names.
+Xeda reserves these names at the top of a run directory and never counts them as outputs of a run:
+``trace.json``, ``trace.json.tmp`` (a trace that is being written) and ``.xeda-time-*`` (a marker
+that Xeda touches to read the clock of the file system and removes at once). A flow must not write a
+file with one of these names.
 
-A remote host must run the 0.4.4 release line of xeda or newer, with remote protocol 1 or newer,
-the first released protocol. It provides canonical resolved settings, relocated read inputs with
-their original path identities, declared output records and checked hand-over; the simulation
-evidence rule (remote simulations must confirm that the simulation ended successfully); the FPGA
-build graph (``fpga_pack``, ``nextpnr`` on Xilinx 7-series, and a programming-only
-``openfpgaloader``); the node identity of flow chains (a node's hash is its settings plus where
-its declared inputs come from, and the local mirror is named by it, so a remote that computes
-another hash cannot take part); the declared Vivado synthesis outputs; and ``yosys``'s declared
-netlist, with its ASIC configuration derived from its own ``platform`` and a bundled platform's
-files counted relative to xeda's installation. Xeda checks the package the remote interpreter
-actually imports before shipping the design. A release without the protocol marker, or with a
-lower protocol, is refused with an "upgrade the remote xeda" error.
+Remote runs
+===========
 
-A remote run (``--remote``) always runs fresh on the remote, and its results are always mirrored
-locally in the hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings
-never share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so each is
-refused. ``--rebuild-all`` forces local generator loading before shipping while the remote flow
-still runs fresh; remote ``clean`` does not force a local generator on ordinary invocations.
+A remote host must run Xeda 0.4.4 or newer (a development build of this release line counts), with
+remote protocol 1 or newer. Protocol 1 is the first one released. It provides:
+
+- canonical resolved settings;
+- relocated read inputs, with their original path identities;
+- declared output records and checked hand-over;
+- the rule for simulation evidence (a remote simulation must confirm that it ended successfully);
+- the FPGA build graph: ``fpga_pack``, ``nextpnr`` on Xilinx 7-series, and an ``openfpgaloader``
+  that only programs;
+- the node identity of chains (the hash of a node is its settings plus where its declared inputs
+  come from, and the local mirror is named by it, so a remote that computes another hash cannot take
+  part);
+- the declared outputs of Vivado synthesis;
+- the declared netlist of ``yosys``, with its ASIC configuration derived from its own ``platform``
+  and with the files of a bundled platform counted relative to the Xeda installation.
+
+Before it ships the design, Xeda checks the package that the remote interpreter actually imports. A
+release without the protocol marker, or with a lower protocol, is refused with an "upgrade the
+remote xeda" error.
+
+A remote run (``--remote``) always runs fresh on the remote. Xeda mirrors its results locally in the
+hashed layout (``<design>[/<target>]/<flow>_<hash>``), so remote runs of different settings never
+share a directory. ``--clean`` and ``--hashed-run-dirs`` would change nothing, so Xeda refuses both.
+``--rebuild-all`` forces the local loading of generators before the design is shipped, while the
+remote flow still runs fresh. The remote setting ``clean`` does not force a local generator on
+ordinary invocations. Chains and ``--dry-run`` are refused with ``--remote``.
 
 Cleaning up
 ===========
@@ -463,59 +534,63 @@ Cleaning up
    * - Option
      - Effect
    * - ``--clean``
-     - Empty every flow's run directory before it runs, and run every flow (implies
+     - Empty the run directory of every flow before it runs, and run every flow (implies
        ``--rebuild-all``).
    * - ``--post-cleanup``
-     - After a run, keep only ``settings.json``, ``results.json`` and the artifacts (dependencies
-       included; deferred until the requested flow has finished, so it can still read their files).
+     - After the run, keep only ``settings.json``, ``results.json``, the artifacts and the declared
+       outputs. This includes the producers, but Xeda waits until the requested flow has finished,
+       so the flow can still read their files.
    * - ``--post-cleanup-purge``
-     - After a run, remove the run directory entirely. It needs no ``--post-cleanup`` beside it.
+     - After the run, remove the run directory entirely. It needs no ``--post-cleanup`` beside it.
        Every link that names the run directory beside it (see `Where it goes`_) goes with the
        directory, as with ``xeda scrub``. A file that is delivered to a location you named is
-       moved out of it, not copied (see `Outputs where you name them`_).
+       moved out of the directory, not copied (see `Outputs where you name them`_).
    * - ``--scrub``
-     - Before running, remove the flow's other run directories for this design. Asks for
-       confirmation. If the launch also has to ask whether to replace a file you named for an
-       output, it asks that first: a launch you decline removes nothing.
+     - Before the run, remove the other run directories of the flow for this design. Xeda asks
+       for confirmation. If the launch also has to ask whether to replace a file that you named
+       for an output, it asks that first. A launch that you decline removes nothing.
 
-Pruning (``--post-cleanup``/``--post-cleanup-purge``) drops the trace first, before anything else
-it removes: a pruned run is not reused, even though its ``settings.json``/``results.json`` remain.
+Pruning (``--post-cleanup`` and ``--post-cleanup-purge``) removes the trace first. A pruned run is
+therefore not reused, even though its ``settings.json`` and ``results.json`` remain.
 
-``xeda scrub <flow> <design_name>`` removes previous run directories of one flow for one design,
-without running anything: the ones directly under ``<design_name>/`` (made before targets existed,
-or by a design without one) and those under every target's directory below it. They are found on
-disk, so a target the design file no longer names is found too, and no design file is read. With
-``--target NAME`` only ``<design_name>/NAME/`` is searched, leaving the pre-target runs and every
-other target's. The directories to be removed are listed first and confirmed once. Scrub removes
-the runs it listed, which are the runs you confirmed. It takes each directory's lock first, so it
-never removes a directory while a launch is running in it: it waits until the launch ends. Then it
-looks at what is at the listed path:
+``xeda scrub <flow> <design_name>`` removes the previous run directories of one flow for one design.
+It runs nothing. It removes the directories directly under ``<design_name>/`` (made before targets
+existed, or by a design without a target) and those under every target directory below it. Xeda
+finds them on disk, so it also finds a target that the design file no longer names, and it reads no
+design file. With ``--target NAME``, Xeda searches only ``<design_name>/NAME/``, and leaves the runs
+from before targets and the runs of every other target alone. Scrub lists the directories to remove
+first and asks you to confirm once. It removes the runs that it listed, which are the runs that you
+confirmed. It takes the lock of each directory first, so it never removes a directory while a launch
+runs in it. It waits until the launch ends. Then it looks at what is at the listed path:
 
 * If the run records of the directory (its ``results.json`` and ``trace.json``) are not what the
-  listing saw, scrub keeps it and says so. A launch wrote them after the listing: a run finished
-  there, or a launch found its run fresh and refreshed its trace. What is there is no longer what
-  you confirmed.
-* If nothing is at the path any more, because another scrub or a purge removed it, scrub says so
-  and goes on. That is what you asked for, so it is no error.
+  listing saw, scrub keeps the directory and says so. A launch wrote them after the listing: a run
+  finished there, or a launch found its run up to date and refreshed its trace. What is there is no
+  longer what you confirmed.
+* If nothing is at the path any more, because another scrub or a purge removed it, scrub says so and
+  goes on. This is what you asked for, so it is not an error.
 * If the path is no longer a run directory of the flow, scrub stops with an error and leaves it
-  alone. That is the case for a directory that became a file, and for a link that now leads
-  anywhere but to a run directory of the flow beside it. It does the same for a link that was
-  retargeted while scrub waited: scrub holds the lock of the directory the link led to, and does
-  not remove another directory.
-* Otherwise scrub removes it.
+  alone. This happens when a directory became a file, and when a link now leads anywhere but to a
+  run directory of the flow beside it. It also happens when a link was retargeted while scrub
+  waited. Scrub holds the lock of the directory that the link led to, and does not remove another
+  directory.
+* Otherwise scrub removes the directory.
 
 The summary line says how many directories scrub removed, kept, and found gone already. With
-``--json``, the document lists them (see :doc:`machine-readable`). A run directory that is a link
-counts only when it leads to a run directory of the same flow beside it (see `Where it goes`_).
-Scrub lists such a directory once, even if it has several names, and shows each name before it
-asks. A name is the directory itself, or a link to it, named ``<flow>`` or ``<flow>_<hash>``. A
-link with any other name is no name of a run directory: scrub does not list it, and it stays. Under
-the directory's lock, scrub removes the links first, and then the directory, so none of these links
-is left leading nowhere. If one of the names no longer leads to the directory by then, scrub stops
-with an error and removes nothing, even if a run also ended in the directory. A link that is named
-like a run directory of the flow and leads anywhere else is not listed, so scrub does not remove
-it, and nor what it leads to. Scrub does not wait for the
-lock of the run it leads to. It says so instead, before it asks, one line for each link:
+``--json``, the document lists them (see :doc:`machine-readable`).
+
+A run directory that is a link counts only when it leads to a run directory of the same flow beside
+it (see `Where it goes`_). Scrub lists such a directory once, even if it has several names, and
+shows each name before it asks. A name is the directory itself, or a link to it, named ``<flow>`` or
+``<flow>_<hash>``. A link with any other name is not a name of a run directory. Scrub does not list
+it, and it stays. Under the lock of the directory, scrub removes the links first and then the
+directory, so no link is left that leads nowhere. If one of the names no longer leads to the
+directory by then, scrub stops with an error and removes nothing, even if a run also ended in the
+directory.
+
+A link that is named like a run directory of the flow and leads anywhere else is not listed. Scrub
+removes neither the link nor what it leads to, and it does not wait for the lock of the place it
+leads to. Before it asks, it says so with one line for each link:
 
 .. code-block:: text
 
@@ -523,203 +598,234 @@ lock of the run it leads to. It says so instead, before it asks, one line for ea
     xeda_run/sqrt/a, which is not a directory named vivado_synth or vivado_synth_<hash> in
     xeda_run/sqrt
 
-(Scrub writes each message on one line, with full paths.) A run directory of another flow is
-never searched, and a link that leads out of the run root is never followed.
+Scrub writes each message on one line, with full paths. The end of the message depends on the
+reason. For example, a link to a place that does not exist ends with ``which does not exist``. Scrub
+never searches the run directories of another flow, and never follows a link that leads out of the
+run root.
 
-The lock does not protect a run that was complete when scrub listed it. If another launch is
-about to read that run, scrub removes it. For example, a consumer has run its producer but has not
-yet taken its read lease on the producer's directory. The consumer then fails with a
+The lock does not protect a run that was complete when scrub listed it. If another launch is about
+to read that run, scrub removes it. For example, a consumer has run its producer but has not yet
+taken its read lease on the directory of the producer. The consumer then fails with a
 ``FlowDependencyFailure`` (``changed before acquiring its read lease``) and does not read a
-directory that is being removed. This is by design. Do not scrub a flow whose runs other launches
-are starting to use.
+directory that is being removed. This is the intended behavior: the launch fails and reads nothing.
+Do not scrub a flow whose runs other launches are starting to use.
 
-``--scrub`` on a launch removes the flow's other run directories in the launch's own
-directory, so it never reaches another target's.
+``--scrub`` on a launch removes the other run directories of the flow in the launch's own directory.
+It never reaches the directories of another target.
 
-xeda's space and yours
+Xeda's space and yours
 -----------------------
 
-**Everything under a run root is Xeda's.** Keep nothing of yours in ``xeda_run/`` (or wherever
-``--run-root`` points): every run directory in it is Xeda's, decided once per flow when it is
-launched, and every deletion a flow or the launcher makes inside one -- ``--clean``, the clean-ups
-above, ``xeda scrub``, and what a flow removes before it runs its tool (a previous work library,
-dependency files, stale reports, a previous implementation directory) -- goes through one checked
-operation (``RunDirectory``) that deletes only inside the directory: a path through a symbolic link
-that leads out is refused, naming the link, and a link is removed as itself, never followed. A
-tool may leave symbolic links in its run directory: a link at the name of a place a flow works in
-(a simulator's build directory, say) that leads out is removed as a link before the next run, and
-a link to a directory outside is never delivered. The same goes for every file Xeda itself writes
-where a flow runs (``settings.json``, ``results.json``, a rendered template), which is written
-whole and then renamed into place, so an interrupted write leaves the earlier file, and never
-through a link at its name. A few of Xeda's own writes bypass it directly, because there is nothing of yours under
-their names for it to protect: ``trace.json`` and the marker touched to read the run directory's
-file-system clock are Xeda's reserved files (the trace and digest modules write and remove them
-directly), and a dockerized tool's own environment file (``.<tool>_docker.env``, written by
-``Tool.execute`` right before the container starts) is written the same way. A tool's log is the
-exception: Xeda does not write it whole first, because you can read it while the tool runs. This covers
-``sim.log`` and every other log a flow copies a tool's output to, and the file a tool's output is
-sent to (Vivado's ``<flow>_stdout.log``, for example). Before the tool starts, Xeda makes the log
-as a new file and renames it onto the log's name. It then writes each line as it arrives. A
-symbolic link or a hard link at that name, left by a tool, is replaced and never written through,
-and a log that cannot be made starts no tool. A tool that fails or runs out of time leaves the
-part of its log that it wrote. Each run replaces the log, so follow it with ``tail -F``: a
-``tail -f`` keeps following the file it opened. A tool is free to replace a project or
-a directory by its own name inside the run directory (Vivado's ``create_project -force``,
-Quartus's ``project_new -overwrite``, DC's ``write_icc2_files -force``, Diamond's and ISE's new
-project) -- the whole directory is Xeda's, so there is nothing of yours there to lose.
+Everything under a run root is Xeda's. Keep nothing of yours in ``xeda_run/``, or wherever
+``--run-root`` points. Xeda decides each run directory once per flow, when it launches the flow.
+Every deletion that a flow or the launcher makes inside a run directory goes through one checked
+operation (``RunDirectory``), which deletes only inside the directory. This covers ``--clean``, the
+clean-ups above, ``xeda scrub``, and what a flow removes before it runs its tool (a previous work
+library, depfiles, stale reports, a previous implementation directory). The operation refuses a path
+through a symbolic link that leads out of the directory, and the error names the link. It removes a
+link as itself and never follows it.
 
-**Nothing outside the run root changes except what you name.** An output setting you give a
-location, or ``--outputs-to``, is copied or moved there (see `Outputs where you name them`_) -- that is the
-one deliberate exception, and it never deletes anything of yours: a destination is written and, if it was
-already there, replaced only with your say-so. Two further exceptions exist, both something you
-configure explicitly rather than something Xeda decides on its own: a git dependency's configured
-``clone_dir``/``local_cache`` (otherwise its clone goes in the run root's ``.dependencies``), and
-a writable entry of ``Docker.mounts`` you add yourself (a container otherwise gets the design
-root and the RTL/testbench source directories mounted read-only; a dependency's run directory is
-not mounted at all today, so a dockerized flow needing one of its files needs a
-``Docker.mounts`` entry for it -- that is not yet automatic). In both cases Xeda writes there as
-told, and guards nothing about what it finds: that directory is yours to manage, not Xeda's.
+A tool may leave symbolic links in its run directory. A link at the name of a place where a flow
+works (the build directory of a simulator, for example) is removed as a link before the next run if
+it leads out of the directory. Xeda never delivers a link to a directory outside the run directory.
+The same holds for every file that Xeda itself writes where a flow runs (``settings.json``,
+``results.json``, a rendered template). Xeda writes the whole file and then renames it into place,
+so an interrupted write leaves the earlier file. It never writes through a link at the name of the
+file.
+
+A few writes of Xeda do not go through this operation, because nothing of yours lies under their
+names. These are ``trace.json``, the marker that Xeda touches to read the clock of the run
+directory's file system (Xeda writes and removes both directly), and the environment file of a
+dockerized tool (``.<tool>_docker.env``, written by ``Tool.execute`` right before the container
+starts).
+
+The log of a tool is the one write that Xeda does not make whole first, because you can read the log
+while the tool runs. This covers ``sim.log``, every other log that a flow copies the output of a
+tool to, and the file that receives the output of a tool (for example, the ``<flow>_stdout.log`` of
+Vivado). Before the tool starts, Xeda makes the log as a new file and renames it onto the name of
+the log. Then it writes each line as the line arrives. A symbolic link or a hard link that a tool
+left at that name is replaced and never written through. A log that cannot be made starts no tool. A
+tool that fails or runs out of time leaves the part of its log that it wrote. Each run replaces the
+log, so follow it with ``tail -F``, because ``tail -f`` keeps following the file it opened.
+
+A tool is free to replace a project or a directory by its own name inside the run directory.
+Examples are ``create_project -force`` of Vivado, ``project_new -overwrite`` of Quartus,
+``write_icc2_files -force`` of DC, and the new project of Diamond and ISE. The whole directory
+belongs to Xeda, so nothing of yours is there to lose.
+
+Nothing outside the run root changes except what you name. An output setting that you give a
+location, or ``--outputs-to``, makes Xeda copy or move the output there (see `Outputs where you name
+them`_). This is the one deliberate exception. It never deletes anything of yours. Xeda writes the
+destination, and replaces an existing file only with your approval.
+
+Two more exceptions exist, and you configure both explicitly. Xeda does not decide them on its own:
+
+- The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
+  ``.dependencies`` directory of the run root.
+- A writable entry of ``Docker.mounts`` that you add yourself. A container otherwise gets the design
+  root and the directories of the RTL and testbench sources, mounted read-only. Xeda does not mount
+  the run directory of a producer at all. A dockerized flow that needs a file of a producer needs a
+  ``Docker.mounts`` entry for it.
+
+In both cases Xeda writes there as you told it and guards nothing about what it finds. That
+directory is yours to manage.
 
 Outputs where you name them
 ============================
 
-A flow's tools write only inside its run directory, under a fixed **conventional name** per
-deliverable setting (the convention is ``outputs/<design>.<ext>``; a setting without one keeps
-its own default name). A value of such a setting is a **location** when it is an absolute path
-once its variables are expanded: a path under ``$PWD``, ``$DESIGN_ROOT`` or ``$DESIGN_DIR``, or
-an absolute path. A bare name stays in the run directory. Give such a setting a location, and
-Xeda still writes the run's copy under its conventional name in the run directory (what the tools
-do and what the run is identified by never depend on where you asked for the copy); once the
-whole launch has finished, that file is **delivered**: copied to the location you named. The same is true of ``--outputs-to DIR``, which delivers the requested flow's
-artifacts, each at its path relative to the run directory. Renaming or moving a delivery's
-destination therefore never re-runs the flow, and never changes what the tools do -- only where
-the copy lands.
+The tools of a flow write only inside its run directory. For each deliverable setting, they write a
+fixed conventional name. The convention is ``outputs/<design>.<ext>``. A setting without one keeps
+its own default name. The value of such a setting is a location when it is an absolute path after
+Xeda has expanded its variables: a path under ``$PWD``, ``$DESIGN_ROOT`` or ``$DESIGN_DIR``, or an
+absolute path. A bare name stays in the run directory.
+
+When you give such a setting a location, Xeda still writes the copy of the run under the
+conventional name in the run directory. What the tools do, and what identifies the run, never depend
+on where you asked for the copy. Once the whole launch has finished, Xeda delivers the file: it
+copies the file to the location you named. ``--outputs-to DIR`` works the same way for the artifacts
+of the requested flow, each at its path relative to the run directory. Renaming or moving the
+destination of a delivery therefore never runs the flow again and never changes what the tools do.
+It changes only where the copy lands.
 
 A run is identified by what it writes: whether it writes the output, and the name it writes the
-output under in the run directory. A location is no part of that. A run that is up to date
-therefore delivers to a location you give it later, without running again. If the flow writes the
-output in any case, you can give a location, change it or remove it, and the run stays the same.
-The flow writes the conventional name when the setting is unset. ``fpga_pack`` always writes its
+output under in the run directory. A location is not part of that. A run that is up to date
+therefore delivers to a location that you give it later, without running again. If the flow writes
+the output in any case, you can give a location, change it or remove it, and the run stays the same.
+When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always writes its
 bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. The same
-holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr`` on Xilinx targets.
+holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr`` on Xilinx
+targets.
 
-A setting that switches an output on works differently. ``vivado_synth`` writes no bitstream until
-``bitstream`` is set. The first location you give it runs the flow again. Later locations do not.
-A name without a location (``-s bitstream=board.bit``) is a different file in the run directory,
-so it is a different run.
+A setting that switches an output on works in another way. ``vivado_synth`` writes no bitstream
+until ``bitstream`` is set. The first location you give it runs the flow again. Later locations do
+not. A name without a location (``-s bitstream=board.bit``) is a different file in the run
+directory, so it is a different run.
 
 A setting that names a file refuses ``true`` and ``false``, as text or as a boolean, because they
 would become a file called ``true``. Give a name or a location, or leave the setting unset. Only a
 waveform setting such as ``vcd`` takes ``true`` and ``false`` as a switch.
 
-A requested flow that writes no outputs -- a programmer, as in
-``xeda run vivado_synth+openfpgaloader`` -- has nothing to deliver. ``--outputs-to`` is then
-refused before anything runs. The error names the setting whose location delivers the file the
-programmer reads, here ``-s flows.vivado_synth.bitstream=$PWD/<file>``, and every form of a
-location given above. On a ``--remote``
-run, that setting would deliver on the remote host, so the error names the request that brings the
-file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
+A requested flow that writes no outputs has nothing to deliver. A programmer is such a flow, as in
+``xeda run vivado_synth+openfpgaloader``. ``--outputs-to`` is then refused before anything runs. The
+error names the setting whose location delivers the file that the programmer reads, here ``-s
+flows.vivado_synth.bitstream=$PWD/<file>``, and it names every form of a location given above. With
+``--remote``, that setting would deliver on the remote host, so the error names the request that
+brings the file back instead: ``xeda run --remote vivado_synth ... --outputs-to DIR``.
 
-A delivery never replaces a directory, and never lands on a file any flow of the launch reads (a
-dependency's input, a later sibling's), inside a directory a setting of any of them reads (a
-library or include directory such as ``lib_paths``: every file under it is an input, so a
-destination there is refused -- ``--outputs-to`` naming one up front -- even where no file is yet),
-or inside any run root -- a bare name would otherwise put an output back into its own run
-directory. Two outputs never go to one destination. When two deliverable settings name the same
-file -- two settings of one flow, or of two flows of the launch -- Xeda refuses the launch before
-any tool runs, and the message names both settings. ``--outputs-to`` follows the same rule.
-Before the run, Xeda expects it to deliver the files that the requested flow's last run made, and
-refuses the launch then if one of them would land on a destination another output names. A file
-that only this run reveals is compared once the requested flow has run, before Xeda copies
-anything. Names are compared as the file system compares them: ``Out.v`` and ``out.v``
-are one destination in a directory that ignores letter case (the default on macOS and Windows),
-and a destination inside another (``x`` and ``x/y``) is refused too. If two names still reach one
-file, Xeda finds it when it delivers the second: it says that two settings name the file, and the
-first delivery stays. An existing file at the destination is replaced without
-asking only when it is Xeda's own earlier delivery there, unchanged (its digest and inode still
-match what Xeda wrote, tracked in a delivery record kept beside the run directory, in the run
-root -- which survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda
-overwrite a file it should ask about first); anything else needs ``--overwrite-outputs``, or a yes
-typed at a terminal prompt (under ``--json``, or with no terminal on both ends, only the flag
-works). This is checked before any tool of the launch runs. The requested flow checks the
-deliveries of every flow of the plan when the launch starts: it reports every refusal first (a
-file of the design, or one a setting reads, that lies in the run directory of the flow that reads
-it is one), and then asks its questions, its own last, so neither comes after minutes of tool
-time. All of them
-come before ``--scrub`` removes anything, and while no other launch or scrub of the run directory
-is made to wait. A yes holds for the file you
-were asked about. If that file changes before the launch reaches the flow that delivers it, Xeda
-asks again. If it changes while Xeda waits for your answer, Xeda does not replace it. The check is
-made once more right before the copy, in case something changed in between: a destination that
-changed since its last check is never replaced, confirmed or not. A **fresh** run (one the trace
-found up to date, so no tool ran) delivers its outputs too: delivery follows the run's outcome, not
-whether a tool executed.
+A delivery never replaces a directory. It refuses these destinations:
 
-With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. A
-delivered file is then **moved** out of the run directory, not copied, so a large output does not
-take a second copy of disk space. Xeda renames the file to a temporary name beside the destination,
-makes the same checks as for a copy right before it renames the file into place, and checks the
-file's digest. If any of this fails, Xeda puts the file back where the run left it. When both
-places are on one file system, a move is a rename. Across file systems, and wherever a rename is
-refused, Xeda copies the file as usual. Xeda also copies in these cases, because a move would be
+- a file that any flow of the launch reads, such as an input of a producer or of a later sibling;
+- a place inside a directory that a setting of any of those flows reads, such as a library or
+  include directory like ``lib_paths``. Every file under such a directory is an input, so a
+  destination there is refused, also when no file is there yet. ``--outputs-to`` that names such a
+  directory is refused up front;
+- a place inside any run root. A bare name would otherwise put an output back into its own run
+  directory.
+
+Two outputs never go to one destination. When two deliverable settings name the same file, in one
+flow or in two flows of the launch, Xeda refuses the launch before any tool runs, and the message
+names both settings. ``--outputs-to`` follows the same rule. Before the run, Xeda expects to deliver
+the files that the last run of the requested flow made, and it refuses the launch if one of them
+would land on a destination that another output names. A file that only this run reveals is compared
+after the requested flow has run, before Xeda copies anything.
+
+Xeda compares names as the file system compares them. ``Out.v`` and ``out.v`` are one destination in
+a directory that ignores letter case (the default on macOS and Windows). A destination inside
+another (``x`` and ``x/y``) is refused too. If two names still reach one file, Xeda finds out when
+it delivers the second one. It says that two settings name the file, and the first delivery stays.
+
+Xeda replaces an existing file at the destination without asking only when that file is its own
+earlier delivery and is unchanged. Its digest and inode must still match what Xeda wrote. Xeda
+tracks this in a delivery record that it keeps beside the run directory, in the run root. The record
+survives ``--clean`` and scrubbing, so losing the run directory never makes Xeda overwrite a file
+that it should ask about first. Anything else needs ``--overwrite-outputs`` or a yes that you type
+at a terminal prompt. With ``--json``, or when there is no terminal on both ends, only the option
+works.
+
+Xeda checks all of this before any tool of the launch runs. The requested flow checks the deliveries
+of every flow of the plan when the launch starts. It reports every refusal first. For example, a
+file of the design, or a file that a setting reads, may lie in the run directory of the flow that
+reads it. Then it asks its questions, its own last. No refusal or question therefore comes after
+minutes of tool time. All of them come before ``--scrub`` removes anything, and while no other
+launch or scrub of the run directory has to wait.
+
+A yes holds for the file you were asked about. If that file changes before the launch reaches the
+flow that delivers it, Xeda asks again. If it changes while Xeda waits for your answer, Xeda does
+not replace it. Xeda checks once more right before the copy, in case something changed in between.
+It never replaces a destination that changed since its last check, whether you confirmed it or not.
+A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too.
+
+With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. Xeda then
+moves a delivered file out of the run directory and does not copy it, so a large output does not
+need a second copy of disk space. Xeda renames the file to a temporary name beside the destination.
+Right before it renames the file into place, it makes the same checks as for a copy, and it checks
+the digest of the file. If any of this fails, Xeda puts the file back where the run left it. When
+both places are on one file system, a move is a rename. Across file systems, and wherever a rename
+is refused, Xeda copies the file as usual. Xeda also copies in these cases, because a move would be
 wrong or the run directory stays:
 
 * The file is a symbolic link, or has another hard link. The delivered file would be a link that
   dangles after the purge, or would share its content with the other name.
-* The file is in a directory outside the run directory, which a link inside the run directory
-  leads to. A move would remove a file outside the run directory.
+* The file is in a directory outside the run directory, which a link inside the run directory leads
+  to. A move would remove a file outside the run directory.
 * Two outputs reach the same file, for example a setting and ``--outputs-to``, or a file and a link
-  to it. Xeda copies it for each of them. This holds for the whole launch: when an output of one
-  flow is a link to a file that another flow delivers, both are copies.
+  to it. Xeda copies the file for each of them. This holds for the whole launch. When an output of
+  one flow is a link to a file that another flow delivers, both are copies.
 * The flow was found up to date. Its run directory is not deleted, and its trace still names the
   output there.
 
-A moved file is recorded in the delivery record like a copy, and the next launch replaces it
+Xeda records a moved file in the delivery record like a copy, and the next launch replaces it
 without asking.
 
-Reading a delivered file to confirm it is Xeda's own costs a pass over it, which matters for a
-gigabyte-sized output, so it is read only when its record's metadata cannot vouch for it -- the
-same rule every other file Xeda tracks follows: its size, mtime, inode change time and inode
-against its record, outside the racy window.
-A check that does read it first reads the clock of the destination's own file system, by making
-and removing a short-lived marker file (``.xeda-time-...``) in the destination's directory, where
-delivery writes its temporary file anyway, and records that time with the file: a later check of
-an unchanged delivery then recognizes it by its size, mtime, inode change time and inode alone
-and reads nothing. The record of a file Xeda has just delivered cannot be trusted by its
-timestamps, so the first check after it has settled -- more than two seconds after it was
-written -- reads it once, and that read anchors the record; no later check or copy reads it
-again. A launch still inside those two seconds anchors nothing, so each check and the copy read
-the destination. Where no marker can be made
-(a destination directory that is read only), every check reads the content, as it would without
-a clock to trust. A destination found on another device than the one its record's clock was read
-on is read once more, and anchored afresh by the clock of the file system it is on now.
+To confirm that a delivered file is Xeda's own, Xeda would have to read it, which costs a pass over
+the file. This matters for an output of a gigabyte. Xeda therefore reads the file only when the
+metadata of its record cannot vouch for it. This is the rule that every other file Xeda tracks
+follows: the size, mtime, inode change time and inode must match the record, outside the racy
+window. A check that does read the file first reads the clock of the file system of the destination.
+It makes and removes a short-lived marker file (``.xeda-time-...``) in the directory of the
+destination, where delivery writes its temporary file anyway. It records that time with the file. A
+later check of an unchanged delivery then recognizes it by its size, mtime, inode change time and
+inode alone, and reads nothing.
 
-Every **working** location -- a setting naming where a flow keeps its intermediate files, such as
-``sim_dir``, ``bobj_dir``, ``impl_folder`` or a log path -- is a bare name inside the run
-directory, never a location: what a working-location setting is given is always used as a name
-there, whatever it looks like. ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR`` still expand inside a nested
-setting given as a mapping or an instance, such as ``cocotb.results_xml`` or
-``yosys_sim.cxxrtl.filename`` -- expansion happens once, when the flow's settings are built or a
-field of theirs is assigned, not later.
+The timestamps cannot vouch for a file that Xeda has just delivered. The first check after the file
+has settled (more than two seconds after it was written) reads it once, and that read anchors the
+record. No later check or copy reads it again. A launch that is still inside those two seconds
+anchors nothing, so each check and the copy read the destination. Where no marker can be made,
+because the destination directory is read only, every check reads the content, as it would without a
+clock to trust. If a destination is on another device than the one its record's clock was read on,
+Xeda reads it once more and anchors it again with the clock of the file system it is on now.
 
-``xeda dse`` delivers nothing: a deliverable setting given as a location, or ``outputs_to``, is
-refused before the search starts, since a design-space exploration has no one requested flow to
-deliver for. ``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and
-only from its local mirror -- always the hashed layout, ``<design>[/<target>]/<flow>_<hash>/``, whatever
-``--hashed-run-dirs`` says for local runs -- once the remote's results have been fetched there; a
-deliverable given as a location is refused before anything is shipped, since the remote run's own
-identity would otherwise depend on where the local side later copies its output. What a remote
-run's ``--outputs-to`` may never land on or in is what the requested flow reads as the launch uses
-its settings (its ``flows.<flow>`` section with ``-s`` over it), plus whatever every other flow's
-section names as written: the local side cannot know which dependencies the remote will launch,
-so it protects those conservatively, even where no flow of the run ends up reading them.
-``bsc_sim``'s delivered Bluesim executable is the generated script without its ``.so``: the two
-are generated together and the script finds its ``.so`` relative to itself, so a Bluesim
-executable is run from the run directory it was copied out of, not from an arbitrary delivery
-destination.
+Every working location is a bare name inside the run directory. A working location is a setting that
+names where a flow keeps its intermediate files, such as ``sim_dir``, ``bobj_dir``, ``impl_folder``
+or a log path. It is never a location in the sense above: Xeda always uses the value as a name
+there, whatever the value looks like. ``$PWD``, ``$DESIGN_ROOT`` and ``$DESIGN_DIR`` still expand
+inside a nested setting given as a mapping or an instance, such as ``cocotb.results_xml`` or
+``yosys_sim.cxxrtl.filename``. The expansion happens once, when Xeda builds the settings of the flow
+or when a field is assigned, not later.
 
-**What Xeda does not confine.** The design's own code writes wherever it says: a testbench's
-``$fopen`` of an absolute path, or a BSV ``openFile`` under bsc's ``fdir`` when you point ``fdir``
-itself at your own tree (by default it is the run directory, and so confined like everything
-else). Xeda confines what its settings and flows write; it cannot confine what the design you
-asked it to run does on its own.
+``xeda dse`` delivers nothing, because an exploration runs many variants and they would deliver to
+one path. Xeda refuses a deliverable setting that is given as a location, or ``outputs_to``, before
+the search starts.
+
+``xeda run --remote`` delivers ``--outputs-to`` only after a run that succeeded, and only from its
+local mirror, once the remote's results are there. The mirror always uses the hashed layout,
+``<design>[/<target>]/<flow>_<hash>/``, whatever ``--hashed-run-dirs`` says for local runs. Xeda
+refuses a deliverable that is given as a location before it ships anything, because the flow runs on
+the remote host and would write the location there, on the remote file system. Use ``--outputs-to``:
+it delivers from the artifacts that Xeda fetched into the local mirror. For a remote run,
+``--outputs-to`` may never land on or in anything that the requested flow reads. Xeda takes this
+from the settings that the launch uses (the ``flows.<flow>`` section with ``-s`` over it), plus
+whatever the section of every other flow names as written. The local side cannot know which
+producers the remote will launch, so it protects those paths conservatively, even where no flow of
+the run ends up reading them.
+
+``bsc_sim`` delivers a Bluesim executable as the generated script without its ``.so``. Bluesim
+generates the two together, and the script finds its ``.so`` relative to itself. A Bluesim
+executable therefore runs from the run directory that it was copied out of, not from an arbitrary
+delivery destination.
+
+Xeda does not confine everything. The code of the design writes wherever it says: for example, a
+testbench that does ``$fopen`` on an absolute path, or a BSV ``openFile`` under the ``fdir`` of bsc
+when you point ``fdir`` at your own tree (by default it is the run directory, so it is confined like
+everything else). Xeda confines what its settings and flows write. It cannot confine what the design
+that you asked it to run does on its own.
