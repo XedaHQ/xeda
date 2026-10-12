@@ -94,7 +94,7 @@ def test_design_sources_count_by_content_and_settings_paths_by_text(tmp_path):
     assert _design(root).rtl_hash != rtl
 
 
-def test_design_source_order_and_compile_metadata_are_part_of_the_hash(tmp_path):
+def test_design_source_order_and_type_are_part_of_the_hash(tmp_path):
     root = tmp_path / "d"
     root.mkdir()
     for name in ("a.vhd", "b.vhd"):
@@ -109,7 +109,7 @@ def test_design_source_order_and_compile_metadata_are_part_of_the_hash(tmp_path)
 
     original = design(["a.vhd", "b.vhd"])
     assert original.rtl_hash != design(["b.vhd", "a.vhd"]).rtl_hash
-    assert original.rtl_hash != design([{"file": "a.vhd", "standard": "2008"}, "b.vhd"]).rtl_hash
+    assert original.rtl_hash != design([{"file": "a.vhd", "type": "Data"}, "b.vhd"]).rtl_hash
 
 
 def test_every_source_path_is_part_of_the_hash_relative_to_the_design_root(tmp_path):

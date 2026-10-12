@@ -222,15 +222,30 @@ def test_cache_links_never_authorize_external_writes(api, generation, tmp_path, 
     assert link.is_symlink()
 
 
+def _identity_and_content_state(path):
+    """What says a file was left alone: which file it is, its mode, size, content and change
+    times. Not its access time, which a read moves."""
+    status = path.stat()
+    return (
+        status.st_dev,
+        status.st_ino,
+        status.st_mode,
+        status.st_size,
+        status.st_mtime_ns,
+        status.st_ctime_ns,
+        path.read_bytes(),
+    )
+
+
 def test_explicit_read_only_chipdb_needs_no_owned_cache(api, prefix, tmp_path):
     chipdb = tmp_path / "supplied.bin"
     chipdb.write_bytes(_binary())
     chipdb.chmod(0o444)
-    before = chipdb.stat()
+    before = _identity_and_content_state(chipdb)
     layout, selection = _selection(api, prefix, chipdb=chipdb)
     owned = RunDirectory.unlaunched(tmp_path / "unlaunched")
     assert api.prepare_chipdb(layout, selection, owned) == chipdb
-    assert chipdb.stat() == before
+    assert _identity_and_content_state(chipdb) == before
     assert not owned.path.exists()
 
 
@@ -365,6 +380,22 @@ def test_cache_hit_hashes_the_installation_once(api, generation, monkeypatch):
     _prepare(api, generation)
     assert hashed.count(layout.himbaechel) == 1
     assert hashed.count(selection.database / selection.family) == 1
+
+
+def test_locating_forms_the_identity_only_when_not_given_one(api, generation, monkeypatch):
+    """Hashing the installation is most of the cost of finding the chip database: the real
+    `locate_chipdb` forms the identity when it is not given one, and uses the one it is given."""
+    prefix, owned, _mode, _calls = generation
+    prepared = _prepare(api, generation)
+    layout, selection = _selection(api, prefix)
+    identity = api.chipdb_identity(layout, selection)
+    formed = []
+    real = api.chipdb_identity
+    monkeypatch.setattr(api, "chipdb_identity", lambda *a: formed.append(1) or real(*a))
+    given = api.locate_chipdb(layout, selection, owned, identity)
+    assert formed == [] and given == prepared
+    alone = api.locate_chipdb(layout, selection, owned)
+    assert formed == [1] and alone == prepared
 
 
 def test_layout_resolves_executable_links_before_finding_prefix(api, prefix, tmp_path):

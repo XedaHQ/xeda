@@ -56,6 +56,9 @@ def _readable_by(flow_class, design: Design, cocotb: bool = True) -> Design:
             tb={"sources": [str(src.file) for src in design.tb.sources], "cocotb": True},
         )
     readable.tb.cocotb = cocotb
+    if not cocotb:
+        # a testbench with sources but no cocotb needs a top to simulate (bsc_sim, for one)
+        readable.tb.top = ["sqrt_tb"]
     return readable
 
 

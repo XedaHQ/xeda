@@ -74,8 +74,10 @@ def launch_case(
     positive: bool = False,
     settings_overrides=None,
     foreign_source: bool = False,
+    calls_out: list | None = None,
 ):
-    """Launch a real flow against successful build and silent/positive runtime stand-ins."""
+    """Launch a real flow against successful build and silent/positive runtime stand-ins.
+    `calls_out` receives every tool invocation as `(executable, arguments)`."""
     work.mkdir(parents=True, exist_ok=True)
     source = work / ("Top.bsv" if case.backend else "tb.sv")
     source.write_text(
@@ -115,7 +117,7 @@ def launch_case(
     if case.flow == "vcs" or case.backend in ("vcs", "vcsi"):
         use_fake_vcs(monkeypatch)
     original = Tool.execute
-    calls = []
+    calls = calls_out if calls_out is not None else []
     runtime_options = []
 
     def execute(tool, executable, *args, **kwargs):
@@ -269,6 +271,10 @@ def launch_case(
                 assert Path(words[words.index("-Xl") + 1]).is_file()
             program = "#!" + sys.executable + "\nimport json, os\nfrom pathlib import Path\n"
             program += "Path('oracle.runtime').write_text('runtime executed')\n"
+            if case.backend == "verilator":
+                # bsc's driver dumps `dump.vcd` on `+bscvcd`
+                program += "import sys\nif '+bscvcd' in sys.argv:\n"
+                program += "    Path('dump.vcd').write_text('$date\\n$end\\n')\n"
             if case.backend == "iverilog":
                 program += "print('XEDA_ICARUS_RUNTIME_START', flush=True)\n"
             if positive:

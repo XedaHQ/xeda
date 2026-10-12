@@ -46,16 +46,23 @@ from ..dataclass import (
     ListLiteralText,
     PrivateAttr,
     ValidationError,
+    WaveformText,
     XedaBaseModel,
     annotation_args,
+    annotation_kind,
     comma_separated_items,
     conventional_output,
     field_annotation,
     field_validator,
+    fold_dotted_keys,
     input_names,
     model_validator,
+    opaque_key_fields_of,
+    table_entries,
     validation_errors,
     written_always,
+    waveform_format,
+    waveform_value,
     written_role,
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
@@ -107,6 +114,9 @@ __all__ = [
     "describe_results",
     "flowrun_hash",
     "identity_settings",
+    "is_conventional_template",
+    "resolve_conventional_templates",
+    "resolved_template",
     "is_unset",
     "map_written_leaves",
     "output_name",
@@ -188,7 +198,7 @@ def _is_comma_separated_list(annotation: Any) -> bool:
 
 
 def _list_literal_error(
-    model: type, refused: Sequence[Tuple[str, ListLiteralText, Any]]
+    model: type, refused: Sequence[Tuple[str, ListLiteralText | WaveformText, Any]]
 ) -> ValidationError:
     """The validation error of `model` for the list settings `refused`, each a `(key, error,
     value)`: one error per setting, so that every one is reported at once."""
@@ -315,6 +325,38 @@ def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
     if isinstance(leaf.owner, Flow.Settings):
         return leaf.owner.conventional_output(leaf.field, design)
     return conventional_output(type(leaf.owner), leaf.field, design)
+
+
+def is_conventional_template(leaf: WrittenLeaf) -> bool:
+    """Whether `leaf` is the conventional name of its deliverable setting, still holding `{design}`
+    (`true` for the waveform `saif`, named `outputs/{design}.saif`). It stands for the output the
+    run writes, as a location does; the design's name is written into it where the run writes the
+    file (`resolve_conventional_templates`). One rule for every deliverable."""
+    name = output_name(leaf, "{design}")
+    return (
+        name is not None
+        and "{design}" in str(name)
+        and isinstance(leaf.value, (str, os.PathLike))
+        and PurePath(leaf.value) == name
+    )
+
+
+def resolved_template(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
+    """The name for the design `design` that `leaf` stands for when it is the conventional
+    template (`is_conventional_template`); None for any other value."""
+    return output_name(leaf, design) if is_conventional_template(leaf) else None
+
+
+def resolve_conventional_templates(settings: "Flow.Settings", design: str) -> None:
+    """In place: each deliverable that is its conventional template becomes the name for
+    the design `design`. The launcher does it with the deliveries (`deliver.split_deliveries`),
+    and a flow built directly does it when it is made, so the path a flow writes is the same."""
+
+    def fill(written: WrittenLeaf) -> Any:
+        name = resolved_template(written, design)
+        return Path(name) if name is not None else written.value
+
+    map_written_leaves(settings, fill)
 
 
 def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
@@ -473,7 +515,7 @@ def identity_settings(
     def conventional(written: WrittenLeaf) -> Any:
         leaf = written.value
         if written.role == DELIVERABLE_ROLE and isinstance(leaf, (str, os.PathLike)):
-            if os.fspath(leaf) and Path(leaf).is_absolute():
+            if (os.fspath(leaf) and Path(leaf).is_absolute()) or is_conventional_template(written):
                 name = output_name(written, design)
                 if name is not None:
                     return Path(name)
@@ -938,6 +980,24 @@ class Flow(metaclass=ABCMeta):
                     "without a default: give the field a default (`None`, or an empty value) "
                     "and name it in `required_settings`."
                 )
+            for name in opaque_key_fields_of(cls):
+                info = cls.model_fields.get(name)
+                if (
+                    info is None
+                    or annotation_kind(info.annotation)[0] != "dict"
+                    or table_entries(info.annotation) is not None
+                ):
+                    raise TypeError(
+                        f"{cls.__qualname__}: `{name}` is in `opaque_key_fields`, so it must be a "
+                        "setting that holds a dictionary of values (`Dict[str, int]`), not "
+                        "dictionaries."
+                    )
+
+        #: Settings that hold a dictionary whose keys are names of the tool (a Vivado run
+        #: property, `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), which may contain dots. A dotted key
+        #: of such a setting is one key, whichever way it is given (`dataclass.fold_dotted_keys`).
+        #: A subclass adds to its bases' (`dataclass.opaque_key_fields_of`).
+        opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
         #: Settings that no longer exist, with what replaced them. Giving one is an error that
         #: says so, instead of pydantic's "extra inputs are not permitted".
@@ -956,7 +1016,7 @@ class Flow(metaclass=ABCMeta):
                 merged.update(vars(klass).get("removed_settings", {}))
             return merged
 
-        # Every flow setting shares two input conveniences, applied by `_normalize_flow_setting`
+        # Every flow setting shares four input conveniences, applied by `_normalize_flow_setting`
         # before *any* field validator runs, so a flow's own validators always receive the
         # normalized value: on construction and `settings.json` reload through
         # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
@@ -976,10 +1036,21 @@ class Flow(metaclass=ABCMeta):
             2. `$DESIGN_ROOT`, `$DESIGN_DIR` and `$PWD` (`roots`) are expanded at every `Path`,
                the path fields of a plain model nested in the setting included
                (`cocotb.results_xml`).
+            3. A setting whose keys are opaque names (`opaque_key_fields`) takes a dotted key as
+               one key: the nested tables that every origin makes of it are joined again.
+            4. A waveform setting (`dataclass.waveform`) is read by one rule for every simulator
+               (`dataclass.waveform_value`): the text `true` or `false` is the boolean, as it is
+               everywhere else, `true` stands for the name the run writes, a name gets the
+               format's extension, and a word such as `yes` is refused.
             """
             annotation = field_annotation(cls, name)
             if annotation is None:
                 return value
+            if name in opaque_key_fields_of(cls):
+                value = fold_dotted_keys(value)
+            waveform = waveform_format(cls, name)
+            if waveform is not None:
+                value = waveform_value(value, *waveform)
             if isinstance(value, str) and _is_comma_separated_list(annotation):
                 value = comma_separated_items(name, value)
             if value == "" and _is_optional_path(annotation):
@@ -1054,12 +1125,12 @@ class Flow(metaclass=ABCMeta):
                 return values  # an assignment: `__setattr__` has normalized the assigned value
             roots = cls._path_roots(info.context)
             names = input_names(cls)
-            refused: List[Tuple[str, ListLiteralText, Any]] = []
+            refused: List[Tuple[str, ListLiteralText | WaveformText, Any]] = []
             for key, value in values.items():
                 if key in names:
                     try:
                         values[key] = cls._normalize_flow_setting(names[key], value, roots)
-                    except ListLiteralText as error:
+                    except (ListLiteralText, WaveformText) as error:
                         refused.append((key, error, value))
             if refused:
                 raise _list_literal_error(cls, refused)
@@ -1071,7 +1142,7 @@ class Flow(metaclass=ABCMeta):
                     value = type(self)._normalize_flow_setting(
                         name, value, self._path_roots(self.context)
                     )
-                except ListLiteralText as error:
+                except (ListLiteralText, WaveformText) as error:
                     raise _list_literal_error(type(self), [(name, error, value)]) from None
             super().__setattr__(name, value)
 
@@ -1146,7 +1217,18 @@ class Flow(metaclass=ABCMeta):
         Producer inputs are filled and held for reading. This stage runs even on a fresh
         launch; it must not write the flow's run directory. Register resolved files in
         ``implicit_inputs`` so freshness and delivery reservations see them before execution.
+        What it registers, `locate_prepared_inputs` says without making anything.
         """
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """The files `init()` and `prepare_inputs()` register in `implicit_inputs`, found by the
+        settings, the design and the declared inputs that are design sources alone: it writes
+        nothing, starts no process and reads no producer's file. None if one is not made yet (a
+        chip database no run has generated), then the files of a launch do not exist to be
+        compared. A dry run judges freshness with it, on a flow that was not initialized;
+        the launch asks it after `prepare_inputs()` and refuses a flow whose registrations are
+        not exactly these (`tests/test_prepare_inputs.py`)."""
+        return []
 
     @classmethod
     def _create_jinja_env(
@@ -1279,6 +1361,7 @@ class Flow(metaclass=ABCMeta):
         settings.outputs_dir = self.process_path(settings.outputs_dir)
         settings.reports_dir = self.process_path(settings.reports_dir)
         settings.checkpoints_dir = self.process_path(settings.checkpoints_dir)
+        resolve_conventional_templates(settings, design.name)
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 

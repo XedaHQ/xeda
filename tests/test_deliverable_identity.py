@@ -15,7 +15,7 @@ from xeda import Design
 from xeda.dataclass import (
     DELIVERABLE_ROLE,
     conventional_output,
-    takes_switch,
+    waveform_format_of,
     written_always,
     written_role,
 )
@@ -112,6 +112,15 @@ def test_a_deliverable_s_location_is_no_part_of_the_run_s_identity(
         + ("not " if not written_unset else "")
         + "the location's run"
     )
+    # the conventional name with `{design}` in it stands for that name, for every deliverable,
+    # and `true` is that name for a waveform
+    template = conventional_output(model, field, "{design}")
+    if template is not None and "{design}" in str(template):
+        _named, named = _hash(cls, tmp_path, path, str(template))
+        assert named == first
+    if waveform_format_of(model, field) is not None:
+        _on, on = _hash(cls, tmp_path, path, True)
+        assert on == first
     # the launcher turns each location into its conventional name before the identity: the same
     # run again
     split_deliveries(first_settings, "d")
@@ -311,7 +320,7 @@ def test_true_and_false_name_no_file(tmp_path, cls, path, model, field):
     boolean, and says to give a location. One that reads them as a switch (a waveform) takes them.
     """
     for value in SWITCHES:
-        if takes_switch(model, field):
+        if waveform_format_of(model, field) is not None:
             _hash(cls, tmp_path, path, value)
             continue
         with pytest.raises(FlowSettingsError) as refused:

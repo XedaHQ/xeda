@@ -47,9 +47,13 @@ def _design_file(root: Path, yosys_part: str | None = None) -> Path:
 
 def _forbid_execution(monkeypatch):
     def forbidden(*args, **kwargs):
-        pytest.fail("dry-run constructed a flow, launched it, or probed a tool")
+        pytest.fail("dry-run initialized a flow, launched it, or probed a tool")
 
-    monkeypatch.setattr(Flow, "__init__", forbidden)
+    # a flow is constructed to ask whether it always runs and where its prepared inputs are, as
+    # the launch constructs it, but it is never initialized, prepared or run
+    monkeypatch.setattr(Flow, "init", forbidden)
+    monkeypatch.setattr(Flow, "prepare_inputs", forbidden)
+    monkeypatch.setattr(Flow, "run", forbidden)
     monkeypatch.setattr(DefaultRunner, "launch_flow", forbidden)
     monkeypatch.setattr(Tool, "execute", forbidden)
     monkeypatch.setattr(Tool, "probe_stdout", forbidden)
@@ -68,6 +72,8 @@ def test_a_dry_run_prints_the_plan_and_runs_nothing(tmp_path, monkeypatch):
     assert "Plan for nextpnr" in text
     assert text.index("  yosys_fpga  ") < text.index("  nextpnr  ")
     assert "netlist <- yosys_fpga.netlist" in text
+    # nothing has run: each flow says what a run would do with it
+    assert text.count("      stale: no successful previous run") == 2
     assert str(run_root / "blink" / "nextpnr") in text
     assert not run_root.exists()
 
@@ -82,8 +88,15 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
     run_root = tmp_path / "xeda_run"
     _forbid_execution(monkeypatch)
     runner = DefaultRunner(run_root, hashed_run_dirs=hashed)
-    expected = plan_info(runner.plan("nextpnr", loaded))
-    assert plan_info(runner.plan("nextpnr", design)) == expected
+    plan, states = runner.plan_with_freshness("nextpnr", loaded)
+    expected = plan_info(plan, states)
+    plan_again, states_again = runner.plan_with_freshness("nextpnr", design)
+    assert plan_info(plan_again, states_again) == expected
+    # nothing has run, so every node is stale, and plan_info alone says nothing of it
+    assert [(n["state"], n["reason"]) for n in expected["nodes"]] == [
+        ("stale", "no successful previous run")
+    ] * 2
+    assert all("state" not in n for n in plan_info(runner.plan("nextpnr", loaded))["nodes"])
     args = ["--hashed-run-dirs"] if hashed else []
     proc = run_xeda(
         "run",

@@ -43,6 +43,8 @@ A simulation passes only on recognized evidence that it ended, not on exit statu
 malformed record, unknown end, or event queue that drained without a finish fails. `$finish`
 (including VHDL `std.env.finish` and `std.env.stop`) is accepted; Verilog `$stop` is an error-rank
 event and fails at the default threshold.
+`error.message` in `results.json` states the cause and the fix: a testbench that ends with `wait;`
+needs `std.env.finish` / `$finish`, or a `stop_time`.
 A requested `stop_time` needs a matching observed time. Bluesim `max_cycles` needs the exact
 measured cycle count and final time. A supported user-owned C++ driver may pass on observed exit
 0. Nonzero execution always fails, even after finish.
@@ -58,9 +60,18 @@ user-owned driver even if simulated time is unknown; it rejects `stop_time` beca
 controls scheduling.
 Verilator rejects `stop_time` too: end the testbench with `$finish`, or use `timeout`. Its `vcd`,
 `fst` and `saif` only build tracing into the model (set them to `true`): without cocotb, the
-testbench's `$dumpfile` and `$dumpvars` name and write the file, and a name or location is an
+testbench's `$dumpfile("dump.<format>")` and `$dumpvars` write the file, and a name or location is an
 error. A C++ source
 that holds `main` needs `main: false`; without it, a C++ source is a DPI helper.
+
+Waveform settings (`vcd`, `fst`, `wave`, `saif`, ...) read `true`/`false` text as booleans, so
+`-s vcd=true` writes `dump.vcd` like YAML `vcd: true` (a location is written as that name too;
+`vivado_sim`'s `saif` is `outputs/<design>.saif`). `yes`, `on` and the other YAML
+1.1 boolean words are refused: write `true` or a file name. `true` or `false` with spaces around it is refused too. A name that ends in another format's extension (`.vcdgz`, `.vcd.gz` and `.gz` are compressed VCD, the `vcdgz` format) is refused (`wave: x.vcd` on `ghdl_sim`: use `vcd`). A simulator writes the waveform through
+its own mechanism or refuses the setting when planned: `vcs` refuses `vcd` (use `vpd`, `fsdb`,
+`evcd`; `to_vcd` converts), `yosys_sim` refuses it (the C++ driver writes it), and `nvc` has `vcd`
+(`--wave=<file> --format=vcd`) and `fst`; its `wave` and `wave_format` were removed. `ghdl_sim` writes compressed VCD with `vcdgz`; `vcd` is always plain, so a gzip name given to it is refused. A Verilator run without cocotb needs the testbench to call `$dumpfile("dump.<format>")`: a run that wrote no such file fails. Two waveform formats at once are refused on `ghdl_sim`, `nvc`,
+`vcs` and `verilator`.
 
 ModelSim batch evidence requires a matching runtime checkpoint, native stop reason/time,
 TESTSTATUS and the bounded runtime section of its owned logfile. VHDL `std.env.stop` is accepted
@@ -308,6 +319,10 @@ PULLUP` for a pull-up. The bundled pin files use neither.
 changed since its last successful run. A flow that runs logs why (`Running <flow>: <reason>`);
 one left alone logs that it is up to date and shows its recorded results. `--cached-dependencies`
 and `--incremental`/`--no-incremental` no longer exist - they fail naming their replacement below.
+
+To see what will run, and why, before running: `xeda run ... --dry-run` (add `--json`). Each node is
+`fresh` (reused), `stale` with the reason the log would give, or `unknown` with why (for example
+`depends on yosys_fpga`, a producer that runs first). It writes nothing and starts no process.
 
 | Situation | Option |
 | --- | --- |

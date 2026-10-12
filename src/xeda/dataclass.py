@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from functools import cache, cached_property, wraps
 from inspect import signature
@@ -75,6 +75,11 @@ __all__ = [
     "is_mistake",
     "mapping_form",
     "nested_model",
+    "opaque_key_fields_of",
+    "fold_dotted_keys",
+    "atomic_keys",
+    "AtomicName",
+    "name_inside_another",
     "shape_problems",
     "single_item_fields_of",
     "table_entries",
@@ -88,8 +93,17 @@ __all__ = [
     "input_names",
     "model_validator",
     "validation_errors",
-    "takes_switch",
     "written_always",
+    "waveform",
+    "waveform_fields",
+    "waveform_format",
+    "COMPRESSED_FORMATS",
+    "WAVEFORM_SUFFIXES",
+    "waveform_format_name",
+    "format_of_waveform_name",
+    "waveform_format_of",
+    "waveform_value",
+    "WaveformText",
     "written_role",
 ]
 
@@ -389,6 +403,104 @@ def single_item_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
     return tuple(fields)
 
 
+def opaque_key_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
+    """The `opaque_key_fields` of `model`: its own and its bases', in the order of the MRO from
+    the base."""
+    fields: Dict[str, None] = {}
+    for klass in reversed(model.__mro__):
+        fields.update(dict.fromkeys(vars(klass).get("opaque_key_fields", ())))
+    return tuple(fields)
+
+
+#: The sequence that `utils.set_hierarchy` keeps whole when it splits a dotted key. The names of
+#: a setting in `opaque_key_fields` have none (`utils.EscapedName`).
+ESCAPED_DOT = "\\."
+
+
+class AtomicName(str):
+    """A name of a setting in `opaque_key_fields` that a merged table keeps whole, dots included.
+
+    Layers of one setting are merged as tables of these (`atomic_keys`): `A` and `A.B` are two
+    names there. Its text is the name with each dot as `ESCAPED_DOT`, which `utils.set_hierarchy`
+    does not split, and the class is what tells it from text a user wrote: that text is a name
+    to fold (`fold_dotted_keys`), and the same text in a user's key is refused."""
+
+    __slots__ = ()
+
+    @classmethod
+    def of(cls, name: str) -> "AtomicName":
+        return cls(name.replace(".", ESCAPED_DOT))
+
+    @property
+    def name(self) -> str:
+        return str.replace(self, ESCAPED_DOT, ".")
+
+
+def fold_dotted_keys(value: Any) -> Any:
+    """The table `value`, given for a setting whose keys are names that contain dots
+    (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), as a table of those names.
+
+    Every origin expands a dotted key into nested tables before it knows the setting's model
+    (`utils.set_hierarchy`). So `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0` arrives as
+    `{"STEPS": {"SYNTH_DESIGN": {"ARGS": {"MAX_BRAM": 0}}}}`. A setting named in
+    `Flow.Settings.opaque_key_fields` joins each path to a value back into one key. The dotted
+    key and the nested tables are the same table, so they are one setting. An `AtomicName` is
+    one name already.
+
+    Only a table with entries is a path. An empty table stays a value, and the setting's type
+    judges it. What cannot be folded also stays as given, for the type to judge: a value that is
+    no table, a key that is not text, and a name given twice (`{"a.b": 1, "a": {"b": 2}}`, which
+    no origin makes). A key with `ESCAPED_DOT` is refused (`utils.EscapedName`).
+    """
+    if not isinstance(value, Mapping):
+        return value
+    folded: Dict[str, Any] = {}
+
+    def fold(table: Mapping[Any, Any], prefix: str) -> bool:
+        for key, entry in table.items():
+            if isinstance(key, AtomicName):
+                name = key.name
+            elif isinstance(key, str):
+                if ESCAPED_DOT in key:
+                    from .utils import EscapedName
+
+                    raise EscapedName(prefix + key)
+                name = key
+            else:
+                return False
+            path = prefix + name
+            if isinstance(entry, Mapping) and entry:
+                if not fold(entry, path + "."):
+                    return False
+                continue
+            if path in folded:
+                return False
+            folded[path] = entry
+        return True
+
+    return folded if fold(value, "") else value
+
+
+def atomic_keys(value: Any) -> Any:
+    """`fold_dotted_keys`, with each name an `AtomicName`: the form in which layers of one
+    setting are merged. The setting's own normalization folds the names back."""
+    folded = fold_dotted_keys(value)
+    if not isinstance(folded, Mapping) or folded is value:
+        return value
+    return {AtomicName.of(key): entry for key, entry in folded.items()}
+
+
+def name_inside_another(names: Iterable[str]) -> Optional[Tuple[str, str]]:
+    """`(name, other)` when `other` is `name` followed by a dot and more, else `None`: of two
+    such names, one is a value and the other sets a key inside it (`utils.set_hierarchy`)."""
+    given = set(names)
+    for name in sorted(given):
+        for other in sorted(given):
+            if other.startswith(name + "."):
+                return name, other
+    return None
+
+
 def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"]], bool]:
     """What a field's annotation says about a value written as a table: `("model", M, optional)`
     for a field that holds the model `M`, `("dict", None, optional)` for one that holds a
@@ -593,9 +705,7 @@ DELIVERABLE_ROLE = "deliverable"
 WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
 
 
-def deliverable(
-    conventional: Optional[str] = None, *, always: bool = False, switch: bool = False
-) -> Dict[str, Any]:
+def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:
     """The marker of a setting whose path is an output the user may want delivered, with its
     `conventional` name: what the run writes it as when the setting is given a location
     (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
@@ -607,9 +717,8 @@ def deliverable(
     one run. A setting that switches its output on (unset: nothing is written) is not such an
     output.
 
-    `switch` marks a setting for which `true` and `false` mean "write it" and "write nothing"
-    (a waveform). For any other deliverable, a model refuses `true` and `false`: the setting
-    names a file, and the text would become a file named `true`."""
+    A deliverable that is no waveform (`waveform`) names a file: a model refuses `true` and
+    `false` for it, since the text would become a file named `true`."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:
         marker["x-xeda-output"] = conventional
@@ -617,9 +726,134 @@ def deliverable(
         if conventional is None:
             raise ValueError("an output written always needs a conventional name")
         marker["x-xeda-always"] = True
-    if switch:
-        marker["x-xeda-switch"] = True
     return marker
+
+
+#: The `json_schema_extra` key of a setting that names a waveform file, with the waveform's
+#: format. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
+WAVEFORM_KEY = "x-xeda-waveform"
+
+
+def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
+    """The marker of a setting that names a waveform file of the format `extension` (`vcd`, `fst`,
+    `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name the run writes when the
+    setting is given a location, by default `dump.<extension>`, and `true` stands for that same
+    name, so `true` and a location are one run (`flow.identity_settings`). The name may hold the
+    design's name (`outputs/{design}.saif`). The setting then keeps the text as it is, and the
+    launcher writes the design's name where the run writes the file (`deliver.split_deliveries`)."""
+    marker = deliverable(conventional or f"dump.{extension}")
+    marker[WAVEFORM_KEY] = {"format": extension}
+    return marker
+
+
+def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, str]]:
+    """`(extension, name)` of `model`'s waveform setting `field` (see `waveform`), `name` being
+    what `true` stands for; None if it is no waveform setting."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    mark = extra.get(WAVEFORM_KEY) if isinstance(extra, dict) else None
+    if not isinstance(extra, dict) or not isinstance(mark, dict):
+        return None
+    return str(mark["format"]), str(extra["x-xeda-output"])
+
+
+#: Every extension a tool writes a waveform format under, by format (without the dot, compared in
+#: lower case, the longest match winning). The one table the check of a name against the format
+#: of its setting reads (`format_of_waveform_name`). A format may have more than one extension.
+#: `vcdgz` is VCD compressed with gzip (GHDL's `--vcdgz`): a name that ends in `.gz` is one,
+#: whatever comes before, and `vcd` is always plain.
+WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
+    "vcd": ("vcd",),
+    "vcdgz": ("vcd.gz", "vcdgz", "gz"),
+    "fst": ("fst",),
+    "ghw": ("ghw",),
+    "saif": ("saif",),
+    "vpd": ("vpd",),
+    "fsdb": ("fsdb",),
+    "evcd": ("evcd",),
+}
+
+
+#: A format that is another format compressed, and the plain format it is made of.
+COMPRESSED_FORMATS: Dict[str, str] = {"vcdgz": "vcd"}
+
+
+def waveform_format_name(extension: str) -> str:
+    """How a message names the waveform format `extension`: `VCD`, `FST`, ... and, for a
+    compressed format, `gzip-compressed VCD`."""
+    plain = COMPRESSED_FORMATS.get(extension)
+    return f"gzip-compressed {plain.upper()}" if plain else extension.upper()
+
+
+def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
+    """`(format, suffix)` of a waveform file name that ends in an extension of
+    `WAVEFORM_SUFFIXES`, the longest one; None for any other name. The suffix is shown in lower
+    case."""
+    if not isinstance(name, (str, os.PathLike)):
+        return None
+    lowered = os.fspath(name).lower()
+    found: Optional[Tuple[str, str]] = None
+    for extension, suffixes in WAVEFORM_SUFFIXES.items():
+        for suffix in suffixes:
+            if lowered.endswith("." + suffix) and (found is None or len(suffix) > len(found[1])):
+                found = (extension, suffix)
+    return found
+
+
+def waveform_format_of(model: type[BaseModel], field: str) -> Optional[str]:
+    """The format of `model`'s waveform setting `field` (`vcd`, `fst`, `ghw`, ...); None if it
+    is no waveform setting. The marker is the one place that says a setting takes `true` as on."""
+    found = waveform_format(model, field)
+    return found[0] if found else None
+
+
+def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
+    """Every waveform setting of `model` (see `waveform`), with its format."""
+    return {
+        name: found[0] for name in model.model_fields if (found := waveform_format(model, name))
+    }
+
+
+class WaveformText(ValueError):
+    """Text that a waveform setting cannot take: a word YAML 1.1 reads as a boolean (`yes`).
+    `message` says what to write."""
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.message,))
+
+    def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
+        """This refusal as the validation error `boolean_text`."""
+        return PydanticCustomError("boolean_text", self.message)
+
+
+def waveform_value(value: Any, extension: str, true_name: str) -> Any:
+    """A waveform setting as the name it stands for, the one rule for every simulator.
+
+    `true` (the boolean, or the text in any letter case, which is all `-s` can write) is
+    `true_name`, the name the run writes for a location (`waveform`), which may hold `{design}`. `false` (likewise) and an empty
+    name are none. A name without an extension gets `.<extension>`. The other words YAML 1.1 reads
+    as a boolean (`yes`, `on`, `n`, ...), and `true` or `false` with spaces around it, given as the
+    whole value, are refused as they are for a boolean field (`boolean_text_message`), since a
+    setting is on, off or a name. Other text is a
+    name. Anything else is left as it is, for the field's own validation."""
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if value.lower() in ("true", "false"):
+            value = value.lower() == "true"
+        elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
+            # as for a boolean field, text with spaces around `true` is no boolean (and no name)
+            raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
+    if value is True:
+        return true_name
+    if value is False or (isinstance(value, str) and value == ""):
+        return None
+    if isinstance(value, (str, PurePath)) and not PurePath(value).suffix:
+        return f"{value}.{extension}"
+    return value
 
 
 def written_role(model: type[BaseModel], field: str) -> Optional[str]:
@@ -636,14 +870,6 @@ def written_always(model: type[BaseModel], field: str) -> bool:
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     return isinstance(extra, dict) and extra.get("x-xeda-always") is True
-
-
-def takes_switch(model: type[BaseModel], field: str) -> bool:
-    """Whether `model`'s deliverable `field` reads `true` and `false` as a switch
-    (`deliverable(switch=True)`)."""
-    info = model.model_fields.get(field)
-    extra = info.json_schema_extra if info is not None else None
-    return isinstance(extra, dict) and extra.get("x-xeda-switch") is True
 
 
 def _deliverable_message(key: str, value: Any) -> str:
@@ -806,7 +1032,7 @@ class XedaBaseModel(BaseModel):
                 continue
             if (
                 written_role(cls, names[key]) == DELIVERABLE_ROLE
-                and not takes_switch(cls, names[key])
+                and waveform_format_of(cls, names[key]) is None
                 and (
                     isinstance(value, bool)
                     or (isinstance(value, str) and value.lower() in ("true", "false"))

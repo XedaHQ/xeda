@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-from xeda.design import Design, DesignSource, SourceType
+from xeda.design import Design, DesignSource, DesignValidationError, SourceType
 from xeda.introspect import JSON_SCHEMA_DIALECT, design_schema
 from xeda.xedaproject import XedaProject
 from xeda.yaml_loader import load_yaml
@@ -35,7 +35,8 @@ def test_design_source_schema_documents_the_object_form():
     string_form, object_form = item["anyOf"]
     assert string_form["type"] == "string"
     props = object_form["properties"]
-    assert set(props) >= {"file", "path", "type", "standard", "variant"}
+    assert set(props) == {"file", "path", "type"}
+    assert object_form["additionalProperties"] is False
     assert props["type"]["enum"] == [t.name for t in SourceType]
 
 
@@ -248,10 +249,21 @@ def test_source_object_may_not_name_both_a_file_and_a_path():
     assert not validator().is_valid({"name": "d", "rtl": {"sources": [both], "top": "t"}})
 
 
+@pytest.mark.parametrize("key", ["standard", "variant", "bogus", "root_path"])
+def test_schema_and_loader_refuse_the_same_source_keys(key, tmp_path):
+    """A key a source table does not take is refused by the schema as well as the loader."""
+    (tmp_path / "design0.sv").write_text("module design0; endmodule\n")
+    data = {"name": "d", "rtl": {"top": "design0", "sources": [{"file": "design0.sv", key: "08"}]}}
+    design_file = tmp_path / "d.json"
+    design_file.write_text(json.dumps(data))
+    with pytest.raises(DesignValidationError):
+        Design.from_file(design_file)
+    assert not validator().is_valid(data)
+
+
 SOURCE_OBJECT_FORMS = {
     "file": {"file": "design0.sv"},
     "file+type": {"file": "design0.sv", "type": "SystemVerilog"},
-    "unknown key ignored": {"file": "design0.sv", "bogus": 1},
 }
 
 

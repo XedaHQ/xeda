@@ -368,6 +368,7 @@ class Yosys(YosysBase, SynthFlow):
         """Refuse settings the run cannot honor, before anything runs: a result asked of a run
         that stops before writing it (`stop_after_conflicts`), and abc's cell settings where
         nothing maps to cells."""
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         problems = stop_after_conflicts(settings)
         if not settings.maps_to_liberty():

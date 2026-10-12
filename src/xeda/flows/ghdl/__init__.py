@@ -9,7 +9,7 @@ from functools import cached_property
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from ...dataclass import Field, deliverable, field_validator
+from ...dataclass import Field, deliverable, field_validator, waveform
 from ...design import Design, DesignSource, SourceType, Tuple012, VhdlSettings
 from ...flow import (
     Flow,
@@ -552,23 +552,33 @@ class GhdlSim(Ghdl, SimFlow):
         )
         wave: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms: a name in the run directory, or a location it is "
-            f"delivered to ({LOCATION_FORMS}).",
-            json_schema_extra=deliverable("outputs/{design}.ghw", switch=True),
+            description="Write the waveforms (GHW): a name in the run directory, or a location it is "
+            f"delivered to ({LOCATION_FORMS}). `true` writes `dump.ghw`; a name without an "
+            "extension gets `.ghw`. A name that ends in `.vcd` or `.fst` is refused: use `vcd` or "
+            "`fst`.",
+            json_schema_extra=waveform("ghw"),
         )
         read_wave_opt: Optional[Path] = Field(
             None,
-            description="Filter signals to be dumped to the wave file according to the wave option file provided.",
+            description="Filter signals to be dumped to the wave file according to the wave option file provided. Needs a waveform (`vcd`, `vcdgz`, `fst` or `wave`).",
         )
         write_wave_opt: Optional[Path] = Field(
             None,
             description="Creates a wave option file with all the signals of the design. Overwrites the file if it already exists.",
             json_schema_extra=deliverable("wave.opt"),
         )
+        vcdgz: Optional[Union[str, Path]] = Field(
+            None,
+            description="Write the waveforms as a gzip-compressed VCD file (`--vcdgz`). `true` "
+            "writes `dump.vcd.gz`; a name without an extension gets `.vcdgz`. `vcd` writes plain "
+            "VCD, and a gzip name given to it is refused.",
+            json_schema_extra=waveform("vcdgz", "dump.vcd.gz"),
+        )
         fst: Optional[Union[str, Path]] = Field(
             None,
-            description="Write the waveforms into an _fst_ file.",
-            json_schema_extra=deliverable("outputs/{design}.fst", switch=True),
+            description="Write the waveforms into an _fst_ file. `true` writes `dump.fst`; a name "
+            "without an extension gets `.fst`.",
+            json_schema_extra=waveform("fst"),
         )
         stop_delta: Optional[str] = Field(
             None,
@@ -604,21 +614,36 @@ class GhdlSim(Ghdl, SimFlow):
                     )
             return [flag for flag in self.run_flags if flag != canonical] + [canonical]
 
-        @field_validator("wave", "fst", mode="before")
-        @classmethod
-        def validate_wave(cls, value, info):  # pylint: disable=no-self-argument
-            if value is not None:
-                name = info.field_name
-                ext = ".ghw" if name == "wave" else ".fst" if name == "fst" else ""
-                if isinstance(value, bool):
-                    return "dump" + ext if value else None
-            return value
+    @classmethod
+    def check_waveforms(cls, settings: Flow.Settings) -> None:
+        """GHDL writes one waveform: `vcd`, `vcdgz`, `fst` and `wave` each select the format of it."""
+        chosen = [
+            name for name in ("vcd", "vcdgz", "fst", "wave") if getattr(settings, name) is not None
+        ]
+        if len(chosen) > 1:
+            raise FlowSettingsException(
+                f"ghdl_sim writes one waveform, and {', '.join(chosen)} are set: keep one of them"
+            )
+        if not chosen and getattr(settings, "read_wave_opt", None) is not None:
+            raise FlowSettingsException(
+                "`read_wave_opt` filters the waveform, and none is set: set `vcd`, `vcdgz`, `fst` or "
+                "`wave`"
+            )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse run flags that compete with `fail_severity`, before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        cls.check_waveforms(settings)
+        settings.runtime_flags()
 
     def init(self) -> None:
         super().init()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        ss.runtime_flags()
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
 
     def has_evidence_adapter(self) -> bool:
         return not self.cocotb
@@ -641,26 +666,17 @@ class GhdlSim(Ghdl, SimFlow):
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
         if ss.wave:
-            wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
-            if wave.suffix in (".vcd", ".vcdgz"):
-                ss.vcd = wave
-                ss.wave = None
-            elif wave.suffix == ".fst":
-                ss.fst = wave
-                ss.wave = None
-            elif not wave.suffix != ".ghw":
-                ss.wave = wave.with_suffix(".ghw")
-            else:
-                ss.wave = wave
+            ss.wave = self.process_path(ss.wave, subs_vars=True, resolve_to=None)
 
         if ss.vcd:
             # FIXME: process_path might be run twice
             ss.vcd = self.process_path(ss.vcd, subs_vars=True, resolve_to=None)
-            if ss.vcd.suffix in (".gz", ".vcdgz"):
-                run_flags.append(f"--vcdgz={ss.vcd}")
-            else:
-                run_flags.append(f"--vcd={ss.vcd}")
+            run_flags.append(f"--vcd={ss.vcd}")
             log.warning("Dumping VCD to %s", ss.vcd)
+        elif ss.vcdgz:
+            ss.vcdgz = self.process_path(ss.vcdgz, subs_vars=True, resolve_to=None)
+            run_flags.append(f"--vcdgz={ss.vcdgz}")
+            log.warning("Dumping compressed VCD to %s", ss.vcdgz)
         elif ss.fst:
             # FIXME: process_path might be run twice
             ss.fst = self.process_path(ss.fst, subs_vars=True, resolve_to=None)
@@ -670,7 +686,7 @@ class GhdlSim(Ghdl, SimFlow):
             run_flags += setting_flag(ss.wave, name="wave")
             log.warning("Dumping GHW to %s", ss.wave)
 
-        if ss.wave or ss.vcd or ss.fst:
+        if ss.wave or ss.vcd or ss.vcdgz or ss.fst:
             if not ss.read_wave_opt and not ss.write_wave_opt:
                 ss.write_wave_opt = Path("wave.opt")
 

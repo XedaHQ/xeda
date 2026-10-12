@@ -27,7 +27,13 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_ar
 from importlib_resources import files
 from pydantic import BaseModel
 
-from .dataclass import PydanticUndefined, input_names, single_item_fields_of, written_role
+from .dataclass import (
+    PydanticUndefined,
+    input_names,
+    opaque_key_fields_of,
+    single_item_fields_of,
+    written_role,
+)
 from .design import (
     DESIGN_NAME,
     FLAT_RTL_KEYS,
@@ -132,9 +138,12 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
     ]
 
 
-def plan_info(plan: Plan) -> dict[str, Any]:
+def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """A resolved plan as plain data: the design's selected target (or None), producers
     first, directories, input origins, and outputs switched on because a consumer reads them.
+    With `freshness` (`DefaultRunner.plan_with_freshness`), each node also has `state`
+    (`fresh`, `stale` or `unknown`) and `reason`: what a launch would do, and why (the words
+    it logs for a stale node; why nothing can be said for an unknown one; empty if fresh).
     """
     return json_safe(
         {
@@ -149,6 +158,14 @@ def plan_info(plan: Plan) -> dict[str, Any]:
                     "settings_hash": node.settings_hash,
                     "inputs": inputs_info(node),
                     "switched_on": list(node.switched_on),
+                    **(
+                        {
+                            "state": freshness[node.name].state,
+                            "reason": freshness[node.name].reason,
+                        }
+                        if freshness is not None
+                        else {}
+                    ),
                     # static class metadata: a dynamic `always_runs()` is never evaluated here
                     "action_reason": node.flow_class.action_reason,
                     "input_types": {
@@ -462,6 +479,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "declared_by": declared_by,
                 # "working" or "deliverable": a path the flow writes; None: it is read
                 "writes": written_role(cls.Settings, name),
+                # true: the keys are the tool's names, and a dot in one is part of the name
+                "opaque_keys": name in opaque_key_fields_of(cls.Settings),
                 "json_schema": json_safe(prop),
             }
         )
@@ -480,6 +499,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "common": False,
                 "declared_by": f"{cls.Settings.__module__}.{cls.Settings.__qualname__}",
                 "writes": None,
+                "opaque_keys": False,
                 "json_schema": json_safe(prop),
             }
         )
@@ -805,6 +825,8 @@ def _open_property_sets(node: Any) -> None:
     unknown keys once the file has been expanded.
     """
     if isinstance(node, dict):
+        if node.get("title") == "DesignSource":
+            return  # a source table is closed: no dotted-key shorthand applies inside it
         if node.get("additionalProperties") is False:
             node.pop("additionalProperties")
         for value in node.values():

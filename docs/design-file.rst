@@ -27,6 +27,11 @@ Ordinary aliases and core explicit tags are accepted; merge keys, recursive alia
 non-core tags are rejected. Use two-space indentation and a complete source entry per list
 item. TOML and JSON designs and projects remain accepted.
 
+A dotted key stands for nested tables: ``tb.top: x`` is ``tb: {top: x}``. This holds in a design
+file, in a design entry and the ``flows`` of a project file, in a target, and in design
+overrides. A key cannot hold a value and also have keys inside it (``tb: 3`` with ``tb.top: x``);
+that is an error naming both keys.
+
 Top level
 =========
 
@@ -271,8 +276,12 @@ When inference is not enough, give a table instead of a string:
       sources:
         - pkg.vhdl
         - {file: legacy.v, type: SystemVerilog}
-        - {file: old.vhdl, standard: '93'}
         - {path: generated/top.v} # not checked for existence
+
+A source table has ``file`` or ``path``, and ``type``. Any other key is an error. In particular,
+a source has no ``standard`` or ``variant`` of its own. The VHDL standard is one setting of the
+whole design (see `language`_), because GHDL and NVC compile all VHDL sources of a run under one
+standard.
 
 ``file`` must exist, and be a file rather than a directory, when the design is loaded; ``path``
 is not checked, for sources a generator will produce. Every source carries a content hash and a
@@ -425,7 +434,8 @@ there.
         standard: '2005'
 
 ``version`` is accepted as an alias of ``standard``. Two-digit forms (``08``) and four-digit forms
-(``2008``) both work.
+(``2008``) both work. The standard applies to every source of the language. One source cannot have
+another standard.
 
 .. _flows:
 
@@ -613,3 +623,6 @@ A ``xedaproject.yaml`` can hold several designs, plus top-level ``flows`` settin
 into each. ``xedaproject.yml`` and ``xedaproject.toml`` are also accepted; automatic discovery
 requires exactly one of these names in the directory. Select a design with ``--design-name``, or
 let Xeda prompt you interactively.
+
+A project file has the keys ``designs`` (or ``design``) and ``flows`` (or ``flow``). Any other key at its
+root is an error that names the accepted keys.

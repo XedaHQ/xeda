@@ -2,9 +2,9 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from ...dataclass import WORKING, Field, deliverable
+from ...dataclass import WORKING, Field, waveform
 from ...design import DesignValidationError, SourceType
-from ...flow import FlowSettingsException, SimFlow, describe_results
+from ...flow import Flow, FlowSettingsException, SimFlow, describe_results
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
 from ...utils import SDF
@@ -37,8 +37,9 @@ class VivadoSim(Vivado, SimFlow):
         saif: Optional[Path] = Field(
             None,
             description="Write switching activity to this SAIF file, for downstream power "
-            "estimation. Implies `elab_debug`.",
-            json_schema_extra=deliverable("outputs/{design}.saif"),
+            "estimation. Implies `elab_debug`. `true` writes `outputs/<design>.saif`, the name a "
+            "location is written under.",
+            json_schema_extra=waveform("saif", "outputs/{design}.saif"),
         )
         elab_flags: List[str] = Field(
             ["-relax"], description="Extra flags passed to `xelab` during elaboration."
@@ -77,11 +78,13 @@ class VivadoSim(Vivado, SimFlow):
         )
         vcd_scope: str = Field(
             "",
-            description="Hierarchical scope to dump to the VCD. Empty means the whole testbench.",
+            description="Hierarchical scope to dump to the VCD. Empty means the whole testbench. "
+            "Needs `vcd`.",
         )
         vcd_level: int = Field(
             0,
-            description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level.",
+            description="How many hierarchy levels below `vcd_scope` to dump. 0 dumps every level. "
+            "Needs `vcd`.",
         )
         read_oneshot: bool = Field(
             False,
@@ -89,21 +92,23 @@ class VivadoSim(Vivado, SimFlow):
             "Faster, but gives less precise error locations.",
         )
 
+    @classmethod
+    def check_waveforms(cls, settings: Flow.Settings) -> None:
+        """`vcd_scope` and `vcd_level` choose what the VCD holds."""
+        assert isinstance(settings, cls.Settings)
+        for name in ("vcd_scope", "vcd_level"):
+            if getattr(settings, name) and settings.vcd is None:
+                raise FlowSettingsException(f"`{name}` selects what the VCD holds: set `vcd`")
+
     def has_evidence_adapter(self) -> bool:
         return True
 
     def simulation_evidence(self) -> SimEvidence | None:
         return parse_xsim_evidence(self)
 
-    def init(self) -> None:
-        super().init()
-        ss = self.settings
-        assert isinstance(ss, self.Settings)
-        if ss.elab_debug == "off":
-            raise FlowSettingsException(
-                "elab_debug=off disables source provenance required by xsim runtime evidence"
-            )
-        controlled = {
+    #: The options of `xsim` that the runtime evidence protocol controls.
+    CONTROLLED_SIM_FLAGS = frozenset(
+        {
             "-nolog",
             "-onfinish",
             "-onerror",
@@ -116,15 +121,28 @@ class VivadoSim(Vivado, SimFlow):
             "-downgrade_severity",
             "-scNoLogFile",
         }
+    )
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse settings that break the runtime evidence protocol or give a bad time, before
+        anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        cls.check_waveforms(settings)
+        if settings.elab_debug == "off":
+            raise FlowSettingsException(
+                "elab_debug=off disables source provenance required by xsim runtime evidence"
+            )
         # Flags are rendered as Tcl words; existing settings allow several words in an
         # entry. Check every option so grouping cannot hide a runtime evidence control.
-        for option in (word for flag in ss.sim_flags for word in flag.split()):
-            if option in controlled or option.startswith("-downgrade_"):
+        for option in (word for flag in settings.sim_flags for word in flag.split()):
+            if option in cls.CONTROLLED_SIM_FLAGS or option.startswith("-downgrade_"):
                 raise FlowSettingsException(
                     f"sim_flags {option} conflicts with xsim runtime evidence"
                 )
         for name in ("stop_time", "prerun_time"):
-            value = getattr(ss, name)
+            value = getattr(settings, name)
             if value is not None:
                 try:
                     if convert_unit(value, "fs", from_unit="ns") < 0:
@@ -133,6 +151,13 @@ class VivadoSim(Vivado, SimFlow):
                     raise FlowSettingsException(
                         f"{name} is not a nonnegative simulation time: {value}"
                     ) from exc
+
+    def init(self) -> None:
+        super().init()
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        # a flow built directly is not planned
+        self.check_settings_supported(ss)
         # The owned native log is required even when ordinary Vivado logging was disabled.
         self.vivado.default_args = [arg for arg in self.vivado.default_args if arg != "-nolog"]
 

@@ -230,8 +230,8 @@ def test_a_board_and_another_part_conflict_naming_where_the_board_is_written(tmp
     with pytest.raises(FlowSettingsError, match="disagrees") as raised:
         _plan(tmp_path, "openfpgaloader", design)
     message = str(raised.value)
-    assert f"[flows.nextpnr] in {design}" in message, message
-    assert f"[flows.yosys_fpga] in {design}" in message, message
+    assert f"`flows.nextpnr` in {design}" in message, message
+    assert f"`flows.yosys_fpga` in {design}" in message, message
     assert "the shared board" not in message
 
 
@@ -245,8 +245,8 @@ def test_a_board_and_another_part_on_one_node_name_both_values_and_origins(tmp_p
         _plan(tmp_path, "vivado_synth+openfpgaloader", design)
     message = str(raised.value)
     assert repr(board) in message and repr(other) in message, message
-    assert f"[flows.openfpgaloader] in {design} (board)" in message, message
-    assert f"[flows.openfpgaloader] in {design} (fpga.part)" in message, message
+    assert f"`flows.openfpgaloader` in {design} (board)" in message, message
+    assert f"`flows.openfpgaloader` in {design} (fpga.part)" in message, message
 
 
 # ---------------------------------------------- the demo repositories' two designs, on stand-ins
@@ -283,7 +283,7 @@ def test_a_device_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_p
         _plan(tmp_path, "vivado_synth+openfpgaloader", design)
     message = str(raised.value)
     assert (
-        f"The `fpga` in [flows.yosys_fpga] in {design} does not reach vivado_synth: "
+        f"The `fpga` in `flows.yosys_fpga` in {design} does not reach vivado_synth: "
         "yosys_fpga is not part of this run" in message
     ), message
 
@@ -295,7 +295,7 @@ def test_a_board_written_for_a_flow_outside_the_run_is_named_in_the_error(tmp_pa
         _plan(tmp_path, "fpga_pack", design)
     message = str(raised.value)
     assert (
-        f"The `board` in [flows.openfpgaloader] in {design} does not reach fpga_pack: "
+        f"The `board` in `flows.openfpgaloader` in {design} does not reach fpga_pack: "
         "openfpgaloader is not part of this run" in message
     ), message
 
@@ -311,7 +311,7 @@ def test_a_device_written_on_the_command_line_for_a_displaced_flow_is_named(tmp_
             flow_settings=["flows.yosys_fpga.fpga.part=xc7a35tcpg236-1"],
         )
     assert (
-        f"The `fpga` in [flows.yosys_fpga] in {COMMAND_LINE_ORIGIN} does not reach vivado_synth"
+        f"The `fpga` in `flows.yosys_fpga` in {COMMAND_LINE_ORIGIN} does not reach vivado_synth"
         in str(raised.value)
     )
 
@@ -333,7 +333,7 @@ def test_a_device_the_loader_needs_for_the_flash_is_named_where_it_does_not_reac
     with pytest.raises(FlowSettingsException, match="openfpgaloader needs `fpga`") as raised:
         _plan(tmp_path, "openfpgaloader", design, flow_settings=["write_flash=true"])
     assert (
-        f"The `fpga` in [flows.yosys_fpga] in {design} does not reach openfpgaloader: "
+        f"The `fpga` in `flows.yosys_fpga` in {design} does not reach openfpgaloader: "
         "yosys_fpga is not part of this run" in str(raised.value)
     )
 
@@ -367,11 +367,11 @@ def test_a_device_written_as_one_dotted_key_is_named_where_it_does_not_reach(
                 given.append("flows.yosys_fpga.fpga.part=xc7a35tcpg236-1")
             _plan(tmp_path, "openfpgaloader", design, flow_settings=given)
     message = str(raised.value)
-    assert "The `fpga` in [flows.yosys_fpga] in " in message, message
+    assert "The `fpga` in `flows.yosys_fpga` in " in message, message
     assert "does not reach openfpgaloader: yosys_fpga is not part of this run" in message, message
     if origin != "API":
         label = str(design) if origin == "design file" else COMMAND_LINE_ORIGIN
-        assert f"The `fpga` in [flows.yosys_fpga] in {label} does not reach" in message, message
+        assert f"The `fpga` in `flows.yosys_fpga` in {label} does not reach" in message, message
 
 
 def test_planning_reports_an_unused_section_and_no_device_for_it(tmp_path, monkeypatch, caplog):

@@ -84,7 +84,7 @@ def _design(root: Path, sources=("blink.v",), flows=None) -> Design:
     return Design(
         name="blink",
         design_root=root,
-        rtl={"sources": list(sources), "top": "blink"},
+        rtl={"sources": list(sources), "top": "blink", "clock": "clk"},
         flow=flows or {},
     )
 

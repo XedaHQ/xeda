@@ -350,7 +350,8 @@ Four orthogonal abstractions, deliberately decoupled:
   refusals), `launch_identity.py` (hashes, run path, `RunDirPolicy`, claim), `launch_producers.py`
   (`run_producers`; it calls back into `launch_flow` and the read lease through `Protocol`s it
   declares), `launch_run.py` (`execute`, working locations, `refuse_inputs_inside`),
-  `launch_report.py` (results, artifacts table, `print_results`) and `scrub.py` (`xeda scrub` and
+  `launch_report.py` (results, artifacts table, `print_results`), `plan_freshness.py` (what a
+  launch would do with each planned node, for `--dry-run`) and `scrub.py` (`xeda scrub` and
   `--scrub`). **No stage module imports `default_runner`**
   (`tests/test_launcher_modules.py`, which also lists every name `default_runner` once defined,
   `NAMES_BEFORE_THE_SPLIT`, and requires each to stay importable). `MOVED_NAMES` holds only the
@@ -447,7 +448,9 @@ removed before the run, so an earlier success never stands for a run that died
   `vivado_power.timing_sim` has none (power switches it on itself). `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared producers; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
-  error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
+  error, and so is a value in one spelling with a key inside it in the other: the same rule as
+  `set_hierarchy`'s, applied by `split_flow_sections`, which splits an opaque-key setting's names
+  at their dots for it); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
   design file; `--` ends the options. Local runs, remote runs and producers all use
@@ -731,8 +734,45 @@ its output paths inside its run directory.
 - **Planning is read-only.** `FlowLauncher.plan` / `xeda run --dry-run` prints this plan (or JSON
   via `introspect.plan_info`) without tools, run-root changes, markers, locks or deliveries.
   Loading that needs a generator or Git fetch is refused before side effects; a materialized
-  `Design` is plannable.
-  Freshness is not evaluated, and `--remote` is refused.
+  `Design` is plannable. `--remote` is refused.
+- **A dry run says what a launch would do with each node** (`DefaultRunner.plan_with_freshness`,
+  `plan_freshness.judge_plan`; `plan_info(plan, freshness)` adds `state` and `reason` to each node,
+  `_print_plan` prints `fresh`, `stale: <reason>` or `unknown: <reason>`). `fresh` is reused;
+  `stale` runs, and the reason is word for word the one the launch logs and sets as
+  `Flow.stale_reason`; `unknown` is not a claim (`depends on <producer>`, `its container image is
+  checked when it runs`, `a prepared input is not made yet`, `a launch refuses its settings: ...`).
+  **It judges with what the launch uses, so the two cannot drift**: `trace_inputs.expected_run`
+  (explicit arguments; `expectation` is its launch form), `trace.check_trace`, and the pure hooks
+  `Flow.design_scope`, `Flow.input_equivalence`, `Flow.locate_prepared_inputs` and
+  `Flow.always_runs`. A flow is built as the launch builds it (settings, design, a claimed run
+  directory it never writes, as its `inputs` the design sources of its plan and the files its
+  fresh producers hand over, or a path standing for them) and **not initialized**; a flow's
+  constructor starts no process (`SimFlow.cocotb` is made when first used); `tests/test_always_runs_before_init.py` shows `always_runs()` is the same
+  before and after `init()` for every flow and every value of the settings that decide it. The
+  order is the launch's: (1) the settings, which a launch checks in the design's context (`unknown`
+  if it refuses them); (2) the hand-over of the recorded outputs of every fresh producer, whatever
+  the others do (`unknown` if one cannot be handed over; a producer that is not fresh is not read,
+  it will be rewritten); (3) the located prepared inputs (`unknown` if preparation refuses them);
+  (4) `always_runs()` (`stale`); (5) `--clean`, then `--rebuild-all` (`stale`; the launch records
+  "every flow runs (--clean)" / "(--rebuild-all)" as `stale_reason`, and a flow that always runs
+  keeps its own); (6) a prepared input not made yet (`unknown`); (7) the trace
+  (`check_trace(refresh=False)`: no clock marker, no refresh), with the edge against each
+  producer's recorded `results.json` `outputs` compared last, once every producer is fresh (read
+  only because that producer's own trace vouches for it); a flow whose producer is not fresh and
+  that nothing above decided is `unknown` (`depends on <producer>`). A container image is never located (`plan_freshness.dry_locate` raises
+  `NeedsAProcess`: `docker image inspect` is a process). **Prepared inputs have a locating step**:
+  `Flow.locate_prepared_inputs()` (yosys's ABC script, nextpnr's board file and, for Xilinx, its
+  chip database via `xilinx.locate_chipdb`) says where `init()` and `prepare_inputs()` register
+  their files, or None if one is not made yet; the preparation itself uses the same
+  locating code, and `_launch` refuses a flow whose registered files are not exactly the located
+  ones (`located_input_files`), so a dry run cannot judge by a different set.
+  `tests/test_dry_run_freshness.py` runs a matrix of changes on a toy graph and on
+  `yosys_fpga -> nextpnr` and compares every claim with the launch, shows the dry run changes
+  nothing, locks nothing and starts nothing (each of three mistakes that would break it is
+  caught), and `tests/test_prepare_inputs.py` holds the locating step. **Limit**: a dry run never
+  calls `init()`, so `stale` is "not reused", and a flow whose `init()` raises on the settings or the
+  design (Verilator's `stop_time` with a C++ driver; about ten flows raise there) fails in a launch
+  instead of running; a pure check hook per flow would close it.
 
 Declared flows may narrow input/output types by effective target settings and enable a selected
 optional output when a consumer requires it. **An output a consumer switches on changes its
@@ -859,7 +899,44 @@ a value or a table, never both: `-s timing=true timing.x=1` and `-s timing.x=1 t
 `ValueError` (a validator turns it into the field's error). `design.from_file` and a target's
 overlay report it as a `DesignValidationError`, and `dse` as its error document.
 `tests/test_key_hierarchy.py` pins the function, and the malformed-input sweep feeds such a pair
-to every origin.
+to every origin. A written design is expanded in one place, `Design.expanded`, which
+`Design.target_selected` applies to the data and to the overrides (a design file, a project's
+`designs` entry and an API caller's overrides alike; a target's overlay in `select_target`), and
+`XedaProject.from_file` expands the root of the project file once (its `flows` included) and each
+design entry, single or in a list, only when designs are wanted and before it removes keys (a key
+conflict there is a `ValueError` naming the file and the entry, a `ProjectFileError` from the
+runner); `tests/test_key_hierarchy.py` writes the same design with dotted keys
+and with tables in every origin and compares them.
+A project file's root has only `designs`/`design` and `flows`/`flow` (`xedaproject.PROJECT_KEYS`); any
+other key is a `ValueError` naming the file, the accepted keys and a close match, never ignored.
+
+**A setting whose keys are the tool's own names takes a dotted key as one key.** Every origin
+expands dotted keys before it knows the model, so Vivado's `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`
+arrives as nested tables. `Flow.Settings.opaque_key_fields` (read along the MRO,
+`dataclass.opaque_key_fields_of`) names the dictionary settings of that kind (`set_synth_properties`
+and `set_impl_properties` on `VivadoSynth.Settings`, which `vivado_alt_synth` and `vivado_project`
+inherit; ISE's five `*_options`). Two places use it. `merge_layers` turns each layer's table into
+its names, each an `AtomicName` (`dataclass.atomic_keys`: a `str` subclass holding the name with
+each dot as `ESCAPED_DOT`, which `set_hierarchy` does not split, and which it keeps whole as a
+class, so a merged table survives being expanded again), and the layers merge name by name, so
+`A` in one origin and `A.B` in another are two properties and a higher origin replaces only the
+names it gives. `_normalize_flow_setting` joins the nested tables of whatever reaches the model
+(`dataclass.fold_dotted_keys`, which unwraps an `AtomicName`) on construction, reload and assignment. The
+nested form and the dotted form are one setting. One origin cannot give `A` and `A.B`: the
+expansion, which knows no model, makes that a `ConflictingKeys` (stopping the expansion at the
+field would need every expansion site to know the flow); `-s A` with `-s flows.<requested>.A.B` is
+one origin and is refused by `split_flow_sections`. User text is never the merged form: a name
+with `ESCAPED_DOT` in a key a user wrote is an `EscapedName` error from every origin (the tool's
+names have no backslash), so `A` with `A\.B` cannot get past the `A`/`A.B` rule, and a table of
+text keys is checked for a name inside another before it is merged (`_atomic_table`; a table of
+`AtomicName`s is a merge of origins and is not). `cli_types._is_key_value` lets `-s` take
+a key that continues after the name of such a setting with spaces and signs (`...ARGS.MORE
+OPTIONS=...`; the names come from the registered flows, read only for a key that is not shaped like
+a setting key), and still ends at the design file. Class creation refuses a name that is no
+dictionary-of-values field; `introspect` shows `opaque_keys`; `tests/test_opaque_key_settings.py`
+gives a property from every origin, checks that the fake Vivado gets one word, and requires every
+dictionary setting of every flow to be opaque or reviewed as nested (`ORDINARY_DICTIONARIES`, with
+the reason).
 
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
@@ -876,7 +953,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting two conveniences, applied before any field validator runs (by a model `before` validator
+setting its conveniences (the two below, the join of an opaque-key table described after them, and the waveform rule, item 3), applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around
@@ -894,6 +971,32 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 2. `$PWD`, `$DESIGN_ROOT`, `$DESIGN_DIR` are expanded at every `Path` leaf of the annotation
    (`_expand_path_values`): scalars, `str | Path` unions, list/dict/tuple elements -- in
    `lib_paths` only the path half of each tuple, never the library name.
+3. A waveform setting (a field marked `json_schema_extra=waveform(<extension>)`, a deliverable;
+   `dataclass.waveform_fields` lists them, `dataclass.waveform_format_of(model, field)` queries one) is read by `dataclass.waveform_value`, for every
+   simulator: the text `true`/`false` (any case, no spaces around it, as for a boolean field) is the boolean, `true` is the setting's
+   conventional name (`dump.<format>` unless `waveform(extension, conventional)` says otherwise; `vcdgz` is `dump.vcd.gz`), so
+   `true` and a location are one run (`identity_settings` counts a location as its conventional
+   name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
+   boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
+   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in an extension of another format that has its own setting (`dataclass.WAVEFORM_SUFFIXES` is the one table of every extension a format is written under: VCD has `vcd`, `vcdgz`, `vcd.gz`; `format_of_waveform_name` reads it) (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`; every simulator is judged, not only those with a setting of the other format, and the advice never names a setting the simulator refuses: `modelsim`'s `vcd: x.fst` says to use a `.vcd` name; a gzip name (`.gz`, `.vcdgz`, `.vcd.gz`, the `vcdgz` format) given to a plain-VCD setting says to drop the gzip ending, and `ghdl_sim`'s `vcdgz` is the one setting that writes gzip VCD, so a name never selects `--vcd` or `--vcdgz`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
+   simulator; `ghdl_sim`'s `wave` (GHW, GHDL's own option) is the one reviewed exception
+   (`NATIVE_NAMES` in the test), and a misnamed new one fails there. nvc has `vcd` and `fst`
+   (`wave` and `wave_format` were removed). A conventional name may hold `{design}` (`vivado_sim`'s
+   `saif`, `outputs/{design}.saif`, fixed by the declared-output naming rule): the setting keeps
+   that text, both `true` and a location count as it in the run's identity
+   (`flow.is_conventional_template`, for waveform settings only, `identity_settings`), and
+   `flow.resolve_conventional_templates` writes the design's name into it where the run writes the
+   file: `deliver.split_deliveries` for a launch, `Flow.__init__` for a flow built directly. A simulator
+   writes a waveform through its own mechanism or lists the setting in
+   `SimFlow.unsupported_waveforms` (name -> what to set instead), which `SimFlow.check_settings_supported`
+   refuses when planned: `vcs` refuses `vcd`, `yosys_sim` refuses `vcd`. Settings that refine a
+   waveform are refused without one (nvc globs/`wave_arrays`, ghdl_sim `read_wave_opt`, vivado `vcd_scope`/`vcd_level`,
+   vcs `vpd_size_limit`/`fsdb_size_limit`, Verilator `trace_*`; a setting with a default is
+   judged by value; vcs `to_vcd` needs `vpd` or `fsdb`, the formats it converts), and so are two waveforms where the tool
+   writes one (`ghdl_sim` `vcd`/`fst`/`wave`, `nvc` `vcd`/`fst`, `vcs` `fsdb`/`vpd`/`evcd`).
+   `tests/test_waveform_settings.py` classifies every waveform setting of every simulator
+   (`HONORED`, what the tool is handed, or `unsupported_waveforms`): a new one fails there until
+   classified.
 
 **The variables and the forms of a location are defined once**, in `utils.py`: `PATH_VARIABLES`
 maps each variable xeda gives a setting's path to the validation-context entry holding its value
@@ -1041,7 +1144,7 @@ vivado.log where it runs (the fake `vivado` does too).
 
 A run is identified by `design_hash` (`Design.parts_hash(Flow.design_parts)`: the `rtl_hash` of
 every flow and the `tb_hash` of one that reads the testbench -- each source's content hash,
-type, `standard`, `variant`, and its position in the source order, plus behavior-affecting
+type, and its position in the source order, plus behavior-affecting
 RTL/testbench metadata) and the run's hash: `flow.flowrun_hash` (flow name + input settings)
 combined with the ordered origins of its declared inputs (`bindings.node_identity`; the
 settings-only hash is kept as `settings_hash`). Both are semantic --
@@ -1121,8 +1224,12 @@ working locations (a setting with the `WORKING` role: `reports`, `outputs`, `che
 flow's own, e.g. OpenROAD's `results_dir` -- see "Every path a flow writes has a role" below), not
 the run directory or run root themselves where a named directory holds them; no size cap, a
 warning past `LARGE_LISTING_FILES`/`SLOW_LISTING_S`), the files the flow registered in
-`Flow.implicit_inputs` by the end of `init()` (`registered_input_files`: yosys's `abc_script`,
-expanded against the start directory or the environment) and the design sources its declared
+`Flow.implicit_inputs` by the end of `init()` and `prepare_inputs()` (`registered_input_files`:
+yosys's `abc_script`, expanded against the start directory or the environment; nextpnr's board
+file and Xilinx chip database; **every registered input has a `Flow.locate_prepared_inputs()`
+counterpart that says where it is without making it, and the launch refuses a flow whose
+registered files differ from the located ones**, `located_input_files`, because a dry run judges by
+the located ones) and the design sources its declared
 inputs take (`source_input_files`; what a producer handed over is the edge's, not a file record) --
 **recorded just before the run starts** (`snapshot_inputs`, with `inputs_recorded_ns` as their
 racy threshold; each file as itself, `follow_symlinks=False`, reusing the previous run's record
@@ -1474,10 +1581,12 @@ file name for its own purpose makes the setting a working location, as `cxxrtl.f
 design's C++ driver includes the header named after it). The sweep in that file covers every
 deliverable of every flow, and a syntactic scan of the flows' code (`REVIEWED_FALLBACKS`) fails on
 a new `x.field or ...` or `if x.field is None:` that names an unset deliverable (other forms need
-review). **`true`/`false` (text, any case, or boolean) are refused for a deliverable** unless it is
-marked `deliverable(..., switch=True)` (a waveform: `true` means on): `XedaBaseModel`'s
-`_booleans_are_not_text` validator reports `` `true` is a switch, and `bitstream` names a file ``
-(`dataclass.takes_switch`), so no file named `true` is written. `tests/test_written_paths.py`'s `ROLES` is the one table of every
+review). **One identity rule for every deliverable**, waveform or not: a location, the conventional
+name and its `{design}` template text (`flow.is_conventional_template`; a waveform's `true` is that
+text) are one name. **`true`/`false` (text, any case, or boolean) are refused for a deliverable that
+is no waveform** (`dataclass.waveform_format_of` is None, the one place that says `true` means on):
+`XedaBaseModel`'s `_booleans_are_not_text` validator reports `` `true` is a switch, and `bitstream`
+names a file ``, so no file named `true` is written. `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
 nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,
@@ -1875,7 +1984,7 @@ dependency must also share `custom_boards_file`.
   model therefore serializes with `model_dump(mode="json")`, so its fields' own serializers run;
   a `FileResource`/`DesignSource` is not a pydantic model itself, so it defines its JSON form in
   `as_json_value()` -- a bare path string, or the table it cannot be rebuilt without (`{"path":
-  ...}` for an unchecked resource, plus any `type`/`standard`/`variant` the design *stated*).
+  ...}` for an unchecked resource, plus the `type` the design *stated*).
   **Nothing is serialized by reading its `__dict__`**, and a new type that needs a JSON form
   declares `as_json_value()` rather than relying on one. An object's attributes are not a
   serialization format: that is what put a private `_specified_path` into `settings.json`, and
@@ -1976,7 +2085,14 @@ dependency must also share `custom_boards_file`.
   test that it must catch, so extend the offenders with a new kind of state.
   A write into the flow's own copy of its settings is allowed ("The input settings are never
   modified", under Flow lifecycle).
-- **Every design source is typed.** `design.SOURCE_SUFFIXES` is the case-sensitive inference
+- **A source table takes `file` or `path`, and `type`; nothing else**
+  (`design.SOURCE_TABLE_KEYS`, judged by `source_table_problems` in `DesignSource` and, for an
+  unselected target too, in `_target_overlay`). `standard` and `variant` were removed
+  (`REMOVED_SOURCE_KEYS` says what to write): no flow read them, and GHDL, NVC and the yosys GHDL
+  plugin compile all VHDL of a run under one `--std`, so the VHDL standard is only
+  `language.vhdl.standard`. A flow never reads a standard or variant of a source
+  (`tests/test_source_tables.py` scans for it). `language.verilog.standard` is read by no flow.
+- **Every design source is typed.** `design.SOURCE_SUFFIXES` (suffix to `SourceType`) is the case-sensitive inference
   table. Unknown, ambiguous (`.json`, `.bin`, `.cfg`, `.config`, `.dcp`) or mis-cased suffixes need an
   explicit `type`; invalid explicit types fail with suggestions (`source_type_named`). `Data`
   has no automatic HDL frontend; a flow or design may still read it. Append `SourceType` members,
@@ -2060,7 +2176,18 @@ dependency must also share `custom_boards_file`.
   `SimEvidence` through `judge_evidence` (`flow/sim.py`), never by the tool's exit status alone:
   what the simulator's own end record shows (`sim.ended_by`, `sim.time`, ... result keys), against
   `fail_severity`. cocotb, on every simulator, needs at least one test that ran and none that
-  failed (an all-skipped run fails). Verilator has three drivers, and xeda has no
+  failed (an all-skipped run fails).
+  A failed verdict is also the run's `error` in `results.json` (`ReportedFailure`, from
+  `record_failure`, unless a tool exit status set one first): every message has one form, the cause
+  then `To fix it, <what to do>.` (`sim.problem`), for each ending of the evidence rule (no record,
+  drained or unknown end, stop time, `max_cycles`, driver exit, error or fatal, events at
+  `fail_severity`) and for a cocotb verdict. A new ending builds its message with `problem`
+  (`tests/test_sim_evidence.py::ENDINGS` lists every ending).
+  `tests/test_example_simulations.py` runs every example with a testbench on
+  the simulators in its table (a new example with a testbench fails the scan until listed), and
+  `tests/test_documented_commands.py` runs the `xeda` commands of the README, quickstart, tutorial
+  and agent skill (planned with `--dry-run` unless an installed open-source simulator runs them).
+  Verilator has three drivers, and xeda has no
   main of its own. (1) An HDL top (`tb.top`, else `rtl.top`): Verilator's own `--main` runs the
   model, and xeda's `VL_USER_*` hooks (`xeda_hooks.cpp`, built with `-DXEDA_VERILATOR_MAIN`)
   record every `$finish`/`$stop`/`$error`/`$fatal` and Verilator runtime warning (an HDL
@@ -2074,7 +2201,7 @@ dependency must also share `custom_boards_file`.
   fallback copy). The `main` setting maps to `--main`: `Verilator.verilator_main()` is true unless
   cocotb (`Optional[bool] = None`, the effective value computed where it is used), so a `Cpp`
   source with `main` unset is a DPI helper and links; `main: true` with cocotb, and
-  `generate_systemc` without `main: false`, are refused in `init()`. Verilator's mode is judged by
+  `generate_systemc` without `main: false`, are refused at planning (`Verilator.check_design_supported`). Verilator's mode is judged by
   the setting: `Flow.check_design_supported(design, settings=None)` and
   `SimFlow.runs_without_testbench_top(design, settings=None)` take the flow's settings as an optional
   second argument (every launch path passes them: resolver, DSE, remote, `SimFlow.__init__`), and
@@ -2087,15 +2214,17 @@ dependency must also share `custom_boards_file`.
   one rule `Cocotb.env` sets `TOPLEVEL` by. Its settings: `timeout`, `fail_severity`
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
-  top; `stop_time` is rejected in every mode by `check_settings_supported` (also run in `init()`);
+  top; `stop_time` is rejected in every mode by `check_settings_supported` (`init()` runs it for a flow built directly);
   minimum Verilator 5.048 (`VerilatorTool`: the hooks need `executingFinal()`; `bsc_sim` keeps
   `bsc.MIN_BSC_VERILATOR_VERSION`, 5.044, as it runs bsc's own driver).
   Waveforms follow Verilator's own rules and xeda never opens one: `vcd`/`fst`/`saif` only compile
   tracing in with that format (`--trace-<format>`; one at most, `check_settings_supported`), and
-  `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`, so that name is
+  `true` is the value (`dataclass.waveform_value` makes it `dump.<format>`, so that name is
   accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
-  the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
-  name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through
+  the testbench's `$dumpfile("dump.<format>")` (or the design's main) writes the file, and a run that
+  passed but wrote no `dump.<format>` of this run fails (`Verilator.check_results`; `bsc_sim`'s Verilator driver the same), so any other
+  name or location is refused at planning (`Verilator.check_design_supported`, on the settings as
+  given: a located `vcd` is `dump.vcd` once the run starts) naming `$dumpfile`; with cocotb xeda names it through
   `--trace-file` and a location is delivered. The trace options default to Verilator's own
   (`trace_underscore`/`trace_structs` off, no max width or array unless set). A cocotb testbench
   whose HDL also dumps gets a nearly empty file from cocotb's dumper (the second writer takes
@@ -2325,6 +2454,20 @@ dependency must also share `custom_boards_file`.
   the netlist back on, so `YosysBase.enable_output` refuses it, and the resolver's message names the
   consumer (`yosys_fpga.netlist is required by nextpnr: ...`) -- the advice to turn the netlist off
   would be circular there, and stays for a stopped flow run alone.
+- **A refusal that needs only the settings and the design is made at planning**, in the pure class
+  methods `check_settings_supported(settings)` and `check_design_supported(design, settings)`, never
+  in `init()`, `prepare_inputs()` or a constructor: `xeda run --dry-run`, the remote preflight and
+  `dse` call them, and a producer's `init()` runs after the producers before it. Every override calls
+  `super()`. A flow whose `init()` refused such a rule keeps refusing when built directly: its
+  `init()` calls the hook (or, for `YosysBase`, only the rule it owns); a `SimFlow` calls the design
+  hook from its constructor and a `SynthFlow` ties its clocks there with `reconcile_clocks`, the
+  function its hook uses. What needs the run stays in `init()`
+  or `prepare_inputs()` (a tool on `PATH`, installed data, a file on disk, the resolved inputs).
+  `tests/test_refusals_at_planning.py` is the oracle: each case is refused by `plan` and by
+  `run_flow` before a run directory exists, a scan lists every `raise` that a product flow's
+  `init()`, `prepare_inputs()` or constructor reaches (through `self`, `super()`, its settings and
+  the functions of any `xeda` module; a property reached by attribute access is not followed) and fails on one that is not in `REVIEWED_RUN_TIME_REFUSALS` with its reason,
+  and another scan fails an override of a hook that drops `super()`.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).

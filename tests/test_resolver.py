@@ -35,7 +35,9 @@ def _plan(tmp_path: Path, flow_cls, settings=None, sections=None, sources=(), **
     root.mkdir(exist_ok=True)
     for source in sources:
         (root / source["file"]).write_text("x\n")
-    design = Design(name="d", design_root=root, rtl={"sources": list(sources), "top": "t"})
+    design = Design(
+        name="d", design_root=root, rtl={"sources": list(sources), "top": "t", "clock": "clk"}
+    )
     return resolve(
         flow_cls,
         design,
@@ -151,8 +153,8 @@ def test_conflicting_values_are_an_error_naming_both_places(tmp_path):
         PART,
         OTHER,
         "fpga.part",
-        "[flows.__place] in the project file",
-        "[flows.__synth] in the design file",
+        "`flows.__place` in the project file",
+        "`flows.__synth` in the design file",
     ):
         assert text in message, text
 
@@ -488,7 +490,7 @@ def test_a_required_setting_given_where_no_edge_carries_it_is_named(tmp_path):
     with pytest.raises(FlowSettingsException, match=f"{taker.name} needs `fpga`") as raised:
         _plan(tmp_path, taker, {}, {maker.name: {"fpga": PART}})
     assert (
-        f"The `fpga` in [flows.{maker.name}] in the supplied flow sections does not reach "
+        f"The `fpga` in `flows.{maker.name}` in the supplied flow sections does not reach "
         f"{taker.name}: no edge of this run carries `fpga` from {maker.name} to it"
         in str(raised.value)
     )
@@ -1186,7 +1188,7 @@ def test_a_flow_section_with_a_null_clock_plans(tmp_path):
     design = Design(
         name="d",
         design_root=root,
-        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top"},
+        rtl={"sources": [{"file": "top.v", "type": "Verilog"}], "top": "top", "clock": "clk"},
     )
     plan = resolve(
         YosysFpga,

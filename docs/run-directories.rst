@@ -112,7 +112,7 @@ It records ``design_hash``, ``flowrun_hash`` and ``xeda_version`` too. The two h
 run (and are what the trace, described below, checks against); the version is diagnostic metadata
 and is not part of run identity. Both hashes
 depend on what the inputs mean, not on where anything is: the design hash covers each source's
-content hash, type, ``standard`` and ``variant``, and its position in the source order, plus
+content hash, type, and its position in the source order, plus
 behavior-affecting RTL/testbench metadata. Every source also counts by its path relative to the
 design root -- outside the root too, as ``../lib/defs.vh`` -- since a tool can resolve other files
 by the source's location. The design hash counts the parts of the design the flow reads: its RTL, and
@@ -229,6 +229,16 @@ What makes a flow stale
   directory"): the directory is Xeda's alone, and a depender reading it could find the file;
 - the design's metadata changed (``top``, parameters, defines, and other behavior-affecting
   fields -- not merely where files live).
+
+``xeda run --dry-run`` applies these rules without running anything: each planned flow is
+``fresh`` (reused), ``stale: <reason>`` (it runs, and the reason is the one the log gives) or
+``unknown: <reason>``. A flow is unknown when its answer needs something only a launch makes: it
+depends on a producer that would run first (the flow is judged by the outputs that run hands over),
+a container image would have to be looked up, or a prepared input, such as a chip database, does
+not exist yet. The dry run takes no lock, refreshes no trace and starts no process. With
+``--rebuild-all`` or ``--clean`` every flow is stale, once its prepared inputs pass. A flow a run would otherwise reuse has the
+reason ``every flow runs (--rebuild-all)`` or ``every flow runs (--clean)``, which a launch records
+too; a flow that always runs keeps its own reason (``it draws a new random seed``).
 
 A run directory is reused from run to run, so a report the previous run left is still there when
 a flow runs again. A flow reads only the reports its own run wrote: right before the run, Xeda

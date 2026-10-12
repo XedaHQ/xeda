@@ -1,0 +1,1 @@
+- `vcs` passes `vpd_size_limit` to the simulation (`+vpdfilesize+N`). It was ignored.

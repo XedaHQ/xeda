@@ -45,6 +45,11 @@ class YosysSim(YosysBase, SimFlow):
     # The design's C++ driver is compiled with the model.
     reads_sources = READ_SOURCE_TYPES | {SourceType.Cpp}
 
+    unsupported_waveforms = {
+        "vcd": "the design's C++ driver writes the waveform (with `cxxrtl::vcd_writer`, which "
+        "needs `cxxrtl.debug`), and xeda passes it no file name"
+    }
+
     _end_record: Path | None = None
     _events_record: Path | None = None
     _driver_exit_code: int | None = None
@@ -80,12 +85,20 @@ class YosysSim(YosysBase, SimFlow):
             CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
         )
 
-    def init(self):
-        assert isinstance(self.settings, self.Settings)
-        if self.settings.stop_time is not None:
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """The user-owned C++ driver controls scheduling, so xeda cannot stop the simulation at a
+        time: refuse `stop_time` before anything runs."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        if settings.stop_time is not None:
             raise FlowSettingsException(
                 "yosys_sim cannot enforce stop_time: the user-owned C++ driver controls scheduling."
             )
+
+    def init(self):
+        # a flow built directly is not planned
+        self.check_settings_supported(self.settings)
         super().init()
 
     def has_evidence_adapter(self) -> bool:

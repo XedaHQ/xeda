@@ -123,6 +123,33 @@ A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an err
 ``timing`` and ``timing.x``, and so is the same pair in the other order, in a design file, a
 target, ``--design-overrides`` and a ``flows`` table.
 
+Some settings hold a dictionary whose keys are names that the tool defines. Vivado's run
+properties are an example, and their names contain dots. A dotted key of such a setting is one
+key, not a path into nested tables::
+
+    xeda run vivado_synth sqrt.yaml -s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0
+
+This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis run. A design
+file, a target, a project file and the API give it in the same way. In a design file, the key
+``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
+written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
+Each origin gives its names, and the origins merge name by name: a higher origin replaces only
+the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
+both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
+a table, as for any setting. ``-s set_synth_properties.A=1`` and
+``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
+A name with a backslash before a dot (``A\.B``) is refused in every origin: the names of the tool
+have no backslash.
+
+A name with a space is a quoted shell item::
+
+    xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
+
+``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
+``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
+its settings) and the option tables of ``ise_synth``. In ``synth.steps`` and ``impl.steps``, a
+dotted key is a path into nested tables.
+
 A list setting takes comma-separated text: ``-s xdc_files=a.xdc,b.xdc``. An empty value is the
 empty list (``-s xdc_files=``). Text written as a list, such as ``[]`` or ``[a,b]``, is an error
 that names these two spellings: it would be one item, not a list. A setting that also takes plain
@@ -223,14 +250,21 @@ Planning without running
 producers first, directories, hashes, each declared input's source/producer origin and optional
 outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
 It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
-unsupported targets and shared-setting conflicts fail during planning.
+unsupported targets, shared-setting conflicts and any configuration that a flow's settings and
+design rule out fail during planning.
 
 A request that the design's declarations already rule out is refused first, before a generator
 runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
 refused before those side effects;
 materialize the sources first, or pass an already materialized ``Design`` to the library's
-``DefaultRunner.plan``. Planning does not call a flow's ``init()``. Freshness and always-run
-decisions are not evaluated, and ``--dry-run --remote`` is refused.
+``DefaultRunner.plan`` (``plan_with_freshness`` adds what each node would do). Planning does not
+call a flow's ``init()``, and ``--dry-run --remote`` is refused.
+
+The plan also says what a run would do with each flow: ``fresh`` (reused), ``stale: <reason>`` (it
+runs, for the reason the log would give) or ``unknown: <reason>`` (for instance ``depends on
+yosys_fpga`` when a producer would run first, since the answer is what that run hands over). It
+reads the run directories and writes nothing, so after an edit ``--dry-run`` shows what will run
+and why. See :doc:`run-directories`.
 
 Runs are make-like by default: a dependency whose trace still matches what it would consume now
 is skipped and its recorded results reused (``--rebuild-all`` runs every flow). See :doc:`run-directories`.
@@ -1102,6 +1136,10 @@ tool/driver exit always fails, even after a finish. The normalized record is sav
 ``sim.evidence`` alongside ``sim.ended_by``, ``sim.time``, ``sim.time_unit``, ``sim.errors`` and
 ``sim.warnings``.
 
+When a simulation fails these checks, ``error.message`` in ``results.json`` says what happened and
+what to do. For a testbench that stops with no finish, it tells you to end the testbench with
+``std.env.finish`` (VHDL) or ``$finish`` (Verilog), or to set ``stop_time``.
+
 Every ``SimFlow`` exposes ``timeout`` and ``fail_severity``. The default severity is ``error``;
 the choices are ``warning``, ``error``, ``failure`` and ``fatal`` (``failure`` and ``fatal`` have
 the same rank). Any observed event at or above the selected threshold fails. ``timeout`` bounds
@@ -1143,6 +1181,71 @@ rejected before compilation because they lack a certified evidence adapter. Icar
 runtime evidence and builtin-task capability checks remain mandatory Linux CI gates; they were
 not run on macOS.
 
+Waveforms
+---------
+
+Every simulator writes a waveform through its own mechanism: a run option, a script command or
+the HDL's ``$dumpfile``. Xeda never writes one itself. A simulator that cannot honor a waveform
+setting refuses it when the run is planned, so no waveform setting is ignored.
+
+All waveform settings read their value by one rule, on the command line and in a design file:
+
+* ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``; ``dump.vcd.gz`` for ``vcdgz``).
+  This is also the name the run writes when you give a location, which is then delivered, so a
+  location and ``true`` are the same run. For the ``saif`` of ``vivado_sim`` and
+  ``vivado_postsynth_sim`` that name is ``outputs/<design>.saif``. ``verilator`` without cocotb
+  accepts no location, only ``true``, because the testbench names the file. On the command line,
+  ``-s vcd=true`` and a YAML ``vcd: true`` are the same setting.
+* ``false`` and an empty name write nothing.
+* A name without an extension gets the format's extension.
+* The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``, ``t``,
+  ``f``) are refused, as they are for a boolean setting. So is ``true`` or ``false`` with spaces
+  around it. Write ``true`` or a file name.
+* Other text is a name. The setting a name is given to decides the format, never the name: a
+  name that ends in an extension of another format is refused. A format can have several
+  extensions (``.vcd.gz``, ``.vcdgz`` and ``.gz`` are compressed VCD). When the simulator has a
+  setting for the other format, the message names it: ``wave: x.vcd`` on ``ghdl_sim`` says to
+  use ``vcd``. Otherwise it says which extension to use, and a gzip name given to ``vcd`` on a
+  simulator that writes plain VCD says to drop the ``.gz``.
+
+A waveform setting is named after its format, so the same name means the same thing on every
+simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHDL's own format, GHW.
+
+The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Simulator
+     - Waveform settings
+   * - ``ghdl_sim``
+     - ``vcd`` (plain VCD, ``--vcd``), ``vcdgz`` (gzip-compressed VCD, ``--vcdgz``), ``fst``
+       (``--fst``) and ``wave`` (GHW, ``--wave``). Only one of the four may be set, and
+       ``read_wave_opt`` needs one of them. The name never selects the option: ``vcd`` always
+       writes plain VCD.
+   * - ``nvc``
+     - ``vcd`` (``--wave=<file> --format=vcd``) and ``fst`` (``--wave=<file>``). Only one of
+       the two may be set. ``wave_include_glob``, ``wave_exclude_glob`` and ``wave_arrays`` apply
+       to the waveform, and need one of the two unless they are set to their default values.
+       ``wave`` and ``wave_format`` were removed: use ``fst``, or ``vcd`` for a VCD file.
+   * - ``modelsim``
+     - ``vcd``. ModelSim dumps nothing unless it is set.
+   * - ``vivado_sim``, ``vivado_postsynth_sim``
+     - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``.
+   * - ``bsc_sim``
+     - ``vcd``, on every backend. With the Verilator backend, a run whose driver wrote no
+       ``dump.vcd`` fails.
+   * - ``verilator``
+     - ``vcd``, ``fst`` and ``saif``. See the Verilator section below.
+   * - ``vcs``
+     - ``vpd``, ``fsdb`` and ``evcd``, only one at a time. ``vcd`` is refused: set ``vpd`` or
+       ``fsdb`` with ``to_vcd`` to get a VCD file. ``vpd_size_limit`` needs ``vpd``, and
+       ``fsdb_size_limit`` needs ``fsdb``.
+   * - ``yosys_sim``
+     - ``vcd`` is refused. The design's C++ driver writes the waveform with
+       ``cxxrtl::vcd_writer``.
+
 Verilator
 ---------
 
@@ -1182,10 +1285,12 @@ trace format (``--trace-vcd``, ``--trace-fst``, ``--trace-saif``), and only one 
 cocotb, Xeda writes no waveform: the testbench's ``$dumpfile`` and ``$dumpvars`` (or the design's
 own main) name and write the file, in the run directory, which is the model's working directory.
 Set the format to ``true``, which is stored as ``dump.<format>`` (``dump.vcd`` for ``vcd``);
-that name is accepted as "on", and the testbench's ``$dumpfile`` still chooses the file. Every
-other name and every location is an error before Verilator runs, because Xeda cannot know the
-name the testbench chooses. With cocotb, Xeda names the file (cocotb's
-``--trace-file``): ``true`` writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
+that name is the only one accepted, and the testbench must call ``$dumpfile("dump.<format>")``.
+A run that wrote no ``dump.<format>`` fails and says so: it would otherwise pass with the file
+missing, or with data of the built format under another name. Every other name and every location
+is an error before Verilator runs, because the testbench writes the file, and
+Xeda does not copy it. With cocotb, Xeda names the file (cocotb's ``--trace-file``): ``true``
+writes ``dump.<format>`` (``dump.vcd`` for ``vcd``), and a location is delivered. A testbench that
 also calls ``$dumpvars`` under cocotb makes cocotb's file nearly empty, because Verilator's trace
 code gives all changes to the first writer. The trace options (``trace_underscore``,
 ``trace_structs``, ``trace_max_width``, ``trace_max_array``) keep Verilator's own defaults unless
@@ -1247,8 +1352,15 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
     Populates ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()``,
     ``parse_xml()``.
 
-A flow that refuses a design overrides ``check_design_supported(cls, design, settings=None)``, and
-a simulator that needs no ``tb.top`` for some designs overrides
+A flow refuses what the settings and the design alone rule out in two class methods that planning,
+``--remote`` and ``xeda dse`` call: ``check_settings_supported(cls, settings)`` and
+``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
+the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
+(a tool on ``PATH``, an installed database, the inputs a producer handed over) stays in ``init()``
+or ``prepare_inputs()``. A flow that is built directly, without a launcher, still refuses these
+cases: its ``init()`` calls the hook.
+
+A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an
 optional second argument, which every launch passes. An override with the old signature, which
 takes the design alone, fails with a ``TypeError`` when the launch is planned: add the argument.

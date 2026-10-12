@@ -15,7 +15,7 @@ import pytest
 from xeda import Design
 from xeda.flow import FlowSettingsError, flowrun_hash
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers
+from xeda.flow_runner.settings_layers import merge_flow_sections, merge_layers, split_flow_sections
 from xeda.flows import GhdlSim, Nextpnr, VivadoPostsynthSim, VivadoSynth, YosysFpga
 from xeda.xedaproject import XedaProject
 
@@ -70,12 +70,12 @@ def test_merging_leaves_every_layer_unchanged():
 
 def test_a_design_section_refines_the_projects_section_for_the_same_flow():
     project = {
-        "vivado_postsynth_sim": {"vcd_level": 1},
+        "vivado_postsynth_sim": {"timeout": 1},
         "vivado_synth": {"fail_timing": True, "out_of_context": True},
     }
     design = {"vivado_synth": {"fpga": {"part": "xc7a100t"}, "out_of_context": False}}
     assert merge_flow_sections(project, design) == {
-        "vivado_postsynth_sim": {"vcd_level": 1},
+        "vivado_postsynth_sim": {"timeout": 1},
         "vivado_synth": {
             "fail_timing": True,
             "out_of_context": False,
@@ -96,6 +96,31 @@ def test_two_names_for_one_setting_in_one_layer_are_still_an_error():
 
     with pytest.raises(FlowSettingsError, match="nthreads"):
         YosysFpga.Settings.from_input(merged)
+
+
+@pytest.mark.parametrize(
+    "layer",
+    [
+        {"fpga": "xc7a12tcsg325-1", "flows": {"vivado_synth": {"fpga": {"speed": -1}}}},
+        {"fpga": {"speed": -1}, "flows": {"vivado_synth": {"fpga": "xc7a12tcsg325-1"}}},
+    ],
+    ids=["value, then table", "table, then value"],
+)
+def test_a_key_is_a_value_or_a_table_across_the_two_spellings_of_the_command_line(layer):
+    """`-s key` and `-s flows.<requested>.key` are one origin: `fpga` as text in one and
+    `fpga.speed` in the other are refused, as the two in one spelling are."""
+    with pytest.raises(FlowSettingsError, match="sets a value, and .* sets a key inside it"):
+        split_flow_sections(layer, "vivado_synth", lambda name: VivadoSynth)
+
+
+def test_a_table_in_one_spelling_and_another_key_of_it_in_the_other_merge_by_key():
+    sections, own = split_flow_sections(
+        {"fpga": {"part": "xc7a12tcsg325-1"}, "flows": {"vivado_synth": {"fpga": {"speed": -1}}}},
+        "vivado_synth",
+        lambda name: VivadoSynth,
+    )
+    assert own == {"fpga": {"part": "xc7a12tcsg325-1"}}
+    assert sections == {"vivado_synth": {"fpga": {"speed": -1}}}
 
 
 @pytest.mark.parametrize(
@@ -358,7 +383,7 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
         tmp_path / PROJECT_FILE,
         """
         flows:
-          vivado_postsynth_sim: {vcd_level: 1, ncpus: 1}
+          vivado_postsynth_sim: {timeout: 1, ncpus: 1}
           vivado_synth: {fail_timing: true, ncpus: 2, out_of_context: true}
     """,
     )
@@ -378,7 +403,7 @@ def test_a_local_run_layers_project_design_and_command_line(tmp_path, monkeypatc
             design,
             flow_settings=["ncpus=5", "flows.vivado_synth.fail_timing=false"],
         )
-    assert launched["settings"] == {"vcd_level": 1, "nthreads": "5"}
+    assert launched["settings"] == {"timeout": 1, "nthreads": "5"}
     assert launched["all_flows"]["vivado_synth"] == {
         "fail_timing": "false",
         "nthreads": 4,
@@ -427,14 +452,14 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
         """
         flows:
           vivado_postsynth_sim:
-            vcd_level: 1
+            timeout: 1
           vivado_synth: {fail_timing: true}
         design:
           - name: d
             rtl: {sources: [top.v], top: top}
             flows:
               vivado_postsynth_sim:
-                vcd_level: 2
+                timeout: 2
               vivado_synth: {fpga: {part: xc7a100t}, out_of_context: false}
         """,
     )
@@ -445,7 +470,7 @@ def test_an_embedded_project_design_refines_project_flow_settings(tmp_path, monk
     with pytest.raises(_Launched):
         DefaultRunner(tmp_path / "run").run("vivado_postsynth_sim", "d", xedaproject=str(project))
 
-    assert launched["settings"] == {"vcd_level": 2}
+    assert launched["settings"] == {"timeout": 2}
     assert launched["all_flows"]["vivado_synth"] == {
         "fail_timing": True,
         "out_of_context": False,
@@ -620,7 +645,7 @@ def test_dse_does_not_reapply_or_remove_design_settings(tmp_path, monkeypatch):
     design = Design(
         name="d",
         design_root=tmp_path,
-        rtl={"sources": ["top.v"], "top": "top"},
+        rtl={"sources": ["top.v"], "top": "top", "clock": "clk"},
         flows={
             "vivado_synth": {
                 "clock": {"period": 5.0},
@@ -898,10 +923,10 @@ def test_run_flow_composes_the_sections_it_is_given(tmp_path, monkeypatch):
         DefaultRunner(tmp_path / "run").run_flow(
             VivadoPostsynthSim,
             design,
-            {"vcd_level": 2},
+            {"timeout": 2},
             all_flows_settings={"vivado_synth": {"fpga": "xc7a100t", "out_of_context": True}},
         )
-    assert seen["settings"] == {"vcd_level": 2}
+    assert seen["settings"] == {"timeout": 2}
     assert seen["sections"]["vivado_synth"]["out_of_context"] is True
 
 
@@ -926,12 +951,12 @@ def test_dash_s_flows_node_key_sets_a_dependencys_setting(tmp_path, monkeypatch,
         DefaultRunner(tmp_path / "run").run(
             "vivado_postsynth_sim",
             design,
-            flow_settings=["flows.vivado_synth.out_of_context=false", "vcd_level=3"],
+            flow_settings=["flows.vivado_synth.out_of_context=false", "timeout=3"],
         )
     assert (
         launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
     )  # command line beats the design file
-    assert launched["settings"]["vcd_level"] == "3"
+    assert launched["settings"]["timeout"] == "3"
     assert launched["all_flows"]["vivado_synth"]["out_of_context"] == "false"
 
 

@@ -57,18 +57,26 @@ Three things worth noticing:
 Xeda analyzes the VHDL with GHDL, elaborates it, and runs the cocotb regression. The results table
 reports the cocotb test counts, and the exit status is non-zero if any test failed.
 
-To capture a waveform, and to stop early:
+To capture a waveform:
 
 .. code-block:: bash
 
-    xeda run ghdl_sim sqrt.yaml -s waveform=dump.vcd stop_time=50us
+    xeda run ghdl_sim sqrt.yaml -s waveform=dump.vcd
 
-Any simulator will do - the design file does not change:
+A simulation passes only if it ends on purpose. The testbench calls ``$finish`` (``std.env.finish``
+in VHDL), the cocotb tests complete, or the run reaches the ``stop_time`` that you set. Use
+``stop_time`` for a testbench that never finishes by itself, such as one with a free-running clock.
+Do not use it with this design. cocotb ends the simulation itself, and a ``stop_time`` earlier than
+the end of the tests makes cocotb report that the simulation ended too early.
+
+Any simulator will do. The design file does not change:
 
 .. code-block:: bash
 
-    xeda run nvc sqrt.yaml           # NVC
-    xeda run verilator fifo.yaml     # Verilator, for a Verilog/SystemVerilog design
+    xeda run nvc sqrt.yaml                          # NVC
+    xeda run verilator ../../sv/fifo/fifo.xeda.yaml # Verilator, for a Verilog/SystemVerilog design
+
+The second command runs the ``fifo`` example, a SystemVerilog design with its own testbench.
 
 3. Synthesize
 =============

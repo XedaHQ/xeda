@@ -3,7 +3,7 @@ onerror {exit -code 1}
 puts "\n===========================( Compiling HDL Sources )==========================="
 {%- for src in sources_read(rtl=true, tb=true) %}
 {%- if src.type.name in ("Verilog", "SystemVerilog") %}
-if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" or src.variant == "systemverilog" %} -sv{% endif %} {{vlog_opts|map("tcl_word")|join(' ')}} } error]} {
+if { [catch {vlog {{src.file|tcl_word}}{% if src.type.name == "SystemVerilog" %} -sv{% endif %} {{vlog_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error
     exit -code 1
 }
@@ -34,7 +34,9 @@ if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' 
 set BreakOnAssertion 4
 # A builtin break returns to our script; it must not skip the status/time checkpoint.
 onbreak {resume}
+{% if settings.vcd %}
 vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
+{% endif %}
 # Launch -logfile enables transcript capture in batch mode. Disable macro echo;
 # the adapter bounds runtime evidence with the markers below.
 transcript off
