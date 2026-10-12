@@ -13,6 +13,9 @@ from .flow_catalog import flow_names
 OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
 DOCUMENT_FORMATS = ("json", "yaml")
 _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
+#: The start of a key that names a name of the tool (`set_synth_properties.`), written from the
+#: setting's table or from a `flows.<flow>` section. What follows may hold spaces and signs.
+_OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
 
 
 class ClickMutex(click.Option):
@@ -54,10 +57,31 @@ class ClickMutex(click.Option):
         return super().handle_parse_result(ctx, opts, args)
 
 
+def _opaque_key_fields() -> frozenset[str]:
+    """The settings, of all flows, whose keys are names of the tool. Read when a key is not
+    shaped like a settings key, so a plain `-s` pays nothing for it."""
+    from . import flows as _flows  # noqa: F401  (registers the built-in flows)
+    from .dataclass import opaque_key_fields_of
+    from .flow import registered_flows
+
+    return frozenset(
+        name
+        for _, flow_class in list(registered_flows.values())
+        for name in opaque_key_fields_of(flow_class.Settings)
+    )
+
+
 def _is_key_value(token: str) -> bool:
-    """`KEY=VALUE` with a KEY shaped like a settings key (never a path such as `dir/a=b.toml`)."""
+    """`KEY=VALUE` with a KEY shaped like a settings key (never a path such as `dir/a=b.toml`).
+    A key may also go on after the name of a setting whose keys are names of the tool, with the
+    characters such a name has (`set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS`)."""
     key, sep, _ = token.partition("=")
-    return bool(sep) and _SETTING_KEY.fullmatch(key) is not None
+    if not sep:
+        return False
+    if _SETTING_KEY.fullmatch(key) is not None:
+        return True
+    start = _OPAQUE_KEY_START.match(key)
+    return start is not None and start.group(1) in _opaque_key_fields()
 
 
 class OptionEatAll(click.Option):

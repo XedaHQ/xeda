@@ -866,13 +866,22 @@ expands dotted keys before it knows the model, so Vivado's `STEPS.SYNTH_DESIGN.A
 arrives as nested tables. `Flow.Settings.opaque_key_fields` (read along the MRO,
 `dataclass.opaque_key_fields_of`) names the dictionary settings of that kind (`set_synth_properties`
 and `set_impl_properties` on `VivadoSynth.Settings`, which `vivado_alt_synth` and `vivado_project`
-inherit; ISE's five `*_options`), and `_normalize_flow_setting` joins each path to a value back into
-one key (`dataclass.fold_dotted_keys`), on construction, reload and assignment alike. The nested form
-and the dotted form are one setting. A name that is the start of another (`A`, `A.B`) stays a
-`ConflictingKeys` from the expansion. Class creation refuses a name that is no dictionary-of-values
-field; `introspect` shows `opaque_keys`; `tests/test_opaque_key_settings.py` gives a property from
-every origin, checks the fake Vivado gets one word, and requires every dictionary setting of every
-flow to be opaque or reviewed as nested (`ORDINARY_DICTIONARIES`, with the reason).
+inherit; ISE's five `*_options`). Two places use it. `merge_layers` turns each layer's table into
+its names, each dot escaped (`dataclass.atomic_keys`, `ESCAPED_DOT`: the expansion keeps an escaped
+dot whole, so a merged table survives being expanded again), and the layers merge name by name, so
+`A` in one origin and `A.B` in another are two properties and a higher origin replaces only the
+names it gives. `_normalize_flow_setting` joins the nested tables of whatever reaches the model
+(`dataclass.fold_dotted_keys`, which also unescapes) on construction, reload and assignment. The
+nested form and the dotted form are one setting. One origin cannot give `A` and `A.B`: the
+expansion, which knows no model, makes that a `ConflictingKeys` (stopping the expansion at the
+field would need every expansion site to know the flow). `cli_types._is_key_value` lets `-s` take
+a key that continues after the name of such a setting with spaces and signs (`...ARGS.MORE
+OPTIONS=...`; the names come from the registered flows, read only for a key that is not shaped like
+a setting key), and still ends at the design file. Class creation refuses a name that is no
+dictionary-of-values field; `introspect` shows `opaque_keys`; `tests/test_opaque_key_settings.py`
+gives a property from every origin, checks that the fake Vivado gets one word, and requires every
+dictionary setting of every flow to be opaque or reviewed as nested (`ORDINARY_DICTIONARIES`, with
+the reason).
 
 **A setting accepts exactly its declared type; there is no implicit conversion.** A number is not
 text (`compile_args = ["-j", "8"]`), text is not a list, `True` is not a name. Where a setting's
@@ -889,7 +898,7 @@ validator every model shares, reporting per field: `` `yes` is text, not a boole
 (`top: 010`, which YAML 1.2 reads as 10) reaches a field that is neither. Never add a lax
 conversion back; `try_convert_to_primitives` converts only `true`/`false` for the same reason.
 On top of that, `Flow.Settings._normalize_flow_setting` gives every *flow*
-setting its conveniences (these two, and the join of an opaque-key table below), applied before any field validator runs (by a model `before` validator
+setting its conveniences (the two below, and the join of an opaque-key table described after them), applied before any field validator runs (by a model `before` validator
 on construction and reload, by `Flow.Settings.__setattr__` on assignment):
 
 1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`; spaces around

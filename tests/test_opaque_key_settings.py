@@ -30,6 +30,7 @@ from xeda.dataclass import (
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flow_runner.settings_layers import merge_layers
 from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
 from xeda.utils import ConflictingKeys, settings_to_dict
 
@@ -311,11 +312,53 @@ def test_the_declaration_is_what_makes_the_difference(monkeypatch):
         VivadoSynth.Settings.from_input(settings)
 
 
-def test_a_name_that_is_the_start_of_another_is_the_conflict_the_rule_names():
-    """A key holds a value or a table, never both: `A` and `A.B` are refused by the one rule
-    that expands dotted keys, as for any other setting."""
+def test_a_name_that_is_the_start_of_another_is_refused_within_one_origin():
+    """One origin writes a key as a value or as a table, never both: the expansion of dotted
+    keys, which does not know the setting, refuses `A` and `A.B` there, as for any setting."""
     with pytest.raises(ConflictingKeys, match="`set_synth_properties.A`"):
         settings_to_dict(["set_synth_properties.A=1", "set_synth_properties.A.B=2"])
+
+
+def prefix_names(settings) -> dict:
+    return {k: str(v) for k, v in settings.set_synth_properties.items()}
+
+
+def test_names_one_of_which_starts_the_other_are_both_kept_across_origins(tmp_path):
+    """Each origin gives its names whole and the origins merge name by name, so a higher
+    origin replaces only the names it gives: `A` below and `A.B` above are two properties."""
+    design = design_from(tmp_path, design_data(flows_section({"A": 1, SYNTH_NAME: 0}, {})))
+    both = {"A": "1", "A.B": "2", SYNTH_NAME: "0"}
+    from_command_line = planned(tmp_path, design, flow_settings=["set_synth_properties.A.B=2"])
+    assert prefix_names(from_command_line) == both
+    from_api = planned(tmp_path, design, flow_overrides={"set_synth_properties": {"A.B": 2}})
+    assert prefix_names(from_api) == both
+    replaced = planned(tmp_path, design, flow_settings=[f"set_synth_properties.{SYNTH_NAME}=7"])
+    assert prefix_names(replaced) == {"A": "1", SYNTH_NAME: "7"}
+
+
+def test_a_project_a_design_and_a_target_merge_their_names(tmp_path):
+    project = tmp_path / "xedaproject.yaml"
+    project.write_text(yaml.safe_dump({"flows": flows_section({"A.B": 2}, {})}))
+    data = design_data(
+        {"vivado_synth": {"set_synth_properties": {"A": 1}}},
+        targets={"board": {"flows": {"vivado_synth": {"set_synth_properties": {"A.C": 3}}}}},
+    )
+    path = write_design(tmp_path, yaml.safe_dump(data, sort_keys=False))
+    settings = planned(tmp_path, path, xedaproject=str(project), target="board")
+    assert prefix_names(settings) == {"A": "1", "A.B": "2", "A.C": "3"}
+
+
+def test_a_merged_table_is_stable_when_it_is_merged_again():
+    first = merge_layers(
+        {"set_synth_properties": {"A": 1}},
+        {"set_synth_properties": {"A.B": 2}},
+        settings_cls=VivadoSynth.Settings,
+    )
+    again = merge_layers(
+        first, {"set_synth_properties": {"C.D": 3}}, settings_cls=VivadoSynth.Settings
+    )
+    settings = VivadoSynth.Settings.from_input({**again, **BASE})
+    assert settings.set_synth_properties == {"A": 1, "A.B": 2, "C.D": 3}
 
 
 # --------------------------------------------------------------------- the setting, as a model
@@ -446,16 +489,17 @@ def declaring_class(model: type, name: str) -> type:
     return model
 
 
-def dictionary_fields() -> dict[str, tuple[type, str]]:
+def dictionary_fields() -> dict[str, list[type]]:
     """Every dictionary-typed field of a registered flow's settings and of the models nested in
-    them: `<module>.<class>.<field>` of the class that declares it -> (that class, the field)."""
-    found: dict[str, tuple[type, str]] = {}
+    them: `<module>.<class>.<field>` of the class that declares it -> every model walked that
+    has the field (the declaring class and each subclass of it that a flow uses)."""
+    found: dict[str, list[type]] = {}
     visited: set[type] = set()
 
     def walk_annotation(model: type, name: str, annotation) -> None:
         if annotation_kind(annotation)[0] == "dict":
             owner = declaring_class(model, name)
-            found[f"{owner.__module__}.{owner.__qualname__}.{name}"] = (model, name)
+            found.setdefault(f"{owner.__module__}.{owner.__qualname__}.{name}", []).append(model)
         for argument in typing.get_args(annotation):
             walk_annotation(model, name, argument)
             if isinstance(argument, type) and issubclass(argument, BaseModel):
@@ -481,9 +525,16 @@ def test_every_dictionary_setting_is_opaque_or_reviewed_as_nested():
     """A setting whose keys are names of a tool that may contain dots declares it. A new
     dictionary setting fails here until it is decided one way or the other."""
     found = dictionary_fields()
-    opaque = {
-        key for key, (owner, name) in found.items() if name in opaque_key_fields_of(owner)  # type: ignore[arg-type]
-    }
+    opaque = set()
+    for key, models in found.items():
+        name = key.rsplit(".", 1)[1]
+        declared = [name in opaque_key_fields_of(model) for model in models]
+        assert all(declared) or not any(declared), (
+            f"{key} is declared opaque by some of the settings that have it and not by "
+            f"others: {[m.__qualname__ for m, d in zip(models, declared) if d != declared[0]]}"
+        )
+        if all(declared):
+            opaque.add(key)
     undecided = sorted(set(found) - opaque - set(ORDINARY_DICTIONARIES))
     assert (
         not undecided
@@ -596,3 +647,29 @@ def test_a_property_given_on_the_command_line_is_judged_like_one_in_a_file(tmp_p
                 f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none",
             ],
         )
+
+
+@pytest.mark.parametrize("design_first", [True, False], ids=["design-first", "settings-first"])
+def test_the_command_line_takes_a_name_with_a_space(tmp_path, monkeypatch, design_first):
+    """`-s` keeps a name of the tool whole when it has a space, and still ends at the design."""
+    use_fake_tools(monkeypatch)
+    design = tmp_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
+                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
+            }
+        )
+    )
+    given = [f"set_synth_properties.{SPACED_NAME}=-flatten_hierarchy none", "out_of_context=false"]
+    root = ["--run-root", str(tmp_path / "xeda_run"), "--json"]
+    if design_first:
+        arguments = ["vivado_synth", str(design), "-s", *given]
+    else:
+        arguments = ["vivado_synth", "-s", *given, *root[:-1], "--", str(design)]
+    result = CliRunner().invoke(cli, ["run", *(root if design_first else []), *arguments])
+    assert result.exit_code == 0, result.output
+    (run_dir,) = (tmp_path / "xeda_run").glob("d/vivado_synth")
+    assert [SPACED_NAME, "-flatten_hierarchy none"] in property_calls(run_dir)

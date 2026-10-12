@@ -35,11 +35,13 @@ from ..dataclass import (
     annotation_form,
     annotation_mistake,
     appended_fields_of,
+    atomic_keys,
     canonical_names,
     input_names,
     is_mistake,
     mapping_form,
     nested_model,
+    opaque_key_fields_of,
     table_entries,
 )
 from ..flow import Flow, FlowSettingsError, registered_flows
@@ -313,6 +315,22 @@ def _merge_settings_layer(
     return merged
 
 
+def _with_atomic_names(values: dict[str, Any], settings_cls: type[XedaBaseModel]) -> dict[str, Any]:
+    """`values` with each table whose keys are the tool's names (`opaque_key_fields_of`) as a
+    table of those names, whole. Every layer has expanded the dots of such a name into nested
+    tables, where `A` and `A.B` of two layers would meet as a value and a table, and one would
+    replace the other. As names they merge key by key, and a higher layer replaces only a name it
+    gives."""
+    opaque = opaque_key_fields_of(settings_cls)
+    if not opaque:
+        return values
+    names = input_names(settings_cls)
+    return {
+        key: atomic_keys(value) if names.get(key, key) in opaque else value
+        for key, value in values.items()
+    }
+
+
 def merge_layers(
     *layers: Layer, settings_cls: type[XedaBaseModel] | None = None, append: bool = False
 ) -> dict[str, Any]:
@@ -331,6 +349,7 @@ def merge_layers(
         if layer:
             values = settings_to_dict(layer)  # type: ignore[arg-type]
             if settings_cls is not None:
+                values = _with_atomic_names(values, settings_cls)
                 merged = _merge_settings_layer(merged, values, settings_cls, append)
             else:
                 merged = hierarchical_merge(merged, values)

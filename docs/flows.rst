@@ -133,8 +133,14 @@ This sets the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` of the synthesis
 file, a target, a project file and the API give it in the same way. In a design file, the key
 ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`` under ``set_synth_properties`` is one property. The same name
 written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the same property.
-Two names where one is the start of the other (``A`` and ``A.B``) are an error, like any key that
-is both a value and a table.
+Each origin gives its names, and the origins merge name by name: a higher origin replaces only
+the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
+both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
+a table, as for any setting.
+
+A name with a space is a quoted shell item::
+
+    xeda run vivado_synth sqrt.yaml -s "set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS=-flatten_hierarchy none"
 
 ``xeda list-settings --json`` marks these settings with ``"opaque_keys": true``. They are
 ``set_synth_properties`` and ``set_impl_properties`` of ``vivado_synth`` (and the flows that share
