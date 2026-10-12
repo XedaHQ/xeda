@@ -14,7 +14,9 @@ from pydantic import ValidationError
 
 from xeda import Design
 from xeda.dataclass import (
+    WAVEFORM_SUFFIXES,
     WaveformText,
+    format_of_waveform_name,
     waveform_fields,
     waveform_format,
     waveform_format_of,
@@ -97,7 +99,7 @@ def test_the_text_true_or_false_is_the_boolean(cls, name, field, extension):
 def test_the_yaml_boolean_words_are_refused_like_a_boolean_settings(cls, name, field, extension):
     """A setting is on, off or a name, so `yes` is neither: it names the boolean to write, as for
     a boolean setting, and the file name that would take its place."""
-    for word in ("yes", "No", "on", "OFF", "y", "n"):
+    for word in ("yes", "No", "on", "OFF", "y", "n", " true ", "TRUE ", " false"):
         with pytest.raises(FlowSettingsError, match=rf"`{word}` is text, not a boolean: write"):
             build(cls, **{field: word})
         with pytest.raises(ValidationError, match="not a boolean"):
@@ -147,8 +149,27 @@ def test_the_rule(value, extension, name, expected):
     assert waveform_value(value, extension, name) == expected
 
 
-@pytest.mark.parametrize("value", ["yes", "YES", "no", "on", "off", "y", "n", "t", "f", " on "])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "yes",
+        "YES",
+        "no",
+        "on",
+        "off",
+        "y",
+        "n",
+        "t",
+        "f",
+        " on ",
+        " true ",
+        "TRUE ",
+        " False",
+        "\ttrue",
+    ],
+)
 def test_the_rule_refuses_the_words_yaml_1_1_reads_as_booleans(value):
+    """Text with spaces around `true` is no boolean and no file name, as for a boolean setting."""
     with pytest.raises(WaveformText, match="is text, not a boolean"):
         waveform_value(value, "vcd", "dump.vcd")
 
@@ -327,15 +348,51 @@ def test_a_name_never_selects_the_format_of_another_setting(cls, name, field, ex
     for other_field, other in formats.items():
         if other == extension:
             continue
-        for given in (f"w.{other}", f"/elsewhere/w.{other.upper()}"):
-            settings = build(cls, **{field: given})
-            with pytest.raises(FlowSettingsException) as raised:
-                cls.check_settings_supported(settings)
-            message = str(raised.value)
-            if field in cls.unsupported_waveforms:
-                assert "cannot write a waveform" in message
-            else:
-                assert f"`{other_field}`" in message and f"ends in .{other}" in message
+        for suffix in WAVEFORM_SUFFIXES[other]:
+            for given in (f"w.{suffix}", f"/elsewhere/w.{suffix.upper()}"):
+                settings = build(cls, **{field: given})
+                with pytest.raises(FlowSettingsException) as raised:
+                    cls.check_settings_supported(settings)
+                message = str(raised.value)
+                if field in cls.unsupported_waveforms:
+                    assert "cannot write a waveform" in message
+                else:
+                    assert f"give the name to `{other_field}`" in message
+                    assert f"ends in .{suffix}" in message
+
+
+@pytest.mark.parametrize("cls,name,field,extension", FIELDS)
+def test_a_setting_takes_every_extension_of_its_own_format(cls, name, field, extension):
+    if field in cls.unsupported_waveforms:
+        pytest.skip("refused as a whole")
+    for suffix in WAVEFORM_SUFFIXES[extension]:
+        cls.check_settings_supported(build(cls, **{field: f"w.{suffix}"}))
+
+
+def test_every_waveform_format_has_its_extensions_in_the_one_table():
+    formats = {
+        extension for cls, _ in SIM_FLOWS for extension in waveform_fields(cls.Settings).values()
+    }
+    assert formats <= set(WAVEFORM_SUFFIXES), formats - set(WAVEFORM_SUFFIXES)
+    for extension, suffixes in WAVEFORM_SUFFIXES.items():
+        assert extension in suffixes
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("w.vcd", ("vcd", "vcd")),
+        ("W.VCDGZ", ("vcd", "vcdgz")),
+        ("d/w.vcd.gz", ("vcd", "vcd.gz")),
+        ("w.fst", ("fst", "fst")),
+        ("w.gz", None),
+        ("vcd", None),
+        ("w.vcdx", None),
+        (3, None),
+    ],
+)
+def test_the_format_of_a_waveform_name(name, expected):
+    assert format_of_waveform_name(name) == expected
 
 
 #: The waveform settings that are not named after their format. A setting is named after its
@@ -437,6 +494,17 @@ def test_ghdl_writes_the_waveform_the_command_line_asks_for(tmp_path, setting, w
     assert flow is not None and flow.succeeded
     assert (flow.run_path / written).stat().st_size > 0
     assert not list(flow.run_path.glob("true*"))
+
+
+@pytest.mark.parametrize("name", ["w.vcdgz", "w.vcd.gz"])
+def test_ghdl_writes_a_compressed_vcd_for_the_vcd_setting(tmp_path, name):
+    """GHDL's `--vcdgz` is chosen by the name of `vcd`; the data are gzip, not GHW or VCD text."""
+    require_ghdl()
+    design = _evidence_design(tmp_path, "wait for 5 ns; std.env.finish;")
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    flow = runner.run_flow(GhdlSim, design, flow_settings=[f"vcd={name}"])
+    assert flow is not None and flow.succeeded
+    assert (flow.run_path / name).read_bytes()[:2] == b"\x1f\x8b"
 
 
 @pytest.mark.parametrize(

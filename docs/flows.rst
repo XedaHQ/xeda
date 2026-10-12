@@ -1198,9 +1198,11 @@ All waveform settings read their value by one rule, on the command line and in a
 * ``false`` and an empty name write nothing.
 * A name without an extension gets the format's extension.
 * The words YAML 1.1 reads as a boolean (``yes``, ``no``, ``on``, ``off``, ``y``, ``n``) are
-  refused, as they are for a boolean setting. Write ``true`` or a file name.
+  refused, as they are for a boolean setting. So is ``true`` or ``false`` with spaces around it.
+  Write ``true`` or a file name.
 * Other text is a name. The setting a name is given to decides the format, never the name: a
-  name that ends in the extension of another format that has a setting of its own is refused,
+  name that ends in an extension of another format that has a setting of its own is refused
+  (a format can have several: ``.vcd``, ``.vcdgz`` and ``.vcd.gz`` are VCD),
   and the message names that setting (``wave: x.vcd`` on ``ghdl_sim`` says to use ``vcd``).
 
 A waveform setting is named after its format, so the same name means the same thing on every

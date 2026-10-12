@@ -96,6 +96,8 @@ __all__ = [
     "waveform",
     "waveform_fields",
     "waveform_format",
+    "WAVEFORM_SUFFIXES",
+    "format_of_waveform_name",
     "waveform_format_of",
     "waveform_value",
     "WaveformText",
@@ -739,6 +741,33 @@ def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, s
     return str(mark["format"]), str(extra["x-xeda-output"])
 
 
+#: Every extension a tool writes a waveform format under, by format (without the dot, compared in
+#: lower case, the longest match winning). A format has more than one when a tool compresses it:
+#: GHDL's `--vcdgz` writes a compressed VCD, named `.vcdgz` or `.vcd.gz`. The one table the check
+#: of a name against the format of its setting reads (`format_of_waveform_name`).
+WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
+    "vcd": ("vcd", "vcdgz", "vcd.gz"),
+    "fst": ("fst",),
+    "ghw": ("ghw",),
+    "saif": ("saif",),
+    "vpd": ("vpd",),
+    "fsdb": ("fsdb",),
+    "evcd": ("evcd",),
+}
+
+
+def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
+    """`(format, suffix)` of a waveform file name that ends in an extension of
+    `WAVEFORM_SUFFIXES`, the longest one; None for any other name."""
+    lowered = os.fspath(name).lower() if isinstance(name, (str, os.PathLike)) else ""
+    found: Optional[Tuple[str, str]] = None
+    for extension, suffixes in WAVEFORM_SUFFIXES.items():
+        for suffix in suffixes:
+            if lowered.endswith("." + suffix) and (found is None or len(suffix) > len(found[1])):
+                found = (extension, suffix)
+    return found
+
+
 def waveform_format_of(model: type[BaseModel], field: str) -> Optional[str]:
     """The format of `model`'s waveform setting `field` (`vcd`, `fst`, `ghw`, ...); None if it
     is no waveform setting. The marker is the one place that says a setting takes `true` as on."""
@@ -775,13 +804,17 @@ def waveform_value(value: Any, extension: str, true_name: str) -> Any:
     `true` (the boolean, or the text in any letter case, which is all `-s` can write) is
     `true_name`, the name the run writes for a location (`waveform`), which may hold `{design}`. `false` (likewise) and an empty
     name are none. A name without an extension gets `.<extension>`. The other words YAML 1.1 reads
-    as a boolean (`yes`, `on`, `n`, ...), given as the whole value, are refused as they are for a
-    boolean field (`boolean_text_message`), since a setting is on, off or a name. Other text is a
+    as a boolean (`yes`, `on`, `n`, ...), and `true` or `false` with spaces around it, given as the
+    whole value, are refused as they are for a boolean field (`boolean_text_message`), since a
+    setting is on, off or a name. Other text is a
     name. Anything else is left as it is, for the field's own validation."""
-    if isinstance(value, str) and value.lower() in ("true", "false"):
-        value = value.lower() == "true"
-    elif isinstance(value, str) and value.strip().lower() in (_TRUE_WORDS | _FALSE_WORDS):
-        raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if value.lower() in ("true", "false"):
+            value = value.lower() == "true"
+        elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
+            # as for a boolean field, text with spaces around `true` is no boolean (and no name)
+            raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
     if value is True:
         return true_name
     if value is False or (isinstance(value, str) and value == ""):

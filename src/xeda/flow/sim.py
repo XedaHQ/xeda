@@ -9,7 +9,13 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Mapping, Optional, Union
 
 from ..cocotb import Cocotb, CocotbSettings
-from ..dataclass import Field, XedaBaseModel, waveform, waveform_fields
+from ..dataclass import (
+    Field,
+    XedaBaseModel,
+    format_of_waveform_name,
+    waveform,
+    waveform_fields,
+)
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
 from .flow import Flow, FlowSettingsException, registered_flows
@@ -377,12 +383,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
                     f"{cls.name} cannot write a waveform from `{name}`: "
                     f"{cls.unsupported_waveforms[name]}"
                 )
-            suffix = Path(value).suffix.removeprefix(".").lower()
-            other = by_format.get(suffix)
-            if other is not None and suffix != extension:
+            written = format_of_waveform_name(value)
+            if written is not None and written[0] != extension and written[0] in by_format:
                 raise FlowSettingsException(
                     f"`{name}` writes {extension.upper()} data, and its name {value} ends in "
-                    f".{suffix}: give the name to `{other}`, which writes {suffix.upper()} data"
+                    f".{written[1]}: give the name to `{by_format[written[0]]}`, which writes "
+                    f"{written[0].upper()} data"
                 )
 
     @classmethod

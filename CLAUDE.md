@@ -973,12 +973,12 @@ on construction and reload, by `Flow.Settings.__setattr__` on assignment):
    `lib_paths` only the path half of each tuple, never the library name.
 3. A waveform setting (a field marked `json_schema_extra=waveform(<extension>)`, a deliverable;
    `dataclass.waveform_fields` lists them, `dataclass.waveform_format_of(model, field)` queries one) is read by `dataclass.waveform_value`, for every
-   simulator: the text `true`/`false` (any case) is the boolean, `true` is the setting's
+   simulator: the text `true`/`false` (any case, no spaces around it, as for a boolean field) is the boolean, `true` is the setting's
    conventional name (`dump.<format>` unless `waveform(extension, conventional)` says otherwise), so
    `true` and a location are one run (`identity_settings` counts a location as its conventional
    name); `false` or `""` is none, a name without an extension gets `.<format>`, and a YAML 1.1
    boolean word (`yes`, `on`, `n`, ...; `boolean_text_message` plus "(or give a file name)") is
-   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in the extension of another format that has its own setting (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
+   refused as a `WaveformText`. The setting a name is given to decides the format: `SimFlow.check_settings_supported` refuses a name that ends in an extension of another format that has its own setting (`dataclass.WAVEFORM_SUFFIXES` is the one table of every extension a format is written under: VCD has `vcd`, `vcdgz`, `vcd.gz`; `format_of_waveform_name` reads it) (`wave: x.vcd` on `ghdl_sim` and `fst: x.vcd` on `nvc` say to use `vcd`), since a location is written under the setting's conventional name and `true` would otherwise equal a location of another format. A waveform setting is named after its format (`vcd`, `fst`, `saif`, `vpd`, ...) and has one meaning on every
    simulator; `ghdl_sim`'s `wave` (GHW, GHDL's own option) is the one reviewed exception
    (`NATIVE_NAMES` in the test), and a misnamed new one fails there. nvc has `vcd` and `fst`
    (`wave` and `wave_format` were removed). A conventional name may hold `{design}` (`vivado_sim`'s
