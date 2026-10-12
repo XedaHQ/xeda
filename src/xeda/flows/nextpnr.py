@@ -335,7 +335,8 @@ class Nextpnr(FpgaSynthFlow):
         removed_settings = {
             **WithFpgaBoardSettings.removed_settings,
             **{
-                f"{kind}_cfg": f'rtl.sources with a typed pin file: {{ file = "pins.{kind}", type = "{kind.capitalize()}" }}'
+                f"{kind}_cfg": f"`rtl.sources` with a typed pin file: "
+                f"`{{file: pins.{kind}, type: {kind.capitalize()}}}`"
                 for kind in ("lpf", "pcf", "pdc")
             },
             "yosys": "`flows.yosys_fpga.<key>`",
