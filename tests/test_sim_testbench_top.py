@@ -189,9 +189,11 @@ def test_every_simulator_accepts_what_names_no_hdl_top_to_miss(flow_name, tmp_pa
     # no testbench at all: the RTL top is simulated by design
     bare = _design(_in_new_directory(tmp_path, "bare"), rtl=language)
     flow_class.check_design_supported(bare)
-    # a design's own C++ driver, which has no top
-    driver = _design(_in_new_directory(tmp_path, "cpp"), "driver", rtl=language)
-    flow_class.check_design_supported(driver)
+    # a design's own C++ driver, which has no top; bsc_sim simulates a module of the testbench's
+    # Bluespec, so a testbench with sources has to name it
+    if flow_name != "bsc_sim":
+        driver = _design(_in_new_directory(tmp_path, "cpp"), "driver", rtl=language)
+        flow_class.check_design_supported(driver)
     if flow_class.cocotb_sim_name:
         # a cocotb testbench drives the RTL top unless it names another toplevel
         cocotb = _design(_in_new_directory(tmp_path, "cocotb"), language, rtl=language, cocotb=True)

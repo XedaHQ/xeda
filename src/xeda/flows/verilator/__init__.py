@@ -355,25 +355,28 @@ class Verilator(SimFlow):
                 "keep one of them"
             )
 
-    def init(self) -> None:
-        super().init()
-        assert isinstance(self.settings, self.Settings)
-        ss = self.settings
-        # a flow built directly is not planned
-        self.check_settings_supported(ss)
-        if self.cocotb:
-            if ss.main:
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse what Verilator cannot do with this design and these settings, before anything
+        runs: a `main` beside cocotb, whose own main runs the model; SystemC without the design's
+        own `sc_main`; and a waveform file name, since without cocotb the testbench's `$dumpfile`
+        (or the design's own C++ main) names the file."""
+        super().check_design_supported(design, settings)
+        if not isinstance(settings, cls.Settings):
+            return
+        if design.tb.cocotb:
+            if settings.main:
                 raise FlowSettingsException(
                     "main is true, but cocotb's own main runs the model: leave `main` unset"
                 )
             return
-        if ss.generate_systemc and self.verilator_main():
+        if settings.generate_systemc and settings.main is not False:
             raise FlowSettingsException(
                 "generate_systemc needs `main: false` and the design's own `sc_main` among its "
                 "C++ sources: Verilator's `--main` generates a C++ main"
             )
         for name in TRACE_FORMATS:
-            value = getattr(ss, name)
+            value = getattr(settings, name)
             if value is not None and Path(value) != Path(f"dump.{name}"):
                 raise FlowSettingsException(
                     f"`{name}` names a waveform file, but without cocotb xeda writes no "
@@ -382,6 +385,12 @@ class Verilator(SimFlow):
                     f"name accepted) to build the model with {name.upper()} tracing, and call "
                     "`$dumpfile` and `$dumpvars` in the testbench"
                 )
+
+    def init(self) -> None:
+        super().init()
+        assert isinstance(self.settings, self.Settings)
+        # a flow built directly is not planned (its design was checked when it was built)
+        self.check_settings_supported(self.settings)
 
     def always_runs(self) -> Optional[str]:
         assert isinstance(self.settings, self.Settings)

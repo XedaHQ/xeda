@@ -653,6 +653,7 @@ class Nextpnr(FpgaSynthFlow):
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Reject unsupported targets before any producer runs."""
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         cls.target_for_settings(settings)
         cls.config_for_settings(settings)

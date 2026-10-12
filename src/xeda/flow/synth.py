@@ -278,6 +278,54 @@ class SynthFlow(Flow, metaclass=ABCMeta):
                 value.name = "main_clock"
             self.clocks = {value.name: value}
 
+    @staticmethod
+    def reconcile_clocks(
+        clocks: Dict[str, PhysicalClock], design: Design, settings_class: type[Flow.Settings]
+    ) -> None:
+        """Tie each physical clock of the settings to the design's clock port, in place. A single
+        physical clock beside a single design clock is the same clock, whatever it is named. A
+        physical clock that names no port and matches no design clock raises a
+        `FlowSettingsError`: this is the one judgment of it, which planning
+        (`check_design_supported`) and the flow's constructor both make."""
+        # shorthand for single clock specification
+        if len(clocks) == 1 and len(design.rtl.clocks) == 1:
+            clock_name = first_key(clocks)
+            assert clock_name is not None
+            clock_obj = clocks.pop(clock_name)
+            design_clock = design.rtl.clocks[0]
+            assert design_clock is not None
+            if not clock_name:
+                clock_name = design_clock.name
+            assert clock_name is not None
+            assert clock_obj is not None
+            if not clock_obj.port:
+                clock_obj.port = design_clock.port
+            if not clock_obj.name:
+                clock_obj.name = clock_name
+            clocks[clock_name] = clock_obj
+        for clock_name, physical_clock in clocks.items():
+            if not physical_clock.port:
+                if clock_name not in (clk.name for clk in design.rtl.clocks):
+                    if design.rtl.clocks:
+                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in design.rtl.clocks if c and c.name)}"
+                    else:
+                        described = f"'{clock_name}'" if clock_name else "set by `clock`"
+                        msg = f"No clock ports specified in 'design.rtl', while the physical clock {described} is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
+                    raise FlowSettingsError([(None, msg, None, None)], settings_class)
+                matched_clock = find_matching_clock(design.rtl.clocks, clock_name)
+                if matched_clock:
+                    physical_clock.port = matched_clock.port
+                clocks[clock_name] = physical_clock
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a physical clock that no design clock matches, before anything runs."""
+        super().check_design_supported(design, settings)
+        if isinstance(settings, cls.Settings):
+            # on a copy: the flow's constructor ties the clocks of its own settings
+            clocks = {name: clock.model_copy(deep=True) for name, clock in settings.clocks.items()}
+            cls.reconcile_clocks(clocks, design, cls.Settings)
+
     def __init__(
         self,
         settings: Union[Settings, Dict],
@@ -289,45 +337,7 @@ class SynthFlow(Flow, metaclass=ABCMeta):
         assert isinstance(
             self.settings, self.Settings
         ), "self.settings is not an instance of self.Settings class"
-        # shorthand for single clock specification
-        if len(self.settings.clocks) == 1 and len(self.design.rtl.clocks) == 1:
-            clock_name = first_key(self.settings.clocks)
-            assert clock_name is not None
-            clock_obj = self.settings.clocks.pop(clock_name)
-            design_clock = self.design.rtl.clocks[0]
-            assert design_clock is not None
-            if not clock_name:
-                clock_name = design_clock.name
-            assert clock_name is not None
-            assert clock_obj is not None
-            if not clock_obj.port:
-                clock_obj.port = design_clock.port
-            if not clock_obj.name:
-                clock_obj.name = clock_name
-            self.settings.clocks[clock_name] = clock_obj
-        for clock_name, physical_clock in self.settings.clocks.items():
-            if not physical_clock.port:
-                if clock_name not in (clk.name for clk in self.design.rtl.clocks):
-                    if self.design.rtl.clocks:
-                        msg = f"Physical clock {clock_name} has no corresponding clock port in design. Existing clocks: {', '.join(c.name for c in self.design.rtl.clocks if c and c.name)}"
-                    else:
-                        described = f"'{clock_name}'" if clock_name else "set by `clock`"
-                        msg = f"No clock ports specified in 'design.rtl', while the physical clock {described} is set in flow settings. Set corresponding design clocks via 'design.rtl.clocks' (for multiple clocks) or 'design.rtl.clock.port' (for a single clock)"
-                    raise FlowSettingsError(
-                        [
-                            (
-                                None,
-                                msg,
-                                None,
-                                None,
-                            )
-                        ],
-                        self.Settings,
-                    )
-                matched_clock = find_matching_clock(self.design.rtl.clocks, clock_name)
-                if matched_clock:
-                    physical_clock.port = matched_clock.port
-                self.settings.clocks[clock_name] = physical_clock
+        self.reconcile_clocks(self.settings.clocks, self.design, self.Settings)
         if self.requires_physical_clocks:
             for clock in self.design.rtl.clocks:
                 clock_name = clock.name

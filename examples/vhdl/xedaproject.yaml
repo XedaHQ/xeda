@@ -18,13 +18,9 @@ flows:
   vivado_synth:
     fpga:
       part: 'xc7a12tcsg325-1'
-    clock:
-      period: 5.0
   ise_synth:
     fpga:
       family: 'virtex5'
       device: 'XC5VLX50'
       speed: -1
       package: 'FFG676C'
-    clock:
-      period: 5.0

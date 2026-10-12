@@ -351,7 +351,11 @@ def _write_design(tmp_path: Path, sources=("top.v",), flows=None, name="top") ->
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     (root / "given.bit").write_bytes(b"a bitstream built elsewhere")
     (root / "given.json").write_text('{"modules": {"top": {"ports": {}, "cells": {}}}}\n')
-    document = {"name": name, "rtl": {"sources": list(sources), "top": "top"}, "flows": flows or {}}
+    document = {
+        "name": name,
+        "rtl": {"sources": list(sources), "top": "top", "clock": "clk"},
+        "flows": flows or {},
+    }
     path = root / f"{name}.yaml"
     path.write_text(yaml.safe_dump(document))
     return path

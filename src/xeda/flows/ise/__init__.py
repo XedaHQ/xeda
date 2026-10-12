@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from ...dataclass import Field
-from ...design import SOURCE_SUFFIXES, SourceType
-from ...flow import FlowFatalError, FpgaSynthFlow, describe_results
+from ...design import SOURCE_SUFFIXES, Design, SourceType
+from ...flow import Flow, FlowFatalError, FlowSettingsException, FpgaSynthFlow, describe_results
 from ...tool import Docker, OptionalBoolOrPath, Tool
 from ...utils import replacing_copy, tcl_word, try_convert_to_primitives
 
@@ -163,12 +163,18 @@ class IseSynth(FpgaSynthFlow):
             [], description="User constraint files (.ucf) with pin and timing constraints."
         )
 
-    def init(self) -> None:
-        # ISE names its outputs after the top (`<top>.bit`): a design without one cannot run.
-        if not self.design.rtl.top:
-            raise FlowFatalError(
-                f"{self.name} needs the design's top-level entity or module: set `rtl.top`."
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """ISE names its outputs after the top (`<top>.bit`): a design without one cannot run."""
+        super().check_design_supported(design, settings)
+        if not design.rtl.top:
+            raise FlowSettingsException(
+                f"{cls.name} needs the design's top-level entity or module: set `rtl.top`."
             )
+
+    def init(self) -> None:
+        # a flow built directly is not planned
+        self.check_design_supported(self.design, self.settings)
 
     def project_outputs(self) -> dict[str, Path]:
         """The files of the ISE project this flow records, by artifact label. ISE names them

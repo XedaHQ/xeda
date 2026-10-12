@@ -229,8 +229,8 @@ def judge_node(
         design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
         flow = _bare_flow(node, settings, design, run_root, runner_cwd, design_hash)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
-        # a plan checks no more than the request; a launch checks the settings in the design's
-        # context, as it constructs the flow, and would refuse these
+        # the plan made the checks of the flow's hooks; a launch also checks the settings in the
+        # design's context, as it constructs the flow, and would refuse these
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
     # A fresh producer's recorded results are the ones a launch hands over, whatever the other
     # producers do. A producer that is not fresh runs first and its results are rewritten.

@@ -893,9 +893,8 @@ def test_bsc_sim_simulates_one_top(tmp_path):
     design = _accum_design(
         tmp_path / "d", tb={"sources": ["tb/Tb.bsv"], "top": ["mkTb", "mkOther"]}
     )
-    flow = _flow(BscSim, design, tmp_path / "run")
     with pytest.raises(FlowSettingsException, match="one top module"):
-        flow.init()
+        _flow(BscSim, design, tmp_path / "run")
 
 
 def test_the_define_is_prepended_to_verilog_in_any_encoding(tmp_path):

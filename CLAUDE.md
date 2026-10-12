@@ -2147,7 +2147,7 @@ dependency must also share `custom_boards_file`.
   fallback copy). The `main` setting maps to `--main`: `Verilator.verilator_main()` is true unless
   cocotb (`Optional[bool] = None`, the effective value computed where it is used), so a `Cpp`
   source with `main` unset is a DPI helper and links; `main: true` with cocotb, and
-  `generate_systemc` without `main: false`, are refused in `init()`. Verilator's mode is judged by
+  `generate_systemc` without `main: false`, are refused at planning (`Verilator.check_design_supported`). Verilator's mode is judged by
   the setting: `Flow.check_design_supported(design, settings=None)` and
   `SimFlow.runs_without_testbench_top(design, settings=None)` take the flow's settings as an optional
   second argument (every launch path passes them: resolver, DSE, remote, `SimFlow.__init__`), and
@@ -2160,7 +2160,7 @@ dependency must also share `custom_boards_file`.
   one rule `Cocotb.env` sets `TOPLEVEL` by. Its settings: `timeout`, `fail_severity`
   (`warning`/`error`/`failure`/`fatal`, default `error`), `random_init` (default false),
   `x_initial`/`x_assign` (`"0"`), `rtl.parameters` applied only when the RTL top is the simulated
-  top; `stop_time` is rejected in every mode by `check_settings_supported` (also run in `init()`);
+  top; `stop_time` is rejected in every mode by `check_settings_supported` (`init()` runs it for a flow built directly);
   minimum Verilator 5.048 (`VerilatorTool`: the hooks need `executingFinal()`; `bsc_sim` keeps
   `bsc.MIN_BSC_VERILATOR_VERSION`, 5.044, as it runs bsc's own driver).
   Waveforms follow Verilator's own rules and xeda never opens one: `vcd`/`fst`/`saif` only compile
@@ -2168,7 +2168,7 @@ dependency must also share `custom_boards_file`.
   `true` is the value (`waveform_name` in `flow/sim.py` makes it `dump.<format>`, so that name is
   accepted as "on" too: a setting cannot tell it from `true`). Without cocotb
   the testbench's `$dumpfile`/`$dumpvars` (or the design's main) names the file, so any other
-  name or location is refused in `init()` naming `$dumpfile`; with cocotb xeda names it through
+  name or location is refused at planning (`check_design_supported`) naming `$dumpfile`; with cocotb xeda names it through
   `--trace-file` and a location is delivered. The trace options default to Verilator's own
   (`trace_underscore`/`trace_structs` off, no max width or array unless set). A cocotb testbench
   whose HDL also dumps gets a nearly empty file from cocotb's dumper (the second writer takes
@@ -2398,6 +2398,20 @@ dependency must also share `custom_boards_file`.
   the netlist back on, so `YosysBase.enable_output` refuses it, and the resolver's message names the
   consumer (`yosys_fpga.netlist is required by nextpnr: ...`) -- the advice to turn the netlist off
   would be circular there, and stays for a stopped flow run alone.
+- **A refusal that needs only the settings and the design is made at planning**, in the pure class
+  methods `check_settings_supported(settings)` and `check_design_supported(design, settings)`, never
+  in `init()`, `prepare_inputs()` or a constructor: `xeda run --dry-run`, the remote preflight and
+  `dse` call them, and a producer's `init()` runs after the producers before it. Every override calls
+  `super()`. A flow whose `init()` refused such a rule keeps refusing when built directly: its
+  `init()` calls the hook (or, for `YosysBase`, only the rule it owns); a `SimFlow` calls the design
+  hook from its constructor and a `SynthFlow` ties its clocks there with `reconcile_clocks`, the
+  function its hook uses. What needs the run stays in `init()`
+  or `prepare_inputs()` (a tool on `PATH`, installed data, a file on disk, the resolved inputs).
+  `tests/test_refusals_at_planning.py` is the oracle: each case is refused by `plan` and by
+  `run_flow` before a run directory exists, a scan lists every `raise` that a product flow's
+  `init()`, `prepare_inputs()` or constructor reaches (through `self`, `super()`, its settings and
+  the functions of any `xeda` module; a property reached by attribute access is not followed) and fails on one that is not in `REVIEWED_RUN_TIME_REFUSALS` with its reason,
+  and another scan fails an override of a hook that drops `super()`.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).
