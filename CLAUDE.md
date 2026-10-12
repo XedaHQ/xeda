@@ -447,7 +447,9 @@ removed before the run, so an earlier success never stands for a run that died
   `vivado_power.timing_sim` has none (power switches it on itself). `-s flows.<flow>.key=value` sets any flow of the run (the
   requested flow or one of its declared producers; an unknown flow is an error with
   suggestions); `-s key` and `-s flows.<requested>.key` are one setting (two values for it are an
-  error); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
+  error, and so is a value in one spelling with a key inside it in the other: the same rule as
+  `set_hierarchy`'s, applied by `split_flow_sections`, which splits an opaque-key setting's names
+  at their dots for it); a `-s` that names the wrong flow suggests the right one. `--remote` follows the same
   rules. `-s` takes space-separated KEY=VALUE items and ends at the next option or the first
   token that is not KEY=VALUE (its key must look like a setting name), so it never swallows the
   design file; `--` ends the options. Local runs, remote runs and producers all use
@@ -874,7 +876,8 @@ names it gives. `_normalize_flow_setting` joins the nested tables of whatever re
 (`dataclass.fold_dotted_keys`, which also unescapes) on construction, reload and assignment. The
 nested form and the dotted form are one setting. One origin cannot give `A` and `A.B`: the
 expansion, which knows no model, makes that a `ConflictingKeys` (stopping the expansion at the
-field would need every expansion site to know the flow). `cli_types._is_key_value` lets `-s` take
+field would need every expansion site to know the flow); `-s A` with `-s flows.<requested>.A.B` is
+one origin and is refused by `split_flow_sections`. `cli_types._is_key_value` lets `-s` take
 a key that continues after the name of such a setting with spaces and signs (`...ARGS.MORE
 OPTIONS=...`; the names come from the registered flows, read only for a key that is not shaped like
 a setting key), and still ends at the design file. Class creation refuses a name that is no

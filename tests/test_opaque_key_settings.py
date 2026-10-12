@@ -319,6 +319,83 @@ def test_a_name_that_is_the_start_of_another_is_refused_within_one_origin():
         settings_to_dict(["set_synth_properties.A=1", "set_synth_properties.A.B=2"])
 
 
+QUALIFIED = "flows.vivado_synth.set_synth_properties"
+
+SPELLINGS = {
+    "unqualified first": ["set_synth_properties.A=1", f"{QUALIFIED}.A.B=2"],
+    "qualified first": [f"{QUALIFIED}.A.B=2", "set_synth_properties.A=1"],
+    "a name inside the other, unqualified": ["set_synth_properties.A.B=2", f"{QUALIFIED}.A=1"],
+}
+
+
+@pytest.mark.parametrize("items", SPELLINGS.values(), ids=SPELLINGS.keys())
+def test_the_two_spellings_of_the_command_line_are_one_origin_for_a_name_inside_a_name(
+    tmp_path, items
+):
+    """`-s key` and `-s flows.<requested>.key` are one setting, so `A` in one and `A.B` in the
+    other are refused as `A` and `A.B` in one spelling are."""
+    design = design_from(tmp_path, design_data())
+    with pytest.raises(FlowSettingsException, match=r"value, and .* inside it") as caught:
+        planned(tmp_path, design, flow_settings=[*(f"{k}={v}" for k, v in BASE_ITEMS), *items])
+    assert "set_synth_properties.A" in str(caught.value)
+
+
+def test_the_api_takes_the_two_spellings_as_one_origin_too(tmp_path):
+    design = design_from(tmp_path, design_data())
+    with pytest.raises(FlowSettingsException, match=r"value, and .* inside it"):
+        planned(
+            tmp_path,
+            design,
+            flow_settings={
+                **BASE,
+                "set_synth_properties": {"A": 1},
+                "flows": {"vivado_synth": {"set_synth_properties": {"A.B": 2}}},
+            },
+        )
+
+
+def test_the_command_line_refuses_the_two_spellings_with_a_name_inside_a_name(tmp_path):
+    design = tmp_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
+                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
+            }
+        )
+    )
+    result = CliRunner().invoke(
+        cli,
+        ["run", "--dry-run", "--json", "vivado_synth", str(design), "-s", *SPELLINGS_CLI],
+    )
+    assert result.exit_code != 0, result.output
+    document = json.loads(result.stdout)
+    assert document["success"] is False
+    assert "inside it" in document["error"]["message"], document
+
+
+SPELLINGS_CLI = ["set_synth_properties.A=1", f"{QUALIFIED}.A.B=2"]
+
+
+def test_the_same_name_in_both_spellings_is_one_property(tmp_path):
+    """The rule for one setting stays: the same value twice is accepted, two values are not."""
+    design = design_from(tmp_path, design_data())
+    base = [*(f"{k}={v}" for k, v in BASE_ITEMS)]
+    settings = planned(
+        tmp_path,
+        design,
+        flow_settings=[*base, "set_synth_properties.A.B=2", f"{QUALIFIED}.A.B=2"],
+    )
+    assert prefix_names(settings) == {"A.B": "2"}
+    with pytest.raises(FlowSettingsException, match="set one setting to two values"):
+        planned(
+            tmp_path,
+            design,
+            flow_settings=[*base, "set_synth_properties.A.B=2", f"{QUALIFIED}.A.B=3"],
+        )
+
+
 def prefix_names(settings) -> dict:
     return {k: str(v) for k, v in settings.set_synth_properties.items()}
 

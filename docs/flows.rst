@@ -136,7 +136,8 @@ written as nested tables (``STEPS``, then ``SYNTH_DESIGN``, and so on) is the sa
 Each origin gives its names, and the origins merge name by name: a higher origin replaces only
 the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two properties, and
 both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
-a table, as for any setting.
+a table, as for any setting. ``-s set_synth_properties.A=1`` and
+``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
 
 A name with a space is a quoted shell item::
 

@@ -37,6 +37,7 @@ from ..dataclass import (
     appended_fields_of,
     atomic_keys,
     canonical_names,
+    fold_dotted_keys,
     input_names,
     is_mistake,
     mapping_form,
@@ -380,7 +381,9 @@ def _leaves(
     written: tuple[str, ...] = (),
 ) -> dict[tuple[str, ...], tuple[str, Any]]:
     """Every leaf of a nested mapping: its canonical path (each name as the model spells it, so
-    an alias and its setting are one leaf) -> (the path as written, its value)."""
+    an alias and its setting are one leaf) -> (the path as written, its value). The names of a
+    setting in `opaque_key_fields` are split at their dots, as the expansion of a dotted key
+    would split them."""
     leaves: dict[tuple[str, ...], tuple[str, Any]] = {}
     for key, value in mapping.items():
         target = key
@@ -389,11 +392,37 @@ def _leaves(
             target = input_names(settings_cls).get(key, key)
             info = settings_cls.model_fields.get(target)
             child_cls = nested_model(info.annotation) if info is not None else None
-        if isinstance(value, Mapping) and value:
+        if (
+            settings_cls is not None
+            and target in opaque_key_fields_of(settings_cls)
+            and isinstance(value, Mapping)
+            and value
+            and isinstance(names := fold_dotted_keys(value), Mapping)
+            and all(isinstance(name, str) for name in names)
+        ):
+            # the keys are the tool's names: a leaf for each name, at the path of its dots, so
+            # that `A` and `A.B` meet as a value and a key inside it, as in one spelling
+            for name, entry in names.items():
+                leaves[(*prefix, target, *name.split("."))] = (
+                    ".".join((*written, key, name)),
+                    entry,
+                )
+        elif isinstance(value, Mapping) and value:
             leaves.update(_leaves(value, child_cls, (*prefix, target), (*written, key)))
         else:
             leaves[(*prefix, target)] = (".".join((*written, key)), value)
     return leaves
+
+
+def _is_inside(path: tuple[str, ...], other: tuple[str, ...]) -> bool:
+    """Whether `other` is a key inside the key `path`."""
+    return len(other) > len(path) and other[: len(path)] == path
+
+
+def _sets_value(value: Any) -> bool:
+    """Whether a leaf gives its key a value. `None` and an empty table leave the key free for
+    keys inside it (`utils.set_hierarchy`)."""
+    return value is not None and not (isinstance(value, Mapping) and not value)
 
 
 def split_flow_sections(
@@ -404,7 +433,9 @@ def split_flow_sections(
     """Split a command-line layer into its ``flows.<node>.*`` sections and the requested flow's
     own settings. ``-s key`` and ``-s flows.<requested>.key`` name one leaf (an alias of a
     setting is that setting): the same value twice is accepted, two different values are an
-    error naming both spellings."""
+    error naming both spellings. The two spellings are one origin for the rule of
+    `utils.set_hierarchy` as well: a key is a value or a table, so a value in one spelling and a
+    key inside it in the other (`A` and `A.B`) are an error naming both."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
         own.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
@@ -430,25 +461,25 @@ def split_flow_sections(
                 settings_cls if settings_cls is not None else requested,
             )
     requested_leaves = _leaves(sections.get(requested, {}), settings_cls)
-    conflicts = [
-        (written, value, requested_leaves[path])
-        for path, (written, value) in _leaves(own, settings_cls).items()
-        if path in requested_leaves and requested_leaves[path][1] != value
-    ]
-    if conflicts:
-        raise FlowSettingsError(
-            [
-                (
-                    key,
-                    f"`-s {key}={a}` and `-s flows.{requested}.{other}={b}` set one setting to "
-                    "two values; give one",
-                    None,
-                    "conflicting_spellings",
-                )
-                for key, a, (other, b) in conflicts
-            ],
-            settings_cls if settings_cls is not None else requested,
-        )
+    problems: list[tuple[str | None, str | None, str | None, str | None]] = []
+    for path, (written, value) in _leaves(own, settings_cls).items():
+        spelled = f"`-s {written}={value}`"
+        for other_path, (other, other_value) in requested_leaves.items():
+            qualified = f"`-s flows.{requested}.{other}={other_value}`"
+            if other_path == path:
+                if other_value != value:
+                    message = f"{spelled} and {qualified} set one setting to two values; give one"
+                else:
+                    continue
+            elif _is_inside(path, other_path) and _sets_value(value):
+                message = f"{spelled} sets a value, and {qualified} sets a key inside it; give one"
+            elif _is_inside(other_path, path) and _sets_value(other_value):
+                message = f"{qualified} sets a value, and {spelled} sets a key inside it; give one"
+            else:
+                continue
+            problems.append((written, message, None, "conflicting_spellings"))
+    if problems:
+        raise FlowSettingsError(problems, settings_cls if settings_cls is not None else requested)
     return sections, own
 
 
