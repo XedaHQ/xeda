@@ -100,14 +100,31 @@ no part, the loader detects the device. The flow fails on a nonzero exit and als
 
 ## `vivado_impl`: Vivado implements the yosys netlist
 
+```yaml
+name: blinky
+rtl:
+  sources: ["blinky.v", "blinky.xdc"]
+  top: blinky
+  clock.port: clk
+flows:
+  yosys_fpga:
+    fpga.part: xc7a100tcsg324-1
+  vivado_impl:
+    clock.period: 10.0
+```
+
 ```bash
 xeda run yosys_fpga+vivado_impl blinky.yaml -s bitstream=$PWD/blinky.bit
 ```
 
+`vivado_impl` takes its clock from `rtl.clock.port` and its own `clock.period` (or `clock.freq`);
+Xeda writes the `create_clock`. Clock settings under `flows.nextpnr` do not reach it, because
+`nextpnr` is not in this run.
+
 - `vivado_impl` places and routes an EDIF netlist in non-project mode and runs no synthesis. Its
   `netlist` is `yosys_fpga`'s `netlist_edif` or one `{file: "top.edf", type: Edif}` source, which
   skips synthesis. A Verilog netlist is refused.
-- It needs `rtl.top`, a Xilinx `fpga`, a clock and `Xdc` pin sources. A bitstream needs every port
+- It needs `rtl.top`, a Xilinx `fpga`, a clock (above) and `Xdc` pin sources. A bitstream needs every port
   constrained; a one-bit bus (`input [0:0] a`) is the scalar port `a` in the netlist.
 - Its outputs and switches are `vivado_alt_synth`'s: `write_checkpoint` gives `checkpoint_route`,
   `write_netlist` gives `netlist`, `write_timing_netlist` gives `netlist_timing` and `sdf`, and
