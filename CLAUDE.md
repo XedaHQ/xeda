@@ -869,15 +869,20 @@ arrives as nested tables. `Flow.Settings.opaque_key_fields` (read along the MRO,
 `dataclass.opaque_key_fields_of`) names the dictionary settings of that kind (`set_synth_properties`
 and `set_impl_properties` on `VivadoSynth.Settings`, which `vivado_alt_synth` and `vivado_project`
 inherit; ISE's five `*_options`). Two places use it. `merge_layers` turns each layer's table into
-its names, each dot escaped (`dataclass.atomic_keys`, `ESCAPED_DOT`: the expansion keeps an escaped
-dot whole, so a merged table survives being expanded again), and the layers merge name by name, so
+its names, each an `AtomicName` (`dataclass.atomic_keys`: a `str` subclass holding the name with
+each dot as `ESCAPED_DOT`, which `set_hierarchy` does not split, and which it keeps whole as a
+class, so a merged table survives being expanded again), and the layers merge name by name, so
 `A` in one origin and `A.B` in another are two properties and a higher origin replaces only the
 names it gives. `_normalize_flow_setting` joins the nested tables of whatever reaches the model
-(`dataclass.fold_dotted_keys`, which also unescapes) on construction, reload and assignment. The
+(`dataclass.fold_dotted_keys`, which unwraps an `AtomicName`) on construction, reload and assignment. The
 nested form and the dotted form are one setting. One origin cannot give `A` and `A.B`: the
 expansion, which knows no model, makes that a `ConflictingKeys` (stopping the expansion at the
 field would need every expansion site to know the flow); `-s A` with `-s flows.<requested>.A.B` is
-one origin and is refused by `split_flow_sections`. `cli_types._is_key_value` lets `-s` take
+one origin and is refused by `split_flow_sections`. User text is never the merged form: a name
+with `ESCAPED_DOT` in a key a user wrote is an `EscapedName` error from every origin (the tool's
+names have no backslash), so `A` with `A\.B` cannot get past the `A`/`A.B` rule, and a table of
+text keys is checked for a name inside another before it is merged (`_atomic_table`; a table of
+`AtomicName`s is a merge of origins and is not). `cli_types._is_key_value` lets `-s` take
 a key that continues after the name of such a setting with spaces and signs (`...ARGS.MORE
 OPTIONS=...`; the names come from the registered flows, read only for a key that is not shaped like
 a setting key), and still ends at the design file. Class creation refuses a name that is no

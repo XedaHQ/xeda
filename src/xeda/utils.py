@@ -42,7 +42,7 @@ from xml.etree import ElementTree
 
 from varname import argname  # type: ignore
 
-from .dataclass import BaseModel, XedaBaseModel
+from .dataclass import AtomicName, BaseModel, XedaBaseModel
 
 # install_import_hook("xeda")
 
@@ -81,6 +81,7 @@ __all__ = [
     "settings_to_dict",
     "flows_table_problems",
     "ConflictingKeys",
+    "EscapedName",
     "XedaException",
     "ToolException",
     "NonZeroExitCode",
@@ -743,8 +744,13 @@ def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
     traceback in the one and a table lost in the other. A key left empty (`None`) is no value, so
     a table follows it. Setting a key again replaces its value, and a table replaces a table.
     """
-    parts = re.split(SEP, path) if isinstance(path, str) else list(path)
+    parts = _key_parts(path) if isinstance(path, str) else list(path)
     _set_hierarchy(dct, parts, value, ())
+
+
+def _key_parts(key: str) -> List[Any]:
+    """The parts of the dotted key `key`. An `AtomicName` is one part."""
+    return [key] if isinstance(key, AtomicName) else re.split(SEP, key)
 
 
 def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tuple[Any, ...]):
@@ -766,7 +772,7 @@ def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tup
             raise ConflictingKeys(here, (*here, next(iter(value))))
         table: Dict[str, Any] = {}
         for k, v in value.items():
-            _set_hierarchy(table, re.split(SEP, k) if isinstance(k, str) else [k], v, here)
+            _set_hierarchy(table, _key_parts(k) if isinstance(k, str) else [k], v, here)
         value = table
     else:
         held = dct.get(key)
@@ -1236,6 +1242,22 @@ class ConflictingKeys(XedaException, ValueError):
 
     def __reduce__(self):  # an exception crosses a process boundary by being pickled
         return (type(self), (self.value_key, self.child_key))
+
+
+class EscapedName(XedaException, ValueError):
+    """A name of a setting in `opaque_key_fields` that contains `dataclass.ESCAPED_DOT`. The
+    expansion of dotted keys keeps such a key whole, which would let one origin give `A` and
+    `A.B` without `ConflictingKeys`. The tool's names have no backslash."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(
+            f"the name `{name}` has a backslash before a dot; the names of this setting are "
+            "written with plain dots (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`)"
+        )
+
+    def __reduce__(self):  # an exception crosses a process boundary by being pickled
+        return (type(self), (self.name,))
 
 
 def _dotted(key: Any) -> str:

@@ -22,15 +22,17 @@ from click.testing import CliRunner
 from xeda import Design
 from xeda.cli import cli
 from xeda.dataclass import (
+    AtomicName,
     BaseModel,
     annotation_kind,
     fold_dotted_keys,
+    name_inside_another,
     opaque_key_fields_of,
 )
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
-from xeda.flow_runner.settings_layers import merge_layers
+from xeda.flow_runner.settings_layers import _atomic_table, merge_layers
 from xeda.flows import VivadoAltSynth, VivadoProject, VivadoSynth
 from xeda.utils import ConflictingKeys, settings_to_dict
 
@@ -436,6 +438,155 @@ def test_a_merged_table_is_stable_when_it_is_merged_again():
     )
     settings = VivadoSynth.Settings.from_input({**again, **BASE})
     assert settings.set_synth_properties == {"A": 1, "A.B": 2, "C.D": 3}
+
+
+# ------------------------------------------------- text of a user is never the merged form
+
+ESCAPED = "A\\.B"
+
+
+def escaped_from_command_line(tmp_path):
+    return planned(
+        tmp_path,
+        design_from(tmp_path, design_data()),
+        flow_settings=[
+            *(f"{k}={v}" for k, v in BASE_ITEMS),
+            "set_synth_properties.A=1",
+            f"set_synth_properties.{ESCAPED}=2",
+        ],
+    )
+
+
+def escaped_from_flows_section(tmp_path):
+    return planned(
+        tmp_path,
+        design_from(tmp_path, design_data()),
+        flow_settings=[
+            *(f"{k}={v}" for k, v in BASE_ITEMS),
+            "set_synth_properties.A=1",
+            f"{QUALIFIED}.{ESCAPED}=2",
+        ],
+    )
+
+
+def escaped_from_api_settings(tmp_path):
+    return planned(
+        tmp_path,
+        design_from(tmp_path, design_data()),
+        flow_settings={**BASE, "set_synth_properties": {"A": 1, ESCAPED: 2}},
+    )
+
+
+def escaped_from_api_overrides(tmp_path):
+    return planned(
+        tmp_path,
+        design_from(tmp_path, design_data()),
+        flow_settings=[*(f"{k}={v}" for k, v in BASE_ITEMS)],
+        flow_overrides={"set_synth_properties": {"A": 1, ESCAPED: 2}},
+    )
+
+
+def escaped_from_design_file(tmp_path):
+    return planned(
+        tmp_path,
+        design_from(tmp_path, design_data(flows_section({"A": 1, ESCAPED: 2}, {}))),
+    )
+
+
+def escaped_from_target(tmp_path):
+    data = design_data(targets={"t": {"flows": flows_section({"A": 1, ESCAPED: 2}, {})}})
+    return planned(
+        tmp_path, Design.from_file(write_design(tmp_path, yaml.safe_dump(data)), target="t")
+    )
+
+
+ESCAPED_ORIGINS = [
+    escaped_from_command_line,
+    escaped_from_flows_section,
+    escaped_from_api_settings,
+    escaped_from_api_overrides,
+    escaped_from_design_file,
+    escaped_from_target,
+]
+
+
+@pytest.mark.parametrize("origin", ESCAPED_ORIGINS, ids=lambda f: f.__name__)
+def test_a_name_written_with_an_escaped_dot_is_refused_from_every_origin(tmp_path, origin):
+    """Merged tables keep a dot of a name as `ESCAPED_DOT`, a form `set_hierarchy` does not
+    split. The same text in a key a user wrote would be a name `A.B` that no check of `A` and
+    `A.B` in one origin saw, so it is refused, naming the key."""
+    with pytest.raises(ValueError, match=r"`A\\.B` has a backslash before a dot"):
+        origin(tmp_path)
+
+
+def test_a_name_with_an_escaped_dot_is_refused_by_the_model():
+    with pytest.raises(FlowSettingsException, match="backslash before a dot"):
+        VivadoSynth.Settings.from_input({**BASE, "set_synth_properties": {ESCAPED: 1}})
+    with pytest.raises(ValueError, match="backslash before a dot"):
+        VivadoSynth.Settings(**BASE).set_synth_properties = {ESCAPED: 1}
+
+
+def test_the_command_line_reports_a_name_with_an_escaped_dot(tmp_path):
+    design = tmp_path / "d.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "d",
+                "rtl": {"sources": ["top.v"], "top": "top", "clock": "clk"},
+                "flows": {"vivado_synth": {"fpga": PART, "clock": {"period": 5.5}}},
+            }
+        )
+    )
+    result = CliRunner().invoke(
+        cli,
+        [
+            "run",
+            "--dry-run",
+            "--json",
+            "vivado_synth",
+            str(design),
+            "-s",
+            "set_synth_properties.A=1",
+            f"set_synth_properties.{ESCAPED}=2",
+        ],
+    )
+    assert result.exit_code != 0, result.output
+    document = json.loads(result.stdout)
+    assert document["success"] is False
+    assert "backslash before a dot" in document["error"]["message"], document
+
+
+def test_the_merged_form_is_what_text_cannot_be():
+    """A merged table's keys are `AtomicName`s. The same keys as plain text, as a table that was
+    written out and read back would hold them, are the refused text."""
+    merged = merge_layers(
+        {"set_synth_properties": {"A": 1}},
+        {"set_synth_properties": {"A.B": 2}},
+        settings_cls=VivadoSynth.Settings,
+    )
+    names = list(merged["set_synth_properties"])
+    assert all(isinstance(name, AtomicName) for name in names)
+    assert sorted(str(name) for name in names) == ["A", ESCAPED]
+    assert VivadoSynth.Settings.from_input({**BASE, **merged}).set_synth_properties == {
+        "A": 1,
+        "A.B": 2,
+    }
+    as_text = {"set_synth_properties": {str(name): 0 for name in names}}
+    with pytest.raises(ValueError, match="backslash before a dot"):
+        merge_layers(as_text, settings_cls=VivadoSynth.Settings)
+
+
+def test_a_name_inside_another_is_found_in_a_table_the_user_gave_and_not_in_a_merge():
+    assert name_inside_another(["A", "B", "A.B"]) == ("A", "A.B")
+    assert name_inside_another(["A.B", "A.C", "AB"]) is None
+    with pytest.raises(ConflictingKeys, match="`set_synth_properties.A`"):
+        _atomic_table("set_synth_properties", {"A": 1, "A.B": 2})
+    merged = merge_layers(
+        {"set_synth_properties": {"A": 1}},
+        {"set_synth_properties": {"A.B": 2}},
+        settings_cls=VivadoSynth.Settings,
+    )
+    assert len(_atomic_table("set_synth_properties", merged["set_synth_properties"])) == 2
 
 
 # --------------------------------------------------------------------- the setting, as a model

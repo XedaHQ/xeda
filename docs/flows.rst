@@ -138,6 +138,8 @@ the names it gives. So ``A`` from a design file and ``A.B`` from ``-s`` are two 
 both stay. One origin cannot give both ``A`` and ``A.B``: it writes a key either as a value or as
 a table, as for any setting. ``-s set_synth_properties.A=1`` and
 ``-s flows.vivado_synth.set_synth_properties.A.B=2`` are one origin, so they are refused too.
+A name with a backslash before a dot (``A\.B``) is refused in every origin: the names of the tool
+have no backslash.
 
 A name with a space is a quoted shell item::
 

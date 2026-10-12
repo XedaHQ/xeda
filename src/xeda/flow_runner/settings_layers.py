@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from ..dataclass import (
+    AtomicName,
     XedaBaseModel,
     annotation_form,
     annotation_mistake,
@@ -41,6 +42,7 @@ from ..dataclass import (
     input_names,
     is_mistake,
     mapping_form,
+    name_inside_another,
     nested_model,
     opaque_key_fields_of,
     table_entries,
@@ -48,6 +50,8 @@ from ..dataclass import (
 from ..flow import Flow, FlowSettingsError, registered_flows
 from ..flow.io import declared_inputs
 from ..utils import (
+    ConflictingKeys,
+    EscapedName,
     XedaException,
     as_list,
     flows_table_problems,
@@ -327,9 +331,21 @@ def _with_atomic_names(values: dict[str, Any], settings_cls: type[XedaBaseModel]
         return values
     names = input_names(settings_cls)
     return {
-        key: atomic_keys(value) if names.get(key, key) in opaque else value
+        key: _atomic_table(key, value) if names.get(key, key) in opaque else value
         for key, value in values.items()
     }
+
+
+def _atomic_table(key: str, value: Any) -> Any:
+    """`atomic_keys(value)`, once a table the user gave has been judged: one origin cannot give a
+    name and a name that starts with it and a dot (`A`, `A.B`). A table of names already
+    (`AtomicName` keys) is a merge of origins, which may."""
+    atoms = atomic_keys(value)
+    if isinstance(atoms, Mapping) and not any(isinstance(k, AtomicName) for k in value):
+        pair = name_inside_another(k.name for k in atoms)
+        if pair is not None:
+            raise ConflictingKeys(f"{key}.{pair[0]}", f"{key}.{pair[1]}")
+    return atoms
 
 
 def merge_layers(
@@ -374,6 +390,15 @@ def compose_flow_settings(
     return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
 
 
+def _folded(value: Any) -> Any:
+    """`fold_dotted_keys(value)`, or `None` when it holds a name that the setting refuses
+    (`EscapedName`): validation reports that, and this only looks for conflicts."""
+    try:
+        return fold_dotted_keys(value)
+    except EscapedName:
+        return None
+
+
 def _leaves(
     mapping: Mapping[str, Any],
     settings_cls: type[XedaBaseModel] | None = None,
@@ -397,7 +422,7 @@ def _leaves(
             and target in opaque_key_fields_of(settings_cls)
             and isinstance(value, Mapping)
             and value
-            and isinstance(names := fold_dotted_keys(value), Mapping)
+            and isinstance(names := _folded(value), Mapping)
             and all(isinstance(name, str) for name in names)
         ):
             # the keys are the tool's names: a leaf for each name, at the path of its dots, so
