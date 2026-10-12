@@ -103,6 +103,7 @@ class VivadoImpl(VivadoImplementation):
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Vivado implements Xilinx devices only."""
+        super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         fpga = settings.fpga
         assert fpga is not None, "checked at launch (`required_settings`)"

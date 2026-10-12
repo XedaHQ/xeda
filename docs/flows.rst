@@ -223,7 +223,8 @@ Planning without running
 producers first, directories, hashes, each declared input's source/producer origin and optional
 outputs switched on for consumers. Add ``--json`` for a document (see :doc:`machine-readable`).
 It runs no tools and changes no run roots, markers, locks or deliveries. Invalid settings,
-unsupported targets and shared-setting conflicts fail during planning.
+unsupported targets, shared-setting conflicts and any configuration that a flow's settings and
+design rule out fail during planning.
 
 A request that the design's declarations already rule out is refused first, before a generator
 runs (see :ref:`generators`). Loading that needs a generator or a Git dependency fetch is then
@@ -1253,8 +1254,15 @@ Concrete flows live in ``src/xeda/flows/<tool>/``. A flow subclasses one of ``Fl
     Populates ``self.results``. Helpers: ``parse_report_regex()``, ``parse_regex()``,
     ``parse_xml()``.
 
-A flow that refuses a design overrides ``check_design_supported(cls, design, settings=None)``, and
-a simulator that needs no ``tb.top`` for some designs overrides
+A flow refuses what the settings and the design alone rule out in two class methods that planning,
+``--remote`` and ``xeda dse`` call: ``check_settings_supported(cls, settings)`` and
+``check_design_supported(cls, design, settings=None)``. Neither starts a tool or reads a file that
+the design does not list. An override calls ``super()`` first. A refusal that needs the run itself
+(a tool on ``PATH``, an installed database, the inputs a producer handed over) stays in ``init()``
+or ``prepare_inputs()``. A flow built directly, without a launcher, calls the hooks from
+``init()``.
+
+A simulator that needs no ``tb.top`` for some designs overrides
 ``runs_without_testbench_top(cls, design, settings=None)``. Both take the flow's settings as an
 optional second argument, which every launch passes. An override with the old signature, which
 takes the design alone, fails with a ``TypeError`` when the launch is planned: add the argument.

@@ -2350,6 +2350,18 @@ dependency must also share `custom_boards_file`.
   the netlist back on, so `YosysBase.enable_output` refuses it, and the resolver's message names the
   consumer (`yosys_fpga.netlist is required by nextpnr: ...`) -- the advice to turn the netlist off
   would be circular there, and stays for a stopped flow run alone.
+- **A refusal that needs only the settings and the design is made at planning**, in the pure class
+  methods `check_settings_supported(settings)` and `check_design_supported(design, settings)`, never
+  in `init()`, `prepare_inputs()` or a constructor: `xeda run --dry-run`, the remote preflight and
+  `dse` call them, and a producer's `init()` runs after the producers before it. Every override calls
+  `super()` first. A flow built directly calls the hook from `init()` (a `SimFlow` calls the design hook from its constructor; a `SynthFlow`
+  ties its clocks there with `reconcile_clocks`, the function the hook uses). What needs the run stays in `init()`
+  or `prepare_inputs()` (a tool on `PATH`, installed data, a file on disk, the resolved inputs).
+  `tests/test_refusals_at_planning.py` is the oracle: each case is refused by `plan` and by
+  `run_flow` before a run directory exists, a scan lists every `raise` that a product flow's
+  `init()`, `prepare_inputs()` or constructor reaches (through `self`, `super()`, its settings and
+  module functions) and fails on one that is not in `REVIEWED_RUN_TIME_REFUSALS` with its reason,
+  and another scan fails an override of a hook that drops `super()`.
 - **Reject unsupported targets before producers run.** Declared flows use the pure class-level
   `check_settings_supported` hook after shared agreement (`nextpnr`'s target/config helpers; `fpga_pack` refuses a family it has
   no packer for).
