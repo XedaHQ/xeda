@@ -1,8 +1,7 @@
-"""Installable agent skill: instructions plus a reference generated from the installed version.
+"""The installable agent skill: instructions plus a reference generated from the installed version.
 
 The prose lives in `xeda/data/agent/` and ships with the package. The flow catalog is generated
-from live introspection at install time, so it can never drift from the version that is actually
-installed -- the failure mode a hand-maintained catalog always eventually has.
+from live introspection at install time, so it always matches the installed version.
 """
 
 from __future__ import annotations
@@ -29,7 +28,7 @@ __all__ = [
 
 SKILL_NAME = "xeda"
 
-#: Order categories are presented in, most commonly used first.
+#: The order in which the catalog presents the categories, most commonly used first.
 _CATEGORY_ORDER = ["simulation", "fpga_synthesis", "asic_synthesis", "synthesis", "other"]
 _CATEGORY_TITLES = {
     "simulation": "Simulation",
@@ -42,20 +41,21 @@ _CATEGORY_TITLES = {
 
 @contextmanager
 def skill_source_dir() -> Iterator[Path]:
-    """Directory holding the packaged skill sources, valid only inside the context.
+    """Yield the directory that holds the packaged skill sources, valid only inside the context.
 
-    A context manager rather than a plain path: when xeda is imported from a zip (or any other
-    non-filesystem loader) `as_file` extracts the resources to a temporary directory and deletes
-    it on exit, so a path returned from inside the `with` names something that no longer exists.
-    Keeping the context open for as long as the caller reads the files is the only safe shape.
+    This is a context manager and not a plain path. When Xeda is imported from a zip file (or
+    from any other loader that is not a file system), `as_file` extracts the resources to a
+    temporary directory and deletes it on exit. A path returned from inside the `with` would then
+    name something that no longer exists. The caller must keep the context open for as long as it
+    reads the files.
     """
     with as_file(files("xeda.data").joinpath("agent")) as path:
         yield Path(path)
 
 
 def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
-    """One chain relation as text: the other flow, qualified when the request must name an
-    output, marked when the target's family decides it."""
+    """Return one chain relation as text: the other flow, qualified when the request must name an
+    output, and marked when the target decides the relation."""
     other = str(edge["flow"])
     text = f"`{other}`"
     if edge.get("output"):
@@ -97,8 +97,8 @@ def _flow_section(flow: Dict[str, object]) -> str:
     settings = settings_info(name)
     specific = [f for f in settings["fields"] if not f.get("common")]
     required = [f["name"] for f in specific if f.get("required")]
-    # and what the flow cannot run without although its model leaves it optional (`fpga`,
-    # `openroad`'s `platform`): checked at launch, never by the model
+    # Add what the flow cannot run without although its model leaves it optional (`fpga`,
+    # `platform` of `openroad`). The launch checks these settings and the model does not.
     required += [r for r in get_flow_class(name).required_settings if r not in required]
     if required:
         lines += ["Required settings: " + ", ".join(f"`{r}`" for r in required), ""]
@@ -118,7 +118,7 @@ def _flow_section(flow: Dict[str, object]) -> str:
 
 
 def generate_flows_reference() -> str:
-    """Markdown catalog of every flow in the installed version of xeda."""
+    """Return the Markdown catalog of every flow in the installed version of Xeda."""
     flows = flows_info()
     out = [
         "# Flow catalog",
@@ -160,9 +160,8 @@ def generate_flows_reference() -> str:
 
 
 def install_skill(dest_dir: Path, force: bool = False) -> List[Path]:
-    """Write the skill into `dest_dir/xeda/`, regenerating the flow catalog.
-
-    Returns the paths written. Refuses to overwrite an existing installation unless `force`.
+    """Write the skill into `dest_dir/xeda/`, regenerating the flow catalog, and return the paths
+    written. Refuse to overwrite an existing installation unless `force` is true.
     """
     target = Path(dest_dir) / SKILL_NAME
     if target.exists() and not force:
@@ -188,5 +187,5 @@ def install_skill(dest_dir: Path, force: bool = False) -> List[Path]:
 
 
 def default_skill_dir(start: Optional[Path] = None) -> Path:
-    """Where to install by default: `.claude/skills` under the current directory."""
+    """Return the default install directory: `.claude/skills` under the current directory."""
     return (start or Path.cwd()) / ".claude" / "skills"
