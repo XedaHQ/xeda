@@ -67,7 +67,7 @@ class FpgaPack(FpgaSynthFlow):
             None,
             description="The packed bitstream: a name in the run directory, or a location it "
             "is delivered to. By default `outputs/<design>.bit` (`.bin` for iCE40).",
-            json_schema_extra=deliverable("outputs/{design}.bit"),
+            json_schema_extra=deliverable("outputs/{design}.bit", always=True),
         )
 
         def conventional_output(self, field: str, design: str) -> PurePath | None:

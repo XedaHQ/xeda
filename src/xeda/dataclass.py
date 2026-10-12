@@ -88,6 +88,7 @@ __all__ = [
     "input_names",
     "model_validator",
     "validation_errors",
+    "written_always",
     "written_role",
 ]
 
@@ -591,14 +592,24 @@ DELIVERABLE_ROLE = "deliverable"
 WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
 
 
-def deliverable(conventional: Optional[str] = None) -> Dict[str, Any]:
+def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:
     """The marker of a setting whose path is an output the user may want delivered, with its
     `conventional` name: what the run writes it as when the setting is given a location
     (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
-    setting's own default name."""
+    setting's own default name.
+
+    `always` marks an output the flow writes whether or not the setting is given. Left unset,
+    the setting then names the conventional name: the flow writes that file, and the run's
+    identity counts it as the value (`flow.identity_settings`), so an unset setting and a
+    location are one run. A setting that switches its output on (unset: nothing is written)
+    is no such output."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:
         marker["x-xeda-output"] = conventional
+    if always:
+        if conventional is None:
+            raise ValueError("an output written always needs a conventional name")
+        marker["x-xeda-always"] = True
     return marker
 
 
@@ -608,6 +619,14 @@ def written_role(model: type[BaseModel], field: str) -> Optional[str]:
     extra = info.json_schema_extra if info is not None else None
     role = extra.get("x-xeda-writes") if isinstance(extra, dict) else None
     return role if isinstance(role, str) else None
+
+
+def written_always(model: type[BaseModel], field: str) -> bool:
+    """Whether `model`'s deliverable `field` is an output the flow writes even when the setting
+    is unset (`deliverable(always=True)`)."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    return isinstance(extra, dict) and extra.get("x-xeda-always") is True
 
 
 def conventional_output(model: type[BaseModel], field: str, design: str) -> Optional[PurePath]:

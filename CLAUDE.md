@@ -1460,7 +1460,18 @@ directory whatever it is given (`sim_dir`, `bobj_dir`, `impl_folder`, a log path
 always writes the fixed `conventional` name in the run directory (by convention
 `outputs/<design>.<ext>`; `flow.output_name`). `dataclass.written_role(model, field)` reads the
 marker back; `introspect`'s `writes` key (`"working"`/`"deliverable"`/`None`) exposes it through
-`xeda list-settings --json`. `tests/test_written_paths.py`'s `ROLES` is the one table of every
+`xeda list-settings --json`. **A run's identity is what it writes, never where it is delivered**
+(`flow.identity_settings`, read by `flowrun_hash`): a location counts as the conventional name,
+and a deliverable the flow writes in any case (`deliverable(..., always=True)`: `fpga_pack`'s
+`bitstream`, default `None`, no switch) counts as the conventional name when unset, so unset, a
+location and a second location are one run, and a fresh run still delivers. A setting that
+switches its output on (`vivado_synth`'s `bitstream`, `None` = nothing written) differs between
+unset and a location, as the outputs differ; a bare name is another file in the run directory,
+so another run. `ghdl_synth`'s `verilog_output` and `cxxrtl.filename` are always written but,
+unset, under their own `<top>.<ext>` and not the conventional name (CXXRTL's header is named after
+the file, and a C++ driver includes it): unset and a location are two runs there, pinned by
+`UNSET_UNDER_OWN_NAME` in `tests/test_deliverable_identity.py`, whose sweep covers every deliverable
+of every flow. `tests/test_written_paths.py`'s `ROLES` is the one table of every
 written field of every flow, bsc's four working locations (`bobj_dir`, `info_dir`,
 `verilog_out_dir`, `sim_dir`) included; a new written setting needs its role added there. A plain
 nested model's path fields (not only a `Flow.Settings`' own) expand `$PWD`/`$DESIGN_ROOT`/`$DESIGN_DIR` too, once,

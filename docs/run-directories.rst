@@ -585,6 +585,16 @@ artifacts, each at its path relative to the run directory. Renaming or moving a 
 destination therefore never re-runs the flow, and never changes what the tools do -- only where
 the copy lands.
 
+What the run is identified by is what it writes: whether it writes the output, and the name it
+writes it under in the run directory. A location adds nothing to that. So a run that is up to
+date delivers to a location you give it now, without running again, and giving a location, taking
+it away or changing it keeps the run, when the flow writes the output in any case. ``fpga_pack``
+always writes its bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers
+the file. A setting that switches an output on is different: ``vivado_synth`` writes no bitstream
+until ``bitstream`` is set, so the first location you give it runs the flow again, and the next
+ones do not. A name without a location (``-s bitstream=board.bit``) is another file in the run
+directory, so it is another run.
+
 A requested flow that writes no outputs -- a programmer, as in
 ``xeda run vivado_synth+openfpgaloader`` -- has nothing to deliver. ``--outputs-to`` is then
 refused before anything runs. The error names the setting whose location delivers the file the
