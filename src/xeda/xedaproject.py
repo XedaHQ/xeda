@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Type, Union
 import attrs
 
 from .dataclass import model_with_allow_extra
-from .design import DESIGN_FILE_FORMATS, Design
+from .design import DESIGN_FILE_FORMATS, Design, DesignValidationError
 from .utils import (
     ConflictingKeys,
     WorkingDirectory,
@@ -64,6 +64,7 @@ def resolve_project_file(
 #: the top-level keys of a project file: its designs and the settings of its flows, each of which
 #: may be spelled in the singular
 PROJECT_KEYS = ("designs", "design", "flows", "flow")
+DESIGN_KEYS = ("designs", "design")
 
 
 @attrs.define
@@ -115,10 +116,19 @@ class XedaProject:
                     data = json.load(f)
         if not isinstance(data, dict) or not data:
             raise ValueError("Invalid xedaproject!")
+        # the design entries are expanded where they are used, one by one, whether `design` is a
+        # table or a list of them
+        entries = {key: data.pop(key) for key in DESIGN_KEYS if key in data}
         try:
             data = expand_hierarchy(data)
         except ConflictingKeys as e:
             raise ValueError(f"project file {file}: {e}") from e
+        if any(key in data for key in DESIGN_KEYS):
+            raise ValueError(
+                f"project file {file}: a dotted key cannot reach into the design entries: "
+                "write each one under `designs:`"
+            )
+        data.update(entries)
         unknown = [key for key in data if key not in PROJECT_KEYS]
         if unknown:
             hints = [
@@ -164,7 +174,18 @@ class XedaProject:
                     )
             # a design entry is a table of dotted keys like a design file; expanded, a key to
             # remove has its field name
-            designs = [design_cls.expanded(d) for d in designs]
+            expanded = []
+            for i, d in enumerate(designs):
+                try:
+                    expanded.append(design_cls.expanded(d))
+                except DesignValidationError as e:
+                    raise ValueError(
+                        f"project file {file}: design entry {i}"
+                        + (f" ({d['name']})" if "name" in d else "")
+                        + ": "
+                        + "; ".join(str(message) for _, message, *_ in e.errors)
+                    ) from e
+            designs = expanded
             if design_allow_extra:
                 design_cls = model_with_allow_extra(design_cls)
             else:

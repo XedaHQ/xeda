@@ -2,6 +2,7 @@
 picking one of two accepted spellings or dropping bad entries.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -206,3 +207,54 @@ def test_a_dotted_key_at_the_root_of_a_project_reaches_its_flows(tmp_path):
     path = _write(tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clock.period: 5\n")
 
     assert XedaProject.from_file(path).flows == {"vivado_synth": {"clock": {"period": 5}}}
+
+
+CONFLICT = {"name": "d", "rtl": {"sources": ["top.vhd"], "top": "top"}, "tb": 3, "tb.top": "x"}
+
+
+def _project_with(tmp_path: Path, entry: dict, *, as_list: bool) -> Path:
+    return _write(
+        tmp_path,
+        PROJECT_FILE,
+        json.dumps({"design": [entry] if as_list else entry, "flows": {"ghdl_sim": {}}}),
+    )
+
+
+@pytest.mark.parametrize("as_list", [False, True], ids=["one design", "list of designs"])
+def test_a_design_entry_is_read_only_when_designs_are_wanted(tmp_path, as_list):
+    """Without the designs (`skip_designs`), an entry is not looked at, whichever form it has."""
+    path = _project_with(tmp_path, CONFLICT, as_list=as_list)
+
+    project = XedaProject.from_file(path, skip_designs=True)
+
+    assert project.designs == [] and project.flows == {"ghdl_sim": {}}
+
+
+@pytest.mark.parametrize("as_list", [False, True], ids=["one design", "list of designs"])
+def test_a_key_conflict_in_a_design_entry_names_the_file_and_the_entry(tmp_path, as_list):
+    path = _project_with(tmp_path, CONFLICT, as_list=as_list)
+
+    with pytest.raises(ValueError) as raised:
+        XedaProject.from_file(path)
+
+    message = str(raised.value)
+    assert str(path) in message and "design entry 0 (d)" in message
+    assert "`tb` is set to a value, and `tb.top`" in message
+
+
+def test_the_runner_reports_that_conflict_as_a_project_file_error(tmp_path):
+    from xeda.flow_runner import DefaultRunner
+    from xeda.xedaproject import ProjectFileError
+
+    path = _project_with(tmp_path, CONFLICT, as_list=True)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    with pytest.raises(ProjectFileError, match=r"Cannot load project file .*design entry 0 \(d\)"):
+        runner.plan("ghdl_sim", None, xedaproject=str(path))
+
+
+def test_a_dotted_key_cannot_reach_into_the_design_entries(tmp_path):
+    path = _write(tmp_path, PROJECT_FILE, DESIGN + "design.description: text\n")
+
+    with pytest.raises(ValueError, match=r"cannot reach into the design entries"):
+        XedaProject.from_file(path)
