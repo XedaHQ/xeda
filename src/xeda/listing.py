@@ -1,7 +1,8 @@
-"""The one walker of "every file under a directory": traces, directory listings, artifact
-files, delivery and the package digest all list with `directory_files`.
+"""The one walker for "every file under a directory".
 
-Standard library only, so that every module that lists a directory can import it.
+Traces, directory listings, artifact files, delivery and the package digest all list with
+`directory_files`. The module uses only the standard library, so every module that lists a
+directory can import it.
 """
 
 from __future__ import annotations
@@ -12,8 +13,8 @@ from pathlib import Path
 
 __all__ = ["VCS_METADATA", "directory_files"]
 
-#: What version control keeps in a working copy, which no tool reads: left out of a listing of a
-#: directory a setting names, so a commit or a fetch there is no change to a run.
+#: What version control keeps in a working copy, which no tool reads. A listing of a directory
+#: that a setting names leaves it out, so a commit or a fetch there does not change a run.
 VCS_METADATA = frozenset({".git", ".hg", ".svn"})
 
 
@@ -29,16 +30,24 @@ def directory_files(
     follow_links: bool = False,
     reserved: Callable[[str], bool] = _never,
 ) -> list[Path]:
-    """Every entry under `directory`, recursively, in the resolved directory, sorted by name at
-    each level: regular files, symbolic links (each as itself), subdirectories (each listed
-    before what it holds) and special files (a FIFO, a socket: listed, never read). With
-    `follow_links`, a link to a directory is listed and then walked, its entries by their path
-    through it, each directory once (`(st_dev, st_ino)`), so a cycle ends. A directory in
-    `prune` is not entered, however it is reached -- recognized by its `(st_dev, st_ino)`, not
-    its path, so a link to an ancestor does not lead into it; an entry named in `skip`, at any
-    depth, or `reserved` at the top, is left out. A directory that cannot be listed is an entry
-    with nothing under it (`directory` too): it cannot be recorded (`digest.record_file`), so
-    the next launch runs again."""
+    """Return every entry under `directory`, recursively, sorted by name at each level.
+
+    The paths start at the resolved directory. The entries are regular files, symbolic links
+    (each as itself), subdirectories (each listed before what it holds) and special files (a
+    FIFO or a socket: listed and never read).
+
+    With `follow_links`, a link to a directory is listed and then walked, and its entries are
+    named by their path through the link. Each directory is walked once, found by
+    `(st_dev, st_ino)`, so a cycle ends.
+
+    A directory in `prune` is not entered, however it is reached. It is found by
+    `(st_dev, st_ino)` and not by its path, so a link to an ancestor does not lead into it. An
+    entry named in `skip`, at any depth, is left out. An entry that `reserved` accepts is left
+    out at the top only.
+
+    A directory that cannot be listed (`directory` itself too) is an entry with nothing under it.
+    It cannot be recorded (`digest.record_file`), so the next launch runs again.
+    """
     top = Path(directory).resolve()
     pruned: set[tuple[int, int]] = set()
     for path in prune:

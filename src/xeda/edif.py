@@ -1,12 +1,11 @@
-"""What `vivado_impl` asks of an EDIF netlist before it hands the file to Vivado.
+"""The check that `vivado_impl` makes on an EDIF netlist before it hands the file to Vivado.
 
 An EDIF netlist keeps its cells in libraries. An `external` library only declares cells, the
-primitives of the target technology. A `library` defines the cells of the design, each with its
-`contents`. An instance names its cell and the library to find it in:
-`(cellRef core (libraryRef LIB))`.
+primitives of the device. A `library` defines the cells of the design, each with its `contents`.
+An instance names its cell and the library to find it in: `(cellRef core (libraryRef LIB))`.
 
-The reader streams the netlist: `modules_used_as_library_cells_in_file` reads the file a chunk at
-a time, and what the reader holds does not grow with the number of instances. It holds:
+The reader streams the netlist. `modules_used_as_library_cells_in_file` reads the file a chunk at
+a time, and the memory that the reader holds does not grow with the number of instances. It holds:
 
 - the chunk, and the word or string that ends it, which the next chunk completes (at most
   `_TOKEN_LIMIT` characters are held over);
@@ -14,13 +13,13 @@ a time, and what the reader holds does not grow with the number of instances. It
 - each distinct cell that the netlist defines with contents, and each distinct pair of a cell and
   a library that an instance names.
 
-So a netlist of millions of instances of a few cells takes the memory of one chunk and of those few
-cells, and a netlist of many distinct cells takes the memory of their names. Given the text itself
-(`modules_used_as_library_cells`), the reader makes no copy of it.
+A netlist of millions of instances of a few cells therefore takes the memory of one chunk and of
+those few cells. A netlist of many distinct cells takes the memory of their names. Given the text
+itself (`modules_used_as_library_cells`), the reader makes no copy of it.
 
-Text that is no EDIF can go beyond the limits, and the reader holds no more for it: it reads a word
-that is longer than the limit as several words, reads the text after a quote that has no pair as the
-text it is, and ignores the forms below the depth.
+Text that is not EDIF can go beyond the limits, and the reader holds no more for it. It reads a
+word that is longer than the limit as several words, reads the text after an unpaired quote as the
+text it is, and ignores the forms below the depth limit.
 """
 
 import re
@@ -30,48 +29,53 @@ from typing import Optional, Union
 
 __all__ = ["modules_used_as_library_cells", "modules_used_as_library_cells_in_file"]
 
-#: a parenthesis, a string (which may hold parentheses), or a word
+#: A parenthesis, a string (which may hold parentheses), or a word.
 _TOKEN = re.compile(r'\(|\)|"[^"]*"|[^\s()"]+')
-#: the characters read from a file at a time
+#: The number of characters read from a file at a time.
 _CHUNK = 1 << 14
-#: the most characters of a word or a string that the reader holds across two chunks. EDIF names
-#: are short, and so are its strings.
+#: The most characters of a word or a string that the reader holds across two chunks. EDIF names
+#: and strings are short.
 _TOKEN_LIMIT = 1 << 20
-#: the most forms that the reader holds open. An EDIF netlist nests about a dozen.
+#: The most forms that the reader holds open. An EDIF netlist nests about a dozen.
 _DEPTH_LIMIT = 1000
 
 
 class _Form:
-    """A form of the netlist that is still open: its keyword, its name (the first argument, a word
-    or a `(rename id "text")`) and what its children told it."""
+    """A form of the netlist that is still open.
+
+    It holds the keyword, the name (the first argument, a word or a `(rename id "text")`) and
+    what the children of the form told it.
+    """
 
     __slots__ = ("keyword", "name", "display", "arguments", "library", "has_contents")
 
     def __init__(self) -> None:
         self.keyword: Optional[str] = None
         self.name: Optional[str] = None
-        self.display: Optional[str] = None  # the text of a renamed name
+        self.display: Optional[str] = None  # text of a renamed name
         self.arguments = 0
-        self.library: Optional[str] = None  # of a `cellRef`: the library it names
-        self.has_contents = False  # of a `view` or a `cell`: it is defined, not only declared
+        self.library: Optional[str] = None  # library named by a `cellRef`
+        self.has_contents = False  # a `view` or `cell` that is defined, not only declared
 
 
 def modules_used_as_library_cells(source: Union[str, Iterable[str]]) -> list[str]:
-    """The modules that the netlist defines and that its instances refer to through an external
-    library, in the order they are first referred to; each as the netlist spells it.
+    """Return the modules that the netlist defines and that its instances refer to through an
+    external library.
 
-    Vivado looks a cell that an instance finds in an external library up among the primitives of
-    its device. A module the netlist defines, and refers to this way, is not among them. Vivado
-    takes it for a black box, and stops. This is how yosys writes a hierarchy: each module is
-    defined in the library `DESIGN` and referred to in the external library `LIB`. A netlist that
-    refers to a module in the library that defines it is a hierarchy that Vivado reads.
+    The modules are in the order of their first reference, each as the netlist spells it.
 
-    A cell that only an external library declares is no module of the netlist: a primitive and a
-    black box look alike in the file, and only Vivado knows the primitives. Text that is no EDIF
-    netlist has none.
+    Vivado looks up a cell that an instance finds in an external library among the primitives of
+    its device. A module that the netlist defines and refers to this way is not among them.
+    Vivado takes it for a black box and stops. This is how yosys writes a hierarchy: each module
+    is defined in the library `DESIGN` and referred to in the external library `LIB`. A netlist
+    that refers to a module in the library that defines it is a hierarchy that Vivado reads.
 
-    `source` is the text of the netlist, or the chunks of it, cut anywhere: the verdict is the
-    same. The module doc says what the reader holds in memory.
+    A cell that only an external library declares is not a module of the netlist. A primitive and
+    a black box look alike in the file, and only Vivado knows the primitives. Text that is not an
+    EDIF netlist has no such modules.
+
+    `source` is the text of the netlist, or chunks of it cut anywhere. The result is the same.
+    The module docstring says what the reader holds in memory.
     """
     return _modules(_tokens([source] if isinstance(source, str) else source))
 
@@ -79,9 +83,11 @@ def modules_used_as_library_cells(source: Union[str, Iterable[str]]) -> list[str
 def modules_used_as_library_cells_in_file(
     path: Union[str, PathLike[str]], *, chunk_size: int = _CHUNK
 ) -> list[str]:
-    """`modules_used_as_library_cells` of the netlist in the file `path`, read `chunk_size`
-    characters at a time, so that the file is never held. A byte that is no UTF-8 reads as the
-    replacement character."""
+    """Return `modules_used_as_library_cells` of the netlist in the file `path`.
+
+    The file is read `chunk_size` characters at a time, so the reader never holds the whole file.
+    A byte that is not UTF-8 reads as the replacement character.
+    """
     if chunk_size < 1:
         raise ValueError(f"chunk_size must be a positive number of characters, not {chunk_size}")
     with open(path, encoding="utf-8", errors="replace") as stream:
@@ -89,14 +95,16 @@ def modules_used_as_library_cells_in_file(
 
 
 def _tokens(chunks: Iterable[str]) -> Iterator[str]:
-    """The tokens of the text that `chunks` make up: the ones that one scan of the whole text
-    makes (`_TOKEN`), whatever the chunks are.
+    """Yield the tokens of the text that `chunks` make up.
+
+    These are the tokens that one scan of the whole text makes (`_TOKEN`), whatever the chunks
+    are.
 
     A chunk can end in a token. The reader keeps the end of the text from the start of a token
-    that may go on in the next chunk -- the last token, if it touches the end, or a string that
-    is open -- and scans it again with the next chunk. Quotes pair from the start of a token, in
-    order, so a string is open at the end of a text exactly when the quotes in it are odd in
-    number.
+    that may go on in the next chunk and scans it again with the next chunk. That token is the
+    last token, if it touches the end, or a string that is open. Quotes pair in order from the
+    start of a token, so a string is open at the end of a text exactly when the number of quotes
+    in it is odd.
     """
     held = ""
     for chunk in chunks:
@@ -115,20 +123,20 @@ def _tokens(chunks: Iterable[str]) -> Iterator[str]:
         if last is not None:
             token = last.group()
             if end == len(text) and last.end() == end and len(token) <= _TOKEN_LIMIT:
-                held = token  # the last token ends the text: a word may go on in the next chunk
+                held = token  # a word may go on in the next chunk
             else:
                 yield token
-    for match in _TOKEN.finditer(held):  # the end of the text: what is left is whole
+    for match in _TOKEN.finditer(held):  # end of the text: what is left is whole
         yield match.group()
 
 
 def _modules(tokens: Iterable[str]) -> list[str]:
-    """The verdict of `modules_used_as_library_cells` on the tokens of a netlist."""
-    external: set[str] = set()  # the names of the external libraries
-    defined: dict[str, str] = {}  # the cells defined with contents: name -> as spelled
-    references: dict[tuple[str, str], None] = {}  # the distinct (cell, library) of each `cellRef`
+    """Return `modules_used_as_library_cells` for the tokens of a netlist."""
+    external: set[str] = set()  # names of the external libraries
+    defined: dict[str, str] = {}  # cells defined with contents: name -> as spelled
+    references: dict[tuple[str, str], None] = {}  # distinct (cell, library) of each `cellRef`
     forms: list[_Form] = []
-    ignored = 0  # the forms opened below `_DEPTH_LIMIT`
+    ignored = 0  # forms opened below `_DEPTH_LIMIT`
     for token in tokens:
         if token == "(":
             if len(forms) < _DEPTH_LIMIT:
@@ -170,7 +178,7 @@ def _close(
     defined: dict[str, str],
     references: dict[tuple[str, str], None],
 ) -> None:
-    """What a form that ends tells the netlist, and the form it is in."""
+    """Record what a form that ends tells the netlist and the form it is in."""
     keyword = form.keyword
     if keyword == "rename":
         if parent is not None and parent.arguments == 0 and form.name is not None:
