@@ -9,12 +9,13 @@ Docker can mount.
 
 import shutil
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Optional
 
 import pytest
 
 from xeda import Design
 from xeda.design import SourceType
+from xeda.dataclass import Field
 from xeda.flow import Flow, In, Out
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import GhdlSim, Modelsim, VivadoSynth, Yosys
@@ -295,7 +296,7 @@ def test_modelsim_native_runtime_contract(language, body, settings, passes, work
         assert flow.results["sim.ended_by"] == "unknown"
 
 
-def test_a_dockerized_consumer_reads_the_file_of_its_producer(work_dir) -> None:
+def test_a_dockerized_consumer_reads_the_files_of_its_producer_and_its_settings(work_dir) -> None:
     """The producer's run directory is a sibling of the consumer's: the container sees its file."""
     require_docker_image("alpine:latest")
     seen = []
@@ -323,6 +324,9 @@ def test_a_dockerized_consumer_reads_the_file_of_its_producer(work_dir) -> None:
 
             results_description: ClassVar[dict[str, str]] = {}
 
+            class Settings(Flow.Settings):
+                constraints: Optional[Path] = Field(None, description="A file it prints.")
+
             class Inputs(Flow.Inputs):
                 made: Path = In(
                     SourceType.Data,
@@ -336,6 +340,8 @@ def test_a_dockerized_consumer_reads_the_file_of_its_producer(work_dir) -> None:
 
             def run(self) -> None:
                 seen.append(self.cat.run_get_stdout(str(self.inputs.made)))
+                if self.settings.constraints is not None:
+                    seen.append(self.cat.run_get_stdout(str(self.settings.constraints)))
 
             def parse_reports(self) -> bool:
                 return True
@@ -343,7 +349,12 @@ def test_a_dockerized_consumer_reads_the_file_of_its_producer(work_dir) -> None:
         design = _design(
             work_dir / "design", "dk", {"sources": ["inv.v"], "top": "inv"}, **{"inv.v": INVERTER_V}
         )
-        flow = DefaultRunner(work_dir / "run").run_flow(Reader, design, {"dockerized": True})
+        outside = work_dir / "outside"
+        outside.mkdir()
+        (outside / "pins.xdc").write_text("a setting names this file")
+        flow = DefaultRunner(work_dir / "run").run_flow(
+            Reader, design, {"dockerized": True, "constraints": str(outside / "pins.xdc")}
+        )
 
     assert flow is not None and flow.succeeded
-    assert seen == ["made by the producer"]
+    assert seen == ["made by the producer", "a setting names this file"]

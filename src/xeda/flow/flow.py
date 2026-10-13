@@ -1320,22 +1320,39 @@ class Flow(metaclass=ABCMeta):
 
     def input_directories(self) -> List[Path]:
         """The existing directories that hold the files this flow reads from outside its run
-        directory: its declared inputs, once the launcher has filled them, and the files in
-        `implicit_inputs`. A dockerized tool mounts them read-only (`Tool.execute`).
+        directory. A dockerized tool mounts them read-only (`Tool.execute`). They are:
 
-        Each path is absolute as the tool is handed it. When a file is a link, the directory of
-        its target counts too. A directory comes once, in the order of the files."""
+        - the directory of each declared input, once the launcher has filled it, and of each file
+          in `implicit_inputs`;
+        - the directory of each existing file that a path-typed setting names, and each existing
+          directory that one names, as the trace records them
+          (`trace_inputs.setting_read_paths`). A setting that names what the flow writes is no
+          input.
+
+        Each path is absolute as the tool is handed it. When a path is a link, the directory of
+        its target counts too. A directory comes once, in the order of the paths."""
+        # The trace modules import `Flow`, so this import waits until the method runs.
+        from ..flow_runner.trace_inputs import setting_read_paths
+
         files: List[Path] = []
         for name in declared_inputs(type(self)):
             value = getattr(self.inputs, name, None)
             files.extend(value if isinstance(value, list) else [] if value is None else [value])
         files.extend(self.implicit_inputs)
+        named = [Path(os.path.abspath(f)) for f in setting_read_paths(self.settings, self.run_path)]
         found: Dict[Path, None] = {}
+
+        def add(directory: Path) -> None:
+            if directory.is_dir():
+                found[directory] = None
+
         for file in files:
             path = Path(os.path.abspath(self.run_path / file))
-            for directory in (path.parent, path.resolve().parent):
-                if directory.is_dir():
-                    found[directory] = None
+            add(path.parent)
+            add(path.resolve().parent)
+        for path in named:
+            for holder in (path, path.resolve()):
+                add(holder if holder.is_dir() else holder.parent)
         return list(found)
 
     @classmethod

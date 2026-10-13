@@ -537,8 +537,8 @@ class Tool(XedaBaseModel):
         """The directories that a container mounts read-only, per run.
 
         These are the design's and the directories of the flow's input files
-        (`Flow.input_directories`: the files of its producers, and the files that it registered as
-        implicit inputs). The tool writes only in the directory it runs in (the run directory),
+        (`Flow.input_directories`: the files of its producers, the files that it registered as
+        implicit inputs, and the files and directories that its settings name). The tool writes only in the directory it runs in (the run directory),
         and in a mount that the user configured writable. A directory that the run directory, the
         design's directories or a configured mount at the same path already holds is not mounted
         again. A

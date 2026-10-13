@@ -228,6 +228,20 @@ def _candidates(leaf: Any, roots: Sequence[Path]) -> list[Path]:
     return [path] if path.is_absolute() else [root / path for root in roots]
 
 
+def setting_candidates(settings: Flow.Settings) -> list[tuple[str, Path]]:
+    """Every place a path-typed setting the flow reads (`setting_path_leaves`) can name, with
+    the key path of the setting, as written and not resolved: an absolute path as itself, a
+    relative one under the design root and under the start directory. This is the one reading of
+    "a path a setting names": the trace's file and directory records and a container's mounts
+    all start from it."""
+    roots = _setting_roots(settings)
+    return [
+        (key, candidate)
+        for key, leaf in setting_path_leaves(settings, written=False)
+        for candidate in _candidates(leaf, roots)
+    ]
+
+
 def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
     """Return every existing file named by a path-typed setting that the flow reads, resolved.
 
@@ -235,12 +249,10 @@ def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
     relative path is looked up under the design root and under the start directory, and each
     candidate that exists counts. A setting that names what the flow writes (a role,
     `xeda.dataclass.written_role`) names no input."""
-    roots = _setting_roots(settings)
     found: dict[Path, set[str]] = {}
-    for key, leaf in setting_path_leaves(settings, written=False):
-        for candidate in _candidates(leaf, roots):
-            if candidate.is_file():
-                found.setdefault(candidate.resolve(), set()).add(key)
+    for key, candidate in setting_candidates(settings):
+        if candidate.is_file():
+            found.setdefault(candidate.resolve(), set()).add(key)
     return found
 
 
@@ -268,17 +280,28 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
     directory and every directory in it are left out, because their files are outputs of the
     run already. A directory that the flow writes (`reports_dir`, `sim_dir`: a role,
     `xeda.dataclass.written_role`) is no input."""
-    roots = _setting_roots(settings)
     run_dir = run_path.resolve()
     found: dict[Path, str] = {}
-    for key, leaf in setting_path_leaves(settings, written=False):
-        for candidate in _candidates(leaf, roots):
-            if candidate.is_dir():
-                resolved = candidate.resolve()
-                if resolved.is_relative_to(run_dir):
-                    continue
-                found.setdefault(resolved, key)
+    for key, candidate in setting_candidates(settings):
+        if candidate.is_dir():
+            resolved = candidate.resolve()
+            if resolved.is_relative_to(run_dir):
+                continue
+            found.setdefault(resolved, key)
     return [(key, directory) for directory, key in found.items()]
+
+
+def setting_read_paths(settings: Flow.Settings, run_path: Path) -> list[Path]:
+    """The existing files and directories that the path-typed settings the flow reads name
+    (`setting_candidates`), as written: the paths a tool is handed. A directory in the run
+    directory is left out, as in `setting_directories`."""
+    run_dir = run_path.resolve()
+    return [
+        candidate
+        for _key, candidate in setting_candidates(settings)
+        if candidate.is_file()
+        or (candidate.is_dir() and not candidate.resolve().is_relative_to(run_dir))
+    ]
 
 
 def setting_directory_listings(

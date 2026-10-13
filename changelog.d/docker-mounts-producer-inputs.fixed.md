@@ -1,2 +1,2 @@
-- A dockerized flow now mounts the directories of its input files read-only, so it reads the files
-  of its producers without a `Docker.mounts` entry.
+- A dockerized flow now mounts read-only the directories of its input files and of the files and
+  directories that its settings name, so it reads them without a `Docker.mounts` entry.

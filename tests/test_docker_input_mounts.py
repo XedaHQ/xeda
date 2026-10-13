@@ -8,11 +8,12 @@ command, so they need no Docker. `tests/test_dockerized.py` runs the same case i
 """
 
 from pathlib import Path
-from typing import Callable, ClassVar, List, Optional
+from typing import Callable, ClassVar, List, Optional, Tuple
 
 import pytest
 
 from xeda import Design
+from xeda.dataclass import WORKING, Field, deliverable
 from xeda.design import SourceType
 from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -50,6 +51,17 @@ class _Consumer(Flow):
 
     results_description: ClassVar[dict[str, str]] = {}
 
+    class Settings(Flow.Settings):
+        constraints: Optional[Path] = Field(None, description="A file it reads.")
+        include: Optional[Path] = Field(None, description="A directory it reads.")
+        libs: List[Tuple[str, Path]] = Field([], description="Library names and their files.")
+        scratch: Optional[Path] = Field(
+            None, description="A working location.", json_schema_extra=WORKING
+        )
+        report: Optional[Path] = Field(
+            None, description="A file it writes.", json_schema_extra=deliverable("outputs/r.txt")
+        )
+
     class Inputs(Flow.Inputs):
         made: Path = In(
             SourceType.Data,
@@ -73,6 +85,10 @@ class _Consumer(Flow):
         for action in CONSUMER_RUN:
             action(self)
         self.tool.run("arg", stdout=True)
+        if self.settings.report is not None:
+            (self.run_path / "outputs").mkdir(exist_ok=True)
+            (self.run_path / "outputs" / "r.txt").write_text("report\n")
+            self.artifacts["report"] = "outputs/r.txt"
 
     def parse_reports(self) -> bool:
         return True
@@ -129,9 +145,9 @@ def world(tmp_path, monkeypatch):
         yield tmp_path, design, commands
 
 
-def _launch(tmp_path, design, flow):
+def _launch(tmp_path, design, flow, **settings):
     runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    result = runner.launch_flow(flow, design, {"dockerized": True})
+    result = runner.launch_flow(flow, design, {"dockerized": True, **settings})
     assert result.succeeded
     return result
 
@@ -276,3 +292,82 @@ def test_a_linked_input_mounts_the_directory_of_its_target_too(world):
     read_only = _read_only(_volumes(commands))
     assert f"{link.parent}:{link.parent}" in read_only
     assert f"{target.parent.resolve()}:{target.parent.resolve()}" in read_only
+
+
+def _outside(tmp_path: Path) -> Path:
+    """A directory with a file, a subdirectory with a file, and nothing else of the design's."""
+    outside = tmp_path / "outside"
+    (outside / "include").mkdir(parents=True)
+    (outside / "include" / "defs.vh").write_text("defs\n")
+    (outside / "pins.xdc").write_text("pins\n")
+    (outside / "lib").mkdir()
+    (outside / "lib" / "cells.lib").write_text("cells\n")
+    return outside
+
+
+def test_the_directory_of_a_file_a_setting_names_is_mounted_read_only(world):
+    tmp_path, design, commands = world
+    outside = _outside(tmp_path)
+    _launch(tmp_path, design, _Consumer, constraints=str(outside / "pins.xdc"))
+    assert f"{outside}:{outside}" in _read_only(_volumes(commands))
+
+
+def test_a_directory_a_setting_names_is_mounted_read_only(world):
+    tmp_path, design, commands = world
+    outside = _outside(tmp_path)
+    _launch(tmp_path, design, _Consumer, include=str(outside / "include"))
+    read_only = _read_only(_volumes(commands))
+    assert f"{outside / 'include'}:{outside / 'include'}" in read_only
+    assert f"{outside}:{outside}" not in read_only
+
+
+def test_the_path_half_of_a_library_entry_is_mounted_and_its_name_is_not(world):
+    tmp_path, design, commands = world
+    outside = _outside(tmp_path)
+    _launch(tmp_path, design, _Consumer, libs=[["cells", str(outside / "lib" / "cells.lib")]])
+    read_only = _read_only(_volumes(commands))
+    assert f"{outside / 'lib'}:{outside / 'lib'}" in read_only
+    assert not any(v.startswith("cells") for v in read_only)
+
+
+def test_a_relative_setting_is_mounted_where_it_is_found(world):
+    tmp_path, design, commands = world
+    (design.design_root / "rtl").mkdir()
+    (design.design_root / "rtl" / "extra.v").write_text("x\n")
+    _launch(tmp_path, design, _Consumer, constraints="rtl/extra.v")
+    mounted = [v.removeprefix("--volume=").split(":")[0] for v in _volumes(commands)]
+    # the design root holds it already
+    assert mounted.count(str(design.design_root)) == 1
+    assert str(design.design_root / "rtl") not in mounted
+
+
+def test_a_working_or_deliverable_setting_is_not_mounted(world):
+    tmp_path, design, commands = world
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    _launch(tmp_path, design, _Consumer, scratch="scratch", report=str(destination / "r.txt"))
+    volumes = " ".join(_volumes(commands))
+    assert str(destination) not in volumes
+    assert "scratch" not in volumes
+
+
+def test_every_file_and_directory_the_trace_records_from_a_setting_is_held(world):
+    """The mounts and the trace's setting inputs come from one reading of the settings."""
+    from xeda.flow_runner.trace_inputs import setting_directories, setting_files
+
+    tmp_path, design, commands = world
+    outside = _outside(tmp_path)
+    consumer = _launch(
+        tmp_path,
+        design,
+        _Consumer,
+        constraints=str(outside / "pins.xdc"),
+        include=str(outside / "include"),
+        libs=[["cells", str(outside / "lib" / "cells.lib")]],
+    )
+    held = consumer.input_directories()
+    files = setting_files(consumer.settings)
+    directories = [d for _key, d in setting_directories(consumer.settings, consumer.run_path)]
+    assert len(files) == 2 and len(directories) == 1
+    assert all(f.parent.resolve() in {h.resolve() for h in held} for f in files)
+    assert all(d.resolve() in {h.resolve() for h in held} for d in directories)
