@@ -44,6 +44,7 @@ from xeda.flows import (
     Vcs,
     Verilator,
     VivadoPostsynthSim,
+    VivadoSim,
     VivadoSynth,
     Yosys,
     YosysFpga,
@@ -160,6 +161,13 @@ CASES: dict[str, Case] = {
     "vivado-sim-negative-time": Case(
         VivadoPostsynthSim, "not a nonnegative simulation time", {"prerun_time": "-1ns"}
     ),
+    "vivado-sim-saif-without-uut": Case(VivadoSim, "set `tb.uut`", {"saif": True}),
+    "vivado-postsynth-sim-saif-without-uut": Case(
+        VivadoPostsynthSim, "set `tb.uut`", {"saif": True}
+    ),
+    "vivado-postsynth-sim-timing-activity-without-uut": Case(
+        VivadoPostsynthSim, "set `tb.uut`", {"timing_sim": True}
+    ),
     "yosys-sta-without-flatten": Case(
         Yosys, "cannot be combined with flatten=false", {"sta": True, "flatten": False}
     ),
@@ -254,6 +262,26 @@ def test_a_producer_in_the_middle_of_a_chain_is_refused_before_the_first_produce
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
         runner.run(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
     assert not (tmp_path / "runs").exists() or not list((tmp_path / "runs").rglob("fake_vivado*"))
+
+
+@pytest.mark.parametrize("settings", [(), ("timing_sim=true",)])
+def test_the_activity_that_power_demands_needs_the_instance_to_record(
+    tmp_path, monkeypatch, settings
+):
+    """`vivado_power` switches the activity of the simulation on, and the simulation records the
+    instance `tb.uut`: a design without it is refused at planning, naming the setting to set."""
+    use_fake_tools(monkeypatch)
+    write_vivado_design(tmp_path)
+    design = tmp_path / "design.yaml"
+    design.write_text(design.read_text().replace("  uut: dut\n", ""))
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    flow_settings = [
+        *VIVADO_SETTINGS,
+        *(f"flows.vivado_postsynth_sim.{item}" for item in settings),
+    ]
+    with pytest.raises(FlowSettingsException, match="set `tb.uut`"):
+        runner.plan(VivadoPower, design, flow_settings=flow_settings)
+    assert not (tmp_path / "runs").exists()
 
 
 # ---------------------------------------------------------------------------------------------

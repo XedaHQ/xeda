@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from ...dataclass import WORKING, Field, waveform
-from ...design import DesignValidationError, SourceType
+from ...design import Design, DesignValidationError, SourceType
 from ...flow import Flow, FlowSettingsException, SimFlow, describe_results, NoReplacement
 from ...flow.sim import SimEvidence
 from ...units import convert_unit
@@ -103,6 +103,24 @@ class VivadoSim(Vivado, SimFlow):
         for name in ("vcd_scope", "vcd_level"):
             if getattr(settings, name) and settings.vcd is None:
                 raise FlowSettingsException(f"`{name}` selects what the VCD holds: set `vcd`")
+
+    @classmethod
+    def records_activity(cls, settings: Flow.Settings) -> bool:
+        """Whether the run records switching activity, which it does for the instance `tb.uut`."""
+        assert isinstance(settings, cls.Settings)
+        return settings.saif is not None
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a run that records switching activity for a design without `tb.uut`. The
+        scope of the recording is that instance."""
+        super().check_design_supported(design, settings)
+        if settings is not None and cls.records_activity(settings) and not design.tb.uut:
+            raise FlowSettingsException(
+                f"{cls.name} records the switching activity of the unit under test, and "
+                "`tb.uut` is not set: set `tb.uut` to the instance name of the unit under test "
+                "in the testbench"
+            )
 
     def has_evidence_adapter(self) -> bool:
         return True

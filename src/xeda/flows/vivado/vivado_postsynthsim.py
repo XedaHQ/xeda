@@ -64,6 +64,12 @@ class VivadoPostsynthSim(VivadoSim):
         )
 
     @classmethod
+    def records_activity(cls, settings: Flow.Settings) -> bool:
+        """A timing simulation records activity too, for `timing_saif`."""
+        assert isinstance(settings, cls.Settings)
+        return super().records_activity(settings) or settings.timing_sim
+
+    @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
         """Switch on an activity output when a consumer demands it.
 
