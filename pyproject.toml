@@ -82,7 +82,7 @@ xeda = "xeda.cli:cli"
 dev = ["pytest", "pytest-xdist", "jsonschema", "mypy", "black>=25.9", "isort", "pylint", "tox", "ruff>=0.17.0"]
 
 [build-system]
-requires = ["setuptools>=77", "wheel>=0.48.0", "setuptools_scm[toml]>=7.1"]
+requires = ["setuptools>=77", "wheel>=0.48.0", "setuptools_scm[toml]>=10.3.4"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
