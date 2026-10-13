@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -177,6 +178,49 @@ def test_nvc_default_evidence_captures_stderr_and_rejects_drain_and_error(tmp_pa
     )
     assert flow is not None and flow.succeeded is (body == "std.env.finish;")
     assert (flow.run_path / "sim.log").is_file()
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param(("vendor", "libs/vendor"), id="named-relative"),
+        pytest.param((None, "libs"), id="unnamed-relative"),
+        pytest.param(("vendor", "{root}/libs/vendor"), id="named-absolute"),
+        pytest.param((None, "{root}/libs"), id="unnamed-absolute"),
+    ],
+)
+def test_nvc_finds_a_library_through_lib_paths(tmp_path, entry):
+    """A named entry maps the library to its directory (`--map=NAME:PATH`). An unnamed entry is a
+    directory that holds library directories (`-L PATH`). A relative path is the design root's,
+    though nvc runs in the run directory."""
+    require_nvc_evidence()
+    (tmp_path / "libs").mkdir()
+    (tmp_path / "vendor_pkg.vhd").write_text(
+        "package vendor_pkg is constant K : integer := 7; end package;\n"
+    )
+    subprocess.run(
+        ["nvc", "--std=2008", "--work=vendor:libs/vendor", "-a", "vendor_pkg.vhd"],
+        cwd=tmp_path,
+        check=True,
+    )
+    (tmp_path / "tb.vhd").write_text(
+        "library vendor; use vendor.vendor_pkg.all;\n"
+        "entity tb is end; architecture a of tb is begin\n"
+        'process begin assert K = 7 report "bad constant" severity failure; std.env.finish;\n'
+        "end process; end;\n"
+    )
+    design = Design(
+        name="library",
+        design_root=tmp_path,
+        rtl={"sources": [tmp_path / "tb.vhd"], "top": "tb"},
+        tb={"top": "tb"},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    name, path = entry
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        Nvc, design, {"lib_paths": [(name, path.format(root=tmp_path))]}
+    )
+    assert flow is not None and flow.succeeded, flow.results.get("error")
 
 
 @pytest.mark.parametrize("value", [None, "note", "error", "failure"])

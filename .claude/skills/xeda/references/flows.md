@@ -53,7 +53,7 @@ Reports: `cocotb.tests`, `cocotb.errors`, `cocotb.failures`, `cocotb.skipped`, `
 
 Simulate a design with Synopsys VCS and judge it by runtime evidence. The flow runs `vcs` and `simv` as two steps, or as one step with `one_shot_run`. This adapter is documentation-only and is not verified against a licensed VCS release. A quiet `$finish(0)` and VHDL completion fail unless a native finish diagnostic is observable. UCLI time checkpoints alone do not establish HDL completion.
 
-41 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
+40 flow-specific settings (plus the common ones): `xeda list-settings vcs --json`
 
 Reports: `sim.evidence`, `sim.ended_by`, `sim.time`, `sim.time_unit`, `sim.errors`, `sim.warnings`
 

@@ -366,6 +366,7 @@ class GhdlSynth(Ghdl, SynthFlow):
     def init(self) -> None:
         ss = self.settings
         assert isinstance(ss, self.Settings)
+        self.resolve_lib_paths()
         if ss.verilog_output is not None:
             ss.verilog_output = self.process_path(
                 ss.verilog_output, subs_vars=True, resolve_to=None
@@ -665,6 +666,7 @@ class GhdlSim(Ghdl, SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
+        self.resolve_lib_paths()
 
     def has_evidence_adapter(self) -> bool:
         return not self.cocotb
@@ -683,7 +685,6 @@ class GhdlSim(Ghdl, SimFlow):
         sdf_root = ss.sdf.root if ss.sdf.root else design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
             if sdf_file:
-                assert sdf_root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
         if ss.wave:

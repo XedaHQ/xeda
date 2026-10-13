@@ -135,8 +135,8 @@ def _launch(flow_class, world, mp, settings: dict, launcher: dict):
     rtl, tb = DESIGNS.get(flow_class.name, SQRT_DESIGN)
     if flow_class.name in ("ghdl_sim", "nvc", "vivado_sim", "vcs", "vivado_power"):
         rtl, tb = PLAIN_TB_DESIGN  # a plain testbench, so that the stood-in simulator is reached
-        if flow_class.name == "vivado_power":
-            tb = {**tb, "uut": "uut"}  # the post-synthesis simulation needs the unit's instance
+        if flow_class.name in ("vivado_sim", "vivado_power"):
+            tb = {**tb, "uut": "uut"}  # the switching activity is recorded for the unit's instance
     settings = dict(settings)
     standard = settings.pop("__language", "2008")
     design = Design(

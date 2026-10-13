@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowFatalError, FlowSettingsException
+from xeda.flow import FlowFatalError, FlowSettingsError, FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Verilator
 from xeda.run_dir import RunDirectoryError
@@ -400,6 +400,55 @@ def test_a_failed_model_keeps_its_warning_evidence(tmp_path, own_driver):
     assert not flow.succeeded
     assert flow.results["error"]["type"] == "NonZeroExitCode"
     assert flow.results["sim.warnings"] == 1
+
+
+@pytest.mark.parametrize(
+    "optimize,expected",
+    [
+        (True, "-O3"),
+        (False, None),
+        (0, "-O0"),
+        (1, "-O1"),
+        (2, "-O2"),
+        (3, "-O3"),
+        ("0", "-O0"),
+        ("2", "-O2"),
+    ],
+)
+def test_optimize_is_the_level_that_follows_the_o_of_verilator(
+    tmp_path, commands, optimize, expected
+):
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        Verilator, design, {"optimize": optimize}
+    )
+    (command,) = [c for c in commands if c[0] == "verilator" and "--top-module" in c]
+    assert [a for a in command if a.startswith("-O")] == ([expected] if expected else [])
+
+
+@pytest.mark.parametrize(
+    "optimize,message",
+    [
+        ("-O2", "write `2`, not `-O2`"),
+        ("-O3", "write `3`, not `-O3`"),
+        ("s", "true, false or a level of 0, 1, 2 or 3"),
+        ("4", "true, false or a level of 0, 1, 2 or 3"),
+        (4, "true, false or a level of 0, 1, 2 or 3"),
+        (-1, "true, false or a level of 0, 1, 2 or 3"),
+        ("", "true, false or a level of 0, 1, 2 or 3"),
+        ("-O", "true, false or a level of 0, 1, 2 or 3"),
+    ],
+)
+def test_optimize_that_verilator_would_not_take_is_refused_before_it_runs(
+    tmp_path, optimize, message
+):
+    (tmp_path / "tb.sv").write_text("module tb; endmodule\n")
+    design = Design(name="tb", design_root=tmp_path, rtl={"sources": ["tb.sv"], "top": "tb"})
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    with pytest.raises(FlowSettingsError, match=message):
+        runner.plan("verilator", design, flow_settings={"optimize": optimize})
+    assert not (tmp_path / "runs").exists()
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from ..dataclass import (
 )
 from ..design import LANGUAGE_TYPES, Design, SourceType
 from ..units import convert_unit
+from ..utils import SDF
 from .flow import Flow, FlowSettingsException, registered_flows
 
 log = logging.getLogger(__name__)
@@ -322,6 +323,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
     unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
     class Settings(Flow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "waveform": "`vcd`",
+        }
         timeout: float | None = Field(
             None,
             gt=0,
@@ -340,7 +345,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
         )
         vcd: Union[str, Path, None] = Field(
             None,
-            alias="waveform",
             description="Write a VCD waveform to this file. `true` writes `dump.vcd`; a name "
             "without an extension gets `.vcd`; `false` or an empty name writes none. A simulator "
             "that cannot write VCD refuses it, and names its own waveform settings.",
@@ -438,7 +442,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
         A testbench written in a hardware description language (`LANGUAGE_TYPES`) needs
         `tb.top`, unless the simulator knows what to run without it
         (`runs_without_testbench_top`). Otherwise the simulator would simulate `rtl.top`, which
-        has no stimulus."""
+        has no stimulus. A simulator with an `sdf` setting needs the instance that an SDF file
+        annotates: `sdf.root`, or else `tb.uut`."""
         super().check_design_supported(design, settings)
         if design.tb.cocotb and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
@@ -464,6 +469,13 @@ class SimFlow(Flow, metaclass=ABCMeta):
                     f"holds {', '.join(src.file.name for src in hdl)} but `tb.top` is not set. "
                     "Set `tb.top` to the testbench's top module."
                 )
+        sdf = getattr(settings, "sdf", None)
+        if isinstance(sdf, SDF) and sdf.delay_items() and not sdf.root and not design.tb.uut:
+            raise FlowSettingsException(
+                f"{cls.name} annotates the design with an SDF file, and neither `sdf.root` nor "
+                "`tb.uut` is set: set `sdf.root`, or set `tb.uut` to the instance name of the "
+                "unit under test in the testbench"
+            )
 
     def __init__(
         self,

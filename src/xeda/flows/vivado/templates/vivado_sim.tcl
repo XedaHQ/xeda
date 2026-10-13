@@ -39,14 +39,10 @@ if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} -onfinish st
     errorExit $error
 }
 
-{%- if settings.saif %}
-puts "\n===========================( Setting up SAIF )==========================="
-{#- `VivadoSim.run` removes an earlier SAIF file in the run directory (`RunDirectory.remove`)
-    before the script runs, because `open_saif` does not replace one. #}
-open_saif {{settings.saif|tcl_word}}
-{%- endif %}
-
 {#- TODO: WDB support with `open_wave_database ${wdb_file}`. #}
+{#- `log_vcd` runs before the pre-run, so the VCD records from time 0. `open_saif` and `log_saif`
+    run after it, so the SAIF excludes the pre-run and its duration does not count it. Verified
+    with Vivado 2024.2. #}
 
 {%- if settings.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
@@ -106,6 +102,10 @@ if {$xeda_stop_fs >= 0 && [xedaTimeFs] >= $xeda_stop_fs} {set xeda_done 1}
 {%- endif %}
 
 {%- if settings.saif %}
+puts "\n===========================( Setting up SAIF )==========================="
+{#- `VivadoSim.run` removes an earlier SAIF file in the run directory (`RunDirectory.remove`)
+    before the script runs, because `open_saif` does not replace one. #}
+open_saif {{settings.saif|tcl_word}}
 puts "Adding nets to be logged in SAIF"
 set netlist_scope {{("./" ~ design.tb.uut)|tcl_word}}
 describe $netlist_scope

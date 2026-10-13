@@ -456,7 +456,7 @@ def test_a_producer_that_several_inputs_reach_by_default_is_not_said_to_leave_wi
         name="d",
         design_root=root,
         rtl={"sources": ["top.edf"], "top": "top", "clock": "clk"},
-        tb={"sources": ["tb.v"], "top": "tb"},
+        tb={"sources": ["tb.v"], "top": "tb", "uut": "dut"},
     )
     with pytest.raises(FlowSettingsException) as raised:
         DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(

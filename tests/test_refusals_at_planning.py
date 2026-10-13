@@ -39,11 +39,13 @@ from xeda.flows import (
     Bsc,
     BscSim,
     GhdlSim,
+    Modelsim,
     IseSynth,
     Nvc,
     Vcs,
     Verilator,
     VivadoPostsynthSim,
+    VivadoSim,
     VivadoSynth,
     Yosys,
     YosysFpga,
@@ -160,6 +162,31 @@ CASES: dict[str, Case] = {
     "vivado-sim-negative-time": Case(
         VivadoPostsynthSim, "not a nonnegative simulation time", {"prerun_time": "-1ns"}
     ),
+    "vivado-sim-saif-without-uut": Case(VivadoSim, "set `tb.uut`", {"saif": True}),
+    "vivado-postsynth-sim-saif-without-uut": Case(
+        VivadoPostsynthSim, "set `tb.uut`", {"saif": True}
+    ),
+    "vivado-postsynth-sim-timing-activity-without-uut": Case(
+        VivadoPostsynthSim, "set `tb.uut`", {"timing_sim": True}
+    ),
+    "nvc-library-without-directory": Case(
+        Nvc,
+        "no way to name a library without its directory",
+        {"lib_paths": [("vendor", None)]},
+        _vhdl,
+    ),
+    "vivado-sim-sdf-without-root-or-uut": Case(
+        VivadoSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
+    "ghdl-sim-sdf-without-root-or-uut": Case(
+        GhdlSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}, _vhdl
+    ),
+    "modelsim-sdf-without-root-or-uut": Case(
+        Modelsim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
+    "vivado-postsynth-sim-sdf-without-root-or-uut": Case(
+        VivadoPostsynthSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
     "yosys-sta-without-flatten": Case(
         Yosys, "cannot be combined with flatten=false", {"sta": True, "flatten": False}
     ),
@@ -254,6 +281,47 @@ def test_a_producer_in_the_middle_of_a_chain_is_refused_before_the_first_produce
     with pytest.raises(FlowSettingsException, match="conflicts with xsim runtime evidence"):
         runner.run(VivadoPower, tmp_path / "design.yaml", flow_settings=settings)
     assert not (tmp_path / "runs").exists() or not list((tmp_path / "runs").rglob("fake_vivado*"))
+
+
+@pytest.mark.parametrize("settings", [(), ("timing_sim=true",)])
+def test_the_activity_that_power_demands_needs_the_instance_to_record(
+    tmp_path, monkeypatch, settings
+):
+    """`vivado_power` switches the activity of the simulation on, and the simulation records the
+    instance `tb.uut`: a design without it is refused at planning, naming the setting to set."""
+    use_fake_tools(monkeypatch)
+    write_vivado_design(tmp_path)
+    design = tmp_path / "design.yaml"
+    design.write_text(design.read_text().replace("  uut: dut\n", ""))
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    flow_settings = [
+        *VIVADO_SETTINGS,
+        *(f"flows.vivado_postsynth_sim.{item}" for item in settings),
+    ]
+    with pytest.raises(FlowSettingsException, match="set `tb.uut`"):
+        runner.plan(VivadoPower, design, flow_settings=flow_settings)
+    assert not (tmp_path / "runs").exists()
+
+
+@pytest.mark.parametrize(
+    "flow,kind", [(VivadoSim, "verilog"), (GhdlSim, "vhdl"), (Modelsim, "verilog")]
+)
+def test_an_sdf_root_or_tb_uut_gives_the_sdf_annotation_its_instance(tmp_path, flow, kind):
+    with_root = flow.Settings.from_input({"sdf": {"max": "x.sdf", "root": "tb/dut"}})
+    flow.check_design_supported(_design(tmp_path / "plain", kind), with_root)
+    without_root = flow.Settings.from_input({"sdf": {"max": "x.sdf"}})
+    tb = {"sources": ["tb.vhd" if kind == "vhdl" else "tb.v"], "top": "tb", "uut": "dut"}
+    flow.check_design_supported(_design(tmp_path / "uut", kind, tb=tb), without_root)
+
+
+@pytest.mark.parametrize("name", [n for n in CASES if "uut" in n])
+def test_a_flow_built_directly_is_refused_as_planning_refuses_it(tmp_path, name):
+    """`SimFlow.__init__` runs `check_design_supported`, so the API path that skips planning gets
+    the same refusal, for the SAIF and the SDF checks alike."""
+    case = CASES[name]
+    design = case.design(tmp_path / "design")
+    with pytest.raises(case.error, match=case.match):
+        case.flow(case.settings, design, tmp_path / "run")
 
 
 # ---------------------------------------------------------------------------------------------

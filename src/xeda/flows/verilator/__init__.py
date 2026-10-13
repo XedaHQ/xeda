@@ -10,7 +10,7 @@ from random import randint
 from typing import Annotated, Any, ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 from ...cocotb import cocotb_toplevel
-from ...dataclass import WORKING, Field, waveform
+from ...dataclass import WORKING, Field, field_validator, waveform
 from ...design import Design, SourceType
 from ...flow import (
     Flow,
@@ -106,6 +106,9 @@ COVERAGE_FILE_ARGUMENT = "+verilator+coverage+file+"
 #: `$finish` in a `final` block. From 5.044, the main that `--main` generates passes `--threads` to
 #: the model's context.
 MIN_VERILATOR_VERSION = (5, 48)
+
+#: The levels that follow the `-O` of Verilator (`verilator --help`: -O0, -O1, -O2, -O3).
+OPTIMIZATION_LEVELS = ("0", "1", "2", "3")
 
 #: The trace formats, by the setting that selects each (Verilator's `--trace-<format>`).
 TRACE_FORMATS = ("vcd", "fst", "saif")
@@ -206,8 +209,30 @@ class Verilator(SimFlow):
         optimize: Union[bool, str, int] = Field(
             True,
             description="Optimization level for the generated model. `true` passes `-O3`, "
-            "`false` passes no `-O` option, and a level such as `2` passes `-O2`.",
+            "`false` passes no `-O` option, and a level of 0, 1, 2 or 3 passes `-O` with that "
+            "level. Write the level only: `2`, not `-O2`.",
         )
+
+        @field_validator("optimize")
+        @classmethod
+        def _optimize_is_a_level(cls, value: bool | str | int) -> bool | str | int:
+            """Accept `true`, `false` and a level that follows the `-O` of Verilator."""
+            if isinstance(value, bool) or str(value) in OPTIMIZATION_LEVELS:
+                return value
+            if (
+                isinstance(value, str)
+                and value.startswith("-O")
+                and value[2:] in OPTIMIZATION_LEVELS
+            ):
+                raise ValueError(
+                    f"`optimize` is the level that follows `-O`: write `{value[2:]}`, not `{value}`"
+                )
+            levels = f"{', '.join(OPTIMIZATION_LEVELS[:-1])} or {OPTIMIZATION_LEVELS[-1]}"
+            raise ValueError(
+                f"`optimize` is true, false or a level of {levels} (the `-O` of Verilator), "
+                f"not `{value}`"
+            )
+
         timing: bool = Field(
             True,
             description="Enable Verilator's `--timing` support for delays and non-blocking "
@@ -285,7 +310,6 @@ class Verilator(SimFlow):
         )
         vcd: Union[str, Path, None] = Field(
             None,
-            alias="waveform",
             description="Build the model with VCD tracing (`--trace-vcd`). `true` selects it; "
             "without cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own "
             "main) write and name the file, and a name or location here is refused. With cocotb, "
@@ -615,11 +639,10 @@ class Verilator(SimFlow):
         if ss.threads:
             args += ["--threads", ss.threads]
 
-        if ss.optimize:
-            if ss.optimize is True:
-                args += ["-O3"]
-            elif isinstance(ss.optimize, (str, int)):
-                args += [f"-O{ss.optimize}"]
+        if ss.optimize is True:
+            args += ["-O3"]
+        elif ss.optimize is not False:
+            args += [f"-O{ss.optimize}"]
 
         args += [
             "--x-initial",

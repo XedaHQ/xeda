@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,56 @@ def test_lib_paths_become_ghdl_search_directories(lib_paths, flags):
     whole pair used to be formatted in, as `-P('mylib', '/libs/b')`."""
     ss = GhdlSim.Settings(lib_paths=lib_paths)
     assert [f for f in ss.common_flags(VhdlSettings()) if f.startswith("-P")] == flags
+
+
+@pytest.mark.parametrize("flow_class", [GhdlSim, GhdlSynth])
+@pytest.mark.parametrize("given", ["libs", "{root}/libs"], ids=["relative", "absolute"])
+def test_ghdl_finds_a_library_through_lib_paths(tmp_path, flow_class, given):
+    """`-P<dir>` takes a directory that holds the library. A relative path is the design root's,
+    though GHDL runs in the run directory."""
+    require_ghdl()
+    (tmp_path / "libs").mkdir()
+    (tmp_path / "vendor_pkg.vhd").write_text(
+        "package vendor_pkg is constant K : integer := 7; end package;\n"
+    )
+    subprocess.run(
+        ["ghdl", "-a", "--std=08", "--work=vendor", "--workdir=libs", "vendor_pkg.vhd"],
+        cwd=tmp_path,
+        check=True,
+    )
+    if flow_class is GhdlSim:
+        source = "tb.vhd"
+        (tmp_path / source).write_text(
+            "library vendor; use vendor.vendor_pkg.all;\n"
+            "entity tb is end; architecture a of tb is begin\n"
+            '  process begin assert K = 7 report "bad constant" severity failure;\n'
+            "  std.env.finish; end process;\n"
+            "end;\n"
+        )
+        rtl = {"sources": [source], "top": "tb"}
+    else:
+        source = "top.vhd"
+        (tmp_path / source).write_text(
+            "library ieee; use ieee.std_logic_1164.all; use ieee.numeric_std.all;\n"
+            "library vendor; use vendor.vendor_pkg.all;\n"
+            "entity top is port (y : out std_logic_vector(3 downto 0)); end;\n"
+            "architecture a of top is begin y <= std_logic_vector(to_unsigned(K, 4)); end;\n"
+        )
+        rtl = {"sources": [source], "top": "top"}
+    design = Design(
+        name="library",
+        design_root=tmp_path,
+        rtl=rtl,
+        tb={"top": "tb"} if flow_class is GhdlSim else {},
+        language={"vhdl": {"standard": "2008"}},
+    )
+    settings = {"lib_paths": [("vendor", given.format(root=tmp_path))]}
+    if flow_class is GhdlSynth:
+        settings["verilog_output"] = "out.v"
+    flow = DefaultRunner(tmp_path / "runs", display_results=False).run_flow(
+        flow_class, design, settings
+    )
+    assert flow is not None and flow.succeeded, flow.results.get("error")
 
 
 def _vhdl_inverter(entity: str) -> str:

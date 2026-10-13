@@ -106,7 +106,6 @@ class Modelsim(SimFlow):
                 vsim_opts += ["-L", lib_name]
         sdf_root = ss.sdf.root if ss.sdf.root else tb.uut
         for dt, f in ss.sdf.delay_items():
-            assert sdf_root, "An SDF file needs an instance root: set `sdf.root` or `tb.uut`"
             vsim_opts.extend([f"-sdf{dt}", f"{sdf_root}={f}"])
         vsim_opts += [f"-g{k}={v}" for k, v in tb.parameters.items()]
 

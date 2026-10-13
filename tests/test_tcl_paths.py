@@ -82,7 +82,7 @@ def _design(root: Path) -> Design:
         name="d",
         design_root=root,
         rtl={"sources": rtl, "top": "top", "clock": "clk"},
-        tb={"sources": tb, "top": "tb"},
+        tb={"sources": tb, "top": "tb", "uut": "dut"},
     )
 
 
