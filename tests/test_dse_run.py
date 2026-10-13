@@ -603,3 +603,8 @@ def test_a_search_removes_its_log_handler_when_its_set_up_fails(tmp_path, monkey
     left = [handler for handler in root.handlers if handler not in before]
     root.handlers[:] = before  # a handler that was left must not outlive this test
     assert left == []
+
+
+def test_the_default_runtime_limit_of_a_search_is_twelve_hours():
+    """`max_runtime_minutes` is compared with `Timer.minutes`, so the default is in minutes."""
+    assert Dse.Settings().max_runtime_minutes == 12 * 60

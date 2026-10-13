@@ -77,7 +77,7 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 - `ReportedFailure`: a node's `results.json` says so when its reports or checks failed with no
   exception and no tool exit status, for example a tool that exited 0 and wrote no netlist. The
   top-level document says `FlowFailed`; consumers quote the message
-  (`dependency yosys_fpga failed: ...`).
+  (`producer yosys_fpga failed: ...`).
 - `MissingOutput`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `FlowFatalError`, naming
   the setting and path.
