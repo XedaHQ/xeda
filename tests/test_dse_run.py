@@ -2,7 +2,8 @@
 
 The unit tests around it stop short of running a flow: `Optimizer` stubs that return no batch,
 `FlowOutcome` pickled by hand. This runs the command as a user does -- a `pebble` process pool
-launching real flow runs, the Fmax search, `best.json` written as the search improves, and the
+launching real flow runs, the Fmax search, the best-run file written as the search improves
+(`fmax_<design>_<flow>_<timestamp>.json` in the run root), and the
 `--json` document -- and checks what comes out is one consistent, re-runnable record.
 """
 

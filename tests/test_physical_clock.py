@@ -72,8 +72,8 @@ def test_non_positive_freq_is_rejected_with_a_clear_message(freq):
     """A zero frequency must name the real problem, not look like an omitted `freq`.
 
     The validator tested `if freq:` rather than `if freq is not None:`, so 0 fell through to
-    the "Neither `freq` nor `period` was specified" branch -- which is untrue and points the user
-    at the wrong fix. Both truthiness tests mattered: a raw "0MHz" survives the first check and
+    the "Neither `freq` nor `period` was specified" branch. That message is untrue and points the
+    user at the wrong fix. Both truthiness tests mattered: a raw "0MHz" survives the first check and
     converts to 0.0, only to be swallowed by the second.
     """
     with pytest.raises((ValidationError, ValueError)) as excinfo:

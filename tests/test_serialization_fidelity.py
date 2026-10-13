@@ -490,7 +490,8 @@ def test_a_value_printed_under_json_is_the_value_xeda_writes_to_a_file(tmp_path)
 
 
 def test_a_dse_outcome_is_one_view_wherever_it_is_written(tmp_path):
-    """A search writes its best outcome to `best.json` as it improves, and the CLI prints the
+    """A search writes its best outcome to the best-run file as it improves
+    (`fmax_<design>_<flow>_<timestamp>.json`), and the CLI prints the
     same outcome in its `--json` document. Both used to build that view by hand -- one of them
     by dumping the outcome's `__dict__`, which left `run_path` as a `Path` for the encoder to
     stringify by luck rather than by rule."""

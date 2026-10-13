@@ -279,7 +279,8 @@ class FPGA(XedaBaseModel):
                     values["vendor"] = "lattice"
                     return values
             raise ValueError(
-                "Not enough information about the FPGA device. Give the `part` number, or at least "
-                "a `device`, a `vendor` or a known `family`."
+                "Not enough information about the FPGA device. Give the `part` number, a `device` "
+                "or a `vendor`, or a `family` that is one of spartan, artix, kintex, virtex, zynq, "
+                "ecp5, ice40 or ice5."
             )
         return values

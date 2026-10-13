@@ -56,7 +56,8 @@ def _purge_run(run_path: Path, run_root: Path, flow_name: str) -> None:
 
 
 # Slotted, as `attrs` does by default. An outcome crosses a process boundary (the worker builds
-# it, `pool.map` returns it) and is written to the best-run file of the search. It does both
+# it, `pool.map` returns it) and is written to the best-run file of the search
+# (`fmax_<design>_<flow>_<timestamp>.json` in the run root). It does both
 # without an instance `__dict__`: `attrs` generates `__getstate__` and `__setstate__` for
 # pickling, and JSON goes through `as_json_value()` below. A `__dict__` is not a serialization
 # format. It would leave `run_path` a `Path` for the encoder to stringify by luck, and nothing
@@ -75,7 +76,8 @@ class FlowOutcome:
 
         The outcome is written out and not left to whatever its `__dict__` holds. `run_path` is
         a `Path`, and the two places that serialize an outcome have to agree: the best-run file
-        that a search writes as it improves, and the `--json` document that the CLI prints.
+        that a search writes as it improves (`fmax_<design>_<flow>_<timestamp>.json` in the run
+        root), and the `--json` document that the CLI prints.
         """
         return {
             "settings": self.settings,
