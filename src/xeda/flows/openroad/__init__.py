@@ -124,11 +124,13 @@ class Openroad(AsicSynthFlow):
         )
         input_delay: Optional[float] = Field(
             None,
-            description="Input delay in picoseconds. Takes precedence over `input_delay_frac`.",
+            description="Input delay in picoseconds. Xeda converts it to the platform's time unit "
+            "in the generated constraints. Takes precedence over `input_delay_frac`.",
         )
         output_delay: Optional[float] = Field(
             None,
-            description="Output delay in picoseconds. Takes precedence over `output_delay_frac`.",
+            description="Output delay in picoseconds. Xeda converts it to the platform's time unit "
+            "in the generated constraints. Takes precedence over `output_delay_frac`.",
         )
         core_utilization: Optional[float] = Field(
             40.0,
@@ -398,6 +400,14 @@ class Openroad(AsicSynthFlow):
             if isinstance(value, str):
                 value = convert_unit(value, "picoseconds")
             return value
+
+        def delay_in_platform_unit(self, picoseconds: float) -> float:
+            """Return a delay given in picoseconds as a number of the platform's time unit, the
+            unit of the SDC that the flow writes."""
+            assert self.platform is not None
+            return convert_unit(
+                picoseconds, to_unit=self.platform.time_unit, from_unit="picosecond"
+            )
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:

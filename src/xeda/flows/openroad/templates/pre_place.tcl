@@ -140,7 +140,7 @@ source {{platform.pdn_tcl}}
 pdngen
 
 {% if settings.post_pdn_tcl %}
-source $::env(POST_PDN_TCL)
+source {{settings.post_pdn_tcl|tcl_word}}
 {% endif %}
 
 # Check all supply nets

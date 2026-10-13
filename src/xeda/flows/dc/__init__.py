@@ -259,7 +259,7 @@ class Dc(AsicSynthFlow):
             ss.hdlin["infer_multibit"] = ss.infer_multibit
         if "enable_hier_map" not in ss.hdlin:
             ss.hdlin["enable_hier_map"] = "true"
-        if "enable_upf_compatible_naming" not in ss.compile:
+        if "enable_upf_compatible_naming" not in ss.hdlin:
             ss.hdlin["enable_upf_compatible_naming"] = "true"  # improve the SAIF annotation
         if "vhdl_preserve_case" not in ss.hdlin:
             ss.hdlin["vhdl_preserve_case"] = "true" if ss.vhdl_preserve_case else "false"

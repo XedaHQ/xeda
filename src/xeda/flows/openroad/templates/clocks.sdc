@@ -14,12 +14,12 @@ create_clock -period {{ "%.3f"|format(clock_period) }} -name {{clock_name|tcl_wo
 set non_clock_inputs [lsearch -inline -all -not -exact $all_input_ports $clk_port]
 
 {% if settings.input_delay is not none %}
-set_input_delay  {{"%.3f"|format(settings.input_delay)}} -clock {{clock_name|tcl_word}} $non_clock_inputs
+set_input_delay  {{"%.3f"|format(settings.delay_in_platform_unit(settings.input_delay))}} -clock {{clock_name|tcl_word}} $non_clock_inputs
 {% elif settings.input_delay_frac is not none %}
 set_input_delay  [expr {{"%.3f"|format(settings.input_delay_frac)}} * {{"%.3f"|format(clock_period)}}] -clock {{clock_name|tcl_word}} $non_clock_inputs
 {% endif %}
 {% if settings.output_delay is not none %}
-set_output_delay {{"%.3f"|format(settings.output_delay)}} -clock {{clock_name|tcl_word}} $all_output_ports
+set_output_delay {{"%.3f"|format(settings.delay_in_platform_unit(settings.output_delay))}} -clock {{clock_name|tcl_word}} $all_output_ports
 {% elif settings.output_delay_frac is not none %}
 set_output_delay [expr {{"%.3f"|format(settings.output_delay_frac)}} * {{"%.3f"|format(clock_period)}}] -clock {{clock_name|tcl_word}} $all_output_ports
 {% endif %}
