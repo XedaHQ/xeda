@@ -98,14 +98,13 @@ class Dc(AsicSynthFlow):
     )
 
     class Settings(AsicSynthFlow.Settings):
-        #: The variables that `hdlin` and `compile` hold and that a setting of its own gives:
-        #: `(table, key)` -> the setting. The table refuses these keys, so a variable has one
-        #: spelling.
-        #: The `compile_<key>` variables that `optimization` presets on DC-NXT.
+        #: The `compile_<key>` variables that `optimization` presets on DC-NXT, by goal.
         optimization_presets: ClassVar[Dict[str, Dict[str, str]]] = {
             "area": {"high_effort_area": "true", "optimize_netlist_area": "true"},
             "speed": {"timing_high_effort": "true"},
         }
+        #: The `hdlin_<key>` variables that have a setting of their own: `(table, key)` -> the
+        #: setting. `hdlin` refuses these keys, so a variable has one spelling.
         variable_settings: ClassVar[Dict[Tuple[str, str], str]] = {
             ("hdlin", "infer_multibit"): "infer_multibit",
             ("hdlin", "vhdl_preserve_case"): "vhdl_preserve_case",
