@@ -1,14 +1,10 @@
-import itertools
 import logging
 import re
-from collections import OrderedDict
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import List
 
-from ...dataclass import Field, XedaBaseModel, input_names
+from ...dataclass import Field, input_names
 from ...design import SourceType
 from ...flow import Flow, FpgaSynthFlow
-from ...utils import HierDict, parse_xml
 from ..vivado import Vivado
 from ..vivado.vivado_sim import VivadoSim
 from ..vivado.vivado_synth import (
@@ -25,9 +21,6 @@ from ..vivado.vivado_synth import (
 log = logging.getLogger(__name__)
 
 
-StepsValType = Union[None, List[str], Dict[str, Any]]
-
-
 def vivado_synth_generics(parameters: dict) -> List[str]:
     generics = []
     for k, v in parameters.items():
@@ -37,11 +30,6 @@ def vivado_synth_generics(parameters: dict) -> List[str]:
             v = '\\"' + v + '\\"'
         generics.append(f"{k}={v}")
     return generics
-
-
-class RunOptions(XedaBaseModel):
-    strategy: Optional[str] = None
-    steps: Dict[str, StepsValType] = {}
 
 
 class VivadoProject(Vivado, FpgaSynthFlow):
@@ -151,86 +139,3 @@ class VivadoProject(Vivado, FpgaSynthFlow):
 
         A project file that a previous run left does not count (`Flow.report_file`)."""
         return self.report_file(self.run_path / f"{self.design.name}.xpr") is not None
-
-
-def parse_hier_util(
-    report: Union[Path, str],
-    skip_zero_or_empty=True,
-    skip_headers=None,
-) -> Optional[HierDict]:
-    """Parse a hierarchical utilization report into nested dictionaries, one per instance."""
-    table = parse_xml(
-        report,
-        tags_blacklist=["class", "style", "halign", "width"],
-        skip_empty_children=True,
-    )
-    if table is None:
-        return None
-
-    tr = table["RptDoc"]["section"]["table"]["tablerow"]  # type: ignore
-    hdr = tr[0]["tableheader"]  # type: ignore
-    headers: List[str] = [h["@contents"] for h in hdr]  # type: ignore
-    rows: List[HierDict] = tr[1:]  # type: ignore
-
-    select_headers: Optional[List[str]] = None
-    if skip_headers is None:
-        skip_headers = ["Logic LUTs"]
-    skip_headers.append("Instance")
-    if select_headers is None:
-        select_headers = [h for h in headers if h not in skip_headers]
-    assert select_headers is not None
-
-    def leading_ws(s: str) -> int:
-        return sum(1 for _ in itertools.takewhile(str.isspace, s))
-
-    def conv_val(v):
-        for t in (int, float):
-            try:
-                return t(v)
-            except ValueError:
-                continue
-        return v
-
-    def add_hier(d, cur_ws=0, i: int = 0, parent=None) -> int:
-        cur_dict = d
-        cur_mod = parent
-        while i < len(rows):
-            row = rows[i]
-            cells = row["tablecell"]
-            assert cells
-            lcontents = [cell["@contents"] for cell in cells]  # type: ignore
-            inst_name = lcontents[0]
-            assert inst_name
-            inst_ws = leading_ws(inst_name)
-
-            if inst_ws > cur_ws:
-                x = "@children"
-                if x not in cur_dict:
-                    cur_dict[x] = OrderedDict()
-                i = add_hier(cur_dict[x], inst_ws, i, cur_mod)
-                continue
-
-            if inst_ws < cur_ws:
-                return i  # pop
-
-            key_name = inst_name.strip()
-            if key_name not in d:
-                d[key_name] = OrderedDict()
-            cur_dict = d[key_name]
-            cur_dict.update(
-                OrderedDict(
-                    (k, vv)
-                    for k, v in zip(headers, lcontents)
-                    if k in select_headers and ((vv := conv_val(v)) or not skip_zero_or_empty)
-                )
-            )
-            # if parent:
-            #     cur_dict["@parent"] = parent
-            cur_mod = key_name
-            i += 1
-        return i
-
-    util_dict: OrderedDict[str, Any] = OrderedDict()
-    add_hier(util_dict)
-
-    return util_dict

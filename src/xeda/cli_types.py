@@ -20,43 +20,7 @@ _OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_]
 
 
 class ClickMutex(click.Option):
-    """An option with a mutual exclusion rule (`mutually_exclusive_with`) and a conditional
-    requirement (`required_if`)."""
-
-    def __init__(self, *args, **kwargs):
-        self.mutually_exclusive_with: list = kwargs.pop("mutually_exclusive_with", [])
-        self.required_if: list = kwargs.pop("required_if", [])
-        if self.mutually_exclusive_with:
-            kwargs["help"] = (
-                kwargs.get("help", "")
-                + "Option is mutually exclusive with "
-                + ", ".join(self.mutually_exclusive_with)
-                + "."
-            ).strip()
-        if self.required_if:
-            kwargs["help"] = (
-                kwargs.get("help", "")
-                + "Option is required only if "
-                + " or ".join(self.mutually_exclusive_with)
-                + " is specified "
-            ).strip()
-        super().__init__(*args, **kwargs)
-
-    def handle_parse_result(self, ctx, opts, args):
-        if self.name in opts:
-            for mutex_opt in self.mutually_exclusive_with:
-                if mutex_opt in opts:
-                    raise click.UsageError(
-                        f"Option {self.name} is mutually exclusive with {mutex_opt}."
-                    )
-        else:
-            for dependent_opt in self.required_if:
-                if dependent_opt in opts:
-                    raise click.UsageError(
-                        f"Option {self.name} is required when {dependent_opt} is specified."
-                    )
-
-        return super().handle_parse_result(ctx, opts, args)
+    """A plain command-line option; it adds no rule."""
 
 
 def _opaque_key_fields() -> frozenset[str]:

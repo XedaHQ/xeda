@@ -131,9 +131,6 @@ class SDF(XedaBaseModel):
     max: Optional[Path] = None
     typ: Optional[Path] = None
 
-    def __attrs_post_init__(self):
-        pass
-
     def delay_items(self) -> Iterable[Tuple[str, Union[Path, None]]]:
         """Return the `(delay_type, sdf_file)` pairs for the delay types that have a file."""
         return tuple(

@@ -914,30 +914,6 @@ def conventional_output(model: type[BaseModel], field: str, design: str) -> Opti
     return None
 
 
-def field(
-    default: Any = attrs.NOTHING,
-    *,
-    description: Optional[str] = None,
-    validator_: Optional[Callable[..., None]] = None,
-    converter: Optional[Callable[..., Any]] = None,
-    factory: Optional[Callable[[], Any]] = None,
-    on_setattr: Any = None,
-    **kwargs: Any,
-) -> Any:
-    metadata = None
-    if description is not None:
-        metadata = {"description": description}
-    return attrs.field(
-        default=default,
-        validator=validator_,
-        converter=converter,
-        factory=factory,
-        on_setattr=on_setattr,
-        metadata=metadata,
-        **kwargs,
-    )
-
-
 def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str, Any]:
     if isinstance(inst, BaseModel):
         assert filter_ is None

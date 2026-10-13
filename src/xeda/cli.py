@@ -713,13 +713,11 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
         path_type=Path,
     ),
     cls=ClickMutex,
-    # mutually_exclusive_with=["design_name"],
     help="Path to the Xeda design file of a single design.",
 )
 @click.option(
     "--design-name",
     cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a project file.",
 )
 @click.option(
@@ -1250,8 +1248,6 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 )
 @click.option(
     "--design-name",
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_file"],
     help="Specify design.name in case multiple designs are available in a xedaproject.",
 )
 @click.option(
@@ -1275,8 +1271,6 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
         allow_dash=False,
         path_type=Path,
     ),
-    # cls=ClickMutex,
-    # mutually_exclusive_with=["design_name"],
     help="Path to Xeda design file containing the description of a single design.",
 )
 @click.option(
