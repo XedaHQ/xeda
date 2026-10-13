@@ -314,6 +314,16 @@ def test_an_sdf_root_or_tb_uut_gives_the_sdf_annotation_its_instance(tmp_path, f
     flow.check_design_supported(_design(tmp_path / "uut", kind, tb=tb), without_root)
 
 
+@pytest.mark.parametrize("name", [n for n in CASES if "uut" in n])
+def test_a_flow_built_directly_is_refused_as_planning_refuses_it(tmp_path, name):
+    """`SimFlow.__init__` runs `check_design_supported`, so the API path that skips planning gets
+    the same refusal, for the SAIF and the SDF checks alike."""
+    case = CASES[name]
+    design = case.design(tmp_path / "design")
+    with pytest.raises(case.error, match=case.match):
+        case.flow(case.settings, design, tmp_path / "run")
+
+
 # ---------------------------------------------------------------------------------------------
 # The scan
 
