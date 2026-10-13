@@ -61,14 +61,14 @@ puts "Optimization: $OPTIMIZATION"
 
 set_app_var spg_enable_via_resistance_support true
 
+{%- set preset = settings.optimization_variables() %}
+{%- if preset %}
 if { [shell_is_dcnxt_shell] } {
-    if { $OPTIMIZATION == "area" } {
-        set_app_var compile_high_effort_area true
-        set_app_var compile_optimize_netlist_area true
-    } elseif { $OPTIMIZATION == "speed" } {
-        set_app_var compile_timing_high_effort true
-    }
+{%- for k,v in preset.items() %}
+    set_app_var {{("compile_" ~ k)|tcl_word}} {{v|tcl_word}}
+{%- endfor %}
 }
+{%- endif %}
 set_app_var search_path ". $search_path"
 set_app_var target_library ${TARGET_LIBRARY_FILES}
 set_app_var synthetic_library {dw_foundation.sldb}

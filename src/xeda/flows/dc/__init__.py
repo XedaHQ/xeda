@@ -101,6 +101,11 @@ class Dc(AsicSynthFlow):
         #: The variables that `hdlin` and `compile` hold and that a setting of its own gives:
         #: `(table, key)` -> the setting. The table refuses these keys, so a variable has one
         #: spelling.
+        #: The `compile_<key>` variables that `optimization` presets on DC-NXT.
+        optimization_presets: ClassVar[Dict[str, Dict[str, str]]] = {
+            "area": {"high_effort_area": "true", "optimize_netlist_area": "true"},
+            "speed": {"timing_high_effort": "true"},
+        }
         variable_settings: ClassVar[Dict[Tuple[str, str], str]] = {
             ("hdlin", "infer_multibit"): "infer_multibit",
             ("hdlin", "vhdl_preserve_case"): "vhdl_preserve_case",
@@ -137,7 +142,9 @@ class Dc(AsicSynthFlow):
         )
         sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
         optimization: Literal["area", "speed", "power", "none"] = Field(
-            "area", description="Optimization goal for synthesis."
+            "area",
+            description="Optimization goal for synthesis. On DC-NXT, `area` and `speed` also set "
+            "preset `compile_<key>` variables. A key in `compile` overrides the preset.",
         )
         compile_command: str = Field(
             "compile_ultra",
@@ -162,6 +169,12 @@ class Dc(AsicSynthFlow):
             "linking, before the constraints are read) and `finalize` (after the netlist is "
             "written).",
         )
+
+        def optimization_variables(self) -> Dict[str, str]:
+            """The `compile_<key>` variables that `optimization` sets: its preset, less the
+            keys that `compile` holds, which override the preset."""
+            preset = self.optimization_presets.get(self.optimization, {})
+            return {key: value for key, value in preset.items() if key not in self.compile}
 
         @field_validator("hooks")
         @classmethod
@@ -197,7 +210,8 @@ class Dc(AsicSynthFlow):
         compile: Dict[str, str] = Field(
             {},
             description="Values of the `compile_<key>` variables, by key, set before the "
-            "compile command runs. See the DC documentation.",
+            "compile command runs. A key here overrides the preset of `optimization`. See the DC "
+            "documentation.",
         )
         target_libraries: List[Path] = Field(
             [],

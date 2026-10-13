@@ -108,6 +108,22 @@ def test_both_areas_or_neither_are_accepted() -> None:
         Openroad.check_settings_supported(Openroad.Settings(platform="nangate45", **given))
 
 
+def test_clock_period_and_delays_keep_sub_picosecond_values(tmp_path, monkeypatch) -> None:
+    """Three decimals of a nanosecond turned a delay of 0.4 ps into 0 and rounded the period."""
+    flow = _launch_openroad(
+        tmp_path, monkeypatch, clock={"period": 2.0005}, input_delay=0.4, output_delay=1.25
+    )
+    sdc = (flow.run_path / "clocks.sdc").read_text()
+    assert "create_clock -period 2.000500 " in sdc
+    assert _sdc_delays(flow) == {"set_input_delay": "0.000400", "set_output_delay": "0.001250"}
+
+
+def test_relative_delays_use_the_period_with_the_same_digits(tmp_path, monkeypatch) -> None:
+    flow = _launch_openroad(tmp_path, monkeypatch, clock={"period": 2.0005})
+    sdc = (flow.run_path / "clocks.sdc").read_text()
+    assert "[expr 0.200 * 2.000500]" in sdc
+
+
 def _sdc_delays(flow) -> dict[str, str]:
     """The delay value that `clocks.sdc` gives to `set_input_delay` and `set_output_delay`."""
     delays = {}
@@ -125,7 +141,7 @@ def test_delays_in_picoseconds_are_converted_to_the_time_unit_of_the_platform(
     constraints wrote the number as it was: 100 ps became 100 ns."""
     flow = _launch_openroad(tmp_path, monkeypatch, input_delay=100, output_delay="0.25ns")
     assert flow.settings.platform.time_unit == "1ns"
-    assert _sdc_delays(flow) == {"set_input_delay": "0.100", "set_output_delay": "0.250"}
+    assert _sdc_delays(flow) == {"set_input_delay": "0.100000", "set_output_delay": "0.250000"}
 
 
 @pytest.mark.parametrize(
@@ -300,3 +316,42 @@ def test_the_other_variables_stay_settable_in_their_tables() -> None:
         compile={"seqmap_honor_sync_set_reset": "true"},
     )
     Dc.check_settings_supported(settings)
+
+
+PRESETS = {
+    "area": ("compile_high_effort_area", "compile_optimize_netlist_area"),
+    "speed": ("compile_timing_high_effort",),
+    "power": (),
+    "none": (),
+}
+
+
+@needs_tclsh
+@pytest.mark.parametrize("optimization", PRESETS)
+def test_dc_applies_the_preset_of_the_optimization_goal(
+    optimization, tmp_path, monkeypatch
+) -> None:
+    _, run_path = _run_dc(tmp_path, monkeypatch, optimization=optimization)
+    values = _app_vars(run_path)
+    every = {name for names in PRESETS.values() for name in names}
+    assert {name: values[name] for name in every if name in values} == {
+        name: "true" for name in PRESETS[optimization]
+    }
+
+
+@needs_tclsh
+@pytest.mark.parametrize("optimization", ["area", "speed"])
+def test_a_compile_key_overrides_the_preset_of_the_optimization_goal(
+    optimization, tmp_path, monkeypatch
+) -> None:
+    """The preset set the variable after the `compile` table, so the user's value was lost."""
+    names = PRESETS[optimization]
+    _, run_path = _run_dc(
+        tmp_path,
+        monkeypatch,
+        optimization=optimization,
+        compile={names[0].removeprefix("compile_"): "false"},
+    )
+    values = _app_vars(run_path)
+    assert values[names[0]] == "false"
+    assert all(values[name] == "true" for name in names[1:])
