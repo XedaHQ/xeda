@@ -209,8 +209,11 @@ nothing with it.
 
 ``lib_paths``
     Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
-    simulation flows use them. NVC uses the path only: it passes ``-L <path>``, where the path is a
-    directory that holds library directories, and it refuses an entry that has a name and no path.
+    simulation flows use them. GHDL and NVC take a relative path as relative to the design root.
+    GHDL passes ``-P<path>``, where the path is a directory that holds the library. NVC maps a
+    named entry to its directory (``--map=<name>:<path>``) and adds an unnamed path to its library
+    search path (``-L <path>``), a directory that holds library directories. NVC refuses an entry
+    that has a name and no path.
 
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
@@ -1371,7 +1374,9 @@ simulator; an error says to use ``vcd``.
      - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``. ``saif`` records the activity of
        the instance ``tb.uut``, so the design must set ``tb.uut``. Planning fails without it. That
        includes ``vivado_postsynth_sim`` with ``timing_sim`` and every ``vivado_power`` request,
-       which switch the activity on.
+       which switch the activity on. An SDF file needs ``sdf.root`` or ``tb.uut`` in the same way.
+       ``prerun_time`` runs the simulation before the SAIF file is opened, so the activity and
+       the duration of the SAIF file exclude that time. The VCD records from time 0.
    * - ``bsc_sim``
      - ``vcd``, on every backend. With the Verilator backend, a run whose driver wrote no
        ``dump.vcd`` fails.

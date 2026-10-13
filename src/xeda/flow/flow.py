@@ -1022,7 +1022,8 @@ class Flow(metaclass=ABCMeta):
         ] = Field(
             [],
             description="Additional libraries, as a list of (name, path) tuples. The name or the "
-            "path can be none, but not both.",
+            "path can be none, but not both. GHDL and NVC take a relative path as relative to "
+            "the design root.",
         )
         docker: Optional[str] = Field(
             None,
@@ -1758,6 +1759,16 @@ class Flow(metaclass=ABCMeta):
             self.process_path(path, subs_vars=True, resolve_to=self.design.design_root)
             for path in paths
         ]
+
+    def resolve_lib_paths(self) -> None:
+        """Resolve each relative path of `lib_paths` against the design root, as other path
+        settings are. A flow whose tool takes these paths calls this in `init()`, because the tool
+        runs in the run directory."""
+        resolved: List[Any] = [
+            (name, None if path is None else self.normalize_path_to_design_root(path))
+            for name, path in self.settings.lib_paths
+        ]
+        self.settings.lib_paths = resolved
 
     def process_path(
         self,

@@ -76,9 +76,10 @@ class VivadoSim(Vivado, SimFlow):
         )
         prerun_time: Optional[str] = Field(
             None,
-            description="Run the simulation for this long before SAIF logging starts, for "
-            'example "10ns". This skips the activity of an initial reset sequence. The VCD '
-            "(`vcd`) is not affected: it records from the start of the simulation.",
+            description="Run the simulation for this long before the SAIF file is opened, for "
+            'example "10ns". The activity of this time, such as an initial reset sequence, is '
+            "not in the SAIF file, and its duration does not include it. The VCD (`vcd`) is not "
+            "affected: it records from the start of the simulation.",
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
         xelab_log: Optional[Path] = Field(
@@ -113,14 +114,24 @@ class VivadoSim(Vivado, SimFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse a run that records switching activity for a design without `tb.uut`. The
-        scope of the recording is that instance."""
+        """Refuse a design without `tb.uut` when the run needs an instance of the unit under test.
+        The scope of a recorded switching activity is that instance, and so is the root of an SDF
+        annotation, unless `sdf.root` names another."""
         super().check_design_supported(design, settings)
-        if settings is not None and cls.records_activity(settings) and not design.tb.uut:
+        if settings is None or design.tb.uut:
+            return
+        assert isinstance(settings, cls.Settings)
+        if cls.records_activity(settings):
             raise FlowSettingsException(
                 f"{cls.name} records the switching activity of the unit under test, and "
                 "`tb.uut` is not set: set `tb.uut` to the instance name of the unit under test "
                 "in the testbench"
+            )
+        if settings.sdf.delay_items() and not settings.sdf.root:
+            raise FlowSettingsException(
+                f"{cls.name} annotates the netlist with an SDF file, and neither `sdf.root` nor "
+                "`tb.uut` is set: set `sdf.root`, or set `tb.uut` to the instance name of the "
+                "unit under test in the testbench"
             )
 
     def has_evidence_adapter(self) -> bool:

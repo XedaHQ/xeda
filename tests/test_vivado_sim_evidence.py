@@ -135,6 +135,22 @@ def test_vivado_prerun_is_capped_at_absolute_bound(tmp_path, monkeypatch, prerun
     assert flow.results["sim.time"] == 20_000
 
 
+def test_the_vcd_starts_before_the_prerun_and_the_saif_after_it(tmp_path, monkeypatch):
+    """The VCD records from time 0. The SAIF file is opened after the pre-run, so its activity and
+    its duration exclude it."""
+    flow = launch(
+        tmp_path,
+        monkeypatch,
+        "clock",
+        {"vcd": True, "saif": "activity.saif", "prerun_time": "10ns", "stop_time": "20ns"},
+    )
+    assert flow.succeeded
+    commands = [call[0] for call in fake_calls(flow.run_path)]
+    prerun = commands.index("run")
+    assert commands.index("open_vcd") < commands.index("log_vcd") < prerun
+    assert prerun < commands.index("open_saif") < commands.index("log_saif")
+
+
 @pytest.mark.parametrize("command", ["xvlog", "xelab", "xsim", "run", "close_vcd", "close_saif"])
 def test_vivado_script_errors_override_finish(tmp_path, monkeypatch, command):
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", command)

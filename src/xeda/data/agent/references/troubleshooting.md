@@ -107,7 +107,9 @@ A simulation passes only on recognized evidence that it ended, never on exit sta
   `2`, not `-O2` (refused, naming the level). Any other value is refused.
 - `vivado_sim` and `vivado_postsynth_sim` record `saif` (and the latter `timing_sim`, so a
   `vivado_power` request too) for the instance `tb.uut`. Without `tb.uut` planning fails: set
-  `tb.uut` to the instance name of the unit under test in the testbench.
+  `tb.uut` to the instance name of the unit under test in the testbench. An SDF file needs
+  `sdf.root` or `tb.uut` the same way. `prerun_time` opens the SAIF after the pre-run (the VCD
+  starts at time 0).
 - `vcs`: `ucli` was removed (Xeda always runs VCS with `-ucli`); `ucli_script` still sets the
   script that drives `simv`.
 - `nvc` needs a C++ compiler for non-cocotb runs. Its `exit_severity` was removed: use

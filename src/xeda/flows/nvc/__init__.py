@@ -244,8 +244,8 @@ class Nvc(SimFlow):
             if path is None:
                 raise FlowSettingsException(
                     f"`lib_paths` names the library {name} without a directory: nvc has no way "
-                    "to name a library without its directory. Give the directory that holds the "
-                    f"library directory `{name}`"
+                    "to name a library without its directory. Give the library directory too: "
+                    f"({name}, <directory of {name}>)"
                 )
         if settings.vcd is not None and settings.fst is not None:
             raise FlowSettingsException(
@@ -268,6 +268,7 @@ class Nvc(SimFlow):
         assert isinstance(ss, self.Settings)
         # a flow built directly skips planning, so check here
         self.check_settings_supported(ss)
+        self.resolve_lib_paths()
         if ss.fst is not None:
             ss.fst = self.process_path(ss.fst)
 
@@ -279,8 +280,10 @@ class Nvc(SimFlow):
             cf.append("--ignore-time")
         if ss.heap_size:
             cf += ["-H", ss.heap_size]
-        for _, path in ss.lib_paths:
-            cf += ["-L", str(path)]
+        # `--map=NAME:PATH` maps the library NAME to the library directory PATH. `-L PATH` adds the
+        # directory PATH, which holds library directories, to the library search path.
+        for name, path in ss.lib_paths:
+            cf += [f"--map={name}:{path}"] if name else ["-L", str(path)]
         if ss.messages:
             cf.append(f"--messages={ss.messages}")
         if ss.std_error:

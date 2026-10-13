@@ -174,6 +174,12 @@ CASES: dict[str, Case] = {
         {"lib_paths": [("vendor", None)]},
         _vhdl,
     ),
+    "vivado-sim-sdf-without-root-or-uut": Case(
+        VivadoSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
+    "vivado-postsynth-sim-sdf-without-root-or-uut": Case(
+        VivadoPostsynthSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
     "yosys-sta-without-flatten": Case(
         Yosys, "cannot be combined with flatten=false", {"sta": True, "flatten": False}
     ),
@@ -288,6 +294,15 @@ def test_the_activity_that_power_demands_needs_the_instance_to_record(
     with pytest.raises(FlowSettingsException, match="set `tb.uut`"):
         runner.plan(VivadoPower, design, flow_settings=flow_settings)
     assert not (tmp_path / "runs").exists()
+
+
+def test_an_sdf_root_or_tb_uut_gives_the_sdf_annotation_its_instance(tmp_path):
+    with_root = VivadoSim.Settings.from_input({"sdf": {"max": "x.sdf", "root": "tb/dut"}})
+    VivadoSim.check_design_supported(_design(tmp_path / "plain"), with_root)
+    without_root = VivadoSim.Settings.from_input({"sdf": {"max": "x.sdf"}})
+    VivadoSim.check_design_supported(
+        _design(tmp_path / "uut", tb={"sources": ["tb.v"], "top": "tb", "uut": "dut"}), without_root
+    )
 
 
 # ---------------------------------------------------------------------------------------------
