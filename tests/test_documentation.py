@@ -511,7 +511,7 @@ def _paragraph(path: Path, start: str) -> str:
     "relative,start",
     [
         ("src/xeda/data/agent/SKILL.md", "Shared settings on declared edges ("),
-        ("docs/flows.rst", "Along a declared edge, shared settings --"),
+        ("docs/flows.rst", "Along a declared edge, shared settings ("),
         ("CLAUDE.md", "- **Shared leaves agree along declared edges.**"),
         ("CHANGELOG.md", "- **Settings connected flows share ("),
     ],
