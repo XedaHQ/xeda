@@ -36,6 +36,8 @@ lines. Xeda accepts ordinary aliases and the explicit tags of the core schema. I
 keys, recursive aliases and other tags. Use two-space indentation, and write each source as one
 list item. TOML and JSON designs and projects are also accepted.
 
+.. _dotted-keys:
+
 A dotted key stands for nested tables: ``tb.top: x`` is the same as ``tb: {top: x}``. Dotted keys
 work in a design file, in a design entry and in the ``flows`` table of a project file, in a target
 and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with

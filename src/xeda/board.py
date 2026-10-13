@@ -140,8 +140,8 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
     other file Xeda reads (`utils.expand_hierarchy`). A key that holds a value and also has keys
     inside it (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, worded by
     `ConflictingKeys`. An unknown key is an error that names the board and the database, with the
-    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold a nonempty file name. An entry that is
-    not a table is returned as it is: the caller judges that.
+    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold a nonempty file name. An
+    entry that is not a table is returned as it is: the caller judges that.
     """
     if not isinstance(entry, dict):
         return entry
