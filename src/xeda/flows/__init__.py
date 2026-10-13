@@ -1,4 +1,4 @@
-# all Flow classes imported here can be used from FlowRunners and will be reported on the command-line help
+# Every built-in flow is imported here, so launchers can run it and `xeda list-flows` shows it.
 from __future__ import annotations
 
 import pkgutil

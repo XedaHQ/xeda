@@ -37,7 +37,7 @@ log -stdout ** Reading {{src}} **
 read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|read_path}}
     {% elif src.type.name == "SystemVerilog" %}
 log -stdout ** Reading {{src}} **
-        {#- plugin frontends (slang/uhdm) do not strip quotes: `verbatim_path` #}
+        {#- the slang and uhdm plugin front ends do not strip quotes, so use `verbatim_path` #}
         {%- if slang_plugin %}
 read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
@@ -49,9 +49,9 @@ read_verilog -sv -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join
 {% endif -%}
 {% endfor -%}
 
-{#- NOTE: unlike yosys' own frontends, the ghdl plugin does not strip surrounding
-    double quotes, and yosys' script tokenizer leaves that to each command, so
-    its arguments go through `ghdl_arg`/`verbatim_path`. #}
+{#- Unlike the front ends of yosys itself, the ghdl plugin does not strip surrounding double
+    quotes, and the script tokenizer of yosys leaves that to each command. So the arguments of
+    the plugin go through `ghdl_arg` and `verbatim_path`. #}
 {% set vhdl_files = sources|selectattr("type.name", "equalto", "Vhdl")|list -%}
 {% if vhdl_files -%}
 log -stdout ** Elaborating VHDL files **
@@ -66,14 +66,14 @@ read_liberty -lib {{lib|read_path}}
 {% endif -%}
 
 {#- `yosys_fpga` passes `verilog_libs`: `verilog_lib` without the entries that are a library the
-    target's pass reads itself, which it decides by the file each one is
-    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow
-    reads its `verilog_lib` as given. -#}
+    synthesis pass reads itself. It decides by the file that each entry names
+    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow reads
+    its `verilog_lib` as given. -#}
 {% for src in verilog_libs|default(settings.verilog_lib) -%}
 read_verilog -lib {{src|read_path}}
 {% endfor -%}
 
-{#- a VHDL top got its generics from GHDL, and has no parameters left #}
+{#- a VHDL top module got its generics from GHDL and has no parameters left #}
 {% if not top_is_vhdl() -%}
 {% for key, value in parameters.items() -%}
 chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
@@ -88,8 +88,8 @@ read_verilog -defer {{settings.clockgate_map|read_path}}
 read_systemverilog -link
 {% endif -%}
 {#- `synth_pass_only` (yosys_fpga) leaves the hierarchy and the checks to the synthesis pass,
-    which runs `hierarchy -check` in its own `begin` step. Every other flow including this
-    template passes nothing, so `default(false)` keeps their scripts as they are. -#}
+    which runs `hierarchy -check` in its own `begin` step. Every other flow that includes this
+    template passes nothing, so `default(false)` keeps their scripts unchanged. -#}
 {% if not synth_pass_only|default(false) -%}
 hierarchy -check {% if top -%} -top {{top}} {% else %} -auto-top {%- endif %}
 {% endif -%}

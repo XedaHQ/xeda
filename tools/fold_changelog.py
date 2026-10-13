@@ -70,15 +70,12 @@ _UNRELEASED_LIKE = re.compile(r"##\s*\[?unreleased\]?\s*", re.IGNORECASE)
 
 
 class ChangelogError(Exception):
-    """The fragments cannot be folded into the changelog. The message says why."""
-
-
-# ------------------------------------------------------------------------------ the convention
+    """An error for fragments that cannot be folded into the changelog; the message says why."""
 
 
 def fragment_paths(directory: Path) -> list[Path]:
-    """The entries of `directory` that must be fragments, by slug. That is every entry, hidden or
-    not, but the `NON_FRAGMENT_FILES`."""
+    """Return the entries of `directory` that must be fragments, sorted by slug. That is every
+    entry, hidden or not, except the `NON_FRAGMENT_FILES`."""
     if not directory.is_dir():
         return []
     return sorted(
@@ -88,12 +85,14 @@ def fragment_paths(directory: Path) -> list[Path]:
 
 
 def directory_problems(directory: Path) -> list[str]:
-    """What is wrong with the files of `directory`, as `fragment_problems` words it."""
+    """Return what is wrong with the files of `directory`, worded as `fragment_problems` does."""
     return [problem for path in fragment_paths(directory) for problem in fragment_problems(path)]
 
 
 def fragment_problems(path: Path) -> list[str]:
-    """What is wrong with `path` as a fragment, one sentence each. A good fragment has none."""
+    """Return what is wrong with `path` as a fragment, one sentence each.
+
+    A good fragment has no problem."""
     problems = _name_problems(path.name)
     if path.is_file():
         problems += _text_problems(path)
@@ -154,17 +153,14 @@ def _text_problems(path: Path) -> list[str]:
     return problems
 
 
-# ------------------------------------------------------------------------------------ the fold
-
-
 def fold(changelog: str, entries: Mapping[str, Sequence[str]], version: str, date: str) -> str:
-    """`changelog` with `entries` (fragment type -> bullets) added to the section for `version`.
+    """Return `changelog` with `entries` (fragment type -> bullets) added for `version`.
 
     The section is the `## [Unreleased]` one, renamed `## [<version>] - <date>`, or a new one
     above the newest release when the changelog has no such section. Each bullet goes to the end
-    of its type's `### <Type>` list, which a section without one gets in the order of `TYPES`.
-    Everything else stays as it was. A section with a heading twice, or with a list that holds
-    anything but bullets, is refused."""
+    of its type's `### <Type>` list. A section without that list gets it in the order of `TYPES`.
+    Everything else stays as it was. The function refuses a section that has a heading twice, and
+    a list that holds a line other than a bullet or its continuation."""
     if not _VERSION.fullmatch(version):
         raise ChangelogError(f"`{version}` is not a version as the tags spell it: use v0.5.0")
     if not _DATE.fullmatch(date):
@@ -191,8 +187,8 @@ def fold(changelog: str, entries: Mapping[str, Sequence[str]], version: str, dat
 
 
 def _section_to_fill(lines: list[str]) -> int:
-    """The index of the `## [Unreleased]` heading. Without one, make an empty section for it
-    above the newest release."""
+    """Return the index of the `## [Unreleased]` heading. Without one, make an empty section for
+    it above the newest release."""
     found = [i for i, line in enumerate(lines) if _UNRELEASED_LIKE.fullmatch(line)]
     for i in found:
         if lines[i] != UNRELEASED:
@@ -209,7 +205,7 @@ def _section_to_fill(lines: list[str]) -> int:
 
 
 def _section_end(lines: list[str], start: int) -> int:
-    """The index of the heading that follows the section at `start`, or the end of `lines`."""
+    """Return the index of the heading after the section at `start`, or the end of `lines`."""
     return next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
 
 
@@ -250,7 +246,7 @@ def _check_lists(lines: list[str], start: int) -> None:
 
 
 def _trim_blanks(lines: list[str], first: int, stop: int) -> int:
-    """`stop`, moved back over the blank lines that end `lines[first:stop]`."""
+    """Return `stop`, moved back over the blank lines that end `lines[first:stop]`."""
     while stop > first and not lines[stop - 1].strip():
         stop -= 1
     return stop
@@ -272,9 +268,6 @@ def _add_entries(lines: list[str], start: int, kind: str, block: list[str]) -> N
     else:
         at = _trim_blanks(lines, start + 1, end)
         lines[at:at] = ["", HEADINGS[kind], *block]
-
-
-# ------------------------------------------------------------------------------------- the CLI
 
 
 def main(argv: Sequence[str] | None = None, root: Path = ROOT) -> int:

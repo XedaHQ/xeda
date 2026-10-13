@@ -38,12 +38,12 @@ def get_hier(dct, dotted_path, default=None):
 
 
 class Dc(AsicSynthFlow):
-    """Synopsys Design Compiler (R) synthesis flow"""
+    """Synthesize a design for an ASIC with Synopsys Design Compiler."""
 
-    #: `num_cells_sequentual` is a long-standing misspelling: it is the name of the regex group
-    #: that parses the area report, so it is what has landed in `results.json` since v0.2.5.
-    #: Renaming it would break every script already reading it, so the correct spelling is added
-    #: alongside instead -- the same additive rule the canonical aliases follow everywhere else.
+    #: `num_cells_sequentual` is a misspelling. It is the name of the regex group that parses the
+    #: area report, so `results.json` has had it since v0.2.5. A rename would break the scripts
+    #: that read it. The correct spelling is added next to it, as for the canonical aliases of
+    #: every flow.
     results_canonical_aliases: Dict[str, Tuple[str, ...]] = {
         **AsicSynthFlow.results_canonical_aliases,
         "num_cells_sequential": ("num_cells_sequential", "num_cells_sequentual"),
@@ -110,13 +110,13 @@ class Dc(AsicSynthFlow):
                     "additional_search_path",
                 ),
                 NoReplacement(
-                    "xeda passed it to nothing. Set it in a TCL script that `hooks` names"
+                    "Xeda passed it to nothing (set it in a TCL script that `hooks` names)"
                 ),
             ),
         }
         log_file: Optional[Path] = Field(
             Path("dc.log"),
-            description="Path to the log file. If not set, the log will only be printed to stdout.",
+            description="Path of the log file. When not set, the log goes only to stdout.",
             json_schema_extra=WORKING,
         )
         dc_shell_name: str = Field(
@@ -125,7 +125,7 @@ class Dc(AsicSynthFlow):
         )
         no_init: bool = Field(
             True,
-            description="Don't load home and local .synopsys initialization files.",
+            description="Do not load the home and local `.synopsys` initialization files.",
         )
         sdc_files: List[Path] = Field([], description="List of user SDC constraint files.")
         optimization: Literal["area", "speed", "power", "none"] = Field(
@@ -133,7 +133,7 @@ class Dc(AsicSynthFlow):
         )
         compile_command: str = Field(
             "compile_ultra",
-            description="Synthesis command to run. Supported commands: 'compile', 'compile_ultra'",
+            description="Synthesis command to run: `compile` or `compile_ultra`.",
         )
         compile_args: List[str] = Field(
             [],
@@ -172,7 +172,7 @@ class Dc(AsicSynthFlow):
                 "infer_mux": "default",
                 "dont_infer_mux_for_resource_sharing": "true",
             },
-            description="Set hdlin_<key> variables. See the DC documentation for details.",
+            description="Values of the `hdlin_<key>` variables, by key. See the DC documentation.",
         )
         infer_multibit: Optional[str] = Field(
             "default_all",
@@ -189,7 +189,8 @@ class Dc(AsicSynthFlow):
                 "seqmap_honor_sync_set_reset": "true",
                 "optimize_unloaded_seq_logic_with_no_bound_opt": "true",  # allow unconnected registers to be removed
             },
-            description="Set compile_<key> variables. See the DC documentation for details.",
+            description="Values of the `compile_<key>` variables, by key. See the DC "
+            "documentation.",
         )
         target_libraries: List[Path] = Field(
             [],
@@ -197,23 +198,25 @@ class Dc(AsicSynthFlow):
             "refuses to launch without one.",
         )
         default_max_input_delay: Optional[float] = Field(
-            0.0, description="Default max delay to set on all non-clock input ports"
+            0.0, description="Default maximum delay of all non-clock input ports."
         )
         default_max_output_delay: Optional[float] = Field(
-            0.0, description="Default max delay to set on all output ports"
+            0.0, description="Default maximum delay of all output ports."
         )
         sdf_version: Optional[str] = Field(
             None,
-            description="SDF version to use for the SDF output. If not set (=None), the default version (2.1) will be used.",
+            description="SDF version of the SDF output. When not set, the default version (2.1) "
+            "is used.",
         )
         sdf_inst_name: Optional[str] = Field(
             None,
             description="Instance name to use for the SDF output.",
         )
-        # topographical mode settings
+        # Settings for topographical mode.
         topographical_mode: bool = Field(
             False,
-            description="Run synthesis in topographical mode. This mode is used for physical-aware synthesis and requires additional parameters to be set.",
+            description="Run synthesis in topographical mode (physical-aware synthesis). Design "
+            "Compiler needs `max_tluplus` and `tluplus_map` for it.",
         )
         min_routing_layer: Optional[int] = Field(
             None,
@@ -225,15 +228,17 @@ class Dc(AsicSynthFlow):
         )
         max_tluplus: Optional[Path] = Field(
             None,
-            description="Path to the Max TLUplus file to use for topographical mode. Required if topographical_mode is set to True.",
+            description="Path of the maximum TLUplus file for topographical mode. Required when "
+            "`topographical_mode` is true.",
         )
         min_tluplus: Optional[Path] = Field(
             None,
-            description="Path to the Min TLUplus file to use for topographical mode. Optional.",
+            description="Path of the minimum TLUplus file for topographical mode. Optional.",
         )
         tluplus_map: Optional[Path] = Field(
             None,
-            description="Path to the TLUplus (tech2itf) map file. Required if topographical_mode is set to True.",
+            description="Path of the TLUplus (tech2itf) map file for topographical mode. Required "
+            "when `topographical_mode` is true.",
         )
 
     def init(self):
@@ -270,12 +275,13 @@ class Dc(AsicSynthFlow):
     def run(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # prepend the generated constraints.sdc file to the list of user SDC files
-        # if you don't want to use the generated clock and I/O constraints, simply don't set
-        #   any PhysicalClock settings (clock.freq, etc) in the flow settings
+        # Put the generated `constraints.sdc` before the user SDC files. To skip the generated
+        # clock and I/O constraints, set no clock (`clock.period`, `clock.freq`, ...) in the
+        # flow settings.
         ss.sdc_files.insert(0, self.copy_from_template("constraints.sdc"))
         script_path = self.copy_from_template("dc_script.tcl")
-        # what `dc_script.tcl` writes on every run (it stops before synthesis without a top)
+        # `dc_script.tcl` writes these files in every run. It needs a top module and stops
+        # without one.
         top = self.design.rtl.top
         if top:
             self.artifacts.netlist = ss.outputs_dir / f"{top}.mapped.v"
@@ -336,7 +342,7 @@ class Dc(AsicSynthFlow):
             r"^\s*clock\s*(?P<clock_name>\w+)\s+\(\w+ edge\)\s+(?P<clock_time>\d+\.\d+)\s+(?P<clock_period>\d+\.\d+)\s*$"
         )
         max_report_path = self.settings.reports_dir / "mapped.timing.max.rpt"
-        max_report = self.report_file(max_report_path)  # only one this run wrote
+        max_report = self.report_file(max_report_path)  # only a report that this run wrote
         if max_report is not None:
             with open(max_report) as f:
                 for line in f.readlines():
@@ -367,11 +373,11 @@ class Dc(AsicSynthFlow):
                         break
         else:
             log.warning(
-                "Timing report %s was not found. Please check the synthesis run for errors.",
+                "Timing report %s was not found. Check the synthesis run for errors.",
                 max_report_path,
             )
         min_report_path = self.settings.reports_dir / "mapped.timing.min.rpt"
-        min_report = self.report_file(min_report_path)  # only one this run wrote
+        min_report = self.report_file(min_report_path)  # only a report that this run wrote
         if min_report is not None:
             with open(min_report) as f:
                 for line in f.readlines():
@@ -391,7 +397,7 @@ class Dc(AsicSynthFlow):
                         break
         else:
             log.warning(
-                "Timing report %s was not found. Please check the synthesis run for errors.",
+                "Timing report %s was not found. Check the synthesis run for errors.",
                 min_report_path,
             )
         if "clock_period" in self.results and "setup_wns" in self.results:
@@ -455,10 +461,10 @@ class Dc(AsicSynthFlow):
             r"^\s*Design\s+\(Hold\)\s+WNS:\s+(?P<wns>\d+\.\d+)\s+TNS:\s+(?P<tns>\d+\.\d+)\s+Number of Violating Paths:\s*(?P<nvp>\d+)"
         )
 
-        # placeholder for ordering
+        # Reserve the key's place in the order of the results.
         self.results["path_groups"] = None
 
-        qor_report = self.report_file(reportfile_path)  # only one this run wrote
+        qor_report = self.report_file(reportfile_path)  # only a report that this run wrote
         if qor_report is None:
             return False
         with open(qor_report) as rpt_file:

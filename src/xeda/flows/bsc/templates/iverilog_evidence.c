@@ -1,5 +1,6 @@
-/* Register before VVP loads its builtin task definitions. No end callback proves finish.
- * The CI capability gate compares these calls with the engine's native batch control flow.
+/* Register before VVP loads its built-in task definitions. An end callback does not prove that
+ * the simulation finished. The CI capability gate compares these calls with the native batch
+ * control flow of the engine.
  */
 #include <vpi_user.h>
 #include <stdint.h>

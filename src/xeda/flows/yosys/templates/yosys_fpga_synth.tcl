@@ -1,11 +1,11 @@
 yosys logger -notime
 {% include 'read_files.tcl' -%}
 
-{#- `synth_pass_only` runs the target's synthesis pass and nothing else, as
-    `yosys -p 'synth_<target> ...' <sources>` does: the pass elaborates, flattens, optimizes and
-    maps on its own. Every setting that would add a step before or after it is refused at launch
-    (`YosysFpga.Settings.synth_pass_only_conflicts`), so the blocks it would render are only
-    guarded here where the setting alone decides. #}
+{#- `synth_pass_only` runs the synthesis pass of the family and nothing else, as
+    `yosys -p 'synth_<family> ...' <sources>` does: the pass elaborates, flattens, optimizes and
+    maps on its own. The launcher refuses every setting that would add a step before or after the
+    pass (`YosysFpga.Settings.synth_pass_only_conflicts`), so this template guards a block only
+    where the setting alone decides. #}
 {% set pass_only = synth_pass_only|default(false) -%}
 
 {% if not pass_only -%}
@@ -20,7 +20,7 @@ yosys flatten
 
 {% include "post_rtl.tcl" -%}
 {% endif -%}
-{#- as in the `.ys` script, `stop_after == "rtl"` simply omits the rest -#}
+{#- as in the `.ys` script, `stop_after == "rtl"` omits the rest -#}
 {% if settings.stop_after != "rtl" -%}
 
 {% if not pass_only -%}
@@ -32,14 +32,14 @@ yosys opt -undriven -purge -keepdc -noff
 yosys opt_clean -purge
 {% endif -%}
 
-{#- ABC9 choices are computed in one place; pass-only may render an explicit script but omits
-    inferred flow3 and the clock-derived delay. #}
+{#- One method computes the ABC9 choices. Pass-only may render an explicit script, but it omits
+    the inferred flow3 and the delay derived from the clock. #}
 {% for command in settings.abc9_scratchpad() -%}
 yosys {{command}}
 {% endfor -%}
 
 yosys log -stdout "** FPGA synthesis for device {{settings.fpga|tcl_quote}} **"
-yosys log -stdout "*** Target: {{(settings.fpga.family or settings.fpga.vendor)|tcl_quote}} ***"
+yosys log -stdout "*** Family: {{(settings.fpga.family or settings.fpga.vendor)|tcl_quote}} ***"
 yosys {{synth_command|join(" ")}} {% if design.rtl.top %} -top {{design.rtl.top}}{% endif %}
 
 

@@ -1,10 +1,10 @@
-"""VCS runtime observations shared with the later bsc VCS adapter.
+"""VCS runtime observations that the `vcs` and `bsc_sim` flows share.
 
-Contract sources: Synopsys UCLI T-2022.06 (run, stop -command, senv, config
-endofsim) and VCS 2019 sections 14-43 and 14-118 (native SV task diagnostics).
-These interfaces are documentation-based here; no licensed VCS release was tested.
-Quiet $finish(0) and VHDL termination have no certified finish diagnostic and fail
-closed. A UCLI return, CPU summary or an end callback is never HDL completion.
+Contract sources: Synopsys UCLI T-2022.06 (`run`, `stop -command`, `senv`, `config endofsim`)
+and the VCS 2019 guide, sections 14-43 and 14-118 (native SV task diagnostics).
+These interfaces come from the documentation. No licensed VCS release was tested.
+A quiet `$finish(0)` and VHDL termination have no certified finish diagnostic, so they fail
+closed. A UCLI return, a CPU summary or an end callback never counts as HDL completion.
 """
 
 import logging
@@ -25,11 +25,12 @@ RUNTIME_SCRIPT = Path("vcs_runtime.tcl")
 def prepare_vcs_runtime(
     flow: Flow, *, setup: list[str], user_script: Path | None, stop_time: str | None
 ) -> Path:
-    """Write an owned UCLI wrapper; checkpoints observe time, not HDL finish.
+    """Write the owned UCLI wrapper script and return its path in the run directory.
 
-    A native time breakpoint's callback proves that the requested bound triggered;
-    equality of senv time alone cannot distinguish an unrelated break or queue drain.
-    Caller rejects a bound with arbitrary user/GUI control before invoking this helper.
+    The checkpoints observe simulation time, not the HDL finish. The callback of a native
+    time breakpoint shows that the requested bound triggered. Equal `senv time` alone cannot
+    tell that from an unrelated break or a drained event queue. The caller refuses a bound
+    together with arbitrary user or GUI control before it calls this function.
     """
     flow.run_directory.remove(RUNTIME_LOG)
     script = flow.run_directory.writable(RUNTIME_SCRIPT)
@@ -43,8 +44,8 @@ def prepare_vcs_runtime(
         "    puts XEDA_VCS_RUNTIME_END",
         "    flush stdout",
         "}",
-        # A user script commonly ends in quit. Observe time before it exits, retaining
-        # the vendor command and its arguments instead of replacing the process status.
+        # A user script often ends in `quit`. The wrapper observes the time before the exit.
+        # It keeps the vendor command and its arguments, so the process status stays the vendor's.
         "rename quit xeda_native_quit",
         "proc quit {args} {xeda_checkpoint; xeda_native_quit {*}$args}",
         *setup,
@@ -61,16 +62,16 @@ def prepare_vcs_runtime(
 
 
 def _native_time(text: str) -> int | None:
-    """UCLI prints uppercase units, unlike the shared SI quantity reader."""
+    """Parse a UCLI time as integral femtoseconds; UCLI prints uppercase units."""
     return parse_sim_time(text.lower().replace("sec", "s"))
 
 
 def parse_vcs_evidence(flow: Flow, path: str | Path = RUNTIME_LOG) -> SimEvidence | None:
-    """Read only this invocation's owned runtime section and native diagnostic forms.
+    """Read the runtime section that this invocation owns, and the native diagnostic forms.
 
-    Missing/malformed checkpoints fail closed. Partial timeout diagnostics remain
-    available, but cannot supply a passing end. Native severities override finish;
-    raw numeric task times have no known unit and are not converted using settings.
+    A missing or malformed checkpoint fails closed. The diagnostics of a timed-out run stay
+    available, but they cannot supply a passing end. A native severity overrides a finish.
+    A raw numeric task time has no known unit, so the settings do not convert it.
     """
     text = read_sim_log(flow, path)
     if text is None:
@@ -109,8 +110,8 @@ def parse_vcs_evidence(flow: Flow, path: str | Path = RUNTIME_LOG) -> SimEvidenc
             if stop:
                 evidence.ended_by = "error"
             continue
-        # SV severity tasks (2019 guide 14-43), and tagged VCS runtime errors.
-        # The latter also covers VHDL SIMERR diagnostics; it does not invent VHDL end.
+        # SV severity tasks (2019 guide 14-43) and tagged VCS runtime errors. The tagged form
+        # also covers VHDL SIMERR diagnostics. It does not infer a VHDL end.
         task = re.search(r'(Warning|Error|Fatal): "(.+)", (\d+): .+: at time \d+\s*$', line)
         tagged = re.fullmatch(r"(Warning|Error|Fatal)-\[[\w-]+\] (.+)", line)
         if task or tagged:
@@ -167,7 +168,7 @@ def parse_vcs_evidence(flow: Flow, path: str | Path = RUNTIME_LOG) -> SimEvidenc
             if limit is None:
                 return None
     if not complete:
-        # Preserve events from a failed/timeout invocation, without accepting finish.
+        # Keep the events of a failed or timed-out invocation, but accept no finish.
         return evidence
     if evidence.ended_by not in ("error", "fatal"):
         if native_finish:
@@ -178,7 +179,7 @@ def parse_vcs_evidence(flow: Flow, path: str | Path = RUNTIME_LOG) -> SimEvidenc
             evidence.ended_by = "stop_time"
         else:
             log.error(
-                "VCS reported no observable HDL finish or reached limit; quiet $finish(0) "
-                "and VHDL completion require a certified native diagnostic."
+                "VCS reported no observable HDL finish and reached no stop limit; a quiet "
+                "$finish(0) and VHDL completion need a native finish diagnostic."
             )
     return evidence

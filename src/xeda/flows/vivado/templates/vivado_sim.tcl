@@ -41,17 +41,17 @@ if { [catch {xsim ${snapshot_name} {{settings.sim_flags|join(' ')}} -onfinish st
 
 {%- if settings.saif %}
 puts "\n===========================( Setting up SAIF )==========================="
-{#- An earlier SAIF file in the run directory was removed before the script (`VivadoSim.run`,
-    `RunDirectory.remove`): `open_saif` does not replace one. #}
+{#- `VivadoSim.run` removes an earlier SAIF file in the run directory (`RunDirectory.remove`)
+    before the script runs, because `open_saif` does not replace one. #}
 open_saif {{settings.saif|tcl_word}}
 {%- endif %}
 
-{#- ## TODO: WDB support: open_wave_database ${wdb_file} #}
+{#- TODO: WDB support with `open_wave_database ${wdb_file}`. #}
 
 {%- if settings.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
 open_vcd {{settings.vcd|tcl_word}}
-## Vivado (tested on 2020.1) crashes if using * and shared/protected variables are present
+## Vivado crashes (tested on 2020.1) when using * and shared or protected variables are present
 ## log_vcd [get_objects -r -filter { type == variable || type == signal || type == internal_signal || type == in_port || type == out_port || type == inout_port || type == port } /*]
 log_vcd {%- if settings.is_quiet %} -quiet {%- elif settings.verbose %} -verbose {%- endif %} {%- if settings.vcd_level %} -level {{settings.vcd_level}} {%- endif %} {%- if settings.vcd_scope %} {{settings.vcd_scope|tcl_word}} {%- endif %}
 {%- endif %}

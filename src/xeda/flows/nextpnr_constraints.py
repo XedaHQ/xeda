@@ -1,4 +1,4 @@
-"""Ordered nextpnr constraints and a focused, non-evaluating clock syntax boundary."""
+"""Ordered nextpnr constraints, and a reader for their clock commands that evaluates no Tcl."""
 
 import json
 import re
@@ -11,7 +11,7 @@ from ..flow import FlowFatalError, PhysicalClock
 
 @dataclass(frozen=True)
 class SourceLine:
-    """The original file/setting and line corresponding to a merged line."""
+    """The file or setting, and the line in it, that a line of the merged text came from."""
 
     source: str
     line: int
@@ -22,7 +22,7 @@ class SourceLine:
 
 @dataclass(frozen=True)
 class Constraints:
-    """Constraint text with one origin per physical line, including generated clocks."""
+    """Constraint text with the origin of each line, generated clock lines included."""
 
     text: str = ""
     lines: tuple[SourceLine, ...] = ()
@@ -37,7 +37,7 @@ class Constraints:
         )
 
     def diagnostic(self, message: str) -> str:
-        """Annotate nextpnr's merged-file line references with their original locations."""
+        """Add the original location to each line number that nextpnr names in the merged text."""
 
         def original(match: re.Match[str]) -> str:
             line = int(match.group(1))
@@ -49,7 +49,7 @@ class Constraints:
 
 @dataclass(frozen=True)
 class ClockUse:
-    """One physical clock a launch constrains: its literal target and where it was given."""
+    """A physical clock that a launch constrains: its port or net name and its origin."""
 
     target: str
     kind: str  # "port" or "net"
@@ -57,7 +57,7 @@ class ClockUse:
 
 
 def merge_constraints(paths: Sequence[Path]) -> Constraints:
-    """Concatenate files in supplied order, inserting a newline at each file boundary."""
+    """Join the files in the order given, adding a newline after a file that lacks one."""
     merged = Constraints()
     for path in paths:
         try:
@@ -68,10 +68,11 @@ def merge_constraints(paths: Sequence[Path]) -> Constraints:
 
 
 def _commands(text: str):
-    """Split commands outside grouped words, retaining physical starting lines.
+    """Yield each command of the text with the line where it starts.
 
-    Tcl comments begin at a command boundary. LPF also accepts full-line comments.
-    Continuations are whitespace, without losing the original line count.
+    A command ends at a newline or a semicolon outside braces, brackets and quotes. A `#` at the
+    start of a command begins a comment (a Tcl comment, or a full-line comment of an LPF file).
+    A backslash before a newline joins two lines and keeps the line count right.
     """
     start = line = 1
     braces = brackets = 0
@@ -117,7 +118,7 @@ def _commands(text: str):
 
 
 def _words(command: str) -> list[str]:
-    """Tokenize grouped literal words, keeping delimiters for selector/list recognition."""
+    """Split a command into words. Braces, brackets and quotes group a word and stay in it."""
     words = []
     current = ""
     braces = brackets = 0
@@ -186,12 +187,13 @@ def reconcile_clocks(
     main_clock: PhysicalClock | None = None,
     uses: list[ClockUse] | None = None,
 ) -> tuple[Constraints, float | None, bool]:
-    """Reject overlapping clock authorities and generate the selected family's timing form.
+    """Refuse a clock that is constrained twice, and add constraints for the clocks of the settings.
 
-    Returns the pin constraints (including Xilinx generated clocks), the ECP5/iCE40/Nexus
-    main-clock frequency hint, and whether any physical timing constraint was provided.
-    Port declarations without a period do not supply timing. Every clock found, in the
-    settings or a file, is appended to ``uses`` when the caller supplies that list.
+    Return the pin constraints, the frequency hint, and whether any physical timing constraint
+    exists. For Xilinx, the pin constraints get a `create_clock` line for each clock of the
+    settings. For ECP5, iCE40 and Nexus, the hint is the frequency of the main clock. A clock
+    setting that has a port but no period adds no timing. Each clock found, in the settings or
+    in a file, is appended to `uses` when the caller gives that list.
     """
     nets = _net_bits(netlist, top)
     seen: dict[int | str, str] = {}
@@ -199,8 +201,8 @@ def reconcile_clocks(
 
     def register(target: str, kind: str, origin: str):
         nonlocal has_timing
-        # Direct names and indexed ports are literal; dynamic Tcl and wildcard selectors
-        # cannot be reconciled without evaluating a different language.
+        # A name or an indexed port is literal. A Tcl substitution or a wildcard needs a Tcl
+        # interpreter to resolve, so the selector is refused.
         if not target or any(c in target for c in "*$?") or target.startswith("["):
             raise FlowFatalError(
                 f"Ambiguous clock selector {target!r} at {origin}; use a literal unambiguous port constraint."
@@ -213,7 +215,7 @@ def reconcile_clocks(
                 if clock.period
             )
             raise FlowFatalError(
-                f"Unresolved NET clock {target!r} at {origin}; may overlap clocks {setting_clocks or 'in other files'}. Use a literal unambiguous PORT constraint."
+                f"Unresolved NET clock {target!r} at {origin}. It may overlap the clocks {setting_clocks or 'in other files'}. Use a literal unambiguous PORT constraint."
             )
         identities: Sequence[int | str] = bits if bits else (target,)
         for identity in identities:
@@ -277,8 +279,8 @@ def reconcile_clocks(
             if clock.period is not None:
                 assert clock.port is not None
                 port = clock.port
-                # A braced literal selector keeps bus brackets out of Tcl substitution.
-                # An additional list-word group preserves spaces in one port name.
+                # The braces around the port name keep bus brackets out of Tcl substitution.
+                # When the name has a space, an inner pair of braces keeps it one list element.
                 if any(c.isspace() for c in port):
                     port = "{" + port + "}"
                 pins = pins.append(

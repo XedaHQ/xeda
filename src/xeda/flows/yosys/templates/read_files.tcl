@@ -63,14 +63,14 @@ yosys read_liberty -lib {{lib|read_path}}
 {% endif -%}
 
 {#- `yosys_fpga` passes `verilog_libs`: `verilog_lib` without the entries that are a library the
-    target's pass reads itself, which it decides by the file each one is
-    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow
-    reads its `verilog_lib` as given. -#}
+    synthesis pass reads itself. It decides by the file that each entry names
+    (`YosysFpga.verilog_libraries_to_read`), whatever this script reads. Every other flow reads
+    its `verilog_lib` as given. -#}
 {% for src in verilog_libs|default(settings.verilog_lib) -%}
 yosys read_verilog -lib {{src|read_path}}
 {% endfor -%}
 
-{#- a VHDL top got its generics from GHDL, and has no parameters left #}
+{#- a VHDL top module got its generics from GHDL and has no parameters left #}
 {% if not top_is_vhdl() -%}
 {% for key, value in parameters.items() -%}
 yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.top}} {%- endif %}
@@ -85,8 +85,8 @@ yosys read_verilog -defer {{settings.clockgate_map|read_path}}
 yosys read_systemverilog -link
 {% endif -%}
 {#- `synth_pass_only` (yosys_fpga) leaves the hierarchy and the checks to the synthesis pass,
-    which runs `hierarchy -check` in its own `begin` step. Every other flow including this
-    template passes nothing, so `default(false)` keeps their scripts as they are. -#}
+    which runs `hierarchy -check` in its own `begin` step. Every other flow that includes this
+    template passes nothing, so `default(false)` keeps their scripts unchanged. -#}
 {% if not synth_pass_only|default(false) -%}
 yosys hierarchy -check {% if top -%} -top {{top}} {% else %} -auto-top {%- endif %}
 {% endif -%}

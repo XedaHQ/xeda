@@ -19,8 +19,8 @@ from .vivado_synth import (
 
 log = logging.getLogger(__name__)
 
-# curated options based on experiments and Vivado documentations
-# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
+# Options curated from experiments and the Vivado documentation, including
+# https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug901-vivado-synthesis.pdf
 strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
     "synth": {
         "Debug": {
@@ -75,7 +75,9 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "ExploreWithRemap"},
         },
         "Area": {
-            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts", but succeeds and post-impl sim is OK too
+            # In Vivado 2020.1, AreaOptimized_medium and AreaOptimized_high print the error message
+            # "unexpected non-zero reference counts" but succeed, and the post-implementation
+            # simulation passes.
             "synth": {
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
@@ -85,8 +87,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "ExploreArea"},
         },
         "AreaHigh": {
-            # AreaOptimized_medium or _high prints error messages in Vivado 2020.1: "unexpected non-zero reference counts",
-            # but succeeds and post-impl sim is OK too!
+            # See the comment on "Area" about the AreaOptimized directives.
             "synth": {
                 "control_set_opt_threshold": 1,
                 "shreg_min_size": 3,
@@ -96,7 +97,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             "opt": {"directive": "ExploreArea"},
         },
         "AreaPower": {
-            # see the comment above for AreaOptimized_medium directive
+            # See the comment on "Area" about the AreaOptimized directives.
             "synth": {
                 "control_set_opt_threshold": "1",
                 "shreg_min_size": "3",
@@ -133,7 +134,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
             # "power_opt": {},
         },
     },
-    # see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
+    # See https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug904-vivado-implementation.pdf
     "impl": {
         "Debug": {
             "place": {"directive": "RuntimeOptimized"},
@@ -197,7 +198,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         },
         "TimingAutoPlace1": {
             "place": {
-                # Only available since Vivado 2022.1
+                # Only available since Vivado 2022.1.
                 "directive": "Auto_1",
                 "timing_summary": True,
             },
@@ -214,7 +215,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         },
         "TimingAutoPlace2": {
             "place": {
-                # Only available since Vivado 2022.1
+                # Only available since Vivado 2022.1.
                 "directive": "Auto_2",
                 "timing_summary": True,
             },
@@ -231,7 +232,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
         },
         "TimingAutoPlace3": {
             "place": {
-                # Only available since Vivado 2022.1
+                # Only available since Vivado 2022.1.
                 "directive": "Auto_3",
                 "timing_summary": True,
             },
@@ -271,7 +272,7 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
                 "merge_equivalent_drivers": True,
             },
             "place_opt2": {"directive": "ExploreArea"},
-            # TODO: verify through post-impl timing simulation
+            # TODO: verify with a post-implementation timing simulation.
             "phys_opt": {"directive": "AggressiveExplore"},
             "route": {"directive": "Explore"},
         },
@@ -323,8 +324,8 @@ strategies: Dict[str, Dict[str, Optional[Dict[str, Any]]]] = {
 }
 
 
-#: The steps of each run of the non-project TCL scripts, in the order the script runs them. A step
-#: a strategy or the user does not give is `None`: the script leaves it out.
+#: The steps of each run of the non-project Tcl scripts, in the order the script runs them. A step
+#: that neither a strategy nor the user gives is `None`, and the script leaves it out.
 RUN_STEPS = {
     "synth": ["synth", "opt", "power_opt"],
     "impl": [
@@ -340,14 +341,16 @@ RUN_STEPS = {
 
 
 def expand_run_options(run: str, value: RunOptions) -> RunOptions:
-    """The options of the `run` (`synth` or `impl`) of a non-project TCL script, with the steps of
-    its strategy under the ones the user gave, and every step of the run named.
+    """Return the options of a run (`synth` or `impl`) with the steps of its strategy added.
 
-    A copy: this runs in a `mode="after"` validator, so `value` may be the caller's own
-    `RunOptions` instance, and expanding the strategy in place would grow the caller's `steps`
-    mapping. The steps of the strategy are copied as well: they are the module's, and whoever
-    gets the options owns them (the model happens to copy a mapping it validates; this does not
-    depend on it).
+    The steps that the user gave win over the steps of the strategy. Every step of the run gets an
+    entry, `None` if neither gave it.
+
+    The result is a copy. This function runs in a `mode="after"` validator, so `value` may be the
+    caller's own `RunOptions` instance, and expanding the strategy in place would grow the
+    caller's `steps` mapping. The function also copies the steps of the strategy. They belong to
+    the module, and the caller owns the result. (The model happens to copy a mapping that it
+    validates, but this function does not depend on that.)
     """
     value = value.model_copy(deep=True)
     if value.strategy:
@@ -364,24 +367,27 @@ def expand_run_options(run: str, value: RunOptions) -> RunOptions:
     return value
 
 
-#: Where the settings write the options of `synth_design` in `vivado_alt_synth`.
+#: The key of the settings that holds the options of `synth_design` in `vivado_alt_synth`.
 SYNTH_STEP_KEY = "synth.steps.synth"
 
 
 def synth_step_options(settings: Any) -> Dict[str, Any]:
-    """The `synth` step of the settings as a mapping of options: a copy, with a list of options
-    as the mapping of its items."""
+    """Return a copy of the `synth` step of the settings as a mapping of options.
+
+    A list of options becomes a mapping from each item to `None`."""
     steps = settings.synth.steps.get("synth")
     return {step: None for step in steps} if isinstance(steps, list) else deepcopy(steps or {})
 
 
 def synth_design_options(settings: Any) -> Dict[str, Any]:
-    """The options of `synth_design`: the `synth` step of the settings, and what the settings
-    derive, `-mode out_of_context` and `-flatten_hierarchy`. A copy, computed where the script is
-    rendered: the settings, and the module's strategies behind them, are not written."""
+    """Return the options of `synth_design`.
+
+    They are the `synth` step of the settings and what the settings derive (`-mode out_of_context`
+    and `-flatten_hierarchy`). The result is a copy, computed when the script is rendered, so
+    neither the settings nor the strategies of the module change."""
     options = synth_step_options(settings)
     if settings.out_of_context:
-        # the planning check's judgment again: a flow built directly is not planned
+        # repeat the planning check, because a flow built directly is not planned
         text = flatten_options(options)
         refuse_conflicts(type(settings), out_of_context_conflicts(SYNTH_STEP_KEY, text))
         if not synth_design_modes(text):
@@ -392,7 +398,7 @@ def synth_design_options(settings: Any) -> Dict[str, Any]:
 
 
 def alt_mode_conflicts(settings: Any) -> List[Tuple[str, str]]:
-    """What in the `synth` step of the settings gives `synth_design` a mode beside
+    """Return the options of the `synth` step that give `synth_design` a mode besides
     `out_of_context`."""
     if not settings.out_of_context:
         return []
@@ -421,21 +427,23 @@ def flatten_options(d) -> str:
 
 
 class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
-    """FPGA synthesis and implementation with AMD-Xilinx Vivado, in non-project mode.
+    """Synthesize and implement a design for an FPGA with Vivado in non-project mode.
 
-    A generated TCL script reads the design and runs synth_design through route_design on it in
-    memory, each step with the options its `synth`/`impl` strategy and steps give it, and reports
-    utilization and timing. See `vivado_synth` for the same in project mode.
+    A generated Tcl script reads the design and runs the steps from `synth_design` through
+    `route_design` in memory. Each step gets the options of its `synth` or `impl` strategy and
+    steps. The script reports utilization and timing. `vivado_synth` does the same in project
+    mode.
 
-    The outputs are switched as in `vivado_synth`, but this flow writes one SDF corner (the slow
-    one) and so declares no `sdf_min`: `write_netlist` writes the functional netlist
-    `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`);
+    Settings switch the outputs on as in `vivado_synth`. This flow writes one SDF corner (the
+    slow one), so it declares no `sdf_min`. `write_netlist` writes the functional netlist
+    `impl_funcsim.v` (`netlist`) and the constraints `impl.xdc` (`xdc_exported`).
     `write_timing_netlist` writes the timing netlist `impl_timesim.v` (`netlist_timing`) and
-    `impl_timesim.sdf` (`sdf`); `write_checkpoint` the three checkpoints (`checkpoint_synth`,
-    `checkpoint_place`, `checkpoint_route`); `bitstream` the bitstream.
+    `impl_timesim.sdf` (`sdf`). `write_checkpoint` writes the three checkpoints
+    (`checkpoint_synth`, `checkpoint_place`, `checkpoint_route`). `bitstream` writes the
+    bitstream.
     """
 
-    # Vivado's runs, whose status `vivado_synth` reports, are project mode's
+    # Only project mode has Vivado runs, so there is no run `status`.
     results_description = {
         key: text for key, text in VivadoSynth.results_description.items() if key != "status"
     }
@@ -453,16 +461,18 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
     )
 
     class Outputs(_VivadoSynthOutputs):
-        """One SDF corner: no `sdf_min`, which `VivadoSynth.Outputs` adds."""
+        """The declared outputs, with one SDF corner and no `sdf_min` (which `VivadoSynth.Outputs`
+        adds)."""
 
     class Settings(VivadoSynth.Settings):
         synth: RunOptions = Field(
             RunOptions(strategy="Default"),
-            description="Synthesis run options for the alternative TCL flow.",
+            description="Strategy and per-step options of the synthesis part of the Tcl script.",
         )
         impl: RunOptions = Field(
             RunOptions(strategy="Default"),
-            description="Implementation run options for the alternative TCL flow.",
+            description="Strategy and per-step options of the implementation part of the Tcl "
+            "script.",
         )
 
         @field_validator("tcl_files")
@@ -472,14 +482,14 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             if value:
                 raise ValueError(
                     "vivado_alt_synth runs Vivado in non-project mode, which has no fileset for "
-                    "TCL hooks to be added to: `tcl_files` is a setting of vivado_synth"
+                    "Tcl hooks: `tcl_files` is a setting of vivado_synth"
                 )
             return value
 
         @field_validator("set_synth_properties", "set_impl_properties", "show_available_strategies")
         @classmethod
         def _no_runs(cls, value, info):
-            """Reject the settings of a project's runs: non-project mode has none."""
+            """Reject the settings of a project's runs, because non-project mode has none."""
             if value:
                 raise ValueError(
                     "vivado_alt_synth runs Vivado in non-project mode, which has no runs to use "
@@ -504,17 +514,17 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
                 # "Drc 23-20",  # DSP without input pipelining
                 # "Netlist 29-345",  # Update IP version
             ],
-            description='Vivado message IDs to suppress, e.g. "Synth 8-7080". Suppressed '
-            "messages are not printed and never trigger `fail_critical_warning`.",
+            description='Vivado message IDs to suppress, for example "Synth 8-7080". Vivado does '
+            "not print suppressed messages, and they never trigger `fail_critical_warning`.",
         )
 
     @classmethod
     def mode_conflicts(cls, settings: Flow.Settings) -> List[Tuple[str, str]]:
-        """The options of `synth_design` are the `synth` step here, not a run property."""
+        """Return the mode conflicts of the `synth` step, which holds the `synth_design` options."""
         return alt_mode_conflicts(settings)
 
     def run(self):
-        """Render and execute the non-project Vivado synthesis steps."""
+        """Render the non-project Tcl script and run it in Vivado."""
         ss = self.settings
         assert isinstance(ss, self.Settings)
 
@@ -536,10 +546,10 @@ class VivadoAltSynth(VivadoSynth, FpgaSynthFlow):
             xdc_files=constraint_files(self, ss),
             synth_options=synth_options,
         )
-        # These are written by `vivado_alt_synth.tcl` whenever the setting that enables them is
-        # on (`write_checkpoint`/`write_netlist`/`write_timing_netlist`); record them here, since
-        # `VivadoAltSynth` does not override `parse_reports` (it inherits `VivadoSynth`'s, which
-        # only tracks `bitstream` and the reports/log globs). Each is also a declared output.
+        # `vivado_alt_synth.tcl` writes these files whenever their enabling setting is on
+        # (`write_checkpoint`, `write_netlist`, `write_timing_netlist`). Record them here,
+        # because `VivadoAltSynth` inherits `parse_reports` from `VivadoSynth`, which tracks only
+        # `bitstream` and the globs of the reports and logs. Each is also a declared output.
         paths = self.non_project_outputs()
         if ss.write_checkpoint:
             paths[CHECKPOINT_SYNTH] = ss.checkpoints_dir / "post_synth.dcp"

@@ -47,8 +47,9 @@ class AsicsPlatform(Platform):
     min_buf_cell: Optional[str] = None
     min_buf_ports: List[str] = []
     abc_driver_cell: Optional[str] = None
-    # `float`, not `int`: these are physical quantities and the bundled PDKs give them
-    # fractionally (asap7/nangate45 use 3.898 fF, a 22.4um halo); an `int` type rejects them.
+    # These fields are `float` because they are physical quantities, and the bundled PDKs give
+    # them fractionally (asap7 and nangate45 use 3.898 fF and a 22.4um halo). An `int` field
+    # rejects such values.
     abc_load_in_ff: Optional[float] = None
     max_ungroup_size: Optional[int] = None
     place_site: Optional[str] = None
@@ -103,9 +104,9 @@ class AsicsPlatform(Platform):
     @field_validator("time_unit")
     @classmethod
     def _time_unit_is_a_time(cls, value: str) -> str:
-        # Checked as it loads: a bad unit otherwise surfaces only once a run renders its SDC or
-        # scales the delays it parses from a report.
         """Validate that the platform time unit has time dimensions."""
+        # Check when the platform loads. A bad unit would surface only when a run renders its
+        # SDC file or scales the delays that it parses from a report.
         try:
             convert_unit(1.0, "ns", from_unit=value)
         except ValueError as e:
@@ -143,10 +144,10 @@ class AsicsPlatform(Platform):
     def _root_validator(cls, values):
         # log.debug("AsicsPlatform.root_validator: values=%s", str(values))
         # Keep the source expressions that make supply voltages corner-dependent, before
-        # `_validate_nets_voltages` collapses them to concrete floats for the selected corner.
-        # They are stored in a field rather than a `PrivateAttr` so they survive `model_dump()`
-        # -> `model_validate()`: a platform reloaded from `settings.json` or rebuilt by
-        # `Platform.with_absolute_paths` must still be able to `select_corner` faithfully.
+        # `_validate_nets_voltages` turns them into floats for the selected corner. They are
+        # stored in a field because a dump carries only fields: a platform reloaded from
+        # `settings.json` or rebuilt by `Platform.with_absolute_paths` must still run
+        # `select_corner` correctly.
         if not values.get("voltage_expressions_"):
             expressions = {}
             for field_name in ("pwr_nets_voltages", "gnd_nets_voltages"):
@@ -167,7 +168,7 @@ class AsicsPlatform(Platform):
             if v is not None and not isinstance(v, (list)):
                 values[k] = [v]
 
-        # migrate corner values **from root** to the default corner
+        # Move the corner values from the root to the default corner.
         corners = values.get("corner")
         default_corner = values.get("default_corner")
         if not corners:
@@ -179,13 +180,13 @@ class AsicsPlatform(Platform):
                 default_corner = DEFAULT_CORNER_FALLBACK
             values["corner"] = {default_corner: corner_settings}
         else:
-            # copy CornerSettings values in root to each corner
+            # Copy the root's `CornerSettings` values into each corner that lacks them.
             if not default_corner:
                 default_corner = first_key(corners)
             for k in CornerSettings.model_fields.keys():
                 if k in values:
                     v = values.pop(k)
-                    assert isinstance(corners, dict), "expecting ``corners to be a dict"
+                    assert isinstance(corners, dict), "expecting `corners` to be a dict"
                     for corner_name in corners.keys():
                         cs = corners[corner_name]
                         if k not in cs:
@@ -226,8 +227,8 @@ class AsicsPlatform(Platform):
     def select_corner(self, corner: str) -> None:
         """Select `corner` and re-evaluate every value derived from a corner's properties.
 
-        Assigning `default_corner` alone is not enough: supply voltages such as ASAP7's
-        ``pwr_nets_voltages = {VDD = "$(VOLTAGE)"}`` were resolved against whichever corner was
+        Assigning `default_corner` alone leaves stale values. Supply voltages such as ASAP7's
+        `pwr_nets_voltages` (`{VDD: "$(VOLTAGE)"}`) were resolved against the corner that was the
         default when the platform loaded, and pydantic re-runs only the validator of the field
         being assigned.
         """

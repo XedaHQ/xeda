@@ -334,5 +334,5 @@ def test_vivado_native_diagnostics_after_partial_output(
 def test_vivado_cannot_disable_required_source_provenance(tmp_path, monkeypatch):
     from xeda.flow import FlowSettingsException
 
-    with pytest.raises(FlowSettingsException, match="source provenance"):
+    with pytest.raises(FlowSettingsException, match="source information"):
         launch(tmp_path, monkeypatch, "vhdl_stop", {"elab_debug": "off"})

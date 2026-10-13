@@ -1,10 +1,10 @@
-"""Native ModelSim/Questa runtime observations, reusable by the bsc vsim adapter.
+"""Native ModelSim and Questa runtime observations, reusable by the `bsc` `vsim` adapter.
 
-runStatus's stop reason distinguishes quiet HDL finish from a returned Tcl command.
-The command/status contract is documented in the vendor command reference (v2024.2,
-runStatus and transcript file); ModelSim-Intel 2020.1's `simulation_stop {$finish}`
-was measured in the PR #85 probes. Batch logfile capture and the unknown stop reason
-were measured on ModelSim-Intel 2020.1 for FB2. Synthetic tests do not certify another version.
+The stop reason of `runStatus` tells a quiet HDL finish from a returned Tcl command. The vendor
+command reference (v2024.2, `runStatus` and the transcript file) documents the command and
+status contract. Probes with ModelSim-Intel 2020.1 measured its `simulation_stop {$finish}`, the
+capture of the batch log file and the unknown stop reason. Synthetic tests do not certify another
+version.
 """
 
 import re
@@ -22,12 +22,14 @@ def parse_modelsim_evidence(
     transcript: str | Path = "modelsim_runtime.log",
     checkpoint: str | Path = "modelsim_end.txt",
 ) -> SimEvidence | None:
-    """Require matching current-run transcript and a complete native time/status checkpoint.
+    """Return the evidence of this run's end, or `None` if the records are missing or invalid.
 
-    Zero TESTSTATUS and Tcl return alone establish no end. A native finish stop reason
-    must also appear in the owned runtime transcript. Messages and echoed source cannot
-    stand in for that observation. TESTSTATUS adds a severity only when the log has not
-    already recorded an event at that rank or higher.
+    The transcript and the checkpoint must match, and the checkpoint must hold the native time and
+    status. A zero TESTSTATUS or a returned Tcl
+    command alone shows no end. A native finish stop reason must also appear in the runtime
+    transcript that this run owns. Messages and echoed source do not count as that observation.
+    TESTSTATUS adds a severity only when the log does not already record an event of that rank or
+    higher.
     """
     text = read_sim_log(flow, transcript)
     record = read_sim_log(flow, checkpoint)
@@ -44,15 +46,15 @@ def parse_modelsim_evidence(
         return None
     unit = resolution if resolution[0].isdigit() else "1" + resolution
     tick = time_in_fs(1, unit)
-    # Native $now is an integer tick count at $resolution, not a unit-bearing time.
+    # Native `$now` is an integer tick count at `$resolution` and has no unit.
     actual = int(now) * tick if re.fullmatch(r"\d+", now) else parse_sim_time(now)
     if actual is None or tick <= 0 or actual % tick:
         return None
     if lines.count("XEDA_MODELSIM_RUNTIME_START") != 1:
         return None
     start = lines.index("XEDA_MODELSIM_RUNTIME_START")
-    # -logfile also captures compilation/loading. Only the first status after our start
-    # closes the runtime section; observations outside that section are not evidence.
+    # `-logfile` also captures compilation and loading. The first status after our start marker
+    # closes the runtime section. Observations outside that section are no evidence.
     finish = next(
         (
             index
@@ -95,8 +97,8 @@ def parse_modelsim_evidence(
         evidence.ended_by = "finish"
         evidence.events.append(SimEvent(kind="finish", time=evidence.time))
     elif state in ("break simulation_stop {$stop}", "break simulation_stop unknown"):
-        # QB1: std.env.stop is a VHDL batch completion. Intel 2020.1 reports unknown
-        # for both stop forms; the native Note distinguishes Verilog $stop in mixed HDL.
+        # `std.env.stop` is a VHDL batch completion. ModelSim-Intel 2020.1 reports `unknown`
+        # for both stop forms. In mixed HDL, the native Note tells a Verilog `$stop`.
         verilog_stop = any(re.fullmatch(r"\*\* Note: \$stop(?:\s*:\s*.+)?", line) for line in lines)
         vhdl_names = {
             source.file.name for source in flow.design.sim_sources if source.type is SourceType.Vhdl

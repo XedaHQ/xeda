@@ -47,7 +47,7 @@ def test_nextpnr_pin_settings_name_typed_source_replacement(kind, tmp_path):
         flow.Settings.from_input({f"{kind}_cfg": f"pins.{kind}"}, design_root=tmp_path)
     message = str(exc.value)
     assert "was removed" in message and "rtl.sources" in message
-    assert f'type = "{kind.capitalize()}"' in message
+    assert f"{{file: pins.{kind}, type: {kind.capitalize()}}}" in message
 
 
 # ------------------------------------------------------------------------------ a removed flow

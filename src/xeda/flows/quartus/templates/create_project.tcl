@@ -22,7 +22,7 @@ puts $fpga_part_report
 {%- if settings.fpga.family %}
 set_global_assignment -name FAMILY {{settings.fpga.family|tcl_word}}
 {%- endif %}
-# Use get_part_list to get a list of supported part numbers
+# `get_part_list` lists the supported part numbers.
 set_global_assignment -name DEVICE $fpga_part
 
 set_global_assignment -name TOP_LEVEL_ENTITY ${top}

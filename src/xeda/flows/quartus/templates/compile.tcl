@@ -9,7 +9,7 @@ project_open ${project_name}
 load_package flow
 
 puts "\n===========================( Running compile flow )==========================="
-# runs: quartus_map, quartus_fit, quartus_asm, and quartus_sta
+# This runs `quartus_map`, `quartus_fit`, `quartus_asm` and `quartus_sta`.
 if {[catch {execute_flow -compile} result]} {
     puts "ERROR: Compilation failed. Result: $result. See report files.\n"
     qexit -error
@@ -17,7 +17,7 @@ if {[catch {execute_flow -compile} result]} {
 
 puts "clocks: [get_clocks]"
 
-# TODO set up: verilog include-dirs, VHDL generics, verilog params,
+# TODO: set up Verilog include directories, VHDL generics and Verilog parameters.
 
 load_package report
 load_report
@@ -26,7 +26,7 @@ load_report
 set panel "Timing Analyzer||Setup Summary"
 set panel_id [get_report_panel_id $panel]
 
-# negative if panel not found
+# The ID is negative if the panel is not found.
 if {$panel_id > 0} {   
     set setup_slack [get_report_panel_data -col_name Slack -row 1 -id $panel_id]
     puts ""
@@ -69,8 +69,8 @@ foreach panel_name $panel_names {
 
     set fh [open $csv_file w]
     set num_rows [get_number_of_rows -name $panel_name]
-    # Go through all the rows in the report file, including the
-    # row with headings, and write out the comma-separated data
+    # Write every row of the report panel, including the row with the headings, as
+    # comma-separated data.
     for { set i 0 } { $i < $num_rows } { incr i } {
         set row_data [get_report_panel_row -name $panel_name -row $i]
         puts $fh [join $row_data ","]

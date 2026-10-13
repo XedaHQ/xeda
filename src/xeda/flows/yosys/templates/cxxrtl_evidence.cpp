@@ -1,5 +1,5 @@
-/* Linked directly, so every supported main signature observes the same execution record.
- * User drivers own scheduling: no time or clock precision is invented here.
+/* This file is linked directly, so every supported signature of main sees the same execution
+ * record. User drivers own scheduling, so this file records no time and no clock precision.
  */
 #include "cxxrtl_evidence.h"
 #include "sim_record.h"
@@ -42,8 +42,8 @@ struct Monitor {
         std::setvbuf(stdout, nullptr, _IOLBF, BUFSIZ);
         const char *events = std::getenv("XEDA_CXXRTL_EVENTS");
         if (!events || !*events) record_failure();
-        // A required empty event file proves initialization and prevents a missing file
-        // from being interpreted as an absence of errors. Never open through a final link.
+        // A required empty event file proves initialization. Without it, a missing file could
+        // look like a run with no errors. Never open through a final link.
         int fd = open(events, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK, 0600);
         if (fd < 0) record_failure();
         int ok = xeda_sim_regular(fd);

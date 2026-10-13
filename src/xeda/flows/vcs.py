@@ -20,15 +20,16 @@ log = logging.getLogger(__name__)
 
 
 class Vcs(SimFlow):
-    """Synopsys VCS simulator with runtime evidence in split and one-shot modes.
+    """Simulate a design with Synopsys VCS and judge it by runtime evidence.
 
+    The flow runs `vcs` and `simv` as two steps, or as one step with `one_shot_run`.
     This adapter is documentation-only and is not verified against a licensed VCS release.
-    Quiet $finish(0) and VHDL completion fail unless a native finish diagnostic is observable.
+    A quiet `$finish(0)` and VHDL completion fail unless a native finish diagnostic is observable.
     UCLI time checkpoints alone do not establish HDL completion.
     """
 
-    #: `vlogan` analyzes Verilog and SystemVerilog and finds a header through the directory it
-    #: lies in (`+incdir+`), `vhdlan` analyzes VHDL.
+    #: `vlogan` analyzes Verilog and SystemVerilog sources and finds a header through the directory
+    #: it lies in (`+incdir+`). `vhdlan` analyzes VHDL.
     reads_sources = frozenset(
         {
             SourceType.Verilog,
@@ -50,12 +51,12 @@ class Vcs(SimFlow):
 
     @classmethod
     def check_waveforms(cls, settings: Flow.Settings) -> None:
-        """VCS writes one waveform, and `to_vcd` and the size limits need the format they act on."""
+        """Refuse more than one waveform, and `to_vcd` or a size limit without its format."""
         assert isinstance(settings, cls.Settings)
         chosen = [name for name in ("fsdb", "vpd", "evcd") if getattr(settings, name) is not None]
         if len(chosen) > 1:
             raise FlowSettingsException(
-                f"vcs writes one waveform, and {', '.join(chosen)} are set: keep one of them"
+                f"VCS writes one waveform, and {', '.join(chosen)} are set: keep one of them"
             )
         if settings.to_vcd and not (settings.fsdb or settings.vpd):
             raise FlowSettingsException(
@@ -91,8 +92,8 @@ class Vcs(SimFlow):
         r"^(Information[:-])(.+)$": fg.GREEN + style.BRIGHT + r"\g<1>" + style.NORMAL + r"\g<2>",
     }
 
-    #: made for each flow in `init()`: a tool holds the flow's settings (`dockerized`, the
-    #: container) and what it learned about the program, neither of which belongs to the class
+    #: The tools that `init()` makes for each flow. A tool holds the flow's settings (`dockerized`,
+    #: the container) and what it learned about the program. Neither belongs to the class.
     vlogan: Tool
     vhdlan: Tool
     vcs: Tool
@@ -105,11 +106,11 @@ class Vcs(SimFlow):
             **SimFlow.Settings.removed_settings,
             "optimization_flags": "`vcs_flags`, which reach the `vcs` elaboration, or `cflags` for the C "
             "compiler",
-            "work_dir": NoReplacement("xeda passed it to nothing"),
+            "work_dir": NoReplacement("Xeda passed it to nothing"),
         }
         simv_flags: List[str] = Field(
             [],
-            description="Extra arguments passed to the compiled simulator executable (simv). "
+            description="Extra arguments for the compiled simulator executable (`simv`). "
             "Ignored when `one_shot_run` is set.",
         )
         sim_no_save: bool = Field(
@@ -118,29 +119,34 @@ class Vcs(SimFlow):
         )
         generate_kdb: bool = Field(
             False,
-            description="Generate the Verdi knowledge database (`-kdb`), required for Verdi "
-            "debugging. Slows down elaboration.",
+            description="Generate the Verdi knowledge database (`-kdb`), which Verdi debugging "
+            "needs. This slows elaboration.",
         )
         supress_banner: bool = Field(True, description="Suppress the VCS copyright banner (`-nc`).")
         quiet: bool = Field(False, description="Suppress informational output from VCS.")
         vhdl_xlrm: bool = Field(
-            False, description="Enables VHDL features beyond those described in LRM"
+            False, description="Enable VHDL features beyond the LRM (`vhdlan -xlrm`)."
         )
         one_shot_run: bool = Field(
             False,
-            description="Run the simulation using the vcs step. If set to true, simv_flags will be ignored.",
+            description="Run the simulation in the `vcs` step (`-R`), with no separate `simv` "
+            "run. Ignores `simv_flags`.",
         )
         ucli: bool = Field(
             False,
-            description="Enable UCLI (Universal Command Line Interface) when running simulator executable (simv)",
+            description="Run the simulator under UCLI (Universal Command Line Interface). Xeda "
+            "always passes `-ucli`. A `ucli_script` also sets this.",
         )
         ucli_script: Optional[Path] = Field(
             None,
-            description="Run this UCLI script executing the simulator (simv)",
+            description="UCLI script that drives the simulator executable (`simv`). Setting it "
+            "sets `ucli`.",
         )
         gui: Optional[Union[bool, str]] = Field(
             None,
-            description="Enable GUI (Graphical User Interface) when running simulator executable. A string can be used to specify the GUI type, either 'dve' or 'verdi', otherwise VCS will start verdi if VC_HOME is set.",
+            description="Start the GUI (Graphical User Interface) when the simulator runs. A "
+            "string names the GUI: `dve` or `verdi`. With `true`, VCS starts Verdi if `VC_HOME` "
+            "is set.",
         )
         full64: bool = Field(True, description="Compile and run in 64-bit mode (`-full64`).")
         time_unit: Optional[str] = Field(
@@ -150,14 +156,17 @@ class Vcs(SimFlow):
             "1ps", description='Default simulation time precision, e.g. "1ps".'
         )
         sdf_file: Optional[Union[str, Path]] = Field(
-            None, description="SDF file for back-annotating delays using the unified SDF feature"
+            None,
+            description="SDF file that back-annotates delays (VCS unified SDF feature).",
         )
         sdf_instance: Optional[str] = Field(
             None,
-            description="Hierarchy instance to use as the root path for back-annotating delays. Use dot to separate hierarchy levels, e.g.: TB_NAME.UUT_NAME. This setting is required when sdf_file is provided.",
+            description="Hierarchy instance that is the root path of the back-annotation. "
+            "Separate hierarchy levels with dots, for example `TB_NAME.UUT_NAME`. Required with "
+            "`sdf_file`.",
         )
         sdf_type: Literal["min", "typ", "max"] = Field(
-            "typ", description="SDF type for back-annotating delays"
+            "typ", description="SDF delay type to back-annotate."
         )
         vcs_warn: Optional[str] = Field(
             "all,noTFIPC,noLCA_FEATURES_ENABLED",
@@ -185,15 +194,22 @@ class Vcs(SimFlow):
             description="Restrict debug visibility to this region (`-debug_region=...`), e.g. "
             '"cell+encrypt", to keep the performance cost contained.',
         )
-        functional_vital: bool = Field(False, description="Disable timing simulation for VITAL")
+        functional_vital: bool = Field(
+            False, description="Disable VITAL timing simulation (`vhdlan -functional_vital`)."
+        )
         init_std_logic: Optional[Literal["U", "X", "0", "1", "Z", "W", "L", "H", "-"]] = Field(
-            None, description="Initialize std_logic to this value"
+            None, description="Initial value of `std_logic` signals (`vhdlan -init_std_logic`)."
         )
         initreg: Optional[str] = Field(
             None,
-            description="Initialize registers to this value. Use 'random' for random initialization.",
+            description="Initial value of registers (`+vcs+initreg`). Use `random` for random "
+            "values.",
         )
-        lic_wait: Optional[int] = Field(100, description="Wait for license if not available.")
+        lic_wait: Optional[int] = Field(
+            100,
+            description="How long to wait for a license when none is available (`vhdlan -licw`, "
+            "`vcs -vc_lic_wait`).",
+        )
         vlogan_flags: List[str] = Field(
             ["+v2k"], description="Extra flags passed to `vlogan` when analyzing Verilog sources."
         )
@@ -215,55 +231,55 @@ class Vcs(SimFlow):
         )
         fsdb: Optional[Path] = Field(
             None,
-            description="Enable FSDB (Fast Signal DataBase) for waveform generation: the file to "
-            "write. `true` writes `dump.fsdb`.",
+            description="FSDB (Fast Signal DataBase) waveform file to write. `true` writes "
+            "`dump.fsdb`.",
             json_schema_extra=waveform("fsdb"),
         )
         fsdb_size_limit: Optional[int] = Field(
             256,
-            description="Set the FSDB size limit in MB. If not set, the default value will be used.",
+            description="FSDB size limit in MB (`+fsdb+dump_limit`). Unset uses the VCS default.",
         )
         to_vcd: bool = Field(
             False,
-            description="Convert FSDB/VPD to VCD (Value Change Dump) format after simulation. The VCD file will be saved in the same directory as the FSDB file and with the same stem (base name), but with a .vcd extension.",
+            description="Convert the FSDB or VPD waveform to VCD (Value Change Dump) after the "
+            "simulation. The VCD file lies beside the waveform and has its file name with a "
+            "`.vcd` suffix.",
         )
         vpd: Optional[Path] = Field(
             None,
-            description="Enable VPD waveform generation and specify the file path. `true` writes "
-            "`dump.vpd`.",
+            description="VPD waveform file to write. `true` writes `dump.vpd`.",
             json_schema_extra=waveform("vpd"),
         )
         evcd: Optional[Path] = Field(
             None,
-            description="Enable EVCD waveform generation and specify the file path. `true` writes "
-            "`dump.evcd`.",
+            description="EVCD waveform file to write. `true` writes `dump.evcd`.",
             json_schema_extra=waveform("evcd"),
         )
         vpd_size_limit: Optional[int] = Field(
             None,
-            description="Set the VPD size limit in MB (`+vpdfilesize`). When the limit is reached, the "
-            "simulation overwrites older history. Needs `vpd`.",
+            description="VPD size limit in MB (`+vpdfilesize`). When the simulation reaches the "
+            "limit, it overwrites older history. Needs `vpd`.",
         )
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """VCS annotates an SDF file onto one instance, so it needs both, before anything runs."""
+        """Refuse an SDF file without the instance it annotates, before anything runs."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         cls.check_waveforms(settings)
         if settings.sdf_file and settings.sdf_instance is None:
-            raise FlowSettingsException("SDF instance is required when SDF file is provided")
+            raise FlowSettingsException("`sdf_instance` is required when `sdf_file` is set")
 
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # a flow built directly is not planned
+        # a flow built directly is not planned, so check here
         self.check_settings_supported(ss)
         if ss.sdf_file:
             ss.sdf_file = self.process_path(ss.sdf_file, resolve_to=self.design.design_root)
         rules = self.highlight_rules
-        # none of the tools is asked for its version: VCS is not verified on a licensed release,
-        # and a start of `vcs --version` is no query this adapter has checked
+        # No tool is asked for its version. VCS is not verified on a licensed release, and this
+        # adapter has not checked a `vcs --version` query.
         self.vlogan = Tool("vlogan", self, version_flag=None, highlight_rules=rules)
         self.vhdlan = Tool("vhdlan", self, version_flag=None, highlight_rules=rules)
         self.vcs = Tool("vcs", self, version_flag=None, highlight_rules=rules)
@@ -278,7 +294,7 @@ class Vcs(SimFlow):
         if ss.ucli_script:
             ss.ucli = True  # a user's script runs under UCLI
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
-        # a user's script drives simv: its output is the script's, not colored
+        # a user's script drives simv, so its output is the script's and stays uncolored
         driven_by_user = ss.ucli and ss.ucli_script is not None
         self.simv = Tool(
             "./simv", self, version_flag=None, highlight_rules=None if driven_by_user else rules
@@ -290,15 +306,15 @@ class Vcs(SimFlow):
         ss = self.settings
         if ss.stop_time is not None and (ss.ucli_script or ss.gui):
             raise FlowSettingsException(
-                "VCS stop_time cannot be enforced with a user ucli_script or GUI control; "
-                "use the owned batch script."
+                "VCS `stop_time` cannot be enforced with a user `ucli_script` or GUI control: "
+                "use the owned batch script"
             )
         stop_time = None
         if ss.stop_time is not None:
             stop_fs = int(round(convert_unit(ss.stop_time, "fs", from_unit="ns")))
             if stop_fs <= 0:
                 raise FlowSettingsException(
-                    "VCS stop_time must be positive after conversion to femtoseconds "
+                    "VCS `stop_time` must be positive after conversion to femtoseconds, "
                     "for an absolute UCLI breakpoint"
                 )
             stop_time = f"{stop_fs}fs"
@@ -344,11 +360,8 @@ class Vcs(SimFlow):
         if ss.lic_wait is not None:
             vhdlan_args += ["-licw", str(ss.lic_wait)]
             vcs_args += ["-vc_lic_wait", str(ss.lic_wait)]
-            # simv_args.append("+vcs+lic+wait")
         if ss.cflags:
             vcs_args += ["-CFLAGS", " ".join(ss.cflags)]
-        # vlogan_args.extend(["-work", "WORK"])
-        # vhdlan_args.extend(["-work", "WORK"])
         vlogan_args.append(f"-timescale={ss.time_unit}/{ss.time_resolution}")
         if ss.vhdl_xlrm:
             vhdlan_args.append("-xlrm")
@@ -368,15 +381,15 @@ class Vcs(SimFlow):
         sources = self.sources_read(tb=True)
         vlog_files = [src for src in sources if src.type is SourceType.Verilog]
         if vlog_files:
-            log.info("analyzing Verilog files")
+            log.info("Analyzing Verilog sources")
             self.vlogan.run(*vlogan_args, *(str(f) for f in vlog_files), env=env)
         sv_files = [src for src in sources if src.type is SourceType.SystemVerilog]
         if sv_files:
-            log.info("analyzing SystemVerilog files")
+            log.info("Analyzing SystemVerilog sources")
             self.vlogan.run(*vlogan_args, "-sverilog", *(str(f) for f in sv_files), env=env)
         vhdl_files = [src for src in sources if src.type is SourceType.Vhdl]
         if vhdl_files:
-            log.info("analyzing VHDL files")
+            log.info("Analyzing VHDL sources")
             self.vhdlan.run(*vhdlan_args, *(str(f) for f in vhdl_files), env=env)
         top = self.design.tb.top[0]
         if ss.verbose:
@@ -398,7 +411,7 @@ class Vcs(SimFlow):
                         ss.debug_access = "+all"
                     else:
                         raise FlowSettingsException(
-                            "debug_access option must start with '+', '-', or '='"
+                            "`debug_access` must be `all` or start with `+`, `-` or `=`"
                         )
                 vcs_args.append(f"-debug_access{ss.debug_access}")
             else:
@@ -413,12 +426,8 @@ class Vcs(SimFlow):
             ]
             if ss.fsdb_size_limit is not None:
                 simv_args.append(f"+fsdb+dump_limit={ss.fsdb_size_limit}")
-            # simv_args += [
-            #     f"+fsdbfile+{ss.fsdb}",
-            # ]
         if ss.vpd and ss.vpd_size_limit is not None:
             simv_args.append(f"+vpdfilesize+{ss.vpd_size_limit}")
-        # simv_args += ["+dumpports+portdir"]
 
         if ss.sdf_file and ss.sdf_instance:
             vcs_args += [
@@ -431,7 +440,6 @@ class Vcs(SimFlow):
             gfile = f"{top}.params"
             with replacing_file(self.run_directory.writable(gfile), encoding="utf-8") as f:
                 for k, v in self.design.tb.parameters.items():
-                    # kv = f"/{top}/{k}={v}"
                     if v is None:
                         continue
                     elif isinstance(v, bool):
@@ -444,8 +452,6 @@ class Vcs(SimFlow):
             vcs_args.append(f"-j{ss.nthreads}")
         if ss.vcs_log_file:
             vcs_args += ["-l", str(ss.vcs_log_file)]
-        # if ss.time_unit:
-        #     vcs_args.append(f"-unit_timescale={ss.time_unit}")
 
         log.info("Running vcs")
         if top:
@@ -496,7 +502,6 @@ class Vcs(SimFlow):
                     fsdb2vcd_args = [
                         "-consolidate_bus",
                         "-sv",
-                        # "-keep_enum",
                     ]
                     self.fsdb2vcd.run(
                         ss.fsdb, *fsdb2vcd_args, "-o", ss.fsdb.with_suffix(".vcd"), check=True

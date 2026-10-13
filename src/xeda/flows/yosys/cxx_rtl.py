@@ -24,9 +24,9 @@ log = logging.getLogger(__name__)
 class CxxRtl(XedaBaseModel):
     filename: Optional[Path] = Field(
         None,
-        description="The C++ file CXXRTL writes the simulation model to: a name in the run "
-        "directory, by default `<top>.cpp`. The design's C++ driver includes the generated "
-        "header, `<name>.h`, so this is a working file name and has no location. Use "
+        description="The C++ file that CXXRTL writes the simulation model to, as a name in the "
+        "run directory (`<top>.cpp` by default). The C++ driver of the design includes the "
+        "generated header `<name>.h`, so the setting takes a file name and no location. Use "
         "`--outputs-to` to copy the file elsewhere.",
         json_schema_extra=WORKING,
     )
@@ -41,9 +41,9 @@ class CxxRtl(XedaBaseModel):
 
 
 class YosysSim(YosysBase, SimFlow):
-    """Simulate with CXXRTL"""
+    """Simulate a design with a CXXRTL model that Yosys generates."""
 
-    # Before this flow used the shared tool, its direct Yosys invocation had no version floor.
+    # this flow sets no minimum yosys release
     minimum_yosys = None
 
     results_description = describe_results(
@@ -54,7 +54,7 @@ class YosysSim(YosysBase, SimFlow):
 
     unsupported_waveforms = {
         "vcd": "the design's C++ driver writes the waveform (with `cxxrtl::vcd_writer`, which "
-        "needs `cxxrtl.debug`), and xeda passes it no file name"
+        "needs `cxxrtl.debug`), and Xeda passes it no file name"
     }
 
     _end_record: Path | None = None
@@ -69,7 +69,7 @@ class YosysSim(YosysBase, SimFlow):
         return cls.has_cpp_driver(design)
 
     class Settings(YosysBase.Settings, SimFlow.Settings):
-        # CXXRTL simulation maps nothing to a netlist: it has none of the synthesis settings
+        # CXXRTL simulation synthesizes no netlist, so it has none of the synthesis settings
         removed_settings: ClassVar[Dict[str, str]] = {
             **SimFlow.Settings.removed_settings,
             **{
@@ -79,24 +79,27 @@ class YosysSim(YosysBase, SimFlow):
             },
             **dict.fromkeys(
                 ("nosynth", "retime", "netlist_verilog_extmem"),
-                NoReplacement("xeda passed it to nothing"),
+                NoReplacement("Xeda passed it to nothing"),
             ),
             "optimization_flags": "`cxxrtl.opt` for `write_cxxrtl -O`, or `cxxrtl.ccflags` for the "
             "C++ compiler that builds the model",
         }
         systemverilog: Literal["default", "uhdm", "slang"] = Field(
             "default",
-            description="SystemVerilog reader for CXXRTL; the built-in reader generates cells "
-            "accepted by write_cxxrtl for common designs.",
+            description="SystemVerilog reader for CXXRTL. For common designs, the built-in "
+            "reader generates cells that `write_cxxrtl` accepts.",
         )
         cxxrtl: CxxRtl = Field(
-            CxxRtl(), description="Options for the generated CXXRTL C++ simulation model."
+            CxxRtl(), description="Settings for the generated CXXRTL C++ simulation model."
         )
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """The user-owned C++ driver controls scheduling, so xeda cannot stop the simulation at a
-        time: refuse `stop_time` before anything runs."""
+        """Refuse `stop_time` before anything runs.
+
+        The C++ driver of the design controls scheduling, so Xeda cannot stop the simulation at a
+        given time.
+        """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if settings.stop_time is not None:
@@ -118,8 +121,8 @@ class YosysSim(YosysBase, SimFlow):
         evidence = read_sim_evidence(self, self._end_record, events_path=self._events_record)
         if evidence is None:
             return None
-        # The atexit callback observes execution, but cannot know main's return value.
-        # Only an exit envelope with unknown scheduling belongs to this monitor protocol.
+        # The atexit callback sees that the program ended, but not the return value of main.
+        # This monitor protocol accepts only an exit record with unknown time and status.
         if evidence.ended_by != "exit" or any(
             value is not None
             for value in (evidence.time, evidence.time_unit, evidence.cycles, evidence.exit_code)
@@ -197,8 +200,9 @@ class YosysSim(YosysBase, SimFlow):
         self.copy_from_template("sim_record.h")
         monitor_header = self.copy_from_template("cxxrtl_evidence.h")
         monitor = self.copy_from_template("cxxrtl_evidence.cpp")
-        # Force the RTL hook into both generated code and drivers including its header.
-        # The include remains run-relative under Docker; runtime headers are queried there.
+        # Force the RTL hook into the generated code and into every driver that includes its
+        # header. Under Docker, the include path stays relative to the run directory, and the
+        # runtime headers come from the container.
         cxx_args += ["-include", monitor_header, monitor]
         cxx.run(*cxx_args)
         self.artifacts["simulator"] = sim_bin_file

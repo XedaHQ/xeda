@@ -60,7 +60,7 @@ if { [catch {read_vhdl {% if design.language.vhdl.standard in ("08", "2008") %} 
 set_property include_dirs {{design.header_dirs()|tcl_list}} [current_fileset]
 {%- endif %}
 
-# TODO: Skip saving some artifects in case timing not met or synthesis failed for any reason
+# TODO: Skip saving some artifacts when timing is not met or synthesis failed.
 
 {%- for xdc_file in xdc_files %}
 puts "Reading XDC file {{xdc_file|tcl_quote}}"
@@ -90,11 +90,11 @@ report_utilization -hierarchical -force -file ${reports_dir}/post_synth/hierarch
 # reportCriticalPaths ${reports_dir}/post_synth/critpath_report.csv 100
 # report_methodology  -file ${reports_dir}/post_synth/methodology.rpt
 
-{# post-synth and post-place power optimization steps are mutually exclusive! #}
-{# TODO: check this is still the case with the most recent versions of Vivado #}
+{# Post-synthesis and post-placement power optimization are mutually exclusive. #}
+{# TODO: check whether this still holds in recent Vivado versions. #}
 {% if settings.synth.steps.power_opt and not settings.impl.steps.power_opt %}
 puts "\n===============================( Post-synth Power Optimization )================================"
-# this is more effective than Post-placement Power Optimization but can hurt timing
+# This is more effective than post-placement power optimization but can hurt timing.
 power_opt_design
 report_power_opt -file ${reports_dir}/post_synth/power_optimization.rpt
 showWarningsAndErrors

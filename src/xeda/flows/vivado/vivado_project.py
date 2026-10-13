@@ -45,19 +45,19 @@ class RunOptions(XedaBaseModel):
 
 
 class VivadoProject(Vivado, FpgaSynthFlow):
-    """Create a Xilinx Vivado project for the design, to work on in Vivado.
+    """Create an AMD-Xilinx Vivado project for the design, to work on in Vivado.
 
     The project holds the design's sources and testbench, its constraints, the synthesis and
-    implementation strategies and step settings, and the hooks that write `vivado_synth`'s
-    reports after each step. Nothing is run: open the project (`artifacts.project`) in Vivado, or
-    set `gui` to have the flow open it. For synthesis and implementation in batch, use
-    `vivado_synth`.
+    implementation strategies and step settings, and the hooks that write the reports of
+    `vivado_synth` after each step. The flow runs no synthesis or implementation. Open the
+    project (`artifacts.project`) in Vivado, or set `gui` to let the flow open it. For synthesis
+    and implementation in batch, use `vivado_synth`.
     """
 
     # Creating a project reports nothing beyond the keys every flow reports.
     results_description: dict = {}
 
-    #: the project's simulation fileset holds the testbench
+    #: The project's simulation fileset holds the testbench, so the flow reads `tb`.
     design_parts = frozenset({"rtl", "tb"})
     reads_sources = frozenset(
         {
@@ -74,7 +74,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
     )
 
     class Settings(VivadoSynth.Settings):
-        """Settings for a Vivado project: synthesis and implementation"""
+        """Settings for a Vivado project: synthesis and implementation."""
 
         # A project runs no simulation. The simulation settings are refused, naming `vivado_sim`.
         removed_settings = {
@@ -98,7 +98,7 @@ class VivadoProject(Vivado, FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a mode of the design's own beside `out_of_context`, before anything runs."""
+        """Refuse a second `-mode` of `synth_design` beside `out_of_context` before the run."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         refuse_conflicts(
@@ -106,33 +106,33 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         )
 
     def init(self):
-        """Set up Vivado project execution and optional GUI mode."""
+        """Set up the Vivado tool, in GUI mode when `gui` is set."""
         super().init()
         assert isinstance(self.settings, self.Settings)
         self.add_template_global_func(tcl_property_value)
         if self.settings.gui:
-            # `vivado -mode gui -source ...`: the script runs in the GUI, and the project stays
-            # open there, as DC's `gui` runs `dc_shell -gui`
+            # `vivado -mode gui -source ...` runs the script in the GUI and leaves the project
+            # open there, as the `gui` setting of the `dc` flow does with `dc_shell -gui`.
             args = list(self.vivado.default_args)
             args[args.index("-mode") + 1] = "gui"
             self.vivado.default_args = args
 
     def run(self):
-        """Create the Vivado project and run its configured steps."""
+        """Create the Vivado project and configure its synthesis and implementation runs."""
         assert isinstance(self.settings, self.Settings)
         settings = self.settings
         self.artifacts.project = f"{self.design.name}.xpr"
 
         synth_steps, impl_steps = run_steps(settings, out_of_context=settings.out_of_context)
-        # the planning check's judgment again: a flow built directly is not planned
+        # Repeat the check of planning, because a flow built directly is not planned.
         refuse_conflicts(type(settings), property_mode_conflicts(settings))
-        # reports are written after each major step, as `vivado_synth` writes them
+        # The hooks write the reports after each major step, as `vivado_synth` does.
         tcl_files = [self.process_path(p, subs_vars=True) for p in settings.tcl_files]
         tcl_files += post_step_hooks(self, settings, synth_steps, impl_steps)
 
         script_path = self.copy_from_template(
             "vivado_project.tcl",
-            # constraints go to the constraint fileset, as `vivado_synth` reads them
+            # Constraints go to the constraint fileset, as `vivado_synth` reads them.
             sources=[
                 src
                 for src in self.sources_read()
@@ -147,8 +147,9 @@ class VivadoProject(Vivado, FpgaSynthFlow):
         self.vivado.run("-source", script_path)
 
     def parse_reports(self) -> bool:
-        """Check that this run created the Vivado project file (`Flow.report_file`: the one a
-        previous run left does not count)."""
+        """Check that this run created the Vivado project file.
+
+        A project file that a previous run left does not count (`Flow.report_file`)."""
         return self.report_file(self.run_path / f"{self.design.name}.xpr") is not None
 
 
@@ -157,7 +158,7 @@ def parse_hier_util(
     skip_zero_or_empty=True,
     skip_headers=None,
 ) -> Optional[HierDict]:
-    """parse hierarchical utilization report"""
+    """Parse a hierarchical utilization report into nested dictionaries, one per instance."""
     table = parse_xml(
         report,
         tags_blacklist=["class", "style", "halign", "width"],

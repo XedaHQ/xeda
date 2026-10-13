@@ -1,4 +1,4 @@
-"""Intel Quartus flows"""
+"""Flow for FPGA synthesis with Intel Quartus."""
 
 import csv
 import logging
@@ -26,11 +26,11 @@ def parse_csv(
     id_parser: Callable[[str], Any] = identity,
     interesting_fields: Optional[Set[str]] = None,
 ) -> Dict[str, Any]:
-    """Parse TCL-generated CSV file"""
+    """Parse a CSV file that a TCL script wrote."""
     data: Dict[str, Any] = {}
     with open(path, newline="") as csvfile:
         if id_field:
-            # with header, and some rows of data indexed by id_field
+            # With a header row, data rows are indexed by `id_field`.
             reader = csv.DictReader(csvfile)
             for row in reader:
                 if interesting_fields is None:
@@ -43,7 +43,7 @@ def parse_csv(
                 else:
                     log.critical("ID field %s not found in row (%s)", id_field, row)
         else:
-            # no header, key/value pairs on each line
+            # Without a header, each line is one key,value pair.
             for lrow in csv.reader(csvfile):
                 if len(lrow) >= 2:
                     data[id_parser(lrow[0])] = field_parser(",".join(lrow[1:]))
@@ -72,10 +72,10 @@ def try_float(s: str):
 
 
 class Quartus(FpgaSynthFlow):
-    """FPGA synthesis using Intel Quartus"""
+    """Compile a design for an Intel FPGA with Quartus."""
 
-    #: made for each flow in `init()`: a tool holds the flow's settings (`dockerized`) and what it
-    #: learned about the program, neither of which belongs to the class
+    #: The `quartus_sh` tool. `init()` makes one for each flow, because a tool holds the flow's
+    #: settings (`dockerized`) and what it learned about the program. Neither belongs to the class.
     quartus_sh: Tool
 
     results_description = describe_results(
@@ -102,11 +102,11 @@ class Quartus(FpgaSynthFlow):
     class Settings(FpgaSynthFlow.Settings):
         removed_settings = {
             **FpgaSynthFlow.Settings.removed_settings,
-            "synthesis_effort": NoReplacement("xeda passed it to nothing"),
+            "synthesis_effort": NoReplacement("Xeda passed it to nothing"),
         }
-        # part number (fpga.part) formats are quite complicated.
+        # Intel part numbers (`fpga.part`) come in many formats.
         # See: https://www.intel.com/content/dam/www/central-libraries/us/en/documents/product-catalog.pdf
-        seed: Optional[int] = Field(None, description="Seed")
+        seed: Optional[int] = Field(None, description="Value of the Quartus `SEED` assignment.")
         optimization_mode: Literal[
             "BALANCED",
             "HIGH PERFORMANCE EFFORT",
@@ -121,15 +121,14 @@ class Quartus(FpgaSynthFlow):
             "High Power Effort",
         ] = Field(
             "HIGH PERFORMANCE EFFORT",
-            description="""
-            see https://www.intel.com/content/www/us/en/programmable/documentation/zpr1513988353912.html
-            https://www.intel.com/content/www/us/en/programmable/quartushelp/current/index.htm
-        """,
+            description="Value of the Quartus `OPTIMIZATION_MODE` assignment. See "
+            "https://www.intel.com/content/www/us/en/programmable/documentation/zpr1513988353912.html "
+            "and https://www.intel.com/content/www/us/en/programmable/quartushelp/current/index.htm.",
         )
         remove_redundant_logic: bool = Field(
             True,
-            description="Let synthesis remove logic that cannot affect any output (Quartus' "
-            "REMOVE_REDUNDANT_LOGIC_CELLS).",
+            description="Let synthesis remove logic that cannot affect any output (the Quartus "
+            "`REMOVE_REDUNDANT_LOGIC_CELLS` assignment).",
         )
         auto_resource_sharing: bool = Field(
             True,
@@ -138,8 +137,9 @@ class Quartus(FpgaSynthFlow):
         )
         retiming: bool = Field(
             True,
-            description="Allow the fitter to move registers across combinational logic to balance "
-            "path delays (Hyper-Retiming on supported families).",
+            description="Allow Quartus to move registers across combinational logic to balance "
+            "path delays. This sets the `ALLOW_REGISTER_RETIMING` and "
+            "`PHYSICAL_SYNTHESIS_REGISTER_RETIMING` assignments.",
         )
         register_duplication: bool = Field(
             True,
@@ -148,8 +148,8 @@ class Quartus(FpgaSynthFlow):
         )
         packed_registers: bool = Field(
             False,
-            description="Pack registers into RAM/DSP blocks where possible, saving logic at the "
-            "cost of some flexibility.",
+            description="Value of the `AUTO_PACKED_REGISTERS_STRATIX` and "
+            "`AUTO_PACKED_REGISTERS_CYCLONE` assignments, which control register packing.",
         )
         gated_clock_conversion: bool = Field(
             False,
@@ -162,7 +162,7 @@ class Quartus(FpgaSynthFlow):
             "everything into logic.",
         )
         ram_recognition: bool = Field(
-            True, description="Infer block RAM from memory patterns rather than using registers."
+            True, description="Infer block RAM from memory patterns in the HDL."
         )
         rom_recognition: bool = Field(
             True, description="Infer ROM blocks from constant memory patterns."
@@ -177,16 +177,17 @@ class Quartus(FpgaSynthFlow):
         )
         placement_effort_multiplier: float = Field(
             2.0,
-            description="""
-        A logic option that controls how much time the Fitter spends in placement.
-        The default value is 1.0 and legal values must be greater than 0 and can be non-integer values.
-        Values between 0 and 1 can reduce fitting time, but also can reduce placement quality and design performance.
-        Values greater than 1 increase placement time and placement quality, but may reduce routing time for designs with routing congestion.
-        For example, a value of 4 increases fitting time by approximately 2 to 4 times, but may improve quality.""",
+            description="Multiplier for the time the fitter spends on placement. The Quartus "
+            "default is 1.0. A value must be greater than 0 and can be fractional. A value below "
+            "1 can shorten fitting time but can lower placement quality and design performance. "
+            "A value above 1 increases placement time and quality, and may reduce routing time "
+            "for designs with routing congestion. A value of 4 increases fitting time by about 2 "
+            "to 4 times and may improve quality.",
         )
         router_timing_optimization_level: Literal["Normal", "Maximum", "Minimum"] = Field(
             "Maximum",
-            description="How hard the router works on timing rather than compile time.",
+            description="Router effort for timing optimization. Higher effort increases compile "
+            "time.",
         )
         final_placement_optimization: Literal["ALWAYS", "AUTOMATICALLY", "NEVER"] = Field(
             "ALWAYS",
@@ -205,8 +206,8 @@ class Quartus(FpgaSynthFlow):
             ),  # pyright: ignore
         )
         if self.quartus_sh.docker:
-            # Nothing of the design goes into `mounts`, which are mounted writable: a tool built
-            # in a flow mounts the design read-only, per run (`Tool.execute`).
+            # `mounts` are writable, so the design stays out of them. A tool built in a flow
+            # mounts the design read-only for each run (`Tool.execute`).
             if self.settings.dockerized and self.quartus_sh.docker.nproc and self.settings.nthreads:
                 self.settings.nthreads = min(self.settings.nthreads, self.quartus_sh.docker.nproc)
 
@@ -221,19 +222,15 @@ class Quartus(FpgaSynthFlow):
             "AUTO_RESOURCE_SHARING": ss.auto_resource_sharing,
             "ALLOW_REGISTER_RETIMING": ss.retiming,
             "SYNTH_GATED_CLOCK_CONVERSION": ss.gated_clock_conversion,
-            # faster:
             "FITTER_EFFORT": ss.fitter_effort,
-            # AREA, SPEED, BALANCED
             "STRATIX_OPTIMIZATION_TECHNIQUE": ss.optimization_technique,
             "CYCLONE_OPTIMIZATION_TECHNIQUE": ss.optimization_technique,
-            # see https://www.intel.com/content/www/us/en/programmable/documentation/rbb1513988527943.html
+            # See https://www.intel.com/content/www/us/en/programmable/documentation/rbb1513988527943.html
             "PLACEMENT_EFFORT_MULTIPLIER": ss.placement_effort_multiplier,
             "ROUTER_TIMING_OPTIMIZATION_LEVEL": ss.router_timing_optimization_level,
             "FINAL_PLACEMENT_OPTIMIZATION": ss.final_placement_optimization,
             # "PHYSICAL_SYNTHESIS_COMBO_LOGIC_FOR_AREA": True,
-            # ?
             # "ADV_NETLIST_OPT_SYNTH_GATE_RETIME": True,
-            # ?
             # "ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP": True,
             "AUTO_PACKED_REGISTERS_STRATIX": ss.packed_registers,
             "AUTO_PACKED_REGISTERS_CYCLONE": ss.packed_registers,
@@ -243,7 +240,7 @@ class Quartus(FpgaSynthFlow):
             # "PHYSICAL_SYNTHESIS_EFFORT": "EXTRA",
             # NORMAL, OFF, EXTRA_EFFORT
             # "OPTIMIZE_POWER_DURING_SYNTHESIS": "NORMAL",
-            # SYNTH_CRITICAL_CLOCK: ON, OFF : Speed Optimization Technique for Clock Domains}
+            # SYNTH_CRITICAL_CLOCK (ON, OFF): speed optimization technique for clock domains
             "AUTO_DSP_RECOGNITION": ss.dsp_recognition,
             "AUTO_RAM_RECOGNITION": ss.ram_recognition,
             "AUTO_ROM_RECOGNITION": ss.rom_recognition,
@@ -263,7 +260,7 @@ class Quartus(FpgaSynthFlow):
         self.create_project()
         script_path = self.copy_from_template("compile.tcl")
         # `execute_flow -compile` always runs `quartus_asm`, which writes `<design_name>.sof`
-        # into the project directory (the run directory); never declared as an artifact before.
+        # into the project directory (the run directory).
         self.artifacts.bitstream = f"{self.design.name}.sof"
         self.quartus_sh.run("-t", script_path)
 
@@ -281,7 +278,7 @@ class Quartus(FpgaSynthFlow):
             / "Timing_Analyzer"
             / "Multicorner_Timing_Analysis_Summary.csv",
         }
-        # only the reports this run wrote (`report_file`): a previous run's are not this one's
+        # Read only the reports that this run wrote (`report_file`).
         summary = self.report_file(reports["summary"])
         utilization_report = self.report_file(reports["utilization"])
         mc_report = self.report_file(reports["timing.multicorner_summary"])
@@ -326,7 +323,7 @@ class Quartus(FpgaSynthFlow):
             top_resources["ff"] = reg_only + lut_reg
             self.results.update(top_resources)
 
-        # TODO reference for why this timing report is chosen
+        # TODO: say why this timing report is chosen.
 
         slacks = parse_csv(
             mc_report,
