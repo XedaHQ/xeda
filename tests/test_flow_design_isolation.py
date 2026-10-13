@@ -18,6 +18,7 @@ from xeda import Design
 from xeda.design import SourceType
 from xeda.flow import Flow, In, Out, registered_flows
 from xeda.flow_runner import DefaultRunner
+from xeda.flows import GhdlSim, Nvc
 
 
 @pytest.fixture
@@ -90,12 +91,11 @@ def test_a_flow_editing_its_design_changes_nobody_else_s(toy_flows, tmp_path):
     assert recorded["rtl_hash"] == before
 
 
-@pytest.mark.parametrize("flow_name", ["ghdl_sim", "nvc"])
-def test_lib_paths_resolve_for_each_flow_against_its_own_design_root(flow_name, tmp_path):
+@pytest.mark.parametrize("flow_class", [GhdlSim, Nvc], ids=lambda cls: cls.name)
+def test_lib_paths_resolve_for_each_flow_against_its_own_design_root(flow_class, tmp_path):
     """A relative `lib_paths` path is resolved in the flow's own copy of the settings: the caller's
     object is unchanged, another flow built from it resolves against its design, and resolving
     again changes nothing."""
-    flow_class = registered_flows[flow_name][1]
     shared = flow_class.Settings.from_input(
         {"lib_paths": [("vendor", "libs"), (None, "more")]},
         design_root=tmp_path,
