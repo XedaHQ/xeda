@@ -168,6 +168,15 @@ def test_a_table_written_dotted_and_as_a_table_is_refused_inside_a_value_set_by_
         settings_to_dict({"fpga.part": "P", "fpga": {"speed": -6}})
 
 
+def test_a_setting_of_tool_names_is_refused_too_since_the_expansion_runs_before_the_names_fold():
+    """`{"A.B": 1, "A": {"C": 2}}` as the names of a tool (`opaque_key_fields`) is expanded
+    before the setting's model is known. It lost `A.B` when `A` came last and kept both when it
+    came first."""
+    for properties in ({"A.B": 1, "A": {"C": 2}}, {"A": {"C": 2}, "A.B": 1}):
+        with pytest.raises(ConflictingKeys, match="`set_synth_properties.A.B` and"):
+            expand_hierarchy({"set_synth_properties": properties})
+
+
 def test_the_normal_forms_are_not_refused():
     assert expand_hierarchy({"fpga.part": "P", "fpga.speed": -6}) == {
         "fpga": {"part": "P", "speed": -6}
