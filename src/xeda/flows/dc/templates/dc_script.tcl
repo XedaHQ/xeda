@@ -61,8 +61,6 @@ puts "Optimization: $OPTIMIZATION"
 
 set_app_var spg_enable_via_resistance_support true
 
-set_app_var hdlin_infer_multibit default_all
-
 if { [shell_is_dcnxt_shell] } {
     if { $OPTIMIZATION == "area" } {
         set_app_var compile_high_effort_area true

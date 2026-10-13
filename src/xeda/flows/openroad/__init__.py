@@ -135,19 +135,19 @@ class Openroad(AsicSynthFlow):
         core_utilization: Optional[float] = Field(
             40.0,
             description="Core utilization in percent (0..100). Sizes the floorplan unless "
-            "`floorplan_def` or `footprint` is set.",
+            "`floorplan_def`, `footprint`, or both `core_area` and `die_area` are set.",
         )
         core_aspect_ratio: float = Field(1.0, description="Ratio of core height to core width.")
         core_margin: float = Field(2.0, description="Core margin in um.")
         core_area: List[Union[int, float]] = Field(
             [],
             description="Explicit core area as [x1, y1, x2, y2] in microns. Used only with "
-            "`die_area`, and only when `core_utilization` is unset.",
+            "`die_area`. When both are set, they replace `core_utilization`.",
         )
         die_area: List[Union[int, float]] = Field(
             [],
             description="Explicit die area as [x1, y1, x2, y2] in microns. Used only with "
-            "`core_area`, and only when `core_utilization` is unset.",
+            "`core_area`. When both are set, they replace `core_utilization`.",
         )
         sdc_files: List[Path] = Field(
             [],

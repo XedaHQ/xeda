@@ -13,7 +13,6 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Dc, Openroad
 from xeda.utils import WorkingDirectory
@@ -70,20 +69,23 @@ def test_no_post_pdn_script_is_sourced_unless_one_is_given(tmp_path, monkeypatch
     assert re.search(r"pdngen\s+# Check all supply nets", script)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="undecided: an explicit core_area/die_area wins over core_utilization, or both are "
-    "refused. With the default core_utilization the areas are ignored without a word.",
-)
-def test_an_explicit_core_and_die_area_are_not_silently_ignored(tmp_path, monkeypatch) -> None:
+def test_explicit_core_and_die_areas_replace_the_core_utilization(tmp_path, monkeypatch) -> None:
+    """With the default `core_utilization` the areas were ignored without a word."""
     areas = {"core_area": [10, 10, 100, 100], "die_area": [0, 0, 110, 110]}
-    try:
-        Openroad.check_settings_supported(Openroad.Settings(platform="nangate45", **areas))
-    except FlowSettingsError:
-        return  # refused at planning
     flow = _launch_openroad(tmp_path, monkeypatch, **areas)
     script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert "-die_area {0 0 110 110}" in script
+    assert "initialize_floorplan -die_area {0 0 110 110}" in script
+    assert "-core_area {10 10 100 100}" in script
+    assert "-utilization" not in script
+
+
+def test_core_utilization_sizes_the_floorplan_when_no_areas_are_given(
+    tmp_path, monkeypatch
+) -> None:
+    flow = _launch_openroad(tmp_path, monkeypatch, core_utilization=55)
+    script = (flow.run_path / "orflow_0_11.tcl").read_text()
+    assert "initialize_floorplan -utilization 55.0" in script
+    assert "-die_area" not in script
 
 
 def _sdc_delays(flow) -> dict[str, str]:
@@ -228,3 +230,19 @@ def test_dc_sets_no_compile_variable_unless_asked(tmp_path, monkeypatch) -> None
     names = _app_vars(run_path)
     assert "compile_seqmap_honor_sync_set_reset" not in names
     assert "compile_optimize_unloaded_seq_logic_with_no_bound_opt" not in names
+
+
+@needs_tclsh
+def test_dc_sets_hdlin_infer_multibit_once_from_the_setting(tmp_path, monkeypatch) -> None:
+    """The script set `hdlin_infer_multibit default_all` after the `hdlin` loop, so the
+    `infer_multibit` setting had no effect."""
+    _, run_path = _run_dc(tmp_path, monkeypatch)
+    sets = [c for c in fake_calls(run_path) if c[:2] == ["set_app_var", "hdlin_infer_multibit"]]
+    assert sets == [["set_app_var", "hdlin_infer_multibit", "default_all"]]
+
+
+@needs_tclsh
+def test_dc_keeps_the_infer_multibit_the_user_chose(tmp_path, monkeypatch) -> None:
+    _, run_path = _run_dc(tmp_path, monkeypatch, infer_multibit="never")
+    sets = [c for c in fake_calls(run_path) if c[:2] == ["set_app_var", "hdlin_infer_multibit"]]
+    assert sets == [["set_app_var", "hdlin_infer_multibit", "never"]]
