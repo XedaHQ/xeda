@@ -116,6 +116,8 @@ DESIGNS.update(
     for cls, _ in flow_classes()
     if issubclass(cls, SimFlow) and not cls.cocotb_sim_name and cls.name not in DESIGNS
 )
+#: `vivado_sim` records the activity of the instance `tb.uut`, and refuses a design without it
+DESIGNS["vivado_sim"] = (PLAIN_TB_DESIGN[0], {**PLAIN_TB_DESIGN[1], "uut": "uut"})
 #: settings that make a flow reach what it writes (bsc_sim: its Verilator `dump.vcd` handling)
 EXTRA_SETTINGS = {
     "yosys_fpga": {"sta": True},
