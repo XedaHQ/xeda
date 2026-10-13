@@ -67,8 +67,9 @@ The bundled Xilinx pin files have no `create_clock`: give the clock in the flow 
 `custom_boards_file` replaces the bundled database with your own, TOML or YAML by suffix (`.toml`,
 `.yaml`, `.yml`; any other suffix is an error). A relative path resolves against the design
 directory, a board's `lpf` against the database file. Board names there are case-sensitive. An
-entry has `fpga`, `lpf` or `xdc`, and optionally `openfpgaloader_board`. A flow that shares `board`
-with a producer must share `custom_boards_file`.
+entry has `fpga`, `lpf`, `pcf`, `pdc` or `xdc`, and optionally `openfpgaloader_board`; any other key
+is an error. A dotted key is a path (`fpga.part: P` is `fpga: {part: P}`). A flow that shares
+`board` with a producer must share `custom_boards_file`.
 
 ## Pin and timing constraints
 

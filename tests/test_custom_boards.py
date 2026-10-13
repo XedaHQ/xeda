@@ -594,3 +594,84 @@ def test_assigning_a_board_with_no_value_is_refused_and_changes_nothing(tmp_path
         settings.board = "EMPTY"
     assert settings.board == "MY_BOARD"
     assert settings.fpga.part == "LFE5U-25F-6BG381C"
+
+
+# --- The keys of a board entry: dotted keys are paths, and an unknown key is an error ---
+
+DOTTED_DATABASES = {
+    "boards.toml": (
+        '[MY_BOARD]\nopenfpgaloader_board = "programmer_board"\n'
+        'fpga.part = "LFE5U-25F-6BG381C"\nlpf = "pins.lpf"\n'
+    ),
+    "boards.yaml": (
+        "MY_BOARD:\n  openfpgaloader_board: programmer_board\n"
+        "  fpga.part: LFE5U-25F-6BG381C\n  lpf: pins.lpf\n"
+    ),
+}
+
+
+def selected_board(tmp_path: Path, filename: str, content: str):
+    path = write_database(tmp_path, filename, content)
+    return Nextpnr.Settings.from_input(
+        {"board": "MY_BOARD", "custom_boards_file": str(path)}, design_root=tmp_path
+    )
+
+
+@pytest.mark.parametrize("filename", DOTTED_DATABASES)
+def test_a_dotted_key_of_a_board_entry_means_the_table_it_stands_for(tmp_path, filename):
+    settings = selected_board(tmp_path, filename, DOTTED_DATABASES[filename])
+    assert settings.fpga is not None and settings.fpga.part == "LFE5U-25F-6BG381C"
+    assert settings.board_data() == {
+        "openfpgaloader_board": "programmer_board",
+        "fpga": {"part": "LFE5U-25F-6BG381C"},
+        "lpf": "pins.lpf",
+    }
+
+
+def test_the_dotted_and_the_nested_form_of_a_board_entry_are_one_board(tmp_path):
+    nested = selected_board(tmp_path / "a", "boards.yaml", BOARD_YAML)
+    dotted = selected_board(tmp_path / "b", "boards.yaml", DOTTED_DATABASES["boards.yaml"])
+    assert dotted.board_data() == nested.board_data()
+    assert dotted.fpga == nested.fpga
+
+
+def test_a_dotted_key_beside_the_table_it_enters_is_a_conflict_naming_both(tmp_path):
+    message = database_error(
+        tmp_path,
+        "boards.yaml",
+        "MY_BOARD:\n  fpga: LFE5U-25F-6BG381C\n  fpga.part: LFE5U-45F-6BG381C\n",
+    )
+    assert "`fpga`" in message and "`fpga.part`" in message
+    assert "MY_BOARD" in message and str(tmp_path / "boards.yaml") in message
+
+
+@pytest.mark.parametrize(
+    "filename, content",
+    [
+        ("boards.yaml", "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n  lpff: pins.lpf\n"),
+        ("boards.toml", '[MY_BOARD]\nfpga.part = "LFE5U-25F-6BG381C"\nlpff = "pins.lpf"\n'),
+    ],
+)
+def test_an_unknown_key_of_a_board_entry_is_refused_with_a_suggestion(tmp_path, filename, content):
+    message = database_error(tmp_path, filename, content)
+    assert "Board 'MY_BOARD'" in message and str(tmp_path / filename) in message
+    assert "`lpff`" in message and "Did you mean 'lpf'?" in message
+
+
+def test_an_unknown_key_that_a_dotted_key_makes_is_refused_by_its_first_part(tmp_path):
+    message = database_error(
+        tmp_path, "boards.yaml", "MY_BOARD:\n  fpgas.part: LFE5U-25F-6BG381C\n"
+    )
+    assert "`fpgas`" in message and "Did you mean 'fpga'?" in message
+
+
+def test_every_key_the_flows_read_from_a_board_entry_is_accepted(tmp_path):
+    keys = "\n".join(f"  {key}: x" for key in ("lpf", "pcf", "pdc", "xdc", "openfpgaloader_board"))
+    path = tmp_path / "boards.yaml"
+    path.write_text(f"MY_BOARD:\n{keys}\n  fpga.part: LFE5U-25F-6BG381C\n")
+    assert xeda.board.get_board_data("MY_BOARD", path)["fpga"] == {"part": "LFE5U-25F-6BG381C"}
+
+
+def test_the_bundled_database_passes_the_rule_of_every_board_entry():
+    for name in xeda.board.bundled_boards():
+        assert xeda.board.get_board_data(name)
