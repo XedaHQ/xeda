@@ -1319,8 +1319,9 @@ class Flow(metaclass=ABCMeta):
         return []
 
     def input_directories(self) -> List[Path]:
-        """The existing directories that hold the files this flow reads from outside its run
-        directory. A dockerized tool mounts them read-only (`Tool.execute`). They are:
+        """Return the existing directories that hold the files this flow reads.
+
+        A dockerized tool mounts them read-only (`Tool.execute`). They are:
 
         - the directory of each declared input, once the launcher has filled it, and of each file
           in `implicit_inputs`;
@@ -1329,8 +1330,8 @@ class Flow(metaclass=ABCMeta):
           (`trace_inputs.setting_read_paths`). A setting that names what the flow writes is no
           input.
 
-        Each path is absolute as the tool is handed it. When a path is a link, the directory of
-        its target counts too. A directory comes once, in the order of the paths."""
+        Each path is absolute, as the tool receives it. When a path is a link, the directory of
+        its target counts too. Each directory appears once, in the order of the paths."""
         # The trace modules import `Flow`, so this import waits until the method runs.
         from ..flow_runner.trace_inputs import setting_read_paths
 

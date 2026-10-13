@@ -229,11 +229,12 @@ def _candidates(leaf: Any, roots: Sequence[Path]) -> list[Path]:
 
 
 def setting_candidates(settings: Flow.Settings) -> list[tuple[str, Path]]:
-    """Every place a path-typed setting the flow reads (`setting_path_leaves`) can name, with
-    the key path of the setting, as written and not resolved: an absolute path as itself, a
-    relative one under the design root and under the start directory. This is the one reading of
-    "a path a setting names": the trace's file and directory records and a container's mounts
-    all start from it."""
+    """Return every place that a path-typed setting the flow reads can name, with its key path.
+
+    The paths are as written and not resolved (`setting_path_leaves`). An absolute path is taken
+    as itself. A relative path is looked up under the design root and under the start directory.
+    This is the one reading of "a path a setting names": the trace records and the mounts of a
+    container both start from it."""
     roots = _setting_roots(settings)
     return [
         (key, candidate)
@@ -292,9 +293,10 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
 
 
 def setting_read_paths(settings: Flow.Settings, run_path: Path) -> list[Path]:
-    """The existing files and directories that the path-typed settings the flow reads name
-    (`setting_candidates`), as written: the paths a tool is handed. A directory in the run
-    directory is left out, as in `setting_directories`."""
+    """Return the existing files and directories that the path-typed settings the flow reads name.
+
+    The paths are as written (`setting_candidates`), which is how the tool receives them. A
+    directory in the run directory is left out, as in `setting_directories`."""
     run_dir = run_path.resolve()
     return [
         candidate

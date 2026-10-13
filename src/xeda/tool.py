@@ -114,7 +114,7 @@ class Docker(XedaBaseModel):
         """Run the tool in a Docker container.
 
         The container mounts the current directory (the run directory) writable and each
-        directory of `read_only` read-only: the design's, and those of the flow's input files
+        directory of `read_only` read-only: the design's, and those of the flow's inputs
         (`Tool.execute` chooses them). A mount configured in `mounts` stays as configured."""
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
@@ -152,7 +152,7 @@ class Docker(XedaBaseModel):
         docker_args += ["--security-opt", "label=disable"]
         docker_args += [f"--volume={k}:{v}" for k, v in mounts.items()]
         for directory in dict.fromkeys(str(Path(d)) for d in read_only):
-            # the run directory, or a mount configured at the same path (writable or not)
+            # Skip the run directory and a mount configured at the same path (writable or not).
             if mounts.get(directory, "").split(":")[0] != directory:
                 docker_args.append(f"--volume={directory}:{directory}:ro")
         env = {**self.default_env, **(env or {})}
@@ -268,8 +268,8 @@ class Tool(XedaBaseModel):
     #: writes for the tool (`env.sh`) go through it. It is None outside a flow.
     _run_directory: Any = PrivateAttr(default=None)
     #: A weak reference to the flow the tool runs for. A dockerized run asks the flow for the
-    #: directories of its inputs when it starts, because the inputs are filled after the tool is
-    #: made. It is None outside a flow.
+    #: directories of its inputs when it starts, because the launcher fills the inputs after the
+    #: tool is made. It is None outside a flow.
     _flow: Any = PrivateAttr(default=None)
 
     @field_validator("version_flag", mode="before")
@@ -534,22 +534,22 @@ class Tool(XedaBaseModel):
         )
 
     def _read_only_directories(self) -> List[Path]:
-        """The directories that a container mounts read-only, per run.
+        """Return the directories that a container mounts read-only in this run.
 
-        These are the design's and the directories of the flow's input files
-        (`Flow.input_directories`: the files of its producers, the files that it registered as
-        implicit inputs, and the files and directories that its settings name). The tool writes only in the directory it runs in (the run directory),
-        and in a mount that the user configured writable. A directory that the run directory, the
-        design's directories or a configured mount at the same path already holds is not mounted
-        again. A
-        read-only mount inside the run directory would make a part of it read-only."""
+        These are the directories of the design and the directories of the flow's inputs
+        (`Flow.input_directories`: the files of its producers, the implicit inputs, and the files
+        and directories that its settings name). The tool writes only in the directory it runs in
+        (the run directory) and in a mount that the user configured writable. A directory is left
+        out when the run directory, a directory of the design, or a configured mount at the same
+        path already holds it. A read-only mount inside the run directory would make a part of it
+        read-only."""
         design = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
         flow = self._flow() if self._flow is not None else None
         inputs = flow.input_directories() if flow is not None else []
         held = [
             Path.cwd(),
             *design,
-            # a configured mount holds a directory for the tool only at the same path in the container
+            # A configured mount holds a directory only when the container path is the host path.
             *(
                 Path(host)
                 for host, target in (self.docker.mounts if self.docker else {}).items()
