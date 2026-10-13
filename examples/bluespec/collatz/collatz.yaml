@@ -1,20 +1,20 @@
-name: 'collatz'
-description: 'Collatz sequence unit written entirely in Bluespec Classic (BH, .bs): counts the steps
-  to 1 and the peak value, flagging 32-bit overflow. The BH testbench compares 72 sequences with a
-  golden model that bsc evaluates at compile time.'
+name: collatz
+description: >-
+  Collatz sequence unit, written entirely in Bluespec Classic (BH, .bs). It counts the steps to 1
+  and the peak value, and flags a 32-bit overflow. The testbench compares 72 sequences with a
+  golden model that bsc evaluates at compile time.
 rtl:
   sources:
-    - 'rtl/Collatz.bs'
-  top: 'mkCollatz'
-  clock:
-    port: 'CLK'
+    - "rtl/Collatz.bs"
+  top: mkCollatz
+  clock.port: CLK
 tb:
-  # BH sources do not go through bsc's preprocessor, so the testbench reads the XEDA_INJECT_BUG
-  # macro through a small BSV package; the package defining `top` comes last.
+  # bsc's preprocessor does not read BH sources, so the testbench gets the XEDA_INJECT_BUG
+  # macro through a small BSV package. The package that defines `top` comes last.
   sources:
-    - 'tb/TbCollatzOptions.bsv'
-    - 'tb/TbCollatz.bs'
-  top: 'mkTbCollatz'
+    - "tb/TbCollatzOptions.bsv"
+    - "tb/TbCollatz.bs"
+  top: mkTbCollatz
   # Negative test: defining the macro XEDA_INJECT_BUG makes the testbench expect a wrong result,
-  # so it must fail (non-zero exit):
-  # defines: {XEDA_INJECT_BUG: true}
+  # so the run must fail (non-zero exit).
+  # defines.XEDA_INJECT_BUG: true

@@ -1,10 +1,12 @@
-hdl.vhdl.standard: "2008"
-
-sources: ["ecp5pll.vhdl", "blinky.vhdl", {file: "blinky-vhdl.lpf", type: Lpf}]
-top: blinky
-clock:
-  port: "clk_25mhz"
-
+description: LED chaser on the ULX3S board, in VHDL
+language.vhdl.standard: 2008
+rtl:
+  sources:
+    - "ecp5pll.vhdl"
+    - "blinky.vhdl"
+    - {file: "blinky-vhdl.lpf", type: Lpf}
+  top: blinky
+  clock.port: clk_25mhz
 flows:
   openfpgaloader:
     clock.freq: 25MHz

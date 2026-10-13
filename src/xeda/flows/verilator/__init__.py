@@ -25,9 +25,9 @@ from ...utils import replacing_copy, unique
 
 log = logging.getLogger(__name__)
 
-#: The end record xeda's hooks write in `sim_dir` (`templates/xeda_hooks.cpp`).
+#: The end record that Xeda's hooks write in `sim_dir` (`templates/xeda_hooks.cpp`).
 END_RECORD = "xeda_end.json"
-#: Verilator's runtime functions xeda's hooks define in place of its own (verilated.cpp).
+#: The macros that make Verilator leave its runtime functions to Xeda's hooks (`verilated.cpp`).
 HOOK_MACROS = (
     "VL_USER_FINISH",
     "VL_USER_STOP",
@@ -45,10 +45,11 @@ _RECORD_EVENT_KINDS = {
 
 
 def parse_end_record(path: Path) -> SimEvidence:
-    """The evidence in the end record xeda's Verilator hooks write (`templates/xeda_hooks.cpp`).
-    A `stop_maybe` event is an error (`$error`, a failed assertion, `$stop`) when `maybe` is true
-    and a fatal error (`$fatal`) when it is false. An unreadable or malformed record is a
-    `ValueError`."""
+    """Return the evidence in the end record that Xeda's Verilator hooks write.
+
+    The hooks are in `templates/xeda_hooks.cpp`. A `stop_maybe` event is an error (`$error`, a
+    failed assertion, `$stop`) when `maybe` is true and a fatal error (`$fatal`) when it is
+    false. Raise `ValueError` for an unreadable or malformed record."""
     try:
         data = json.loads(Path(path).read_bytes().decode("utf-8", errors="replace"))
     except OSError as e:
@@ -111,13 +112,13 @@ TRACE_FORMATS = ("vcd", "fst", "saif")
 
 
 class VerilatorTool(Tool):
-    """Verilator, at least the release xeda's flows are written for."""
+    """Verilator, in the oldest release that Xeda's flows support."""
 
     docker: Optional[Docker] = Docker(image="xeda-verilator")  # type: ignore
     executable: str = "verilator"
     minimum_version: Optional[Tuple[Union[int, str], ...]] = MIN_VERILATOR_VERSION
     minimum_version_reason: ClassVar[str] = (
-        "Before 5.048, xeda's hooks cannot tell a `$finish` in a `final` block from the end of "
+        "Before 5.048, Xeda's hooks cannot tell a `$finish` in a `final` block from the end of "
         "the simulation, so a run that drained could pass."
     )
 
@@ -125,28 +126,31 @@ class VerilatorTool(Tool):
 class Verilator(SimFlow):
     """Simulate a Verilog or SystemVerilog design with Verilator 5.048 or newer.
 
-    Verilator compiles the design to C++ (or SystemC) and builds a native executable, which
-    makes it the fastest open-source simulator for large designs. Supports cocotb testbenches,
-    plain C++/SystemC harnesses, and VCD/FST/SAIF waveform tracing.
+    Verilator compiles the design to C++ or SystemC and builds a native executable. The flow
+    supports cocotb testbenches, plain C++ and SystemC harnesses, and VCD, FST and SAIF
+    waveform tracing.
 
     Three drivers run the model. By default, Verilator's own `--main` runs an HDL top (the
     `main` setting). With `main: false`, the design's own C++ `main` or `sc_main` runs it. With
     cocotb, cocotb's own main runs it, and cocotb's results decide the run.
 
-    The simulated top is the testbench's `tb.top`, or else the design's `rtl.top` (a design with
-    HDL testbench sources needs `tb.top` when Verilator supplies its main); with cocotb, the module cocotb drives:
-    `tb.cocotb.toplevel`, or else `rtl.top`. Its parameters (`-G`) are `rtl.parameters` updated
-    by `tb.parameters` when the simulated top is the RTL top, and `tb.parameters` alone
-    otherwise. Without cocotb, a run passes only on evidence of how the simulation ended, which
-    xeda's hooks record in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's
-    main, the run passes when the testbench ends it with `$finish` and nothing reported reaches
-    `fail_severity`; an event queue that runs empty without a `$finish` fails. Under the design's
-    own main, the run passes when that main exits with status 0 and nothing reported reaches
-    `fail_severity`. `stop_time` is refused: end the testbench with `$finish`, or use `timeout`.
+    The simulated top module is `tb.top`, else `rtl.top`. A design with HDL testbench sources
+    needs `tb.top` when Verilator supplies its main. With cocotb, the simulated top module is the
+    one cocotb drives: `tb.cocotb.toplevel`, else `rtl.top`. The parameters (`-G`) are
+    `rtl.parameters` updated by `tb.parameters` when the simulated top module is the RTL top,
+    and `tb.parameters` alone otherwise.
 
-    A waveform setting (`vcd`, `fst`, `saif`) builds the model with that trace format. Without
-    cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write the
-    file, and name it; xeda opens no waveform.
+    Without cocotb, a run passes only on evidence of how the simulation ended. Xeda's hooks
+    record that evidence in Verilator's runtime (`xeda_end.json` in `sim_dir`). Under Verilator's
+    main, the run passes when the testbench ends it with `$finish` and nothing reported reaches
+    `fail_severity`. An event queue that runs empty without a `$finish` fails. Under the design's
+    own main, the run passes when that main exits with status 0 and nothing reported reaches
+    `fail_severity`. The flow refuses `stop_time`: end the testbench with `$finish`, or use
+    `timeout`.
+
+    A waveform setting (`vcd`, `fst` or `saif`) builds the model with that trace format. Without
+    cocotb, the testbench's `$dumpfile` and `$dumpvars` (or the design's own main) write and name
+    the file. Xeda opens no waveform.
     """
 
     cocotb_sim_name = "verilator"
@@ -167,7 +171,7 @@ class Verilator(SimFlow):
         "sim.evidence", "sim.ended_by", "sim.time", "sim.time_unit", "sim.errors", "sim.warnings"
     )
 
-    #: the exit status of this run's model, once it has returned (0) or failed
+    #: The exit status of this run's model, once it has returned (0) or failed.
     _driver_exit_code: int | None = None
     _model_log: Path | None = None
 
@@ -182,39 +186,38 @@ class Verilator(SimFlow):
             [], description="Extra arguments passed to the `verilator` command itself."
         )
         cflags: List[str] = Field(
-            [], description="Extra flags passed through to the C++ compiler (verilator -CFLAGS)."
+            [], description="Extra flags for the C++ compiler (`verilator -CFLAGS`)."
         )
         warn_flags: List[str] = Field(
             ["-Wall"],
-            description='Verilator lint/warning flags, e.g. ["-Wall", "-Wno-WIDTH"]. '
-            "Verilator's linting is stricter than most simulators'.",
+            description="Verilator lint and warning flags, such as `-Wall` and `-Wno-WIDTH`. "
+            "Verilator lints more strictly than most simulators.",
         )
         warnings_fatal: bool = Field(
             False,
-            description="Treat Verilator warnings as errors (`-Werror`), failing the flow.",
+            description="Make a Verilator warning fail the run. Without it, the flow passes "
+            "`-Wno-fatal`.",
         )
         include_dirs: List[Path] = Field(
             [],
-            description="Directories searched for `include` files and missing modules (-I). "
+            description="Directories searched for `include` files and missing modules (`-I`). "
             "Every file under them is an input of the run.",
         )
         optimize: Union[bool, str, int] = Field(
             True,
-            description="Optimization level for the generated model: true for Verilator's "
-            'default -O3, false to disable, or a level/flag string such as 3 or "-O2". '
-            "Disabling it speeds up compilation and slows down simulation.",
+            description="Optimization level for the generated model. `true` passes `-O3`, "
+            "`false` passes no `-O` option, and a level such as `2` passes `-O2`.",
         )
         timing: bool = Field(
             True,
             description="Enable Verilator's `--timing` support for delays and non-blocking "
-            "event controls. Enabled by default; requires a compiler with C++20 coroutine "
-            "support. Verilator's required C++ standard takes precedence over `-std=` in "
-            "`cflags`. When it is off, Verilator ignores a delay and warns about it "
-            "(`STMTDLY` for a statement, `ASSIGNDLY` for an assignment), so a testbench's "
-            "`#100; $finish` ends at time 0.",
+            "event controls. Requires a compiler with C++20 coroutine support. Verilator's "
+            "required C++ standard takes precedence over `-std=` in `cflags`. When it is off, "
+            "Verilator ignores a delay and warns about it (`STMTDLY` for a statement, "
+            "`ASSIGNDLY` for an assignment), so a testbench's `#100; $finish` ends at time 0.",
         )
         model_args: List[str] = Field(
-            default=[], description="Arguments to pass to the model executable"
+            default=[], description="Arguments passed to the model executable."
         )
         verilog_libs: List[Path] = Field(
             [],
@@ -223,13 +226,13 @@ class Verilator(SimFlow):
         )
         build: bool = Field(
             True,
-            description="Compile and link the generated C++ into an executable model. Disable to "
-            "only generate sources.",
+            description="Compile and link the generated C++ into an executable model. If false, "
+            "Verilator only generates the sources.",
         )
         vpi: bool = Field(
             False,
-            description="Enable VPI support in the model, required by VPI-based testbenches. Set "
-            "automatically for cocotb.",
+            description="Enable VPI support in the model. VPI-based testbenches need it. Cocotb "
+            "enables it without this setting.",
         )
         no_deps: bool = Field(
             True,
@@ -241,12 +244,12 @@ class Verilator(SimFlow):
         )
         generate_executable: bool = Field(
             True,
-            description="Link a standalone executable (`--exe`) rather than a library to embed. "
-            "Verilator's `main` option (`main`) generates the `main()`.",
+            description="Link a standalone executable (`--exe`). Without it, Verilator builds a "
+            "library to embed. The `main` setting makes Verilator generate `main()`.",
         )
         compiler: Optional[str] = Field(
             None,
-            description='C++ compiler used to build the model, e.g. "clang++". Defaults to '
+            description='C++ compiler that builds the model, such as "clang++". The default is '
             "Verilator's own choice.",
         )
         random_init: bool = Field(
@@ -305,7 +308,9 @@ class Verilator(SimFlow):
         )
         threads: int = Field(
             0,
-            description="0: not thread-safe, 1: thread-safe single thread, 2+: multithreaded",
+            description="Number of threads of the model. 0 builds a model that is not "
+            "thread-safe, 1 a thread-safe single-threaded model, and 2 or more a multithreaded "
+            "model.",
         )
         trace_underscore: bool = Field(
             False,
@@ -314,8 +319,8 @@ class Verilator(SimFlow):
         )
         trace_structs: bool = Field(
             False,
-            description="Trace structs and packed arrays with their field names rather than as "
-            "flat vectors (`--trace-structs`). Off, as in Verilator.",
+            description="Trace structs and packed arrays with their field names, as separate "
+            "signals instead of flat vectors (`--trace-structs`). Off, as in Verilator.",
         )
         trace_threads: Optional[int] = Field(
             None,
@@ -342,8 +347,11 @@ class Verilator(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse what Verilator cannot do in any mode, before anything runs: stopping at a
-        simulated time, more than one trace format, and a trace option with no trace."""
+        """Refuse what Verilator cannot do in any mode.
+
+        These are stopping at a simulated time, more than one trace format, and a trace option
+        with no trace.
+        """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if settings.stop_time is not None:
@@ -373,12 +381,14 @@ class Verilator(SimFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse what Verilator cannot do with this design and these settings, before anything
-        runs: a `main` beside cocotb, whose own main runs the model; SystemC without the design's
-        own `sc_main`; and a waveform file name, since without cocotb the testbench's `$dumpfile`
-        (or the design's own C++ main) names the file. The trace names are judged on the settings as
-        given: a located `vcd` is `dump.vcd` once the run starts, and could not be told from
-        `true`."""
+        """Refuse what Verilator cannot do with this design and these settings.
+
+        These are a `main` beside cocotb, whose own main runs the model; SystemC without the
+        design's own `sc_main`; and a waveform file name, since without cocotb the testbench's
+        `$dumpfile` (or the design's own C++ main) names the file. The check judges the trace
+        names as given: a located `vcd` becomes `dump.vcd` once the run starts, and the check
+        could not tell it from `true`.
+        """
         super().check_design_supported(design, settings)
         if not isinstance(settings, cls.Settings):
             return
@@ -397,7 +407,7 @@ class Verilator(SimFlow):
             value = getattr(settings, name)
             if value is not None and Path(value) != Path(f"dump.{name}"):
                 raise FlowSettingsException(
-                    f"`{name}` names a waveform file, but without cocotb xeda writes no "
+                    f"`{name}` names a waveform file, but without cocotb Xeda writes no "
                     "waveform: the testbench's `$dumpfile` (or the design's own C++ main) names "
                     f"and writes the file. Set `{name}: true` (stored as `dump.{name}`, the only "
                     f"name accepted) to build the model with {name.upper()} tracing, and call "
@@ -407,14 +417,15 @@ class Verilator(SimFlow):
     def init(self) -> None:
         super().init()
         assert isinstance(self.settings, self.Settings)
-        # a flow built directly is not planned (its design was checked when it was built)
+        # a flow built directly skips planning (its design was checked when it was built)
         self.check_settings_supported(self.settings)
 
     def waveform_problem(self) -> str | None:
-        """A run without cocotb wrote the waveform it was built to dump: the testbench names the
-        file, and `dump.<format>` is the one name that `true` and a location stand for. A model
-        built for one format whose testbench dumps to another name writes data of that format
-        under it, so the file would be a different one."""
+        """Return a problem text if a run without cocotb wrote no waveform, else None.
+
+        The model is built to dump a waveform. The testbench names the file, and `dump.<format>`
+        is the one name that `true` and a location stand for. A model built for one format whose
+        testbench dumps to another name leaves no `dump.<format>`."""
         assert isinstance(self.settings, self.Settings)
         if self.cocotb:
             return None
@@ -436,14 +447,17 @@ class Verilator(SimFlow):
         return super().always_runs()
 
     def has_evidence_adapter(self) -> bool:
-        """xeda's hooks record how the simulation ended, except under cocotb, whose own main
-        runs the model and whose results decide the run."""
+        """Return whether Xeda's hooks record how the simulation ended.
+
+        They do not under cocotb, whose own main runs the model and whose results decide the
+        run."""
         return not self.cocotb
 
     def simulation_top(self) -> str:
-        """The simulated top module: with cocotb, the one cocotb drives (`cocotb_toplevel`:
-        `tb.cocotb.toplevel`, or else the RTL top); otherwise the testbench's first `tb.top`, or
-        else the RTL top."""
+        """Return the simulated top module.
+
+        With cocotb, it is the module that cocotb drives (`cocotb_toplevel`: `tb.cocotb.toplevel`,
+        else the RTL top). Otherwise it is the first `tb.top`, else the RTL top."""
         if self.cocotb:
             top = cocotb_toplevel(self.design)
         else:
@@ -454,12 +468,14 @@ class Verilator(SimFlow):
 
     @classmethod
     def check_run_directory(cls, settings: Flow.Settings, run_path: Path) -> None:
-        """Refuse a build directory whose path has whitespace: Verilator's makefile stops with
-        "GNU Make cannot build in directories containing spaces" before it compiles anything,
-        because make splits a path at whitespace. The model is built in `sim_dir`, a name inside
-        the run directory. Make builds in the physical directory, so the run directory is judged
-        by what it leads to, but `sim_dir` by its name: the launcher removes a link left at it
-        before the run, and never follows it."""
+        """Refuse a build directory whose path has whitespace.
+
+        Verilator's makefile stops with "GNU Make cannot build in directories containing spaces"
+        before it compiles anything, because make splits a path at whitespace. The model is built
+        in `sim_dir`, a name inside the run directory. Make builds in the physical directory, so
+        the check judges the run directory by what it leads to. It judges `sim_dir` by its name,
+        because the launcher removes a link left at that name before the run and never follows
+        it."""
         super().check_run_directory(settings, run_path)
         assert isinstance(settings, cls.Settings)
         build = os.path.normpath(os.path.join(os.path.realpath(run_path), settings.sim_dir))
@@ -474,25 +490,29 @@ class Verilator(SimFlow):
     def runs_without_testbench_top(
         cls, design: Design, settings: Flow.Settings | None = None
     ) -> bool:
-        """The design's own C++ main runs the model, whatever HDL the testbench also holds (a
-        bound checker, a helper), when `main` is false: only the settings say. Verilator's own
-        main runs `tb.top`, or else `rtl.top`, which has no stimulus. A design checked without
-        its settings is not exempt."""
+        """Return whether the design's own C++ main runs the model, so no testbench top is needed.
+
+        That is the case when `main` is false, whatever HDL the testbench also holds (a bound
+        checker, a helper). Only the settings say. Verilator's own main runs `tb.top`, else
+        `rtl.top`, which has no stimulus. A design checked without its settings is not exempt."""
         return isinstance(settings, cls.Settings) and settings.main is False
 
     def verilator_main(self) -> bool:
-        """Whether Verilator's own `--main` runs the model: the `main` setting, which is true
-        unless cocotb is used (its own main runs the model)."""
+        """Return whether Verilator's own `--main` runs the model.
+
+        It does unless cocotb is used (its own main runs the model) or `main` is false."""
         assert isinstance(self.settings, self.Settings)
         return not self.cocotb and self.settings.main is not False
 
     def user_main(self) -> bool:
-        """Whether the design's own C++ `main` or `sc_main` runs the model."""
+        """Return whether the design's own C++ `main` or `sc_main` runs the model."""
         return not self.cocotb and not self.verilator_main()
 
     def simulation_evidence(self) -> SimEvidence | None:
-        """The end record this run's model wrote (`report_file`: this run's own only). A design's
-        own main that ended the simulation by exiting has the status it exited with."""
+        """Return the evidence from the end record that this run's model wrote, else None.
+
+        Only a record of this run counts (`report_file`). If the design's own main ended the
+        simulation by exiting, the evidence has the status that main exited with."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         path = self.report_file(self.run_path / self.settings.sim_dir / END_RECORD)
@@ -526,8 +546,8 @@ class Verilator(SimFlow):
         top = self.simulation_top()
         sim_dir = Path(ss.sim_dir)
         verilated_bin = os.path.join(ss.sim_dir, "top")
-        # without cocotb, xeda's hooks record how the simulation ends, under Verilator's main
-        # and under the design's own alike
+        # Without cocotb, Xeda's hooks record how the simulation ends, under Verilator's main
+        # and under the design's own main alike.
         hooked = not self.cocotb
         generated_main = self.verilator_main()
 
@@ -537,8 +557,8 @@ class Verilator(SimFlow):
             parameters = {**self.design.rtl.parameters, **self.design.tb.parameters}
         else:
             parameters = dict(self.design.tb.parameters)
-        # tb defines override rtl defines; merged into a new mapping, as the design is shared by
-        # every flow of the run and already hashed
+        # Testbench defines override RTL defines. Merge them into a new mapping, because every
+        # flow of the run shares the design, which is already hashed.
         defines: dict[str, Any] = {**self.design.rtl.defines, **self.design.tb.defines}
 
         args: List[Any] = []
@@ -632,7 +652,7 @@ class Verilator(SimFlow):
             trace = None
         if trace:
             if self.cocotb:
-                # cocotb's own main opens the file, at the name xeda gives it
+                # cocotb's own main opens the file, at the name Xeda gives it
                 trace = str(self.process_path(trace, subs_vars=True))
                 model_args += ["--trace", "--trace-file", trace]
                 log.info("Will generate trace file %s", trace)
@@ -692,7 +712,6 @@ class Verilator(SimFlow):
         args += [f"-I{dir}" for dir in include_dirs]
         args += [f"-G{name}={value}" for name, value in parameters.items()]
 
-        # read verilog libs
         for vlib in ss.verilog_libs:
             args += ["-v", str(vlib)]
 
@@ -709,7 +728,7 @@ class Verilator(SimFlow):
                 f"-Wl,-rpath,{lib_dir} -L{lib_dir} -lcocotbvpi_verilator",
             ]
             env = self.cocotb.env(self.design)
-            # cocotb's own main runs the model; xeda has no copy of it to fall back on
+            # cocotb's own main runs the model, and Xeda has no copy of it
             coco_share_dir = self.cocotb.share_dir
             cocotb_cpp_path = (
                 Path(coco_share_dir) / "lib" / "verilator" / "verilator.cpp"
@@ -743,7 +762,7 @@ class Verilator(SimFlow):
             record = self.run_path / sim_dir / END_RECORD
             # a previous run's record (or a link a tool left at its name) is never this run's
             self.run_directory.remove(record, record.with_name(record.name + ".tmp"))
-            # the model takes no argument of xeda's: the hooks read the record's path from here
+            # the model takes no argument of Xeda's: the hooks read the record's path from here
             env = {**(env or {}), "XEDA_END_RECORD": str(record)}
         self._free_model_outputs(model_args)
         model = verilator.derive(verilated_bin)
@@ -760,11 +779,13 @@ class Verilator(SimFlow):
         self._driver_exit_code = 0
 
     def _free_model_outputs(self, model_args: List[str]) -> None:
-        """Before the model runs: the files Verilator's own main writes at a name of its own in the
-        run directory (`coverage.dat` with `--coverage`, or the file `+verilator+coverage+file+`
-        names) are removed as themselves, a symbolic link or a hard link at such a name included.
-        The model would otherwise write through the link, to a file that may lie outside the run
-        directory, and an earlier run's file must not stand for this run's."""
+        """Remove the files that Verilator's own main writes at a name of its own.
+
+        This runs before the model. The files are `coverage.dat` (with `--coverage`) and the file
+        that `+verilator+coverage+file+` names. Each is removed as itself, a symbolic link or a
+        hard link at such a name included. Otherwise the model would write through the link, to a
+        file that may lie outside the run directory, and the file of an earlier run would stand
+        for this run's."""
         names = [COVERAGE_FILE]
         names += [
             arg.split(COVERAGE_FILE_ARGUMENT, 1)[1]
@@ -777,7 +798,7 @@ class Verilator(SimFlow):
                 # would name different files
                 raise FlowSettingsException(
                     f"the coverage file {name} has a `..` in it: name it without, so that the "
-                    "file xeda frees is the file the model writes"
+                    "file Xeda frees is the file the model writes"
                 )
             within = self.run_directory.named_within(self.run_path / name)
             if within is None:
@@ -795,15 +816,14 @@ class Verilator(SimFlow):
             if os.path.islink(located) or (
                 os.path.lexists(located) and os.lstat(located).st_nlink > 1
             ):
-                # a directory no launcher chose (a flow built directly): xeda deletes nothing there
+                # a directory no launcher chose (a flow built directly): Xeda deletes nothing there
                 raise FlowFatalError(
-                    f"{located} is a link, and xeda deletes nothing in {self.run_path}, which no "
+                    f"{located} is a link, and Xeda deletes nothing in {self.run_path}, which no "
                     "launcher chose: the model would write through it. Remove the link"
                 )
 
     def rm_dep_files(self):
-        """Remove the make dependency files in `sim_dir`, to trigger verilator (through the run
-        directory, in which `sim_dir` is a name)."""
+        """Remove the make dependency files in `sim_dir`, to trigger Verilator."""
         assert isinstance(self.settings, self.Settings)
         sim_dir = self.settings.sim_dir
         if not sim_dir:

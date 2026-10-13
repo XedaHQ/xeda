@@ -1,4 +1,4 @@
-"""Utilities for command line interface"""
+"""Utilities for the command-line interface."""
 
 import json
 import logging
@@ -67,17 +67,18 @@ __all__ = [
     "wants_machine_readable",
 ]
 
-#: Help-screen palette: yellow headings and green options, to match the rich tables. click-extra
-#: themes every element of the screen, so the rest of the built-in theme (metavars, choices,
-#: envvars, defaults, ...) is inherited unchanged.
+#: The help-screen palette: yellow headings and green options, to match the rich tables.
+#: click-extra themes every element of the screen, so the rest of the built-in theme (metavars,
+#: choices, envvars, defaults, ...) stays as it is.
 XEDA_HELP_THEME: HelpTheme = get_default_theme().with_(
     heading=HelpStyle(fg="yellow", bold=True),
     option=HelpStyle(fg="green", bold=True),
 )
 
-#: Belongs in `context_settings`, not on a command: cloup resolves the formatter from the
-#: *context*, and a child context inherits its parent's settings, so the theme placed here reaches
-#: every subcommand. A `formatter_settings=` passed to a command would style only that one screen.
+#: The formatter settings of the help screens. They belong in `context_settings`, not on a
+#: command: cloup resolves the formatter from the context, and a child context inherits the
+#: settings of its parent, so the theme placed here reaches every subcommand. A
+#: `formatter_settings=` passed to a command would style only that one screen.
 HELP_FORMATTER_SETTINGS: Dict[str, Any] = HelpFormatter.settings(theme=XEDA_HELP_THEME)
 
 
@@ -85,7 +86,7 @@ log = logging.getLogger(__name__)
 
 
 class ConsoleLogo:
-    """Xeda ASCII logo on console"""
+    """The Xeda ASCII logo on the console."""
 
     logo: str = """
 :==-+-:        :=-.-='.---==:::::::==-. .--=:::::::::=.          ,+==::::::+=-.
@@ -102,7 +103,7 @@ class ConsoleLogo:
 
     @classmethod
     def print(cls):
-        """print the logo if console is wide enough"""
+        """Print the logo if the console is wide enough."""
         if console.width >= 80:
             console.print(
                 cls.logo.format(X="[dark_orange]", O="[/]"),
@@ -112,7 +113,8 @@ class ConsoleLogo:
 
 
 def requested_output_format(argv: Sequence[str]) -> Optional[str]:
-    """The machine-readable format this invocation asked for, or `None` for human output.
+    """Return the machine-readable format that this invocation asked for, or `None` for human
+    output.
 
     `--json` is shorthand for `--format json`. `--format table` is human output, so it returns
     `None` and nothing is intercepted.
@@ -131,19 +133,19 @@ def requested_output_format(argv: Sequence[str]) -> Optional[str]:
 
 
 def wants_machine_readable(argv: Sequence[str]) -> bool:
-    """Whether this invocation asked for machine-readable output on stdout."""
+    """Return whether this invocation asked for machine-readable output on stdout."""
     return requested_output_format(argv) is not None
 
 
 @contextmanager
 def _restoring_output_streams() -> Iterator[None]:
-    """Undo any output redirection this invocation applied, however the invocation ends.
+    """Undo any output redirection that this invocation applied, however the invocation ends.
 
     `machine_readable_mode()` points the rich console and tool output at `sys.stderr`, and both
-    are module-global. Without restoring them, a `--json` command leaves every later command in
-    the same process writing to a stream that belonged to it -- which is exactly what happens
-    under `click.testing.CliRunner` and when the CLI is driven as a library. A one-shot `xeda`
-    process never noticed.
+    are module-global. Without the restore, a `--json` command leaves every later command in the
+    same process writing to a stream that belonged to it. This happens under
+    `click.testing.CliRunner` and when the CLI is driven as a library. A one-shot `xeda` process
+    is not affected.
     """
     console_previous = console_target()
     tool_previous = proc_utils.tool_output_redirect()
@@ -155,8 +157,8 @@ def _restoring_output_streams() -> Iterator[None]:
 
 
 class _DeclaredEnvvarsContext(ColorizedContext):
-    """A context with no automatic environment variables: click would otherwise derive a prefix
-    from the parent's (`XEDA_RUN_<OPTION>`) even when the command asks for none."""
+    """A context with no automatic environment variables. Otherwise click derives a prefix from
+    the parent (`XEDA_RUN_<OPTION>`) even when the command asks for none."""
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -167,15 +169,15 @@ def reraise_suggesting_visible(
     command: click.Command, ctx: click.Context, error: click.NoSuchOption
 ) -> NoReturn:
     """Raise `error` again, with the close matches of the mistyped option taken from the options
-    the help of `command` lists.
+    that the help of `command` lists.
 
-    click suggests from every option a command has. A hidden option exists only to say what
+    click suggests from every option that a command has. A hidden option exists only to say what
     replaced a removed one (`--xeda-run-dir`), so a suggestion must never lead to it. Every
-    command and group of xeda calls this, so the rule holds for each of them.
+    command and group of Xeda calls this function, so the rule holds for each of them.
     """
     if not error.possibilities:  # nothing was close, or a short option: nothing to leave out
         raise error
-    # click suggests from the long names: a short one (`-s`) is not among them
+    # click suggests from the long names. A short name (`-s`) is not among them.
     visible = [
         name
         for param in command.get_params(ctx)
@@ -189,7 +191,7 @@ def reraise_suggesting_visible(
 
 
 class XedaCommand(ColorizedCommand):
-    """The command class of xeda's own commands: it suggests only options its help lists."""
+    """The command class of the Xeda commands. It suggests only options that its help lists."""
 
     def parse_args(self, ctx: click.Context, args: List[str]) -> List[str]:
         try:
@@ -199,13 +201,13 @@ class XedaCommand(ColorizedCommand):
 
 
 class DeclaredEnvvarsCommand(XedaCommand):
-    """A command whose options read only the environment variables they declare (`envvar=`).
+    """A command whose options read only the environment variables that they declare (`envvar=`).
 
-    With the group's `auto_envvar_prefix`, every option has a hidden second name: a leftover
-    `export XEDA_CLEAN=1` would empty every run directory on every run, with nothing on the
+    With the `auto_envvar_prefix` of the group, every option has a hidden second name. A leftover
+    `export XEDA_CLEAN=1` would then empty every run directory on every run, with nothing on the
     command line to turn it off. click-extra also registers the automatic names on the options
-    themselves (to show them in the help), so both the command's settings and its context drop
-    the prefix.
+    themselves (to show them in the help), so both the settings of the command and its context
+    drop the prefix.
     """
 
     context_class = _DeclaredEnvvarsContext
@@ -219,7 +221,8 @@ class DeclaredEnvvarsCommand(XedaCommand):
 
 
 class XedaHelpGroup(ColorizedGroup):
-    """How to display CLI help"""
+    """The command group that shows the Xeda help screens and reports errors in the requested
+    output format."""
 
     command_class = XedaCommand
 
@@ -234,18 +237,19 @@ class XedaHelpGroup(ColorizedGroup):
         super().format_usage(ctx, formatter)
 
     def main(self, args=None, **extra):  # type: ignore[override]
-        """Report argument errors in the format the invocation asked for.
+        """Report argument errors in the format that the invocation asked for.
 
-        Click handles a `UsageError` itself: it prints to stderr and exits 2, which leaves a
-        caller that asked for machine-readable output with empty stdout and nothing to parse.
-        The error document is emitted in the requested format, so `--format yaml` gets YAML.
-        Only the machine-readable path is intercepted; ordinary invocations are untouched.
+        Click handles a `UsageError` itself: it prints to stderr and exits with status 2. A
+        caller that asked for machine-readable output then gets empty stdout and nothing to
+        parse. This method writes the error document in the requested format, so `--format yaml`
+        gets YAML. It intercepts only the machine-readable path. Ordinary invocations are not
+        changed.
         """
-        # click-extra's auto-injected `help` subcommand renders its target through a plain
+        # The `help` subcommand that click-extra injects renders its target through a plain
         # `click.Context`, which carries no `formatter_settings` and so falls back to the default
-        # palette. Claiming the process-wide default here keeps `xeda help run` looking like
-        # `xeda run --help`. Done in `main()` rather than at import so merely importing this
-        # module never restyles another click-extra application's help screens.
+        # palette. Setting the process-wide default here keeps `xeda help run` looking like
+        # `xeda run --help`. This happens in `main()` and not at import, so importing this
+        # module never restyles the help screens of another click-extra application.
         set_default_theme(XEDA_HELP_THEME)
         argv = list(sys.argv[1:] if args is None else args)
         fmt = requested_output_format(argv)
@@ -274,18 +278,18 @@ class XedaHelpGroup(ColorizedGroup):
 
 
 def resolve_format(output_format: str, json_flag: bool) -> str:
-    """`--json` is shorthand for `--format json`."""
+    """Return the output format, with `--json` as shorthand for `--format json`."""
     return "json" if json_flag else output_format
 
 
 def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None) -> None:
     """Write `data` to stdout in `fmt`.
 
-    Deliberately bypasses the rich console: nothing is wrapped, styled, or truncated to the
+    This function bypasses the rich console: nothing is wrapped, styled or truncated to the
     terminal width, so identifiers stay complete when the output is piped.
 
-    `records` supplies the one-object-per-line stream for `jsonl` when it differs from `data`
-    (e.g. the fields of a settings document rather than the document itself).
+    `records` supplies the stream of one object per line for `jsonl` when that stream differs
+    from `data` (for example, the fields of a settings document instead of the document itself).
     """
     out = sys.stdout
     if fmt == "json":
@@ -306,9 +310,9 @@ def emit_structured(data: Any, fmt: str, records: Optional[Sequence[Any]] = None
 def machine_readable_mode() -> None:
     """Give stdout exclusively to the machine-readable result.
 
-    Rich output (tables, prompts, the logo) and every tool's stdout move to stderr, and child
-    processes that would otherwise inherit our stdout are redirected too. Logging already goes
-    to stderr.
+    Rich output (tables, prompts, the logo) and the stdout of every tool move to stderr. Child
+    processes that would otherwise inherit stdout are redirected too. Logging already goes to
+    stderr.
     """
     redirect_console(sys.stderr)
     proc_utils.set_tool_output(sys.stderr)
@@ -317,9 +321,9 @@ def machine_readable_mode() -> None:
 def _fmt_default(value: Any, required: bool) -> str:
     """Render a default value for a table cell.
 
-    Everything but the `<required>` marker is markup-escaped: a type or default containing
-    square brackets (`array[string]`, `["a"]`) would otherwise be swallowed by rich as a style
-    tag and silently disappear from the table.
+    Everything but the `<required>` marker is markup-escaped. Otherwise rich would read a type or
+    default that contains square brackets (`array[string]`, `["a"]`) as a style tag, and the text
+    would disappear from the table.
     """
     if required:
         return "[red]<required>[/red]"
@@ -343,8 +347,8 @@ def _settings_table(title: str, fields: Sequence[Dict[str, Any]]) -> Table:
         box=box.HEAVY_HEAD,
         show_lines=True,
     )
-    # `overflow="fold"` rather than rich's default ellipsis: a truncated setting name
-    # ("set_synth_proper...") cannot be typed back into `-s KEY=VALUE`.
+    # Use `overflow="fold"` and not the ellipsis that rich uses by default: a truncated setting
+    # name ("set_synth_proper...") cannot be typed back into `-s KEY=VALUE`.
     table.add_column("Setting", header_style="bold green", style="bold", overflow="fold")
     table.add_column("Type", overflow="fold")
     table.add_column("Default", overflow="fold")
@@ -409,7 +413,7 @@ def print_flow_settings(
     output_format: str = "table",
     include_common: bool = True,
 ) -> None:
-    """Render a flow's settings, either as tables or as a machine-readable document."""
+    """Render the settings of a flow, as tables or as a machine-readable document."""
     flow_class = discover_flow_class(flow) if isinstance(flow, str) else flow
     info = settings_info(flow_class)
     fields: List[Dict[str, Any]] = [

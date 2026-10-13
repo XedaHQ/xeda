@@ -1,23 +1,18 @@
-name: 'pipelined_adder'
-description: 'Example VHDL design'
-language:
-  vhdl:
-    standard: 2008
+name: pipelined_adder
+description: Pipelined adder with a valid/ready interface
+language.vhdl.standard: 2008
 rtl:
   sources:
-    - 'pipelined_adder.vhdl'
-  top: 'pipelined_adder'
-  clock:
-    port: 'clock'
+    - "pipelined_adder.vhdl"
+  top: pipelined_adder
+  clock.port: clock
 tb:
   sources:
-    - 'pipelined_adder_tb.vhdl'
-  top: 'pipelined_adder_tb'
-  uut: 'uut'
-flow:
+    - "pipelined_adder_tb.vhdl"
+  top: pipelined_adder_tb
+  uut: uut
+flows:
   openroad:
-    platform: 'sky130hd'
-    clocks:
-      main_clock:
-        freq: '200 MHz'
+    platform: sky130hd
+    clocks.main_clock.freq: 200MHz
     core_utilization: 45

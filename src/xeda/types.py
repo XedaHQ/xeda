@@ -1,4 +1,4 @@
-"""Type definitions"""
+"""Shared type definitions."""
 
 import os
 from pathlib import Path

@@ -66,7 +66,7 @@ set_property strategy {{settings.impl.strategy|tcl_word}} [get_runs impl_1]
 set_property generic {{generics|tcl_word}} [current_fileset]
 {%- endif %}
 
-{# see https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
+{# See https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug912-vivado-properties.pdf #}
 {# and https://www.xilinx.com/support/documentation/sw_manuals/xilinx2022_1/ug835-vivado-tcl-commands.pdf #}
 {%- for step,options in synth_steps.items() %}
 {%- for name,value in options.items() %}
@@ -122,8 +122,6 @@ set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs synth_1
 {% for k,v in settings.set_impl_properties.items() -%}
 set_property {{k|tcl_word}} {{tcl_property_value(v)|tcl_word}} [get_runs impl_1]
 {% endfor -%}
-
-#-----
 
 {%- if not settings.gui %}
 close_project

@@ -1,111 +1,123 @@
-# Xeda design file reference
+# Design file reference
 
-A design description is one YAML, TOML or JSON file. YAML is the recommended format. It says
-*what* the design is, not how to build it, apart from optional per-flow settings.
+A design file is YAML (preferred), TOML or JSON. It says what the design is; per-flow settings are
+optional. The schema is `xeda design-schema`; loading the file is the authoritative check, because
+the schema leaves property sets open (dotted keys expand before validation).
 
-The authoritative machine-readable definition: `xeda design-schema`.
+## YAML rules
 
-## YAML parsing
+- YAML 1.2 core schema: `yes`, `no`, `on`, `off`, `y`, `n` are strings; `010` is decimal 10;
+  `0o17` is 15, `0x1F` is 31, `1e3` is a float. Dates, `1:30` and `1_000` are strings.
+  `true`/`false` are booleans and `null`/`~` are null. Quote HDL text, bit vectors, leading-zero
+  text and source paths.
+- A boolean setting accepts only `true` and `false` (also `-s key=true`). `debug: yes` fails with
+  "`yes` is text, not a boolean: write `true`".
+- Mapping keys are strings. A duplicate key fails and names the file, the key and both lines.
+  Merge keys (`<<`), recursive aliases and non-core tags are refused; ordinary aliases work.
+- Two-space indentation. Keep a source and its metadata in one list entry.
 
-YAML follows the 1.2 core schema: `yes/no/on/off/y/n` are strings, `010` is decimal 10,
-`0o17` is 15, `0x1F` is 31, and `1e3` is a float. Dates, sexagesimal values (`1:30`)
-and underscore-separated numbers (`1_000`) are strings. `true`/`false` are booleans;
-`null`/`~` are null. Quote HDL text, bit vectors, leading-zero text and source paths.
+## Dotted keys
 
-A boolean setting accepts only `true` and `false` (no `yes`, no `1`; also `-s key=true`); `debug: yes` is an
-error saying "`yes` is text, not a boolean: write `true`".
+`a.b: v` is the table `a: {b: v}` in a design file, a project file, a target and `-s`.
 
-All mapping keys must be strings. Duplicate keys fail naming the file, key and both lines.
-Ordinary aliases and core explicit tags are accepted; merge keys, recursive aliases and
-non-core tags are rejected. Use two-space indentation and keep each source with its metadata
-in one list entry. TOML and JSON files remain supported.
+| Write | As |
+| --- | --- |
+| A table of at most two settings | dotted keys: `clock.port: clk`, `fpga.part: xc7a100tftg256-2L` |
+| A file section: the file's root, `rtl`, `tb`, `flows`, each `flows.<flow>`, `targets`, each target, each entry of `designs` | a block |
+| `inputs`, and tables keyed by tool names (`set_synth_properties`, `set_impl_properties`, ISE `*_options`, `set_attribute`, `set_mod_attribute`, `rtl.attributes`) | a nested block |
+| A source with a type | one line: `- {file: "top.json", type: JsonNetlist}` |
+
+Give one table one spelling per file: `clock.port` and a `clock:` block together keep the last
+value without a warning. A key cannot be a value and a table (`timing: true` with `timing.x: 1`
+is `ConflictingKeys`). Do not mix the flat form (`sources`, `top`, `clock` at the root) with
+`rtl.*` keys; write `rtl:`.
 
 ## Top level
 
-| Key | Required | Meaning |
-| --- | --- | --- |
-| `name` | no | Unique design name. Defaults to the design file's stem and names the run directory. |
-| `rtl` | yes* | The design. See below. |
-| `tb` | no | The testbench. Required by simulation flows. |
-| `description` | no | One-line description. |
-| `authors` (`author`) | no | One `"Name <email>"` string or a list of them. |
-| `language` (`hdl`) | no | Language standards. |
-| `flows` | no | Per-flow settings. |
-| `dependencies` | no | Other designs this one depends on: the path of a design file, or a Git repository written `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
-| `license`, `version`, `url` | no | Metadata; no flow reads these. |
-| `design_root` | no | Base for relative paths. Defaults to the design file's directory - almost always right. |
+| Key | Meaning |
+| --- | --- |
+| `name` | Design name. Defaults to the file's stem; names the run directory. |
+| `rtl` | The design (required unless the flat form is used). |
+| `tb` | The testbench. Simulation flows need it. |
+| `description`, `authors` (`author`), `license`, `version`, `url` | Metadata; no flow reads them. `authors` is a `"Name <email>"` string or a list. |
+| `language` (`hdl`) | Language standards. |
+| `flows` | Per-flow settings. |
+| `targets` | One overlay per board. |
+| `dependencies` | Other designs: a design file path, or `git+<url>#<design file in the repository>`. A URL without `git+` is refused. |
+| `design_root` | Base for relative paths. Defaults to the design file's directory. |
 
-The loader also accepts `sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `defines` and
-`generator` at the top level. It folds them into `rtl`, so an explicit `rtl` section is not
-required when this flat form is used.
+The flat form (`sources`, `top`, `clock`, `clocks`, `parameters`, `generics`, `defines`,
+`generator` at the root) is folded into `rtl`.
 
-## `rtl` - the design
-
-| Key | Required | Meaning |
-| --- | --- | --- |
-| `sources` | yes | Source files **in compilation order**. Relative to the design file's directory. |
-| `top` | no | Top-level module/entity. Required by synthesis flows. |
-| `parameters` / `generics` | no | Verilog parameters or VHDL generics for the top level. Use either interchangeable name; giving both is an error. |
-| `defines` | no | Verilog preprocessor macros. |
-| `clock` | no | Canonical single-clock description, e.g. `{port: clk}`. |
-| `clocks` | no | A list of clocks, for multi-clock designs. |
-| `attributes` | no | HDL attributes, as `attribute -> (object -> value)`. |
-| `generator` | no | Command or generator class producing the sources before the flow runs. Its direct executable and its declared `sources` (a directory counts as every file in it, outside the design root too) identify its inputs; it runs again when those or its produced sources change. `generated_sources` names the sources it writes when it writes only some, and `always_runs` says its inputs cannot be judged. A POSIX lease serializes loads for the same design-root directory. The record lives under `<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load. |
-
-## `tb` - the testbench
-
-The aliases `test` and `tests` are also accepted. The section has the same `sources`,
-`parameters`/`generics` and `defines` as `rtl`, plus:
+## `rtl`: the design
 
 | Key | Meaning |
 | --- | --- |
-| `top` | Toplevel testbench module. Up to two, as a list, when a secondary toplevel is needed. Required when `tb.sources` holds a Verilog, SystemVerilog, VHDL, Bluespec or Chisel source and the testbench is not cocotb: a simulation flow refuses the design and names `tb.top`. Not needed with a C++ driver of the design's own (`yosys_sim`, or `verilator` with `main: false`), nor by `ghdl_sim` for a VHDL testbench (it finds the top). |
-| `uut` | Instance name of the unit under test inside the testbench. Some flows need it for waveform dumping or activity capture. |
-| `cocotb` | `true`, or a table with `module`, `toplevel`, `testcase`. Detected automatically from a `.py` source. |
+| `sources` | Required. Sources in compilation order, relative to the design file's directory. |
+| `top` | Top module or entity. Synthesis flows need it. |
+| `parameters` (`generics`) | Verilog parameters or VHDL generics of the top module. Use one spelling. |
+| `defines` | Verilog preprocessor macros. |
+| `clock` | One clock: `clock.port: clk`, or `clock: clk`. |
+| `clocks` | A list of clocks for several clocks. |
+| `attributes` | HDL attributes, `attribute -> (object -> value)`. |
+| `generator` | A command or class that writes the sources before the flow runs. |
+
+A generator runs again when its executable, its `sources` (a directory counts as every file in
+it) or its produced sources change. `generated_sources` names the files it writes when it writes
+only some; `always_runs` says its inputs cannot be judged. The record lives under
+`<run root>/.cache/generators/`, so a design loaded outside `xeda run` generates on every load.
+
+## `tb`: the testbench
+
+`test` and `tests` are aliases. `tb` has `sources`, `parameters` (`generics`) and `defines` like
+`rtl`, and:
+
+| Key | Meaning |
+| --- | --- |
+| `top` | Testbench top module: one string, or a list of at most two (a primary and a secondary top module). Required when `tb.sources` holds Verilog, SystemVerilog, VHDL, Bluespec or Chisel and the testbench is not cocotb; the simulation flow refuses the design and names `tb.top`. Not needed for a C++ driver of the design's own (`yosys_sim`; `verilator` with `main: false`) or for `ghdl_sim` with a VHDL testbench. |
+| `uut` | The instance name of the unit under test in the testbench; some flows need it for waveforms or activity capture. |
+| `cocotb` | `true` for the defaults, or a table with `module`, `toplevel`, `testcase`; `false` means no cocotb testbench. A source of type `Cocotb` (a `.py` file) sets it. |
 
 ## Clocks
 
-Clocks are split deliberately: `rtl` names the design's clock **ports**; the **period or
-frequency** is a *flow setting*, because it constrains a particular build.
-
-Single clock:
+`rtl` names the clock ports. The flow settings give the period or frequency, because they
+constrain one build. The settings `clock_port` (design) and `clock_period` (flow) were removed:
+use `clock: <port>` and `clock.period`.
 
 ```yaml
 rtl:
-  clock: {port: clk}
+  clock.port: clk
 flows:
   vivado_synth:
-    clock:
-      period: 5.0 # nanoseconds
+    clock.period: 5.0 # nanoseconds; clock.freq: 200MHz is the same clock
 ```
 
-or, equivalently, `clock.freq: "200MHz"` in the flow section. The old `clock_port` (design) and
-`clock_period` (flow setting) were removed: write `clock: <port>` and `clock.period`. Within one
-settings layer, give `clock` or `clocks`, not both; across layers the higher layer's `clock` is
-merged into the canonical `clocks` mapping.
-
-Multiple clocks:
+Several clocks:
 
 ```yaml
 rtl:
   clocks:
-    - {port: clk, name: main_clock}
-    - {port: clk_aux, name: aux}
+    - port: clk
+      name: main_clock
+    - port: clk_aux
+      name: aux
 flows:
   vivado_synth:
-    clocks:
-      main_clock: {period: 5.0}
-      aux: {freq: 100MHz}
+    clocks.main_clock.period: 5.0
+    clocks.aux.freq: 100MHz
 ```
 
-A `PhysicalClock` takes `period` (ns) or `freq` (MHz), and derives the other. A consistent pair is
-accepted for compatibility; a contradictory pair is an error. Both accept unit strings
-(`"5.5ns"`, `"200MHz"`, `"0.2GHz"`). Units are case-sensitive, as in SI: `"200mhz"` is an error
-that names `MHz`. It also takes `rise`, `duty_cycle`, `uncertainty`, `skew` and `port`.
+Within one settings layer give `clock` or `clocks`, not both. Across layers the higher layer's
+`clock` merges into the canonical `clocks`. Clock names are keys, so they contain no dot.
+
+A clock takes `period` (ns) or `freq` (MHz) and derives the other; a consistent pair is accepted,
+a contradictory pair is an error. Values take units (`5.5ns`, `200MHz`, `0.2GHz`), and units are
+case-sensitive: `200mhz` is an error that names `MHz`. A clock also takes `rise`, `duty_cycle`,
+`uncertainty`, `skew` and `port`.
 
 ## Source files
 
-A path string suffices when its extension identifies a type:
+A suffix gives the type when it is in this table:
 
 | Extension | Type |
 | --- | --- |
@@ -126,89 +138,72 @@ A path string suffices when its extension identifies a type:
 | `.vcd` / `.fst` / `.ghw` / `.vpd` / `.fsdb` | `Vcd` / `Fst` / `Ghw` / `Vpd` / `Fsdb` |
 | `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
 
-Every source has a type. Suffixes match as written (`TOP.VHD` is an error naming `.vhd`).
-`.json`, `.bin`, `.cfg`, `.config`, `.dcp` and any suffix not in the table need `type: "..."`;
-`JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`, `FpgaTimingNetlist`,
-`SynthCheckpoint`, `RoutedCheckpoint`, `Chipdb` and `Data` are only given that way. `Data` has no automatic HDL
-frontend; a flow or the design can still read it.
-An invalid explicit `type` is an error naming the closest types. Explicit type names are
-case-tolerant; suffixes are not. Give a gate-level `.v` netlist `type: VerilogNetlist`;
-otherwise its inferred type is `Verilog`.
+Suffixes match as written (`TOP.VHD` is an error naming `.vhd`). `.json`, `.bin`, `.cfg`,
+`.config`, `.dcp` and any suffix not in the table need `type`. These types are given only that
+way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`,
+`FpgaTimingNetlist`, `SynthCheckpoint`, `RoutedCheckpoint`, `Chipdb`, `Data`. `Data` has no
+automatic HDL frontend; a flow or the design can still read it. An invalid `type` is an error
+that names the closest types; type names are case-tolerant, suffixes are not.
 
-Netlists and checkpoints are typed by stage: `VerilogNetlist` is a standard-cell netlist
-(`openroad` reads it), `FpgaNetlist` a Verilog netlist of FPGA primitives as Vivado writes it
-(`vivado_postsynth_sim` simulates it) and `FpgaTimingNetlist` its timing netlist (simulated with an
-SDF; it is Verilog, so a listed one needs `type: FpgaTimingNetlist`), `SynthCheckpoint` and `RoutedCheckpoint` a Vivado
-checkpoint after synthesis and after routing (`vivado_power` takes only the routed one). A source
-of the wrong one of these types is not taken in its place: a Vivado netlist listed as
-`VerilogNetlist` feeds `openroad` and no Vivado flow. `Checkpoint` (no stated stage) is kept for
-old settings files: no flow takes it, so a source with that type feeds nothing.
-
-A source of a later stage's type stands in for the flows that would build it: a `JsonNetlist`
-skips synthesis for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig`
-or `IceAsc` configuration is packed by `fpga_pack` without placing, and a `Bitstream`
-(`{file: build/top.bit, type: Bitstream}`, or just the `.bit` file) is what `openfpgaloader`
-programs, with nothing built.
-
-Every flow that reads the design's sources declares the types it reads (`reads_sources`): other
-non-language types are skipped (an `Lpf` in a Vivado design), but an unsupported language fails
-before the flow runs (a Bluespec source for `vivado_synth`, VHDL for `verilator`, SystemVerilog
-for `ghdl_sim`/`nvc`), and so does a design with no source the flow reads at all
-(a design whose only netlist is an `.edf`, for `vivado_synth`, `yosys_fpga` or the `yosys_fpga`
-that `nextpnr` plans): the error lists the design's sources with their types and the types the
-flow reads; for the `yosys_fpga` that `nextpnr` plans, and only when nothing else in the plan needs
-it, the error adds that a `JsonNetlist` source would replace it. One source of a type the flow reads
-is enough, a constraint file included, so an `.edf` with an `.xdc` still plans for `vivado_synth`.
-Flows that read the testbench (simulators, `bsc`, `vivado_project`) also check `tb.sources`.
-C/C++ files are never refused. `nextpnr`, `openroad`, `fpga_pack`, `openfpgaloader`, `vivado_impl`
-and `vivado_power` read no design source directly, only their declared inputs (a producer's output
-or a typed source, such as `Sdc` or `Xdc` files). Headers reach include/search paths; no source
-type name becomes a tool command.
-
-The `bsc` flow compiles BH (Bluespec Classic) only from `.bs` files; it rejects a `.bh` source
-with a settings error naming the file to rename.
-
-A source containing `*` is a pattern (`"src/*.vhd"`); its matches are inserted in sorted order,
-and a pattern matching no file is an error. `*` is the only pattern character: `?`, `[` and `]` are
-part of a file name, so `"rtl/fifo[1].v"` names exactly that file (never `fifo1.v`), and
-`"rtl/fifo[1]_*.v"` matches `fifo[1]_a.v`. Never escape them. Xeda passes such names to yosys and
-to TCL-scripted tools intact, but Vivado's `add_files` (every file in `vivado_project`; memory
-files, `xdc_files` and `tcl_files` in `vivado_synth`) refuses a name
-containing `[`, `]` or `$`: rename those for Vivado.
-
-When inference is not enough, use a table:
+A source table has `file` (must exist at load time) or `path` (not checked: for a file a
+generator writes), and `type`. Any other key is an error: a source has no `standard` or
+`variant`, and `language.vhdl.standard` sets the standard of the whole design.
 
 ```yaml
 rtl:
   sources:
-    - pkg.vhdl
-    - {file: legacy.v, type: SystemVerilog}
-    - {path: generated/top.v} # not checked for existence
+    - "pkg.vhdl"
+    - {file: "legacy.v", type: SystemVerilog}
+    - {path: "generated/top.v"} # not checked for existence
 ```
 
-A source table has `file` or `path`, and `type`; any other key is an error. `standard` and `variant`
-were removed: a source has no standard of its own, and `language.vhdl.standard` sets the VHDL
-standard of the whole design (GHDL and NVC compile all VHDL sources of a run under one standard).
+A string containing `*` is a pattern (`"src/*.vhd"`): its matches are inserted in sorted order, and
+a pattern that matches no file is an error. `*` is the only pattern character; `?`, `[` and `]`
+are part of a file name (`"rtl/fifo[1].v"` is exactly that file). Never escape them. Vivado's
+`add_files` refuses a name with `[`, `]` or `$` (every file in `vivado_project`; memory files,
+`xdc_files` and `tcl_files` in `vivado_synth`): rename those.
 
-`file` must exist and is checked at load time. `path` is not checked - use it for sources a
-generator will produce. Every source carries a content hash, which is how Xeda tells runs apart
-and reuses cached dependency runs.
+Netlists and checkpoints are typed by stage:
 
-## `[language]` - standards
+| Type | Is |
+| --- | --- |
+| `VerilogNetlist` | a standard-cell netlist; `openroad` reads it. Give a gate-level `.v` this type, or it is `Verilog`. |
+| `FpgaNetlist` | a Verilog netlist of FPGA primitives as Vivado writes it; `vivado_postsynth_sim` simulates it |
+| `FpgaTimingNetlist` | its timing netlist, simulated with an SDF; Verilog has no suffix for it, so give `type` |
+| `SynthCheckpoint`, `RoutedCheckpoint` | a Vivado checkpoint after synthesis, after routing (`vivado_power` takes only the routed one) |
+| `Checkpoint` | no stage; no flow takes it |
+
+A source of the wrong one of these types is not taken in its place: a Vivado netlist typed
+`VerilogNetlist` feeds `openroad` and no Vivado flow.
+
+A source of a later stage replaces the flows that would build it: a `JsonNetlist` skips synthesis
+for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig` or `IceAsc`
+configuration is packed by `fpga_pack` without placing, and a `Bitstream` is what
+`openfpgaloader` programs.
+
+Each flow declares the source types it reads. It skips other non-language types (an `Lpf` in a
+Vivado design). At planning it refuses a source in a language it cannot read (Bluespec for
+`vivado_synth`, VHDL for `verilator`, SystemVerilog for `ghdl_sim`) and a design with no source
+it reads; the error lists the sources with their types and the types the flow reads. One source of
+a type the flow reads is enough, a constraint file included. Simulators, `bsc` and
+`vivado_project` check `tb.sources` too. C and C++ files are never refused. `nextpnr`, `openroad`,
+`fpga_pack`, `openfpgaloader`, `vivado_impl` and `vivado_power` read only their declared inputs.
+`bsc` compiles Bluespec Classic only from `.bs` files and refuses a `.bh` source.
+
+## `language`: standards
 
 ```yaml
-language:
-  vhdl:
-    standard: '2008' # '93', '2008', '2019', ...
-  verilog:
-    standard: '2005'
+language.vhdl.standard: 2008 # 93, 2008, 2019, ...
+language.verilog.standard: 2005
 ```
 
-`version` is an accepted alias of `standard`. Two-digit (`08`) and four-digit (`2008`) both work. It applies to every source of that language.
+`version` is an alias of `standard`. Write the four-digit year; a two-digit year needs quotes
+(`"08"`), because an unquoted `08` is the number 8. The standard applies to every source of that
+language (GHDL and NVC compile all VHDL of a run under one standard).
 
-## `flows.<flow_name>` - per-flow settings
+## `flows.<flow>`: per-flow settings
 
-Applied only when that flow runs, so one file can carry constraints for several targets:
+A section applies only when that flow is in the run.
 
 ```yaml
 flows:
@@ -222,13 +217,12 @@ flows:
     stop_time: 100us
 ```
 
-`xeda list-settings <flow> --json` lists what a flow accepts. Unknown keys are rejected.
-
-A section may also hold `inputs`: where a flow that declares file inputs reads each from, as
-`<producer flow>` or `<producer flow>.<output>` (a list for an input that takes several). It is
-saved wiring for the resolver, not a setting -- absent from `xeda list-settings` and from
-`settings.json` -- and it names a flow's output, never a file; give an external file as a typed
-source. A saved binding is chosen before a typed source and before the input's default producer:
+`xeda list-settings <flow> --json` lists the settings. An unknown key is an error. A section
+holds `inputs` as well: where a flow with declared file inputs reads each from, as
+`<producer>` or `<producer>.<output>` (a list for an input that takes several). `inputs` is
+saved wiring, not a setting (`list-settings` and `settings.json` omit it). It names a flow's
+output, never a file; give a file as a typed source. A saved binding beats a typed source, which
+beats the input's default producer:
 
 ```yaml
 # bound_demo.yaml
@@ -248,84 +242,98 @@ flows:
 ```
 
 A project file's section means the same, below the design's. A chain on the command line
-(`xeda run yosys_fpga+nextpnr design.yaml`) replaces a saved binding of the same input; see
-`SKILL.md`.
+(`xeda run yosys_fpga+nextpnr design.yaml`) replaces a saved binding of the same input.
 
-## `targets` - one design, several boards
+## `targets`: one design, several boards
 
-Each entry of `targets` is an overlay on the design: it takes the design file's own keys, merged
-over them. `--target NAME` (on `xeda run` and `xeda dse`) selects one.
+A target is an overlay on the design. It takes the design's own keys (`rtl`, `tb`, `flows`,
+the flat form), not `name`, `targets`, `target` or `design_root`. `--target NAME` on `xeda run` and `xeda dse` selects it.
 
 ```yaml
 name: knight
 rtl:
   top: mkKnight
-  sources: [Knight.bsv, por_sync.v]
-  clock: {port: CLK}
+  sources: ["Knight.bsv", "por_sync.v"]
+  clock.port: CLK
 targets:
   arty:
-    sources: [arty.xdc]                 # appended after the design's sources
-    defines: {CLK_HZ: 100000000}        # mappings merge key by key
+    rtl:
+      sources: ["arty.xdc"] # appended after the design's sources
+      defines.CLK_HZ: 100000000 # mappings merge key by key
     flows:
-      nextpnr: {board: arty_a7_100t}
+      nextpnr:
+        board: arty_a7_100t
   ulx3s:
-    sources: [ulx3s.lpf]
-    defines: {CLK_HZ: 25000000}
+    rtl:
+      sources: ["ulx3s.lpf"]
+      defines.CLK_HZ: 25000000
     flows:
-      nextpnr: {board: ulx3s_85f}
+      nextpnr:
+        board: ulx3s_85f
 ```
 
-- A target takes `rtl`, `tb`, `flows` and every other design key, flat forms included (`sources`,
-  `defines`, `top`, `clock`, ...); not `name` or `targets`. Unknown keys are errors.
-- Mappings merge at every depth; `sources` are appended after the design's; any other list
-  replaces the design's. Paths resolve against the design root. A null or empty `flows` table or
-  flow section adds nothing (the design's section stays); set a key to change it.
-- A short form means its table where the design and a target meet (`clock: CLK` is `clock:
-  {port: CLK}`, `parameters` as a list of `{name, value}`, `vhdl: "08"` is `{version: "08"}`,
-  `cocotb: true` is `{}`, `fpga: <part>` is `{part: <part>}`): a target's `clock`
-  refines the design's first clock, its `clocks` replaces them all, `clock: null` or `{}` means none.
-  A value that is no table where one is expected (`tb: 3`, or an `rtl.attributes` entry that is
-  no table) is an error whichever target is selected.
-  `--design-overrides` meet the design by the same rules, but only a target appends `sources`:
-  an override's `rtl.sources`/`tb.sources` replace the whole list, including the files a selected
-  target appended.
-- One target: no `--target` needed. Several: `--target` is required and the error lists them.
-  `--target` on a design without `targets` is an error. API: `Design.from_file(path, target=...)`.
-- **A target overrides the design**, key by key: where both write a key, the target's value
-  wins (a target's `flows.nextpnr.board` replaces the design's, with no error); keys the target
-  does not write stay the design's. Order, lowest first: flow defaults, project file, design
-  file, target, `-s`, API for design settings. The loader records the selected target name;
-  a design file or override cannot set or change it. This is not the agreement rule between two flows of one run (which
-  errors when `yosys_fpga` and `nextpnr` disagree on a shared setting).
-- A target name is a name (`[A-Za-z][A-Za-z0-9_-]*`) and not a flow's name or alias. A design
-  file has no `target` key; the loader records it and overrides cannot change it.
-- The selected target yields an ordinary design, identical to the file written flat. `--json`
-  documents report `target` (`null` without one).
-- A selected target has run directories of its own, `<run root>/<design>/<target>/<flow>`
-  (`<flow>_<hash>` with `--hashed-run-dirs`), also when it is the design's only one and selected
-  by default; without targets a design keeps `<design>/<flow>`. Two targets that yield the same
-  design build separately and each stays up to date. A run made before targets (`<design>/<flow>`)
-  is left alone by a target's launch. `xeda scrub FLOW DESIGN --target NAME` removes only that
-  target's runs; without `--target` it removes every target's and the older ones too.
-- Limit: `board`/`fpga`/`custom_boards_file`/clock constraints go under the target's
-  `flows.<flow>` (at its top level the three shared leaves are refused, naming that).
+- One target needs no `--target`; several need it, and the error lists them. `--target` on a
+  design without targets is an error. API: `Design.from_file(path, target=...)`.
+- Where design and target both write a key, the target wins with no error (its
+  `flows.nextpnr.board` replaces the design's); other keys stay. Mappings merge at every depth,
+  `sources` append, any other list replaces. A null or empty `flows` table or section adds
+  nothing. Layers, lowest first: flow defaults, project, design, target, `-s`, API.
+- A short form means its table in every merge (`clock: CLK` is `clock.port: CLK`; `fpga: <part>`
+  is `fpga.part: <part>`). A target's `clock` refines the design's first clock, its `clocks`
+  replaces all, `clock: null` means none. A value that is no table where one is expected
+  (`tb: 3`) is an error.
+- `--design-overrides KEY=VALUE...` merge by the same rules, except that only a target appends
+  `sources`: an override's `rtl.sources` or `tb.sources` replaces the whole list.
+- A target name matches `[A-Za-z][A-Za-z0-9_-]*` and is not a flow's name, alias or hashed run
+  directory name; two names that differ only in case are refused. A design file has no `target`
+  key. `--json` documents report `target`.
+- A selected target has its own run directories, `<run root>/<design>/<target>/<flow>`; runs made
+  without targets are left alone. `xeda scrub FLOW DESIGN --target NAME` removes only that
+  target's runs; without `--target` it removes every target's and the older ones.
+- `board`, `fpga` and `custom_boards_file` go under the target's `flows.<flow>`; at the target's
+  top level they are refused, naming that.
 
-## Environment variables in paths
+## Paths and environment variables
 
-Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`:
+Path-typed settings expand `$PWD`, `$DESIGN_ROOT` and `$DESIGN_DIR`; any other `$VAR` comes from
+the environment.
 
 ```yaml
 flows:
   dc:
-    target_libraries: [$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db]
+    target_libraries: ["$DESIGN_ROOT/lib/SAED90/saed90nm_typ_ht.db"]
 ```
 
-Design sources expand environment variables too, except `$PWD`; `$DESIGN_ROOT`/`$DESIGN_DIR` are
-the design root, so `"$DESIGN_ROOT/src/*.vhd"` and `"src/*.vhd"` are the same sources.
+Design sources expand environment variables too, except `$PWD`; `$DESIGN_ROOT` and `$DESIGN_DIR`
+are the design root, so `"$DESIGN_ROOT/src/*.vhd"` and `"src/*.vhd"` are the same sources.
 
-## Multiple designs
+## Project file
 
-A `xedaproject.yaml` holds several designs plus top-level `flows` settings merged into each.
-`xedaproject.yml` and `xedaproject.toml` are also accepted. Automatic discovery requires exactly
-one of these names in a directory; multiple matches are an error. Select one design with
-`--design-name`.
+A project file holds several designs and `flows` settings merged into each:
+
+```yaml
+designs:
+  - name: sqrt
+    language.vhdl.standard: 2008
+    rtl:
+      sources: ["sqrt.vhdl"]
+      top: sqrt
+      clock.port: clk
+  - name: fifo
+    rtl:
+      sources: ["fifo.v"]
+      top: fifo
+flows:
+  vivado_synth:
+    fpga.part: xc7a100tftg256-2L
+    clock.period: 5.0
+```
+
+- Top-level keys: `designs` (`design`) and `flows` (`flow`). Any other key fails with
+  `ProjectFileError: ... unknown key(s) ...; a project has 'designs', 'design', 'flows', 'flow'`.
+- Each design entry and each flow section follows the rules of a design file, dotted keys
+  included. A dotted key cannot reach into `designs` from the project's root.
+- Xeda finds the file as `--xedaproject FILE`, else the one `xedaproject.yaml`, `.yml` or `.toml`
+  in the start directory. Two of these names in one directory is a `ProjectFileError`.
+- With more than one design, name one: `xeda run vivado_synth --design-name sqrt`. Without a
+  name, the error is `DesignNotSpecified`.

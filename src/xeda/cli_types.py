@@ -9,17 +9,19 @@ from click.shell_completion import CompletionItem
 
 from .flow_catalog import flow_names
 
-# Query commands can render documents; execution commands use a plain --json flag.
+# Query commands can render documents. Execution commands take a plain `--json` option.
 OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
 DOCUMENT_FORMATS = ("json", "yaml")
 _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
-#: The start of a key that names a name of the tool (`set_synth_properties.`), written from the
-#: setting's table or from a `flows.<flow>` section. What follows may hold spaces and signs.
+#: The start of a key that continues with a name of the tool (`set_synth_properties.`), written
+#: from the table of the setting or from a `flows.<flow>` section. What follows may hold spaces
+#: and signs.
 _OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
 
 
 class ClickMutex(click.Option):
-    """Mutual exclusion of options"""
+    """An option with a mutual exclusion rule (`mutually_exclusive_with`) and a conditional
+    requirement (`required_if`)."""
 
     def __init__(self, *args, **kwargs):
         self.mutually_exclusive_with: list = kwargs.pop("mutually_exclusive_with", [])
@@ -58,8 +60,8 @@ class ClickMutex(click.Option):
 
 
 def _opaque_key_fields() -> frozenset[str]:
-    """The settings, of all flows, whose keys are names of the tool. Read when a key is not
-    shaped like a settings key, so a plain `-s` pays nothing for it."""
+    """Return the settings of all flows whose keys are names of the tool. The function runs only
+    when a key is not shaped like a setting key, so a plain `-s` pays nothing for it."""
     from . import flows as _flows  # noqa: F401  (registers the built-in flows)
     from .dataclass import opaque_key_fields_of
     from .flow import registered_flows
@@ -72,9 +74,10 @@ def _opaque_key_fields() -> frozenset[str]:
 
 
 def _is_key_value(token: str) -> bool:
-    """`KEY=VALUE` with a KEY shaped like a settings key (never a path such as `dir/a=b.toml`).
-    A key may also go on after the name of a setting whose keys are names of the tool, with the
-    characters such a name has (`set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS`)."""
+    """Return whether `token` is `KEY=VALUE` with a KEY shaped like a setting key, and never a
+    path such as `dir/a=b.toml`. A key may also continue after the name of a setting whose keys
+    are names of the tool, with the characters that such a name has
+    (`set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS`)."""
     key, sep, _ = token.partition("=")
     if not sep:
         return False
@@ -85,11 +88,11 @@ def _is_key_value(token: str) -> bool:
 
 
 class OptionEatAll(click.Option):
-    """
-    Taken from https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
+    """An option that takes `KEY=VALUE` items up to the next option or the first token that is not
+    `KEY=VALUE`. The first item must be `KEY=VALUE`.
 
-    Takes `KEY=VALUE` items up to the next option or the first token that is not `KEY=VALUE`;
-    the first item must be `KEY=VALUE`.
+    Adapted from
+    https://stackoverflow.com/questions/48391777/nargs-equivalent-for-options-in-click#answer-48394004.
     """
 
     def __init__(self, *args, **kwargs):
@@ -102,16 +105,16 @@ class OptionEatAll(click.Option):
 
     def add_to_parser(self, parser, ctx):
         def parser_process(value: str, state):
-            """method to hook to the parser.process"""
+            """Replace `process` of the option parser."""
             if not _is_key_value(value):
                 raise click.UsageError(
                     f"{'/'.join(self.opts)} takes KEY=VALUE items; got {value!r}", ctx=ctx
                 )
             value_list = [value]
             if self._eat_all_parser is not None and self.save_other_options:
-                # grab every KEY=VALUE item up to the next option; a token without `=` (the
-                # design file, a mistyped path, `dir/a=b.toml`) ends the list, so the command line's positional
-                # arguments are never eaten as settings
+                # Take every KEY=VALUE item up to the next option. A token without `=` (the
+                # design file, a mistyped path, `dir/a=b.toml`) ends the list, so the positional
+                # arguments of the command line are never taken as settings.
                 while state.rargs:
                     token = state.rargs[0]
                     if any(token.startswith(prefix) for prefix in self._eat_all_parser.prefixes):
@@ -120,19 +123,20 @@ class OptionEatAll(click.Option):
                         break
                     value_list.append(state.rargs.pop(0))
             else:
-                # grab everything remaining
+                # Take everything that remains.
                 value_list += state.rargs
                 state.rargs[:] = []
 
-            # A repeated option (`-s a=1 -s b=2`) accumulates. Without this every occurrence
-            # *replaced* the previous one -- click's "store" action -- so all but the last group of
-            # settings were silently dropped, although the help text documents the repeated form.
+            # A repeated option (`-s a=1 -s b=2`) accumulates. Without this code, every
+            # occurrence would replace the previous one (the "store" action of click), and all but
+            # the last group of settings would be dropped without a message, although the help
+            # text documents the repeated form.
             dest = getattr(self._eat_all_parser, "dest", None) or self.name
             previous = state.opts.get(dest)
             if isinstance(previous, tuple):
                 value_list = [*previous, *value_list]
 
-            # call the actual process
+            # Call the original process.
             if self._previous_parser_process is not None:
                 self._previous_parser_process(tuple(value_list), state)
 
@@ -150,7 +154,8 @@ class OptionEatAll(click.Option):
 def output_format_option(
     formats: Sequence[str] = OUTPUT_FORMATS, default: str = "table"
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """`--format` plus a `--json` shorthand, for commands whose output is a document."""
+    """Return the decorator that adds `--format` and the `--json` shorthand to a command whose
+    output is a document."""
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         func = click.option(
@@ -177,17 +182,18 @@ def output_format_option(
 
 
 class FlowChoice(click.Choice[str]):
-    """Click parameter type for a flow name.
+    """The Click parameter type for a flow name.
 
-    Resolution is delegated to `get_flow_class`, so every name it accepts works on the command
-    line too -- the canonical snake_case name, the CamelCase class name, any alias, and dashes
-    for underscores -- and an unknown name gets the resolver's close-match suggestions. The
-    `click.Choice` base is kept for shell completion and `--help`.
+    `get_flow_class` resolves the name, so every name that it accepts works on the command line:
+    the canonical snake_case name, the CamelCase class name, any alias, and dashes for
+    underscores. An unknown name gets the close-match suggestions of the resolver. The
+    `click.Choice` base class serves shell completion and `--help`.
 
-    Returns the flow's canonical name, so downstream code never has to re-normalize.
+    The converted value is the canonical name of the flow, so downstream code never has to
+    normalize it again.
 
-    With `removed=True` a removed flow's name is accepted too, as its canonical name: `xeda
-    scrub` only removes directories, and those of a removed flow's runs are still there.
+    With `removed=True`, the name of a removed flow is accepted too, as its canonical name:
+    `xeda scrub` only removes directories, and the run directories of a removed flow still exist.
     """
 
     def __init__(
@@ -213,7 +219,7 @@ class FlowChoice(click.Choice[str]):
 
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
         if isinstance(value, str):
-            # Completion parses complete words too. It needs their spelling, not a flow model.
+            # Completion parses complete words too. It needs their spelling and no flow model.
             if ctx is not None and ctx.resilient_parsing:
                 return value
             from .flow_runner import FlowNotFoundError, get_flow_class
@@ -221,7 +227,7 @@ class FlowChoice(click.Choice[str]):
 
             if "+" in value:
                 self.fail(
-                    f"{value!r} is a flow chain: this command takes one flow. A chain is a "
+                    f"{value!r} is a chain: this command takes one flow. A chain is a "
                     "request for `xeda run`.",
                     param,
                     ctx,
@@ -238,11 +244,11 @@ class FlowChoice(click.Choice[str]):
 
 
 class ChainChoice(FlowChoice):
-    """`xeda run`'s request: one flow name, or a chain `FLOW[.OUTPUT][+FLOW[.OUTPUT]...]`.
+    """The request of `xeda run`: one flow name, or a chain `FLOW[.OUTPUT][+FLOW[.OUTPUT]...]`.
 
-    Returns the canonical request text -- each flow's canonical name, with its output
-    qualifier when one was given, joined by `+` -- which for a single flow is that flow's
-    name, as `FlowChoice` returns. A malformed chain is a usage error.
+    The converted value is the canonical request text: the canonical name of each flow, with its
+    output qualifier when one was given, joined by `+`. For a single flow, this is the name of
+    that flow, as `FlowChoice` returns it. A malformed chain is a usage error.
     """
 
     def convert(self, value: Any, param: click.Parameter | None, ctx: click.Context | None) -> str:
@@ -263,8 +269,8 @@ class ChainChoice(FlowChoice):
     def shell_complete(
         self, ctx: click.Context, param: click.Parameter, incomplete: str
     ) -> list[CompletionItem]:
-        """Complete a flow name as `Choice` does; once the token has a `+` or a `.`, complete
-        the unfinished chain, each candidate the whole token."""
+        """Complete a flow name as `Choice` does. Once the token has a `+` or a `.`, complete the
+        unfinished chain, with the whole token as each candidate."""
         if "+" not in incomplete and "." not in incomplete:
             return super().shell_complete(ctx, param, incomplete)
         import sys

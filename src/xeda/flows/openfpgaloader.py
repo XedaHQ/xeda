@@ -15,12 +15,13 @@ __all__ = ["Openfpgaloader"]
 
 log = logging.getLogger(__name__)
 
-#: What the loader printed, in its run directory: all there is to read when programming fails.
+#: The loader's log in the run directory. It holds what the loader printed, which is all there is
+#: to read when programming fails.
 LOADER_LOG = "openfpgaloader.log"
 
-#: How to give the loader its device, which programming the flash needs.
+#: How to give the flow its FPGA device, which programming the flash needs.
 FLASH_NEEDS_THE_DEVICE = (
-    "the target FPGA device, since `write_flash` programs the flash through a bridge made for "
+    "the FPGA device, since `write_flash` programs the flash through a bridge made for "
     "the part: give its part number with `-s fpga.part=<part>`, or a board that has one with "
     "`-s board=<name>` (see `xeda list-boards`); in the design file, as "
     "`flows.{flow}.fpga.part` or `flows.{flow}.board`"
@@ -28,7 +29,7 @@ FLASH_NEEDS_THE_DEVICE = (
 
 
 def _loader_part(fpga: FPGA) -> str:
-    """The part `--fpga-part` takes: a Xilinx part without its speed grade, any other as it is.
+    """Return the part for `--fpga-part`: a Xilinx part without its speed grade, any other as is.
 
     openFPGALoader uses the option as written to name the bridge bitstream it loads to write a
     flash (`spiOverJtag_<device><package>.bit.gz`), and that name has no speed grade.
@@ -41,28 +42,29 @@ def _loader_part(fpga: FPGA) -> str:
 
 
 # The verdict on a run. openFPGALoader exits with status 0 after several failures, so the flow
-# reads what the loader printed as well. What the loader does, from its source at the tag v1.1.1
-# (commit 85be4fa; the lines below are at that tag):
+# also reads what the loader printed. This is what the loader does, from its source at the tag
+# v1.1.1 (commit 85be4fa). The line numbers below are at that tag unless a release is named.
 #
 # * `main` returns status 1 when `program()` throws (main.cpp:583-590). A `program()` that returns
-#   ends the program with status 0, since `main` has no `return` at its end (main.cpp:651-653).
+#   ends the program with status 0, because `main` has no `return` at its end (main.cpp:651-653).
 # * Xilinx (xilinx.cpp). `program_mem` loads the SRAM and returns nothing. When the startup
 #   sequence has run, it reads the state of the FPGA and always prints `ir: <n> isc_done <d>
 #   isc_ena <e> init <i> done <d>` (lines 987-989). With `done 0` it also prints the status
 #   register, one `<field> <value>` line for each field (lines 991-993, 1043-1067, 1195-1225). It
 #   throws nothing, so the exit status is 0. For a file that it cannot read or parse, `program`
 #   prints `FAIL` and returns (lines 628-643). `program_spi`, which writes a flash, ignores the
-#   result of `SPIInterface::write` (line 849), as `program` ignores the result of the
+#   result of `SPIInterface::write` (line 849). `program` also ignores the result of the
 #   programmers of the CPLDs and of the platform flash (`flow_program`, `xc2c_flow_program`,
 #   `xcf_program`). These writers print why a step failed and return false. So a flash write that
 #   fails ends with status 0, whatever the cause: a flash that does not answer, a write that the
 #   chip refuses, an image that does not fit, a bridge that cannot be chosen, a verify that
 #   differs. `FAILURE_PREFIXES` and `FAILURE_ENDINGS` hold what the loader prints for each, with
-#   the place in its source. (A BPI flash whose bridge cannot be chosen ends with status 1:
-#   `program_bpi` throws.) One failure prints nothing that tells it: `SPIFlash::global_unlock`
-#   (spiFlash.cpp:1199-1217, for the SST26VF) returns false when a sector stays locked after the
-#   unlock. Its write enable and its wait print signs; only the final check of the lock registers
-#   is silent. A flash write on a Xilinx FPGA therefore has to report that it finished (below).
+#   the place in its source. (A BPI flash whose bridge cannot be chosen ends with status 1,
+#   because `program_bpi` throws.) One failure prints no message that tells it:
+#   `SPIFlash::global_unlock` (spiFlash.cpp:1199-1217, for the SST26VF) returns false when a
+#   sector stays locked after the unlock. Its write enable and its wait print signs. Only the
+#   final check of the lock registers is silent. A flash write on a Xilinx FPGA therefore has to
+#   report that it finished (see the sign of success below).
 # * Lattice (ECP5, lattice.cpp). `program` throws when a step failed (lines 1073-1082): status 1.
 # * Gowin and iCE40 print `FAIL` or `Fail` for a failed step and return (gowin.cpp:385-426,
 #   ice40.cpp:104-149): status 0.
@@ -71,27 +73,27 @@ def _loader_part(fpga: FPGA) -> str:
 #
 # The verdict looks for signs of failure. The loader is at least release 0.13.1
 # (`MIN_OPENFPGALOADER_VERSION`), the first one that prints the readback of the DONE signal and
-# says so in its version. It requires one sign of success, of a flash write on a Xilinx FPGA, and
-# of nothing else: the other families print other words or nothing, so a required marker would
-# fail good runs of other families and of releases that change a line. A load that fails without
-# one of the signs below passes. Its whole output is in the log in the run directory.
+# says so in its version. The verdict requires one sign of success, for a flash write on a Xilinx
+# FPGA only. Other families print other words or nothing, so a required marker would fail good
+# runs of other families and of releases that change a line. A load that fails without any of the
+# signs below passes. The log in the run directory holds the whole output.
 #
 # The sign of success. `SPIFlash::erase_and_prog` makes its `Writing` progress bar after
 # everything that can stop it without a message, `prepare_flash` and so `global_unlock` among
-# them (spiFlash.cpp:392-395, 531-535 and, for an `.mcs` file, 483-500; v0.13.1: 364 and 437), and
-# ends the bar with `done()` only when no page write returned -1 (550, 518; v0.13.1: 452; a wait
-# that times out returns another value, and prints `wait: Error`, a sign above). `done()` prints
+# them (spiFlash.cpp:392-395, 531-535 and, for an `.mcs` file, 483-500; v0.13.1: 364 and 437). It
+# ends the bar with `done()` only when no page write returned -1 (550, 518; v0.13.1: 452). A wait
+# that times out returns another value and prints `wait: Error`, a sign above. `done()` prints
 # the bar at its end and `Done`: `Writing: [<50 columns>] 100.00%`, then `Done` (progressBar.cpp:
 # 21-60; `Writing: Done` when `_verbose < 0`). A bar that an update shows at 100.00% before
 # `done()` is not followed by `Done` at once. The progress bar code is the same in v0.13.1,
 # v1.0.0, v1.1.0 and v1.1.1, except that a pipe gets a line end after a percent from v1.0.0 on,
 # which the split into lines drops. The BPI flash writer of v1.1.0 and later uses the same label
 # (bpiFlash.cpp:449). The loader never sets a locale, so the point of `100.00%` is the same
-# everywhere. A later release that prints another bar fails every Xilinx flash write, loudly: the
-# run says what it looked for, what the log holds and where it is (`NEWEST_CHECKED_OPENFPGALOADER`
-# is the newest release checked: raise it with this comment). `SPIInterface::write` verifies only
-# after a write that succeeded (`if (_spif_verify && ret)`, spiInterface.cpp:219; v0.13.1: 192), so
-# `verify` does not report a write that stopped.
+# everywhere. A later release that prints another bar fails every Xilinx flash write with a clear
+# message. The message says what the run looked for, what the log holds and where it is.
+# `NEWEST_CHECKED_OPENFPGALOADER` is the newest release checked: raise it with this comment.
+# `SPIInterface::write` verifies only after a write that succeeded (`if (_spif_verify && ret)`,
+# spiInterface.cpp:219; v0.13.1: 192), so `verify` does not report a write that stopped.
 
 #: The state of a Xilinx FPGA after a load (xilinx.cpp:988). `done` is the DONE signal.
 _DONE_READBACK = re.compile(
@@ -134,9 +136,10 @@ FAILURE_ENDINGS: dict[str, str] = {
     "flow erase failed": "xilinx.cpp:1727",
     "Erase: fails to verify blank check": "xilinx.cpp:2011",
 }
-#: What the loader prints when it cannot name the bridge that writes a flash, since it knows no
-#: part: a board that its own list gives no part (`kc705`, board.hpp:197) and no `--fpga-part`
-#: (xilinx.cpp:722-728; main.cpp:216-219 takes the part from the board only when it has one).
+#: What the loader prints when it cannot name the bridge that writes a flash, because it knows no
+#: part. This happens for a board that the loader's own list gives no part (`kc705`,
+#: board.hpp:197) when `--fpga-part` is also missing (xilinx.cpp:722-728). main.cpp:216-219 takes
+#: the part from the board only when the board has one.
 _NO_PART_FOR_THE_BRIDGE = "missing device-package information"
 _ESCAPE_CODES = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 #: The most lines that a message quotes for the failures that the loader reports as a step.
@@ -155,7 +158,7 @@ class LoaderFailure:
     evidence_heading: str = "The loader printed:"
 
     def message(self, log_file: Optional[Path] = None) -> str:
-        """The text for a person: what happened, then the lines that show it."""
+        """Return the text for a person: what happened, then the lines that show it."""
         text = list(self.summary)
         if self.evidence:
             text.append(self.evidence_heading)
@@ -166,16 +169,19 @@ class LoaderFailure:
 
 
 def _output_lines(text: str) -> list[str]:
-    """The lines of the output as a person reads them: without the escape codes of a terminal's
-    colors, with a carriage return (the redrawn progress bar) as the end of a line, and without
-    blank lines or the space around a line."""
+    """Return the lines of the output as a person reads them.
+
+    The function drops the escape codes of a terminal's colors, blank lines and the space around
+    a line. It treats a carriage return (the redrawn progress bar) as the end of a line."""
     plain = _ESCAPE_CODES.sub("", text).replace("\r", "\n")
     return [line for line in (raw.strip() for raw in plain.split("\n")) if line]
 
 
 def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str], list[str]]:
-    """The sentences and the lines that tell that a Xilinx FPGA did not finish its configuration:
-    the readback of its state shows DONE low. Nothing if they do not."""
+    """Return the sentences and the lines that show that a Xilinx FPGA did not finish configuring.
+
+    The readback of its state shows DONE low. Without such a readback, return two empty lists.
+    `target`, when known, names the board or part that the flow is set up to program."""
     for index, line in enumerate(lines):
         found = _DONE_READBACK.fullmatch(line)
         if found and found.group(1) == "0":
@@ -187,7 +193,8 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
         "its DONE signal stayed low."
     ]
     evidence = [line]
-    # what the loader warned about before it loaded, and printed after the readback
+    # the loader warns before it loads, but the warning can appear after the readback, so search
+    # all lines
     warned = [found for found in map(_SHORT_HEADER.search, lines) if found]
     if warned:
         held, declared = warned[0].groups()
@@ -213,9 +220,9 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
             else "the one the bitstream is for"
         )
         sentences.append(f"Check that the board on the cable is {which}.")
-        # the loader opens the first cable that matches, unless the cable index names another
-        # (ftdipp_mpsse.cpp:50-53, main.cpp:289); it never compares the FPGA it finds with the
-        # part of the board it was given (main.cpp:216-219 uses the part for the flash only)
+        # The loader opens the first cable that matches, unless the cable index names another
+        # (ftdipp_mpsse.cpp:50-53, main.cpp:289). It never compares the FPGA it finds with the
+        # part of the board it was given (main.cpp:216-219 uses the part for the flash only).
         sentences.append(
             "The loader uses the first cable that matches unless the `cable_index` or "
             "`usb_serial_num` setting names another, so with several boards connected it can "
@@ -229,9 +236,10 @@ def _unfinished_load(lines: list[str], target: Optional[str]) -> tuple[list[str]
 
 
 def _reported_failures(lines: list[str]) -> list[str]:
-    """The lines where the loader reports a failure itself, in the order it printed them: a step
-    that failed (with the line before a bare `FAIL`, which says which step), an error message,
-    a flash that does not answer."""
+    """Return the lines where the loader reports a failure itself, in the order it printed them.
+
+    They are a step that failed (with the line before a bare `FAIL`, which says which step), an
+    error message and a flash that does not answer."""
     reported: list[str] = []
     for index, line in enumerate(lines):
         if (
@@ -245,7 +253,7 @@ def _reported_failures(lines: list[str]) -> list[str]:
     return list(dict.fromkeys(reported))
 
 
-#: The newest release of openFPGALoader whose output the verdict was checked against; a later
+#: The newest release of openFPGALoader whose output the verdict was checked against. A later
 #: release can print what a flash write has to report in another way.
 NEWEST_CHECKED_OPENFPGALOADER = (1, 1, 1)
 #: The progress bar of a flash write at its end (progressBar.cpp:21-51); `done()` follows it with
@@ -257,9 +265,11 @@ MAX_LAST_LINES = 3
 
 
 def _finished_flash_writes(lines: list[str]) -> tuple[int, int]:
-    """How many flash writes the lines report as finished: a `Writing` bar at its end that `Done`
-    follows at once, or `Writing: Done` (see the comment above). Also the index of the line after
-    the last of them, 0 when there is none."""
+    """Count the flash writes that the lines report as finished.
+
+    A finished write is a `Writing` bar at its end that `Done` follows at once, or `Writing: Done`
+    (see the comment above). Also return the index of the line after the last finished write, or
+    0 when there is none."""
     finished = 0
     after = 0
     for index, line in enumerate(lines):
@@ -273,10 +283,11 @@ def _finished_flash_writes(lines: list[str]) -> tuple[int, int]:
 def _unwritten_flash(
     lines: list[str], finished: int, after: int, expected: int, *, verify: bool, quiet: bool
 ) -> LoaderFailure:
-    """The failure of a flash write that the output does not report as finished. The sentences say
-    what this run needs (the line of its verbosity, the writes of its flash chips) and what the log
-    holds after the last finished write; the lines quoted are the end of the output, which shows
-    where the loader stopped."""
+    """Build the failure of a flash write that the output does not report as finished.
+
+    The sentences say what this run needs (the line of its verbosity, the writes of its flash
+    chips) and what the log holds after the last finished write. The lines quoted are the end of
+    the output, which shows where the loader stopped."""
     newest = ".".join(str(part) for part in NEWEST_CHECKED_OPENFPGALOADER)
     plural = "" if expected == 1 else "s"
     if quiet:
@@ -342,12 +353,13 @@ def loader_failure(
     verify: bool = False,
     quiet: bool = False,
 ) -> Optional[LoaderFailure]:
-    """The failure that the output `text` of the loader shows (see above), or None if it shows
-    none. `target`, when known, names the board or part that the flow is set up to program.
+    """Return the failure that the output `text` of the loader shows (see above), or `None`.
+
+    `target`, when known, names the board or part that the flow is set up to program.
     `flash_writes` is the number of flash writes that the loader has to report as finished (a
-    flash write on a Xilinx FPGA: one for each flash chip), `verify` tells whether it was asked to
-    read the flash back, and `quiet` whether it was asked for quiet progress bars: the message
-    names the line that a finished write prints in that case."""
+    flash write on a Xilinx FPGA: one for each flash chip). `verify` tells whether the loader had
+    to read the flash back. `quiet` tells whether it had quiet progress bars. In that case the
+    message names the line that a finished write prints."""
     lines = _output_lines(text)
     sentences, evidence = _unfinished_load(lines, target)
     reported = [line for line in _reported_failures(lines) if line not in evidence]
@@ -385,8 +397,8 @@ MIN_OPENFPGALOADER_VERSION = (0, 13, 1)
 class OpenfpgaloaderTool(Tool):
     """openFPGALoader, whose version flag is spelled with a capital V.
 
-    `openFPGALoader --help` lists `-V, --Version   Print program version`, and the conventional
-    `--version` is rejected (`Error parsing options: Option 'version' does not exist`), so the
+    `openFPGALoader --help` lists `-V, --Version   Print program version`. The loader rejects the
+    conventional `--version` (`Error parsing options: Option 'version' does not exist`), so the
     generic `Tool` flag would record an empty version. The query prints one line on stdout,
     `openFPGALoader v1.1.1`, which `Tool`'s default patterns do not match (the fallback would
     keep the leading `v`). Asking for the version touches no device.
@@ -394,7 +406,7 @@ class OpenfpgaloaderTool(Tool):
     It asks for a terminal (`pseudo_terminal`). Its progress bar redraws one line with a carriage
     return only when its output is a terminal, and its colors need one (display.cpp:23-65,
     progressBar.cpp:43-50); through a pipe it prints a line for each update. In a terminal, the
-    user then sees the output as when running the loader by hand.
+    user sees the same output as when running the loader by hand.
     """
 
     pseudo_terminal: ClassVar[bool] = True
@@ -411,15 +423,16 @@ class OpenfpgaloaderTool(Tool):
 
 
 def _switched_on(value: Any) -> bool:
-    """Whether a Boolean setting's input, still as given, turns it on, as the setting itself
-    reads it: a boolean, or `true` as text (how a command line writes one). `yes`, `on` and
-    numbers are no boolean, so they are not on here; the setting's own validation refuses them,
-    saying what to write."""
+    """Tell whether the input of a Boolean setting, as given, turns it on.
+
+    The function reads the input the way the setting does. A boolean turns it on, and so does
+    `true` as text (how a command line writes one). `yes`, `on` and numbers are no booleans, so
+    they are off here. The validation of the setting refuses them and says what to write."""
     return value is True or (isinstance(value, str) and value.lower() == "true")
 
 
 def _is_boolean(value: Any) -> bool:
-    """Whether a Boolean setting's input, still as given, is a boolean the setting accepts."""
+    """Tell whether the input of a Boolean setting, as given, is a boolean it accepts."""
     return isinstance(value, bool) or (
         isinstance(value, str) and value.lower() in ("true", "false")
     )
@@ -428,35 +441,35 @@ def _is_boolean(value: Any) -> bool:
 class Openfpgaloader(FpgaSynthFlow):
     """Program a bitstream onto an FPGA board with openFPGALoader.
 
-    Its `bitstream` input is a typed `Bitstream` design source -- a file built elsewhere, by
-    any toolchain -- or, by default, the bitstream `fpga_pack` records after `yosys_fpga` ->
-    `nextpnr` -> `fpga_pack`. The flow builds and packs nothing itself: the settings of those
-    stages are their own sections' (`flows.nextpnr`, `flows.fpga_pack`). The device is targeted
-    by `cable`, else by the board's name in openFPGALoader (`openfpgaloader_board` in the board
-    database), when it has one. The FPGA part is given when the board is not named and the part is
-    known: a Xilinx part without its speed grade, any other as it is. Without a part,
-    openFPGALoader detects the device; programming the flash (`write_flash`) needs the part. The
-    loader's output is kept in `openfpgaloader.log` in the run directory. It needs openFPGALoader
-    0.13.1 or newer, and refuses an older loader before it builds or programs anything. The run
-    fails when the loader exits with a nonzero status, and also when its output shows that the
-    device was not programmed although the status is 0: DONE low after a Xilinx load (with the ID
-    or CRC error the FPGA reports), a step that printed FAIL, or an error message, such as a flash
-    that does not answer. A flash write on a Xilinx FPGA also fails unless the loader reports that
-    it wrote the flash. The flow always runs, since it changes a device rather than a file, and it
-    is the only flow here that touches hardware.
+    The `bitstream` input is a typed `Bitstream` design source (a file built elsewhere, by any
+    toolchain) or, by default, the `bitstream` output of `fpga_pack`. The flow builds and packs
+    nothing itself. The settings of the earlier stages belong to their own sections
+    (`flows.nextpnr`, `flows.fpga_pack`). The flow selects the device with `cable`, else with the
+    name of the board in openFPGALoader (`openfpgaloader_board` in the board database) when the
+    board has one. The flow passes the FPGA part when the part is known and either `cable` is set
+    or no board name is passed: a Xilinx part without its speed grade, any other part as it is.
+    Without a part, openFPGALoader detects the device. Programming the flash (`write_flash`)
+    needs the part. The flow keeps the output of the loader in `openfpgaloader.log` in the run
+    directory. It needs openFPGALoader 0.13.1 or newer and refuses an older loader before it
+    builds or programs anything. The run fails when the loader exits with a nonzero status. It
+    also fails when the output shows that the device was not programmed although the status is
+    0: DONE low after a Xilinx load (with the ID or CRC error that the FPGA reports), a step that
+    printed FAIL, or an error message such as a flash that does not answer. A flash write on a
+    Xilinx FPGA also fails unless the loader reports that it wrote the flash. The flow always
+    runs, because it changes a device and no file. It is the only built-in flow that programs a
+    device.
     """
 
-    #: the device only to program the flash (`required_settings_for`)
+    #: No setting is required, except the device to program the flash (`required_settings_for`).
     required_settings: dict[str, str] = {}
 
-    #: judged on the bitstream it can take from the design, nothing else
+    #: The source types that the design hash counts for this flow: the bitstreams that it takes.
     design_source_types = frozenset({SourceType.Bitstream})
 
     #: Static, so a chain can refuse this flow anywhere but last without constructing it.
     action_reason = "it programs a device"
 
-    # This flow reports no results beyond the keys every flow reports; declaring this
-    # explicitly keeps `xeda list-results` from guessing.
+    # This flow reports only the keys that every flow reports. The empty declaration says so.
     results_description: dict = {}
 
     #: The loader's tool, made in `init()`.
@@ -470,15 +483,15 @@ class Openfpgaloader(FpgaSynthFlow):
             "packer_args": "flows.fpga_pack.packer_args",
             "bitstream_file": "flows.fpga_pack.bitstream to name or deliver the packed "
             "bitstream, or a typed source in rtl.sources to program an existing file: "
-            '{ file = "top.bit", type = "Bitstream" }',
+            "{file: top.bit, type: Bitstream}",
         }
         reset: bool = Field(
             False, description="Reset the FPGA after loading the bitstream (`--reset`)."
         )
         cable: Optional[str] = Field(
             None,
-            description='Programming cable to use, e.g. "ft2232". Takes precedence over the '
-            "cable implied by `board`.",
+            description='Programming cable to use, for example "ft2232". Takes precedence over '
+            "the cable implied by `board`.",
         )
         write_flash: bool = Field(
             False,
@@ -487,7 +500,7 @@ class Openfpgaloader(FpgaSynthFlow):
             "made for the part.",
         )
         verify: bool = Field(
-            False, description="Verify SPI flash after programming; needs `write_flash`."
+            False, description="Verify the SPI flash after programming. Needs `write_flash`."
         )
         freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
         offset: Optional[int] = Field(None, ge=0, description="Flash start address in bytes.")
@@ -497,7 +510,9 @@ class Openfpgaloader(FpgaSynthFlow):
             description="Serial number of the FTDI probe to use (`--ftdi-serial`). Selects one "
             "of several probes of the same kind.",
         )
-        index_chain: Optional[int] = Field(None, ge=0, description="Device index in JTAG chain.")
+        index_chain: Optional[int] = Field(
+            None, ge=0, description="Index of the device in the JTAG chain."
+        )
         file_type: Optional[str] = Field(
             None, description="Bitstream type when extension detection is insufficient."
         )
@@ -518,13 +533,15 @@ class Openfpgaloader(FpgaSynthFlow):
         @model_validator(mode="before")
         @classmethod
         def _verify_needs_flash(cls, values):
-            """openFPGALoader verifies what it wrote to flash: there is nothing to verify
-            after loading SRAM. Checked on the whole input -- on an assignment, the whole
-            state with the assigned value -- before anything is stored, so the order the two
-            settings are given or assigned in does not matter and a refused assignment leaves
-            the settings as they were. Each value is read as its field will read it (`true` as
-            text is true; `1` and `"yes"` are no boolean, and the field refuses them), and
-            nothing is rewritten here."""
+            """Refuse `verify` without `write_flash`.
+
+            openFPGALoader verifies what it wrote to the flash, so there is nothing to verify
+            after loading SRAM. The check runs on the whole input. On an assignment, it runs on
+            the whole state with the assigned value, before the settings store anything. The
+            order in which the two settings are given or assigned therefore does not matter, and
+            a refused assignment leaves the settings as they were. The check reads each value as
+            its field will read it (`true` as text is true; `1` and `"yes"` are no booleans, and
+            the field refuses them). It rewrites nothing."""
             flash = values.get("write_flash")
             if (
                 _switched_on(values.get("verify"))
@@ -532,7 +549,7 @@ class Openfpgaloader(FpgaSynthFlow):
                 and (flash is None or _is_boolean(flash))  # else the field says what it is
             ):
                 raise ValueError(
-                    "verify checks the flash openFPGALoader wrote: it needs write_flash=true "
+                    "verify checks the flash openFPGALoader wrote: it needs write_flash: true "
                     "as well"
                 )
             return values
@@ -547,18 +564,21 @@ class Openfpgaloader(FpgaSynthFlow):
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
-        """The device, to program the flash: openFPGALoader programs it through a bridge made for
-        the part. Loading SRAM needs none: the loader detects the device."""
+        """Require the device for a flash write only.
+
+        openFPGALoader programs the flash through a bridge made for the part. Loading SRAM
+        needs no device, because the loader detects it."""
         if getattr(settings, "write_flash", False):
             return {"fpga": FLASH_NEEDS_THE_DEVICE}
         return {}
 
     def init(self) -> None:
-        """Make the loader's tool, which asks the program for its version, before any producer
-        runs: a loader that is too old (`MIN_OPENFPGALOADER_VERSION`) is refused here, so neither
-        synthesis, placement nor packing runs first. The query touches no device. The tool is made
-        in the flow, so it takes the flow's settings and is listed in the results with the
-        version it reports."""
+        """Make the loader's tool before any producer runs.
+
+        Making the tool asks the program for its version. A loader that is too old
+        (`MIN_OPENFPGALOADER_VERSION`) is refused here, so neither synthesis, placement nor
+        packing runs first. The query touches no device. The flow makes the tool, so the tool
+        takes the flow's settings, and the results list it with the version it reports."""
         super().init()
         self.loader = OpenfpgaloaderTool()
 
@@ -566,7 +586,7 @@ class Openfpgaloader(FpgaSynthFlow):
         return super().always_runs() or self.action_reason
 
     def _target(self) -> Optional[str]:
-        """The board and part that the flow is set up to program, as words for a message."""
+        """Return the board and the part that the flow is set up to program, as words."""
         assert isinstance(self.settings, self.Settings)
         part = self.settings.fpga.part if self.settings.fpga is not None else None
         named = [
@@ -577,9 +597,11 @@ class Openfpgaloader(FpgaSynthFlow):
         return ", ".join(named) or None
 
     def _flash_writes(self) -> int:
-        """How many flash writes the loader has to report as finished: one for each flash chip it
-        writes on a Xilinx FPGA, two with `target_flash: both` (`loader_failure`). Other families
-        and SRAM loads have none to report."""
+        """Return how many flash writes the loader has to report as finished.
+
+        It is one for each flash chip that the loader writes on a Xilinx FPGA, so two with
+        `target_flash: both` (`loader_failure`). Other families and SRAM loads have none to
+        report."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if not ss.write_flash or ss.fpga is None or ss.fpga.vendor != "xilinx":
@@ -587,16 +609,19 @@ class Openfpgaloader(FpgaSynthFlow):
         return 2 if ss.target_flash == "both" else 1
 
     def _quiet_bars(self) -> bool:
-        """Whether the loader prints quiet progress bars (no bar, only `Done`): with
-        `verbose_level: -1`, or with its own `--quiet` among the extra arguments."""
+        """Tell whether the loader prints quiet progress bars (no bar, only `Done`).
+
+        It does with `verbose_level: -1`, or with its own `--quiet` among the extra arguments."""
         assert isinstance(self.settings, self.Settings)
         return self.settings.verbose_level == -1 or "--quiet" in self.settings.extra_args
 
     def parse_reports(self) -> bool:
-        """The verdict: a nonzero exit status failed the run already (`run()` raised it). A run
-        also fails when this run's log shows a failure (`loader_failure`), or when there is no log
-        of this run, which leaves no evidence that the device was programmed. The failure is the
-        error of the run, in the words of a person, with the lines that show it."""
+        """Judge the run.
+
+        A nonzero exit status already failed the run (`run()` raised it). The run also fails when
+        the log of this run shows a failure (`loader_failure`), and when there is no log of this
+        run, because then nothing shows that the device was programmed. The failure becomes the
+        error of the run, in plain sentences with the lines that show it."""
         if self.results.get("error"):
             return False
         log_file = self.run_path / LOADER_LOG
@@ -642,7 +667,7 @@ class Openfpgaloader(FpgaSynthFlow):
         elif board_name:
             args.extend(["--board", board_name])
         # `--board` gives openFPGALoader the board's own part, and `--fpga-part` would replace
-        # it; with no part known, openFPGALoader detects the device (`required_settings_for`)
+        # it. With no part known, openFPGALoader detects the device (`required_settings_for`).
         if ss.fpga is not None and ss.fpga.part and (ss.cable or not board_name):
             args.extend(["--fpga-part", _loader_part(ss.fpga)])
         for enabled, flag in (
@@ -655,8 +680,8 @@ class Openfpgaloader(FpgaSynthFlow):
         ):
             if enabled:
                 args.append(flag)
-        # each setting with the option of openFPGALoader that it is (main.cpp:895-1022): the
-        # serial number is the loader's `--ftdi-serial`, and only an FTDI probe has one
+        # Each setting with the openFPGALoader option that it sets (main.cpp:895-1022). The
+        # serial number is the loader's `--ftdi-serial`, and only an FTDI probe has one.
         for name, option in (
             ("freq", "--freq"),
             ("offset", "--offset"),
@@ -671,6 +696,6 @@ class Openfpgaloader(FpgaSynthFlow):
             if value is not None:
                 args.extend([option, str(value)])
         args.extend(ss.extra_args)
-        # the loader is started twice: `init` asked it for its version, and this program call
-        # follows. Its output goes to the log, made anew before the loader starts.
+        # The flow starts the loader twice: `init` asks for its version, and this call programs.
+        # The output goes to the log, which the flow makes anew before the loader starts.
         self.loader.run(*args, tee=self.run_directory.writable(LOADER_LOG), merge_stderr=True)

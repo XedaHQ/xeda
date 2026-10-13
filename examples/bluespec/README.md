@@ -3,16 +3,15 @@
 Small, self-checking designs in Bluespec SystemVerilog (BSV, `.bsv`) and Bluespec Classic
 (BH, `.bs`), each with an Xeda design file. They need bsc 2026.07.1 or newer.
 
-Each example lives in `examples/bluespec/<name>/`, with its design file `<name>.yaml`, the
-design in `rtl/` and the testbench in `tb/`. Compile a design's RTL to Verilog with the `bsc`
-flow:
+Each example is in `examples/bluespec/<name>/`: the design file `<name>.yaml`, the design in
+`rtl/` and the testbench in `tb/`. Compile the RTL of a design to Verilog with the `bsc` flow:
 
 ```bash
 xeda run bsc examples/bluespec/gcd/gcd.yaml
 ```
 
 Simulate its testbench with the `bsc_sim` flow, in Bluesim (the default) or in a Verilog
-simulator through bsc's own link step:
+simulator through the link step of bsc:
 
 ```bash
 xeda run bsc_sim examples/bluespec/gcd/gcd.yaml
@@ -22,16 +21,25 @@ xeda run bsc_sim examples/bluespec/gcd/gcd.yaml -s simulator=iverilog
 
 All the designs follow the same conventions:
 
-- Each package lives in a file of the same name. In `rtl.sources` the file defining `rtl.top`
-  comes last among the Bluespec sources, and in `tb.sources` the file defining `tb.top`.
-- The testbench top module is `(* synthesize *)`d with an `Empty` interface. It prints a line
-  starting with `PASS` and calls `$finish(0)` on success, and fails with `$fatal`, which
-  makes the simulation exit with a non-zero status, on a mismatch or when a watchdog runs
-  out of cycles. (`$finish(1)` would not do: its argument is a verbosity level, not an
-  exit status.)
-- Defining the macro `XEDA_INJECT_BUG` (`defines: {XEDA_INJECT_BUG: true}` under
-  `tb`) plants a deliberate bug that the testbench must catch, for negative tests.
+- Each package is in a file of the same name. In `rtl.sources`, the file that defines `rtl.top`
+  comes last among the Bluespec sources. In `tb.sources`, the file that defines `tb.top` comes
+  last.
+- The testbench top module has an `Empty` interface and the `(* synthesize *)` attribute. On
+  success, it prints a line that starts with `PASS` and calls `$finish(0)`. On a mismatch, or
+  when a watchdog runs out of cycles, it calls `$fatal`, which makes the simulation exit with a
+  non-zero status. (The argument of `$finish` is a verbosity level, so `$finish(1)` does not set
+  an exit status.)
+- Defining the macro `XEDA_INJECT_BUG` plants a deliberate bug that the testbench must catch. Use
+  it for a negative test: the run must fail.
 - Bluesim, Verilator and Icarus Verilog run each testbench in the same number of cycles.
+
+To run the negative test without editing a design file, define the macro on the command line:
+
+```bash
+xeda run bsc_sim examples/bluespec/gcd/gcd.yaml --design-overrides tb.defines.XEDA_INJECT_BUG=true
+```
+
+The same setting in a design file is `defines.XEDA_INJECT_BUG: true` under `tb`.
 
 ## gcd: multi-package BSV
 
@@ -45,21 +53,20 @@ result against Euclid's algorithm, run by a `StmtFSM`.
 ## fir: a design sized by macros
 
 A streaming transposed-form FIR filter. The core, `mkFir`, is polymorphic in its tap count and
-widths, related by provisos, with an accumulator that grows by `TLog#(taps)` bits. The top,
-`mkFirFilter`, sizes it with the preprocessor macros `TAPS` and `SAMPLE_WIDTH`, which the
-design file sets through `rtl.defines` (Xeda passes them to bsc as `-D NAME=value`).
-Without them, the source falls back to 8 taps and 16-bit samples. The testbench checks every
-output against a direct-form model, and its `PASS` line reports the tap count and sample width
-used.
+widths, which provisos relate, and its accumulator grows by `TLog#(taps)` bits. The top,
+`mkFirFilter`, sizes it with the preprocessor macros `TAPS` and `SAMPLE_WIDTH`. The design file
+sets them in `rtl.defines`, and Xeda passes them to bsc as `-D NAME=value`. Without them, the
+source uses 8 taps and 16-bit samples. The testbench checks every output against a direct-form
+model. Its `PASS` line reports the tap count and the sample width.
 
 ## collatz: Bluespec Classic (BH)
 
-A Collatz ("3n + 1") sequence unit and its testbench, written in BH. For each start value it
-counts the steps to 1 and the largest value reached, and flags sequences that leave the 32-bit
-range. The testbench's expected results come from a golden model that bsc evaluates at compile
-time on unbounded `Integer`s. bsc's preprocessor handles BSV sources only, so `-D` macros never
-reach BH code: the testbench imports the `XEDA_INJECT_BUG` switch from a one-line BSV package,
-`TbCollatzOptions`.
+A Collatz ("3n + 1") sequence unit and its testbench, written in BH. For each start value, the
+unit counts the steps to 1 and the largest value reached, and flags sequences that leave the
+32-bit range. The expected results of the testbench come from a golden model that bsc evaluates
+at compile time on unbounded `Integer`s. The preprocessor of bsc reads BSV sources only, so `-D`
+macros do not reach BH code. The testbench therefore imports the `XEDA_INJECT_BUG` switch from a
+one-line BSV package, `TbCollatzOptions`.
 
 ## crc32: mixed BSV and BH
 
@@ -77,5 +84,5 @@ parameter and ports to BSV methods and declares how they may be scheduled. The p
 stall, so the wrapper counts credits to never start a multiplication without room for its
 result. The testbench drains results slowly to exercise that backpressure.
 
-Bluesim cannot simulate imported Verilog, so this design sets `simulator: verilator` for
-`bsc_sim` in its design file, and `-s simulator=iverilog` works too.
+Bluesim cannot simulate imported Verilog, so the design file sets `simulator: verilator` for
+`bsc_sim`. The option `-s simulator=iverilog` works too.

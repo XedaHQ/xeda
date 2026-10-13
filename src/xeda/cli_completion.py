@@ -13,13 +13,13 @@ class _CompletionContext(click.Context):
 
 
 class CompletionCommand(click.Command):
-    """Parse declared environment variables without loading the help renderer."""
+    """A command that parses declared environment variables without loading the help renderer."""
 
     context_class = _CompletionContext
 
 
 class CompletionGroup(click.Group):
-    """Expose the help command that click-extra adds to each execution group."""
+    """A group that exposes the help command that click-extra adds to each execution group."""
 
     command_class = click.Command
 
@@ -31,7 +31,8 @@ class CompletionGroup(click.Group):
         standalone_mode: bool = True,
         **extra: Any,
     ) -> Any:
-        # click-extra uses the declared name, including for python -m xeda and library calls.
+        # click-extra uses the declared name as the program name, including for `python -m xeda`
+        # and library calls. Do the same here.
         return super().main(
             args=args,
             prog_name=prog_name or self.name,

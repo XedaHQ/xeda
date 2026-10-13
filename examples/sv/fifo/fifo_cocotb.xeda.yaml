@@ -1,15 +1,13 @@
-sources:
-  - fifo.sv
-top: fifo
-
-clock:
-  port: clk
-
+description: The same FIFO with a cocotb testbench
+rtl:
+  sources:
+    - "fifo.sv"
+  top: fifo
+  clock.port: clk
 tb:
   sources:
-    - fifo_tb.py
+    - "fifo_tb.py"
   top: fifo_tb
-
 flows:
   verilator:
     timing: false

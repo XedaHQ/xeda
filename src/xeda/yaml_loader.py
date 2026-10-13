@@ -16,7 +16,7 @@ _CORE_SCALARS = {
     "null": re.compile(r"^(?:null|Null|NULL|~|)$"),
     "bool": re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"),
     # YAML 1.2.2, 10.3.2: only the base 10 form takes a sign (`[-+]? [0-9]+`); `0o` and `0x`
-    # do not, so `-0x1F` is text -- as written, not an oversight.
+    # do not, so `-0x1F` is text. That follows the specification and is no oversight.
     "int": re.compile(r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$"),
     "float": re.compile(
         r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
@@ -114,8 +114,10 @@ def load_yaml(path: str | Path) -> Any:
 
 
 def yaml_error_position(e: yaml.MarkedYAMLError) -> tuple[str, int | None, int | None]:
-    """`(message, line, column)` of a YAML error, 1-based: where the parser found the problem,
-    with where the enclosing construct began (if it did) in the message."""
+    """Return `(message, line, column)` for a YAML error, with a 1-based line and column.
+
+    The position is where the parser found the problem. If the error also knows where the
+    enclosing construct began, the message says so."""
     parts = []
     if e.context:
         context = e.context

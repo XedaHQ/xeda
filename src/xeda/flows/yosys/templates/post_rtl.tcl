@@ -1,6 +1,6 @@
-{#- See post_rtl.ys: `write_json -selected` writes the design's own modules only, every block
-    ends its last command with a newline, and `stop_after == "rtl"` is handled by the including
-    template, which simply does not emit the post-RTL commands. -#}
+{#- See post_rtl.ys. `write_json -selected` writes only the modules of the design, every block
+    ends its last command with a newline, and the including template handles
+    `stop_after == "rtl"` and does not emit the post-RTL commands. -#}
 {% if settings.rtl_json -%}
 yosys log -stdout "Writing JSON {{settings.rtl_json|tcl_quote}}"
 yosys write_json -selected {{settings.rtl_json|path}}

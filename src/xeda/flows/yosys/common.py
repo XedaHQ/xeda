@@ -18,19 +18,19 @@ from ...utils import ToolException, hierarchical_merge, tcl_word, unique
 log = logging.getLogger(__name__)
 YOSYS_DOCKER_IMAGE = "hdlc/impl"
 
-#: A yosys release as (major, minor): what the flags of its synthesis passes are chosen by.
+#: A yosys release as (major, minor), which selects the flags of the synthesis passes.
 YosysRelease = Tuple[int, int]
 
-#: The oldest yosys release supported by the FPGA synthesis pass option mapping.
+#: The oldest yosys release that the mapping from settings to FPGA synthesis pass options supports.
 MINIMUM_YOSYS: YosysRelease = (0, 63)
 
-#: The newest yosys release whose synthesis passes the flags xeda generates were checked
-#: against. A newer yosys, or one whose version cannot be read, is taken to be this one.
+#: The newest yosys release whose synthesis passes were checked against the flags that Xeda
+#: generates. Xeda treats a newer yosys, or one with an unreadable version, as this release.
 NEWEST_CHECKED_YOSYS: YosysRelease = (0, 69)
 
 
-#: The design sources the shared read templates (`read_files.ys`, `read_files.tcl`) hand to
-#: yosys: Verilog and SystemVerilog to a reader (yosys' own, or a plugin's), VHDL to the GHDL
+#: The design sources that the shared read templates (`read_files.ys`, `read_files.tcl`) hand to
+#: yosys: Verilog and SystemVerilog to a reader (the one of yosys or of a plugin), VHDL to the GHDL
 #: plugin, and a header by its directory, as an include directory (`-I`).
 READ_SOURCE_TYPES = frozenset(
     {
@@ -43,8 +43,8 @@ READ_SOURCE_TYPES = frozenset(
 )
 
 
-#: What the stages after the RTL ones write, by the setting that asks for it. `stop_after: rtl`
-#: runs none of those stages, so none of these exists when it ends.
+#: What the stages after the RTL stage write, by the setting that asks for it. `stop_after: rtl`
+#: skips those stages, so none of these files exists when the run ends.
 AFTER_RTL = {
     "netlist_json": "a JSON netlist",
     "netlist_verilog": "a Verilog netlist",
@@ -54,7 +54,7 @@ AFTER_RTL = {
     "ltp": "a longest-path report",
 }
 
-#: The description of `stop_after`, which `yosys` and `yosys_fpga` have and `yosys_sim` has not.
+#: The description of `stop_after`, a setting of `yosys` and `yosys_fpga` but not of `yosys_sim`.
 STOP_AFTER_DESCRIPTION = (
     'Stop the flow after this stage. "rtl" elaborates the design and writes the RTL outputs '
     "without synthesizing, so it writes no netlist and no report. A setting that asks for one is "
@@ -64,12 +64,15 @@ STOP_AFTER_DESCRIPTION = (
 
 
 def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
-    """Each setting that asks for a result of a stage the run stops before, with why it is
-    refused and how to turn it off: `(setting, message)`. A stop that the user asked for succeeds
-    with the outputs it wrote (the RTL outputs), so what it cannot write is refused when the
-    settings are checked, before anything runs, instead of failing the run or being listed as a
-    result that does not exist. Both flows that stop (`yosys`, `yosys_fpga`) refuse by one rule:
-    by the setting's value, whether or not it was written, as a default is a request too."""
+    """Return each setting that asks for a result of a stage that the run stops before.
+
+    Each item is `(setting, message)`. The message says why the setting is refused and how to
+    turn it off. A stop that the user asked for succeeds with the outputs it wrote (the RTL
+    outputs). So the check refuses what the run cannot write when it checks the settings, before
+    anything runs. Otherwise the run would fail, or list a result that does not exist. `yosys`
+    and `yosys_fpga` use one rule: the value of the setting decides, whether or not the user
+    wrote it, because a default is a request too.
+    """
     if getattr(settings, "stop_after", None) != "rtl":  # `yosys_sim` has no `stop_after`
         return []
     problems = []
@@ -92,7 +95,7 @@ def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
 
 
 def yosys_release(yosys: Tool) -> YosysRelease:
-    """The release of `yosys`, e.g. (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
+    """Return the release of `yosys`, for example (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
     parts = [re.match(r"\d+", part) for part in yosys.version[:2]]
     if len(parts) == 2 and parts[0] and parts[1]:
         release = (int(parts[0].group()), int(parts[1].group()))
@@ -106,11 +109,11 @@ def yosys_release(yosys: Tool) -> YosysRelease:
 
 
 def yosys_data_dir(yosys: Tool) -> Path:
-    """The directory yosys' own `+/` stands for, as the installed `yosys` reports it.
+    """Return the directory that `+/` stands for in yosys, as the installed `yosys` reports it.
 
-    `yosys-config --datdir`, the same program `CxxRtl` asks for the include directory beside
-    it: the share directory is found by asking the tool, never from an environment variable or
-    a guess at its layout. In a container it is the container's path.
+    The flow asks `yosys-config --datdir`, the program that `yosys_sim` also asks for the
+    include directory. It never reads an environment variable and never guesses the layout. In a
+    container, the path is the container's.
     """
     reported = yosys.derive("yosys-config", sibling=True, source_name="yosys").probe_stdout(
         "--datdir"
@@ -121,9 +124,12 @@ def yosys_data_dir(yosys: Tool) -> Path:
 
 
 def same_file(first: Path, second: Path) -> bool:
-    """Whether two paths name the same file: through a link, a different spelling, another
-    letter case on a case-insensitive file system, or a hard link. Paths that do not both exist
-    are compared by their resolved, case-normalized spelling."""
+    """Return whether two paths name the same file.
+
+    A link, a different spelling, another letter case on a case-insensitive file system, or a
+    hard link can make two paths name one file. If the paths do not both exist, the function
+    compares their resolved, case-normalized spelling.
+    """
     try:
         return first.samefile(second)
     except OSError:
@@ -139,19 +145,19 @@ def append_flag(flag_list: List[str], flag: str) -> List[str]:
 
 
 def ys_escape(value: Any) -> str:
-    """Render a canonical value into a yosys (`.ys`) script.
+    """Return a canonical value as text for a yosys (`.ys`) script.
 
-    Yosys' own script tokenizer needs no escaping: it strips grouping double
-    quotes itself and never performs substitution on brackets.
+    The yosys script tokenizer needs no escaping. It removes grouping double quotes itself and
+    does not substitute brackets.
     """
     return str(value)
 
 
 def tcl_escape(value: Any) -> str:
-    """Render a canonical value into a TCL (`.tcl`) script.
+    """Return a canonical value as text for a Tcl (`.tcl`) script.
 
-    Brackets would trigger TCL command substitution and double quotes would
-    terminate the enclosing word, so both have to be backslash-escaped.
+    A bracket starts a Tcl command substitution and a double quote ends the enclosing word, so
+    both get a backslash.
     """
     s = str(value)
     s = s.replace("[", "\\[").replace("]", "\\]")
@@ -159,28 +165,27 @@ def tcl_escape(value: Any) -> str:
 
 
 def frontend_name(value: Any) -> str:
-    """A file name as yosys has to be given it to read that very file, where yosys expands the
-    name as a glob pattern.
+    """Return a file name in the form that makes yosys read that very file.
 
-    yosys' own frontends -- `read_verilog`, `read_liberty`, and `techmap -map`, which reads its
-    maps through one -- and `dfflibmap -liberty` expand a file name as a glob pattern, falling
-    back to the name itself only when nothing matches: `top[1].v` read `top1.v` whenever one
-    existed. Escaped (`top[[]1].v`), the pattern matches only the file itself. The other
-    commands take a name as it is (`abc` and `stat` with `-liberty`, the plugins, the writers),
-    and an escaped one names no file there. `test_yosys_reads_every_input_by_its_own_name` pins
-    which is which.
+    The yosys frontends `read_verilog` and `read_liberty`, `techmap -map` (which reads its maps
+    through a frontend) and `dfflibmap -liberty` expand a file name as a glob pattern. They use
+    the name itself only when nothing matches, so `top[1].v` reads `top1.v` whenever that file
+    exists. Escaped (`top[[]1].v`), the pattern matches only the file itself. The other commands
+    take a name as it is (`abc` and `stat` with `-liberty`, the plugins, the writers), and an
+    escaped name matches no file there. `test_yosys_reads_every_input_by_its_own_name` pins which
+    is which.
     """
     return glob_escape(str(value))
 
 
 def ys_path(value: Any) -> str:
-    """A path as one `.ys` token, for the arguments yosys unquotes itself.
+    """Return a path as one `.ys` token, for the arguments that yosys unquotes itself.
 
-    yosys splits a script line at whitespace, keeping a double-quoted token whole (quotes
-    included); its frontends and backends, `tee -o`, `stat`/`dfflibmap`/`abc -liberty`, `abc
-    -script`/`-constr` and `techmap -map` then strip those quotes. So a path containing
-    whitespace is quoted, and any other is written as is. A double quote inside the path cannot
-    be expressed at all.
+    Yosys splits a script line at whitespace and keeps a double-quoted token whole, quotes
+    included. Its frontends and backends, `tee -o`, `stat`, `dfflibmap` and `abc -liberty`,
+    `abc -script` and `-constr`, and `techmap -map` then remove those quotes. So a path with
+    whitespace gets quotes, and any other path is written as is. A path with a double quote
+    cannot be written.
     """
     text = str(value)
     if '"' in text:
@@ -189,17 +194,19 @@ def ys_path(value: Any) -> str:
 
 
 PATH_ALIASES_DIR = "path_aliases"
-"""Directory, in the run directory, of the whitespace-free aliases `YosysBase.verbatim_path`
-creates."""
+"""The directory, in the run directory, of the whitespace-free aliases that
+`YosysBase.verbatim_path` creates."""
 
 _NOT_A_YS_TOKEN = re.compile(r'[\s"]+')
-"""What keeps a path from being one verbatim `.ys` token: whitespace, or a double quote."""
+"""The characters that keep a path from being one verbatim `.ys` token: whitespace and a double
+quote."""
 
 
 class YosysBase(Flow):
-    """Synthesize the design using Yosys Open SYnthesis Suite"""
+    """The base of the flows that read a design with Yosys."""
 
-    # Generic synthesis retains its historical minimum; FPGA pass flags have a separate floor.
+    # The generic synthesis flow accepts older yosys releases. `yosys_fpga` sets a higher minimum
+    # for its pass flags.
     minimum_yosys: Optional[YosysRelease] = (0, 21)
 
     reads_sources = READ_SOURCE_TYPES
@@ -213,8 +220,8 @@ class YosysBase(Flow):
         )
         script_format: Literal["ys", "tcl"] = Field(
             "ys",
-            description="Format of the generated yosys script. Every yosys build accepts `ys`,"
-            " while `tcl` requires a build with TCL support (e.g. not available in oss-cad-suite).",
+            description="Format of the generated yosys script. Every yosys build accepts `ys`. "
+            "`tcl` needs a build with Tcl support (for example, the OSS CAD Suite has none).",
         )
         plugins: List[str] = Field(
             [],
@@ -238,8 +245,8 @@ class YosysBase(Flow):
         )
         check_assert: bool = Field(
             True,
-            description="Run yosys' `check -assert`, failing the flow on structural problems such "
-            "as combinational loops or multiply-driven wires.",
+            description="Run yosys' `check -assert`. It fails the flow on structural problems "
+            "such as combinational loops or multiply-driven wires.",
         )
         rtl_verilog: Optional[Path] = Field(
             None,
@@ -292,7 +299,8 @@ class YosysBase(Flow):
         )
         set_attribute: Dict[str, Any] = Field(
             {},
-            description="Set attributes from a dict (or a json file) orgranized as attr_name -> (object_path -> attr_value)",
+            description="Attributes to set, from a mapping or a JSON file, organized as "
+            "attr_name -> (object_path -> attr_value).",
         )
         set_mod_attribute: Dict[str, Dict[str, Any]] = Field(
             {},
@@ -321,9 +329,8 @@ class YosysBase(Flow):
         )
         top_is_vhdl: Optional[bool] = Field(
             None,
-            description="set to `true` to specify top module is VHDL, or `false` to override "
-            "detection based on the last source in a hardware description language that the flow "
-            "reads.",
+            description="Whether the top module is VHDL. Unset: it is VHDL if the last source in "
+            "a hardware description language that the flow reads is VHDL.",
         )
 
         @field_validator("verilog_lib", mode="before")
@@ -331,7 +338,7 @@ class YosysBase(Flow):
         def validate_verilog_lib(cls, value, info):
             if not isinstance(value, (list, tuple, set)):
                 raise ValueError(
-                    f"'verilog_lib' must be a path or a list of paths, "
+                    f"`verilog_lib` must be a path or a list of paths, "
                     f"got {type(value).__name__}: {value!r}"
                 )
             resolved = []
@@ -347,23 +354,22 @@ class YosysBase(Flow):
                         path = design_root / path
                     resolved.append(path.resolve(strict=True))
                 except FileNotFoundError:
-                    raise ValueError(f"'verilog_lib' file not found: {v}") from None
+                    raise ValueError(f"`verilog_lib` file not found: {v}") from None
             return resolved
 
         @field_validator("set_attribute", "set_mod_attribute", mode="before")
         @classmethod
         def validate_set_attributes(cls, value):
             def format_attribute_value(v) -> Any:
-                """Normalize to a canonical, *unescaped* form.
+                """Return the value in a canonical, unescaped form.
 
-                String values must reach yosys wrapped in double quotes. Any
-                script-specific escaping on top of that is applied at render
-                time by the `esc` template filter, as it differs between the
-                `.ys` and `.tcl` templates.
+                A string value must reach yosys wrapped in double quotes. The `esc` template
+                filter adds any script-specific escaping when it renders, because the `.ys` and
+                `.tcl` templates differ.
                 """
                 if isinstance(v, str):
                     if v.startswith('\\"') and v.endswith('\\"'):
-                        v = v[2:-2]  # accept legacy TCL-escaped values
+                        v = v[2:-2]  # accept a value that is already escaped for Tcl
                     if not (v.startswith('"') and v.endswith('"')):
                         v = f'"{v}"'
                 return v
@@ -399,27 +405,30 @@ class YosysBase(Flow):
 
     @property
     def script_ext(self) -> str:
-        """Extension of the script template to render (`.ys` or `.tcl`)."""
+        """The extension of the script template to render (`.ys` or `.tcl`)."""
         assert isinstance(self.settings, self.Settings)
         return "." + self.settings.script_format
 
     @property
     def script_flag(self) -> str:
-        """yosys CLI flag for running the generated script."""
+        """The yosys option that runs the generated script."""
         assert isinstance(self.settings, self.Settings)
         return "-s" if self.settings.script_format == "ys" else "-c"
 
     def add_template_helpers(self) -> None:
-        """The filters and globals every yosys template uses. One place, called by `init()`,
-        so that anything rendering a template without `init()` -- a test -- gets all of them,
-        not whichever it thought to add by hand."""
+        """Add the filters and globals that every yosys template uses.
+
+        `init()` calls this method. Code that renders a template without `init()`, such as a
+        test, can call it to get all of them.
+        """
         assert isinstance(self.settings, self.Settings)
         tcl = self.settings.script_format == "tcl"
-        # values are stored canonically (unescaped); escape them for the target script language
+        # values are stored canonically (unescaped); escape them for the script language
         self.add_template_filter("esc", tcl_escape if tcl else ys_escape, replace_existing=True)
         # Every path a template emits goes through one of these filters: `read_path` for a file
-        # yosys reads by a name it expands as a pattern (`frontend_name`), `path` for any other
-        # argument yosys unquotes, `verbatim_path` for one it passes on as is.
+        # that yosys reads by a name it expands as a pattern (`frontend_name`), `path` for any
+        # other argument that yosys unquotes, and `verbatim_path` for one that yosys passes on as
+        # is.
         path = tcl_word if tcl else ys_path
         self.add_template_filter("path", path, replace_existing=True)
         self.add_template_filter(
@@ -434,7 +443,7 @@ class YosysBase(Flow):
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
     def init(self):
-        """Prepare the template helpers and the settings every yosys flow shares."""
+        """Prepare the template helpers and the settings that every yosys flow shares."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         self.add_template_helpers()
@@ -454,7 +463,7 @@ class YosysBase(Flow):
             self.artifacts.rtl_verilog = ss.rtl_verilog
 
     def prepare_output_parents(self) -> None:
-        """Create output parents only when executing, leaving reused init write-free."""
+        """Create the parent directories of the outputs when the flow runs, not in `init()`."""
         assert isinstance(self.settings, self.Settings)
         for name in ("rtl_json", "rtl_verilog"):
             path = getattr(self.settings, name)
@@ -462,15 +471,16 @@ class YosysBase(Flow):
                 self.run_directory.inside(path).parent.mkdir(parents=True, exist_ok=True)
 
     def top_is_vhdl(self) -> bool:
-        """Whether the top unit is VHDL: `top_is_vhdl`, or else whether the last source in a
-        hardware description language that the flow reads is.
+        """Return whether the top module is VHDL.
 
-        Only a source in such a language can hold the top: a constraint file, a memory image or a
-        header listed after it does not make the top something else.
+        The `top_is_vhdl` setting decides when it is set. Otherwise the last source in a hardware
+        description language that the flow reads decides. Only such a source can hold the top
+        module, so a constraint file, a memory image or a header listed after it changes nothing.
 
-        A VHDL top's generics reach yosys through GHDL (`-g<name>=<value>`), and the top GHDL
-        elaborates has no parameters left to `chparam`. The design's own parameters stay as they
-        are: every flow of a run shares the design, and it has already been hashed.
+        The generics of a VHDL top module reach yosys through GHDL (`-g<name>=<value>`), and the
+        top module that GHDL elaborates has no parameters left for `chparam`. The design's own
+        parameters stay unchanged: every flow of a run shares the design, and its hash is already
+        computed.
         """
         assert isinstance(self.settings, self.Settings)
         if self.settings.top_is_vhdl is not None:
@@ -479,19 +489,19 @@ class YosysBase(Flow):
         return bool(units) and units[-1].type is SourceType.Vhdl
 
     def verbatim_path(self, path: str | os.PathLike[str]) -> str:
-        """`path` as a `.ys` token for an argument yosys takes verbatim, quotes included.
+        """Return `path` as a `.ys` token for an argument that yosys takes verbatim.
 
-        `read_verilog -I<dir>`, `show -prefix`, and the ghdl and slang plugins' arguments are not
-        unquoted, and yosys splits a script line at whitespace, so no quoting passes them a path
-        containing a space. Such a path is named instead through a whitespace-free symbolic link
-        in the run directory (`path_aliases/`). A path that does not exist yet -- an output --
-        is named through an alias of its directory.
+        Yosys does not remove quotes from the arguments of `read_verilog -I<dir>`, `show -prefix`
+        and the ghdl and slang plugins. It also splits a script line at whitespace. So no quoting
+        can pass them a path with a space. Xeda names such a path through a whitespace-free
+        symbolic link in the run directory (`path_aliases/`). A path that does not exist yet, such
+        as an output, is named through an alias of its directory.
         """
         text = str(path)
         if not _NOT_A_YS_TOKEN.search(text):
             return text
-        # Scripts are rendered, and yosys runs, in the run directory: relative paths are
-        # relative to it, and so is the alias.
+        # Xeda renders the scripts and yosys runs in the run directory, so relative paths and
+        # the alias are relative to it.
         target = Path(text).absolute()
         if target.exists():
             return self._path_alias(target)
@@ -504,10 +514,12 @@ class YosysBase(Flow):
         return f"{self._path_alias(target.parent)}/{target.name}"
 
     def _path_alias(self, target: Path) -> str:
-        """The name, relative to the run directory, of a whitespace-free symbolic link there to
-        the absolute path `target`: `path_aliases/<digest of that path>/<its name>`, so one target
-        always gets the same alias, two never share one, and the name keeps its extension (the
-        ghdl plugin, for one, decides by it what a file is)."""
+        """Return the name of a whitespace-free symbolic link to the absolute path `target`.
+
+        The name is relative to the run directory: `path_aliases/<digest of that path>/<its
+        name>`. One target always gets the same alias and two targets never share one. The name
+        keeps its extension (the ghdl plugin, for one, decides by it what a file is).
+        """
         digest = hashlib.sha256(str(target).encode()).hexdigest()[:12]
         alias = Path(PATH_ALIASES_DIR) / digest / _NOT_A_YS_TOKEN.sub("_", target.name)
         alias.parent.mkdir(parents=True, exist_ok=True)
@@ -525,8 +537,11 @@ class YosysBase(Flow):
         return alias.as_posix()
 
     def ghdl_arg(self, arg: str) -> str:
-        """One of the ghdl plugin's arguments as a `.ys` token: it takes them all verbatim, so a
-        source file, or the directory of a `-P<dir>` library path, is named by `verbatim_path`."""
+        """Return an argument of the ghdl plugin as a `.ys` token.
+
+        The plugin takes all its arguments verbatim, so `verbatim_path` names a source file or
+        the directory of a `-P<dir>` library path.
+        """
         if arg.startswith("-P"):
             return "-P" + self.verbatim_path(arg[2:])
         if arg.startswith("-"):
@@ -535,7 +550,7 @@ class YosysBase(Flow):
 
     @cached_property
     def yosys(self):
-        """Create the Yosys tool with output and debug options."""
+        """The Yosys tool, with the output and debug options of the settings."""
         default_args = []
         ss = self.settings
         if ss.is_quiet or (not ss.verbose and not ss.debug):
@@ -553,7 +568,7 @@ class YosysBase(Flow):
         )
 
     def get_utilization(self) -> Optional[dict]:
-        """The utilization report this run wrote (`Flow.report_file`), if any."""
+        """Return the utilization report that this run wrote (`Flow.report_file`), if any."""
         report = self.report_file(self.artifacts.utilization_report)
         if report is None:
             return None
@@ -570,9 +585,11 @@ class YosysBase(Flow):
 
 
 class YosysSynthesisBase(YosysBase):
-    """What the flows that map a design to a netlist with yosys share, `yosys` and `yosys_fpga`:
-    the netlist and its writers, the ABC mapping and the passes after synthesis. A flow that
-    only reads the design with yosys (`yosys_sim`) is a `YosysBase` and has none of these."""
+    """The base of the flows that map a design to a netlist with yosys, `yosys` and `yosys_fpga`.
+
+    It holds the netlist and its writers, the ABC mapping and the passes after synthesis.
+    `yosys_sim` only reads the design with yosys, so it is a `YosysBase` and has none of these.
+    """
 
     class Settings(YosysBase.Settings):
         splitnets: bool = Field(
@@ -587,17 +604,17 @@ class YosysSynthesisBase(YosysBase):
             False, description="Pass `-ports` to `splitnets`, so module ports are split too."
         )
 
-        rmports: bool = Field(False, description="Remove unused or un-driven ports.")
+        rmports: bool = Field(False, description="Remove unused or undriven ports.")
 
         synth_flags: List[str] = Field(
             [], description="Extra flags passed to yosys' `synth` command."
         )
 
         noabc: bool = Field(
-            False, description="Do not run `abc` step, also pass `-noabc` to `synth`."
+            False, description="Do not run the `abc` step. Also pass `-noabc` to `synth`."
         )
 
-        abc_dff: bool = Field(True, description="Run abc/abc9 with -dff option")
+        abc_dff: bool = Field(True, description="Run abc and abc9 with `-dff`.")
 
         abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
 
@@ -673,8 +690,8 @@ class YosysSynthesisBase(YosysBase):
         netlist_json: Optional[Path] = Field(
             Path("netlist.json"),
             alias="json_netlist",
-            description="Write the synthesized netlist to this JSON file. Required by downstream "
-            "flows such as `nextpnr`.",
+            description="Write the synthesized netlist to this JSON file. Consumers such as "
+            "`nextpnr` need it.",
             json_schema_extra=deliverable(),
         )
 
@@ -697,20 +714,23 @@ class YosysSynthesisBase(YosysBase):
 
         sta: bool = Field(
             False,
-            description="Run a simple static timing analysis (implies `flatten`)",
+            description="Run a simple static timing analysis (implies `flatten`).",
         )
 
         post_synth_opt: Optional[bool] = Field(
             False,
-            description="run additional optimization steps after synthesis if complete",
+            description="Run additional optimization steps after synthesis.",
         )
 
         ltp: bool = Field(False, description="Print the longest topological path in the design.")
 
         def write_verilog_flags(self) -> List[str]:
-            """`write_verilog` flags: `netlist_verilog_flags` plus those the `netlist_*` switches
-            imply (a switch left `None` adds nothing). Computed when the script is written, so a
-            switch set after construction -- as `init` does for `netlist_expr` -- takes effect."""
+            """Return the `write_verilog` flags: `netlist_verilog_flags` plus the flags that the
+            `netlist_*` switches imply.
+
+            A switch left `None` adds nothing. The method runs when the script is written, so a
+            switch set after construction takes effect (`Yosys.run` sets `netlist_expr` so).
+            """
             flags = list(self.netlist_verilog_flags)
             for switch, flag, flag_when in (
                 (self.netlist_dec, "-nodec", False),
@@ -727,11 +747,12 @@ class YosysSynthesisBase(YosysBase):
             return unique(flags)
 
         def attributes_to_unset(self) -> List[str]:
-            """`netlist_unset_attributes`, plus `src` unless `netlist_src_attrs` keeps it.
+            """Return `netlist_unset_attributes`, plus `src` unless `netlist_src_attrs` keeps it.
 
-            Removed before every netlist is written. `netlist_attrs` does not enter into it: it
-            drops attributes from the Verilog netlist only, while the JSON netlist always carries
-            them."""
+            The script removes these attributes before it writes any netlist. `netlist_attrs` has
+            no effect on them: it drops attributes from the Verilog netlist only, and the JSON
+            netlist always carries them.
+            """
             attributes = list(self.netlist_unset_attributes)
             if not self.netlist_src_attrs:
                 attributes.append("src")
@@ -740,7 +761,10 @@ class YosysSynthesisBase(YosysBase):
         @field_validator("abc_script", mode="before")
         @classmethod
         def validate_abc_script(cls, value):
-            """An inline script ("+...") is text; anything else names a script file."""
+            """Replace the spaces of an inline script ("+...") with commas.
+
+            Any other value names a script file.
+            """
             if isinstance(value, str) and value.startswith("+"):
                 return value.replace(" ", ",")
             if isinstance(value, str) and value:
@@ -749,10 +773,12 @@ class YosysSynthesisBase(YosysBase):
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """A flow that takes an output of this one asks for it. A flow stopped after the RTL
-        (`stop_after`) writes none, so the ask is refused, saying that no flow which takes it can
-        follow. Telling the user to turn the netlist settings off (`stop_after_conflicts`) would
-        send them in a circle: this ask turns them back on."""
+        """Switch on the output that a consumer asks for.
+
+        A flow stopped after the RTL (`stop_after`) writes no netlist, so the request is refused
+        with the message that no consumer can follow it. The advice of `stop_after_conflicts`, to
+        turn the netlist settings off, would be circular here: this request turns them on.
+        """
         if getattr(settings, "stop_after", None) == "rtl":
             raise ValueError(
                 f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
@@ -762,7 +788,10 @@ class YosysSynthesisBase(YosysBase):
         super().enable_output(settings, name, design_name=design_name)
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:
-        """The ABC script a setting names, as a path (`+` names one of yosys's own)."""
+        """Return the ABC script file that `abc_script` names, as a list of at most one path.
+
+        An inline script (one that starts with `+`) names no file.
+        """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.abc_script and not ss.abc_script.startswith("+"):
@@ -773,9 +802,11 @@ class YosysSynthesisBase(YosysBase):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse what no Yosys synthesis flow can honor, before anything runs: the timing
-        analyses `sta` and `ltp` work on the flattened design. A flow that adds to this calls it
-        first."""
+        """Refuse what no Yosys synthesis flow can honor, before anything runs.
+
+        `sta` and `ltp` analyze the flattened design, so `flatten: false` conflicts with them. A
+        flow that adds checks calls this method first.
+        """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         if (settings.sta or settings.ltp) and settings.flatten is False:
@@ -785,11 +816,12 @@ class YosysSynthesisBase(YosysBase):
             )
 
     def init(self):
-        """Prepare the synthesis settings, and the shared ones through `YosysBase.init`."""
+        """Prepare the synthesis settings, and the shared settings through `YosysBase.init`."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
-        # a flow built directly is not planned; the other rules of a flow's hook stay with its
-        # planning (a stop after the RTL, for one, is rendered by tests that build a flow directly)
+        # A flow built directly is not planned, so check this rule here. The other rules of a
+        # flow's hook stay with planning: tests that build a flow directly render a stop after
+        # the RTL, for one.
         YosysSynthesisBase.check_settings_supported(ss)
         super().init()
         for path in self.locate_prepared_inputs() or ():
@@ -812,7 +844,7 @@ class YosysSynthesisBase(YosysBase):
             self.artifacts.netlist_json = ss.netlist_json
 
     def prepare_output_parents(self) -> None:
-        """Create output parents only when executing, leaving reused init write-free."""
+        """Create the parent directories of the outputs when the flow runs, not in `init()`."""
         super().prepare_output_parents()
         assert isinstance(self.settings, self.Settings)
         for name in ("netlist_verilog", "netlist_json"):
@@ -827,7 +859,7 @@ def process_parameters(parameters: Dict[str, Any]) -> Dict[str, str]:
         if isinstance(v, bool):
             v = f"1'b{int(v)}"
         elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
-            # canonical (unescaped); the `esc` template filter escapes for the target language
+            # canonical (unescaped); the `esc` template filter escapes for the script language
             v = '"' + v + '"'
         out[k] = str(v)
     return out

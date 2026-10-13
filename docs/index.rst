@@ -1,15 +1,14 @@
 .. XEDA documentation master file.
 
-Welcome to Xeda's documentation!
-================================
+Xeda documentation
+==================
 
-**Xeda** is a cross-platform, cross-EDA, cross-target simulation and synthesis
-automation platform. One declarative description of a design drives flows across many commercial
-and open-source EDA suites.
+**Xeda** automates simulation, synthesis and implementation with commercial and open-source EDA
+tools. One declarative design file drives all of them: you switch tools by naming another flow.
 
 New here? Start with the :doc:`quickstart`, then the :doc:`tutorial/index`.
 
-Driving Xeda from a script or a coding agent? See :doc:`machine-readable`.
+To drive Xeda from a script or a coding agent, read :doc:`machine-readable`.
 
 .. toctree::
    :maxdepth: 2

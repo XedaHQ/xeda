@@ -22,8 +22,8 @@ vcd file {{settings.vcd|tcl_word}}
 {% endif %}
 
 puts "\n===========================( *ENABLE ECHO* )==========================="
-{#- `-onfinish stop`: `$finish` (VHDL `std.env.finish`) returns to this script rather than exiting
-    vsim with status 0, which would skip the VCD flush and the test-status check below #}
+{#- `-onfinish stop` makes `$finish` (VHDL `std.env.finish`) return to this script. Otherwise
+    `$finish` exits vsim with status 0 and skips the VCD flush and the test-status check below. #}
 if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' ')}} {{vsim_opts|map("tcl_word")|join(' ')}} } error]} {
     puts $error
     exit -code 1
@@ -32,27 +32,29 @@ if { [catch {vsim -t ps -onfinish stop {{design.sim_tops|map("tcl_word")|join(' 
     Leave lower-severity assertions running so the testbench reaches its finish and status check.
     Fatal is the highest supported break level; a fatal break still returns to this script. #}
 set BreakOnAssertion 4
-# A builtin break returns to our script; it must not skip the status/time checkpoint.
+# A built-in break returns to this script and must not skip the status and time checkpoint.
 onbreak {resume}
 {% if settings.vcd %}
 vcd add -r {% if not settings.debug and design.tb.uut %} {{(design.tb.uut ~ "/*")|tcl_word}} {% else %} * {% endif %}
 {% endif %}
-# Launch -logfile enables transcript capture in batch mode. Disable macro echo;
-# the adapter bounds runtime evidence with the markers below.
+# The launch option -logfile enables transcript capture in batch mode. Disable macro echo.
+# The adapter bounds the runtime evidence with the markers below.
 transcript off
 if {![catch {file lstat modelsim_runtime.log existing}] && $existing(type) ne "file"} {
     error "Refusing a nonregular ModelSim runtime transcript path"
 }
 coverage attribute -name TESTSTATUS -value 0
-# Exclude analysis/elaboration diagnostics; runtime messages raise this native attribute again.
-# ModelSim echo reaches the transcript; Tcl puts only reaches process stdout.
+# Reset the native attribute to exclude diagnostics from analysis and elaboration. Runtime
+# messages raise it again. ModelSim echo reaches the transcript. Tcl puts reaches only the
+# process stdout.
 echo "XEDA_MODELSIM_RUNTIME_START"
 if {[catch {run {% if stop_time is not none %} {{stop_time}} {% else %} -all {% endif %}} error]} {
     puts $error
     transcript file ""
     exit -code 1
 }
-# These are native observations, not completion tokens invented from a returned run command.
+# These are native observations. The script derives no completion token from the result of the
+# run command.
 set run_state [runStatus -full]
 set test_status [lindex [coverage attribute -name TESTSTATUS -concise] 0]
 if {![string is integer -strict $test_status] || $test_status < 0 || $test_status > 3} {

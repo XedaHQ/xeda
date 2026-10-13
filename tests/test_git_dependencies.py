@@ -218,7 +218,7 @@ def test_a_clone_cache_under_the_run_root_is_named_by_the_unlinked_rule(tmp_path
     )
     cache.mkdir()
     (cache / "h").symlink_to(root)
-    with pytest.raises(RunDirectoryError, match="symbolic link where xeda keeps a cache"):
+    with pytest.raises(RunDirectoryError, match="symbolic link where Xeda keeps a cache"):
         clone_location(cache, "https://h/u/lib.git", None, None, owner=owner)
 
 

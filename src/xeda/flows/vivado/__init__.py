@@ -30,7 +30,7 @@ SOURCE_FILE_TYPES = {
 
 
 def vivado_file_type(source: DesignSource) -> str:
-    """The project file type, independent of a source's filename extension."""
+    """Return the project file type of a source, whatever its file name extension."""
     return SOURCE_FILE_TYPES[source.type]
 
 
@@ -41,8 +41,10 @@ __all__ = [
 
 
 def _vivado_value(v: Any, is_sim_flow: bool) -> str:
-    """A generic's or define's value as the tool reads it: for synthesis, a boolean as a
-    one-bit literal and text in double quotes (`G_STR="abc"`)."""
+    """Return a parameter or define value as the tool reads it.
+
+    For synthesis, a boolean becomes a one-bit literal and text gets double quotes
+    (`G_STR="abc"`)."""
     if is_sim_flow:
         return str(v)
     if v is False:
@@ -56,7 +58,8 @@ def _vivado_value(v: Any, is_sim_flow: bool) -> str:
 
 def vivado_generics(is_sim_flow: bool):
     def vivado_generics_to_str(kvdict) -> str:
-        """`-generic NAME=VALUE` for each, the assignment one literal Tcl word."""
+        """Render `-generic NAME=VALUE` for each parameter.
+        The assignment is one literal Tcl word."""
         option = "-generic_top" if is_sim_flow else "-generic"
         return " ".join(
             f"{option} {tcl_word(f'{k}={_vivado_value(v, is_sim_flow)}')}"
@@ -69,7 +72,8 @@ def vivado_generics(is_sim_flow: bool):
 
 def vivado_defines(is_sim_flow: bool):
     def defines_to_str(mapping) -> str:
-        """`-define NAME[=VALUE]` for each, the definition one literal Tcl word."""
+        """Render `-define NAME[=VALUE]` for each define.
+        The definition is one literal Tcl word."""
         return " ".join(
             "-define " + tcl_word(k if v is None else f"{k}={_vivado_value(v, is_sim_flow)}")
             for k, v in mapping.items()
@@ -127,12 +131,12 @@ class VivadoTool(Tool):
 
 
 class Vivado(Flow, metaclass=ABCMeta):
-    """Xilinx (AMD) Vivado FPGA synthesis and simulation flows"""
+    """Base class of the AMD Vivado synthesis and simulation flows."""
 
     class Settings(Flow.Settings):
         tcl_shell: bool = Field(
             False,
-            description="Drop to interactive TCL shell after Vivado finishes running a flow script",
+            description="Open an interactive Tcl shell after Vivado runs the flow script.",
         )
         no_log: bool = Field(
             False, description="Pass -nolog to Vivado, so it does not write a vivado.log file."
@@ -168,7 +172,7 @@ class Vivado(Flow, metaclass=ABCMeta):
         )
 
     def parse_xml_report(self, report_xml) -> Optional[Dict[str, Any]]:
-        """The tables of a Vivado XML report this run wrote (`Flow.report_file`)."""
+        """Return the tables of a Vivado XML report that this run wrote (`Flow.report_file`)."""
         report = self.report_file(report_xml)
         if report is None:
             return None
@@ -195,7 +199,7 @@ class Vivado(Flow, metaclass=ABCMeta):
                         for cell in tablerow.findall("./tablecell")
                     ]
                     if cells:
-                        # choose 0th element as "index data" (distinct key)
+                        # the first cell of a row is its key
                         cell_data = {h: c for h, c in zip(header[1:], cells[1:]) if c}
                         if cell_data:
                             table_data[cells[0]] = cell_data

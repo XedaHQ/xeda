@@ -1,4 +1,4 @@
-// xeda: Verilator's overridable runtime hooks, and the end record of the simulation.
+// Xeda: Verilator's overridable runtime hooks, and the end record of the simulation.
 //
 // Built with -DVL_USER_FINISH -DVL_USER_STOP -DVL_USER_FATAL -DVL_USER_WARN -DVL_USER_STOP_MAYBE,
 // so verilated.cpp leaves these functions to this file. Each records what happened, with its
@@ -186,10 +186,10 @@ struct AtExit {
     AtExit() { std::atexit(write_record_at_exit); }
 } g_at_exit;
 
-// xeda copies the model's output through a pipe (into `sim.log`), where the C runtime buffers
+// Xeda copies the model's output through a pipe (into `sim.log`), where the C runtime buffers
 // stdout in blocks: what the simulation printed before a time limit, a Ctrl-C or a crash stopped
 // it would be lost, and the rest shown late. Line-buffered, as on a terminal, each line is out
-// once printed -- under Verilator's own main and a design's own alike, before either prints
+// once printed, under Verilator's own main and a design's own alike, before either prints
 // anything.
 struct LineBufferedStdout {
     LineBufferedStdout() {
@@ -229,7 +229,7 @@ void write_record_now(const char* ended_by) {
 
 }  // namespace
 
-// ---- Verilator's hooks: each records, then keeps Verilator's own behavior ----
+// Verilator's hooks: each records, then keeps Verilator's own behavior.
 
 void vl_finish(const char* filename, int linenum, const char* hier) {
     (void)hier;

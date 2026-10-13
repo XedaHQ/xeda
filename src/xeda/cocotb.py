@@ -27,15 +27,15 @@ _OUTCOME_TAGS = ("FAILURE", "ERROR", "SKIPPED")
 
 
 def _property_value(element: ElementTree.Element, name: str) -> Optional[str]:
-    """Value of a `<property name=...>` directly under `element`, or nested in `<properties>`."""
+    """Return the value of a `<property name=...>` under `element` or in its `<properties>`."""
     for prop in (*element.findall("property"), *element.findall("properties/property")):
         if prop.get("name") == name:
             return prop.get("value")
     return None
 
 
-#: Nanoseconds per unit of cocotb's `sim_time_unit`. Spelled out rather than run through `pint`,
-#: which resolves "ns" to both nanosecond and nanosiemens.
+#: Nanoseconds per unit of cocotb's `sim_time_unit`. The table is explicit because `pint`
+#: resolves "ns" to both nanosecond and nanosiemens.
 _SIM_TIME_UNIT_NS = {
     "fs": 1e-6,
     "ps": 1e-3,
@@ -59,7 +59,8 @@ class CocotbSettings(XedaBaseModel):
     )
     resolve_x: Literal["VALUE_ERROR", "ZEROS", "ONES", "RANDOM"] = Field(
         "VALUE_ERROR",
-        description="how to resolve bits with a value of X, Z, U or W when being converted to integer.",
+        description="How to resolve bits with a value of X, Z, U or W when they are converted to "
+        "an integer.",
     )
     testcase: List[str] = Field(
         [],
@@ -91,7 +92,7 @@ class CocotbSettings(XedaBaseModel):
     @field_validator("testcase", "gpi_extra", mode="before")
     @classmethod
     def str_to_list(cls, value, info):
-        """A list given as text, by the one rule every setting takes text for a list by."""
+        """Read a list given as text by the rule that every setting uses for it."""
         if isinstance(value, str):
             try:
                 value = comma_separated_items(info.field_name, value)
@@ -157,11 +158,11 @@ class TestResults:
 
     @staticmethod
     def _properties(testcase: ElementTree.Element) -> Dict[str, str]:
-        """`<property name= value=>` pairs of one testcase.
+        """Return the `<property name= value=>` pairs of one testcase.
 
-        From cocotb 2.0 the per-test metadata (seed, source location, simulated time) moved from
-        attributes on `<testcase>` into this standard JUnit block. Reading only the attributes,
-        as this parser used to, silently yielded defaults for every one of them.
+        From cocotb 2.0 the per-test metadata (seed, source location, simulated time) is in this
+        standard JUnit block and no longer in attributes of `<testcase>`. Reading only the
+        attributes would give defaults for all of it.
         """
         return {
             prop.get("name", ""): prop.get("value", "")
@@ -170,11 +171,11 @@ class TestResults:
 
     @staticmethod
     def _sim_time_ns(testcase: ElementTree.Element, properties: Dict[str, str]) -> Optional[float]:
-        """Simulated time of one testcase, in nanoseconds, or `None` if it was not reported.
+        """Return the simulated time of one testcase in nanoseconds, or `None` if not reported.
 
         cocotb 2.x records `sim_time_duration` alongside a `sim_time_unit`; 1.x wrote a
-        `sim_time_ns` (or `sim_time_ps`) attribute. Both are read so a results file from either
-        generation is understood.
+        `sim_time_ns` (or `sim_time_ps`) attribute. Both are read, so a results file from either
+        generation works.
         """
         duration = properties.get("sim_time_duration")
         if duration is not None:
@@ -198,9 +199,9 @@ class TestResults:
         tree = ElementTree.parse(results_xml_file)
         results = []
         for ts in tree.iter("testsuite"):
-            # The seed has lived in three places across cocotb versions: a `<testsuite>`
-            # attribute, a `<property>` directly under the suite, and (from 2.0) a property of
-            # each testcase. Try them in that order rather than reporting -1.
+            # The seed is in different places in different cocotb versions: a `<testsuite>`
+            # attribute, a `<property>` directly under the suite, or (from 2.0) a property of each
+            # testcase. Try them in that order. -1 is the fallback when none has it.
             random_seed = ts.get("random_seed") or _property_value(ts, "random_seed")
             test_cases = []
             num_errors = 0
@@ -213,9 +214,9 @@ class TestResults:
                     random_seed = properties.get("random_seed")
                 sim_time_ns = TestResults._sim_time_ns(tc, properties)
                 time_s = float(tc.get("time") or 0)
-                # Only these children say anything about the outcome: cocotb 2.x also writes a
-                # `<properties>` block and may attach captured output, and counting every child
-                # tag made a passing test report its status as "PROPERTIES".
+                # Only these children say anything about the outcome. cocotb 2.x also writes a
+                # `<properties>` block and may attach captured output, and counting those tags
+                # would give a passing test the status "PROPERTIES".
                 outcome = [e.tag.upper() for e in tc if e.tag.upper() in _OUTCOME_TAGS]
                 test_cases.append(
                     TestCase(
@@ -247,8 +248,10 @@ class TestResults:
 
 
 def cocotb_toplevel(design: Design) -> str | None:
-    """The HDL module cocotb drives (its `TOPLEVEL`): the testbench's `tb.cocotb.toplevel`, or
-    else the design's `rtl.top`. A simulator that names its top makes it this module."""
+    """Return the HDL module that cocotb drives (its `TOPLEVEL`).
+
+    It is `tb.cocotb.toplevel` if the testbench sets it, else `rtl.top`. A simulator that names
+    its top module makes it this module."""
     return (design.tb.cocotb.toplevel if design.tb.cocotb else None) or design.rtl.top
 
 
@@ -280,12 +283,10 @@ def cocotb_verdict(
 
 
 class Cocotb(CocotbSettings, Tool):
-    """Cocotb support for a SimFlow"""
+    """The cocotb support of a `SimFlow`. It is not a stand-alone tool."""
 
     executable: str = "cocotb-config"
     sim_name: str
-
-    """Not a stand-alone tool, but is used from a SimFlow"""
 
     @cached_property
     def prefix(self) -> Optional[str]:
@@ -349,7 +350,7 @@ class Cocotb(CocotbSettings, Tool):
 
     @cached_property
     def pygpi_entry_point(self) -> Optional[str]:
-        """cocotb's PYGPI entry point, or `None` on releases that do not expose one.
+        """Return the PYGPI entry point of cocotb, or `None` on releases that do not expose one.
 
         `cocotb-config --pygpi-entry-point` was added in cocotb 2.1; older releases reject the
         flag, which is how this tells the two apart.
@@ -357,7 +358,7 @@ class Cocotb(CocotbSettings, Tool):
         return self.run_get_stdout("--pygpi-entry-point", raise_on_error=False)
 
     def gpi_users(self) -> Optional[str]:
-        """Value for `GPI_USERS`, or `None` when the installed cocotb does not need it.
+        """Return the value for `GPI_USERS`, or `None` when the installed cocotb does not need it.
 
         Up to cocotb 2.0 the GPI library found its Python entry point by itself. From 2.1 it
         exits with "No GPI_USERS specified" unless told explicitly, so the entry point has to be
@@ -383,25 +384,25 @@ class Cocotb(CocotbSettings, Tool):
         directory would then be read as this run's results.
         """
         if self._run_directory is not None:
-            # in the run directory of the flow that simulates, whatever the current directory:
-            # only inside it (`RunDirectory.remove` names a path that leads out), and nothing in
-            # one no launcher chose
+            # Remove it in the run directory of the flow that simulates, whatever the current
+            # directory. `RunDirectory.remove` refuses a path that leads out of the run directory
+            # and removes nothing in a directory that no launcher chose.
             self._run_directory.remove(self.results_xml)
         self.__dict__.pop("results", None)  # the cached `results` of that file
 
     def test_selection(self, testcases: List[str]) -> Dict[str, str]:
-        """The environment that makes the installed cocotb run exactly the tests named
-        `testcases`, or none at all to run every test.
+        """Return the environment that makes the installed cocotb run exactly the tests named in
+        `testcases`, or every test if none is named.
 
         cocotb 1.x reads their comma-separated names from `TESTCASE` and runs the tests of exactly
         those names. From 2.0 cocotb ignores `TESTCASE` and reads a regular expression from
         `COCOTB_TEST_FILTER` (or names from `COCOTB_TESTCASE`, deprecated in the same release),
         which it searches in each test's `<module>.<name>`. The expression built here matches a
         whole name, optionally qualified by its module (`check` or `tb.check`, never
-        `foo_check`) -- unlike `cocotb_tools.runner`'s, which also matches every test whose name
-        ends with it. The installed cocotb's version, as `cocotb-config` reports it, tells the two
-        apart: `--help-vars` cannot, since cocotb 2.0.0 reads `COCOTB_TEST_FILTER` without listing
-        it. An unreadable version counts as the newest.
+        `foo_check`). The runner of `cocotb_tools` is looser: it also matches every test whose
+        name ends with the given name. The installed cocotb's version, as `cocotb-config` reports
+        it, tells the two apart. `--help-vars` cannot, since cocotb 2.0.0 reads
+        `COCOTB_TEST_FILTER` without listing it. An unreadable version counts as the newest.
         """
         names = [name.strip() for name in testcases if name.strip()]
         if not names:
@@ -412,20 +413,20 @@ class Cocotb(CocotbSettings, Tool):
         return {"COCOTB_TEST_FILTER": rf"(?:^|\.)(?:{alternatives})$"}
 
     def pycache_prefix(self) -> Path:
-        """Where the Python the simulator embeds caches bytecode: in the run directory.
+        """Return where the Python that the simulator embeds caches bytecode: the run directory.
 
-        By default Python writes a module's cache into a `__pycache__` beside it, and the
-        testbench is imported from the design's directory (`PYTHONPATH` above; pytest's assertion
-        rewriting compiles it), so without this every cocotb run wrote into the user's tree."""
+        By default Python writes a module's cache into a `__pycache__` beside it. The testbench is
+        imported from the design's directory (`PYTHONPATH` in `env`; pytest's assertion rewriting
+        compiles it), so without this prefix every cocotb run would write into the user's tree."""
         run_dir = self._run_directory.path if self._run_directory is not None else Path.cwd()
         return run_dir / "__pycache__"
 
     def env(self, design: Design) -> Dict[str, Any]:
-        """The environment a simulator needs to run the design's cocotb testbench.
+        """Return the environment a simulator needs to run the design's cocotb testbench.
 
-        Every cocotb flow asks for it right before it simulates, which makes this the one place
-        all of them go through: it also discards the results of an earlier run
-        (`discard_results`), so that `add_results` reads only what this simulation wrote.
+        Every cocotb flow asks for it right before it simulates. It also discards the results of
+        an earlier run (`discard_results`), so that `add_results` reads only what this simulation
+        wrote.
         """
         environ: Dict[str, Any] = dict()
         if design.tb.cocotb:
@@ -508,11 +509,11 @@ class Cocotb(CocotbSettings, Tool):
         prefix: str = "cocotb.",
         results_file: Union[Path, None, Literal["current directory"]] = "current directory",
     ) -> bool:
-        """adds cocotb results to parent flow's results. returns success status
+        """Add the cocotb results to the results of the parent flow and return whether they pass.
 
-        `results_file` is the results file to read -- a flow passes the one its run wrote
-        (`Flow.report_file`), None if there is none; by default, `results_xml` in the current
-        directory, whoever wrote it."""
+        `results_file` is the results file to read. A flow passes the one its run wrote
+        (`Flow.report_file`), or None if there is none. By default it is `results_xml` in the
+        current directory, whoever wrote it."""
         flow_results["success"] = False
         try:
             if results_file == "current directory":

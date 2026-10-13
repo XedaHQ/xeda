@@ -35,7 +35,7 @@ puts "Reading XDC file {{xdc_file|tcl_quote}}"
 read_xdc {{xdc_file|tcl_list}}
 {% endfor %}
 # Vivado finds the top module of an EDIF netlist by the name of its file, so the netlist is
-# `<top>.edif` (`VivadoImpl.run`).
+# named `<top>.edif` (see `VivadoImpl.run`).
 puts "Reading EDIF netlist {{netlist|tcl_quote}}"
 if { [catch {read_edif {{netlist|tcl_list}}} myError]} {
     errorExit $myError

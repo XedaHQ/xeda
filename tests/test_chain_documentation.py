@@ -46,7 +46,7 @@ SKILL_MD = AGENT / "SKILL.md"
 DESIGN_FILE_MD = AGENT / "references/design-file.md"
 
 CHAIN = "yosys_fpga+nextpnr+fpga_pack"
-CHAIN_SECTION = ("Flow chains and input bindings\n", "Open-source FPGA flow targets and tuning\n")
+CHAIN_SECTION = ("Flow chains and input bindings\n", "Open-source FPGA flows: devices and tuning\n")
 NO_EDGE = r"has no compatible output for a required input of|takes no required input"
 FUTURE_MARKER = "# not available yet"
 

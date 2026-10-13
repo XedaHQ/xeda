@@ -2,10 +2,10 @@
 puts "Skipping IO placement as DEF file was used to initialize floorplan."
 {% else %}
 
-{% if settings.io_constraints %} {# ---------------------------- #}
+{% if settings.io_constraints %} {# user script places the pins #}
 source {{settings.io_constraints|tcl_word}}
 
-{% else %} {# -------------------------------------------------- #}
+{% else %} {# no script: global placement without IO, then the pin placer #}
 # check the lower boundary of the PLACE_DENSITY and add PLACE_DENSITY_LB_ADDON if it exists
 {% if settings.place_density_lb_addon is not none %}
 set place_density_lb [gpl::get_global_placement_uniform_density \
@@ -23,9 +23,9 @@ global_placement -skip_io -density $place_density \
     -pad_left {{platform.cell_pad_in_sites_global_placement}} \
     -pad_right {{platform.cell_pad_in_sites_global_placement}} {{ settings.global_placement_args|join(" ") }}
 
-{% endif %} {# ------------------------------------------------- #}
+{% endif %} {# end of the no-script branch #}
 
 place_pins -hor_layer {{platform.io_placer_h}} -ver_layer {{platform.io_placer_v}} {% if settings.io_place_random %} -random {% endif %}  {{settings.place_pins_args|join(" ")}}
-{% endif %} {# --not settings.floorplan_def-- #}
+{% endif %} {# end of the branch without a floorplan DEF #}
 
 {{ write_checkpoint(step) }}

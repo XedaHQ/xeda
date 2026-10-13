@@ -2,185 +2,166 @@
 
 [![Xeda Logo](https://raw.githubusercontent.com/XedaHQ/xeda/main/xeda.png?raw=true)](https://github.com/XedaHQ/xeda)
 
-**Xeda** is a cross-platform automation framework for RTL simulation, FPGA synthesis
-and implementation, and ASIC synthesis and physical design. A single declarative design file can
-drive commercial and open-source EDA tools without duplicating tool-specific build scripts.
+**Xeda** automates simulation, synthesis and implementation with commercial and open-source EDA
+tools. One declarative design file drives all of them: you switch tools by naming another flow.
 
-Read the [Xeda documentation](https://xeda.readthedocs.io/) for the complete design-file, flow,
-and run-directory references.
+Read the [Xeda documentation](https://xeda.readthedocs.io/) for the complete references of the
+design file, the flows and the run directories.
 
 ## Installation
 
 Xeda supports every Python release series that has not reached end of life. Currently, that means
-Python 3.11 through 3.15. Xeda orchestrates EDA tools but does not install them; the tools needed by
-a selected flow must be available locally, in Docker, or on the configured remote host.
+Python 3.11 through 3.15. Xeda drives EDA tools but does not install them. The tools that a flow
+needs must be available locally, in Docker, or on the remote host.
 
-For CLI use, the preferred installation is an isolated [`uv`](https://docs.astral.sh/uv/)
-tool environment:
+For command-line use, install Xeda in an isolated [`uv`](https://docs.astral.sh/uv/) tool
+environment:
 
 ```bash
 uv tool install --upgrade xeda
 ```
 
-[`pipx`](https://pipx.pypa.io/stable/) is an equivalent alternative:
+[`pipx`](https://pipx.pypa.io/stable/) does the same:
 
 ```bash
 pipx install --force xeda
 ```
 
-To import Xeda as a Python library, install it in your project's virtual environment:
+To import Xeda as a Python library, install it in the virtual environment of your project:
 
 ```bash
 python3 -m pip install -U xeda
 ```
 
-Verify the installation with `xeda --version`.
-
-### Development
-
-```bash
-git clone --recursive https://github.com/XedaHQ/xeda.git
-cd xeda
-uv sync
-uv run pytest tests/          # serial
-uv run pytest tests/ -n auto  # one worker per CPU, several times faster
-uv run pytest -n auto -m "python_compat and not real_tool"  # faster cross-version check
-```
-
-The marked command checks the compatibility cases used on Python 3.11 through 3.14 in CI. CI runs
-the full tool-backed suite on Python 3.15 and one Verilator cocotb smoke on Python 3.11. The full
-pytest commands above still run every test.
-
-Bare `tox` runs those compatibility checks, the full Python 3.15 suite, and the quality checks.
-To run the full test suite on every supported Python version, use
-`tox -e py311,py312,py313,py314,py315`.
-
-An editable pip installation also works if `uv` is unavailable.
-
-Cocotb 2.1.0, an optional dependency for the example designs, supports Python through 3.14. On
-Python 3.15, its upstream `setup.py` rejects a source build unless you set
-`COCOTB_IGNORE_PYTHON_REQUIRES=1`. To install the optional example dependencies, run:
-
-```bash
-COCOTB_IGNORE_PYTHON_REQUIRES=1 python -m pip install -r examples/requirements.txt
-```
-
-This overrides cocotb's build-time version check. It does not add upstream Python 3.15 support.
-
-Do not edit `CHANGELOG.md` to record a change. Instead, add one file to `changelog.d/` for each
-change that a user can see. At release, the maintainer folds the files into the changelog with
-`python tools/fold_changelog.py v<version>`. Name the file `<slug>.<type>.md`:
-
-- `<slug>` is a short name for the change, in kebab-case.
-- `<type>` is `fixed`, `added`, `changed` or `removed`.
-
-The file holds one Markdown bullet: one or two short sentences about what changed for a user. For a
-breaking change, say what to do instead. Wrap the lines at 100 columns, and start each line after
-the first with two spaces. For example, `changelog.d/scrub-keeps-new-runs.fixed.md` can hold this
-text:
-
-```markdown
-- `xeda scrub` no longer removes a run that finished after it listed the directories.
-```
-
-`tests/test_changelog_fragments.py` checks every fragment.
+Check the installation with `xeda --version`.
 
 ## Usage
 
-The CLI is self-describing. Discover the installed flows and their exact contracts before running
-one:
+### Design file
 
-```bash
-xeda list-flows                   # every flow, with its aliases, category and dependencies
-xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
-xeda list-results vivado_synth    # the keys that flow writes to results.json
-xeda design-schema                # JSON Schema of a design description file
-xeda run vivado_synth sqrt.yaml -s clock.period=5.0
+A design file says what to build: the sources in compilation order, the top module, parameters,
+the clock port and, optionally, a testbench. The settings of one tool go in a section for its
+flow. Paths are relative to the design file. YAML is the recommended format. TOML and JSON also
+work.
+
+This is [`examples/vhdl/sqrt/sqrt.yaml`](./examples/vhdl/sqrt/sqrt.yaml):
+
+```yaml
+name: sqrt
+description: Iterative computation of the square root of an integer
+language.vhdl.standard: 2008
+rtl:
+  sources:
+    - "sqrt.vhdl"
+  top: sqrt
+  clock.port: clk
+  parameters.G_IN_WIDTH: 32
+tb:
+  sources:
+    - "tb_sqrt.py"
+flows:
+  yosys_fpga:
+    fpga.part: xc7a100tftg256-2L
+    clock.freq: 100MHz
+  vivado_synth:
+    fpga.part: xc7a100tftg256-2L
+    clock.period: 5.0
+  vivado_alt_synth:
+    fpga.part: xc7a100tftg256-2L
+    synth.strategy: ExtraTiming
+    impl.strategy: ExtraTimingCongestion
+    clock.period: 5.0
 ```
 
-Flow names accept snake case, dashes, CamelCase class names, and documented aliases. Setting
-names are exact; unknown settings fail instead of being silently ignored.
+A dotted key stands for a nested table: `clock.period: 5.0` is a `clock` table with the key
+`period`. The command line uses the same keys, for example `-s clock.period=4.5`.
+
+A `.py` testbench source makes the testbench a cocotb one. The clock period is a setting of each
+flow, because it constrains one build.
+
+Run `xeda design-schema` for the JSON Schema of a design file. YAML uses the 1.2 core schema. It
+rejects duplicate keys and keys that are not text. Quote values that must stay text, such as
+`"010"`, `"0x1F"` and `"1e3"`. The words `yes`, `no`, `on` and `off` are text. A boolean setting
+accepts only `true` or `false`, so `debug: yes` and `debug: 1` are errors.
+
+### Running flows
+
+The same design file serves every flow:
+
+```bash
+cd examples/vhdl/sqrt
+xeda run ghdl_sim sqrt.yaml                      # simulate with GHDL and run the cocotb tests
+xeda run nvc sqrt.yaml                           # the same design and testbench with NVC
+xeda run vivado_synth sqrt.yaml                  # synthesize and implement with Vivado
+xeda run vivado_synth sqrt.yaml -s clock.period=4.5   # change a setting for one run
+xeda dse vivado_synth --design sqrt.yaml         # search for the highest clock frequency
+```
+
+A flow whose inputs and outputs are declared can follow another flow. A chain joins them with
+`+`, and `--dry-run` shows the plan without starting a tool. This chain builds the bitstream of
+the ULX3S example, in `examples/boards/ulx3s/blinky`, and programs no hardware:
+
+```bash
+xeda run yosys_fpga+nextpnr+fpga_pack ../../boards/ulx3s/blinky/blinky.xeda.yaml --dry-run
+```
+
+Flow names accept snake case, dashes, CamelCase class names and the documented aliases. Setting
+names are exact: an unknown setting is an error.
+
+### Finding out what is available
+
+```bash
+xeda list-flows                   # every flow: category, what it takes and makes, what follows it
+xeda list-settings vivado_synth   # every setting of a flow, with type, default and meaning
+xeda list-results vivado_synth    # the keys that flow writes to results.json
+xeda design-schema                # JSON Schema of a design file
+```
 
 ### Scripting and coding agents
 
-The query commands above accept `--json` for machine-readable output. The `run`, `dse`, and
-`scrub` commands also accept it; tool output and logs then move to stderr so stdout contains one
-parseable JSON document:
+The query commands accept `--json`. So do `run`, `dse` and `scrub`: they then write tool output
+and logs to stderr, and stdout holds one JSON document:
 
 ```bash
 xeda run vivado_synth sqrt.yaml --json | jq '.results.Fmax'
 ```
 
-Xeda also ships a coding-agent skill whose flow catalog is generated from the installed version:
+Xeda also ships a skill for coding agents. Its flow catalog comes from the installed version:
 
 ```bash
 xeda skill install                # writes ./.claude/skills/xeda/
 ```
 
-### Design description
-
-A design file describes what to build: sources in compilation order, the top level, parameters,
-logical clock ports, and an optional testbench. Tool constraints remain per-flow settings. YAML,
-TOML, and JSON are accepted; YAML is the recommended format, and paths resolve relative to the
-design file.
-
-For example, [`examples/vhdl/sqrt/sqrt.yaml`](./examples/vhdl/sqrt/sqrt.yaml):
-
-```yaml
-name: sqrt
-description: Iterative computation of square-root of an integer
-language:
-  vhdl:
-    standard: '2008'
-rtl:
-  sources: ['sqrt.vhdl']
-  top: sqrt
-  clock: {port: clk}
-  parameters: {G_IN_WIDTH: 32}
-tb:
-  sources: ['tb_sqrt.py']
-  cocotb: true
-flows:
-  vivado_synth:
-    fpga:
-      part: xc7a100tftg256-2L
-    clock:
-      period: 5.0
-```
-
-Use `xeda design-schema` for the authoritative input schema. YAML uses the 1.2 core schema
-and rejects duplicate or non-string mapping keys. Quote values intended as text, such as
-`"010"`, `"0x1F"` and `"1e3"`; `yes/no/on/off` remain strings, and a boolean setting accepts
-only `true` or `false` (`debug: yes` and `debug: 1` are errors). TOML and JSON remain supported.
-
 ## Flows
 
-A flow describes how to build or test a design with one or more tools. Dependencies run
-automatically. For example, `nextpnr` runs its `yosys_fpga` synthesis dependency before place and
-route. Results, generated scripts, reports, and effective settings are kept under `xeda_run/`.
+A flow is a named sequence of steps that one or more tools perform. A flow can need the output
+of another flow, its producer, and Xeda runs the producer first. For example, `nextpnr` needs the
+netlist of `yosys_fpga`, so it runs `yosys_fpga` before place and route. A flow runs again only
+when its sources, settings, tools or outputs changed since its last successful run. Results,
+generated scripts, reports and the effective settings are in the run root, `xeda_run/`.
 
 ### Supported Tools and Flows
 
 - AMD-Xilinx [Vivado](https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html) Design Suite
   - `vivado_synth`: FPGA synthesis and implementation in project mode, run in batch
-  - `vivado_alt_synth`: the same in non-project mode, driving `synth_design` through
+  - `vivado_alt_synth`: the same in non-project mode, running `synth_design` through
     `route_design` from a generated TCL script
   - `vivado_impl`: place and route of an EDIF netlist in non-project mode, with no synthesis: the
     netlist `yosys_fpga` writes for a Xilinx device (`yosys_fpga+vivado_impl`), or an EDIF source
   - `vivado_project`: creates a Vivado project for the design, to work on in Vivado (`gui: true`
     opens it)
   - `vivado_sim`: functional simulation of an RTL design with the Vivado simulator (`xsim`)
-  - `vivado_postsynth_sim`: post-synthesis and post-implementation simulation of the generated
-    netlist, optionally annotated with timing from an SDF file
+  - `vivado_postsynth_sim`: simulation of the testbench on the netlist that `vivado_synth` writes,
+    optionally with timing from its SDF file
   - `vivado_power`: post-implementation power estimation from the real switching activity of a
     timing-annotated netlist simulation, rather than a vectorless estimate
 - AMD-Xilinx [ISE](https://www.xilinx.com/products/design-tools/ise-design-suite.html) Design Suite
   - `ise_synth`: FPGA synthesis and implementation for older Xilinx device families
 - [Bluespec](https://github.com/B-Lang-org/bsc) compiler (bsc 2026.07.1 or newer), for designs in
   Bluespec SystemVerilog (BSV) and Bluespec Classic (BH)
-  - `bsc`: compiles the design to Verilog, and collects the Verilog files its top module needs
-    (including the bsc library modules it instantiates) for any downstream synthesis or
-    simulation flow
+  - `bsc`: compiles the design to Verilog, and collects the Verilog files that its top module
+    needs (including the bsc library modules it instantiates) for a later synthesis or simulation
+    flow
   - `bsc_sim`: compiles a Bluespec testbench and simulates it with Bluesim, or with Verilator,
     Icarus Verilog or another Verilog simulator through bsc's own Verilog link step
 - [GHDL](https://github.com/ghdl/ghdl) VHDL simulator
@@ -197,35 +178,86 @@ route. Results, generated scripts, reports, and effective settings are kept unde
   - `modelsim`: RTL and gate-level netlist simulation of VHDL, Verilog, SystemVerilog and
     mixed-language designs, with optional SDF timing annotation
 - [nextpnr](https://github.com/YosysHQ/nextpnr) portable FPGA place and route tool
-  - `nextpnr`: places and routes the netlist produced by its `yosys_fpga` dependency and reports
-    achieved frequency, slack and utilization. Lattice ECP5 and iCE40, and Xilinx 7-series
-    through openXC7's nextpnr-himbaechel, are the tested targets; Nexus is best-effort and
-    reports raw per-bel-type counts
-  - `fpga_pack`: packs the routed configuration `nextpnr` records (or a typed configuration
-    source) into a bitstream, with ecppack, icepack or openXC7's fpga-as; it programs nothing
+  - `nextpnr`: places and routes the netlist that `yosys_fpga` writes, and reports achieved
+    frequency, slack and utilization. The tested device families are Lattice ECP5 and iCE40, and
+    Xilinx 7-series through nextpnr-himbaechel of openXC7. Nexus is best-effort. Families other
+    than ECP5 and 7-series report raw per-bel-type counts
+  - `fpga_pack`: packs the routed configuration that `nextpnr` records (or a configuration source
+    of the matching type) into a bitstream, with ecppack, icepack or fpga-as of openXC7. It
+    programs nothing
 - [openFPGALoader](https://github.com/trabucayre/openFPGALoader): open-source and multi-platform
   universal utility for programming FPGAs, compatible with many boards, cables and FPGAs from
   major manufacturers
-  - `openfpgaloader`: loads a bitstream onto the board: the one `fpga_pack` builds through
-    `yosys_fpga` -> `nextpnr` -> `fpga_pack`, or a typed bitstream source. The only flow that
-    touches real hardware
+  - `openfpgaloader`: loads a bitstream onto the board: the one that `fpga_pack` builds after
+    `yosys_fpga` and `nextpnr`, or a bitstream source. It is the only flow that touches hardware
 - [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/): integrated chip physical design
   flow that takes a design from RTL sources to routed layout
-  - `openroad`: ASIC implementation on top of a `yosys` synthesis dependency, against the bundled
-    PDKs (`xeda list-platforms`)
+  - `openroad`: ASIC implementation of the netlist that `yosys` writes, with the bundled PDKs
+    (`xeda list-platforms`)
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator
   - `vcs`: Verilog/SystemVerilog simulation
-- [Verilator](https://github.com/verilator/verilator): the fastest (open-source)
-  Verilog/SystemVerilog simulator
-  - `verilator`: compiles the design to C++/SystemC and builds a native executable. Supports
-    cocotb testbenches, plain C++/SystemC harnesses, and VCD/FST waveform tracing
+- [Verilator](https://github.com/verilator/verilator): open-source Verilog/SystemVerilog simulator
+  - `verilator`: compiles the design to C++ or SystemC and builds a native executable. It
+    supports cocotb testbenches, plain C++ or SystemC harnesses, and VCD, FST and SAIF waveform
+    tracing
 - [Yosys](https://github.com/YosysHQ/yosys) Open SYnthesis Suite
   - `yosys`: ASIC and generic gate/LUT synthesis
-  - `yosys_fpga`: FPGA synthesis; the first stage of `nextpnr`, `fpga_pack`, `openfpgaloader` and
-    `vivado_impl`
+  - `yosys_fpga`: FPGA synthesis; it comes first in the builds of `nextpnr`, `fpga_pack` and
+    `openfpgaloader`, and it can feed `vivado_impl`
   - `yosys_sim`: simulation with CXXRTL
 
-Run `xeda list-flows` for the complete list in the installed version; use
-`xeda list-settings <flow>` and `xeda list-results <flow>` for the exact inputs and outputs.
+Run `xeda list-flows` for the complete list in the installed version. Run
+`xeda list-settings <flow>` and `xeda list-results <flow>` for the settings and the results of a
+flow.
+
+## Development
+
+```bash
+git clone https://github.com/XedaHQ/xeda.git
+cd xeda
+uv sync
+uv run pytest tests/          # serial
+uv run pytest tests/ -n auto  # one worker per CPU, several times faster
+uv run pytest -n auto -m "python_compat and not real_tool"  # faster cross-version check
+```
+
+The marked command runs the compatibility cases that CI runs on Python 3.11 through 3.14. CI runs
+the full tool-backed suite on Python 3.15, and one Verilator cocotb smoke test on Python 3.11. The
+other pytest commands run every test.
+
+Bare `tox` runs those compatibility checks, the full Python 3.15 suite and the quality checks. To
+run the full test suite on every supported Python version, use
+`tox -e py311,py312,py313,py314,py315`.
+
+An editable pip installation also works if `uv` is not available.
+
+Cocotb 2.1.0, an optional dependency of the example designs, supports Python through 3.14. On
+Python 3.15, its upstream `setup.py` rejects a source build unless you set
+`COCOTB_IGNORE_PYTHON_REQUIRES=1`. To install the optional example dependencies, run:
+
+```bash
+COCOTB_IGNORE_PYTHON_REQUIRES=1 python -m pip install -r examples/requirements.txt
+```
+
+This overrides the build-time version check of cocotb. It does not add upstream support for
+Python 3.15.
+
+Do not edit `CHANGELOG.md` to record a change. Add one file to `changelog.d/` for each change
+that a user can see. At release, the maintainer folds the files into the changelog with
+`python tools/fold_changelog.py v<version>`. Name the file `<slug>.<type>.md`:
+
+- `<slug>` is a short name for the change, in kebab-case.
+- `<type>` is `fixed`, `added`, `changed` or `removed`.
+
+The file holds one Markdown bullet: one or two short sentences about what changed for a user. For
+a breaking change, say what to do instead. Wrap the lines at 100 columns, and indent each line
+after the first by two spaces. For example, `changelog.d/scrub-keeps-new-runs.fixed.md` can hold
+this text:
+
+```markdown
+- `xeda scrub` no longer removes a run that finished after it listed the directories.
+```
+
+`tests/test_changelog_fragments.py` checks every fragment.

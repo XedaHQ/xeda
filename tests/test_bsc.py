@@ -342,7 +342,7 @@ def test_bsc_sim_rejects_an_unknown_simulator():
 @pytest.mark.parametrize(
     "flow_class, settings, message",
     [
-        (Bsc, {"opt_undetermined_vals": False}, "requires opt_undetermined_vals"),
+        (Bsc, {"opt_undetermined_vals": False}, "requires `opt_undetermined_vals: true`"),
         (BscSim, {"unspecified_to": "X", "opt_undetermined_vals": True}, "two-valued"),
         (BscSim, {"stop_time": 100}, "max_cycles"),
         (BscSim, {"simulator": "verilator", "max_cycles": 10}, "Bluesim simulations only"),
@@ -1372,7 +1372,7 @@ def test_verilator_needs_the_dpi_for_imported_c_functions(tmp_path, monkeypatch)
         rtl={"sources": []},
         tb={"sources": ["mac.cpp", "Dpi.bsv"], "top": "mkDpi"},
     )
-    with pytest.raises(FlowSettingsException, match="use_dpi = true"):
+    with pytest.raises(FlowSettingsException, match="use_dpi: true"):
         _run(BscSim, design, tmp_path / "run", simulator="verilator")
 
 

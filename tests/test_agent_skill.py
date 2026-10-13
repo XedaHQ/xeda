@@ -23,7 +23,7 @@ from xeda.agent_skill import (
 from xeda.introspect import all_flow_classes
 
 REPO_ROOT = Path(__file__).parent.parent
-STATIC_REFERENCES = ("design-file.md", "troubleshooting.md")
+STATIC_REFERENCES = ("design-file.md", "fpga-flows.md", "troubleshooting.md")
 
 
 def test_packaged_skill_files_exist():
@@ -87,7 +87,7 @@ def test_generated_reference_documents_simulator_verification_limits():
     reference = generate_flows_reference()
     assert "documentation-only" in reference
     assert "UCLI time checkpoints alone do not establish HDL completion" in reference
-    assert "``elab_debug`` must preserve source information" in reference
+    assert "`elab_debug` must keep source information" in reference
     assert "rejected before compilation" in reference
 
 

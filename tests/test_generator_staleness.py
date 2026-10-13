@@ -862,7 +862,7 @@ def test_a_record_is_never_reached_through_a_link(tmp_path):
     cache.rmdir()
     cache.symlink_to(elsewhere)
     # Not a design error: the run root is xeda's own, and the message says what to do about it.
-    with pytest.raises(RunDirectoryError, match="symbolic link where xeda keeps a cache"):
+    with pytest.raises(RunDirectoryError, match="symbolic link where Xeda keeps a cache"):
         world.load()
 
 

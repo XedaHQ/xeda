@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class VivadoPower(Vivado, FpgaSynthFlow):
-    """Estimate post-implementation power from real switching activity.
+    """Estimate post-implementation power from the switching activity of a simulation.
 
-    Runs `vivado_postsynth_sim` (which itself runs `vivado_synth`) to produce a SAIF activity
-    file, then reports power against the routed checkpoint. By default the activity comes from a
-    timing-annotated netlist simulation of the testbench (`timing_saif`). To take it from a
-    functional simulation of the netlist instead, which is faster and has no timing-simulation
-    problems but is less accurate, bind the input:
-    `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. Unlike a vectorless
-    estimate, the result reflects the actual testvectors, so a representative testbench matters.
+    The producer `vivado_postsynth_sim` (which runs `vivado_synth` first) writes a SAIF activity
+    file. This flow reports the power of the routed checkpoint for that activity. By default the
+    activity comes from a simulation of the timing-annotated netlist with the testbench
+    (`timing_saif`). A simulation of the functional netlist is faster and avoids the problems of
+    timing simulation, but it is less accurate. To use it, bind the input:
+    `-s flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif`. A vectorless estimate
+    ignores the test vectors. This result follows them, so use a representative testbench.
     """
 
     # Keys are taken verbatim from the labels in Vivado's XML power report, so the exact set
@@ -38,11 +38,12 @@ class VivadoPower(Vivado, FpgaSynthFlow):
         "component Vivado reports (Clocks, Slice Logic, Signals, Block RAM, DSP, I/O, ...).",
     }
 
-    #: Power reads the routed checkpoint and the activity file its producers hand over, never the
-    #: testbench: an edit to it re-runs power through its producer's new run, not its own hash.
+    #: Power reads the routed checkpoint and the activity file that its producers hand over. It
+    #: never reads the testbench. A testbench edit reaches power only through a new output of the
+    #: producer.
     design_parts = frozenset({"rtl"})
 
-    #: judged on the activity and the checkpoint it can take from the design, nothing else
+    #: The source types that can supply an input: an activity file and a routed checkpoint.
     design_source_types = frozenset({SourceType.Saif, SourceType.RoutedCheckpoint})
 
     class Inputs(FpgaSynthFlow.Inputs):
@@ -59,14 +60,14 @@ class VivadoPower(Vivado, FpgaSynthFlow):
             output="checkpoint_route",
             same_producer_as="activity",
             via="netlist_timing",
-            description="The routed design checkpoint against which power is reported.",
+            description="The routed design checkpoint that the power report uses.",
         )
 
     class Settings(Vivado.Settings, FpgaSynthFlow.Settings):
         removed_settings = {
             **Vivado.Settings.removed_settings,
             "suppress_msgs": NoReplacement(
-                "power reports from files, and xeda passed it to nothing"
+                "power reports from files, and Xeda passed it to nothing"
             ),
             "postsynthsim": "`flows.vivado_postsynth_sim.<key>`",
             "timing_sim": "`flows.vivado_power.inputs.activity=vivado_postsynth_sim.saif` for "

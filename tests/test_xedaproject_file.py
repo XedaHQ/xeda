@@ -3,6 +3,7 @@ picking one of two accepted spellings or dropping bad entries.
 """
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -46,6 +47,14 @@ flows:
     )
 
     with pytest.raises(ValueError, match=r"flows.*flow"):
+        XedaProject.from_file(path)
+
+
+@pytest.mark.parametrize("content", ["", "[]\n", "just text\n"])
+def test_a_project_file_that_holds_no_mapping_is_refused_by_name(tmp_path, content):
+    path = _write(tmp_path, PROJECT_FILE, content)
+    message = re.escape(f"Invalid project file {path}: it must hold a nonempty mapping")
+    with pytest.raises(ValueError, match=message):
         XedaProject.from_file(path)
 
 

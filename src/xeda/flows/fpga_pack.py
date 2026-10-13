@@ -1,4 +1,4 @@
-"""Packing a routed FPGA configuration into a bitstream, all of it or none."""
+"""The flow that packs a routed FPGA configuration into a whole bitstream or into none."""
 
 import logging
 from pathlib import Path, PurePath
@@ -33,25 +33,25 @@ PACKERS = {"ecp5": ("ecppack", ".bit"), "ice40": ("icepack", ".bin"), "xilinx": 
 class FpgaPack(FpgaSynthFlow):
     """Pack a routed FPGA design into a bitstream.
 
-    Its `config` input is the routed configuration of the target's family: a typed design
-    source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the one `nextpnr` records after
-    `yosys_fpga` -> `nextpnr`. It is packed with `ecppack` (ECP5), `icepack` (iCE40) or
-    openXC7's `fpga-as` (Xilinx 7-series) into the declared `bitstream` output. The packer
-    writes to scratch space in the run directory, and the bitstream is published only once the
-    packer has exited successfully with a nonempty file: a failed packing never leaves a
-    partial bitstream, nor replaces an earlier one. Nothing is programmed; `openfpgaloader`
-    programs a bitstream.
+    The `config` input is the routed configuration of the device's family. It is a typed design
+    source (`EcpConfig`, `IceAsc` or `Fasm`) or, by default, the `config` output of `nextpnr`.
+    The flow packs it with `ecppack` (ECP5), `icepack` (iCE40) or openXC7's `fpga-as` (Xilinx
+    7-series) into the declared `bitstream` output. The packer writes to scratch space in the run
+    directory. The flow publishes the bitstream only after the packer exits successfully with a
+    nonempty file, so a failed packing leaves no partial bitstream and keeps an earlier one.
+    The flow programs nothing. `openfpgaloader` programs a bitstream.
     """
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
-    #: judged on the routed configuration it can take from the design, nothing else
+    #: The source types that the design hash counts for this flow: the routed configurations
+    #: that it takes.
     design_source_types = frozenset({SourceType.EcpConfig, SourceType.IceAsc, SourceType.Fasm})
 
     _selection: XilinxSelection | None = None
     _part_data: PartData | None = None
 
-    # Nothing beyond the keys every flow reports.
+    # This flow reports only the keys that every flow reports.
     results_description: dict = {}
 
     class Settings(WithFpgaBoardSettings):
@@ -60,8 +60,8 @@ class FpgaPack(FpgaSynthFlow):
         )
         prjxray_db: Path | None = Field(
             None,
-            description="Xilinx 7-series: Project X-Ray database root override; `nextpnr` "
-            "routes with the same one. By default, the database installed with `fpga-as`.",
+            description="Root of the Project X-Ray database (Xilinx 7-series). `nextpnr` routes "
+            "with the same database. By default, the database installed with `fpga-as`.",
         )
         bitstream: Path | None = Field(
             None,
@@ -71,7 +71,7 @@ class FpgaPack(FpgaSynthFlow):
         )
 
         def conventional_output(self, field: str, design: str) -> PurePath | None:
-            """The bitstream is named for its packer's format, which the family decides."""
+            """Name the bitstream by the format of its packer, which the family decides."""
             if field == "bitstream":
                 _, suffix = PACKERS.get(Nextpnr.io_family(self), ("", ".bit"))
                 return PurePath("outputs", design + suffix)
@@ -96,7 +96,7 @@ class FpgaPack(FpgaSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Reject a target that cannot be packed before anything is synthesized or placed."""
+        """Refuse a device that cannot be packed, before anything is synthesized or placed."""
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         fpga = settings.fpga
@@ -121,8 +121,9 @@ class FpgaPack(FpgaSynthFlow):
         """Locate the Project X-Ray data `fpga-as` packs with, before any producer runs.
 
         A part with no data is refused here, so neither synthesis nor placement runs first. The
-        installed database is the packer's own, and no input of the run: a change of it alone is
-        not noticed (`prjxray_db`, a setting, is tracked as any directory setting is).
+        installed database belongs to the packer and is no input of the run, so a change of the
+        installed database alone goes unnoticed. The `prjxray_db` setting is tracked like any
+        directory setting.
         """
         assert isinstance(self.settings, self.Settings)
         if Nextpnr.io_family(self.settings) != "xilinx":
@@ -151,7 +152,7 @@ class FpgaPack(FpgaSynthFlow):
         config = inputs.config
         name = ss.bitstream or ss.conventional_output("bitstream", self.design.name)
         assert name is not None
-        # never through a link at that name (`RunDirectory.writable`)
+        # never write through a link at that name (`RunDirectory.writable`)
         bitstream = self.run_directory.writable(self.run_path / name)
         # `fpga-as --version` prints its name alone: there is no version to read.
         packer = (
@@ -159,10 +160,10 @@ class FpgaPack(FpgaSynthFlow):
             if family == "xilinx"
             else Tool(executable=executable)
         )
-        # Every packer is given its options before its operands: `icepack`'s usage is
-        # `[options] [input-file [output-file]]`, and a strict POSIX `getopt` (BSD, musl) stops
-        # at the first operand, where an option after it would be read as one. `ecppack` and
-        # `fpga-as` accept options in any position.
+        # Options go before operands. The usage of `icepack` is `[options] [input-file
+        # [output-file]]`, and a strict POSIX `getopt` (BSD, musl) stops at the first operand
+        # and reads a later option as an operand. `ecppack` and `fpga-as` accept options in any
+        # position.
         fixed: list[str | Path] = []
         if family == "xilinx":
             selection, data = self._selection, self._part_data
@@ -180,11 +181,11 @@ class FpgaPack(FpgaSynthFlow):
                 f"--prjxray_db_path={selection.database / selection.family}",
                 f"--part={data.name}",
             ]
-        # The packer writes scratch space only: an exit of zero may still leave no file (or an
-        # empty one), and fpga-as writes its bitstream to standard output, so a failure there
-        # leaves part of one. The bitstream's own name is replaced only by a whole new one.
-        # ... and one a killed run left is removed here: nothing else would, and every entry
-        # of a run directory after a run is recorded as that run's output
+        # The packer writes to scratch space only. Exit status 0 can still leave no file or an
+        # empty one, and `fpga-as` writes its bitstream to standard output, so a failure leaves
+        # part of one. The bitstream's own name is replaced only by a whole new file.
+        # Remove a scratch directory that a killed run left. Nothing else would, and every
+        # entry of a run directory after a run is recorded as an output of that run.
         self.run_directory.remove(*self.run_path.glob(".xeda-pack-*"))
         with TemporaryDirectory(prefix=".xeda-pack-", dir=self.run_path) as scratch:
             packed = Path(scratch) / bitstream.name
