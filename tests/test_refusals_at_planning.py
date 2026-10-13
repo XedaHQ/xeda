@@ -307,6 +307,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "expands the dotted keys of the board entry that `board_data()` reads from the database "
         "on disk; the settings validation judges the same entry first",
     ),
+    "xeda.utils:refuse_both_spellings": (
+        2,
+        "judges the keys of the board entry that `board_data()` reads from the database on disk; "
+        "the settings validation judges the same entry first",
+    ),
     "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
         1,
         "needs `nextpnr-himbaechel` on PATH",
