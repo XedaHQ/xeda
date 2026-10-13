@@ -187,9 +187,10 @@ The section is also accepted as ``test`` or ``tests``. It takes the same ``sourc
      - The instance name of the unit under test in the testbench. Flows use it as the scope of an
        SDF annotation when ``sdf.root`` is not set (``ghdl_sim``, ``modelsim``, ``vivado_sim``
        and ``vivado_postsynth_sim``), as the scope of the SAIF activity of the two Vivado
-       simulation flows, and as the scope of the VCD dump of ``modelsim``. The two Vivado flows
-       refuse a design without ``uut`` when they record SAIF activity or annotate an SDF file and
-       ``sdf.root`` is not set.
+       simulation flows, and as the scope of the VCD dump of ``modelsim``. A simulator with an
+       ``sdf`` setting (``ghdl_sim``, ``modelsim`` and the two Vivado flows) refuses an SDF file
+       when neither ``sdf.root`` nor ``uut`` is set, and the two Vivado flows refuse a design
+       without ``uut`` when they record SAIF activity.
    * - ``cocotb``
      - ``true``, or a table with ``module``, ``toplevel`` and ``testcase``. Xeda sets it when a
        ``.py`` source is present, so ``cocotb: true`` is usually redundant.

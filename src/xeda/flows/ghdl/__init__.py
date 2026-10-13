@@ -685,7 +685,6 @@ class GhdlSim(Ghdl, SimFlow):
         sdf_root = ss.sdf.root if ss.sdf.root else design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
             if sdf_file:
-                assert sdf_root, "neither SDF root nor tb.uut are provided"
                 run_flags.append(f"--sdf={delay_type}={sdf_root}={sdf_file}")
 
         if ss.wave:

@@ -114,9 +114,8 @@ class VivadoSim(Vivado, SimFlow):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse a design without `tb.uut` when the run needs an instance of the unit under test.
-        The scope of a recorded switching activity is that instance, and so is the root of an SDF
-        annotation, unless `sdf.root` names another."""
+        """Refuse a design without `tb.uut` when the run records switching activity, whose scope
+        is that instance. `SimFlow` judges an SDF file's root."""
         super().check_design_supported(design, settings)
         if settings is None or design.tb.uut:
             return
@@ -126,12 +125,6 @@ class VivadoSim(Vivado, SimFlow):
                 f"{cls.name} records the switching activity of the unit under test, and "
                 "`tb.uut` is not set: set `tb.uut` to the instance name of the unit under test "
                 "in the testbench"
-            )
-        if settings.sdf.delay_items() and not settings.sdf.root:
-            raise FlowSettingsException(
-                f"{cls.name} annotates the netlist with an SDF file, and neither `sdf.root` nor "
-                "`tb.uut` is set: set `sdf.root`, or set `tb.uut` to the instance name of the "
-                "unit under test in the testbench"
             )
 
     def has_evidence_adapter(self) -> bool:
@@ -238,7 +231,6 @@ class VivadoSim(Vivado, SimFlow):
         if not sdf_root:
             sdf_root = self.design.tb.uut
         for delay_type, sdf_file in ss.sdf.delay_items():
-            assert sdf_root, "neither an SDF root nor `tb.uut` is set"
             ss.elab_flags.append(f"-sdf{delay_type} {sdf_root}={sdf_file}")
 
         # Remove the previous work library through the run directory, so that the simulator

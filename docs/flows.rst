@@ -1318,6 +1318,14 @@ before compilation, because they lack a certified evidence adapter. The real run
 the builtin-task capability checks of Icarus remain mandatory gates of the Linux CI. They were not
 run on macOS.
 
+SDF annotation
+--------------
+
+``ghdl_sim``, ``modelsim``, ``vivado_sim`` and ``vivado_postsynth_sim`` annotate a netlist with
+the SDF files of their ``sdf`` setting. The annotation needs the instance of the unit under test in
+the testbench: ``sdf.root``, or else ``tb.uut``. These flows refuse an SDF file when neither is
+set, naming both, before anything runs.
+
 Waveforms
 ---------
 
@@ -1374,7 +1382,7 @@ simulator; an error says to use ``vcd``.
      - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``. ``saif`` records the activity of
        the instance ``tb.uut``, so the design must set ``tb.uut``. Planning fails without it. That
        includes ``vivado_postsynth_sim`` with ``timing_sim`` and every ``vivado_power`` request,
-       which switch the activity on. An SDF file needs ``sdf.root`` or ``tb.uut`` in the same way.
+       which switch the activity on.
        ``prerun_time`` runs the simulation before the SAIF file is opened, so the activity and
        the duration of the SAIF file exclude that time. The VCD records from time 0.
    * - ``bsc_sim``

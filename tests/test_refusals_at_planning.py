@@ -39,6 +39,7 @@ from xeda.flows import (
     Bsc,
     BscSim,
     GhdlSim,
+    Modelsim,
     IseSynth,
     Nvc,
     Vcs,
@@ -177,6 +178,12 @@ CASES: dict[str, Case] = {
     "vivado-sim-sdf-without-root-or-uut": Case(
         VivadoSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
     ),
+    "ghdl-sim-sdf-without-root-or-uut": Case(
+        GhdlSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}, _vhdl
+    ),
+    "modelsim-sdf-without-root-or-uut": Case(
+        Modelsim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
+    ),
     "vivado-postsynth-sim-sdf-without-root-or-uut": Case(
         VivadoPostsynthSim, "neither `sdf.root` nor `tb.uut`", {"sdf": {"max": "x.sdf"}}
     ),
@@ -296,13 +303,15 @@ def test_the_activity_that_power_demands_needs_the_instance_to_record(
     assert not (tmp_path / "runs").exists()
 
 
-def test_an_sdf_root_or_tb_uut_gives_the_sdf_annotation_its_instance(tmp_path):
-    with_root = VivadoSim.Settings.from_input({"sdf": {"max": "x.sdf", "root": "tb/dut"}})
-    VivadoSim.check_design_supported(_design(tmp_path / "plain"), with_root)
-    without_root = VivadoSim.Settings.from_input({"sdf": {"max": "x.sdf"}})
-    VivadoSim.check_design_supported(
-        _design(tmp_path / "uut", tb={"sources": ["tb.v"], "top": "tb", "uut": "dut"}), without_root
-    )
+@pytest.mark.parametrize(
+    "flow,kind", [(VivadoSim, "verilog"), (GhdlSim, "vhdl"), (Modelsim, "verilog")]
+)
+def test_an_sdf_root_or_tb_uut_gives_the_sdf_annotation_its_instance(tmp_path, flow, kind):
+    with_root = flow.Settings.from_input({"sdf": {"max": "x.sdf", "root": "tb/dut"}})
+    flow.check_design_supported(_design(tmp_path / "plain", kind), with_root)
+    without_root = flow.Settings.from_input({"sdf": {"max": "x.sdf"}})
+    tb = {"sources": ["tb.vhd" if kind == "vhdl" else "tb.v"], "top": "tb", "uut": "dut"}
+    flow.check_design_supported(_design(tmp_path / "uut", kind, tb=tb), without_root)
 
 
 # ---------------------------------------------------------------------------------------------
