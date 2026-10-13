@@ -11,7 +11,14 @@ from importlib_resources import as_file, files
 
 from .dataclass import Field, model_validator
 from .flow import FPGA, FpgaSynthFlow
-from .utils import expand_env_vars, path_variables, toml_load, toml_loads
+from .utils import (
+    ConflictingKeys,
+    expand_env_vars,
+    expand_hierarchy,
+    path_variables,
+    toml_load,
+    toml_loads,
+)
 from .yaml_loader import load_yaml, yaml_error_position
 
 __all__ = [
@@ -120,11 +127,63 @@ def canonical_board_name(
     return board.lower() if board.lower() in bundled_boards() else board
 
 
+#: The keys of a board entry: the device, the board's name in openFPGALoader, and the local pin
+#: file, which has the key of the pin format of the family (`nextpnr`'s `_constraint_kind`).
+PIN_FILE_KEYS = ("lpf", "pcf", "pdc", "xdc")
+BOARD_ENTRY_KEYS = ("fpga", "openfpgaloader_board", *PIN_FILE_KEYS)
+
+
+def board_entry(name: Any, entry: Any, database: str) -> Any:
+    """Return the entry of the board `name` in `database` as data, after the rules of its keys.
+
+    A dotted key means the table it stands for (`fpga.part: P` is `fpga: {part: P}`), as in every
+    other file Xeda reads (`utils.expand_hierarchy`). A key that holds a value and also has keys
+    inside it (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, worded by
+    `ConflictingKeys`. An unknown key is an error that names the board and the database, with the
+    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold a nonempty file name. An entry that is
+    not a table is returned as it is: the caller judges that.
+    """
+    if not isinstance(entry, dict):
+        return entry
+    try:
+        entry = expand_hierarchy(entry)
+    except ConflictingKeys as e:
+        raise ValueError(f"Board {name!r} in {database}: {e}") from e
+    if "name" in entry:
+        raise ValueError(
+            f"Board {name!r} in {database}: `name` was removed: use "
+            "`openfpgaloader_board`, the board's name in openFPGALoader"
+        )
+    for key in entry:
+        if key not in BOARD_ENTRY_KEYS:
+            suggestions = get_close_matches(key, BOARD_ENTRY_KEYS)
+            hint = f" Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
+            raise ValueError(
+                f"Board {name!r} in {database}: unknown key `{key}`; a board has "
+                f"{', '.join(f'`{known}`' for known in BOARD_ENTRY_KEYS)}.{hint}"
+            )
+    loader = entry.get("openfpgaloader_board")
+    if "openfpgaloader_board" in entry and not (isinstance(loader, str) and loader.strip()):
+        raise ValueError(
+            f"Board {name!r} in {database}: `openfpgaloader_board` is the board's "
+            f"name in openFPGALoader, as text, not {loader!r}; leave it out for a board "
+            "openFPGALoader does not know"
+        )
+    for key in PIN_FILE_KEYS:
+        value = entry.get(key)
+        if key in entry and not (isinstance(value, str) and value.strip()):
+            raise ValueError(
+                f"Board {name!r} in {database}: `{key}` is the name of the board's pin file: give "
+                f"a nonempty file name, as text, not {value!r}"
+            )
+    return entry
+
+
 def get_board_data(
     board: Optional[str], custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Optional[Dict[str, Any]]:
     """Return the entry for `board` from `custom_boards_file` (TOML or YAML), else from the
-    bundled (TOML) database.
+    bundled (TOML) database, as `board_entry` reads it.
 
     A bundled board is found by its name in any letter case. The names in a custom database are
     case-sensitive: `board` must be written exactly as the database writes it.
@@ -146,7 +205,7 @@ def get_board_data(
         suggestions = get_close_matches(name, boards_data) if isinstance(name, str) else []
         hint = f". Did you mean {', '.join(map(repr, suggestions))}?" if suggestions else ""
         raise ValueError(f"Unknown board {board!r} in {database}{hint}")
-    return boards_data[name]
+    return board_entry(name, boards_data[name], database)
 
 
 #: How to give a flow whose settings take a `board` its device, for `Flow.required_settings`.
@@ -245,18 +304,6 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
                 )
             if not isinstance(board_data, dict):
                 raise ValueError(f"Board {board_name!r} must be a table in {database}")
-            if "name" in board_data:
-                raise ValueError(
-                    f"Board {board_name!r} in {database}: `name` was removed: use "
-                    "`openfpgaloader_board`, the board's name in openFPGALoader"
-                )
-            loader = board_data.get("openfpgaloader_board")
-            if loader is not None and not (isinstance(loader, str) and loader.strip()):
-                raise ValueError(
-                    f"Board {board_name!r} in {database}: `openfpgaloader_board` is the board's "
-                    f"name in openFPGALoader, as text, not {loader!r}; leave it out for a board "
-                    "openFPGALoader does not know"
-                )
             values["board"] = canonical_board_name(board_name, custom)
             if fpga:
                 return values

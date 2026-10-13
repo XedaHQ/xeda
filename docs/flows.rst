@@ -32,14 +32,19 @@ Discovering flows and their settings
     format of the family: ``lpf``, ``pcf``, ``pdc`` or ``xdc``. A relative ``custom_boards_file``
     resolves against the design directory, and the local pin file of a board resolves against the
     directory of the database file, in either format. Xeda reads a YAML database as YAML 1.2, like
-    every other YAML file it reads. A dotted key such as ``fpga.part`` is not expanded in a
-    database, so write ``fpga`` as a table in YAML::
+    every other YAML file it reads. A dotted key in an entry is a path, as in a design file:
+    ``fpga.part`` and a table ``fpga`` with the key ``part`` mean the same. Giving ``fpga`` as a
+    value and also ``fpga.part`` in one entry is an error. An entry has only the keys ``fpga``,
+    ``openfpgaloader_board``, ``lpf``, ``pcf``, ``pdc`` and ``xdc``. The pin file keys and
+    ``openfpgaloader_board`` hold text that is not empty: a file name or a board name. Xeda
+    refuses any other key, and a value of these keys that is empty or not text. The error names
+    the board, the key and the database file. When a key looks like a misspelling, the error
+    suggests the key that it resembles::
 
         # boards.yaml
         MY_BOARD:
           openfpgaloader_board: ulx3s
-          fpga:
-            part: LFE5U-85F-6BG381C
+          fpga.part: LFE5U-85F-6BG381C
           lpf: my_board.lpf
 
     The bundled boards have lower-case names, and Xeda finds them by their name in any letter

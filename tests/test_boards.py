@@ -238,3 +238,17 @@ def test_a_board_entry_may_leave_openfpgaloader_board_out(tmp_path):
         {"board": "MY_BOARD", "custom_boards_file": "boards.toml"}, design_root=tmp_path
     )
     assert settings.board_data() == {"fpga": {"part": "LFE5U-25F-6BG381C"}}
+
+
+@pytest.mark.parametrize("value", ["''", "'  '", "5", "[basys3]", "true", "~"])
+def test_a_yaml_board_entry_gives_openfpgaloader_board_as_text_or_not_at_all(tmp_path, value):
+    database = tmp_path / "boards.yaml"
+    database.write_text(
+        f"MY_BOARD:\n  openfpgaloader_board: {value}\n  fpga.part: LFE5U-25F-6BG381C\n"
+    )
+    with pytest.raises(FlowSettingsError) as raised:
+        WithFpgaBoardSettings.from_input(
+            {"board": "MY_BOARD", "custom_boards_file": "boards.yaml"}, design_root=tmp_path
+        )
+    message = str(raised.value)
+    assert "MY_BOARD" in message and "`openfpgaloader_board`" in message and "as text" in message

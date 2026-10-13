@@ -302,6 +302,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
     "xeda.flow_runner.run_lock:*": (None, "locks files of the run root"),
     "xeda.proc_utils:*": (None, "runs a tool process"),
     "xeda.utils:replacing_file": (1, "writes a file of the run root"),
+    "xeda.utils:_set_hierarchy": (
+        3,
+        "expands the dotted keys of the board entry that `board_data()` reads from the database "
+        "on disk; the settings validation judges the same entry first",
+    ),
     "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
         1,
         "needs `nextpnr-himbaechel` on PATH",
