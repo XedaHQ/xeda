@@ -209,6 +209,36 @@ def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypa
     assert log_lines(log) == ["first"]
 
 
+def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
+    monkeypatch, tmp_path
+):
+    """The tool wrote `first` and has not ended the line, and the terminal fails on that text. The
+    log has `first`, as it has the last line when the output ends. The tool writes no line end
+    until it is stopped, so the terminal gets `first` alone in its first write."""
+
+    class GoneTerminal:
+        def isatty(self) -> bool:
+            return True
+
+        def fileno(self) -> int:
+            return 1
+
+        def write(self, text: str) -> int:
+            raise OSError(5, "the terminal is gone")
+
+        def flush(self) -> None:
+            pass
+
+    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
+    log = tmp_path / "tool.log"
+    code = "import sys, time; sys.stdout.write('first'); sys.stdout.flush(); time.sleep(60)"
+    started = time.monotonic()
+    with pytest.raises(OSError, match="the terminal is gone"):
+        run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert time.monotonic() - started < 30  # the tool did not run on
+    assert log_lines(log) == ["first"]
+
+
 def test_what_a_tool_writes_in_pieces_arrives_whole(terminal, tmp_path):
     """A character of more than a byte, cut in two by the tool's own writes, and a line that
     ends only after a pause: the log has them whole."""

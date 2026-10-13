@@ -100,7 +100,8 @@ jobs:
   # XEDA_TESTS_REQUIRE_TOOLS is not set on purpose. The full suite runs on Linux, where the EDA
   # tools are installed.
   # Why each file is here:
-  #   process groups, signals and pseudo-terminals: test_proc_utils, test_remote_streaming
+  #   process groups, signals and pseudo-terminals: test_proc_utils, test_proc_utils_terminal,
+  #     test_remote_streaming
   #   file locks (flock): test_read_locks (run-directory leases), test_target_scrub (scrub, which
   #     also handles links), test_generator_staleness (a lock on the design directory),
   #     test_external_cache (six processes fill one cache)
@@ -135,6 +136,7 @@ jobs:
         run: >-
           python -m pytest -n auto
           tests/test_proc_utils.py
+          tests/test_proc_utils_terminal.py
           tests/test_remote_streaming.py
           tests/test_read_locks.py
           tests/test_target_scrub.py
