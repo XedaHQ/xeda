@@ -523,8 +523,9 @@ class SimFlow(Flow, metaclass=ABCMeta):
     def check_results(self) -> bool:
         """Judge the run, by the verdict of cocotb or else by the evidence rule.
 
-        A cocotb testbench is judged by the verdict of cocotb, on every simulator. Missing
-        evidence fails, including a flow without an adapter."""
+        A cocotb testbench is judged by the verdict of cocotb, on every simulator, and needs no
+        simulation evidence. Any other run is judged by the evidence rule: missing evidence
+        fails, including a flow without an adapter."""
         if self.cocotb:
             passed = self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
