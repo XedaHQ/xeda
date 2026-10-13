@@ -745,9 +745,40 @@ def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
     (`timing.x=1` then `timing=true`). Either order raises a `ConflictingKeys` that names both
     keys. A key left empty (`None`) holds no value, so a table can follow it. Setting a key again
     replaces its value, and a table replaces a table.
+
+    One mapping does not write a table both ways. `{"fpga.part": "P", "fpga": {"speed": -6}}`
+    sets keys of `fpga` in two spellings, and the result would depend on the order of the keys. It
+    raises a `ConflictingKeys` that names both spellings, in either order. Two dotted keys under
+    one table (`fpga.part` and `fpga.speed`) are the normal form. A mapping set in `dct` and each
+    mapping inside it are judged one by one (`refuse_both_spellings`). Separate calls are not one
+    mapping: a later one replaces what an earlier one set, as the layers of settings do.
     """
     parts = _key_parts(path) if isinstance(path, str) else list(path)
     _set_hierarchy(dct, parts, value, ())
+
+
+def refuse_both_spellings(mapping: Mapping[Any, Any], above: Tuple[Any, ...] = ()) -> None:
+    """Raise a `ConflictingKeys` if `mapping` writes a table both dotted and as a table.
+
+    `fpga.part` and `fpga: {...}` both set keys of `fpga`. So do `a.b.c` and `a.b: {...}`, and
+    `a.b.c` and `a: {b: {...}}`. An empty table counts as a table. Only the keys of `mapping` are
+    judged; a mapping inside it is judged when it is set (`set_hierarchy`). `above` is the path of
+    `mapping` in a larger one, so that the error names the keys in full.
+    """
+    tables: Dict[Tuple[Any, ...], None] = {}  # the paths written as a table
+    dotted: Dict[Tuple[Any, ...], str] = {}  # a path that a dotted key goes through -> that key
+    for key, value in mapping.items():
+        parts = tuple(_key_parts(key) if isinstance(key, str) else [key])
+        written = _dotted((*above, *parts))
+        if isinstance(value, dict):
+            if parts in dotted:
+                raise ConflictingKeys(_dotted((*above, *parts)), dotted[parts], both_ways=True)
+            tables[parts] = None
+        for end in range(1, len(parts)):
+            through = parts[:end]
+            if through in tables:
+                raise ConflictingKeys(_dotted((*above, *through)), written, both_ways=True)
+            dotted.setdefault(through, written)
 
 
 def _key_parts(key: str) -> List[Any]:
@@ -772,6 +803,7 @@ def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tup
         if value and held is not None and not isinstance(held, MutableMapping):
             # A whole table after a value is the same mistake as a dotted key inside it.
             raise ConflictingKeys(here, (*here, next(iter(value))))
+        refuse_both_spellings(value, here)
         table: Dict[str, Any] = {}
         for k, v in value.items():
             _set_hierarchy(table, _key_parts(k) if isinstance(k, str) else [k], v, here)
@@ -975,6 +1007,7 @@ def conv(v):
 def expand_hierarchy(d: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if d is None:
         return {}
+    refuse_both_spellings(d)
     expanded: DictStrHier = {}
     for k, v in d.items():
         set_hierarchy(expanded, k, conv(v))
@@ -999,6 +1032,7 @@ def settings_to_dict(
                 key, val = sp
                 set_hierarchy(res, key, conv(val))
             elif override and isinstance(override, dict):
+                refuse_both_spellings(override)
                 for key, val in override.items():  # type: ignore
                     set_hierarchy(res, key, conv(val))
         return res
@@ -1198,21 +1232,32 @@ class XedaException(Exception):
 
 
 class ConflictingKeys(XedaException, ValueError):
-    """A key given as a value and as a table. `value_key` holds a value, and `child_key` sets a
-    key inside it, whichever came first. The class is a `XedaException`, so the command line
-    reports it, and a `ValueError`, so a validator that expands a key reports it as the error of
-    the field."""
+    """Keys that cannot be set together, in either order.
 
-    def __init__(self, value_key: Any, child_key: Any) -> None:
+    A key given as a value and as a table: `value_key` holds a value, and `child_key` sets a key
+    inside it. Or, with `both_ways`, a table written dotted and as a table in one mapping:
+    `value_key` is the table, and `child_key` is the dotted key that sets a key of it (`fpga.part`
+    beside `fpga: {...}`). The class is a `XedaException`, so the command line reports it, and a
+    `ValueError`, so a validator that expands a key reports it as the error of the field."""
+
+    def __init__(self, value_key: Any, child_key: Any, both_ways: bool = False) -> None:
         self.value_key = _dotted(value_key)
         self.child_key = _dotted(child_key)
-        super().__init__(
-            f"`{self.value_key}` is set to a value, and `{self.child_key}` sets a key inside it: "
-            "give one of them"
-        )
+        self.both_ways = both_ways
+        if both_ways:
+            message = (
+                f"`{self.child_key}` and `{self.value_key}: {{...}}` both set keys of "
+                f"`{self.value_key}`: write one of them"
+            )
+        else:
+            message = (
+                f"`{self.value_key}` is set to a value, and `{self.child_key}` sets a key inside "
+                "it: give one of them"
+            )
+        super().__init__(message)
 
     def __reduce__(self):  # an exception crosses a process boundary by being pickled
-        return (type(self), (self.value_key, self.child_key))
+        return (type(self), (self.value_key, self.child_key, self.both_ways))
 
 
 class EscapedName(XedaException, ValueError):
