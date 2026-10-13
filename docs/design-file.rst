@@ -41,6 +41,12 @@ work in a design file, in a design entry and in the ``flows`` table of a project
 and in design overrides. A key cannot be both a value and a table. ``tb: 3`` together with
 ``tb.top: x`` is an error that names both keys.
 
+Write one table in one spelling inside a mapping. ``clock.port: clk`` together with a ``clock:``
+block in the same mapping is an error that names both spellings, in whichever order they come.
+Two dotted keys under one table (``fpga.part`` and ``fpga.speed``) are fine, and so is one block
+(``fpga: {part: P, speed: -6}``). Settings from separate origins, such as the design file and
+``-s``, are not one mapping: they merge, and the higher origin wins.
+
 Top level
 =========
 

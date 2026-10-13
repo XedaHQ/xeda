@@ -27,9 +27,11 @@ the schema leaves property sets open (dotted keys expand before validation).
 | `inputs`, and tables keyed by tool names (`set_synth_properties`, `set_impl_properties`, ISE `*_options`, `set_attribute`, `set_mod_attribute`, `rtl.attributes`) | a nested block |
 | A source with a type | one line: `- {file: "top.json", type: JsonNetlist}` |
 
-Give one table one spelling per file: `clock.port` and a `clock:` block together keep the last
-value without a warning. A key cannot be a value and a table (`timing: true` with `timing.x: 1`
-is `ConflictingKeys`). Do not mix the flat form (`sources`, `top`, `clock` at the root) with
+Give one table one spelling per mapping: `clock.port` and a `clock:` block together are a
+`ConflictingKeys` error that names both, in either order. So is a key that is a value and a table
+(`timing: true` with `timing.x: 1`). Two dotted keys under one table (`fpga.part`, `fpga.speed`)
+are fine. Origins merge by precedence and are not one mapping (`-s fpga.part=P` over a design's
+`fpga:` block). Do not mix the flat form (`sources`, `top`, `clock` at the root) with
 `rtl.*` keys; write `rtl:`.
 
 ## Top level

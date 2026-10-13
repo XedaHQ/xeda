@@ -81,10 +81,8 @@ def test_the_keys_are_named_in_full_wherever_they_are_deep():
     )
 
 
-def test_a_table_given_as_a_mapping_still_takes_keys_from_a_dotted_key():
-    """Only a value and a table conflict. A key set again keeps the last value, a dotted key
-    reaches into a table given as a mapping, and two dotted keys share their tables."""
-    assert expand_hierarchy({"a": {"b": 1}, "a.c": 2}) == {"a": {"b": 1, "c": 2}}
+def test_dotted_keys_share_their_tables_and_a_key_set_again_keeps_the_last_value():
+    assert expand_hierarchy({"a.b": 1, "a.c": 2}) == {"a": {"b": 1, "c": 2}}
     assert settings_to_dict(["a.b=1", "a.c=2", "a.b=3"]) == {"a": {"b": "3", "c": "2"}}
 
 
@@ -112,6 +110,96 @@ def test_a_failed_conflict_changes_nothing_that_was_set():
         set_hierarchy(table, "b", 3)
 
     assert table == {"a": 1, "b": {"c": 2}}
+
+
+# ------------------------------------------------------------ a table written both ways
+#
+# `fpga.part` and `fpga: {...}` in one mapping set keys of the same table. The expansion used to
+# keep whichever came last (`{"fpga.part": "P", "fpga": {"speed": -6}}` lost the part, and the
+# reverse order kept both), so the result depended on the order of the keys and nothing said so.
+
+WRITTEN_BOTH_WAYS = (
+    "`{dotted}` and `{table}: {{...}}` both set keys of `{table}`: write one of them"
+)
+
+
+@pytest.mark.parametrize("table_first", [True, False], ids=["table-first", "dotted-first"])
+def test_a_table_written_dotted_and_as_a_table_is_refused_in_either_order(table_first):
+    items = [("fpga", {"speed": -6}), ("fpga.part", "P")]
+    if not table_first:
+        items.reverse()
+
+    with pytest.raises(ConflictingKeys) as raised:
+        expand_hierarchy(dict(items))
+
+    assert str(raised.value) == WRITTEN_BOTH_WAYS.format(dotted="fpga.part", table="fpga")
+    assert raised.value.value_key == "fpga"
+
+
+@pytest.mark.parametrize(
+    "mapping, dotted, table",
+    [
+        ({"fpga.part": "P", "fpga": {}}, "fpga.part", "fpga"),
+        ({"a.b.c": 1, "a.b": {"d": 2}}, "a.b.c", "a.b"),
+        ({"a.b.c": 1, "a": {"b": {"d": 2}}}, "a.b.c", "a"),
+        ({"x": {"fpga.part": "P", "fpga": {"speed": -6}}}, "x.fpga.part", "x.fpga"),
+        (
+            {"flows": {"v": {"fpga": {"speed": 1}, "fpga.part": "P"}}},
+            "flows.v.fpga.part",
+            "flows.v.fpga",
+        ),
+    ],
+    ids=["empty-table", "deep-dotted", "table-above", "nested", "flows"],
+)
+def test_the_error_names_both_spellings_in_full_wherever_they_are_deep(mapping, dotted, table):
+    with pytest.raises(ConflictingKeys) as raised:
+        expand_hierarchy(mapping)
+
+    assert str(raised.value) == WRITTEN_BOTH_WAYS.format(dotted=dotted, table=table)
+
+
+def test_a_table_written_dotted_and_as_a_table_is_refused_inside_a_value_set_by_a_path():
+    """`set_hierarchy` takes a mapping as a value, as `-s` and an API caller's list of mappings do."""
+    with pytest.raises(ConflictingKeys, match="`a.fpga.part` and `a.fpga: {...}`"):
+        set_hierarchy({}, "a", {"fpga.part": "P", "fpga": {"speed": -6}})
+    with pytest.raises(ConflictingKeys, match="`fpga.part` and `fpga: {...}`"):
+        settings_to_dict([{"fpga.part": "P", "fpga": {"speed": -6}}])
+    with pytest.raises(ConflictingKeys, match="`fpga.part` and `fpga: {...}`"):
+        settings_to_dict({"fpga.part": "P", "fpga": {"speed": -6}})
+
+
+def test_a_setting_of_tool_names_is_refused_too_since_the_expansion_runs_before_the_names_fold():
+    """`{"A.B": 1, "A": {"C": 2}}` as the names of a tool (`opaque_key_fields`) is expanded
+    before the setting's model is known. It lost `A.B` when `A` came last and kept both when it
+    came first."""
+    for properties in ({"A.B": 1, "A": {"C": 2}}, {"A": {"C": 2}, "A.B": 1}):
+        with pytest.raises(ConflictingKeys, match="`set_synth_properties.A.B` and"):
+            expand_hierarchy({"set_synth_properties": properties})
+
+
+def test_the_normal_forms_are_not_refused():
+    assert expand_hierarchy({"fpga.part": "P", "fpga.speed": -6}) == {
+        "fpga": {"part": "P", "speed": -6}
+    }
+    assert expand_hierarchy({"fpga": {"part": "P", "speed": -6}}) == {
+        "fpga": {"part": "P", "speed": -6}
+    }
+    assert expand_hierarchy({"a": {"b": {"c": 1}}, "d": {"e.f": 2, "e.g": 3}}) == {
+        "a": {"b": {"c": 1}},
+        "d": {"e": {"f": 2, "g": 3}},
+    }
+    assert expand_hierarchy({"a.b": {"c": 1}, "a.d": {"e": 2}}) == {
+        "a": {"b": {"c": 1}, "d": {"e": 2}}
+    }
+    assert expand_hierarchy({"fpga": None, "fpga.part": "P"}) == {"fpga": {"part": "P"}}
+
+
+def test_separate_mappings_are_separate_origins_and_merge_by_precedence():
+    """`-s fpga.part=P` and an API mapping `{fpga: {...}}` are two origins, not one mapping."""
+    assert settings_to_dict(["fpga.part=P", {"fpga": {"speed": -6}}]) == {"fpga": {"speed": -6}}
+    assert settings_to_dict([{"fpga": {"speed": -6}}, "fpga.part=P"]) == {
+        "fpga": {"speed": -6, "part": "P"}
+    }
 
 
 # ------------------------------------------------------------------ one rule in every origin
@@ -207,7 +295,7 @@ def test_a_dotted_key_means_the_same_in_every_origin_of_a_design(origin, tmp_pat
 
 def test_a_dotted_key_in_a_projects_flows_means_the_same(tmp_path):
     nested = {"vivado_synth": {"fpga": {"part": "p"}, "clock": {"period": 5.0}}}
-    dotted = {"vivado_synth": {"clock.period": 5.0}, "vivado_synth.fpga.part": "p"}
+    dotted = {"vivado_synth": {"clock.period": 5.0, "fpga.part": "p"}}
     (tmp_path / "nested").mkdir()
     (tmp_path / "dotted").mkdir()
     flows = {}
@@ -224,3 +312,151 @@ def test_a_project_reports_a_value_and_a_key_inside_it_as_it_does_in_a_design_fi
         _design_file(tmp_path / "file", entry)
     with pytest.raises(Exception, match=r"`tb` is set to a value, and `tb.top`"):
         _project(tmp_path / "project", entry)
+
+
+# ------------------------------------------------ a table written both ways, in every origin
+
+import re
+import textwrap
+
+from xeda.design import DesignValidationError
+from xeda.flow_runner import DefaultRunner
+from xeda.xedaproject import ProjectFileError
+
+BOTH_WAYS = r"`{dotted}` and `{table}: \{{\.\.\.\}}` both set keys of `{table}`: write one of them"
+#: a table written both ways inside a flow section, the way the report in the field wrote it
+FPGA_BOTH = "flows:\n  vivado_synth:\n    fpga.part: xc7a12tcsg325-1\n    fpga:\n      speed: -1\n"
+
+
+def _yaml_design(directory: Path, text: str = "") -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "top.v").write_text("module top; endmodule\n")
+    path = directory / "d.yaml"
+    path.write_text(
+        'name: d\nrtl:\n  sources: ["top.v"]\n  top: top\n' + textwrap.dedent(text),
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.mark.parametrize("dotted_first", [True, False], ids=["dotted-first", "table-first"])
+def test_a_design_file_refuses_a_table_written_both_ways_at_the_key(tmp_path, dotted_first):
+    block = "tb.top: tb\ntb:\n  sources: []\n"
+    if not dotted_first:
+        block = "tb:\n  sources: []\ntb.top: tb\n"
+    path = _yaml_design(tmp_path, block)
+
+    with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
+        Design.from_file(path)
+    try:
+        Design.from_file(path)
+    except DesignValidationError as e:
+        assert e.file == str(path.absolute())
+        assert [location for location, *_ in e.errors] == ["tb"]
+
+
+def test_a_design_file_refuses_it_inside_a_flow_section(tmp_path):
+    path = _yaml_design(tmp_path, FPGA_BOTH)
+    table = "flows.vivado_synth.fpga"
+
+    with pytest.raises(
+        DesignValidationError, match=BOTH_WAYS.format(dotted=table + r"\.part", table=table)
+    ) as raised:
+        Design.from_file(path)
+
+    assert [location for location, *_ in raised.value.errors] == [table]
+
+
+def test_a_design_file_takes_the_normal_forms(tmp_path):
+    dotted = _yaml_design(
+        tmp_path / "dotted", "flows:\n  vivado_synth:\n    fpga.part: p\n    fpga.speed: -1\n"
+    )
+    nested = _yaml_design(
+        tmp_path / "nested", "flows:\n  vivado_synth:\n    fpga:\n      part: p\n      speed: -1\n"
+    )
+
+    assert Design.from_file(dotted).flow == Design.from_file(nested).flow
+    assert Design.from_file(dotted).flow["vivado_synth"]["fpga"] == {"part": "p", "speed": -1}
+
+
+def test_a_target_refuses_it_at_the_target_whichever_is_selected(tmp_path):
+    path = _yaml_design(
+        tmp_path,
+        "targets:\n  a:\n    tb.top: tb\n    tb:\n      sources: []\n  b: {}\n",
+    )
+    for target in ("a", "b"):
+        with pytest.raises(
+            DesignValidationError,
+            match=BOTH_WAYS.format(dotted=r"targets\.a\.tb\.top", table=r"targets\.a\.tb"),
+        ) as raised:
+            Design.from_file(path, target=target)
+        assert [location for location, *_ in raised.value.errors] == ["targets.a.tb"]
+
+
+def test_design_overrides_refuse_it(tmp_path):
+    path = _yaml_design(tmp_path)
+
+    with pytest.raises(DesignValidationError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
+        Design.from_file(path, overrides={"tb.top": "tb", "tb": {"sources": []}})
+
+
+@pytest.mark.parametrize("dotted_first", [True, False], ids=["dotted-first", "table-first"])
+def test_a_project_file_refuses_it_naming_the_file(tmp_path, dotted_first):
+    flows = ["  vivado_synth.fpga.part: p", "  vivado_synth:", "    fpga:", "      speed: -1"]
+    lines = flows if dotted_first else [*flows[1:], flows[0]]
+    path = tmp_path / "xedaproject.yaml"
+    path.write_text("flows:\n" + "\n".join(lines) + "\n")
+
+    table = r"flows\.vivado_synth"
+    both_ways = BOTH_WAYS.format(dotted=table + r"\.fpga\.part", table=table)
+    with pytest.raises(ValueError, match=rf"project file {re.escape(str(path))}: {both_ways}"):
+        XedaProject.from_file(path)
+    design = _yaml_design(tmp_path / "design")
+    with pytest.raises(ProjectFileError, match=rf"{re.escape(str(path))}.*{both_ways}"):
+        DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(
+            "vivado_synth", design, xedaproject=str(path)
+        )
+
+
+def test_a_project_design_entry_refuses_it_at_the_key(tmp_path):
+    (tmp_path / "top.v").write_text("module top; endmodule\n")
+    path = tmp_path / "xedaproject.yaml"
+    path.write_text(
+        'designs:\n  - name: d\n    rtl:\n      sources: ["top.v"]\n      top: top\n'
+        "    tb.top: tb\n    tb:\n      sources: []\n"
+    )
+
+    with pytest.raises(ValueError, match=BOTH_WAYS.format(dotted="tb.top", table="tb")):
+        XedaProject.from_file(path).get_design(0)
+
+
+@pytest.mark.parametrize("origin", ["flow settings", "flow overrides", "design overrides"])
+def test_an_api_mapping_refuses_it(tmp_path, origin):
+    mapping = {"fpga.part": "p", "fpga": {"speed": -1}}
+    if origin == "design overrides":
+        mapping = {"tb.top": "tb", "tb": {"sources": []}}
+    path = _yaml_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    keyword = {
+        "flow settings": "flow_settings",
+        "flow overrides": "flow_overrides",
+        "design overrides": "design_overrides",
+    }[origin]
+
+    with pytest.raises(Exception, match=r"both set keys of `(fpga|tb)`: write one of them"):
+        runner.plan("vivado_synth", path, **{keyword: mapping})
+
+
+def test_the_command_line_takes_dotted_items_and_an_api_table_as_two_origins(tmp_path):
+    """`-s` items are separate entries: only a mapping that writes both spellings is refused."""
+    path = _yaml_design(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+
+    plan = runner.plan(
+        "vivado_synth",
+        path,
+        flow_settings=["fpga.part=xc7a12tcsg325-1"],
+        flow_overrides={"fpga": {"speed": -1}},
+    )
+
+    assert plan is not None
