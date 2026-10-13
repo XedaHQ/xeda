@@ -646,6 +646,20 @@ def test_a_dotted_key_beside_a_value_at_its_first_part_is_a_conflict_naming_both
 
 
 @pytest.mark.parametrize(
+    "entry",
+    [
+        "  fpga.part: LFE5U-25F-6BG381C\n  fpga:\n    speed: 6\n",
+        "  fpga:\n    speed: 6\n  fpga.part: LFE5U-25F-6BG381C\n",
+    ],
+    ids=["dotted first", "table first"],
+)
+def test_a_board_table_written_dotted_and_as_a_table_is_refused_in_either_order(tmp_path, entry):
+    message = database_error(tmp_path, "boards.yaml", f"MY_BOARD:\n{entry}")
+    assert "Board 'MY_BOARD'" in message and str(tmp_path / "boards.yaml") in message
+    assert "`fpga.part`" in message and "`fpga: {...}`" in message
+
+
+@pytest.mark.parametrize(
     "filename, content",
     [
         ("boards.yaml", "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n  lpff: pins.lpf\n"),
