@@ -3,8 +3,14 @@ The design file
 *********************
 
 A design file says what your design is. It is a YAML, TOML or JSON file, and YAML is the
-recommended format. The file lists the sources, the top module and the clock port of the design. It
-contains no tool commands, only optional settings for individual flows.
+recommended format. Every design file has a name (the file stem when ``name`` is missing) and an
+``rtl`` section with the sources of the design. It can also name the top module, the clock ports,
+the testbench, the language standards and the settings of individual flows. The top module and the
+clocks are optional, and a design can have several clocks.
+
+The file does not say which tools run or how. The flows hold the commands of the tools, and the
+file only gives them settings. One key runs a command of its own: ``rtl.generator`` is a command
+(or a generator table) that produces sources before any flow runs. See :ref:`generators`.
 
 The JSON Schema of the design file is the machine-readable definition. Print it with::
 
