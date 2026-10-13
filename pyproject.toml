@@ -78,7 +78,7 @@ changelog = "https://github.com/XedaHQ/xeda/blob/dev/CHANGELOG.md"
 xeda = "xeda.cli:cli"
 
 [dependency-groups]
-# black >= 25.9 is the first release that knows the py314 target set in [tool.black].
+# black >= 26.10.1 is the first release that knows the py314 target set in [tool.black].
 dev = ["pytest", "pytest-xdist", "jsonschema", "mypy", "black>=25.9", "isort", "pylint", "tox", "ruff>=0.17.0"]
 
 [build-system]
