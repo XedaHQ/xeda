@@ -23,7 +23,7 @@ from zipfile import ZipFile
 
 import click
 
-from xeda.dataclass import XedaBaseModel, asdict
+from xeda.dataclass import XedaBaseModel
 
 log = logging.getLogger()
 
@@ -886,7 +886,7 @@ class FakeTool(XedaBaseModel):
                 return "Questa Sim vsim 2024.2 Simulator (synthetic)"
             return "Model Technology ModelSim vsim 2020.1 Simulator (synthetic)"
         if self.version_template:
-            return inspect.cleandoc(self.version_template.format(**(asdict(self))))
+            return inspect.cleandoc(self.version_template.format(**self.model_dump()))
         return "unknown"
 
     def execute(self, **kwargs) -> int:

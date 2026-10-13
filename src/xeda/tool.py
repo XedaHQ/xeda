@@ -47,16 +47,6 @@ __all__ = [
 ]
 
 
-class RemoteSettings(XedaBaseModel):
-    enabled: bool = False
-    junest_path: str  # FIXME REMOVE
-    junest_method: str = "ns"
-    junest_mounts: Dict[str, str] = {}
-    exec_path: Optional[str] = None
-    hostname: str
-    port: int = 22
-
-
 OptionalPath = Union[None, str, os.PathLike]
 OptionalBoolOrPath = Union[None, bool, str, os.PathLike]
 
@@ -242,7 +232,6 @@ class Tool(XedaBaseModel):
     default_args: List[str] = []
     version_flag: Optional[List[str]] = ["--version"]
     version_regexps: List[Union[re.Pattern[str], str]] = [VERSION_REGEXP1, VERSION_REGEXP2]
-    remote: Optional[RemoteSettings] = Field(None)
     docker: Optional[Docker] = Field(None)
     redirect_stdout: Optional[Path] = Field(None, description="Redirect stdout to a file")
     dockerized: bool = False
