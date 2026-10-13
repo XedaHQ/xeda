@@ -675,3 +675,19 @@ def test_every_key_the_flows_read_from_a_board_entry_is_accepted(tmp_path):
 def test_the_bundled_database_passes_the_rule_of_every_board_entry():
     for name in xeda.board.bundled_boards():
         assert xeda.board.get_board_data(name)
+
+
+@pytest.mark.parametrize(
+    "filename, content, key, shown",
+    [
+        ("boards.yaml", "MY_BOARD:\n  lpf.path: pins.lpf\n", "lpf", "{'path': 'pins.lpf'}"),
+        ("boards.yaml", "MY_BOARD:\n  xdc: 5\n", "xdc", "5"),
+        ("boards.yaml", "MY_BOARD:\n  pcf:\n", "pcf", "None"),
+        ("boards.toml", '[MY_BOARD.lpf]\npath = "pins.lpf"\n', "lpf", "{'path': 'pins.lpf'}"),
+        ("boards.toml", "[MY_BOARD]\npdc = true\n", "pdc", "True"),
+    ],
+)
+def test_a_pin_file_key_of_a_board_entry_must_hold_text(tmp_path, filename, content, key, shown):
+    message = database_error(tmp_path, filename, content)
+    assert f"Board 'MY_BOARD' in {tmp_path / filename}: `{key}`" in message
+    assert "as text" in message and shown in message

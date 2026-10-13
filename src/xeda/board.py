@@ -129,7 +129,8 @@ def canonical_board_name(
 
 #: The keys of a board entry: the device, the board's name in openFPGALoader, and the local pin
 #: file, which has the key of the pin format of the family (`nextpnr`'s `_constraint_kind`).
-BOARD_ENTRY_KEYS = ("fpga", "openfpgaloader_board", "lpf", "pcf", "pdc", "xdc")
+PIN_FILE_KEYS = ("lpf", "pcf", "pdc", "xdc")
+BOARD_ENTRY_KEYS = ("fpga", "openfpgaloader_board", *PIN_FILE_KEYS)
 
 
 def board_entry(name: Any, entry: Any, database: str) -> Any:
@@ -139,7 +140,8 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
     other file Xeda reads (`utils.expand_hierarchy`). A key that holds a value and also has keys
     inside it (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, worded by
     `ConflictingKeys`. An unknown key is an error that names the board and the database, with the
-    close matches. An entry that is not a table is returned as it is: the caller judges that.
+    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold text. An entry that is
+    not a table is returned as it is: the caller judges that.
     """
     if not isinstance(entry, dict):
         return entry
@@ -167,6 +169,12 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
             f"name in openFPGALoader, as text, not {loader!r}; leave it out for a board "
             "openFPGALoader does not know"
         )
+    for key in PIN_FILE_KEYS:
+        if key in entry and not isinstance(entry[key], str):
+            raise ValueError(
+                f"Board {name!r} in {database}: `{key}` is the name of the board's pin file, as "
+                f"text, not {entry[key]!r}"
+            )
     return entry
 
 
