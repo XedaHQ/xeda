@@ -95,13 +95,13 @@ def _transfer_artifacts(
 ) -> Any:
     """Fetch path leaves and return the same artifact tree with local path strings.
 
-    A missing artifact of a successful run is an error. Of a failed run's, only those the
-    remote vouched its run wrote (`written_on_remote`, as each is named in the results) are
-    fetched and kept; the rest are dropped, as the launcher drops them
-    (`drop_unwritten_artifacts`). The remote may run an older xeda, which lists every artifact
-    its flow recorded whether or not the run wrote it, and a file there may be an earlier run's:
-    only the remote can tell, from its own file system (`remote_runner`), so a file merely
-    existing there proves nothing, and with no word from the remote none is kept."""
+    A missing artifact of a successful run is an error. Of a failed run, only the artifacts
+    that the remote vouched its run wrote are fetched and kept (`written_on_remote`, as each
+    is named in the results). The rest are dropped, as the launcher drops them
+    (`drop_unwritten_artifacts`). The remote may run an older Xeda, which lists every artifact
+    its flow recorded whether or not the run wrote it, and a file there may be an earlier
+    run's. Only the remote can tell, from its own file system (`remote_runner`), so a file that
+    merely exists there proves nothing, and with no word from the remote none is kept."""
     remote_root = os.path.normpath(remote_run_path)
 
     def remote_path_of(artifact: ArtifactPath) -> str:
@@ -164,18 +164,19 @@ def remote_read_inputs(
     run_path: Path,
     run_root: Path,
 ) -> ReadInputs:
-    """The inputs a remote run's deliveries protect every file of its
-    graph this side can name -- the design's files, the design and project file given, and what
-    the read settings name of the requested flow `flow_class`, as the launch uses them
-    (`input_settings`: its section with the command line's settings over it, the dependencies'
-    settings nested in it included; never its section as written, since what the command line
-    replaced there no flow of the run reads), and of every other flow's
-    section sent with the design (`flows.<name>`, the project's merged in) as written, since
-    which dependencies the remote launches, and with what, is not known here. A file, or a
-    directory with every entry under it, as a local launch registers them
-    (`trace_inputs.register_read_settings`, with `run_path`, the local mirror, and `run_root`
-    for where the listings stop). A section that does not validate names nothing: that flow's
-    remote run fails before anything is delivered."""
+    """Return the inputs that the deliveries of a remote run protect.
+
+    They cover every file of the graph that this side can name: the files of the design, the
+    design file and project file given, and what the read settings of the requested flow
+    `flow_class` name, as the launch uses them. For the requested flow, `input_settings` are
+    its section with the settings of the command line over it, and never its section as
+    written, since no flow of the run reads what the command line replaced there. For every
+    other flow, the section sent with the design counts as written (`flows.<name>`, with the
+    project's merged in), since this side does not know which producers the remote launches, or
+    with what. A file, or a directory with every entry under it, is registered as a local
+    launch registers them (`trace_inputs.register_read_settings`, with `run_path`, the local
+    mirror, and `run_root` for where the listings stop). A section that does not validate names
+    nothing: the remote run of that flow fails before anything is delivered."""
     inputs = ReadInputs([*design_files(design), *launch_inputs])
     register_read_settings(inputs, input_settings, run_path, run_root)
     for name, section in sections.items():
@@ -194,8 +195,10 @@ REMOTE_PYTHON_MIN_VERSION = (3, 11, 0)
 
 
 class RemoteIncompatible(XedaException):
-    """The remote host cannot run what this side would send it: reported before anything is
-    shipped, as the user error it is rather than as a traceback."""
+    """The remote host cannot run what this side would send it.
+
+    It is reported before anything is shipped, as the user error it is and not as a
+    traceback."""
 
 
 def check_remote_python(version_info: tuple[Any, ...]) -> None:
@@ -215,14 +218,14 @@ def check_remote_python(version_info: tuple[Any, ...]) -> None:
 #: `openfpgaloader`), the identity rule (a node's `flow_hash` is its settings plus its ordered
 #: resolved input origins, which this side names the mirror by and compares with the remote's),
 #: the declared Vivado outputs, and `yosys`'s declared netlist with its ASIC configuration, a
-#: bundled platform counted relative to xeda's installation. Raised together with
+#: bundled platform counted relative to the installation of Xeda. Raised together with
 #: `xeda.REMOTE_PROTOCOL_VERSION` once per release cycle; development builds are not supported
 #: remotes.
 REMOTE_XEDA_MIN_VERSION = (0, 4, 4)
 REMOTE_PROTOCOL_MIN_VERSION = 1
 
 # Runs before shipping anything. Inspect the package this interpreter actually imports: installed
-# distribution metadata alone can describe a different xeda shadowed by a stale checkout. A
+# distribution metadata alone can describe a different Xeda shadowed by a stale checkout. A
 # missing or broken import is reported as an incompatible install, not an execnet traceback.
 REMOTE_PROBE = """
 import sys
@@ -248,7 +251,9 @@ channel.send((
 
 
 def release_tuple(version: str) -> tuple[int, ...]:
-    """The release a version string names: `"0.4.1.dev0+g9d1eb61"` -> `(0, 4, 1)`."""
+    """Return the release that a version string names.
+
+    For example, `"0.4.1.dev0+g9d1eb61"` gives `(0, 4, 1)`."""
     match = re.match(r"\d+(?:\.\d+)*", version)
     return tuple(int(part) for part in match.group().split(".")) if match else ()
 
@@ -256,25 +261,25 @@ def release_tuple(version: str) -> tuple[int, ...]:
 def check_remote_xeda(
     found: str | None, location: str | None, python: str, protocol: int = 0
 ) -> None:
-    """Fail early and clearly when the remote's xeda cannot run what this side sends.
+    """Fail early and clearly when the Xeda on the remote cannot run what this side sends.
 
-    `found` is the version of the xeda that `python` on the remote imports (None when it imports
-    none) and `location` where that package lives. Without this check a version mismatch
-    surfaces as whatever the old loader happens to choke on first -- a 0.2 remote reported
-    `rtl.sources: unhashable type: 'dict'`.
+    `found` is the version of the Xeda that `python` on the remote imports (None when it imports
+    none), and `location` is where that package lives. Without this check, a version mismatch
+    surfaces as whatever the old loader happens to choke on first. A 0.2 remote, for example,
+    reported `rtl.sources: unhashable type: 'dict'`.
 
     The remote needs the release line `REMOTE_XEDA_MIN_VERSION` and protocol
-    `REMOTE_PROTOCOL_MIN_VERSION` (a xeda without a marker reports 0): one that resolves the
-    same request otherwise reports another `flow_hash`, so it is refused here rather than failing
-    on a hash mismatch after the run. Version alone cannot tell a release from a checkout.
-    A compatible remote on another release line is warned about settings differences.
+    `REMOTE_PROTOCOL_MIN_VERSION` (a Xeda without a marker reports 0). One that resolves the
+    same request otherwise reports another `flow_hash`, so it is refused here and does not fail
+    on a hash mismatch after the run. The version alone cannot tell a release from a checkout.
+    A compatible remote on another release line draws a warning about differences in settings.
     """
     required = ".".join(str(part) for part in REMOTE_XEDA_MIN_VERSION)
     if found is None:
         raise RemoteIncompatible(
-            f"{python} on the remote imports no xeda that can be used: upgrade the remote xeda "
-            f"to a build with remote protocol support (xeda {required}, including dev builds, or newer; remote "
-            f"protocol {REMOTE_PROTOCOL_MIN_VERSION} or newer) for that "
+            f"{python} on the remote imports no Xeda that can be used: upgrade the remote Xeda "
+            f"to a build with remote protocol support (Xeda {required}, including development "
+            f"builds, or newer; remote protocol {REMOTE_PROTOCOL_MIN_VERSION} or newer) for that "
             "interpreter (it is started by a non-login shell, so it may not be the one on your "
             "login PATH)"
         )
@@ -284,16 +289,17 @@ def check_remote_xeda(
         or protocol < REMOTE_PROTOCOL_MIN_VERSION
     ):
         raise RemoteIncompatible(
-            f"{python} on the remote imports xeda {found} from {location} (remote protocol "
-            f"{protocol}), which cannot run this xeda's request: upgrade the remote xeda to a "
-            f"build with remote protocol support (xeda {required}, including dev builds, or newer; remote protocol "
+            f"{python} on the remote imports Xeda {found} from {location} (remote protocol "
+            f"{protocol}), which cannot run the request of this Xeda: upgrade the remote Xeda to "
+            f"a build with remote protocol support (Xeda {required}, including development "
+            f"builds, or newer; remote protocol "
             f"{REMOTE_PROTOCOL_MIN_VERSION} or newer). Remove that install if it shadows a newer "
             "install (it is started by a non-login shell, so it may not be the one on your login "
             "PATH)"
         )
     if release_tuple(found)[:2] != release_tuple(__version__)[:2]:
         log.warning(
-            "The remote runs xeda %s and this side %s: a setting only one of them knows will be "
+            "The remote runs Xeda %s and this side %s: a setting only one of them knows will be "
             "rejected on the remote",
             found,
             __version__,
@@ -330,18 +336,17 @@ def send_design(
         remote_sources_path = Path(design.name) / "sources"
         design_file = temp_dir / f"{design.name}.xeda.json"
         # Every place in the archive, and the local file that goes there. One table for both
-        # kinds of place -- flat among the sources, or where a file lies under the design root
-        # -- so neither can be handed a place the other already holds.
+        # kinds of place (flat among the sources, or where a file lies under the design root),
+        # so neither can be handed a place the other already holds.
         archive_entries: Dict[Path, Path] = {Path(design_file.name): design_file}
         flat_places: Dict[Path, Path] = {}
 
         def archived(resource: FileResource) -> Path:
-            """Where `resource` lands among the archived sources, adding it the first time it is
-            seen.
+            """Return where `resource` lands among the archived sources.
 
-            Two files may share a name under different directories, and this part of the archive
-            is flat, so a repeat name is disambiguated by content -- the same file listed twice
-            still travels once.
+            The first time a resource is seen, add it. Two files may share a name under
+            different directories, and this part of the archive is flat, so a repeated name is
+            made unique by content. The same file listed twice still travels once.
             """
             local = resource.file.resolve()
             place = flat_places.get(local)
@@ -360,16 +365,20 @@ def send_design(
             return place
 
         def archived_in_place(local: Path, relative: Path) -> bool:
-            """Archive `local` at `relative`, where it lies under the design root, so that the
-            remote finds it where this side does. False when that place holds another file."""
+            """Archive `local` at `relative`, where it lies under the design root.
+
+            Then the remote finds it where this side does. Return False when that place holds
+            another file."""
             return archive_entries.setdefault(relative, local.resolve()) == local.resolve()
 
         def packaged_sources(sources: Iterable[DesignSource]) -> list[Dict[str, Any]]:
-            """The sources as the remote has to see them: under the design root, each at its
-            own place relative to the root, as it is here -- a Verilog `include` finds the header
-            beside the including file first, so a flattened layout could build another design,
-            and it would hash as another (`Design._source_fingerprint`). A source outside the
-            root has no place there, and travels among the flat sources."""
+            """Return the sources as the remote has to see them.
+
+            A source under the design root keeps its own place relative to the root, as it has
+            here. A Verilog `include` finds the header beside the including file first, so a
+            flattened layout could build another design, and it would hash as another
+            (`Design._source_fingerprint`). A source outside the root has no place there, and
+            travels among the flat sources."""
             packaged: list[Dict[str, Any]] = []
             for src in sources:
                 relative = design.relative_to_root(src.file)
@@ -383,20 +392,20 @@ def send_design(
             return packaged
 
         def packaged_parameters(dv: DVSettings) -> Dict[str, Any]:
-            """The parameters as the remote has to see them.
+            """Return the parameters as the remote has to see them.
 
-            A parameter is text to the tool, but text naming a path on *this* machine names
-            nothing on the remote, so a path is re-rooted from its value alone:
+            A parameter is text to the tool, but text that names a path on this machine names
+            nothing on the remote. So a path is re-rooted from its value alone:
 
-            - under the design root, it keeps its place relative to the root. An existing file
-              is archived at that same place; a path with no file yet (an output) is only a
+            - Under the design root, it keeps its place relative to the root. An existing file
+              is archived at that same place. A path with no file yet (an output) is only a
               place for the remote to write. Counted relative to the root on both sides, the
               remote hashes the design exactly as this side did.
-            - elsewhere, an existing file is archived among the sources and repointed there.
+            - Elsewhere, an existing file is archived among the sources and repointed there.
 
-            Either way it travels as a table (`{ file = ... }`, `{ path = ... }`), which the
-            remote resolves against *its* design root rather than against whatever directory it
-            runs in. Anything else is a value, and travels as it is.
+            Either way it travels as a table (`{file: ...}`, `{path: ...}`), which the remote
+            resolves against its own design root and not against whatever directory it runs in.
+            Anything else is a value, and travels as it is.
             """
             parameters: Dict[str, Any] = {}
             for name, value in dv.parameters.items():
@@ -431,8 +440,9 @@ def send_design(
         new_design["rtl"] = rtl
         new_design["tb"] = tb
         # The remote does not receive the local project file. Materialize its merged flow
-        # sections into the shipped design so dependency flows see exactly the same settings as
-        # a local run; the explicit top-flow settings still take precedence on the remote CLI.
+        # sections into the shipped design, so that producers see exactly the same settings as
+        # in a local run. The explicit settings of the requested flow still take precedence on
+        # the remote command line.
         sections = dict(all_flows_settings) if all_flows_settings is not None else design.flow
 
         def packaged_path(value: Any) -> Any:
@@ -499,10 +509,8 @@ def send_design(
                 shipped_sections[name] = {key: rewritten[key] for key in model.model_fields_set}
         new_design["flow"] = shipped_sections
         with open(design_file, "w") as f:
-            # The same encoder `settings.json` uses: a pydantic model serializes through
-            # pydantic so its fields' serializers run. The chain this replaced probed `obj.json`
-            # and `obj.__json_encoder__`, both pydantic *v1* API -- in v2 `obj.json` is a
-            # deprecated bound method, which the encoder would have handed to `json` as a value.
+            # The encoder that `settings.json` uses: a pydantic model serializes through pydantic,
+            # so the serializers of its fields run.
             json.dump(new_design, f, default=json_encodable)
         with zipfile.ZipFile(zip_file, mode="w") as archive:
             for place, local in archive_entries.items():
@@ -520,7 +528,7 @@ def remote_runner(
     channel, remote_path, zip_file, flow, design_file, flow_settings, env=None, path_identities=None
 ):
     # pylint: disable=import-outside-toplevel,reimported,redefined-outer-name
-    """Unpack and execute a flow in the remote Python process."""
+    """Unpack the design archive and run the flow in the remote Python process."""
     import json
     import os
     import zipfile
@@ -531,8 +539,8 @@ def remote_runner(
         from xeda.flow_runner.outputs import handed_over
         from xeda.flow.flow import using_path_identities
     except ImportError:
-        # FIXME: we need to be able to create/use virtual env or change our remote approach
-        raise Exception("XEDA Python package not found. Please install it using pip.")
+        # FIXME: create or use a virtual environment, or change the remote approach.
+        raise Exception("The xeda Python package was not found. Install it with pip.")
 
     os.chdir(remote_path)
     if env:
@@ -544,11 +552,12 @@ def remote_runner(
     with zipfile.ZipFile(zip_file, mode="r") as archive:
         archive.extractall(path=remote_path)
 
-    # What the remote directory holds before the run -- every file's and directory's identity,
-    # size and times, on the remote's own file system -- so that a failed run's artifacts can be
-    # told from files that were already here if a worker lacks its write-reporting method
-    # (`Flow.wrote_output`). The directory is fresh, so this is the design
-    # archive's files; one it could not read proves nothing about what lies under it.
+    # What the remote directory holds before the run: the identity, size and times of every
+    # file and directory, on the own file system of the remote. With it, the artifacts of a
+    # failed run can be told from files that were already here, if a worker lacks its
+    # write-reporting method (`Flow.wrote_output`). The directory is new, so this is the files
+    # of the design archive. A directory that could not be read proves nothing about what lies
+    # under it.
     remote_root = os.path.realpath(remote_path)
     before: dict = {}
     unread: list = []
@@ -586,10 +595,10 @@ def remote_runner(
                 st.st_ctime_ns,
             )
 
-    # a run root of its own: the directory the archive was unpacked into holds its files
+    # A run root of its own: the directory that the archive was unpacked into holds its files.
     run_root = str(Path.cwd() / "xeda_run")
     # The protocol floor guarantees these settings: every run starts clean, in a directory named
-    # by its settings (`clean` implies `rebuild_all`).
+    # by its run hash (`clean` implies `rebuild_all`).
     launcher = DefaultRunner(
         run_root,
         backups=False,
@@ -598,10 +607,10 @@ def remote_runner(
         hashed_run_dirs=True,
         clean=True,
     )
-    # NOTE: this function's *source* is shipped to the remote host and executed
-    # there against a xeda satisfying the protocol floor. Live output streaming is set up
-    # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure
-    # stdlib, no xeda involvement) -- see `RemoteRunner.run_remote`.
+    # NOTE: the source of this function is shipped to the remote host and executed there
+    # against a Xeda that satisfies the protocol floor. Live output streaming is set up
+    # separately, at the file-descriptor level, by `STREAM_OUTPUT_SETUP` (pure standard
+    # library, with no Xeda involved). See `RemoteRunner.run_remote`.
     try:
         with using_path_identities(path_identities or {}):
             f = launcher.run(
@@ -611,17 +620,18 @@ def remote_runner(
                 flow_settings=flow_settings,
             )
     except Exception:
-        # The launcher records setup/dependency failures before re-raising. Return that document too;
-        # failures before a requested flow was constructed still surface as remote errors.
+        # The launcher records setup and producer failures before it raises again. Return that
+        # document too. Failures before a requested flow was constructed still surface as remote
+        # errors.
         f = launcher.launched[-1] if launcher.launched else None
         if f is None or f.name != flow or f.results.get("success") is not False:
             raise
     if f is not None and f.results.get("success"):
-        # Validate on the remote filesystem before any transfer can follow a tool's link.
+        # Validate on the remote file system before any transfer can follow a link of a tool.
         for output in f.results.get("outputs", {}):
             handed_over(f, output)
     # `json` raises on a key it cannot write (a tuple, a `Path`), which lost a run's results
-    # entirely. This runs against the remote's xeda, which may predate `utils.with_json_keys`,
+    # entirely. This runs against the Xeda of the remote, which may predate `utils.with_json_keys`,
     # so the same rule is spelled out here: an enum key is its value, any other key json cannot
     # write is its text, and keys that would share JSON text keep both values. In plain loops
     # over locals: execnet ships only this function's source, and refuses one with nested
@@ -661,12 +671,14 @@ def remote_runner(
     results = json.dumps(root[0], default=str, indent=1)
     channel.send(results)
 
-    # Which of a failed run's artifacts the run wrote, judged here, on the remote's own file
-    # system -- this side never compares its clock or its files with the remote's: by the
-    # remote flow's own record (`wrote_output`) where its xeda has one; otherwise, one under the
-    # remote directory whose identity it did not hold before the run, or whose state changed
-    # since. Anything else -- one outside it, or under a directory the snapshot could not
-    # read -- is unknown, and not vouched for: this side drops it. Named as in the results.
+    # Which of the artifacts of a failed run the run wrote. This is judged here, on the own
+    # file system of the remote, because this side never compares its clock or its files with
+    # the remote's. The own record of the remote flow (`wrote_output`) decides where its Xeda
+    # has one. Otherwise an artifact counts when it lies under the remote directory and its
+    # identity was not held before the run, or its state changed since. Anything else (an
+    # artifact outside the directory, or under a directory that the snapshot could not read)
+    # is unknown and not vouched for, and this side drops it. The names are those in the
+    # results.
     written = None
     if f is not None and not f.results.get("success"):
         written = []
@@ -727,8 +739,9 @@ def get_login_env(conn: Connection) -> Dict[str, str]:
 
 
 class RemoteLogger:
-    """Echoes data received from a remote output-forwarding execnet channel to a
-    local stream, live, as each message arrives."""
+    """A logger that echoes data received from a remote output-forwarding execnet channel.
+
+    It writes the data to a local stream, live, as each message arrives."""
 
     def __init__(self, stream: IO[str], label: str = "remote"):
         self.stream = stream
@@ -745,19 +758,19 @@ class RemoteLogger:
 # Executed on the remote host, in the gateway (worker) process, to stream the
 # flow's output back live.
 #
-# It takes over the worker's stdout/stderr *file descriptors* (1 and 2) rather
-# than the Python-level `sys.stdout`/`sys.stderr` objects, because that is what
-# a spawned EDA tool actually inherits. execnet's own bootstrap
+# It takes over the file descriptors of the worker's stdout and stderr (1 and 2),
+# and not the Python-level `sys.stdout` and `sys.stderr` objects, because that is
+# what a spawned EDA tool actually inherits. The own bootstrap of execnet
 # (`execnet.gateway_base.init_popen_io`) has already `dup`ed the real fd 1 aside
-# for its wire protocol and pointed fd 1 at /dev/null, so fds 1/2 are free for
-# us to claim -- and anything the flow writes to them, directly or from any
-# subprocess it spawns, then lands in our pty and is forwarded here line by
-# line as it is produced.
+# for its wire protocol and pointed fd 1 at /dev/null, so fds 1 and 2 are free to
+# claim. Anything the flow writes to them, directly or from any subprocess it
+# spawns, then lands in the pty and is forwarded here line by line as it is
+# produced.
 #
-# IMPORTANT: this runs against whatever xeda happens to be installed on the
+# IMPORTANT: this runs against whatever Xeda happens to be installed on the
 # remote host, which may be older than the local one. It therefore uses only
 # the standard library and must stay free of any xeda import, so that live
-# output streaming never depends on the remote xeda version.
+# output streaming never depends on the version of Xeda on the remote.
 STREAM_OUTPUT_SETUP = r"""
 import os
 import sys
@@ -778,8 +791,8 @@ def _open_stream_pair():
         # Turn off output post-processing entirely, so the pty cannot rewrite
         # what the tool wrote (by default it would at least turn every '\n'
         # into '\r\n'). We want it to look like a terminal purely so tools keep
-        # line-buffering -- the bytes themselves must come through untouched,
-        # so what you see locally is what the tool actually printed.
+        # line-buffering. The bytes themselves must come through untouched,
+        # so that what you see locally is what the tool actually printed.
         attrs = termios.tcgetattr(write_fd)
         attrs[1] &= ~termios.OPOST
         termios.tcsetattr(write_fd, termios.TCSANOW, attrs)
@@ -793,11 +806,11 @@ def _pump(read_fd, out_channel):
     # after a '\n' the cursor is already at the start of a line. Drop those, so
     # each line of remote output renders as exactly one line here.
     #
-    # This has to happen on this side of the wire rather than in the remote's
-    # xeda: the remote may be running an older xeda whose `run_process` prints
+    # This has to happen on this side of the wire and not in the Xeda of the
+    # remote: the remote may run an older Xeda whose `run_process` prints
     # each already-newline-terminated line with `end="\r"`, emitting "\n\r" per
-    # line -- which is what made every line of tool output come out with a
-    # blank line after it. We cannot patch the xeda installed over there, but
+    # line, which made every line of tool output come out with a
+    # blank line after it. The Xeda installed over there cannot be patched, but
     # this code is shipped from here, so it works against any remote version.
     #
     # A LONE '\r' is left untouched: tools use it to redraw a progress line in
@@ -871,9 +884,9 @@ class RemoteRunner(FlowLauncher):
     class Settings(FlowLauncher.Settings):
         clean: bool = True
         backups: bool = False
-        #: always: each settings variant's results are mirrored in a directory of its own,
-        #: `<design>/<flow>_<flowrun_hash>`, which no remote run of other settings shares, nor a
-        #: local run in the default layout
+        #: Always true. The results of each run hash are mirrored in a directory of their own
+        #: (`<design>/<flow>_<flowrun_hash>`), which no remote run with other settings shares,
+        #: and no local run in the default layout.
         hashed_run_dirs: Literal[True] = True
 
     @with_debug_logging
@@ -890,22 +903,23 @@ class RemoteRunner(FlowLauncher):
         design_allow_extra: bool = False,
         target: str | None = None,
     ):
-        """Execute a design flow remotely and return its results. `target` selects one of the
-        design's `targets` here, before anything ships: the remote is sent the design the
-        target yields."""
-        # nothing is loaded yet: a request that fails before its design loads reports none
+        """Run a flow of a design remotely and return its results.
+
+        `target` selects one of the `targets` of the design here, before anything ships: the
+        remote is sent the design that the target yields."""
+        # Nothing is loaded yet: a request that fails before its design loads reports none.
         self.target = None
         self.design_name = None
-        # A chain, and an input binding of the requested node, are local requests: refused first,
-        # as `dse` refuses them, before the design is loaded, which may clone a git dependency
-        # into the run root or fail on a design file that is missing.
+        # A chain, and an input binding of the requested node, are local requests. They are
+        # refused first, as `dse` refuses them, before the design is loaded, which may clone a
+        # Git dependency into the run root or fail on a design file that is missing.
         self._refuse_unaccepted_request(flow_name, flow_settings or [], {}, xedaproject)
         if target is not None and isinstance(design, Design):
             raise ValueError(
                 f"target {target!r} was asked for, but the design is already built: select "
                 "the target where the design is loaded (`Design.from_file(..., target=...)`)"
             )
-        # the design file given, when `design` names one: never an output's destination
+        # The design file given, when `design` names one: never the destination of an output.
         given_file = Path(design) if isinstance(design, (str, Path)) else None
         if design_overrides is None:
             design_overrides = {}
@@ -913,16 +927,17 @@ class RemoteRunner(FlowLauncher):
             design_overrides = settings_to_dict(list(design_overrides))
 
         def load(design: Union[str, Path, Design]) -> tuple[Design, Optional[Path], Any]:
-            """The design and the project's flow sections, loaded as a local launch loads
-            them."""
+            """Return the design and the flow sections of the project.
+
+            They are loaded as a local launch loads them."""
             project_path: Optional[Path] = None
             project_flow_settings: Mapping[str, Any] | None = None
-            # As a local launch does: a git dependency without a directory of its own is cloned
+            # As a local launch does: a Git dependency without a directory of its own is cloned
             # into the run root, which is asked for only then.
-            # A remote flow is always executed fresh remotely (`clean=True`), but the local
-            # design generator is loaded before shipping and follows the caller's explicit
-            # rebuild request. Do not let RemoteRunner's default clean setting force it on every
-            # remote invocation.
+            # A remote flow always runs from a clean directory on the remote (`clean=True`),
+            # but the local design generator is loaded before shipping and follows the explicit
+            # rebuild request of the caller. Do not let the default `clean` setting of
+            # RemoteRunner force it on every remote invocation.
             with loading_in_run_root(self.load_run_root, self.settings.rebuild_all):
                 if isinstance(design, (str, Path)):
                     design_path = Path(design)
@@ -957,7 +972,8 @@ class RemoteRunner(FlowLauncher):
                         design = selected
                     else:
                         raise FileNotFoundError(
-                            f"Design file {design_path} does not exist and no xedaproject was found"
+                            f"Design file {design_path} does not exist and no project file was "
+                            "found"
                         )
                 else:
                     project_path = resolve_project_file(xedaproject)
@@ -978,7 +994,7 @@ class RemoteRunner(FlowLauncher):
             """Compose, resolve and check the request before anything is shipped."""
             self.target = design.target
             self.design_name = design.name
-            # where a project's settings come from, named in messages even when there is none
+            # Where a project's settings come from, named in messages even when there is none.
             project_label = project_path or Path(PROJECT_FILE_NAMES[0])
             flow_class = get_flow_class(flow_name)
             flow_name = flow_class.name
@@ -1033,10 +1049,10 @@ class RemoteRunner(FlowLauncher):
                 **{node.name: as_recorded(node.settings) for node in plan.nodes},
             }
             flow_settings = as_recorded(input_settings)
-            # Hashed exactly as a local run would be, from the validated settings.
-            # Here, not on the remote: a path the flow writes that leads out of its run directory, a
-            # missing setting, and a design the flow cannot run are known before anything is
-            # shipped -- and a remote on an older release may not check them.
+            # Hashed exactly as a local run would be, from the validated settings. Checked here
+            # and not on the remote: a path that the flow writes and that leads out of its run
+            # directory, a missing setting, and a design that the flow cannot run are known
+            # before anything is shipped, and a remote on an older release may not check them.
             problems = written_path_problems(input_settings)
             if problems:
                 raise FlowSettingsError(
@@ -1052,12 +1068,13 @@ class RemoteRunner(FlowLauncher):
                     f"`{key}` names a location ({path}): with --remote, leave it a name in the run "
                     "directory (or unset) and receive the outputs with --outputs-to DIR"
                 )
-            # the output names, checked as a local launch checks them: none xeda keeps (the remote's
-            # own `results.json`), no two outputs under one name; no location is left to split
+            # The output names, checked as a local launch checks them: none that Xeda keeps (the
+            # `results.json` of the remote itself), no two outputs under one name. No location is
+            # left to split.
             split_deliveries(input_settings, design.name)
             outputs_to = self.settings.outputs_to
             if outputs_to is not None:
-                # before the mirror, the run root or a connection, as a local launch refuses it
+                # Before the mirror, the run root or a connection, as a local launch refuses it.
                 refuse_outputs_to_a_programmer(plan, plan.node(flow_name), outputs_to, remote=True)
             return flow_class, flow_name, plan, input_settings, sections
 
@@ -1086,17 +1103,17 @@ class RemoteRunner(FlowLauncher):
         # request, and its `flow_hash` is compared with this one.
         flowrun_hash = plan.node(flow_name).flowrun_hash
         settings_hash = plan.node(flow_name).settings_hash
-        # as a local run counts the design: by the parts and source types the flow reads
+        # As a local run counts the design: by the parts and source types that the flow reads.
         design_hash = design.parts_hash(
             flow_class.design_parts, flow_class.design_scope(plan.node(flow_name).settings)
         )
         outputs_to = self.settings.outputs_to
-        # the local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
-        # (`Settings.hashed_run_dirs`), so its delivery record is this settings variant's
+        # The local mirror: always `<design>[/<target>]/<flow>_<flowrun_hash>`
+        # (`Settings.hashed_run_dirs`), so its delivery record belongs to this run hash.
         run_path = self.get_flow_run_path(
             design.name, flow_name, flowrun_hash, target=design.target
         )
-        # every input this side can name, as a local launch has them: never a destination
+        # Every input that this side can name, as a local launch has them: never a destination.
         launch_inputs = [
             path.resolve()
             for path in (given_file, project_path)
@@ -1118,10 +1135,10 @@ class RemoteRunner(FlowLauncher):
             confirm=self.confirm_overwrite,
         )
         previous = recorded_artifacts(run_path / "results.json")
-        # the directory itself, not only a file predicted from the last run's artifacts: as on a
-        # local launch, a location becomes a concrete `Delivery` only once its tool has run and
-        # reported an artifact, so without this a run root or an input named by `--outputs-to` is
-        # refused only after the remote run has already completed
+        # The directory itself, not only a file predicted from the artifacts of the last run.
+        # As on a local launch, a location becomes a concrete `Delivery` only once its tool has
+        # run and reported an artifact. Without this check, a run root or an input named by
+        # `--outputs-to` is refused only after the remote run has already completed.
         delivery.check_outputs_to(outputs_to)
         delivery.check(outputs_to_deliveries(previous, run_path / "artifacts", outputs_to))
 
@@ -1134,8 +1151,8 @@ class RemoteRunner(FlowLauncher):
         )
         conn = Connection(host=host, user=user, port=port)
         with contextlib.ExitStack() as connected:
-            # however the run ends -- a refused delivery, a failed fetch -- the gateway, then the
-            # connection, is closed
+            # However the run ends, be it a refused delivery or a failed fetch, the gateway is
+            # closed, then the connection.
             connected.callback(conn.close)
             log.info("logging in...")
             remote_env = get_login_env(conn)
@@ -1150,8 +1167,8 @@ class RemoteRunner(FlowLauncher):
             remote_xeda_run = remote_xeda / "remote_run"
             if not Transfer(conn).is_remote_dir(str(remote_xeda_run)):
                 conn.sftp().mkdir(str(remote_xeda_run))
-            # use a timestamped subdirectory to avoid any race conditions and also have the
-            # chronology clear
+            # Use a timestamped subdirectory to avoid any race conditions and also have the
+            # chronology clear.
             remote_path = str(remote_xeda_run / datetime.now().strftime("%y%m%d%H%M%S%f"))
             if not Transfer(conn).is_remote_dir(remote_path):
                 conn.sftp().mkdir(remote_path)
@@ -1174,8 +1191,8 @@ class RemoteRunner(FlowLauncher):
             }
             gw = execnet.makegateway("//".join([f"{k}={v}" for k, v in spec.items()]))
             connected.callback(gw.exit)
-            # `python` is resolved by the remote's *non-login* shell; `env:PATH` above is applied
-            # only once that interpreter runs. So which xeda answers is not a given: ask.
+            # `python` is resolved by the non-login shell of the remote. `env:PATH` above is
+            # applied only once that interpreter runs. So which Xeda answers is not a given: ask.
             (
                 platform,
                 version_info,
@@ -1187,15 +1204,14 @@ class RemoteRunner(FlowLauncher):
             version_info_str = ".".join(str(v) for v in version_info)
             log.info("Remote host:%s (%s python:%s)", host, platform, version_info_str)
             log.info(
-                "Remote xeda: %s at %s (%s), protocol %s",
+                "Remote Xeda: %s at %s (%s), protocol %s",
                 remote_xeda,
                 remote_xeda_at,
                 remote_python,
                 remote_protocol,
             )
-            # The remotely executed worker is this installed xeda package, so its interpreter
-            # must satisfy the same floor as pyproject.toml rather than a historical
-            # transport-only floor.
+            # The worker that runs remotely is this installed xeda package, so its interpreter
+            # must satisfy the same floor as pyproject.toml, and not a floor for transport only.
             check_remote_python(version_info)
             check_remote_xeda(remote_xeda, remote_xeda_at, remote_python, remote_protocol)
 
@@ -1240,7 +1256,7 @@ class RemoteRunner(FlowLauncher):
             results = None
             written_on_remote = None
 
-            # Stream the remote flow's output (its own, and that of every tool it
+            # Stream the output of the remote flow (its own, and that of every tool it
             # spawns) back to this terminal live, line by line, as it is produced.
             stream_channel = gw.remote_exec(STREAM_OUTPUT_SETUP)
             outchan, errchan = stream_channel.receive()
@@ -1265,17 +1281,16 @@ class RemoteRunner(FlowLauncher):
                     results_str = results_channel.receive()
                     if results_str:
                         results = json.loads(results_str)
-                    # then which of a failed run's artifacts the remote vouches its run wrote
+                    # Then which of the artifacts of a failed run the remote vouches its run wrote.
                     written_on_remote = json.loads(results_channel.receive())
                 results_channel.waitclose()
             except execnet.gateway_base.RemoteError as e:
                 log.critical("Remote exception: %s", e.formatted)
             finally:
-                # Tear the redirection down and wait for the remote pumps to drain,
-                # so trailing output can't be lost -- and so it can't land in the
-                # middle of the results table printed below. Best-effort: if the
-                # remote died, teardown will fail too, and that must not mask the
-                # actual failure.
+                # Tear the redirection down and wait for the remote pumps to drain, so that
+                # trailing output cannot be lost, and cannot land in the middle of the results
+                # table printed below. This is best effort: if the remote died, the teardown
+                # fails too, and that must not mask the actual failure.
                 try:
                     stream_channel.send("stop")
                     stream_channel.receive()
@@ -1286,8 +1301,9 @@ class RemoteRunner(FlowLauncher):
             if results:
                 if (
                     results.get("success")
-                    # the remote's `flow_hash` is its node's identity: another one means it
-                    # resolved another configuration of this flow or of one of its producers
+                    # The `flow_hash` of the remote is the identity of its node. Another one means
+                    # that it resolved another configuration of this flow or of one of its
+                    # producers.
                     and results.get("flow_hash") != flowrun_hash
                 ):
                     raise RemoteIncompatible("The remote resolved a different request identity")
@@ -1300,8 +1316,8 @@ class RemoteRunner(FlowLauncher):
                 artifacts = results.get("artifacts")
                 remote_run_path = results.get("run_path")
                 if not results.get("success"):
-                    # Partial records from MissingOutput are not a successful hand-over.
-                    # Failed-run diagnostics still travel through the vouched artifact path.
+                    # Partial records from MissingOutput are not a successful hand-over. The
+                    # diagnostics of a failed run still travel through the vouched artifact path.
                     results.pop("outputs", None)
                 declared = results.get("outputs") or {}
                 output_paths = [str(path) for path in declared_output_files(results)]
@@ -1371,13 +1387,15 @@ class RemoteRunner(FlowLauncher):
                                 )
                             entry["path"] = str(local_output)
 
-                # the remote run_path no longer exists locally; report the local copy's path instead
+                # The remote run_path does not exist locally. Report the path of the local copy
+                # instead.
                 if "run_path" in results:
                     results["run_path"] = str(run_path)
 
                 dump_json(results, results_json_path, backup=True)
                 log.info("Results written to %s", results_json_path)
-                # after the mirror's records are whole: a refused delivery leaves them as they are
+                # After the records of the mirror are whole: a refused delivery leaves them as they
+                # are.
                 self._deliver_fetched(
                     delivery, results, remote_deliverables, remote_run_path, local_artifacts_dir
                 )
@@ -1391,9 +1409,11 @@ class RemoteRunner(FlowLauncher):
         remote_run_path: Optional[str],
         local_artifacts_dir: Path,
     ) -> None:
-        """`--outputs-to` from the artifacts fetched into `local_artifacts_dir`, named by their
-        paths in the remote run directory -- only for a run that succeeded: a failed run's files
-        never replace xeda's earlier copies. What was delivered goes into `results`."""
+        """Deliver `--outputs-to` from the artifacts fetched into `local_artifacts_dir`.
+
+        The artifacts are named by their paths in the remote run directory. Only a run that
+        succeeded delivers: the files of a failed run never replace earlier copies made by
+        Xeda. What was delivered goes into `results`."""
         outputs_to = self.settings.outputs_to
         if outputs_to is None or not remote_run_path or not remote_artifacts:
             return
@@ -1407,7 +1427,7 @@ class RemoteRunner(FlowLauncher):
         except Exception:
             # As `_finish_launch` does for a local run: `deliver()` records, and reports through
             # `delivery.delivered`, whatever it copied before raising (an `OSError` partway
-            # through), so `results["deliveries"]` -- what a `--json` reader sees -- still lists
+            # through). So `results["deliveries"]`, which a `--json` reader sees, still lists
             # the copies that actually reached disk before the error propagates.
             results["deliveries"] = [d.as_json_value() for d in delivery.delivered]
             raise

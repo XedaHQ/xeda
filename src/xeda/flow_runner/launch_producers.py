@@ -1,7 +1,8 @@
 """The producers stage of a launch: run what the plan says feeds a flow, and hand its files over.
 
-Free functions with explicit arguments. This module never imports `default_runner`: the launcher
-passes in what it needs, and `LaunchFlow` and `ReadLease` type the two calls it makes back.
+The functions are free functions with explicit arguments. This module never imports
+`default_runner`: the launcher passes in what it needs, and `LaunchFlow` and `ReadLease` type the
+two calls that it makes back.
 """
 
 from __future__ import annotations
@@ -26,8 +27,9 @@ from .trace_inputs import declared_input_files
 
 
 class LaunchFlow(Protocol):
-    """`FlowLauncher.launch_flow`: how a producer is launched, through the one procedure that
-    every flow goes through."""
+    """The type of `FlowLauncher.launch_flow`, the one procedure that every flow goes through.
+
+    The launcher uses it to launch a producer."""
 
     def __call__(
         self,
@@ -43,8 +45,9 @@ class LaunchFlow(Protocol):
 
 
 class ReadLease(Protocol):
-    """`FlowLauncher._producer_read_lease`: a lease on a completed producer, held until the
-    launch ends."""
+    """The type of `FlowLauncher._producer_read_lease`.
+
+    It gives a lease on a completed producer, held until the launch ends."""
 
     def __call__(self, producer: Flow) -> AbstractContextManager[Flow]: ...
 
@@ -53,7 +56,9 @@ class ReadLease(Protocol):
 def producer_read_lease(
     producer: Flow, run_root: Path, completed_runs: Mapping[Path, tuple[Flow, CompletedRun]]
 ) -> Iterator[Flow]:
-    """Verify the completed generation under SH before any consumer can read its files."""
+    """Take a shared read lock on the run directory of a producer, and verify the completed run.
+
+    A consumer may read the files of the producer only after that."""
     with ExitStack() as lease:
         try:
             lease.enter_context(run_dir_read_lock(producer.run_path, run_root))
@@ -86,8 +91,11 @@ def run_producers(
     read_inputs: ReadInputs,
     entered: Callable[[Path], bool],
 ) -> list[Flow]:
-    """Materialize exactly the planned inputs; never choose another producer here. The
-    producers whose files the flow was handed, each once, in the order they completed."""
+    """Launch the producers of the planned inputs and hand their files to `flow`.
+
+    This function materializes exactly the planned inputs and never chooses another producer.
+    It returns the producers whose files the flow was handed, each once, in the order they
+    completed."""
     consumed_from: list[Flow] = []
     records = []
     declarations = declared_inputs(type(flow))
@@ -96,8 +104,8 @@ def run_producers(
         producers: list[Flow] = []
         entries: list[tuple[OutputEntry, ...]] = []
         paths = list(selected.sources)
-        # the ordered references of the plan: each producer launched once per plan,
-        # its files handed over by the frozen output key, concatenated in reference order
+        # The ordered references of the plan: each producer launched once per plan,
+        # its files handed over by the frozen output key, concatenated in reference order.
         for reference in selected.references:
             producer_node = plan.node(reference.node)
             key = (id(plan), producer_node.node_key)
@@ -140,7 +148,7 @@ def run_producers(
             if not produced or not set(produced) <= set(accepted):
                 raise FlowDependencyFailure(
                     f"{flow.name}.{selected.name}: {producer.name}.{reference.output} "
-                    "has no compatible output for the selected target"
+                    "has no compatible output under the selected settings"
                 )
             paths.extend(handed_over(producer, reference.output))
             entries.append(handed_entries(producer, reference.output))

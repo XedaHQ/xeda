@@ -1,4 +1,4 @@
-"""EDA flow abstraction"""
+"""The `Flow` base class, its settings model and errors, and the registry of flows."""
 
 from __future__ import annotations
 
@@ -31,7 +31,6 @@ from typing import (
     get_origin,
 )
 
-# from attrs import define
 import jinja2
 from box import Box
 from jinja2 import ChoiceLoader, PackageLoader, StrictUndefined
@@ -129,7 +128,7 @@ DictStrPath = Dict[str, Union[str, os.PathLike]]
 
 
 def _is_path_annotation(annotation: Any) -> bool:
-    """Whether one annotation leaf represents a filesystem path."""
+    """Return whether one annotation leaf stands for a path."""
     return annotation in (Path, os.PathLike) or get_origin(annotation) is os.PathLike
 
 
@@ -143,7 +142,9 @@ def _annotation_contains_path(annotation: Any) -> bool:
 
 
 def _is_optional_path(annotation: Any) -> bool:
-    """An optional path setting that takes no plain text: `""` can only mean it is unset."""
+    """Return whether `annotation` is an optional path that accepts no plain text.
+
+    Then an empty string can only mean that the setting is unset."""
     if get_origin(annotation) not in (Union, UnionType):
         return False
     members = get_args(annotation)
@@ -155,7 +156,9 @@ def _is_optional_path(annotation: Any) -> bool:
 
 
 def _annotation_matches_value(annotation: Any, value: Any) -> bool:
-    """Best-effort matching used to select a container branch of a Union before validation."""
+    """Return whether `value` fits `annotation`, as a best effort.
+
+    The check picks the branch of a union before validation."""
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is Annotated:
@@ -192,7 +195,9 @@ def _annotation_matches_value(annotation: Any, value: Any) -> bool:
 
 
 def _is_comma_separated_list(annotation: Any) -> bool:
-    """A list setting that does not also accept a plain string, so a string must be a list."""
+    """Return whether `annotation` is a list that accepts no plain string.
+
+    Text given for such a setting is a comma-separated list."""
     accepted = annotation_args(annotation)
     return str not in accepted and any((get_origin(a) or a) is list for a in accepted)
 
@@ -200,8 +205,10 @@ def _is_comma_separated_list(annotation: Any) -> bool:
 def _list_literal_error(
     model: type, refused: Sequence[Tuple[str, ListLiteralText | WaveformText, Any]]
 ) -> ValidationError:
-    """The validation error of `model` for the list settings `refused`, each a `(key, error,
-    value)`: one error per setting, so that every one is reported at once."""
+    """Return the validation error of `model` for the list settings in `refused`.
+
+    Each item of `refused` is a `(key, error, value)`. The error holds one entry per setting, so
+    that every refusal is reported at once."""
     return ValidationError.from_exception_data(
         model.__name__,
         [
@@ -212,13 +219,12 @@ def _list_literal_error(
 
 
 def map_path_leaves(value: Any, annotation: Any, fn: Callable[[Any], Any]) -> Any:
-    """Apply `fn` at every path-typed leaf of `value`, walked according to its *annotation*
-    rather than by value alone.
+    """Apply `fn` at every path-typed leaf of `value`, walked by its annotation.
 
-    A container must be traversed according to its annotation rather than by value alone: in
-    ``lib_paths``, for example, the first tuple member is a library name while only the second is
-    a path. Treating every string as a path would corrupt names containing ``$`` (path expansion)
-    or match a library name against a same-named file (a trace's inputs).
+    A container must be walked by its annotation and not by value alone. In `lib_paths`, for
+    example, the first tuple member is a library name and only the second is a path. Treating
+    every string as a path would corrupt names that contain `$` (path expansion) and could match
+    a library name against a file of the same name (a trace's inputs).
     """
     return map_keyed_path_leaves(value, annotation, lambda _key, leaf: fn(leaf))
 
@@ -226,9 +232,11 @@ def map_path_leaves(value: Any, annotation: Any, fn: Callable[[Any], Any]) -> An
 def map_keyed_path_leaves(
     value: Any, annotation: Any, fn: Callable[[str, Any], Any], key: str = ""
 ) -> Any:
-    """`map_path_leaves`, the one traversal, with `fn` also given each leaf's key path below
-    `key`: `[i]` for an item of a list or tuple, `[k]` for the value under a dict's key `k`
-    (`lib_paths[0][1]`: the path half of the first library)."""
+    """Apply `fn` at every path-typed leaf of `value`, and give it the key path of the leaf.
+
+    This is the one traversal; `map_path_leaves` calls it. The key path of a leaf lies below
+    `key`: `[i]` is an item of a list or tuple, and `[k]` is the value under the key `k` of a
+    dict (`lib_paths[0][1]` is the path half of the first library)."""
     origin = get_origin(annotation)
     args = get_args(annotation)
     if origin is Annotated:
@@ -271,7 +279,9 @@ def map_keyed_path_leaves(
 
 
 def _nested_models(value: Any, key: str) -> list[tuple[str, BaseModel]]:
-    """The models inside `value` (itself, a mapping's values, a list's items), by key path."""
+    """Return the models inside `value`, by key path.
+
+    The models are `value` itself, the values of a mapping, or the items of a list."""
     if isinstance(value, BaseModel):
         return [(key, value)]
     if isinstance(value, Mapping):
@@ -282,8 +292,10 @@ def _nested_models(value: Any, key: str) -> list[tuple[str, BaseModel]]:
 
 
 class WrittenLeaf(NamedTuple):
-    """A path leaf of a setting the flow writes: its key path (`cocotb.results_xml`), its role,
-    its value, and the model and field it belongs to."""
+    """A path leaf of a setting that the flow writes.
+
+    It holds the key path (`cocotb.results_xml`), the role, the value, and the model and field
+    that the leaf belongs to."""
 
     key: str
     role: str
@@ -298,9 +310,10 @@ def map_written_leaves(
     *,
     prefix: str = "",
 ) -> None:
-    """Call `fn` at every path leaf of every field whose paths the flow writes (`written_role`),
-    in `model` and the models nested in it, walked by declared shape (`map_keyed_path_leaves`);
-    assign each field back whose leaves `fn` changed."""
+    """Call `fn` at every path leaf of every field whose paths the flow writes (`written_role`).
+
+    The walk covers `model` and the models nested in it, by declared shape
+    (`map_keyed_path_leaves`). A field whose leaves `fn` changed is assigned back."""
     for name, info in type(model).model_fields.items():
         value = getattr(model, name)
         role = written_role(type(model), name)
@@ -320,18 +333,22 @@ def map_written_leaves(
 
 
 def output_name(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
-    """The conventional name of the deliverable `leaf` belongs to, for the design `design`:
-    what its flow's settings say (`Flow.Settings.conventional_output`), or its marker."""
+    """Return the conventional name of the deliverable that `leaf` belongs to, for `design`.
+
+    The name comes from the settings of the flow (`Flow.Settings.conventional_output`) or from
+    the marker of the field."""
     if isinstance(leaf.owner, Flow.Settings):
         return leaf.owner.conventional_output(leaf.field, design)
     return conventional_output(type(leaf.owner), leaf.field, design)
 
 
 def is_conventional_template(leaf: WrittenLeaf) -> bool:
-    """Whether `leaf` is the conventional name of its deliverable setting, still holding `{design}`
-    (`true` for the waveform `saif`, named `outputs/{design}.saif`). It stands for the output the
-    run writes, as a location does; the design's name is written into it where the run writes the
-    file (`resolve_conventional_templates`). One rule for every deliverable."""
+    """Return whether `leaf` is the conventional name of its deliverable, still holding `{design}`.
+
+    For the waveform `saif`, the value `true` stands for `outputs/{design}.saif`. Such a value
+    stands for the output that the run writes, as a location does. The name of the design goes
+    into it where the run writes the file (`resolve_conventional_templates`). The rule is the
+    same for every deliverable."""
     name = output_name(leaf, "{design}")
     return (
         name is not None
@@ -342,15 +359,19 @@ def is_conventional_template(leaf: WrittenLeaf) -> bool:
 
 
 def resolved_template(leaf: WrittenLeaf, design: str) -> Optional[PurePath]:
-    """The name for the design `design` that `leaf` stands for when it is the conventional
-    template (`is_conventional_template`); None for any other value."""
+    """Return the name for `design` that `leaf` stands for when it is the conventional template.
+
+    Return None for any other value (`is_conventional_template`)."""
     return output_name(leaf, design) if is_conventional_template(leaf) else None
 
 
 def resolve_conventional_templates(settings: "Flow.Settings", design: str) -> None:
-    """In place: each deliverable that is its conventional template becomes the name for
-    the design `design`. The launcher does it with the deliveries (`deliver.split_deliveries`),
-    and a flow built directly does it when it is made, so the path a flow writes is the same."""
+    """Replace, in place, each deliverable that is its conventional template by its name.
+
+    The name is the one for `design`.
+
+    The launcher does this with the deliveries (`deliver.split_deliveries`). A flow built
+    directly does it when it is made, so the path that a flow writes is the same."""
 
     def fill(written: WrittenLeaf) -> Any:
         name = resolved_template(written, design)
@@ -360,10 +381,11 @@ def resolve_conventional_templates(settings: "Flow.Settings", design: str) -> No
 
 
 def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
-    """What is wrong with the paths `settings` says the flow writes, as
-    `(key path, message)`: a working location that is not a name inside the run directory, a
-    deliverable name that leaves it, and a variable that is not expanded (`$CWD`: the start
-    directory is `$PWD`)."""
+    """Return what is wrong with the paths that `settings` says the flow writes.
+
+    Each problem is a `(key path, message)` pair. The problems are a working location that is
+    not a name inside the run directory, a deliverable name that leaves it, and a variable that
+    is not expanded (`$CWD`: the start directory is `$PWD`)."""
     problems: list[tuple[str, str]] = []
 
     def check(written: WrittenLeaf) -> Any:
@@ -376,18 +398,18 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
             name = variable.group(1) if variable else "$"
             if name in PATH_VARIABLES:
                 message = (
-                    f"`{key}` = {text}: ${name} was not expanded here -- a value assigned to a "
-                    "nested model after the settings were made: give an absolute path, or give "
+                    f"`{key}` = {text}: ${name} was not expanded here. The value was assigned to "
+                    "a nested model after the settings were made. Give an absolute path, or give "
                     "it with the settings (-s, the design file, the API's flow settings)"
                 )
             else:
                 names = [f"${variable}" for variable in PATH_VARIABLES]
                 hint = (
-                    "use $PWD, the directory xeda was started from"
+                    "use $PWD, the directory Xeda was started from"
                     if name == "CWD"
                     else f"the variables are {', '.join(names[:-1])} and {names[-1]}"
                 )
-                message = f"`{key}` = {text}: ${name} is not a variable xeda knows: {hint}"
+                message = f"`{key}` = {text}: ${name} is not a variable Xeda knows: {hint}"
             problems.append((key, message))
         elif role == WORKING_ROLE and (
             path.is_absolute() or ".." in path.parts or text.startswith("~")
@@ -422,8 +444,10 @@ def written_path_problems(settings: "Flow.Settings") -> list[tuple[str, str]]:
 
 
 def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
-    """The plain model -- not a flow's settings, which normalize their own input -- that
-    `annotation` names, directly or as `Optional[...]`: `CocotbSettings`, `CxxRtl`."""
+    """Return the plain model that `annotation` names, directly or as `Optional[...]`.
+
+    Examples are `CocotbSettings` and `CxxRtl`. The settings of a flow are no plain model: they
+    normalize their own input."""
     origin = get_origin(annotation)
     if origin is Annotated:
         return _plain_model(get_args(annotation)[0])
@@ -440,9 +464,10 @@ def _plain_model(annotation: Any) -> Optional[type[BaseModel]]:
 
 
 def _expand_model_paths(value: Any, model: type[BaseModel], overrides: Dict[str, Any]) -> Any:
-    """The path variables of a plain nested model expanded: in a mapping, by each key's field
-    (`input_names`); in an instance, in a deep copy of it (the caller's stays as it is), made
-    only when a field changes."""
+    """Return `value` with the path variables of a plain nested model expanded.
+
+    In a mapping, the field of each key decides (`input_names`). An instance is copied deeply,
+    and only when a field changes, so the caller's instance stays as it is."""
     if isinstance(value, Mapping):
         names = input_names(model)
         return {
@@ -470,12 +495,14 @@ def _expand_model_paths(value: Any, model: type[BaseModel], overrides: Dict[str,
 
 
 def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) -> Any:
-    """Expand variables only at path-typed leaves, including nested containers and the path
-    fields of a plain model nested in a setting (`_plain_model`: `cocotb.results_xml`).
+    """Expand variables at the path-typed leaves of `value` only.
 
-    A container must be traversed according to its annotation rather than by value alone: in
-    ``lib_paths``, for example, the first tuple member is a library name while only the second is
-    a path. Treating every string as a path would corrupt names containing ``$``.
+    The leaves include those of nested containers and the path fields of a plain model nested in
+    a setting (`_plain_model`: `cocotb.results_xml`).
+
+    A container must be walked by its annotation and not by value alone. In `lib_paths`, for
+    example, the first tuple member is a library name and only the second is a path. Treating
+    every string as a path would corrupt names that contain `$`.
     """
 
     def expand(leaf: Any) -> Any:
@@ -486,7 +513,8 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     expanded = map_path_leaves(value, annotation, expand)
     model = _plain_model(annotation)
     if model is None or expanded is None:
-        # a mapping or a list of plain models (an `AsicsPlatform`'s `corner`): each model's own
+        # A mapping or a list of plain models (the `corner` of an `AsicsPlatform`): each model
+        # expands its own paths.
         origin, args = get_origin(annotation), get_args(annotation)
         if origin is dict and len(args) == 2 and _plain_model(args[1]) is not None:
             if isinstance(expanded, Mapping):
@@ -504,11 +532,13 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
 def identity_settings(
     settings: "Flow.Settings", design_name: Optional[str] = None
 ) -> "Flow.Settings":
-    """`settings` as a run's identity sees them: a copy in which every deliverable is the name
-    the run writes it under in its run directory (`output_name`). One given as a location is its
-    conventional name, and so is one that is written always (`deliverable(always=True)`) and
-    left unset. Where an output is delivered, and what it is called there, is never part of what
-    the run is. Without `design_name`, `{design}` stays as written."""
+    """Return a copy of `settings` as the identity of a run sees them.
+
+    In the copy, every deliverable has the name that the run writes it under in its run
+    directory (`output_name`). That holds for a deliverable given as a location, and for one that
+    the flow always writes (`deliverable(always=True)`) and that is unset. Where an output is
+    delivered, and what it is called there, is no part of the run. Without `design_name`,
+    `{design}` stays as written."""
     copy = settings.model_copy(deep=True)
     design = design_name if design_name is not None else "{design}"
 
@@ -527,8 +557,9 @@ def identity_settings(
 
 
 def _name_unset_outputs(model: BaseModel, design: str, prefix: str = "") -> None:
-    """In place: each deliverable of `model`, and of the models nested in it, that the flow
-    writes always and that is unset, is its conventional name."""
+    """Set, in place, each unset deliverable that the flow always writes to its conventional name.
+
+    The deliverables are those of `model` and of the models nested in it."""
     for name in type(model).model_fields:
         value = getattr(model, name)
         if written_role(type(model), name) == DELIVERABLE_ROLE:
@@ -547,17 +578,21 @@ _path_identities: ContextVar[Mapping[str, str]] = ContextVar("path_identities", 
 
 
 def _canonical_path(text: str) -> str:
-    """An absolute path as this file system resolves it: the one spelling a shipped file's
-    identity is keyed by, whether its run directory is reached through a symbolic link or not."""
+    """Return an absolute path as this file system resolves it.
+
+    The identity of a shipped file is keyed by this one spelling, whether or not its run
+    directory is reached through a symbolic link."""
     return os.path.realpath(text) if os.path.isabs(text) else text
 
 
 @contextmanager
 def using_path_identities(paths: Mapping[str, str]) -> Iterator[None]:
-    """Keep a shipped read path's original identity while tools use its relocated file. The keys
-    are the relocated paths as this file system resolves them (`_canonical_path`), and a lookup
-    resolves the path it is given the same way, so a file is found under any spelling of its
-    path (through a symbolic link or not) and under none that names another file."""
+    """Keep the original identity of a shipped read path while tools use its relocated file.
+
+    The keys of `paths` are the relocated paths as this file system resolves them
+    (`_canonical_path`). A lookup resolves the given path the same way, so a file is found under
+    any spelling of its path (through a symbolic link or not) and under none that names another
+    file."""
     token = _path_identities.set({_canonical_path(path): value for path, value in paths.items()})
     try:
         yield
@@ -578,9 +613,11 @@ def _with_path_identities(value: Any, paths: Mapping[str, str]) -> Any:
 def identity_values(
     flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None
 ) -> dict[str, Any]:
-    """What `flowrun_hash` hashes: the flow's name and its settings as a run's identity sees
-    them (`identity_settings`), every path under the design root, the start directory or xeda's
-    own installation written relative to it (`utils.location_roots`)."""
+    """Return what `flowrun_hash` hashes.
+
+    That is the name of the flow and its settings as the identity of a run sees them
+    (`identity_settings`). Every path under the design root, the start directory or the
+    installation of Xeda is written relative to it (`utils.location_roots`)."""
     roots = location_roots(settings.context.get("design_root"), settings.context.get("runner_cwd"))
     identity = identity_settings(settings, design_name)
     values = identity.model_dump()
@@ -591,18 +628,20 @@ def identity_values(
 
 
 def flowrun_hash(flow_name: str, settings: Flow.Settings, design_name: Optional[str] = None) -> str:
-    """What identifies a run of `flow_name` with `settings`: the key `--cached-dependencies`
-    reuses a previous run by, and part of a hashed run directory's name.
+    """Return the hash of the settings of a run of `flow_name`.
 
-    It depends on what the settings mean, not on where anything is: a path under the design root
-    or under the directory xeda was started from counts relative to it (`$DESIGN_ROOT/c.xdc`),
-    so moving a design, or starting xeda elsewhere, keeps the hash, and a path under xeda's own
-    installation (a bundled platform's files) counts relative to that (`$XEDA/platforms/...`),
-    so two installations agree on it. Paths count as their text:
-    only a design's source files are hashed by content (`Design.rtl_hash`), and no directory's
-    content is ever read. Where an output is delivered is no part of it (`identity_settings`,
-    for the design `design_name`): a deliverable given as a location counts as its conventional
-    name.
+    This is the settings-only part of the identity of a run. `bindings.node_identity` adds the
+    origins of the declared inputs, and the result names a hashed run directory.
+
+    The hash depends on what the settings mean, not on where anything is. A path under the
+    design root or under the directory where Xeda was started counts relative to it
+    (`$DESIGN_ROOT/c.xdc`), so moving a design, or starting Xeda elsewhere, keeps the hash. A
+    path under the installation of Xeda (the files of a bundled platform) counts relative to
+    that (`$XEDA/platforms/...`), so two installations agree on it. Paths count as their text:
+    only the source files of a design are hashed by content (`Design.rtl_hash`), and no
+    directory's content is ever read. Where an output is delivered is no part of the hash
+    (`identity_settings`, for the design `design_name`): a deliverable given as a location counts
+    as its conventional name.
     """
     return semantic_hash(identity_values(flow_name, settings, design_name))
 
@@ -617,7 +656,7 @@ COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     "times a design with its own model: compare `Fmax` only between runs of the same tool.",
     "clock_period": "Constrained clock period in nanoseconds, as given to the tool.",
     "clock_frequency": "Constrained clock frequency in MHz. This is the constraint that was "
-    "given to the tool, not the achieved maximum -- see `Fmax`.",
+    "given to the tool, not the achieved maximum (see `Fmax`).",
     "clock_name": "Name of the clock the reported timing refers to.",
     "clock_port": "Design port the reported clock is attached to.",
     "wns": "Worst negative slack (ns) over all setup paths. Negative means setup timing is not "
@@ -694,7 +733,7 @@ def describe_results(*keys: str, **extra: str) -> Dict[str, str]:
 
 
 def is_unset(value: Any) -> bool:
-    """`None`, or an empty string or container: a setting that says nothing.
+    """Return whether `value` says nothing: `None`, or an empty string or container.
 
     A required setting that is unset is missing. An empty `clocks` is how `SynthFlow` spells "not
     given". `False` and `0` are values.
@@ -705,21 +744,24 @@ def is_unset(value: Any) -> bool:
 
 
 class NoReplacement(str):
-    """The reason a setting was removed when nothing replaces it. The setting's entry in
-    `removed_settings` is `NoReplacement("no flow read it")`, and the error says "`<name>` was
-    removed: no flow read it; delete it". Any other entry is what to use instead: "`<name>` was
-    removed: use <entry>"."""
+    """The reason a setting was removed when nothing replaces it.
+
+    The entry of the setting in `removed_settings` is `NoReplacement("no flow read it")`, and
+    the error says "`<name>` was removed: no flow read it; delete it". Any other entry is what
+    to use instead: "`<name>` was removed: use <entry>"."""
 
 
 def removed_message(name: str, replacement: str, value: Any) -> str:
-    """What giving the removed setting `name` is refused with."""
+    """Return the message that refuses the removed setting `name`."""
     if isinstance(replacement, NoReplacement):
         return f"`{name}` was removed: {replacement}; delete it"
     return f"`{name}` was removed: use {_removed_replacement(replacement, value)}"
 
 
 def _removed_replacement(replacement: str, value: Any) -> str:
-    """A removed setting's replacement; a `<key>` in it names each key the removed value gave."""
+    """Return the replacement text for a removed setting.
+
+    A `<key>` in it stands for each key that the removed value gave."""
     if "<key>" not in replacement or not isinstance(value, Mapping) or not value:
         return replacement
 
@@ -736,8 +778,9 @@ def _removed_replacement(replacement: str, value: Any) -> str:
 
 
 class Flow(metaclass=ABCMeta):
-    """A flow may run one or more tools and is associated with a single set of settings and a single design.
-    All tool executables should be available on the installed system or on the same docker image."""
+    """A flow runs one or more tools for one design with one set of settings.
+
+    All tool executables should be available on the host or in the same Docker image."""
 
     name: str  # set automatically
     aliases: List[str] = []  # list of alternative names for the flow
@@ -757,7 +800,7 @@ class Flow(metaclass=ABCMeta):
     }
 
     #: Settings this flow cannot run without, each with what it is and how to give it (the text
-    #: may name the flow as ``{flow}``). Checked when the flow is launched, by
+    #: may name the flow as `{flow}`). Checked when the flow is launched, by
     #: `check_required_settings`, not when its settings are validated: a layer of settings, such
     #: as one section of a design file, holds only some of them, and a model that insisted on all
     #: of them could not validate it. So the model never requires them: `Flow.Settings` refuses a
@@ -776,13 +819,13 @@ class Flow(metaclass=ABCMeta):
     reads_sources: ClassVar[frozenset[SourceType] | None] = None
 
     #: The parts of the design this flow reads (`design.DESIGN_PARTS`: `rtl`, `tb`). They are
-    #: what its run is identified by -- `Design.parts_hash`, the `design_hash` of its trace and
-    #: `results.json` -- and the design files its trace records as inputs, so an edit to a part
-    #: it does not read leaves it fresh. Only its own freshness is scoped: a flow whose producer
-    #: reads another part still runs again with its producer. A part wrongly left out is a stale
-    #: reuse of a result built from other sources, one wrongly left in only a run for nothing,
-    #: so a flow that reads `tb` anywhere, in code or in a template, declares it
-    #: (`tests/test_design_parts.py`).
+    #: what identifies its run (`Design.parts_hash`, the `design_hash` of its trace and
+    #: `results.json`) and the design files that its trace records as inputs. An edit to a part
+    #: it does not read leaves the flow up to date. This scopes only the flow's own freshness:
+    #: a flow whose producer reads another part still runs again with its producer. A part
+    #: wrongly left out is a stale reuse of a result built from other sources, and one wrongly
+    #: left in is only a run for nothing. So a flow that reads `tb` anywhere, in code or in a
+    #: template, declares it (`tests/test_design_parts.py`).
     design_parts: ClassVar[frozenset[str]] = frozenset({"rtl"})
 
     #: The types of the design's sources this flow is judged on, within `design_parts`: its
@@ -799,31 +842,34 @@ class Flow(metaclass=ABCMeta):
 
     @classmethod
     def design_scope(cls, settings: Flow.Settings) -> frozenset[SourceType] | None:
-        """The types of source this flow is judged on given `settings`: `design_source_types`,
-        unless the settings can make the flow read other sources (nextpnr's Python hooks), and
-        then None, every source of the parts. Pure."""
+        """Return the source types this flow is judged on under `settings`. Pure.
+
+        That is `design_source_types`, unless the settings can make the flow read other sources
+        (the Python hooks of nextpnr). Then it is None: every source of the parts."""
         return cls.design_source_types
 
-    #: A static explanation for flows that must not appear before the end of a chain, such as a
-    #: programmer. Dynamic `always_runs()` remains the launcher's runtime freshness decision.
+    #: A static reason why a flow can only end a chain, such as a programmer. `always_runs()` is
+    #: a separate, dynamic decision: the launcher asks it at run time whether the flow must run.
     action_reason: ClassVar[str | None] = None
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
-        """The settings this flow cannot run without, given `settings`: `required_settings`,
-        unless a flow needs a setting only for what its other settings ask of it
-        (`openfpgaloader` needs its device only to program the flash)."""
+        """Return the settings this flow cannot run without, given `settings`.
+
+        That is `required_settings`, unless the flow needs a setting only for what its other
+        settings ask of it (`openfpgaloader` needs its device only to program the flash)."""
         return cls.required_settings
 
     @classmethod
     def check_required_settings(
         cls, settings: "Flow.Settings", unreached: Mapping[str, str] | None = None
     ) -> None:
-        """Fail a launch that lacks a `required_settings` entry, naming each and how to give it,
-        before anything is set up for the run. The settings are the final, agreed values.
-        `unreached` says, for a setting, where it is given without reaching this flow (the
-        resolver knows: in the section of a flow that is not part of the run); the message
-        adds it, so a value the user did write is not left unexplained."""
+        """Fail a launch that lacks a `required_settings` entry, before anything is set up.
+
+        The error names each missing setting and how to give it. `settings` are the final,
+        agreed values. `unreached` maps a setting to where it is given without reaching this
+        flow (the resolver knows: the section of a flow that is not part of the run). The error
+        adds that text, so a value the user did write is not left unexplained."""
         missing = []
         notes = []
         for name, how in cls.required_settings_for(settings).items():
@@ -838,37 +884,49 @@ class Flow(metaclass=ABCMeta):
 
     @classmethod
     def check_settings_supported(cls, settings: "Flow.Settings") -> None:
-        """Validate a target/configuration without constructing a flow or probing tools."""
+        """Refuse settings that this flow cannot support. Pure.
+
+        The check constructs no flow and probes no tool. A flow overrides it to refuse what it
+        cannot do."""
 
     @classmethod
     def check_run_directory(cls, settings: "Flow.Settings", run_path: Path) -> None:
-        """Refuse a run directory this flow cannot work in: `run_path` is its absolute path, as
-        decided for this run and not yet created. Pure, like `check_settings_supported`. The
-        launcher calls it where it first knows the path, before anything is created for the run
-        (the run root, the directory and its lock), and a plan calls it too."""
+        """Refuse a run directory this flow cannot work in. Pure, like `check_settings_supported`.
+
+        `run_path` is the absolute path decided for this run, not yet created. The launcher calls
+        this where it first knows the path, before it creates anything for the run (the run
+        root, the directory and its lock). A plan calls it too."""
 
     @classmethod
     def input_equivalence(cls, settings: Flow.Settings, name: str) -> bool:
-        """Whether input `name` compares the equivalence digest of what it is handed, given
-        `settings` (`In(..., equivalence=True)`, unless the settings make the flow depend on
-        what the digest leaves out). Pure, like `input_types`."""
+        """Return whether input `name` compares the equivalence digest of what it is handed.
+
+        The answer is the `In(..., equivalence=True)` declaration, unless `settings` make the
+        flow depend on what the digest leaves out. Pure, like `input_types`."""
         return declared_inputs(cls)[name].equivalence
 
     @classmethod
     def input_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
-        """Narrow an input's vocabulary using settings alone, without probes or writes."""
+        """Return the source types that input `name` accepts under `settings`.
+
+        A flow may narrow the declared types here. It uses the settings alone, without probes or
+        writes."""
         return declared_inputs(cls)[name].types
 
     @classmethod
     def output_types(cls, settings: Flow.Settings, name: str) -> tuple[SourceType, ...]:
-        """Narrow an output's vocabulary using settings alone, without probes or writes."""
+        """Return the source types that output `name` may have under `settings`.
+
+        A flow may narrow the declared types here. It uses the settings alone, without probes or
+        writes."""
         return declared_outputs(cls)[name].types
 
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """Enable a demanded output on the resolver's mutable settings proposal. `design_name`
-        is the design's name, which a deliverable's conventional name holds
-        (`Flow.Settings.conventional_output`)."""
+        """Enable an output that a consumer demands, in the settings the resolver proposes.
+
+        `design_name` is the name of the design, which the conventional name of a deliverable
+        holds (`Flow.Settings.conventional_output`)."""
         declaration = declared_outputs(cls)[name]
         if declaration.cardinality == "optional" and declaration.enabled_by is None:
             raise ValueError(f"{cls.name}.{name} cannot be switched on")
@@ -879,11 +937,12 @@ class Flow(metaclass=ABCMeta):
     def check_design_supported(
         cls, design: Design, settings: "Flow.Settings | None" = None
     ) -> None:
-        """Fail a launch on a design this flow cannot run, before anything is set up for the run
-        or shipped to a remote; checked wherever `check_required_settings` is. A flow that reads
-        the design's sources itself (`reads_sources`) refuses a source in a language it cannot
-        read, naming it, and a design none of whose sources it reads, naming what the design
-        lists; a flow may refuse more by overriding this (and calling it)."""
+        """Fail a launch on a design this flow cannot run, before anything is set up or shipped.
+
+        The check runs wherever `check_required_settings` does. A flow that reads the sources of
+        the design itself (`reads_sources`) refuses a source in a language it cannot read,
+        naming it. It also refuses a design none of whose sources it reads, naming what the
+        design lists. A flow may refuse more by overriding this method and calling it."""
         if cls.reads_sources is None:
             return
         by_part = {part: getattr(design, part).sources for part in sorted(cls.design_parts)}
@@ -911,21 +970,21 @@ class Flow(metaclass=ABCMeta):
             )
 
     class Inputs(FlowInputs):
-        """The files this flow reads besides its design's and its settings': none, unless the
-        flow declares them (`xeda.flow.io.In`)."""
+        """The declared inputs of the flow: files it reads besides those of its design and settings.
+
+        There are none, unless the flow declares them (`xeda.flow.io.In`)."""
 
     class Outputs(FlowOutputs):
-        """The files this flow writes for another flow to read: none, unless the flow declares
-        them (`xeda.flow.io.Out`)."""
+        """The declared outputs of the flow: files it writes for another flow to read.
+
+        There are none, unless the flow declares them (`xeda.flow.io.Out`)."""
 
     class Settings(XedaBaseModel):
-        """Settings that can affect flow's behavior"""
+        """The settings that affect the behavior of a flow."""
 
-        # design_root: InitVar[Optional[Path]]
         verbose: int = Field(
             0, description="Verbosity level. Higher values make the tools more talkative."
         )
-        # debug: DebugLevel = Field(DebugLevel.NONE.value, json_schema_extra={"hidden_from_schema": True})
         debug: bool = Field(
             False,
             description="Run the flow in debug mode: verbose logging, and exceptions are re-raised "
@@ -940,7 +999,7 @@ class Flow(metaclass=ABCMeta):
         nthreads: Optional[int] = Field(
             None,
             alias="ncpus",
-            description="Max number of threads",
+            description="Maximum number of threads.",
         )
         reports_dir: Path = Field(
             Path("reports"), json_schema_extra={"hidden_from_schema": True, **WORKING}
@@ -958,18 +1017,20 @@ class Flow(metaclass=ABCMeta):
                     Union[str, Path, None],  # optional library path
                 ],
                 Tuple[None, Union[str, Path]],  # or just the path
-                # both name and path can't be None
+                # Both name and path can't be None.
             ]
         ] = Field(
             [],
-            description="Additional libraries specified as a list of (name, path) tuples. Either name or path can be none. A single string or a list of string is converted to a mapping of library names without paths",
+            description="Additional libraries, as a list of (name, path) tuples. The name or the "
+            "path can be none, but not both.",
         )
         docker: Optional[str] = Field(
             None,
-            description="Use this docker image to run the tools, overriding flow's default pick.",
+            description="Run the tools in this Docker image, instead of the default image of the "
+            "flow.",
         )
-        dockerized: bool = Field(False, description="Run tools from docker")
-        print_commands: bool = Field(True, description="Print executed commands")
+        dockerized: bool = Field(False, description="Run the tools in Docker.")
+        print_commands: bool = Field(True, description="Print the commands that the flow runs.")
         console_colors: bool = Field(True, description="Colorize tool output on the console.")
 
         @classmethod
@@ -1005,15 +1066,15 @@ class Flow(metaclass=ABCMeta):
                         "dictionaries."
                     )
 
-        #: Settings that hold a dictionary whose keys are names of the tool (a Vivado run
+        #: Settings that hold a dictionary whose keys are names from a tool (a Vivado run
         #: property, `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), which may contain dots. A dotted key
         #: of such a setting is one key, whichever way it is given (`dataclass.fold_dotted_keys`).
-        #: A subclass adds to its bases' (`dataclass.opaque_key_fields_of`).
+        #: A subclass adds to the fields of its bases (`dataclass.opaque_key_fields_of`).
         opaque_key_fields: ClassVar[Tuple[str, ...]] = ()
 
         #: Settings that no longer exist, with what replaced them (`NoReplacement(reason)` when
         #: nothing did). Giving one is an error that says so, instead of pydantic's "extra inputs
-        #: are not permitted". The key was a setting of this class once, never a name it never had.
+        #: are not permitted". Only a name that was a setting of this class belongs here.
         removed_settings: ClassVar[Dict[str, str]] = {
             "clean": "the --clean option (clean=True on the launcher)",
             "timeout_seconds": "`timeout`, on the flows that have one (the simulators); no other "
@@ -1023,25 +1084,28 @@ class Flow(metaclass=ABCMeta):
 
         @classmethod
         def removed_setting_replacements(cls) -> Dict[str, str]:
-            """Every removed setting of this class with what replaced it: the `removed_settings`
-            of the class and of all its bases, the class's own taking precedence. A flow whose
-            settings have several bases (`GhdlSynth`'s are a simulator's and a synthesis flow's)
-            is refused what each base removed, whether or not its own table repeats it."""
+            """Return every removed setting of this class with what replaced it.
+
+            That is the `removed_settings` of the class and of all its bases, and the entry of
+            the class itself takes precedence. A flow whose settings have several bases (those of
+            `GhdlSynth` come from a simulator and a synthesis flow) is refused what each base
+            removed, whether or not its own table repeats it."""
             merged: Dict[str, str] = {}
             for klass in reversed(cls.__mro__):
                 merged.update(vars(klass).get("removed_settings", {}))
             return merged
 
-        # Every flow setting shares four input conveniences, applied by `_normalize_flow_setting`
-        # before *any* field validator runs, so a flow's own validators always receive the
-        # normalized value: on construction and `settings.json` reload through
-        # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs a
-        # subclass's validators ahead of a base class's, so a base *field* validator could not
-        # guarantee this; only the few subclass *model* `before` validators see raw input.)
+        # Every flow setting gets four input conveniences from `_normalize_flow_setting`. They
+        # apply before any field validator runs, so the validators of a flow always receive the
+        # normalized value: on construction and on reload of `settings.json` through
+        # `_normalize_flow_settings`, on assignment through `__setattr__`. (pydantic runs the
+        # validators of a subclass before those of a base class, so a field validator of the base
+        # class could not guarantee this. Only the few `before` model validators of subclasses
+        # see raw input.)
 
         @classmethod
         def _normalize_flow_setting(cls, name: str, value: Any, roots: Dict[str, Any]) -> Any:
-            """One flow setting's input conveniences:
+            """Return the value of one flow setting after its input conveniences:
 
             1. A list setting given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`).
                Spaces around items and empty items are dropped, so `""` is an empty list, and
@@ -1077,10 +1141,10 @@ class Flow(metaclass=ABCMeta):
                 return value
             return _expand_path_values(value, annotation, roots)
 
-        #: Where the settings were given: ``design_root`` and ``runner_cwd`` (the directory xeda
-        #: was started from). Supplied as pydantic's validation context (`from_input`), never as
-        #: a setting, so it is neither written to `settings.json` nor hashed: the same settings
-        #: mean the same thing wherever the design lives and wherever xeda is started.
+        #: Where the settings were given: `design_root` and `runner_cwd` (the directory where
+        #: Xeda was started). It is the validation context of pydantic (`from_input`), never a
+        #: setting, so it is neither written to `settings.json` nor hashed: the same settings
+        #: mean the same thing wherever the design lives and wherever Xeda is started.
         _context: dict[str, Any] = PrivateAttr(default_factory=dict)
 
         @classmethod
@@ -1091,13 +1155,14 @@ class Flow(metaclass=ABCMeta):
             design_root: Path | None = None,
             runner_cwd: Path | None = None,
         ):
-            """Validate settings as a user gave them: path variables are resolved against
-            `design_root` and `runner_cwd`, and invalid input is a `FlowSettingsError` listing
-            every problem. The context stays with the settings, so an assignment resolves paths
-            the same way.
+            """Validate settings as a user gave them.
 
-            Not an `__init__` override: pydantic validates a model with a custom `__init__`
-            through that `__init__`, which loses the validation context.
+            Path variables are resolved against `design_root` and `runner_cwd`, and invalid input
+            is a `FlowSettingsError` that lists every problem. The context stays with the
+            settings, so an assignment resolves paths the same way.
+
+            This is not an `__init__` override: pydantic validates a model with a custom
+            `__init__` through that `__init__`, which loses the validation context.
             """
             context = {"design_root": design_root, "runner_cwd": runner_cwd}
             try:
@@ -1123,8 +1188,10 @@ class Flow(metaclass=ABCMeta):
                 self._attach_context(context)
 
         def _attach_context(self, context: Mapping[str, Any]) -> None:
-            """Attach the input location context (the design root and the start directory) to
-            these settings, so that a later assignment resolves paths as the input did."""
+            """Attach the input location context to these settings.
+
+            The context is the design root and the start directory. A later assignment then
+            resolves paths as the input did."""
             self._context = {k: context.get(k) for k in ("design_root", "runner_cwd")}
 
         @model_validator(mode="before")
@@ -1161,16 +1228,19 @@ class Flow(metaclass=ABCMeta):
             super().__setattr__(name, value)
 
         def conventional_output(self, field: str, design: str) -> Optional[PurePath]:
-            """The name the deliverable `field` is written under, in the run directory, when it
-            is given a location (`xeda.dataclass.conventional_output`); a flow whose outputs are
-            named by its other settings says so here."""
+            """Return the name that the run directory holds the deliverable `field` under.
+
+            This is the name for a deliverable that is given a location
+            (`xeda.dataclass.conventional_output`). A flow whose other settings name its outputs
+            overrides this method."""
             return conventional_output(type(self), field, design)
 
         @property
         def is_quiet(self) -> bool:
-            """`quiet`, unless `verbose` or `debug` asks for more output. Decided here, where it
-            is read, so `quiet` holds what was written and the order the three were given in
-            does not matter."""
+            """Whether the flow is quiet: `quiet`, unless `verbose` or `debug` asks for more output.
+
+            This is decided where it is read, so `quiet` keeps the value that was written and the
+            order of the three settings does not matter."""
             return self.quiet and not (self.verbose or self.debug)
 
         @field_validator("verbose", mode="before")
@@ -1181,7 +1251,7 @@ class Flow(metaclass=ABCMeta):
             return value
 
     class Results(Box):
-        """Flow results"""
+        """The results of a flow, written to `results.json`."""
 
         def __init__(
             self,
@@ -1195,8 +1265,8 @@ class Flow(metaclass=ABCMeta):
             self.success: bool = False
             self.tools: List[Any] = []
             self.artifacts: Box = Box()
-            # "Time of the execution of run() in fractional seconds.
-            # Initialized with None and set only after execution has finished."
+            # Time of the execution of run() in fractional seconds. It is None until the
+            # execution has finished.
             self.runtime: Optional[float] = None
             super().__init__(*args, **kwargs)
 
@@ -1211,37 +1281,41 @@ class Flow(metaclass=ABCMeta):
         log.info("registering flow %s from %s", cls_name, mod_name)
         cls.name = camelcase_to_snakecase(cls_name)
         if not inspect.isabstract(cls):
-            # register under the canonical (snake_case) name first, then the class name and any
+            # Register under the canonical (snake_case) name first, then the class name and any
             # aliases. `cls.name` is what the CLI and the docs use, so it must be resolvable
-            # without relying on a lossy snake_case -> CamelCase round-trip (as `OpenXC7` once was).
+            # without a lossy round trip from snake_case to CamelCase.
             for name in unique([cls.name, cls_name] + cls.aliases):
                 if name in registered_flows:
                     log.warning("Duplicate name: %s while registering flow %s", name, cls_name)
                 registered_flows[name] = (mod_name, cls)
 
     def init(self) -> None:
-        """Flow custom initialization stage. At this point, more properties have been set than during __init__
-        This is usually the most appropriate place for initialization task.
-        Producers of a flow's inputs are declared (`Flow.Inputs`), never registered here.
+        """Run the custom initialization of the flow.
+
+        This runs after `__init__`, when more properties are set, and is the usual place for
+        initialization. It adds no producer: a flow declares them with `Flow.Inputs`.
         """
 
     def prepare_inputs(self) -> None:
-        """Prepare managed inputs after hand-over, before freshness is judged.
+        """Prepare managed inputs after hand-over, before the check whether the run is up to date.
 
-        Producer inputs are filled and held for reading. This stage runs even on a fresh
-        launch; it must not write the flow's run directory. Register resolved files in
-        ``implicit_inputs`` so freshness and delivery reservations see them before execution.
-        What it registers, `locate_prepared_inputs` says without making anything.
+        Producer inputs are filled and held for reading. This stage runs even when the launch
+        finds the run up to date, so it must not write the run directory of the flow. Register
+        resolved files in `implicit_inputs`, so that the freshness check and the delivery
+        reservations see them before the run. `locate_prepared_inputs` tells what this method
+        registers, without making anything.
         """
 
     def locate_prepared_inputs(self) -> Optional[List[Path]]:
-        """The files `init()` and `prepare_inputs()` register in `implicit_inputs`, found by the
-        settings, the design and the declared inputs that are design sources alone: it writes
-        nothing, starts no process and reads no producer's file. None if one is not made yet (a
-        chip database no run has generated), then the files of a launch do not exist to be
-        compared. A dry run judges freshness with it, on a flow that was not initialized;
-        the launch asks it after `prepare_inputs()` and refuses a flow whose registrations are
-        not exactly these (`tests/test_prepare_inputs.py`)."""
+        """Return the files that `init()` and `prepare_inputs()` register in `implicit_inputs`.
+
+        The answer comes from the settings, the design and the declared inputs that are design
+        sources alone. This method writes nothing, starts no process and reads no file of a
+        producer. It returns None when one of the files is not made yet (a chip database that no
+        run has generated); then the files of a launch do not exist to be compared. A dry run
+        uses it to judge whether the run is up to date, on a flow that was not initialized. The
+        launch calls it after `prepare_inputs()` and refuses a flow whose registrations differ
+        from the answer (`tests/test_prepare_inputs.py`)."""
         return []
 
     @classmethod
@@ -1275,7 +1349,8 @@ class Flow(metaclass=ABCMeta):
             trim_blocks=trim_blocks,
             lstrip_blocks=lstrip_blocks,
         )
-        # a path a user named goes into a TCL script as a literal word, inside one, or as a list
+        # A path that a user named goes into a TCL script as a literal word, inside quotes, or as
+        # a list.
         env.filters.update(tcl_word=tcl_word, tcl_quote=tcl_quote, tcl_list=tcl_list)
         return env
 
@@ -1285,9 +1360,11 @@ class Flow(metaclass=ABCMeta):
 
     @property
     def run_directory(self) -> RunDirectory:
-        """The run directory, and the one way anything in it is deleted (`RunDirectory.remove`,
-        `clear`) or written by xeda (`writable`). Decided once, when the flow is constructed: it
-        cannot be replaced."""
+        """The `RunDirectory` of the flow.
+
+        It is the one way that anything in the run directory is deleted (`RunDirectory.remove`,
+        `clear`) or written by Xeda (`writable`). It is decided once, when the flow is
+        constructed, and cannot be replaced."""
         return self._run_directory
 
     def __init__(
@@ -1298,12 +1375,11 @@ class Flow(metaclass=ABCMeta):
         runner_cwd: Optional[Path] = None,
         run_directory: Optional[RunDirectory] = None,
     ):
-        """Flow constructor
-        should avoid overriding in subclasses unless absolutely needed.
+        """Construct the flow. A subclass should not override this unless it must.
 
         `run_directory` is `run_path` as the launcher chose it (`RunDirectory.claimed`), handed
         over here, once. A flow constructed without one holds an `unlaunched` directory, in which
-        xeda deletes nothing.
+        Xeda deletes nothing.
         """
         # Normalized once, here, to absolute: a relative `run_path` given directly (bypassing the
         # launcher, which always hands one down already absolute) must join, and look up the
@@ -1315,11 +1391,12 @@ class Flow(metaclass=ABCMeta):
         elif run_directory.path != Path(os.path.realpath(run_path)):
             raise ValueError(f"{run_directory.path} is not the run directory {run_path}")
         self._run_directory = run_directory
-        # Every existing file's and directory's state under the run directory, by identity:
-        # what `wrote_output` tells this run's own output from one an earlier run left by, never
-        # a clock -- sound across file systems and coarse timestamps alike. A launcher takes it
-        # right before the run (`start_run`), once its own records are written; a flow built
-        # directly takes it now, before anything it runs can write to the directory.
+        # The state of every existing file and directory under the run directory, by identity.
+        # `wrote_output` tells this run's own output from one that an earlier run left by it.
+        # No clock takes part, so it is sound across file systems and coarse timestamps alike.
+        # A launcher takes it right before the run (`start_run`), once its own records are
+        # written. A flow built directly takes it now, before anything it runs can write to the
+        # directory.
         self._output_snapshot: Optional[OutputSnapshot] = (
             OutputSnapshot(run_path) if run_directory.run_root is None else None
         )
@@ -1330,20 +1407,20 @@ class Flow(metaclass=ABCMeta):
                 design["design_root"] = run_path
             design = Design(**design)
         else:
-            # the flow's own copy, as a launched flow gets: some flows edit their design
+            # The flow's own copy, as a launched flow gets: some flows edit their design.
             design = design.model_copy(deep=True) if isinstance(design, Design) else design
         assert isinstance(design, Design), "design is not a Design object"
 
         self.design: Design = design
-        # the path from which the runner was invoked, e.g., where xeda CLI was invoked
+        # The directory where the launcher was invoked, e.g., where the `xeda` command was started.
         self.runner_cwd: Optional[Path] = runner_cwd
         self.init_time: Optional[float] = None
         #: Set by the launcher right before `run()` (`start_run`): from then on, a file in the run
-        #: directory that the run did not write is a previous run's (`report_file`)
+        #: directory that the run did not write is a previous run's (`report_file`).
         self.run_started: bool = False
         self.timestamp: Optional[str] = None
-        #: the run's identity (its settings and where its inputs come from) and the hash of
-        #: its settings alone, which that identity is made of (`bindings.node_identity`)
+        #: The identity of the run (its settings and where its inputs come from) and the hash of
+        #: its settings alone, which the identity is made of (`bindings.node_identity`).
         self.flow_hash: Optional[str] = None
         self.settings_hash: Optional[str] = None
         self.design_hash: Optional[str] = None
@@ -1354,7 +1431,7 @@ class Flow(metaclass=ABCMeta):
                 settings, design_root=design.root_path, runner_cwd=runner_cwd
             )
         elif isinstance(settings, Flow.Settings):
-            # the flow completes its settings (paths, clocks): the caller's are not its to change
+            # The flow completes its settings (paths, clocks): the caller's are not its to change.
             settings = settings.model_copy(deep=True)
 
         assert isinstance(settings, self.Settings)
@@ -1379,15 +1456,16 @@ class Flow(metaclass=ABCMeta):
         self.settings = settings
         assert isinstance(self.settings, self.Settings)
 
-        # Artifact labels map to paths or nested mappings/lists/tuples of paths. Relative
-        # paths are rooted at run_path; runners walk path leaves through xeda.artifacts.
+        # Artifact labels map to paths or to nested mappings, lists and tuples of paths. Relative
+        # paths are rooted at run_path. The launchers walk path leaves through `xeda.artifacts`.
         self.artifacts = Box()
         self.results = self.Results()
         self.jinja_env = self._create_jinja_env(extra_modules=[self.__module__])
         self.jinja_env.globals["sources_read"] = self.sources_read
         self.add_template_filter("quote", lambda x: f'"{x}"')
         self.add_template_test("match", regex_match)
-        #: Declared inputs, filled by the launcher before freshness is judged; init never reads them.
+        #: Declared inputs. The launcher fills them before it judges whether the run is up to
+        #: date; `init()` never reads them.
         self.inputs = type(self).Inputs.model_construct()
         #: Declared outputs, set by the flow and recorded by the launcher after a successful run.
         self.outputs = type(self).Outputs.model_construct()
@@ -1402,7 +1480,7 @@ class Flow(metaclass=ABCMeta):
         #: records those inside the run directory, which the launcher removes before the next
         #: run executes, so a previous run's report is gone whatever its mtime.
         self.reports_read: List[Path] = []
-        #: Set by the launcher: the previous run was still fresh and its results are reused.
+        #: Set by the launcher: the previous run was still up to date and its results are reused.
         self.reused: bool = False
         #: Set by the launcher when the flow ran although a previous run existed: why.
         self.stale_reason: Optional[str] = None
@@ -1414,46 +1492,52 @@ class Flow(metaclass=ABCMeta):
         self.deliveries: List["Delivered"] = []
 
     def always_runs(self) -> Optional[str]:
-        """Why this run can never be reused, or None for a run its trace can vouch for.
+        """Return why this run can never be reused, or None for a run that its trace can vouch for.
 
         A flow that changes the world outside its run directory (programs a device), whose
-        settings ask for a fresh random seed, or that reads something no trace can verify, says
-        so here: the launcher then runs it every time, keeps no trace of it, and reports the
-        reason. Its producers are checked for freshness as usual. Asked once the flow's
-        `init()` has run and its producers have completed."""
+        settings ask for a new random seed, or that reads something no trace can verify, returns
+        a reason. The launcher then runs the flow every time, keeps no trace of it, and reports
+        the reason. It still brings the producers of the flow up to date as usual. The launcher
+        asks this once the `init()` of the flow has run and its producers have completed."""
         return None
 
     @abstractmethod
     def run(self) -> None:
-        """return False on failure"""
+        """Run the tools of the flow.
+
+        Raise an exception on failure, or let `parse_reports()` and `check_results()` report it.
+        The launcher ignores the return value."""
 
     def purge_run_path(self) -> None:
-        """Empty the run directory (`RunDirectory.clear`; nothing, for a flow built without a
-        launcher)."""
+        """Empty the run directory (`RunDirectory.clear`); do nothing without a launcher."""
         self.run_directory.clear()
 
     def start_run(self) -> None:
-        """Called by the launcher right before `run()`, once it has written its own records into
-        the run directory: from now on, what is written there is this run's (`wrote_output`),
+        """Mark the start of the run.
+
+        The launcher calls this right before `run()`, once it has written its own records into
+        the run directory. From then on, what is written there is this run's (`wrote_output`),
         and a report that is not is a previous run's (`report_file`)."""
         self._output_snapshot = OutputSnapshot(self.run_path)
         self.run_started = True
 
     def wrote_output(self, path: Union[str, os.PathLike]) -> bool:
-        """Whether this run wrote the output at `path` (relative to the run directory unless
-        absolute), a file or a directory: it is there now, and its state -- identity, size,
-        mtime or ctime -- differs from what the snapshot of the run directory recorded for it
-        before the run (created, an earlier copy the tool truly overwrote, or one merely
-        touched). Never a clock: an output on a file system whose clock is behind, or read
-        within a coarse tick, is told apart by its own recorded identity and metadata.
+        """Return whether this run wrote the output at `path`, a file or a directory.
 
-        The snapshot (`run_dir.OutputSnapshot`) is looked up by identity, so every name of an
-        earlier run's file finds that file's state; one whose identity it did not record was
-        created (or moved there) since -- unless it lies in a directory the snapshot could not
-        read, which proves nothing. An output outside the run directory, or one asked about
-        before any snapshot was taken, has no known prior state, and an unknown prior state is
-        never proof this run wrote it: a failed run's results omit such an artifact rather than
-        risk relisting one an earlier run left."""
+        The path is relative to the run directory unless it is absolute. The output must be
+        there now, and its state (identity, size, mtime or ctime) must differ from what the
+        snapshot of the run directory recorded for it before the run. That covers a new file,
+        an earlier copy that the tool really overwrote, and one that was merely touched. No
+        clock takes part: an output on a file system whose clock is behind, or one read within a
+        coarse tick, is told apart by its recorded identity and metadata.
+
+        The snapshot (`run_dir.OutputSnapshot`) is looked up by identity, so every name of a
+        file from an earlier run finds the state of that file. A file whose identity the
+        snapshot did not record was created (or moved there) since, unless it lies in a
+        directory the snapshot could not read; that proves nothing. An output outside the run
+        directory, or one asked about before any snapshot was taken, has no known prior state.
+        An unknown prior state is never proof that this run wrote it: the results of a failed
+        run omit such an artifact rather than risk listing one that an earlier run left."""
         if self._output_snapshot is None:
             return False
         target = Path(os.path.abspath(self.run_path / path))
@@ -1476,10 +1560,9 @@ class Flow(metaclass=ABCMeta):
     def add_canonical_result_aliases(self) -> None:
         """Copy flow-specific result keys to their canonical names, additively.
 
-        Flows historically reported the same quantity under different names (`Fmax` vs `f_max`,
-        `lut` vs `LUT`), which made `results.json` awkward to consume across flows. This adds the
-        canonical name alongside whatever the flow already reported; see
-        `results_canonical_aliases`.
+        Flows report the same quantity under different names (`Fmax` and `f_max`, `lut` and
+        `LUT`), which makes `results.json` awkward to consume across flows. This method adds the
+        canonical name beside whatever the flow reported; see `results_canonical_aliases`.
         """
         for canonical, candidates in self.results_canonical_aliases.items():
             if self.results.get(canonical) is not None:
@@ -1491,9 +1574,11 @@ class Flow(metaclass=ABCMeta):
                     break
 
     def sources_read(self, rtl: bool = True, tb: bool = False) -> list[DesignSource]:
-        """The design's sources this flow reads (`reads_sources`), in design order: what its
-        code and scripts hand the tool. `rtl`, `tb`: which parts (`Design.sources_of_type`). A
-        flow that declares no `reads_sources` reads no source, and asking is an error."""
+        """Return the sources of the design that this flow reads (`reads_sources`), in design order.
+
+        These are the sources that its code and scripts hand to the tool. `rtl` and `tb` select
+        the parts (`Design.sources_of_type`). A flow that declares no `reads_sources` reads no
+        source, and asking it is an error."""
         if self.reads_sources is None:
             raise TypeError(
                 f"{self.name} declares no `reads_sources`, so it reads none of the design's "
@@ -1517,12 +1602,12 @@ class Flow(metaclass=ABCMeta):
             artifacts=self.artifacts,
             **kwargs,
         )
-        # inside the run directory (`RunDirectory.writable`), and only as a complete file, which
-        # replaces a link at its name rather than writing through it (`replacing_file`)
+        # Inside the run directory (`RunDirectory.writable`), and only as a complete file, which
+        # replaces a link at its name rather than writing through it (`replacing_file`).
         located = self.run_directory.writable(script_path)
         with replacing_file(located) as f:
             f.write(rendered_content)
-        # relative to the run directory as resolved: `run_path` may be a link into the run root
+        # Relative to the run directory as resolved: `run_path` may be a link into the run root.
         return located.relative_to(self.run_directory.path)
 
     def add_template_filter(self, filter_name: str, func, replace_existing=False) -> None:
@@ -1571,24 +1656,28 @@ class Flow(metaclass=ABCMeta):
         return self.results.success
 
     def written_by_this_run(self, path: Union[str, os.PathLike]) -> bool:
-        """Whether the file `path` exists and is this run's: written by it (`wrote_output`, by
-        the file's identity and state, never a clock) -- or, for a flow no launcher started
-        (`run_started` is false), whatever is there."""
+        """Return whether the file `path` exists and is this run's.
+
+        The run must have written it (`wrote_output`, judged by the identity and state of the
+        file, never by a clock). For a flow that no launcher started (`run_started` is false),
+        any file that exists counts."""
         if not os.path.lexists(path):
             return False
         return not self.run_started or self.wrote_output(path)
 
     def report_file(self, path: Union[str, os.PathLike]) -> Optional[Path]:
-        """`path`, a report (or any file) the flow's tools write, if this run wrote it; None --
-        with a warning -- if it does not exist, or is not this run's (`written_by_this_run`: its
-        identity and state are what they were before the run): a previous run's report, left in
-        a run directory that is reused, is never taken for this run's. Every report a flow reads
-        goes through here (`parse_regex` does). Every `path` asked for is noted (`reports_read`)."""
+        """Return `path`, a report (or any file) that the tools write, if this run wrote it.
+
+        Return None, with a warning, if the file does not exist or is not this run's
+        (`written_by_this_run`: its identity and state are what they were before the run). A
+        previous run's report, left in a reused run directory, is never taken for this run's.
+        Every report a flow reads goes through here (`parse_regex` does). Every `path` asked for
+        is noted in `reports_read`."""
         path = Path(path)
         self.reports_read.append(Path(os.path.abspath(path)))
         if not path.exists():
             log.warning(
-                "File %s does not exist! Please check the console output and the log files in %s",
+                "File %s does not exist. Check the console output and the log files in %s",
                 path.absolute(),
                 self.run_path,
             )
@@ -1596,7 +1685,7 @@ class Flow(metaclass=ABCMeta):
         if not self.written_by_this_run(path):
             log.warning(
                 "File %s was not written by this run: it is a previous run's, and is not read. "
-                "Please check the console output and the log files in %s",
+                "Check the console output and the log files in %s",
                 path.absolute(),
                 self.run_path,
             )
@@ -1626,7 +1715,7 @@ class Flow(metaclass=ABCMeta):
         )
 
     def resolve_paths_to_design_or_cwd(self, paths: list) -> List[Path]:
-        """Resolve relative paths to variables ($PWD), design_root if needed"""
+        """Expand the variables in `paths` and resolve the relative ones against the design root."""
         return [
             self.process_path(path, subs_vars=True, resolve_to=self.design.design_root)
             for path in paths
@@ -1661,28 +1750,31 @@ class Flow(metaclass=ABCMeta):
 
 
 class FlowException(XedaException):
-    """Super-class of all flow exceptions"""
+    """The base class of all flow exceptions."""
 
 
 class FlowDependencyFailure(FlowException):
-    """Error during execution of a dependency flow"""
+    """A producer of a flow failed, or what the producers hand over cannot be used."""
 
 
 class FlowSettingsException(FlowException):
-    """Validation of settings failed
-    This is a fatal error and the flow should not be run.
+    """The settings of a flow failed validation.
+
+    This is a fatal error: the flow must not run.
     """
 
 
 class NoReadableSource(FlowSettingsException):
-    """A flow that reads the design's sources (`Flow.reads_sources`) has none of a type it reads.
-    The resolver adds, for a producer that a consumer reached by default, the source that would
+    """A flow that reads the sources of a design (`Flow.reads_sources`) finds none it reads.
+
+    For a producer that a consumer reached by default, the resolver adds the source that would
     have replaced it."""
 
 
 class FlowSettingsError(FlowSettingsException):
-    """Validation of settings failed.
-    The constructor of this subclass takes a list of tuples from pydantic validation errors.
+    """The settings of a flow failed validation.
+
+    The constructor takes a list of tuples made from the validation errors of pydantic.
     """
 
     def __init__(
@@ -1708,4 +1800,4 @@ class FlowSettingsError(FlowSettingsException):
 
 
 class FlowFatalError(FlowException):
-    """Other fatal errors"""
+    """A fatal error that no other flow exception covers."""

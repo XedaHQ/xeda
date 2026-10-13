@@ -7,7 +7,7 @@ different producers pairs one run's files with another's, and nothing in the fil
 The resolver calls `check_related_inputs` once, on the final graph. It refuses a plan that breaks
 a relation, naming the inputs, where each comes from and the bindings that would repair it.
 
-The rule compares the files that xeda generates. An input comes from a set of producer nodes,
+The rule compares the files that Xeda generates. An input comes from a set of producer nodes,
 and two related inputs agree when they come from the same nodes. A file the user lists in the
 design's sources is the user's own choice, so an input that comes from a source, or from nothing
 (an optional input that is absent), is not compared.
@@ -43,8 +43,9 @@ Graph = Mapping[str, Node]
 
 
 def _origin(node: Node, name: str) -> Origin | None:
-    """The producer nodes input `name` of `node` comes from; None for an input that comes from
-    the design's sources or is absent."""
+    """Return the producer nodes that input `name` of `node` comes from.
+
+    Return None for an input that comes from the design's sources or is absent."""
     item = node.inputs.get(name)
     if item is None or item.origin != "producer":
         return None
@@ -57,14 +58,16 @@ def _said(node: Node, name: str) -> str:
 
 
 def _explicit(node: Node, name: str) -> bool:
-    """Whether the user bound input `name` (a chain, a saved binding, `-s` or the API)."""
+    """Return whether the user bound input `name` (a chain, a saved binding, `-s` or the API)."""
     item = node.inputs.get(name)
     return item is not None and item.binding_origin is not None
 
 
 def _tied_to(cls: type[Flow], name: str, via: str | None = None) -> list[str]:
-    """The inputs of `cls` that come from the same producer as input `name` (when `via` is None) or
-    that follow input `name` through the input `via`. Another `via` is another relation."""
+    """Return the inputs of `cls` that are tied to input `name`.
+
+    With `via` None, these come from the same producer as input `name`. Otherwise they follow
+    input `name` through the input `via`. Another `via` is another relation."""
     return [
         other.name
         for other in declared_inputs(cls).values()
@@ -73,15 +76,19 @@ def _tied_to(cls: type[Flow], name: str, via: str | None = None) -> list[str]:
 
 
 def _related(node: Node, declaration: InputDeclaration) -> list[str]:
-    """The inputs of `node` related in the same way as `declaration`: itself and every other that
-    names the same input, with the same `via`."""
+    """Return the inputs of `node` related in the same way as `declaration`.
+
+    These are the input itself and every other input that names the same input, with the same
+    `via`."""
     assert declaration.same_producer_as is not None
     return _tied_to(node.cls, declaration.same_producer_as, declaration.via)
 
 
 def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin | None:
-    """The producers the input that `declaration` is related to comes from. With `via`, one step
-    on: where that input of each node that makes the related input comes from."""
+    """Return the producers that the input related to `declaration` comes from.
+
+    With `via`, go one step on: return where that input of each node that makes the related
+    input comes from."""
     assert declaration.same_producer_as is not None
     anchor = _origin(node, declaration.same_producer_as)
     if declaration.via is None or anchor is None:
@@ -93,7 +100,7 @@ def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin
             raise FlowSettingsException(
                 f"{node.cls.name}.{declaration.name} has to come from the producer of "
                 f"`{declaration.via}` of the flow that makes `{declaration.same_producer_as}`, "
-                f"and `{made_by}` has no input `{declaration.via}`: xeda cannot tell what its "
+                f"and `{made_by}` has no input `{declaration.via}`: Xeda cannot tell what its "
                 "output was made from"
             )
         followed |= _origin(maker, declaration.via) or frozenset()
@@ -101,9 +108,11 @@ def _followed(graph: Graph, node: Node, declaration: InputDeclaration) -> Origin
 
 
 def _involved(graph: Graph, node: Node, declaration: InputDeclaration) -> list[tuple[Node, str]]:
-    """Every input that has to agree for the relation of `declaration` to hold: the related
-    inputs of `node` and, with `via`, that input of each node that makes the related input,
-    with the inputs of that node tied to it by the same relation (no `via` of their own)."""
+    """Return every input that has to agree for the relation of `declaration` to hold.
+
+    These are the related inputs of `node` and, with `via`, that input of each node that makes
+    the related input, with the inputs of that node tied to it by the same relation (no `via`
+    of their own)."""
     anchor = declaration.same_producer_as
     assert anchor is not None
     members = _related(node, declaration)
@@ -118,9 +127,10 @@ def _involved(graph: Graph, node: Node, declaration: InputDeclaration) -> list[t
 
 
 def _binding(node: Node, name: str, producer: str) -> str | None:
-    """The `-s` item that binds input `name` of `node` to node `producer`, naming the output when
-    it is clear: the only one that fits, or the one named like the input. None when the producer
-    cannot supply the input."""
+    """Return the `-s` item that binds input `name` of `node` to node `producer`.
+
+    The item names the output when it is clear: the only one that fits, or the one named like
+    the input. Return None when the producer cannot supply the input."""
     producer_cls = registered_flow(producer)
     if producer_cls is None:
         return None
@@ -133,10 +143,12 @@ def _binding(node: Node, name: str, producer: str) -> str | None:
 
 
 def _advice(graph: Graph, node: Node, declaration: InputDeclaration) -> str:
-    """What to do about a broken relation. The inputs the user bound keep their producer, and
-    every other generated input that has to agree moves to it, so adding the bindings makes the
-    plan pass. When the bound inputs themselves name different producers, no binding can
-    help without overriding one of them, and the advice says so."""
+    """Return what to do about a broken relation.
+
+    The inputs that the user bound keep their producer, and every other generated input that
+    has to agree moves to it, so adding the bindings makes the plan pass. When the bound inputs
+    themselves name different producers, no binding can help without overriding one of them,
+    and the advice says so."""
     involved = _involved(graph, node, declaration)
     bound = [(n, name) for n, name in involved if _explicit(n, name) and _origin(n, name)]
     targets = {_origin(n, name) for n, name in bound}
@@ -160,7 +172,7 @@ def _advice(graph: Graph, node: Node, declaration: InputDeclaration) -> str:
 
 
 def _message(graph: Graph, node: Node, declaration: InputDeclaration, theirs: Origin) -> str:
-    """The refusal. `theirs` is where the related input of a `via` relation is followed to."""
+    """Return the refusal. `theirs` is where the related input of a `via` relation leads to."""
     anchor = declaration.same_producer_as
     assert anchor is not None
     members = _related(node, declaration)
@@ -180,9 +192,10 @@ def _message(graph: Graph, node: Node, declaration: InputDeclaration, theirs: Or
 
 
 def check_related_inputs(nodes: Iterable[Node]) -> None:
-    """Refuse a graph in which two related inputs of a node come from different producers (a
-    `FlowSettingsException`). `nodes` are the nodes of the final graph; the first whose relation
-    breaks, in the order given, is reported."""
+    """Refuse a graph in which two related inputs of a node come from different producers.
+
+    The refusal is a `FlowSettingsException`. `nodes` are the nodes of the final graph. The
+    first node whose relation breaks, in the order given, is reported."""
     graph = {node.label: node for node in nodes}
     for node in graph.values():
         for declaration in declared_inputs(node.cls).values():

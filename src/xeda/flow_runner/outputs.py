@@ -1,8 +1,9 @@
 """Declared outputs, recorded with their integrity and handed to the flows that read them.
 
-Recording checks containment and current-run writes before hashing each enabled output.
-Hand-over checks the recorded shape, containment and content under the producer's held read
-lease. It never uses wrote_output: a reused producer's trace vouches for its recorded run.
+Recording checks containment and writes by the current run before it hashes each enabled output.
+Hand-over checks the recorded shape, containment and content under the held read lease of the
+producer. It never uses `wrote_output`: the trace of a reused producer vouches for its recorded
+run.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ __all__ = [
 
 
 def declared_output_files(results: dict[str, Any]) -> list[Path]:
-    """Only path leaves of output integrity records, for retention and delivery."""
+    """Return the paths of the output records in `results`, for retention and delivery."""
     files = []
     for recorded in (results.get("outputs") or {}).values():
         for entry in recorded if isinstance(recorded, list) else [recorded]:
@@ -38,10 +39,11 @@ def declared_output_files(results: dict[str, Any]) -> list[Path]:
 
 
 def record_outputs(flow: Flow) -> list[str]:
-    """Record enabled declared outputs after a successful run, returning useful problems.
+    """Record the enabled declared outputs after a successful run, and return the problems found.
 
-    Required scalar/list outputs and switched-on optional outputs must be present. Only
-    complete output groups are recorded; disabled outputs are ignored even if assigned.
+    Required scalar and list outputs, and optional outputs that are switched on, must be
+    present. Only complete output groups are recorded. Disabled outputs are ignored even if
+    assigned.
     """
     declarations = declared_outputs(type(flow))
     if not declarations:
@@ -94,10 +96,12 @@ def record_outputs(flow: Flow) -> list[str]:
 
 
 def recorded_entries(recorded: Any, many: bool, label: str) -> tuple[OutputEntry, ...]:
-    """The files of one output as `results.json` records them, if the record has the shape the
-    output's cardinality gives it (a list for a list output, a table for any other) and each file
-    a path and a digest: a `FlowDependencyFailure` naming `label` otherwise. The one rule of a
-    recorded output, for the hand-over and for a dry run, which reads no file."""
+    """Return the files of one output as `results.json` records them.
+
+    The record must have the shape that the cardinality of the output gives it (a list for a
+    list output, a table for any other), and each file must have a path and a digest.
+    Otherwise a `FlowDependencyFailure` names `label`. This is the one rule of a recorded
+    output, for the hand-over and for a dry run, which reads no file."""
     if isinstance(recorded, list) != many or (many and not recorded):
         raise FlowDependencyFailure(f"{label} has an invalid record")
     entries = []
@@ -117,9 +121,10 @@ def recorded_entries(recorded: Any, many: bool, label: str) -> tuple[OutputEntry
 
 
 def handed_entries(producer: Flow, output: str) -> tuple[OutputEntry, ...]:
-    """The files of `producer`'s `output` as its run recorded them (`handed_over` has verified
-    them): what a consumer is handed, to be compared with what it consumed. Call it after
-    `handed_over` has accepted the output."""
+    """Return the files of the `output` of `producer` as its run recorded them.
+
+    `handed_over` has verified them. They are what a consumer is handed, to be compared with
+    what it consumed. Call this after `handed_over` has accepted the output."""
     recorded = (producer.results.get("outputs") or {})[output]
     return recorded_entries(
         recorded,
@@ -129,10 +134,10 @@ def handed_entries(producer: Flow, output: str) -> tuple[OutputEntry, ...]:
 
 
 def handed_over(producer: Flow, output: str) -> list[Path]:
-    """Validate a recorded output under its producer's held read lease.
+    """Validate a recorded output under the held read lease of its producer, and return its paths.
 
-    The returned paths preserve recorded list order and may name internal symbolic links.
-    Missing, malformed, unreadable or changed files raise FlowDependencyFailure.
+    The returned paths keep the recorded list order and may name internal symbolic links. A
+    missing, malformed, unreadable or changed file raises `FlowDependencyFailure`.
     """
     declaration = declared_outputs(type(producer)).get(output)
     records = producer.results.get("outputs")
@@ -164,7 +169,7 @@ def handed_over(producer: Flow, output: str) -> list[Path]:
             raise FlowDependencyFailure(f"{label} ({path}) cannot be read: {error}") from error
         if digest != entry.sha:
             raise FlowDependencyFailure(
-                f"{label} ({path}) changed since its run recorded it -- another xeda process "
+                f"{label} ({path}) changed since its run recorded it. Another Xeda process "
                 "may have rebuilt or cleaned it: run again"
             )
         paths.append(path)

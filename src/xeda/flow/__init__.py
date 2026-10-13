@@ -15,7 +15,6 @@ from .flow import (
     registered_flows,
 )
 
-# from .decorators import define_flow, sim_flow, synth_flow
 from .fpga import FPGA
 from ..run_dir import RunDirectoryError
 from .io import In, Out

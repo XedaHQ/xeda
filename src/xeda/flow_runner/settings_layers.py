@@ -1,21 +1,21 @@
-"""Where a flow's settings come from, and how those layers combine.
+"""Where the settings of a flow come from, and how those layers combine.
 
-A flow's settings are assembled from these layers, lowest precedence first:
+The settings of a flow are assembled from these layers, lowest precedence first:
 
-1. the flow's own defaults (supplied by validation, not here)
-2. the project file's ``flows.<flow>`` section
-3. the design file's ``flows.<flow>`` section
-4. the selected target's ``flows.<flow>`` section (``--target``), key by key: the target is the
-   design's own author saying "for this build, these values", so what it writes wins over the
-   design's. The loader merges it into the design before anything else sees the design, so it
-   is part of the design's origin and below the command line and the API
-5. the command line (``-s KEY=VALUE``, or the ``flow_settings`` of ``run`` and ``plan``), then
-   overrides given through the API (``flow_overrides``)
+1. the defaults of the flow (supplied by validation, not here)
+2. the `flows.<flow>` section of the project file
+3. the `flows.<flow>` section of the design file
+4. the `flows.<flow>` section of the selected target (`--target`), key by key. The target is
+   the author of the design saying "for this build, these values", so what it writes wins over
+   the design. The loader merges it into the design before anything else sees the design, so it
+   is part of the origin of the design, and below the command line and the API
+5. the command line (`-s KEY=VALUE`, or the `flow_settings` of `run` and `plan`), then the
+   overrides given through the API (`flow_overrides`)
 
-The layers are merged *deeply*: a nested section such as ``clock = {...}`` combines key by key,
-so ``-s clock.freq=100MHz`` changes that one setting of the design's ``clock`` section instead
-of replacing the whole section. Any other value -- a list included -- is replaced whole by a
-higher layer. Local and remote runs, and the settings of every producer, all go through
+The layers are merged deeply. A nested section such as `clock` combines key by key, so
+`-s clock.freq=100MHz` changes that one setting of the `clock` section of the design instead of
+replacing the whole section. Any other value, a list included, is replaced whole by a higher
+layer. Local and remote runs, and the settings of every producer, all go through
 `merge_layers`, so they cannot disagree about precedence.
 
 Every way to launch a flow takes the same layers. `run`, `plan` and the remote runner load the
@@ -111,7 +111,7 @@ REMOVED_FLOWS = {
 
 
 class FlowRemovedError(FlowNotFoundError):
-    """A flow that was removed: the message names what to use instead."""
+    """A flow that was removed. The message names what to use instead."""
 
     def __init__(self, flow_name: str, replacement: str) -> None:
         self.flow_name = flow_name
@@ -120,10 +120,12 @@ class FlowRemovedError(FlowNotFoundError):
 
 
 def check_not_removed(flow_name: str) -> None:
-    """Refuse a removed flow's name, in any spelling, wherever a flow is named: to run it, or
-    as a section of a `flows` table. A removed flow is not an unknown one (a plugin that is not
-    installed, whose section is left alone): its settings configure nothing any more, and
-    saying nothing would leave them silently unused."""
+    """Refuse the name of a removed flow, in any spelling, wherever a flow is named.
+
+    That is when the user runs the flow and when its name is a section of a `flows` table. A
+    removed flow is not an unknown one (a plugin that is not installed, whose section is left
+    alone): its settings configure nothing any more, and saying nothing would leave them
+    silently unused."""
     removed = REMOVED_FLOWS.get(str(flow_name).strip().replace("-", "_").lower())
     if removed is not None:
         raise FlowRemovedError(*removed)
@@ -134,9 +136,11 @@ Layer = None | Mapping[str, Any] | Sequence[str]
 
 
 def _has_clock_inputs(settings_cls: type[XedaBaseModel]) -> bool:
-    """Whether this settings model has SynthFlow's clock contract: `clocks` is a table of named
-    clocks, and `clock` and `main_clock` are properties of it. (The design's `RtlSettings` has
-    `clocks` and `clock` too, but a list of ports, merged by `RtlSettings.merge_inputs`.)"""
+    """Return whether this settings model has the clock contract of `SynthFlow`.
+
+    `clocks` is a table of named clocks, and `clock` and `main_clock` are properties of it.
+    (`RtlSettings` of the design has `clocks` and `clock` too, but as a list of ports, merged by
+    `RtlSettings.merge_inputs`.)"""
     return (
         "clocks" in settings_cls.model_fields
         and isinstance(getattr(settings_cls, "clock", None), property)
@@ -155,11 +159,11 @@ def _clock_mapping(value: Any) -> Mapping[str, Any] | None:
 def _canonicalize_clock_input(
     values: dict[str, Any], settings_cls: type[XedaBaseModel]
 ) -> tuple[dict[str, Any], str | None]:
-    """Normalize one layer's single-clock spelling to ``clocks``.
+    """Normalize the single-clock spelling of one layer to `clocks`.
 
     The returned name marks a singular override. It lets the merge apply `clock` to an existing
-    sole/named main clock rather than adding a second clock. Giving both spellings in this
-    *same* layer is intentionally left unchanged, so validation still rejects the ambiguity.
+    sole or named main clock, rather than adding a second clock. Giving both spellings in the
+    same layer is left unchanged on purpose, so validation still rejects the ambiguity.
     """
     if not _has_clock_inputs(settings_cls):
         return values, None
@@ -170,7 +174,7 @@ def _canonicalize_clock_input(
     spelling = present[0]
     raw = values.pop(spelling)
     if raw is None:
-        # `None` historically meant "not specified". It must not erase a lower layer's clocks.
+        # `None` means "not specified". It must not erase the clocks of a lower layer.
         return values, None
     mapped = _clock_mapping(raw)
     if mapped is None:
@@ -184,7 +188,7 @@ def _canonicalize_clock_input(
 
 
 def _merge_clock_values(base: Any, override: Any) -> Any:
-    """Merge a `clocks` mapping while treating `period` and `freq` as alternate spellings."""
+    """Merge a `clocks` mapping, treating `period` and `freq` as alternate spellings."""
     if not isinstance(base, Mapping) or not isinstance(override, Mapping):
         return deepcopy(override)
     merged = deepcopy(dict(base))
@@ -192,7 +196,7 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
         new_clock = _clock_mapping(raw_clock)
         old_clock = _clock_mapping(merged.get(name))
         if name in merged and old_clock is None:
-            # what is below is no clock: it stays, so that validation reports it
+            # What is below is no clock: it stays, so that validation reports it.
             continue
         if new_clock is not None and old_clock is not None:
             old_clock = deepcopy(dict(old_clock))
@@ -210,11 +214,12 @@ def _merge_clock_values(base: Any, override: Any) -> Any:
 def _merge_entries(
     base: Mapping[Any, Any], values: Mapping[Any, Any], entries: Any, append: bool
 ) -> dict[Any, Any]:
-    """Merge two dictionaries whose entries are tables (`table_entries` gave their annotation
-    `entries`), entry by entry as a field is merged. An entry of `base` that is no table where
-    one is expected is kept with nothing merged over it, so that validation reports it as it
-    would with no layer above; any other entry written twice merges key by key, as the model of
-    the entry merges, and one written once is kept."""
+    """Merge two dictionaries whose entries are tables, entry by entry, as a field is merged.
+
+    `entries` is the annotation of the entries that `table_entries` gave. An entry of `base`
+    that is no table where one is expected is kept with nothing merged over it, so that
+    validation reports it as it would with no layer above. Any other entry written twice merges
+    key by key, as the model of the entry merges, and one written once is kept."""
     merged = deepcopy(dict(base))
     child = nested_model(entries)
     for name, value in values.items():
@@ -239,13 +244,14 @@ def _merge_settings_layer(
     settings_cls: type[XedaBaseModel],
     append: bool = False,
 ) -> dict[str, Any]:
-    """Merge one already-parsed layer with model-aware aliases and nested settings.
+    """Merge one parsed layer into `base`, with model-aware aliases and nested settings.
 
     A value that is a shorthand form of a table (`fpga` as a part number) means exactly that
-    table: where it meets a table, from below or above, the two merge key by key. Where it
+    table. Where it meets a table, from below or above, the two merge key by key. Where it
     meets nothing, it stays as written. A form that is no table (`WHOLE`), and a value that is
     no form at all, replace what is below them. So does a list, unless `append` is set and the
-    model names the field in its `appended_fields`: the layer's items then follow those below."""
+    model names the field in its `appended_fields`: the items of the layer then follow those
+    below."""
     canonical = canonical_names(values, settings_cls)
     canonical, singular_clock = _canonicalize_clock_input(canonical, settings_cls)
     merged = deepcopy(dict(base))
@@ -284,8 +290,8 @@ def _merge_settings_layer(
                 if isinstance(existing, Mapping) and singular_clock not in existing:
                     if singular_clock == "main_clock" and existing:
                         # An unnamed single-clock shorthand targets the same deterministic
-                        # legacy main used by SynthFlow.Settings.main_clock: explicit
-                        # ``main_clock`` first, otherwise the first declared clock.
+                        # main clock that SynthFlow.Settings.main_clock uses: a clock named
+                        # `main_clock` first, otherwise the first declared clock.
                         old_name = next(iter(existing))
                         clock_values = {old_name: next(iter(clock_values.values()))}
                     elif len(existing) == 1:
@@ -294,12 +300,12 @@ def _merge_settings_layer(
                         old_name = next(iter(existing))
                         merged["clocks"] = {singular_clock: existing[old_name]}
                 # A singular `clock` without an explicit `name` names its clock `"main_clock"`,
-                # matching `SynthFlow.Settings._synthflow_settings_root_validator`'s
-                # direct-construction default -- but only when it creates a genuinely new clock entry. When it
-                # instead refines an already-existing clock (the redirects above, or a layer
-                # that already has a same-named clock), the existing clock's identity -- its own
-                # `name`, whatever it is -- must win, not be overwritten by the synthesized
-                # default.
+                # matching the default of direct construction
+                # (`SynthFlow.Settings._synthflow_settings_root_validator`), but only when it
+                # creates a genuinely new clock entry. When it instead refines an existing
+                # clock (the redirects above, or a layer that already has a clock of the same
+                # name), the identity of the existing clock, its own `name` whatever it is,
+                # must win and not be overwritten by the synthesized default.
                 for cname, cval in clock_values.items():
                     if (
                         cname not in existing_before
@@ -321,11 +327,12 @@ def _merge_settings_layer(
 
 
 def _with_atomic_names(values: dict[str, Any], settings_cls: type[XedaBaseModel]) -> dict[str, Any]:
-    """`values` with each table whose keys are the tool's names (`opaque_key_fields_of`) as a
-    table of those names, whole. Every layer has expanded the dots of such a name into nested
-    tables, where `A` and `A.B` of two layers would meet as a value and a table, and one would
-    replace the other. As names they merge key by key, and a higher layer replaces only a name it
-    gives."""
+    """Return `values` with each table whose keys are names from a tool as a table of those names.
+
+    These are the settings in `opaque_key_fields_of`. The names are kept whole. Every layer has
+    expanded the dots of such a name into nested tables, where `A` and `A.B` of two layers would
+    meet as a value and a table, and one would replace the other. As names, they merge key by
+    key, and a higher layer replaces only a name that it gives."""
     opaque = opaque_key_fields_of(settings_cls)
     if not opaque:
         return values
@@ -337,9 +344,10 @@ def _with_atomic_names(values: dict[str, Any], settings_cls: type[XedaBaseModel]
 
 
 def _atomic_table(key: str, value: Any) -> Any:
-    """`atomic_keys(value)`, once a table the user gave has been judged: one origin cannot give a
-    name and a name that starts with it and a dot (`A`, `A.B`). A table of names already
-    (`AtomicName` keys) is a merge of origins, which may."""
+    """Return `atomic_keys(value)`, once a table that the user gave has been judged.
+
+    One origin cannot give a name and a name that starts with it and a dot (`A`, `A.B`). A table
+    of names already (`AtomicName` keys) is a merge of origins, which may."""
     atoms = atomic_keys(value)
     if isinstance(atoms, Mapping) and not any(isinstance(k, AtomicName) for k in value):
         pair = name_inside_another(k.name for k in atoms)
@@ -354,12 +362,12 @@ def merge_layers(
     """Deep-merge `layers`, each one taking precedence over those before it.
 
     When `settings_cls` is known, accepted aliases are normalized within each layer before the
-    merge. Thus differently-spelled names for one setting still obey layer precedence, while two
-    names in the *same* layer remain an explicit validation error.
+    merge. So differently spelled names for one setting still obey layer precedence, while two
+    names in the same layer remain a validation error.
 
     A list replaces the list below it, as every layer does. `append` makes the lists that
-    `settings_cls` names in its `appended_fields` (a design's `sources`) the one exception: a
-    target sets it, since its job is to add a board's files.
+    `settings_cls` names in its `appended_fields` (the `sources` of a design) the one
+    exception. A target sets it, since its job is to add the files of a board.
     """
     merged: dict[str, Any] = {}
     for layer in layers:
@@ -378,21 +386,23 @@ def compose_flow_settings(
     origins: Sequence[Mapping[str, Any] | None],
     *layers: Layer,
 ) -> dict[str, Any]:
-    """`flow_cls`'s settings from `flows` sections given by origin, lowest precedence first
-    (project, design, command line, API), then `layers` -- the requested flow's own settings
-    (the command line's `-s`, then API overrides).
+    """Return the settings of `flow_cls` from `flows` sections given by origin.
 
-    Each origin contributes its own ``flows.<flow>`` section, and the origins are then stacked,
-    so a leaf is decided by where it was given. Composing a result again with the merged sections
-    below it changes nothing, so `run()` and `run_flow` may both compose.
+    The origins come lowest precedence first (project, design, command line, API). Then come
+    `layers`: the own settings of the requested flow (the `-s` items of the command line, then
+    API overrides). Each origin contributes its own `flows.<flow>` section, and the origins are
+    then stacked, so a leaf is decided by where it was given. Composing a result again with the
+    merged sections below it changes nothing, so `run()` and `run_flow` may both compose.
     """
     per_origin = [(sections or {}).get(flow_cls.name) for sections in origins]
     return merge_layers(*per_origin, *layers, settings_cls=flow_cls.Settings)
 
 
 def _folded(value: Any) -> Any:
-    """`fold_dotted_keys(value)`, or `None` when it holds a name that the setting refuses
-    (`EscapedName`): validation reports that, and this only looks for conflicts."""
+    """Return `fold_dotted_keys(value)`, or `None` when it holds a name that the setting refuses.
+
+    The refusal is an `EscapedName`. Validation reports it, and this function only looks for
+    conflicts."""
     try:
         return fold_dotted_keys(value)
     except EscapedName:
@@ -405,8 +415,10 @@ def _leaves(
     prefix: tuple[str, ...] = (),
     written: tuple[str, ...] = (),
 ) -> dict[tuple[str, ...], tuple[str, Any]]:
-    """Every leaf of a nested mapping: its canonical path (each name as the model spells it, so
-    an alias and its setting are one leaf) -> (the path as written, its value). The names of a
+    """Return every leaf of a nested mapping.
+
+    The result maps the canonical path of a leaf (each name as the model spells it, so an alias
+    and its setting are one leaf) to a pair: the path as written, and the value. The names of a
     setting in `opaque_key_fields` are split at their dots, as the expansion of a dotted key
     would split them."""
     leaves: dict[tuple[str, ...], tuple[str, Any]] = {}
@@ -425,8 +437,8 @@ def _leaves(
             and isinstance(names := _folded(value), Mapping)
             and all(isinstance(name, str) for name in names)
         ):
-            # the keys are the tool's names: a leaf for each name, at the path of its dots, so
-            # that `A` and `A.B` meet as a value and a key inside it, as in one spelling
+            # The keys are names from a tool: make a leaf for each name, at the path of its dots,
+            # so that `A` and `A.B` meet as a value and a key inside it, as in one spelling.
             for name, entry in names.items():
                 leaves[(*prefix, target, *name.split("."))] = (
                     ".".join((*written, key, name)),
@@ -440,13 +452,14 @@ def _leaves(
 
 
 def _is_inside(path: tuple[str, ...], other: tuple[str, ...]) -> bool:
-    """Whether `other` is a key inside the key `path`."""
+    """Return whether `other` is a key inside the key `path`."""
     return len(other) > len(path) and other[: len(path)] == path
 
 
 def _sets_value(value: Any) -> bool:
-    """Whether a leaf gives its key a value. `None` and an empty table leave the key free for
-    keys inside it (`utils.set_hierarchy`)."""
+    """Return whether a leaf gives its key a value.
+
+    `None` and an empty table leave the key free for keys inside it (`utils.set_hierarchy`)."""
     return value is not None and not (isinstance(value, Mapping) and not value)
 
 
@@ -455,12 +468,13 @@ def split_flow_sections(
     requested: str,
     flow_class_for: Callable[[str], Any | None] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """Split a command-line layer into its ``flows.<node>.*`` sections and the requested flow's
-    own settings. ``-s key`` and ``-s flows.<requested>.key`` name one leaf (an alias of a
-    setting is that setting): the same value twice is accepted, two different values are an
-    error naming both spellings. The two spellings are one origin for the rule of
-    `utils.set_hierarchy` as well: a key is a value or a table, so a value in one spelling and a
-    key inside it in the other (`A` and `A.B`) are an error naming both."""
+    """Split a command-line layer into `flows.<node>.*` sections and the requested flow's own.
+
+    `-s key` and `-s flows.<requested>.key` name one leaf (an alias of a setting is that
+    setting). The same value twice is accepted. Two different values are an error that names
+    both spellings. The two spellings are one origin for the rule of `utils.set_hierarchy` as
+    well: a key is a value or a table, so a value in one spelling and a key inside it in the
+    other (`A` and `A.B`) are an error that names both."""
     own = settings_to_dict(layer)  # type: ignore[arg-type]
     sections = merge_flow_sections(
         own.pop("flows", None), flow_class_for=flow_class_for, location=COMMAND_LINE_ORIGIN
@@ -513,10 +527,12 @@ def check_run_flows(
     flow_cls: type[Flow],
     run_flows: Collection[str] | None = None,
 ) -> None:
-    """The command line's `flows.<name>` sections may name only the flows of this run: the
-    requested flow and its transitive declared dependencies, or `run_flows` when the resolver
-    knows the graph (an explicit binding can reach a flow outside the default one). Any other
-    name is an error with the close matches among them."""
+    """Refuse a `flows.<name>` section of the command line that names a flow outside this run.
+
+    The sections may name only the flows of this run: the requested flow and its transitive
+    declared producers, or `run_flows` when the resolver knows the graph (an explicit binding
+    can reach a flow outside the default one). Any other name is an error with the close matches
+    among them."""
     run_flows = sorted({flow_cls.name, *(run_flows or transitive_dependencies(flow_cls))})
     unknown = [name for name in sections if name not in run_flows]
     if unknown:
@@ -543,15 +559,17 @@ def command_line_sections(
     flow_cls: type[Flow],
     flow_class_for: Callable[[str], Any | None] | None = None,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, Any]]:
-    """`(sections, own)` of the command line for a run of `flow_cls`: `split_flow_sections`,
-    then `check_run_flows`. Local and remote runs both take the command line through this."""
+    """Return `(sections, own)` of the command line for a run of `flow_cls`.
+
+    That is `split_flow_sections`, then `check_run_flows`. Local and remote runs both take the
+    command line through this function."""
     sections, own = split_flow_sections(layer, flow_cls.name, flow_class_for)
     check_run_flows(sections, flow_cls)
     return sections, own
 
 
 def registered_flow(name: str) -> type[Flow] | None:
-    """Resolve a registered canonical name, class name or alias without importing the runner."""
+    """Resolve a registered canonical name, class name or alias, without importing the runner."""
     normalized = name.strip().replace("-", "_").lower()
     return next(
         (cls for key, (_module, cls) in registered_flows.items() if key.lower() == normalized),
@@ -560,7 +578,7 @@ def registered_flow(name: str) -> type[Flow] | None:
 
 
 def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
-    """The flows of the declared default producers, transitively, with one traversal state."""
+    """Return the flows of the declared default producers, transitively, in one traversal."""
     found: dict[str, type[Flow]] = {}
     visited = {flow_cls.name}
 
@@ -583,8 +601,10 @@ def transitive_dependencies(flow_cls: type[Flow]) -> dict[str, type[Flow]]:
 def _flows_error(
     problems: Sequence[tuple[str, str]], location: str | None, kind: str
 ) -> FlowSettingsError:
-    """The error for `problems` found in one origin's `flows` table, a `(key path, problem)` for
-    each, all reported at once. `location` names the origin; `kind` is the error's type."""
+    """Return the error for `problems` found in the `flows` table of one origin.
+
+    Each problem is a `(key path, problem)` pair, and all are reported at once. `location` names
+    the origin. `kind` is the type of the error."""
     where = f"{location}: " if location else ""
     return FlowSettingsError(
         [(path, f"{where}`{path}` {problem}", None, kind) for path, problem in problems], "flows"
@@ -596,18 +616,20 @@ def merge_flow_sections(
     flow_class_for: Callable[[str], Any | None] | None = None,
     location: str | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Merge `flows` sections (flow name -> settings) flow by flow, later sections winning.
+    """Merge `flows` sections (flow name to settings) flow by flow, later sections winning.
 
-    A design file's ``flows.nextpnr`` refines the project's ``flows.nextpnr`` rather than
-    replacing it. When `flow_class_for` is supplied, aliases such as ``ghdl`` are normalized to
-    the canonical flow name; spelling the same flow twice in one section is an error. So is a
-    section for a removed flow (`check_not_removed`), wherever it was written: every `flows`
-    table -- a design's, a project's, the command line's, the API's -- is merged here.
+    The `flows.nextpnr` section of a design file refines the `flows.nextpnr` section of the
+    project instead of replacing it. When `flow_class_for` is supplied, aliases such as `ghdl`
+    are normalized to the canonical flow name. Spelling the same flow twice in one section is
+    an error. So is a section for a removed flow (`check_not_removed`), wherever it was
+    written: every `flows` table (a design's, a project's, the command line's, the API's) is
+    merged here.
 
-    Every table is also judged for its shape here (`flows_table_problems`): the table and each
-    flow's section are mappings, or a section is `KEY=VALUE` text, which is how code gives a
-    layer, and each key is a flow's name, as text. A table that is not is a `FlowSettingsError` naming it, and `location` the origin it
-    came from. Nothing in a table is read before it passes.
+    Every table is also judged for its shape here (`flows_table_problems`): the table and the
+    section of each flow are mappings, or a section is `KEY=VALUE` text, which is how code
+    gives a layer, and each key is the name of a flow, as text. A table that is not so is a
+    `FlowSettingsError` that names it and, in `location`, the origin it came from. Nothing in a
+    table is read before it passes.
     """
     normalized_sections: list[dict[str, dict[str, Any]]] = []
     classes: dict[str, Any] = {}
@@ -654,7 +676,7 @@ def merge_flow_sections(
 
 
 def carry_diagnostics(settings: Flow.Settings, depender: Flow.Settings) -> None:
-    """Carry debug and an inherited verbose level into a producer before hashing."""
+    """Carry `debug` and an inherited verbose level into a producer, before hashing."""
     settings.debug |= depender.debug
     if not settings.verbose and depender.verbose > 1:
         settings.verbose = depender.verbose
@@ -666,7 +688,7 @@ def settings_in_context(
     design_root: Path | None,
     runner_cwd: Path | None,
 ) -> Flow.Settings:
-    """Validate mappings in launch context; copy models, preserving their original context."""
+    """Validate mappings in the launch context. Copy models and keep their original context."""
     if given is None or isinstance(given, Mapping):
         return flow_cls.Settings.from_input(
             given or {}, design_root=design_root, runner_cwd=runner_cwd
@@ -679,7 +701,7 @@ def settings_in_context(
 
 
 def suggest_dependency_node(flow_cls: type[Flow], error: FlowSettingsError) -> None:
-    """Suggest -s flows.<node>.key when an unknown root setting belongs to a dependency."""
+    """Suggest `-s flows.<node>.key` when an unknown root setting belongs to a producer."""
     dependencies = transitive_dependencies(flow_cls)
     suggested = []
     for location, message, context, kind in error.errors:

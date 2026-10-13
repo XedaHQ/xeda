@@ -12,10 +12,10 @@ __all__ = ["FPGA"]
 
 
 class FPGA(XedaBaseModel):
-    """FPGA target device"""
+    """An FPGA device, given by its part number or by its attributes."""
 
-    # definition order: part > device > vendor > {family, speed, package, etc}
-    part: Optional[str] = Field(None, description="full device part identifier")
+    # Definition order: part > device > vendor > {family, speed, package, etc}.
+    part: Optional[str] = Field(None, description="Full part identifier of the device.")
     device: Optional[str] = None
     vendor: Optional[str] = None
     family: Optional[str] = None
@@ -47,17 +47,20 @@ class FPGA(XedaBaseModel):
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
-        """A bare string is the part number: `fpga: "xc7a100tftg256-2L"` is `fpga: {part:
-        "xc7a100tftg256-2L"}`, in a file, on the command line and in a merge of layers."""
+        """Return the table that a bare string stands for, or None for any other value.
+
+        A bare string is the part number: `fpga: xc7a100tftg256-2L` means the same as
+        `fpga.part: xc7a100tftg256-2L`, in a file, on the command line and in a merge of
+        layers."""
         return {"part": value} if isinstance(value, str) else None
 
-    # this is called before all field validators!
+    # This runs before all field validators.
     @model_validator(mode="before")
     @classmethod
     @accepts_non_mapping
     def _fpga_root_validator(cls, values):  # pylint: disable=no-self-argument
-        # The positional form `FPGA("xc7a...")` always accepted the part number; a field value
-        # does by the same expansion.
+        # The positional form `FPGA("xc7a...")` accepts a part number. A field value does the
+        # same through this expansion.
         expanded = cls.as_mapping(values)
         if expanded is not None:
             values = expanded
@@ -94,7 +97,7 @@ class FPGA(XedaBaseModel):
             log.debug("FPGA validator: part=%s", part)
             part = part.strip()
             values["part"] = part
-            # speed: 6 = slowest, 8 = fastest
+            # speed: 6 = slowest, 8 = fastest.
             match_ecp5 = re.match(
                 r"^LFE5(U|UM|UM5G)-(\d+)F-(?P<sp>\d)(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>[A-Z]?)$",
                 part,
@@ -152,7 +155,8 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("pins", try_convert(match_nexus.group("pins"), int))
                 set_if_not_exist("grade", match_nexus.group("gr").upper())
                 return values
-            # Commercial Xilinx # Generation # Family # Logic Cells in 1K units # Speed Grade (-1 slowest, L: low-power) # Package Type
+            # Commercial Xilinx: generation, family, logic cells in 1K units, speed grade
+            # (-1 slowest, L: low power), package type.
             match_xc6 = re.match(
                 r"^(XC)(6)(?P<f>[A-Z]+)(?P<lc>\d+)(-(?P<speed_grade>\d))?(-(?P<pkg>[A-Z]+)(?P<pins>\d+))?$",
                 part,
@@ -240,8 +244,8 @@ class FPGA(XedaBaseModel):
                 set_if_not_exist("pins", try_convert(match_us.group("pins"), int))
                 set_if_not_exist("grade", match_us.group("gr"))
                 return values
-            # UltraSCALE+
-            # capacity is index to table, roughly x100K LCs
+            # UltraScale+. The capacity is an index into a table, roughly in units of 100K logic
+            # cells.
             match_usp = re.match(
                 r"^(XC)(?P<f>[A-Z])U(?P<lc>\d+)P-?(?P<s>L?\d)?(?P<pkg>[A-Z]+)(?P<pins>\d+)(?P<gr>-\d)?$",
                 part,
@@ -275,6 +279,8 @@ class FPGA(XedaBaseModel):
                     values["vendor"] = "lattice"
                     return values
             raise ValueError(
-                "Missing enough information about the FPGA device. Please set the 'part' number and/or device, vendor, family, etc."
+                "Not enough information about the FPGA device. Give the `part` number, a `device` "
+                "or a `vendor`, or a `family` that is one of spartan, artix, kintex, virtex, zynq, "
+                "ecp5, ice40 or ice5."
             )
         return values

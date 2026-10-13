@@ -477,12 +477,12 @@ def test_a_remote_without_required_protocol_is_refused_before_anything_ships(
     monkeypatch.setattr(remote_module.execnet, "makegateway", makegateway)
     monkeypatch.setattr(_LocalConnection, "close", lambda self: closed.append("connection"))
     design = _sqrt_design(tmp_path / "design")
-    with pytest.raises(RemoteIncompatible, match="upgrade the remote xeda") as raised:
+    with pytest.raises(RemoteIncompatible, match="upgrade the remote Xeda") as raised:
         RemoteRunner(tmp_path / "local").run_remote(
             design, flow_name, host="somewhere", flow_settings=flow_settings
         )
     assert version in str(raised.value)
-    assert "upgrade the remote xeda" in str(raised.value)
+    assert "upgrade the remote Xeda" in str(raised.value)
     assert f"remote protocol {protocol or 0}" in str(raised.value)
     assert "remote protocol 1 or newer" in str(raised.value)
     assert not shipped

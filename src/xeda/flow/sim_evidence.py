@@ -1,4 +1,6 @@
-"""Small readers shared by simulator adapters; the owning flow decides report freshness."""
+"""Readers of simulator output that the simulator adapters share.
+
+Each flow decides through `Flow.report_file` whether a report is from this run."""
 
 from __future__ import annotations
 
@@ -16,7 +18,9 @@ log = logging.getLogger(__name__)
 
 
 def read_sim_log(flow: Flow, path: str | Path) -> str | None:
-    """Read a current-run UTF-8 transcript, or return None without a parser traceback."""
+    """Return the text of a UTF-8 transcript that this run wrote, or None.
+
+    An unreadable transcript is logged, without a traceback."""
     report = flow.report_file(Path(path))
     if report is None:
         return None
@@ -30,11 +34,12 @@ def read_sim_log(flow: Flow, path: str | Path) -> str | None:
 def read_sim_evidence(
     flow: Flow, path: str | Path, *, events_path: str | Path | None = None
 ) -> SimEvidence | None:
-    """Validate a normalized end envelope and, optionally, its required JSONL event file.
+    """Read and validate a normalized end record and, optionally, its JSONL event file.
 
-    Separate events must also belong to this invocation. An incomplete event line or competing
-    embedded event list makes the whole record unusable; a missing diagnostic is not a pass.
-    This format does not reinterpret Verilator's existing stop_maybe records.
+    Return the evidence, or None if the record is missing or invalid. Events in a separate file
+    must also belong to this invocation. An incomplete event line, or an event list in both the
+    record and the file, makes the whole record unusable: a missing diagnostic is not a pass.
+    This format does not reinterpret the existing `stop_maybe` records of Verilator.
     """
     text = read_sim_log(flow, path)
     if text is None:
@@ -61,10 +66,10 @@ def read_sim_evidence(
 
 
 def parse_sim_time(quantity: str) -> int | None:
-    """Parse a native quantity as integral femtoseconds; ignore an explicit +delta suffix.
+    """Parse a native quantity as a whole number of femtoseconds, or return None.
 
-    The unit is required. Fractional femtoseconds cannot be represented and are rejected,
-    rather than rounded into invented precision. Source text and arbitrary suffixes fail.
+    An explicit `+delta` suffix is ignored. The unit is required. A fractional number of
+    femtoseconds is rejected and never rounded. Source text and other suffixes fail.
     """
     match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*(s|ms|us|ns|ps|fs)(?:\s*\+\d+)?\s*", quantity)
     if match is None:
@@ -74,11 +79,11 @@ def parse_sim_time(quantity: str) -> int | None:
 
 
 def parse_ghdl_log(flow: Flow, path: str | Path) -> SimEvidence | None:
-    """Translate GHDL's native runtime end and assertion diagnostics into evidence.
+    """Translate the native end and assertion diagnostics of GHDL into evidence.
 
-    Only anchored native end lines count. A report's message, echoed source and analysis
-    output cannot establish completion. GHDL reports no time for queue drain, so a silent
-    invocation remains unknown. VHDL std.env.stop is intentional batch completion (QB1).
+    Only anchored native end lines count. The message of a report, echoed source and analysis
+    output cannot establish completion. GHDL reports no time for a drained queue, so a silent
+    invocation stays unknown. VHDL `std.env.stop` is an intentional completion of a batch run.
     """
     text = read_sim_log(flow, path)
     if text is None:
@@ -131,10 +136,12 @@ def parse_ghdl_log(flow: Flow, path: str | Path) -> SimEvidence | None:
 
 
 def parse_nvc_log(flow: Flow, path: str | Path) -> SimEvidence | None:
-    """Read full/compact runtime diagnostics after the passive monitor's start marker.
+    """Translate the runtime diagnostics of nvc into evidence.
 
-    Only the standard ENV procedure's FINISH/STOP diagnostic establishes completion.
-    A user's similarly worded report or a compiler's source echo is not an end event.
+    Read the full and the compact form of the diagnostics after the start marker of the passive
+    monitor. Only the FINISH or STOP diagnostic of the standard ENV procedure establishes
+    completion. A similarly worded report of the user or an echo of source by the compiler is
+    not an end event.
     """
     text = read_sim_log(flow, path)
     if text is None or "XEDA_NVC_RUNTIME_START\n" not in text:

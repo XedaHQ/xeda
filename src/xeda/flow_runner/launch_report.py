@@ -1,7 +1,7 @@
 """The last stage of a launch: show what a run produced, and record it.
 
-Free functions with explicit arguments. This module never imports `default_runner`: the
-launcher passes what each function needs.
+The functions are free functions with explicit arguments. This module never imports
+`default_runner`: the launcher passes what each function needs.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def print_results(
     subset: Optional[Iterable[str]] = None,
     skip_if_false: Union[bool, Iterable[str], None] = None,
 ) -> None:
-    """Display selected flow results in a formatted table."""
+    """Print the selected results of a flow in a table."""
     if results is None and flow:
         results = flow.results
     assert results is not None, "results is None"
@@ -100,12 +100,13 @@ def print_results(
 
 
 def artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
-    """Flatten an artifacts mapping into `(label, path, end_section)` "Artifacts:" table rows.
+    """Flatten an artifacts mapping into the rows of the "Artifacts:" table.
 
-    Each label's paths are found with `iter_artifact_paths`, so a value nested through any mix
-    of mappings, lists and tuples is flattened the same way as everywhere else artifacts are
-    walked. The label is shown once, on the row of its first path; a label with no path leaves
-    (`None`, `""`, an empty list/dict, ...) gets no rows at all.
+    Each row is `(label, path, end_section)`. The paths of a label are found with
+    `iter_artifact_paths`, so a value nested through any mix of mappings, lists and tuples is
+    flattened the same way as everywhere else that artifacts are walked. The label is shown
+    once, on the row of its first path. A label with no path leaves (`None`, `""`, an empty list
+    or dict, ...) gets no rows at all.
     """
     rows: list[tuple[str, str, bool]] = []
     for label, value in artifacts.items():
@@ -116,7 +117,7 @@ def artifact_rows(artifacts: Mapping[str, Any]) -> list[tuple[str, str, bool]]:
 
 
 def drop_unwritten(flow: Flow) -> None:
-    """Report only the artifacts a failed run actually wrote (`drop_unwritten_artifacts`)."""
+    """Keep only the artifacts that a failed run wrote (`drop_unwritten_artifacts`)."""
     flow.results.artifacts = Box(
         drop_unwritten_artifacts(
             flow.results.artifacts,
@@ -142,8 +143,9 @@ def report(
     *,
     record: bool,
 ) -> None:
-    """Show the results and, for a run that just executed (`record`), write them to
-    `results.json`. A reused run's directory is left exactly as it was."""
+    """Show the results and, for a run that just executed (`record`), write them to `results.json`.
+
+    The directory of a reused run is left exactly as it was."""
     if settings.display_results and flow.artifacts and flow.succeeded:
         table = Table(
             box=box.SIMPLE,
@@ -178,7 +180,9 @@ def report(
 
 
 def reuse_results(flow: Flow, results_json: Path) -> bool:
-    """Adopt the recorded results of a fresh run; False if they cannot be read."""
+    """Adopt the recorded results of a run that is up to date.
+
+    Return False if they cannot be read."""
     try:
         previous = Box(json.loads(results_json.read_text()))
     except (OSError, ValueError):
@@ -192,16 +196,18 @@ def reuse_results(flow: Flow, results_json: Path) -> bool:
 
 
 def warn_outputs_to_delivered_nothing(flow: Flow, outputs_to: Path) -> None:
-    """`--outputs-to` copies only artifacts a successful, requested flow reported inside its run
-    directory: a flow that reported none there, or names no setting deliverable, delivers nothing
-    and nothing else says so. Name the flow and, where it has any, the deliverable settings of its
-    own a location could be given instead (`vcd` for a simulator), so a bare run is not mistaken
-    for xeda silently dropping a file."""
+    """Warn that `--outputs-to` delivered nothing for `flow`.
+
+    `--outputs-to` copies only the artifacts that a successful, requested flow reported inside
+    its run directory. A flow that reported none there, or that names no setting a deliverable,
+    delivers nothing, and nothing else says so. The warning names the flow and, where it has
+    any, its own deliverable settings that could be given a location instead (`vcd` for a
+    simulator). A bare run is then not mistaken for Xeda silently dropping a file."""
     names = deliverable_setting_names(type(flow.settings))
     which = ", ".join(names) if names else "none"
     log.warning(
-        "--outputs-to %s: %s delivered nothing there -- its deliverable settings (%s) are what "
-        "--outputs-to copies; give one a location (%s) for something to deliver",
+        "--outputs-to %s: %s delivered nothing there. Its deliverable settings (%s) are what "
+        "--outputs-to copies. Give one a location (%s) for something to deliver",
         outputs_to,
         flow.name,
         which,

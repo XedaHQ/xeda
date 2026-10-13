@@ -1,8 +1,8 @@
 """Reserved input wiring, captured per origin before ordinary settings composition.
 
-These layers describe requests, not an executable graph. The resolver calls ``node_bindings``
-for each node it reaches, before choosing sources or default producers; target-selected type
-matching and edge discovery are the resolver's.
+These layers describe requests, not an executable graph. The resolver calls `node_bindings`
+for each node it reaches, before it chooses sources or default producers. Type matching that
+depends on the settings of a node, and edge discovery, belong to the resolver.
 """
 
 from __future__ import annotations
@@ -24,8 +24,8 @@ from .settings_layers import merge_flow_sections, registered_flow
 class NodeKey:
     """The identity of one node of a request: a canonical flow name and an optional instance.
 
-    ``instance`` tells apart several nodes of one flow. Chains, design files and the command
-    line each name a flow once, so they all produce the default ``None`` instance; a key with
+    `instance` tells apart several nodes of one flow. Chains, design files and the command
+    line each name a flow once, so they all produce the default `None` instance. A key with
     an instance only matches entries made for that same instance.
     """
 
@@ -40,7 +40,7 @@ class NodeKey:
 
 @dataclass(frozen=True)
 class ProducerRef:
-    """A canonical producer node and an exact, optional output key."""
+    """A canonical producer node and an optional exact output key."""
 
     node: NodeKey
     output: str | None = None
@@ -48,7 +48,9 @@ class ProducerRef:
 
 @dataclass(frozen=True)
 class BindingEntry:
-    """One unvalidated contribution; lower overridden values need not be valid references."""
+    """One unvalidated contribution.
+
+    A lower value that another value overrides need not be a valid reference."""
 
     node: NodeKey
     name: str
@@ -61,9 +63,9 @@ class BindingEntry:
 class BindingLayer:
     """One origin's reserved keys and explicitly supplied ordinary settings.
 
-    ``kind`` is the origin's rank: a ``"file"`` (design or project), the command line
-    (``"cli"``) or the API (``"api"``). A chain adjacency is command-line data: it overrides a
-    file's binding of the same input and collides with a command-line or API one.
+    `kind` is the rank of the origin: a `"file"` (design or project), the command line
+    (`"cli"`) or the API (`"api"`). A chain adjacency is command-line data: it overrides the
+    binding of the same input in a file and collides with one on the command line or in the API.
     """
 
     location: str
@@ -75,10 +77,10 @@ class BindingLayer:
 
 @dataclass(frozen=True)
 class InputBinding:
-    """The winning ordered references for one input, with its explanatory location.
+    """The winning ordered references for one input, with a location that explains them.
 
-    ``origin`` is ``"chain"`` or the winning layer's kind; ``overridden`` lists the locations
-    of file bindings a chain adjacency replaced. Neither is part of a run's identity.
+    `origin` is `"chain"` or the kind of the winning layer. `overridden` lists the locations
+    of file bindings that a chain adjacency replaced. Neither is part of the identity of a run.
     """
 
     references: tuple[ProducerRef, ...]
@@ -89,7 +91,7 @@ class InputBinding:
 
 @dataclass(frozen=True, eq=False)
 class _FrozenMapping(Mapping[Any, Any]):
-    """An immutable, pickleable request snapshot for existing worker transport."""
+    """An immutable, pickleable snapshot of a request, for the transport to workers."""
 
     _items: tuple[tuple[Any, Any], ...]
 
@@ -117,10 +119,11 @@ def _freeze(value: Any) -> Any:
 def split_bindings(
     sections: Mapping[str, Any], *, location: str, kind: str = "file"
 ) -> tuple[dict[str, Any], BindingLayer]:
-    """Copy/canonicalize an origin, removing ``inputs`` before Settings sees it.
+    """Copy and canonicalize an origin, removing `inputs` before the settings model sees it.
 
-    Unknown plugin sections remain opaque until reached. Normalize flow aliases per origin,
-    retaining the existing same-origin duplicate checks and ordinary settings spellings.
+    Unknown plugin sections stay opaque until reached. Flow aliases are normalized per origin,
+    with the existing checks for duplicates within one origin and for the ordinary spellings of
+    settings.
     """
     # Reuse the resolver's contribution recovery: exclude model defaults but retain edits
     # made to a default-created nested Settings instance, even under an unset parent field.
@@ -189,7 +192,9 @@ def _reference(value: Any, location: str) -> ProducerRef:
 
 
 def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], InputBinding]:
-    """The input each chain adjacency binds: ``(consumer, input)`` -> its one reference."""
+    """Return the input that each chain adjacency binds.
+
+    The key is `(consumer, input)` and the value is the one reference."""
     bound: dict[tuple[NodeKey, str], InputBinding] = {}
     if request is None:
         return bound
@@ -207,9 +212,11 @@ def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], Inp
 
 
 def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
-    """A chain adjacency and a command-line or API binding of the same input are always
-    an error, even when equal, before precedence or value validation. A design or project
-    file's binding is not a collision: the chain, command-line data, overrides it."""
+    """Refuse a chain adjacency and a command-line or API binding of the same input.
+
+    This is an error even when the two are equal, and the check comes before precedence and
+    value validation. A binding in a design or project file is no collision: the chain, which
+    is command-line data, overrides it."""
     chain = chain_bindings(request)
     for layer in layers:
         if layer.kind == "file":
@@ -231,11 +238,11 @@ def node_bindings(
     *,
     request: FlowRequest | None = None,
 ) -> dict[str, InputBinding]:
-    """The winning binding of each explicitly bound input of one reached node.
+    """Return the winning binding of each explicitly bound input of one reached node.
 
-    Origins must be supplied in increasing precedence (project, design, CLI, API). Every
-    layer's input names are checked; only a winning value is validated as a reference. A chain
-    adjacency replaces a file binding of its input and notes that binding's location.
+    Origins must be supplied in increasing precedence (project, design, CLI, API). The input
+    names of every layer are checked, but only a winning value is validated as a reference. A
+    chain adjacency replaces a file binding of its input and notes the location of that binding.
     """
     declarations = declared_inputs(cls)
     winners: dict[str, tuple[BindingEntry, str]] = {}
@@ -266,7 +273,7 @@ def node_bindings(
     selected: dict[str, InputBinding] = {}
     for name, (entry, kind) in winners.items():
         if name in chain:
-            continue  # replaced by the chain: a replaced value is never validated (PD4)
+            continue  # replaced by the chain: a replaced value is never validated
         declaration = declarations[name]
         if entry.is_list:
             if declaration.cardinality != "many":
@@ -299,10 +306,11 @@ def effective_bindings(
     *,
     request: FlowRequest | None = None,
 ) -> Mapping[NodeKey, Mapping[str, InputBinding]]:
-    """`node_bindings` of every reached node that has any, after the chain collision check.
+    """Return `node_bindings` of every reached node that has any, after the chain collision check.
 
-    Nodes are told apart by ``NodeKey``, never by flow name. This does not select edges,
-    append design sources, compose producer settings or validate target-dependent types.
+    Nodes are told apart by `NodeKey`, never by flow name. This function does not select edges,
+    append design sources, compose producer settings or validate types that depend on the
+    settings.
     """
     check_chain_collisions(layers, request)
     classes: dict[NodeKey, type[Flow]] = {}
@@ -321,12 +329,13 @@ def effective_bindings(
 def input_origins(
     inputs: Sequence[Any], identity_of: Callable[[str], str]
 ) -> tuple[tuple[str, Any], ...]:
-    """Where each resolved input of a node comes from, in declaration order: ``"source"``, or
-    its ordered ``(producer identity, output key)`` references (none for an absent input).
+    """Return where each resolved input of a node comes from, in declaration order.
 
-    `inputs` are a plan node's `ResolvedInput`s; `identity_of` gives the identity of the plan
-    node a reference names, so producers are identified before their consumers. Reference
-    order counts. Where a binding was written (chain, file, command line, API) does not.
+    The origin of an input is `"source"`, or its ordered `(producer identity, output key)`
+    references (none for an absent input). `inputs` are the `ResolvedInput`s of a plan node.
+    `identity_of` gives the identity of the plan node that a reference names, so producers are
+    identified before their consumers. The order of the references counts. Where a binding was
+    written (chain, file, command line, API) does not.
     """
     return tuple(
         (
@@ -342,26 +351,29 @@ def input_origins(
 
 
 def node_identity(settings_hash: str, origins: Sequence[Any] = ()) -> str:
-    """The one identity rule: a node is its settings plus its ordered resolved input
-    origins (`input_origins`), for default and explicit edges alike. `settings_hash` is the
-    settings-only `flowrun_hash`; a flow that declares no inputs has no origins.
+    """Return the identity of a node: its settings plus its ordered resolved input origins.
 
-    The resolver's freeze, the launcher's plan validation and run identity, run-directory
-    claims, `results.json` and the trace all take a run's hash from here.
+    This is the one identity rule (`input_origins`), for default and explicit edges alike.
+    `settings_hash` is the settings-only `flowrun_hash`. A flow that declares no inputs has no
+    origins.
+
+    The freeze of the resolver, the plan validation and run identity of the launcher, the
+    run-directory claims, `results.json` and the trace all take the hash of a run from here.
     """
     return semantic_hash({"settings": settings_hash, "inputs": tuple(origins)})
 
 
 def default_nodes(classes: Sequence[type[Flow]]) -> list[tuple[NodeKey, type[Flow]]]:
-    """The reached nodes of a request that names each flow once (instance ``None``)."""
+    """Return the reached nodes of a request that names each flow once (instance `None`)."""
     return [(NodeKey(cls.name), cls) for cls in classes]
 
 
 def require_no_bindings(layers: Sequence[BindingLayer], reached: Sequence[NodeKey]) -> None:
-    """Refuse a binding of a node the request reaches, where requests are not resolved
-    locally (``--remote``). `reached` are the nodes of the request's graph without bindings:
-    any other node could be reached only through a binding of one of these. A binding saved
-    for a flow the request never runs is no refusal."""
+    """Refuse a binding of a node that the request reaches, where requests are not resolved locally.
+
+    That is the case for `--remote`. `reached` are the nodes of the request's graph, without
+    bindings. Any other node could be reached only through a binding of one of these. A binding
+    saved for a flow that the request never runs is no refusal."""
     nodes = set(reached)
     for layer in layers:
         if any(entry.node in nodes for entry in layer.entries) or any(

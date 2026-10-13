@@ -1,4 +1,4 @@
-"""simulation flow"""
+"""The base class of simulation flows, and the rule that judges how a simulation ended."""
 
 from __future__ import annotations
 
@@ -71,7 +71,9 @@ _FS_PER_UNIT = {"s": 10**15, "ms": 10**12, "us": 10**9, "ns": 10**6, "ps": 10**3
 
 
 def time_in_fs(time: int, unit: str) -> int:
-    """`time` ticks of `unit` (`"1ps"`, `"100fs"`, `"10ns"`) in femtoseconds."""
+    """Return `time` ticks of `unit` in femtoseconds.
+
+    A unit is a count and a time unit, such as `"1ps"`, `"100fs"` or `"10ns"`."""
     match = re.fullmatch(r"\s*(\d+)\s*(s|ms|us|ns|ps|fs)\s*", unit)
     if not match:
         raise ValueError(f"not a time unit: {unit!r}")
@@ -79,8 +81,10 @@ def time_in_fs(time: int, unit: str) -> int:
 
 
 def readable_time(time: int, unit: str | None) -> str:
-    """A simulated time in the largest unit that holds it exactly (`80 ns`, not `80000000 1fs`);
-    as given when the unit is missing or not one of ours."""
+    """Return a simulated time in the largest unit that holds it exactly.
+
+    An example is `80 ns`, not `80000000 1fs`. Return the time as given when the unit is missing
+    or not a time unit that Xeda knows."""
     try:
         femtoseconds = time_in_fs(time, unit or "")
     except ValueError:
@@ -92,9 +96,11 @@ def readable_time(time: int, unit: str | None) -> str:
 
 
 def record_failure(flow: Any, message: str) -> None:
-    """Make `message` the `error` of the run's `results.json`, unless the run already has an error
-    (a tool's exit status): a failure the flow's checks found, with no exception, would otherwise
-    get the launcher's general message."""
+    """Record `message` as the `error` in the `results.json` of the run.
+
+    Keep an error that the run already has (a tool's exit status). Without this, a failure that
+    the checks of the flow found, with no exception, would get the general message of the
+    launcher."""
     if not flow.results.get("error"):
         name = getattr(flow, "name", "the simulation")
         flow.results["error"] = {
@@ -104,7 +110,7 @@ def record_failure(flow: Any, message: str) -> None:
 
 
 def problem(cause: str, fix: str) -> str:
-    """The one form of every failure message of a simulation: the cause, then what to do."""
+    """Return a failure message of a simulation in its one form: the cause, then what to do."""
     return f"{cause.rstrip('.')}. To fix it, {fix}."
 
 
@@ -112,7 +118,7 @@ LOG_ADVICE = "read the simulation log in the run directory"
 
 
 def _cocotb_problem(results: Any) -> str:
-    """Why cocotb's verdict failed, from the counts it recorded in the run's results."""
+    """Return why the verdict of cocotb failed, from the counts it recorded in the results."""
     tests = results.get("cocotb.tests")
     if tests is None:
         return problem("cocotb left no readable test results", LOG_ADVICE)
@@ -132,14 +138,14 @@ FINISH_ADVICE = "end the testbench with `std.env.finish` (VHDL) or `$finish` (Ve
 
 
 def _finish_fix(stop_time: Any) -> str:
-    """What to do about a simulation that stopped by itself: no finish, no requested stop."""
+    """Return what to do about a simulation that stopped by itself, with no finish and no stop."""
     if stop_time is None:
         return f"{FINISH_ADVICE}, or set `stop_time`"
     return f"set `stop_time` to a time before the testbench stops, or {FINISH_ADVICE}"
 
 
 def _first_event(evidence: SimEvidence, kinds: tuple[str, ...]) -> str:
-    """The first event of one of `kinds`, as text (empty if there is none)."""
+    """Return the first event of one of `kinds` as text, or an empty string if there is none."""
     event = next((e for e in evidence.events if e.kind in kinds), None)
     if event is None:
         return ""
@@ -148,8 +154,10 @@ def _first_event(evidence: SimEvidence, kinds: tuple[str, ...]) -> str:
 
 
 def _event_fix(rank: int) -> str:
-    """What to do about events whose highest rank is `rank`. A threshold above `rank` allows them,
-    but none lies above the fatal rank: a fatal or failure event has to be fixed."""
+    """Return what to do about events whose highest rank is `rank`.
+
+    A threshold above `rank` allows them. No threshold lies above the fatal rank, so a fatal or
+    failure event has to be fixed."""
     if rank >= SEVERITY_RANK["fatal"]:
         return (
             "fix the design or the testbench so that it reports no fatal or failure event; "
@@ -163,11 +171,13 @@ def _event_fix(rank: int) -> str:
 
 
 def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) -> bool:
-    """The evidence rule: a simulation passes only if it ended by `$finish` (at any time), by the
-    `stop_time` the user asked for, or by the testbench's own driver exiting with status 0; and no
-    recorded event reached `fail_severity`. An end record that is missing, or ends by a drained
-    event queue, an error or a fatal error, fails. A failure is logged and, unless the run
-    already has an error (a tool's exit status), recorded as the run's `error` in
+    """Judge how a simulation ended, and return whether it passed.
+
+    A simulation passes only if it ended by `$finish` (at any time), by the `stop_time` or
+    `max_cycles` the user asked for, or by the testbench's own driver exiting with status 0,
+    and no recorded event reached `fail_severity`. An end record that is missing, or that ends
+    by a drained event queue, an error or a fatal error, fails. A failure is logged. Unless the
+    run already has an error (a tool's exit status), it is also recorded as the `error` in
     `results.json`, in the form of `problem`: the cause and what to do."""
 
     def fail(message: str) -> bool:
@@ -178,7 +188,7 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     if evidence is None:
         return fail(
             problem(
-                "the simulation left no end record, so xeda cannot tell how it ended", LOG_ADVICE
+                "the simulation left no end record, so Xeda cannot tell how it ended", LOG_ADVICE
             )
         )
     flow.results["sim.evidence"] = evidence.model_dump(mode="json")
@@ -195,8 +205,8 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
         and evidence.time is not None
         and evidence.time_unit is not None
     ):
-        # a bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
-        # record's precision, since the driver stops at the last whole tick
+        # A bare number is nanoseconds (`SimFlow.Settings.stop_time`); within one tick of the
+        # record's precision, since the driver stops at the last whole tick.
         requested = int(round(convert_unit(stop_time, "fs", from_unit="ns")))
         tick = time_in_fs(1, evidence.time_unit)
         stop_reached = abs(time_in_fs(evidence.time, evidence.time_unit) - requested) < tick
@@ -295,13 +305,13 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
 
 
 class SimFlow(Flow, metaclass=ABCMeta):
-    """superclass of all simulation flows"""
+    """The base class of all simulation flows."""
 
     cocotb_sim_name: Optional[str] = None
-    #: Advice that a simulator without cocotb support adds to the refusal of a cocotb testbench
+    #: Advice that a simulator without cocotb support adds to the refusal of a cocotb testbench.
     cocotb_advice: ClassVar[str] = ""
 
-    #: a simulation runs the testbench
+    #: A simulation reads the testbench (`tb`) as well as the RTL.
     design_parts = frozenset({"rtl", "tb"})
 
     #: The waveform settings (`dataclass.waveform`) that this simulator cannot honor, each with
@@ -315,16 +325,18 @@ class SimFlow(Flow, metaclass=ABCMeta):
         timeout: float | None = Field(
             None,
             gt=0,
-            description="Stop and fail each subprocess invocation containing simulation after "
-            "this many seconds of wall-clock time. Combined invocations include analysis and "
-            "elaboration; this is not a cumulative dependency deadline. None sets no limit.",
+            description="Stop and fail each subprocess invocation that contains simulation after "
+            "this many seconds of wall-clock time. An invocation can combine analysis, "
+            "elaboration and simulation. The limit applies to each invocation, not to their "
+            "total. None sets no limit.",
         )
         fail_severity: Literal["warning", "error", "failure", "fatal"] = Field(
             "error",
-            description="The least severe observed runtime diagnostic that fails simulation: "
-            "warning, error, failure or fatal. Failure and fatal have the same rank; "
-            "diagnostics below the threshold are recorded. Explicitly disabled assertions "
-            "retain the simulator's documented behavior. Nonzero execution always fails.",
+            description="The least severe runtime diagnostic that fails the simulation: "
+            "warning, error, failure or fatal. Failure and fatal have the same rank. "
+            "Diagnostics below the threshold are recorded. Assertions that the design disables "
+            "explicitly keep the documented behavior of the simulator. A nonzero exit status "
+            "always fails.",
         )
         vcd: Union[str, Path, None] = Field(
             None,
@@ -341,37 +353,41 @@ class SimFlow(Flow, metaclass=ABCMeta):
         )
         cocotb: CocotbSettings = Field(
             CocotbSettings(),  # type: ignore
-            description="Settings for the cocotb testbench, used when design.tb.cocotb is set.",
+            description="Settings for the cocotb testbench, used when `tb.cocotb` is set.",
         )
 
     @staticmethod
     def has_cpp_driver(design: Design) -> bool:
-        """Whether the design brings a C++ driver of its own: `Cpp` sources among the RTL's and the
-        testbench's. `yosys_sim` takes any `Cpp` source for a main and runs it in place of its own.
-        (`verilator` asks its `main` setting.)"""
+        """Return whether the design brings a C++ driver of its own.
+
+        That means `Cpp` sources among its RTL and testbench sources. `yosys_sim` takes any `Cpp`
+        source for a main and runs it in place of its own. (`verilator` asks its `main`
+        setting.)"""
         return bool(design.sim_sources_of_type(SourceType.Cpp))
 
     @classmethod
     def runs_without_testbench_top(
         cls, design: Design, settings: Flow.Settings | None = None
     ) -> bool:
-        """Whether this simulator knows what to run for `design` (run with `settings`, when the
-        caller has them) when `tb.top` is not set, though its testbench has sources in a hardware
-        description language. No simulator does by default. One that finds the testbench's top
-        itself (GHDL's `find-top`), or runs a C++ driver of the design's own (`yosys_sim`;
-        `verilator` with `main: false`, which only its settings say), says so by overriding this."""
+        """Return whether this simulator knows what to run for `design` when `tb.top` is not set.
+
+        The question arises when the testbench has sources in a hardware description language.
+        `settings` are the settings of the run, when the caller has them. No simulator knows by
+        default. A simulator that finds the top of the testbench itself (GHDL's `find-top`), or
+        that runs a C++ driver of the design's own (`yosys_sim`; `verilator` with `main: false`,
+        which only its settings say), overrides this method."""
         return False
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`),
-        and a name that selects another format.
+        """Refuse a waveform setting that this simulator cannot honor (`unsupported_waveforms`).
 
-        The setting a name is given to decides the format, never the name: a name that ends in
-        an extension of another format (`format_of_waveform_name`) is refused, naming the setting
-        of that format on this simulator when it has one. A located `wave: x.vcd` of `ghdl_sim`
-        is written under the conventional name of `wave` and would be the wrong format, and
-        `true` would then be the same run as a location of another format."""
+        Also refuse a name that selects another format. The setting that gets a name decides the
+        format, never the name. A name that ends in an extension of another format
+        (`format_of_waveform_name`) is refused, naming the setting of that format on this
+        simulator when it has one. Without this, a located `wave: x.vcd` of `ghdl_sim` would be
+        written under the conventional name of `wave`, in the wrong format, and `true` would
+        then be the same run as a location of another format."""
         super().check_settings_supported(settings)
         formats = waveform_fields(type(settings))
         usable = {
@@ -391,8 +407,8 @@ class SimFlow(Flow, metaclass=ABCMeta):
             text = os.fspath(value)
             written = format_of_waveform_name(text)
             if text.lower().endswith(".gz") and not text.lower().endswith(".vcd.gz"):
-                # a gzip name whose stem is a plain format is a compressed file of that format,
-                # and only a setting of a compressed format writes one
+                # A gzip name whose stem is a plain format is a compressed file of that format,
+                # and only a setting of a compressed format writes one.
                 stem = format_of_waveform_name(text[:-3])
                 if stem is not None and stem[0] not in COMPRESSED_FORMATS:
                     raise FlowSettingsException(
@@ -415,11 +431,14 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     @classmethod
     def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """A cocotb testbench needs a simulator xeda drives cocotb on (`cocotb_sim_name`): run on
-        any other, the design would be simulated without it and its tests would never run.
-        A testbench written in a hardware description language (`LANGUAGE_TYPES`) needs `tb.top`,
-        unless the simulator knows what to run without it (`runs_without_testbench_top`):
-        otherwise the simulator would simulate `rtl.top`, which has no stimulus."""
+        """Refuse a design that this simulator cannot run.
+
+        A cocotb testbench needs a simulator that Xeda drives cocotb on (`cocotb_sim_name`). On
+        any other, the design would be simulated without cocotb and its tests would never run.
+        A testbench written in a hardware description language (`LANGUAGE_TYPES`) needs
+        `tb.top`, unless the simulator knows what to run without it
+        (`runs_without_testbench_top`). Otherwise the simulator would simulate `rtl.top`, which
+        has no stimulus."""
         super().check_design_supported(design, settings)
         if design.tb.cocotb and not cls.cocotb_sim_name:
             # API callers may have loaded only their own simulator. Include built-ins too.
@@ -457,7 +476,7 @@ class SimFlow(Flow, metaclass=ABCMeta):
         assert isinstance(
             self.settings, self.Settings
         ), "self.settings is not an instance of self.Settings class"
-        # launched, the flow was checked already; constructed directly, it is checked here
+        # Launched, the flow was checked already; constructed directly, it is checked here.
         self.check_design_supported(self.design, self.settings)
 
     @property
@@ -467,9 +486,11 @@ class SimFlow(Flow, metaclass=ABCMeta):
 
     @property
     def cocotb(self) -> Optional[Cocotb]:
-        """The cocotb support of a cocotb simulation, made when first used: it is a tool, and
-        making one asks it for its version (a process), which a flow's constructor does not do
-        (a dry run constructs flows)."""
+        """The cocotb support of a cocotb simulation.
+
+        It is made when first used: it is a tool, and making one asks it for its version (a
+        process). The constructor of a flow starts no process, because a dry run constructs
+        flows."""
         if not hasattr(self, "_cocotb"):
             assert isinstance(self.settings, self.Settings)
             self._cocotb: Optional[Cocotb] = (
@@ -486,17 +507,25 @@ class SimFlow(Flow, metaclass=ABCMeta):
         return self._cocotb
 
     def has_evidence_adapter(self) -> bool:
-        """Whether this run's simulator can report how it ended (`simulation_evidence`).
-        This capability hook never exempts a run from evidence judgment."""
+        """Return whether the simulator of this run can report how it ended.
+
+        This hook describes a capability (`simulation_evidence`). It never exempts a run from
+        the evidence rule."""
         return False
 
     def simulation_evidence(self) -> SimEvidence | None:
-        """This run's end record, read through `Flow.report_file` (this run's own only)."""
+        """Return the end record of this run, or None.
+
+        A flow reads the record through `Flow.report_file`, so it takes only a record that this
+        run wrote."""
         return None
 
     def check_results(self) -> bool:
-        """cocotb's verdict for a cocotb testbench (on every simulator); otherwise the evidence
-        rule. Missing evidence fails, including a flow without an adapter."""
+        """Judge the run, by the verdict of cocotb or else by the evidence rule.
+
+        A cocotb testbench is judged by the verdict of cocotb, on every simulator, and needs no
+        simulation evidence. Any other run is judged by the evidence rule: missing evidence
+        fails, including a flow without an adapter."""
         if self.cocotb:
             passed = self.cocotb.add_results(
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
@@ -513,9 +542,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
         return passed
 
     def waveform_problem(self) -> str | None:
-        """Why a run that passed still failed to write the waveform its settings asked for, or
-        None. Only a simulator whose testbench names the file can write something else: the
-        others make the tool write the name they were given."""
+        """Return why a run that passed still failed to write the waveform its settings asked for.
+
+        Return None when it wrote it. Only a simulator whose testbench names the file can write
+        something else. The others make the tool write the name they were given."""
         return None
 
     def always_runs(self) -> Optional[str]:

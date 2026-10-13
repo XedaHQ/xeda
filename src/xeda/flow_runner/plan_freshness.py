@@ -1,4 +1,4 @@
-"""Freshness in a dry run: what a launch would do with each node of a plan.
+"""Whether each node is up to date in a dry run: what a launch would do with each node of a plan.
 
 Each node is `fresh` (a launch reuses it), `stale` (a launch runs it, for the reason the launch
 logs) or `unknown` (nothing can be said without making something first: a producer that would
@@ -16,16 +16,16 @@ A node is judged in the order the launch uses:
 
 1. The settings, which a launch checks against the design. If it refuses them, the node is
    `unknown`.
-2. The recorded outputs of every producer that is fresh, whatever the other producers do. If one
-   cannot be handed over, the node is `unknown`. A producer that is not fresh is not read,
-   because it will be rewritten.
+2. The recorded outputs of every producer that is `fresh`, whatever the other producers do. If
+   one cannot be handed over, the node is `unknown`. A producer that is not `fresh` is not
+   read, because it will be rewritten.
 3. The prepared inputs, located. If preparation refuses them, the node is `unknown`.
 4. `always_runs()`: the node is `stale`.
 5. `--clean`, then `--rebuild-all`: the node is `stale`.
 6. A prepared input that is not made yet: the node is `unknown`.
 7. The trace: the node is `stale` with the reason of `check_trace`. What the producers handed
-   over is compared last, and only when every producer is fresh. Otherwise a node that nothing
-   above decided is `unknown`, with the reason `depends on <producer>`.
+   over is compared last, and only when every producer is `fresh`. Otherwise a node that
+   nothing above decided is `unknown`, with the reason `depends on <producer>`.
 """
 
 from __future__ import annotations
@@ -65,15 +65,17 @@ log = logging.getLogger(__name__)
 
 State = Literal["fresh", "stale", "unknown"]
 
-#: why a node runs under `--rebuild-all` and `--clean`: the launch records these too
+#: Why a node runs under `--rebuild-all` and `--clean`. The launch records these too.
 EVERY_FLOW_RUNS_REBUILD_ALL = "every flow runs (--rebuild-all)"
 EVERY_FLOW_RUNS_CLEAN = "every flow runs (--clean)"
 
 
 @dataclass(frozen=True)
 class NodeFreshness:
-    """What a launch would do with one node. `reason` is the launch's own for a stale node,
-    and says why nothing can be said for an unknown one; empty for a fresh node."""
+    """What a launch would do with one node.
+
+    `reason` is the reason that the launch itself gives for a `stale` node. For an `unknown`
+    node it says why nothing can be said. It is empty for a `fresh` node."""
 
     state: State
     reason: str = ""
@@ -84,16 +86,19 @@ class NeedsAProcess(Exception):
 
 
 def dry_locate(name: str) -> str | None:
-    """Where the program `name` is now (`trace.locate_program`), except that a container image
-    is not looked up: `docker image inspect` is a process (`NeedsAProcess`)."""
+    """Return where the program `name` is now (`trace.locate_program`).
+
+    A container image is not looked up: `docker image inspect` is a process
+    (`NeedsAProcess`)."""
     if name.startswith(DOCKER_IMAGE_PREFIX):
         raise NeedsAProcess("its container image is checked when it runs")
     return locate_program(name)
 
 
 def _results(node: PlanNode) -> dict | None:
-    """The recorded results of the node's last run, if they are a success a launch would reuse
-    (`launch_report.reuse_results`)."""
+    """Return the recorded results of the last run of the node, if a launch would reuse them.
+
+    A launch reuses them only if they are a success (`launch_report.reuse_results`)."""
     try:
         document = json.loads((node.run_path / "results.json").read_text())
     except (OSError, ValueError):
@@ -102,9 +107,10 @@ def _results(node: PlanNode) -> dict | None:
 
 
 def _entries(results: dict, producer: PlanNode, output: str) -> tuple[OutputEntry, ...] | str:
-    """The files of `output` as the recorded results hand them over, read as the hand-over reads
-    them (`outputs.recorded_entries`); else why not, as words for an unknown node: no record, or
-    one that is not valid."""
+    """Return the files of `output` as the recorded results hand them over.
+
+    They are read as the hand-over reads them (`outputs.recorded_entries`). Otherwise return why
+    not, as words for an unknown node: no record, or a record that is not valid."""
     declaration = declared_outputs(producer.flow_class).get(output)
     recorded = (results.get("outputs") or {}).get(output)
     if declaration is None or recorded is None:
@@ -127,8 +133,10 @@ def _bare_flow(
     runner_cwd: Path,
     design_hash: str,
 ) -> Flow:
-    """The flow as the launch constructs it, before `init()`: its run directory is claimed, and
-    nothing writes there. Construction checks the settings against the design, as in a launch."""
+    """Return the flow as the launch constructs it, before `init()`.
+
+    Its run directory is claimed, and nothing writes there. Construction checks the settings
+    against the design, as in a launch."""
     flow = node.flow_class(
         settings.model_copy(deep=True),
         design.model_copy(deep=True),
@@ -150,10 +158,12 @@ def _wire_inputs(
     node: PlanNode,
     handed: dict[tuple[str, str], tuple[OutputEntry, ...]],
 ) -> None:
-    """Set the declared inputs of the flow to what the plan wires: the design sources, and the
-    files the producers hand over where those are known (`handed`), else a path of the
-    producer's run directory standing for the file. A hook that asks whether an input is
-    supplied (nextpnr's board fallback) then answers as the launch does."""
+    """Set the declared inputs of the flow to what the plan wires.
+
+    That is the design sources and, where known (`handed`), the files that the producers hand
+    over. Otherwise a path in the run directory of the producer stands for the file. A hook that
+    asks whether an input is supplied (the board fallback of nextpnr) then answers as the launch
+    does."""
     for selected in node.inputs:
         paths = list(selected.sources)
         for ref in selected.references:
@@ -174,8 +184,10 @@ def _records(
     settings: Flow.Settings,
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]],
 ) -> tuple[DeclaredInputRecord, ...]:
-    """The node's input records as a launch would build them (`launch_producers.run_producers`),
-    with the files the producers hand over in `entries` (by node and output) where known."""
+    """Return the input records of the node as a launch would build them.
+
+    The launch builds them in `launch_producers.run_producers`. `entries` holds the files that
+    the producers hand over, by node and output, where known."""
     records = []
     for selected in node.inputs:
         references = tuple(
@@ -229,11 +241,12 @@ def judge_node(
         design_hash = design.parts_hash(flow_class.design_parts, flow_class.design_scope(settings))
         flow = _bare_flow(node, settings, design, run_root, runner_cwd, design_hash)
     except (FlowSettingsError, FlowSettingsException, FlowFatalError) as error:
-        # the plan made the checks of the flow's hooks; a launch also checks the settings in the
-        # design's context, as it constructs the flow, and would refuse these
+        # The plan made the checks of the hooks of the flow. A launch also checks the settings in
+        # the context of the design, as it constructs the flow, and would refuse these.
         return NodeFreshness("unknown", f"a launch refuses its settings: {error}")
-    # A fresh producer's recorded results are the ones a launch hands over, whatever the other
-    # producers do. A producer that is not fresh runs first and its results are rewritten.
+    # The recorded results of a producer that is up to date are the ones a launch hands over,
+    # whatever the other producers do. A producer that is not up to date runs first and its
+    # results are rewritten.
     producers = [plan.node(ref.node) for item in node.inputs for ref in item.references]
     waiting = next((p for p in producers if states[p.name].state != "fresh"), None)
     entries: dict[tuple[str, str], tuple[OutputEntry, ...]] = {}
@@ -257,8 +270,9 @@ def judge_node(
     # it cannot hand over stops the launch.
     if lacks is not None:
         return lacks
-    # the launch prepares inputs before it asks whether the flow always runs: what preparation
-    # refuses it refuses whatever else is true, and one it can still make does not stop a run
+    # The launch prepares inputs before it asks whether the flow always runs. What preparation
+    # refuses, the launch refuses whatever else is true. An input that it can still make does
+    # not stop a run.
     try:
         registered = flow.locate_prepared_inputs()
     except (FlowFatalError, RunDirectoryError, ValueError, OSError) as error:
@@ -313,7 +327,7 @@ def judge_plan(
     clean: bool = False,
     debug: bool = False,
 ) -> dict[str, NodeFreshness]:
-    """What a launch of `plan` would do with each node, by node name, producers first."""
+    """Return what a launch of `plan` would do with each node, by node name, producers first."""
     states: dict[str, NodeFreshness] = {}
     for node in plan.nodes:
         states[node.name] = judge_node(

@@ -1,7 +1,7 @@
 """The run stage of a launch: what happens around `run()`, `parse_reports()` and `check_results()`.
 
-Free functions with explicit arguments. This module never imports `default_runner`: the
-launcher passes what each function needs.
+The functions are free functions with explicit arguments. This module never imports
+`default_runner`: the launcher passes what each function needs.
 """
 
 from __future__ import annotations
@@ -26,23 +26,26 @@ log = logging.getLogger(__name__)
 
 
 def refuse_inputs_inside(run_path: Path, flow_name: str, files: Iterable[Path]) -> None:
-    """xeda empties and rewrites a flow's run directory, so no file of the design, and no
-    file a setting reads, may lie in the run directory of the flow that reads it (in another
-    run's directory it is that run's output, read by content)."""
+    """Refuse a file of the design or a file that a setting reads in the run directory of the flow.
+
+    Xeda empties and rewrites the run directory of a flow, so no such file may lie there. (In
+    the run directory of another run, the file is the output of that run, read by content.)"""
     run_dir = Path(os.path.realpath(run_path))
     inside = sorted({f for f in files if Path(os.path.realpath(f)).is_relative_to(run_dir)})
     if inside:
         raise RunDirectoryError(
-            f"{inside[0]} lies in {run_path}, {flow_name}'s own run directory, which xeda "
+            f"{inside[0]} lies in {run_path}, {flow_name}'s own run directory, which Xeda "
             "empties and rewrites: keep your files in your design, outside the run root"
         )
 
 
 def free_working_locations(flow: Flow) -> None:
-    """Before the run: each working location of `flow` (a setting with the `WORKING` role, a name
-    inside the run directory) is where its tools work, never through a symbolic link out of the
-    run directory. A tool may leave its working location's own name a link, anywhere: that link
-    is removed as itself -- never what it points to -- and the tool makes the location anew. One
+    """Free the working locations of `flow` before the run.
+
+    A working location is a setting with the `WORKING` role, a name inside the run directory.
+    It is where the tools work, and never through a symbolic link out of the run directory. A
+    tool may leave a link anywhere at the name of its working location. Xeda removes that link
+    as itself, never what it points to, and the tool makes the location anew. A location
     reached through a link that leads out is refused, naming the link (`RunDirectory.inside`),
     before anything runs there."""
     run_directory = flow.run_directory
@@ -67,7 +70,9 @@ def free_working_locations(flow: Flow) -> None:
 
 
 def record_identity(flow: Flow, run_path: Path) -> None:
-    """What every results document says of the run, whether it succeeded or not."""
+    """Record the identity of the run in its results.
+
+    Every results document holds it, whether the run succeeded or not."""
     flow.results["design"] = flow.design.name
     flow.results["design_hash"] = flow.design_hash
     flow.results["flow"] = flow.name
@@ -78,7 +83,9 @@ def record_identity(flow: Flow, run_path: Path) -> None:
 
 
 def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
-    """Stage 6: `run()`, `parse_reports()`, and the run's results, artifacts included."""
+    """Run the flow and collect its results, artifacts included.
+
+    The sequence is `run()`, `parse_reports()` and `check_results()`."""
     record_identity(flow, run_path)
 
     success = True
@@ -114,7 +121,8 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
                 raise e
         flow.add_canonical_result_aliases()
         if success:
-            # Consumers use these integrity records for fresh and reused producers alike.
+            # Consumers use these integrity records for a producer that just ran and for a
+            # reused one alike.
             problems = record_outputs(flow)
             for problem in problems:
                 log.error("%s", problem)
@@ -127,10 +135,10 @@ def execute(flow: Flow, run_path: Path, input_settings: Flow.Settings) -> None:
         if not success and not input_settings.is_quiet:
             log.debug("Failure was reported in the parsed results.")
         if not success and not flow.results.get("error"):
-            # no exception and no exit status: the reports or checks said so; a failure
-            # document always names its error (and a depender quotes it). This is a node's
-            # cause, `ReportedFailure`; `FlowFailed` is the verdict the top-level `--json`
-            # document of `xeda run` gives whatever the cause, so the names must differ.
+            # No exception and no exit status: the reports or checks said so. A failure
+            # document always names its error, and a consumer quotes it. `ReportedFailure` is
+            # the cause of one node. `FlowFailed` is the verdict that the top-level `--json`
+            # document of `xeda run` gives, whatever the cause, so the names must differ.
             flow.results["error"] = {
                 "type": "ReportedFailure",
                 "message": (

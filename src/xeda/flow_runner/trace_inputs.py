@@ -1,24 +1,26 @@
-"""What a flow run consumed and produced: the files and code its trace records.
+"""What a flow run consumed and produced: the files and code that its trace records.
 
-**Where inputs are recorded.** Every input the launcher can name before a run -- the design's
-files, files its settings name and every file under a directory they name, its dependencies'
-outputs, the files the flow registered in its `init()`, and the files the previous run's
-depfiles named -- is recorded just before the run starts (`snapshot_inputs`), and the trace keeps
-that record: a file edited while a long run is still going no longer matches it, so the next
-launch runs again. Files known only after the run (what a depfile names for the first time, what
-a flow reads on its own, the programs it started) are recorded afterwards; one written while the
-run was going on is recorded as unknown (`digest.unknown_record`), which never matches. A program
-keeps the previous trace's record while its metadata vouches for it, so the executable of a tool is
-read when it is first recorded or changed, not at every run.
+The trace records every input that the launcher can name before a run, just before the run
+starts (`snapshot_inputs`). These inputs are the files of the design, the files that its
+settings name and every file under a directory that they name, the outputs of its producers,
+the files that the flow registered in its `init()`, and the files that the depfiles of the
+previous run named. The trace keeps that record, so a file edited while a long run is still
+going no longer matches it, and the next launch runs again. Files known only after the run
+(what a depfile names for the first time, what a flow reads on its own, the programs it
+started) are recorded afterwards. One that was written while the run was going on is recorded
+as unknown (`digest.unknown_record`), which never matches. A program keeps the record of the
+previous trace while its metadata vouches for it, so the executable of a tool is read when it is
+first recorded or changed, and not at every run.
 
-**Whose a file is.** Every run directory is xeda's: a file inside the run's own directory
-is the run's; anywhere else, a file the run's settings, depfiles or design name stays an input,
+Every run directory belongs to Xeda. A file inside the own directory of a run is the run's.
+Anywhere else, a file that the settings, depfiles or design of the run name stays an input. It is
 recorded as unknown if it changed during the run, so the next launch runs again.
 
-**What a run produced.** Every file the run left in its run directory is an output (`output_files`), declared as an artifact or not: a depender may read any of them by
-path, so a hand edit anywhere in the directory -- or a file added there -- makes the run stale;
-its dependers follow only if what it hands them changed (`trace.changed_edge`). They are hashed once, after the run; a check
-trusts their metadata (`digest.FileRecord.trusted`) as it does an input's.
+Every file that the run left in its run directory is an output (`output_files`), declared as an
+artifact or not, because a consumer may read any of them by path. A hand edit anywhere in the
+directory, or a file added there, makes the run stale. Its consumers follow only if what it hands
+them changed (`trace.changed_edge`). The outputs are hashed once, after the run. A check trusts
+their metadata (`digest.FileRecord.trusted`) as it does for an input.
 """
 
 from __future__ import annotations
@@ -88,12 +90,13 @@ from .trace import (
 
 log = logging.getLogger(__name__)
 
-#: xeda's own files in a run directory: never inputs; `results.json` is an output.
+#: The files that Xeda keeps itself in a run directory. They are never inputs; `results.json` is
+#: an output.
 BOOKKEEPING_FILES = ("settings.json", "results.json", *RESERVED_FILES)
 
 
 def bookkeeping_files(run_path: Path) -> Set[Path]:
-    """The files xeda itself keeps for the run in `run_path`, its lock files included."""
+    """Return the files that Xeda itself keeps for the run in `run_path`, lock files included."""
     run_dir = run_path.resolve()
     return {run_dir / name for name in BOOKKEEPING_FILES} | {lock_file(run_path).resolve()}
 
@@ -109,20 +112,23 @@ def design_files(
     parts: Iterable[str] = DESIGN_PARTS,
     source_types: Optional[Collection[SourceType]] = None,
 ) -> List[Path]:
-    """Every file the design's `parts` name, resolved (`Flow.design_parts`: the RTL, and the
-    testbench for a flow that reads it; the whole design by default): their sources (only
-    those of `source_types`, if given: `Flow.design_source_types`), a
-    parameter or define given as a file (`ROM = { file = "rom.mem" }`, which the design holds
-    as the file's absolute path), and any other file a field of theirs refers to.
+    """Return every file that the `parts` of the design name, resolved.
 
-    Only a flow's trace scopes them. What protects the user's files from a delivery -- the
-    launcher's registered reads and refused inputs, a remote run's read inputs -- keeps the whole
-    design, or a `{"rtl"}` flow's delivery could land on a testbench file.
+    `parts` are the parts of the design that the flow reads (`Flow.design_parts`: the RTL, and
+    the testbench for a flow that reads it; the whole design by default). The files are the
+    sources of these parts (only those of `source_types`, if given: `Flow.design_source_types`),
+    a parameter or define given as a file (`parameters.ROM.file: rom.mem`, which the design holds
+    as the absolute path of the file), and any other file that a field of the parts refers to.
 
-    One walker over every value of both parts: a `FileResource` is its file, and any other
-    text or path counts when it is absolute and names an existing file -- relative text (a
-    top-level name, a relative parameter) is not resolved, since nothing says against what.
-    Counting a value that merely looks like a file errs towards a re-run, never a stale reuse.
+    Only the trace of a flow scopes them. What protects the files of the user from a delivery
+    (the registered reads and refused inputs of the launcher, the read inputs of a remote run)
+    keeps the whole design. Otherwise the delivery of an `{"rtl"}` flow could land on a
+    testbench file.
+
+    One walker visits every value of both parts. A `FileResource` is its file. Any other text or
+    path counts when it is absolute and names an existing file. Relative text (a top-level name,
+    a relative parameter) is not resolved, since nothing says against what. Counting a value
+    that merely looks like a file errs towards another run, never towards a stale reuse.
     """
     found: List[Path] = []
 
@@ -165,14 +171,15 @@ def design_files(
 def setting_path_leaves(
     settings: Flow.Settings, *, written: Optional[bool] = None
 ) -> list[tuple[str, Any]]:
-    """Every path-typed leaf of `settings`, by its key path (`lib_paths[0][1]`, `platform.
-    tech_lef`).
+    """Return every path-typed leaf of `settings`, by its key path.
 
-    Nested models are walked too (an ASIC `platform`, the ghdl plugin's settings inside yosys's).
-    Each field is walked by `map_keyed_path_leaves`, the traversal path expansion uses, so a
-    container is read according to its *declared* shape rather than by value alone: in
-    `lib_paths`, only the path half of each tuple is ever visited, never the library name. With `written`, only the leaves of fields the flow writes
-    (True: a role, `xeda.dataclass.written_role`) or reads (False).
+    Examples of a key path are `lib_paths[0][1]` and `platform.tech_lef`. Nested models are
+    walked too (an ASIC `platform`, the settings of the ghdl plugin inside those of yosys). Each
+    field is walked by `map_keyed_path_leaves`, the traversal that path expansion uses, so a
+    container is read by its declared shape and not by value alone. In `lib_paths`, only the
+    path half of each tuple is ever visited, never the library name. With `written`, only the
+    leaves of fields that the flow writes (True: a role, `xeda.dataclass.written_role`) or reads
+    (False) count.
     """
     leaves: list[tuple[str, Any]] = []
 
@@ -206,8 +213,9 @@ def setting_path_leaves(
 
 
 def _setting_roots(settings: Flow.Settings) -> list[Path]:
-    """What a relative path a setting names is looked up under: the design root and the start
-    directory."""
+    """Return the directories under which a relative path in a setting is looked up.
+
+    These are the design root and the start directory."""
     return [
         Path(root)
         for root in (settings.context.get("design_root"), settings.context.get("runner_cwd"))
@@ -221,10 +229,12 @@ def _candidates(leaf: Any, roots: Sequence[Path]) -> list[Path]:
 
 
 def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
-    """Every existing file named by a path-typed setting the flow reads (`setting_path_leaves`),
-    resolved, with the key path of each setting naming it. A relative path is looked up under
-    the design root and under the start directory; each that exists counts. A setting naming
-    what the flow writes (a role, `xeda.dataclass.written_role`) names no input."""
+    """Return every existing file named by a path-typed setting that the flow reads, resolved.
+
+    Each file comes with the key paths of the settings that name it (`setting_path_leaves`). A
+    relative path is looked up under the design root and under the start directory, and each
+    candidate that exists counts. A setting that names what the flow writes (a role,
+    `xeda.dataclass.written_role`) names no input."""
     roots = _setting_roots(settings)
     found: dict[Path, set[str]] = {}
     for key, leaf in setting_path_leaves(settings, written=False):
@@ -235,8 +245,9 @@ def setting_file_keys(settings: Flow.Settings) -> dict[Path, set[str]]:
 
 
 def setting_files(settings: Flow.Settings) -> List[Path]:
-    """Every existing file named by a path-typed setting the flow reads (`setting_file_keys`),
-    resolved."""
+    """Return every existing file named by a path-typed setting that the flow reads, resolved.
+
+    See `setting_file_keys`."""
     return list(setting_file_keys(settings))
 
 
@@ -249,11 +260,13 @@ SLOW_LISTING_S = 2.0
 
 
 def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[str, Path]]:
-    """Every existing directory a path-typed setting the flow reads names (`setting_path_leaves`),
-    with the key path of the first setting naming it, resolved: an absolute path as itself, a
-    relative one under the design root and under the start directory (as `setting_files`) --
-    but the run directory and every directory in it, whose files are outputs of the run already.
-    A directory the flow writes (`reports_dir`, `sim_dir`: a role,
+    """Return every existing directory that a path-typed setting the flow reads names, resolved.
+
+    Each directory comes with the key path of the first setting that names it
+    (`setting_path_leaves`). An absolute path is taken as itself, and a relative one is looked
+    up under the design root and under the start directory (as `setting_files`). The run
+    directory and every directory in it are left out, because their files are outputs of the
+    run already. A directory that the flow writes (`reports_dir`, `sim_dir`: a role,
     `xeda.dataclass.written_role`) is no input."""
     roots = _setting_roots(settings)
     run_dir = run_path.resolve()
@@ -271,15 +284,18 @@ def setting_directories(settings: Flow.Settings, run_path: Path) -> list[tuple[s
 def setting_directory_listings(
     settings: Flow.Settings, run_path: Path, run_root: Path | None = None
 ) -> list[tuple[str, Path, list[Path]]]:
-    """Each directory a setting names (`setting_directories`), with the key path of the setting
-    naming it and every entry under it: its recursive listing (`listing.directory_files`: a
-    symbolic link as itself, and a link to a directory followed too, its entries by their path
-    through it; a subdirectory and a special file as entries). The run directory and the run
-    root `run_root` are not entered where a named directory holds them, however it reaches them:
-    their files are the runs' own; nor is version control's metadata (`VCS_METADATA`), which no
-    tool reads. A large or slow listing is reported, never capped. The one listing of what a
-    flow reads through a directory: the trace records it (`setting_directory_files`), and the
-    delivery guard never delivers into it (`register_read_settings`)."""
+    """Return each directory that a setting names (`setting_directories`), with its entries.
+
+    Each item holds the key path of the setting that names the directory, the directory, and
+    every entry under it. The entries are the recursive listing (`listing.directory_files`): a
+    symbolic link as itself, a link to a directory followed too (its entries by their path
+    through it), and a subdirectory and a special file as entries. The run directory and the
+    run root `run_root` are not entered where a named directory holds them, however it reaches
+    them, because their files are the own files of the runs. Nor is the metadata of version
+    control (`VCS_METADATA`), which no tool reads. A large or slow listing is reported, never
+    capped. This is the one listing of what a flow reads through a directory. The trace records
+    it (`setting_directory_files`), and the delivery guard never delivers into it
+    (`register_read_settings`)."""
     prune = [run_path] + ([run_root] if run_root is not None else [])
     listings: list[tuple[str, Path, list[Path]]] = []
     for key, directory in setting_directories(settings, run_path):
@@ -302,9 +318,10 @@ def setting_directory_listings(
 def setting_directory_files(
     settings: Flow.Settings, run_path: Path, run_root: Path | None = None
 ) -> list[Path]:
-    """Every entry under each directory a setting names (`setting_directory_listings`), so that
-    a file edited, added or removed there -- a library recompiled in place, an empty directory
-    added, an edit beneath a linked directory -- makes the run stale."""
+    """Return every entry under each directory that a setting names (`setting_directory_listings`).
+
+    A file edited, added or removed there makes the run stale: a library recompiled in place,
+    an empty directory added, an edit beneath a linked directory."""
     return [
         path
         for _key, _directory, listed in setting_directory_listings(settings, run_path, run_root)
@@ -315,31 +332,36 @@ def setting_directory_files(
 def register_read_settings(
     inputs: ReadInputs, settings: Flow.Settings, run_path: Path, run_root: Path
 ) -> None:
-    """Register with a launch's delivery guard (`xeda.deliver.ReadInputs`) everything the read
-    settings of `settings` make an input, as the trace records it: every file one names (`setting_files`), and every directory one
-    names with each entry under it (`setting_directory_listings`, the trace's own listing), so
-    that no delivery lands on a file the launch read, nor anywhere in a directory it reads."""
+    """Register with the delivery guard of a launch everything that the read settings make an input.
+
+    The guard is `xeda.deliver.ReadInputs`. The registration follows the trace: every file that
+    a setting names (`setting_files`), and every directory that a setting names, with each
+    entry under it (`setting_directory_listings`, the listing of the trace). So no delivery
+    lands on a file that the launch read, nor anywhere in a directory that it reads."""
     inputs.add(setting_files(settings))
     for key, directory, listed in setting_directory_listings(settings, run_path, run_root):
         inputs.add_directory(key, directory, listed)
 
 
 def setting_locations(settings: Flow.Settings, run_path: Path) -> dict[str, list[str]]:
-    """Where each path-typed setting the flow reads points, by key path (`lib_paths[0][1]`); a
-    setting naming what it writes is bound by no location.
+    """Return where each path-typed setting that the flow reads points, by key path.
 
-    The run's identity is location-free: `$PWD/libs` and `$DESIGN_ROOT/libs` count as written,
-    so a launch from another start directory, or of another design tree with the same text,
-    has the same identity. A file a setting names is bound by its record, an input; a directory
-    (a compiled library, an include directory) or a path that does not exist is bound by
-    nothing else, so the trace records where each setting points, and a launch where one points
-    elsewhere is stale.
+    An example of a key path is `lib_paths[0][1]`. A setting that names what the flow writes is
+    bound by no location.
 
-    An absolute path (a `$PWD`/`$DESIGN_ROOT` path is absolute once expanded) is its own
-    location, resolved, whatever it names -- a file, a directory, nothing yet -- so that a run
-    creating it changes nothing. A relative one points at each existing path it is looked up as,
-    under the design root and under the start directory (`setting_files`), except inside the run
-    directory `run_path`, whose place is the trace's own; none, if there is no such path."""
+    The identity of a run is location-free: `$PWD/libs` and `$DESIGN_ROOT/libs` count as
+    written, so a launch from another start directory, or of another design tree with the same
+    text, has the same identity. A file that a setting names is bound by its record, as an
+    input. A directory (a compiled library, an include directory) or a path that does not exist
+    is bound by nothing else. So the trace records where each setting points, and a launch
+    where one points elsewhere is stale.
+
+    An absolute path (a `$PWD` or `$DESIGN_ROOT` path is absolute once expanded) is its own
+    location, resolved, whatever it names (a file, a directory, nothing yet), so that a run
+    that creates it changes nothing. A relative path points at each existing path it is looked
+    up as, under the design root and under the start directory (`setting_files`). The exception
+    is a path inside the run directory `run_path`, whose place belongs to the trace itself. A
+    relative path with no such path has no location."""
     roots = _setting_roots(settings)
     run_dir = run_path.resolve()
     locations: dict[str, list[str]] = {}
@@ -358,9 +380,10 @@ def setting_locations(settings: Flow.Settings, run_path: Path) -> dict[str, list
 
 
 def artifact_files(flow: Flow) -> list[Path]:
-    """Every file among the flow's artifacts (a directory stands for the regular files under it,
-    `listing.directory_files`: a link in it is not followed out), and its `results.json`,
-    resolved."""
+    """Return every file among the artifacts of the flow, and its `results.json`, resolved.
+
+    A directory stands for the regular files under it (`listing.directory_files`: a link in it
+    is not followed out)."""
     files = set()
     for leaf in iter_artifact_paths(flow.results.get("artifacts") or flow.artifacts):
         path = Path(leaf) if Path(leaf).is_absolute() else flow.run_path / leaf
@@ -378,24 +401,28 @@ def artifact_files(flow: Flow) -> list[Path]:
 
 
 def output_files(flow: Flow) -> list[Path]:
-    """The files the trace of `flow`'s run records as its own: every entry in its run directory
-    (`run_directory_files`), since a depender may read any of them, and the artifacts outside
-    it."""
+    """Return the files that the trace of the run of `flow` records as its own.
+
+    These are every entry in its run directory (`run_directory_files`), since a consumer may
+    read any of them, and the artifacts outside it."""
     run_dir = flow.run_path.resolve()
     outside = [path for path in artifact_files(flow) if not path.is_relative_to(run_dir)]
     return sorted({*run_directory_files(flow.run_path), *outside})
 
 
 def run_dir_key(run_path: Path, run_root: Path) -> str:
-    """How a trace names a run directory: relative to the run root (`xeda_run`), in POSIX form;
-    absolute if it lies outside it."""
+    """Return how a trace names a run directory.
+
+    The name is relative to the run root (`xeda_run`), in POSIX form, or absolute if the
+    directory lies outside the run root."""
     path, root = Path(os.path.abspath(run_path)), Path(os.path.abspath(run_root))
     return (path.relative_to(root) if path.is_relative_to(root) else path).as_posix()
 
 
 def dependency_runs(producers: Sequence[Flow], run_root: Path) -> Dict[str, str]:
-    """The run of each of the `producers` a flow consumed (`Flow.run_id`, which the launcher
-    sets on every flow it completes), by its run directory."""
+    """Return the run of each of the `producers` that a flow consumed, by its run directory.
+
+    The run is `Flow.run_id`, which the launcher sets on every flow it completes."""
     runs: Dict[str, str] = {}
     for producer in producers:
         assert producer.run_id is not None, f"{producer.name} was not completed by a launcher"
@@ -407,7 +434,9 @@ _DEP_SEPARATOR = re.compile(r"(?<!\\)\s+")
 
 
 def parse_depfile(path: Path, base: Path) -> List[Path]:
-    """The prerequisites a Makefile-style depfile lists, relative ones resolved under `base`."""
+    """Return the prerequisites that a Makefile-style depfile lists.
+
+    A relative prerequisite is resolved under `base`."""
     deps: List[Path] = []
     for line in path.read_text().replace("\\\n", " ").splitlines():
         _targets, separator, prerequisites = line.partition(": ")
@@ -421,7 +450,7 @@ def parse_depfile(path: Path, base: Path) -> List[Path]:
 
 
 def _existing_files(paths: Sequence[Path], run_path: Path) -> list[Path]:
-    """The files among `paths` that exist, resolved; a relative one is under `run_path`."""
+    """Return the files among `paths` that exist, resolved. A relative path is under `run_path`."""
     files = set()
     for path in paths:
         path = Path(path) if Path(path).is_absolute() else run_path / path
@@ -431,24 +460,32 @@ def _existing_files(paths: Sequence[Path], run_path: Path) -> list[Path]:
 
 
 def registered_input_files(flow: Flow) -> list[Path]:
-    """Every existing file `flow` has registered in `Flow.implicit_inputs` so far. Called before
-    the run, these are the files its `init()` or `prepare_inputs()` resolved (an ABC script, expanded against the start
-    directory or the environment): known before the run, they are expected inputs like a
-    setting's files, so a launch that resolves another file finds a new input, not a match."""
+    """Return every existing file that `flow` has registered in `Flow.implicit_inputs` so far.
+
+    Called before the run, these are the files that its `init()` or `prepare_inputs()` resolved
+    (an ABC script, expanded against the start directory or the environment). They are known
+    before the run, so they are expected inputs like the files of a setting, and a launch that
+    resolves another file finds a new input, not a match."""
     return _existing_files(flow.implicit_inputs, flow.run_path)
 
 
 def located_input_files(flow: Flow) -> Optional[list[Path]]:
-    """The existing files `flow.locate_prepared_inputs()` says its preparation registers, resolved,
-    in the form `registered_input_files` gives them; None if it says some is not made yet."""
+    """Return the existing files that `flow.locate_prepared_inputs()` names.
+
+    These are the files that its preparation registers.
+
+    The files are resolved, in the form that `registered_input_files` gives them. Return None if
+    some file is not made yet."""
     located = flow.locate_prepared_inputs()
     return None if located is None else _existing_files(located, flow.run_path)
 
 
 def installation_prefixes(programs: Sequence[str]) -> list[Path]:
-    """The installation prefix of each host program among `programs`: the directory above the
-    `bin/` its resolved executable lies in. A container image has none (its paths are not host
-    paths), nor has a program outside a `bin/` directory or one found nowhere."""
+    """Return the installation prefix of each host program among `programs`.
+
+    The prefix is the directory above the `bin/` that the resolved executable lies in. A
+    container image has none (its paths are not host paths), and neither has a program outside
+    a `bin/` directory or one found nowhere."""
     prefixes = []
     for name in programs:
         if name.startswith(DOCKER_IMAGE_PREFIX):
@@ -463,13 +500,15 @@ def installation_prefixes(programs: Sequence[str]) -> list[Path]:
 
 
 def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]:
-    """Every existing file the flow read that is known only after its run: those a depfile its
-    tools wrote (`yosys -E`, ...) names, except the tool's own installation's files (under the
-    prefix of a program in `programs`: internal to the tool, and xeda stays agnostic to how
-    tools are installed), and those it registered in `Flow.implicit_inputs` (including the ones
+    """Return every existing file that the flow read and that is known only after its run.
+
+    These are the files that a depfile written by its tools (`yosys -E`, ...) names, except the
+    files of the installation of the tool (under the prefix of a program in `programs`:
+    internal to the tool, and Xeda stays agnostic to how tools are installed). They also
+    include the files that the flow registered in `Flow.implicit_inputs` (including those that
     its `init()` registered, which are expected inputs already). Where a file lies decides
-    whether it is an input or the run's own (`build_trace`). A file a producer handed over is
-    neither: the edge records it."""
+    whether it is an input or the run's own (`build_trace`). A file that a producer handed over
+    is neither: the edge records it."""
     prefixes = installation_prefixes(programs)
     named = [
         dep
@@ -478,7 +517,7 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
         for dep in parse_depfile(depfile, flow.run_path)
         if not any(_resolved(dep, flow.run_path).is_relative_to(prefix) for prefix in prefixes)
     ]
-    #: a file handed over by a producer is no file record of this flow, however it came to be read
+    # A file handed over by a producer is no file record of this flow, however it came to be read.
     handed = {Path(path).resolve() for path in handed_paths(flow.declared_input_records)}
     return [
         path
@@ -488,27 +527,33 @@ def implicit_input_files(flow: Flow, programs: Sequence[str] = ()) -> list[Path]
 
 
 def _resolved(path: Path, run_path: Path) -> Path:
-    """`path` (relative ones under `run_path`) with symbolic links resolved, existing or not."""
+    """Return `path` with symbolic links resolved, existing or not.
+
+    A relative path is under `run_path`."""
     return (path if path.is_absolute() else run_path / path).resolve()
 
 
-#: the installed xeda package directory
+#: The directory of the installed xeda package.
 XEDA_PACKAGE = Path(__file__).resolve().parent.parent
 
 
 @lru_cache(maxsize=None)
 def xeda_code_digest() -> str:
-    """A digest of every file of the installed xeda package -- code, templates, bundled data --
-    computed once per process. An editable install keeps one version string across edits, so
-    this, not the version, is what notices a change to a helper a flow uses."""
+    """Return a digest of every file of the installed xeda package.
+
+    That covers code, templates and bundled data.
+
+    It is computed once per process. An editable install keeps one version string across edits,
+    so this digest, and not the version, notices a change to a helper that a flow uses."""
     return digest_files(package_files(XEDA_PACKAGE), XEDA_PACKAGE)
 
 
 @lru_cache(maxsize=None)
 def flow_code_digest(flow_class: Type[Flow]) -> str:
-    """A digest of the modules defining `flow_class` and its bases outside the xeda package
-    (a plugin's flow), with their templates; "" when xeda's own package defines them all,
-    which `xeda_code_digest` covers."""
+    """Return a digest of the modules that define `flow_class` or its bases outside xeda.
+
+    The digest covers these modules (the modules of a plugin flow) with their templates. It is
+    "" when the xeda package defines them all: `xeda_code_digest` covers that case."""
     files = set()
     for cls in flow_class.__mro__:
         if not (isinstance(cls, type) and issubclass(cls, Flow)):
@@ -537,17 +582,18 @@ def candidate_inputs(
     records: Sequence[DeclaredInputRecord],
     run_root: Optional[Path] = None,
 ) -> List[Path]:
-    """Every existing file the run would consume that can be named before it runs: the
-    design's files, the files its settings name and every file under a directory they name
-    (`setting_directory_files`), the design sources its declared inputs take
-    (`source_input_files` of the `records`), and the files the flow registered in `init()` or
-    `prepare_inputs()` (`registered`, as `registered_input_files` finds them) -- xeda's own
-    bookkeeping files in its run directory excepted. What its producers handed over is no file
-    of its own: the edge records it (`BoundProducer`)."""
+    """Return every existing file that the run would consume and that can be named before it runs.
+
+    These are the files of the design, the files that its settings name and every file under a
+    directory that they name (`setting_directory_files`), the design sources that its declared
+    inputs take (`source_input_files` of the `records`), and the files that the flow registered
+    in `init()` or `prepare_inputs()` (`registered`, as `registered_input_files` finds them).
+    The bookkeeping files of Xeda in its run directory are excepted. What its producers handed
+    over is no file of its own: the edge records it (`BoundProducer`)."""
     bookkeeping = bookkeeping_files(run_path)
     handed = {Path(path).resolve() for path in handed_paths(records)}
     files = {
-        # the parts of the design this flow reads, not the whole design
+        # The parts of the design this flow reads, not the whole design.
         *design_files(design, flow_class.design_parts, flow_class.design_scope(input_settings)),
         *setting_files(input_settings),
         *setting_directory_files(input_settings, run_path, run_root),
@@ -558,7 +604,7 @@ def candidate_inputs(
 
 
 def declared_input_files(flow: Flow) -> list[Path]:
-    """The selected declared paths, in declaration and list order."""
+    """Return the selected declared paths, in declaration and list order."""
     files = []
     for name in declared_inputs(type(flow)):
         value = getattr(flow.inputs, name)
@@ -567,14 +613,15 @@ def declared_input_files(flow: Flow) -> list[Path]:
 
 
 def handed_paths(records: Sequence[DeclaredInputRecord]) -> set[str]:
-    """The paths the producers handed over, as the records name them."""
+    """Return the paths that the producers handed over, as the records name them."""
     return {entry.path for record in records for ref in record.references for entry in ref.entries}
 
 
 def source_input_files(records: Sequence[DeclaredInputRecord]) -> list[Path]:
-    """The files of the declared inputs that come from the design's sources: the paths the
-    `records` list, without those a producer handed over (`handed_paths`). A file handed over is
-    never a file record of the consumer."""
+    """Return the files of the declared inputs that come from the sources of the design.
+
+    These are the paths that the `records` list, without those that a producer handed over
+    (`handed_paths`). A file handed over is never a file record of the consumer."""
     handed = handed_paths(records)
     return [Path(path) for record in records for path in record.paths if path not in handed]
 
@@ -594,12 +641,14 @@ def expected_run(
     declared: Sequence[DeclaredInputRecord],
     dependency_run_ids: Mapping[str, str],
 ) -> Expectation:
-    """What a run of a flow would consume now, from explicit data: the one function the launch
-    (`expectation`) and the dry run (`plan_freshness`) both judge by, so they cannot drift.
-    `input_settings` is the launcher's own (never modified by the flow). `registered` are the
-    files the flow registers in `init()` and `prepare_inputs()` (`Flow.locate_prepared_inputs`
-    says where they are without making them), `declared` its input records with what the
-    producers handed over, and `dependency_run_ids` the runs consumed, as provenance."""
+    """Return what a run of a flow would consume now, from explicit data.
+
+    The launch (`expectation`) and the dry run (`plan_freshness`) both judge by this one
+    function, so they cannot drift. `input_settings` are those of the launcher (never modified
+    by the flow). `registered` are the files that the flow registers in `init()` and
+    `prepare_inputs()` (`Flow.locate_prepared_inputs` says where they are without making them).
+    `declared` are its input records with what the producers handed over, and
+    `dependency_run_ids` are the runs consumed, as provenance."""
     return Expectation(
         flow=name,
         flowrun_hash=flowrun_hash,
@@ -627,16 +676,18 @@ def expectation(
     run_root: Path,
     producers: Sequence[Flow],
 ) -> Expectation:
-    """What `flow` would consume now. `design` and `input_settings` are the launcher's own
-    (never modified by the flow), so the same inputs are found before and after the run;
-    `run_root` is the launcher's run directory root, which producer runs are named under, and
-    `producers` are the completed producers the launcher handed the flow's inputs from.
+    """Return what `flow` would consume now.
 
-    Includes `dependency_runs(producers, run_root)` and, in the flow's declared input records,
-    what the producers handed over, so call this after the producers have run, as the launcher
-    does. It includes the files `flow` registered
-    (`registered_input_files`), so call it before `flow` runs, while those are what its `init()`
-    registered, including those resolved by `prepare_inputs` after hand-over.
+    `design` and `input_settings` are those of the launcher (never modified by the flow), so
+    the same inputs are found before and after the run. `run_root` is the root of the run
+    directories of the launcher, under which the runs of producers are named. `producers` are
+    the completed producers from which the launcher handed the inputs of the flow.
+
+    The result includes `dependency_runs(producers, run_root)` and, in the declared input
+    records of the flow, what the producers handed over. So call this after the producers have
+    run, as the launcher does. It also includes the files that `flow` registered
+    (`registered_input_files`). So call it before `flow` runs, while those are what its
+    `init()` registered, including those resolved by `prepare_inputs` after hand-over.
     """
     assert flow.flow_hash is not None and flow.design_hash is not None
     return expected_run(
@@ -659,28 +710,31 @@ def expectation(
 class InputSnapshot:
     """The inputs of a run as they were just before it started (`snapshot_inputs`)."""
 
-    #: when the snapshot was begun: the run's start, from which on a written file is the run's
+    #: When the snapshot began: the start of the run, from which on a written file is the run's.
     started_ns: int
-    #: when the input records were taken, also read from the run directory's filesystem clock
+    #: When the input records were taken, also read from the file-system clock of the run
+    #: directory.
     inputs_recorded_ns: int
-    #: the inputs the run is expected to consume (the `inputs` its trace will record)
+    #: The inputs the run is expected to consume (the `inputs` that its trace will record).
     expected: Tuple[Path, ...]
-    #: the record of each expected input, and of each file the previous run's depfiles named,
-    #: that existed when the run started
+    #: The record of each expected input, and of each file that the depfiles of the previous
+    #: run named, that existed when the run started.
     records: Mapping[str, FileRecord]
-    #: the record of each file the producers handed over, taken as the run starts (None if it
-    #: could not be read), with the identity of every link on the way to it (`_name_state`, which
-    #: tells a link replaced and put back): a file that is not the one the producer recorded, or
-    #: that changed while the flow ran, is unknown (`_consumed`)
+    #: The record of each file that the producers handed over, taken as the run starts (None if
+    #: it could not be read), with the identity of every link on the way to it (`_name_state`,
+    #: which tells that a link was replaced and put back). A file that is not the one the
+    #: producer recorded, or that changed while the flow ran, is unknown (`_consumed`).
     handed: Mapping[str, Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]] = (
         dataclass_field(default_factory=dict)
     )
 
 
 def _name_state(path: Path) -> Tuple[Tuple[int, int, int], ...]:
-    """The identity of `path` as a name, a link not followed, and of every link it leads through
-    to the file: for each, its inode, change time and mtime. A link replaced by another and put
-    back leads to the same file, with the same metadata; this tells it."""
+    """Return the identity of `path` as a name, and of every link it leads through to the file.
+
+    A link is not followed here. For each, the identity is its inode, change time and mtime. A
+    link replaced by another and put back leads to the same file, with the same metadata; this
+    identity tells it."""
     states = []
     current = path
     for _ in range(40):  # the depth of links the system follows
@@ -693,8 +747,9 @@ def _name_state(path: Path) -> Tuple[Tuple[int, int, int], ...]:
 
 
 def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[Tuple[int, int, int], ...]]]:
-    """The record of a handed file (its content, through a link) and of its name, or None if
-    unreadable."""
+    """Return the record of a handed file (its content, through a link) and of its name.
+
+    Return None if the file is unreadable."""
     try:
         return FileRecord.of(path.stat(), content_digest(path)), _name_state(path)
     except OSError:
@@ -704,11 +759,13 @@ def _handed_record(path: Path) -> Optional[Tuple[FileRecord, Tuple[Tuple[int, in
 def snapshot_inputs(
     expected: Expectation, previous: Optional[Trace], run_path: Path
 ) -> InputSnapshot:
-    """Record every input the run is expected to consume, and every file the `previous` run's
-    depfiles named (the likely ones this run's name again), just before the run starts -- each
-    as itself (a symbolic link by its target and the content it points to), and by the
-    `previous` run's record where the file's metadata vouches for it (`FileRecord.trusted`), as
-    a check does: an unchanged library directory is not read again at every run."""
+    """Record every input that the run is expected to consume, just before the run starts.
+
+    Also record every file that the depfiles of the `previous` run named (the likely ones for
+    this run to name again). Each is recorded as itself (a symbolic link by its target and the
+    content it points to), and by the record of the `previous` run where the metadata of the
+    file vouches for it (`FileRecord.trusted`), as a check does. So an unchanged library
+    directory is not read again at every run."""
     started_ns = filesystem_time_ns(run_path)
     inputs = tuple(expected_inputs(expected.inputs, previous, run_path))
     known = list(inputs)
@@ -746,17 +803,20 @@ def snapshot_inputs(
 def _programs(
     names: Sequence[str], previous: Optional[Trace] = None
 ) -> Dict[str, Optional[ProgramRecord]]:
-    """Each program as it is after the run, its file recorded (`record_file`, after the run's
-    output clock was read); one whose file changed since it was started -- its identity or
-    metadata differs from what `proc_utils.note_program` recorded then (`StartedPrograms.before`),
-    never a clock -- is recorded unknown, which never matches. A container image by its ID
+    """Return each program as it is after the run, with its file recorded.
+
+    The file is recorded by `record_file`, after the output clock of the run was read. A
+    program whose file changed since it was started is recorded as unknown, which never
+    matches. Its identity or metadata then differs from what `proc_utils.note_program` recorded
+    (`StartedPrograms.before`); no clock is involved. A container image is recorded by its ID
     alone.
 
     The record of the same file in the `previous` trace is kept while its metadata vouches for
-    it (`FileRecord.trusted`, against the time that trace took its records: the one a check
-    trusts it by too), as `snapshot_inputs` keeps an input's: a program such as yosys or nextpnr
-    is read when it is first recorded or changed, not at every successful run. A record that
-    stands for a file that changed during a run (`unknown`) is never kept."""
+    it (`FileRecord.trusted`, against the time when that trace took its records, which is the
+    time a check trusts it by too), as `snapshot_inputs` keeps the record of an input. So a
+    program such as yosys or nextpnr is read when it is first recorded or changed, and not at
+    every successful run. A record that stands for a file that changed during a run
+    (`unknown`) is never kept."""
     before = getattr(names, "before", {})
     programs: Dict[str, Optional[ProgramRecord]] = {}
     for name in names:
@@ -782,9 +842,10 @@ def _programs(
 
 
 def _kept_record(previous: Optional[Trace], name: str, where: str) -> Optional[FileRecord]:
-    """The `previous` trace's record of the program `name`, found at `where`, that a new record
-    may be taken over from: none if there is none, if the program was found elsewhere, or if the
-    record is of a file that changed during its run."""
+    """Return the record of the program `name` found at `where` in the `previous` trace.
+
+    A new record may be taken over from it. Return None if there is none, if the program was
+    found elsewhere, or if the record is of a file that changed during its run."""
     recorded = None if previous is None else previous.programs.get(name)
     if recorded is None or recorded.path != where or recorded.file is None:
         return None
@@ -792,9 +853,10 @@ def _kept_record(previous: Optional[Trace], name: str, where: str) -> Optional[F
 
 
 def _as_recorded(path: Path) -> Optional[Tuple[int, int, int, int]]:
-    """`path`'s metadata as `digest.record_file(..., follow_symlinks=False)` records it -- a
-    symbolic link to a regular file by that file's, anything else by its own -- or None if it
-    is gone."""
+    """Return the metadata of `path` as `digest.record_file(..., follow_symlinks=False)` records it.
+
+    A symbolic link to a regular file counts by the metadata of that file, and anything else by
+    its own. Return None if the path is gone."""
     try:
         st = os.lstat(path)
         if stat.S_ISLNK(st.st_mode):
@@ -810,16 +872,20 @@ def _as_recorded(path: Path) -> Optional[Tuple[int, int, int, int]]:
 
 
 def changed_since(path: Path, before: FileRecord) -> bool:
-    """Whether `path` changed since `before` recorded it, just before the run: its size, mtime,
-    inode change time or inode differ, or it is gone -- by its own metadata, never a clock, so a
-    file on a file system whose clock differs from the run directory's is judged alike."""
+    """Return whether `path` changed since `before` recorded it, just before the run.
+
+    It changed if its size, mtime, inode change time or inode differ, or if it is gone. The test
+    uses its own metadata and never a clock, so a file on a file system whose clock differs from
+    that of the run directory is judged alike."""
     return _as_recorded(path) != (before.size, before.mtime_ns, before.ctime_ns, before.inode)
 
 
 def run_reports(flow: Flow) -> List[str]:
-    """The reports `flow`'s run read (`Flow.reports_read`) that lie inside its run directory,
-    relative to it, in POSIX form, sorted: what the launcher removes before the next run
-    executes. One named through a link out of the directory is none of them."""
+    """Return the reports read by the run of `flow` that lie inside its run directory.
+
+    The reports come from `Flow.reports_read`. They are relative to the run directory, in POSIX
+    form, sorted. The launcher removes them before the next run executes. A report named
+    through a link out of the directory is none of them."""
     run_directory = flow.run_directory
     found = set()
     for path in flow.reports_read:
@@ -830,11 +896,13 @@ def run_reports(flow: Flow) -> List[str]:
 
 
 def _consumed(record: DeclaredInputRecord, snapshot: InputSnapshot) -> DeclaredInputRecord:
-    """`record` as the run consumed it. An entry is marked unknown, and never matches, if its
-    file was not the bytes the producer recorded when the run started, or if it may have changed
-    since: its metadata differs (written while the flow ran, even if put back as it was), or the
-    metadata is the same but too recent to vouch for it (`FileRecord.trusted`, as for every
-    input) and its content is read again."""
+    """Return `record` as the run consumed it.
+
+    An entry is marked unknown, and never matches, if its file was not the bytes that the
+    producer recorded when the run started, or if it may have changed since. That is the case
+    when its metadata differs (written while the flow ran, even if put back as it was), or when
+    the metadata is the same but too recent to vouch for the file (`FileRecord.trusted`, as for
+    every input). Then its content is read again."""
     references = tuple(
         ref.model_copy(update={"entries": tuple(_entry_consumed(e, snapshot) for e in ref.entries)})
         for ref in record.references
@@ -875,25 +943,31 @@ def build_trace(
     input_settings: Flow.Settings,
     previous: Optional[Trace] = None,
 ) -> Trace:
-    """The trace of `flow`'s just-completed, successful run, under a new `run_id`: its inputs
-    as `snapshot` recorded them; its outputs (`output_files`), recorded now, after the file-system
-    clock is read (`outputs_recorded_ns`); and each file its settings or depfiles name that the
-    snapshot did not record: the run's own inside its run directory, an input anywhere
-    else -- unknown if it was written during the run (see the module docstring). The programs
-    keep the `previous` trace's records where their files are unchanged (`_programs`)."""
+    """Return the trace of the successful run that `flow` just completed, under a new `run_id`.
+
+    Its inputs are those that `snapshot` recorded. Its outputs (`output_files`) are recorded
+    now, after the file-system clock is read (`outputs_recorded_ns`). Each file that its
+    settings or depfiles name and that the snapshot did not record is the run's own inside the
+    run directory, and an input anywhere else (unknown if it was written during the run; see
+    the module docstring). The programs keep the records of the `previous` trace where their
+    files are unchanged (`_programs`)."""
     started_ns = snapshot.started_ns
     run_dir = flow.run_path.resolve()
     run_device = run_dir.stat().st_dev
     bookkeeping = bookkeeping_files(flow.run_path)
-    # before any output is read: from then on, the records taken of them vouch for them
+    # Before any output is read: from then on, the records taken of them vouch for them.
     outputs_recorded_ns = filesystem_time_ns(flow.run_path)
 
     def written(path: Path, before: Optional[FileRecord]) -> Optional[str]:
-        """Why `path` is not what the run read, or None: written during the run. Against its
-        record from before the run where there is one (`changed_since`: identity and metadata,
-        never a clock). Without one, by the run directory's file-system clock only on that same
-        file system; on another, whose clock may differ, nothing tells (`UNRECORDED_BEFORE_RUN`).
-        A file that vanished since it was listed counts as written."""
+        """Return why `path` is not what the run read, or None.
+
+        The reason is that the file was written during the run.
+
+        Where there is a record from before the run, the file is judged against it
+        (`changed_since`: identity and metadata, never a clock). Without one, the file-system
+        clock of the run directory decides, and only on that same file system. On another file
+        system, whose clock may differ, nothing tells (`UNRECORDED_BEFORE_RUN`). A file that
+        vanished since it was listed counts as written."""
         if before is not None:
             return MODIFIED_DURING_RUN if changed_since(path, before) else None
         try:
@@ -905,8 +979,9 @@ def build_trace(
         return MODIFIED_DURING_RUN if written_since(path, started_ns) else None
 
     def record(path: Path) -> FileRecord:
-        """The record of `path` now, as the entry it is (a symbolic link by its target); unknown
-        if it vanished since it was listed."""
+        """Return the record of `path` now, as the entry it is (a symbolic link by its target).
+
+        The record is unknown if the file vanished since it was listed."""
         try:
             return record_file(path, follow_symlinks=False)
         except OSError:
@@ -915,7 +990,7 @@ def build_trace(
     output = record
 
     def own(path: Path) -> bool:
-        """A file is the run's own by location: inside the run directory."""
+        """Return whether a file is the run's own by location: inside the run directory."""
         return path.is_relative_to(run_dir)
 
     outputs = {str(p): output(p) for p in output_files(flow)}

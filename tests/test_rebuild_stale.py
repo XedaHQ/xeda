@@ -613,7 +613,7 @@ def test_an_action_runs_every_time_after_fresh_dependencies(tmp_path, toys, desi
 
 RUN_PATH_REMOVED = (
     "`run_path` was removed: use run_root to choose where runs go (a flow always runs in a "
-    "directory xeda creates under it), and outputs_to to receive its outputs elsewhere"
+    "directory Xeda creates under it), and outputs_to to receive its outputs elsewhere"
 )
 
 
@@ -970,7 +970,7 @@ def test_a_change_to_xeda_s_code_reruns_every_flow(tmp_path, toys, design, monke
     monkeypatch.setattr(trace_inputs, "xeda_code_digest", lambda: "e" * 32)
     flow, ran = _run(tmp_path, consumer, design)
     assert ran == ["toy_producer", "toy_consumer"]
-    assert flow.producers[0].stale_reason == "xeda's code changed"
+    assert flow.producers[0].stale_reason == "Xeda's code changed"
 
 
 def test_what_follows_the_settings_of_a_launch_is_keyword_only():
