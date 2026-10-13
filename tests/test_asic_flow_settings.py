@@ -210,3 +210,21 @@ source constraints.sdc
         "Settings MAX output delay of port y to 2.5",
         "Settings MAX output delay of port z to 2.5",
     ]
+
+
+@needs_tclsh
+def test_dc_sets_the_compile_variables_it_is_given(tmp_path, monkeypatch) -> None:
+    """Nothing rendered the `compile` table, so a value in it did nothing."""
+    _, run_path = _run_dc(tmp_path, monkeypatch, compile={"seqmap_honor_sync_set_reset": "true"})
+    calls = [c for c in fake_calls(run_path) if c[:1] == ["set_app_var"]]
+    assert ["set_app_var", "compile_seqmap_honor_sync_set_reset", "true"] in calls
+    names = [c[1] for c in calls]
+    assert names.index("hdlin_infer_mux") < names.index("compile_seqmap_honor_sync_set_reset")
+
+
+@needs_tclsh
+def test_dc_sets_no_compile_variable_unless_asked(tmp_path, monkeypatch) -> None:
+    _, run_path = _run_dc(tmp_path, monkeypatch)
+    names = _app_vars(run_path)
+    assert "compile_seqmap_honor_sync_set_reset" not in names
+    assert "compile_optimize_unloaded_seq_logic_with_no_bound_opt" not in names

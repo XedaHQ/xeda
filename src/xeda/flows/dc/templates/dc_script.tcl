@@ -53,6 +53,10 @@ set_message_info -id VHDL-290 -limit 5 ;# VHDL: a dummy net is created
 set_app_var {{("hdlin_" ~ k)|tcl_word}} {{v|tcl_word}}
 {%- endfor %}
 
+{%- for k,v in settings.compile.items() %}
+set_app_var {{("compile_" ~ k)|tcl_word}} {{v|tcl_word}}
+{%- endfor %}
+
 puts "Optimization: $OPTIMIZATION"
 
 set_app_var spg_enable_via_resistance_support true

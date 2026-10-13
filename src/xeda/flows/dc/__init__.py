@@ -185,12 +185,9 @@ class Dc(AsicSynthFlow):
             "matters when mixing VHDL with case-sensitive Verilog.",
         )
         compile: Dict[str, str] = Field(
-            {
-                "seqmap_honor_sync_set_reset": "true",
-                "optimize_unloaded_seq_logic_with_no_bound_opt": "true",  # allow unconnected registers to be removed
-            },
-            description="Values of the `compile_<key>` variables, by key. See the DC "
-            "documentation.",
+            {},
+            description="Values of the `compile_<key>` variables, by key, set before the "
+            "compile command runs. See the DC documentation.",
         )
         target_libraries: List[Path] = Field(
             [],
