@@ -1,20 +1,20 @@
-name: 'crc32'
-description: 'Mixed-language CRC-32 unit: a BSV top (message framing, FIFOs, Server interface) around
-  a BH package holding the CRC datapath and a separately synthesized BH engine that folds a 32-bit
-  word per cycle. The testbench checks known answers and 62 random messages against a table-driven
-  reference.'
+name: crc32
+description: >-
+  Mixed-language CRC-32 unit. A BSV top (message framing, FIFOs, Server interface) wraps a BH
+  package that holds the CRC datapath and a separately synthesized engine, which folds a 32-bit
+  word per cycle. The testbench checks two known answers and 62 random messages against a
+  table-driven reference.
 rtl:
-  # A BH package (.bs) imported by the BSV top; the package defining `top` comes last.
+  # The BSV top imports the BH package. The package that defines `top` comes last.
   sources:
-    - 'rtl/CrcCore.bs'
-    - 'rtl/CrcUnit.bsv'
-  top: 'mkCrcUnit'
-  clock:
-    port: 'CLK'
+    - "rtl/CrcCore.bs"
+    - "rtl/CrcUnit.bsv"
+  top: mkCrcUnit
+  clock.port: CLK
 tb:
   sources:
-    - 'tb/TbCrcUnit.bsv'
-  top: 'mkTbCrcUnit'
-  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design, which the
-  # testbench must catch (non-zero exit):
-  # defines: {XEDA_INJECT_BUG: true}
+    - "tb/TbCrcUnit.bsv"
+  top: mkTbCrcUnit
+  # Negative test: defining the macro XEDA_INJECT_BUG plants a bug in the design. The testbench
+  # must catch it (non-zero exit).
+  # defines.XEDA_INJECT_BUG: true

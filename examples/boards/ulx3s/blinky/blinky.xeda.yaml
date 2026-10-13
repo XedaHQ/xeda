@@ -1,8 +1,10 @@
-sources: ["blinky.v", {file: "blinky.lpf", type: Lpf}]
-top: blinky
-clock:
-  port: "clk_25mhz"
-
+description: Running LEDs on the ULX3S board
+rtl:
+  sources:
+    - "blinky.v"
+    - {file: "blinky.lpf", type: Lpf}
+  top: blinky
+  clock.port: clk_25mhz
 flows:
   openfpgaloader:
     clock.freq: 25MHz

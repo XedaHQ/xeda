@@ -1,41 +1,31 @@
-design:
-  - name: 'blinky'
-    description: 'Running LEDs on the ULX3S board'
+designs:
+  - name: blinky
+    description: Running LEDs on the ULX3S board
     rtl:
       sources:
-        - 'blinky.v'
-        - file: 'blinky.lpf'
-          type: 'Lpf'
-      top: 'blinky'
-      clock:
-        port: 'clk_25mhz'
-  - name: 'blinky-vhdl'
-    description: 'LED chaser on ULX3S'
-    language:
-      vhdl:
-        standard: 2008
+        - "blinky.v"
+        - {file: "blinky.lpf", type: Lpf}
+      top: blinky
+      clock.port: clk_25mhz
+  - name: blinky-vhdl
+    description: LED chaser on the ULX3S board, in VHDL
+    language.vhdl.standard: 2008
     rtl:
       sources:
-        - 'ecp5pll.vhdl'
-        - 'blinky.vhdl'
-        - file: 'blinky-vhdl.lpf'
-          type: 'Lpf'
-      top: 'blinky'
-      clock:
-        port: 'clk_25mhz'
+        - "ecp5pll.vhdl"
+        - "blinky.vhdl"
+        - {file: "blinky-vhdl.lpf", type: Lpf}
+      top: blinky
+      clock.port: clk_25mhz
 flows:
   openfpgaloader:
-    board: 'ulx3s_85f'
-    clock:
-      period: 40 # 25 MHz
+    board: ulx3s_85f
+    clock.freq: 25MHz
   nextpnr:
-    board: 'ulx3s_85f'
-    clock:
-      period: 40 # 25 MHz
+    board: ulx3s_85f
+    clock.freq: 25MHz
     detailed_timing_report: false
     timing_allow_fail: true
   yosys_fpga:
-    fpga:
-      family: 'ecp5'
-    clock:
-      period: 40
+    fpga.family: ecp5
+    clock.freq: 25MHz

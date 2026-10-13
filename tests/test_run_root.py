@@ -194,7 +194,7 @@ def test_an_unmarked_run_root_is_refused_with_a_json_document(sqrt, tmp_path, co
 def test_a_run_that_fails_at_input_creates_no_run_root(sqrt, remote):
     """A design that does not load (here, a name that is no directory name) fails before any
     flow launches: the run root is created when a flow first needs it, so none is left behind."""
-    text = (sqrt / "sqrt.yaml").read_text().replace("name: 'sqrt'", 'name: ".."')
+    text = (sqrt / "sqrt.yaml").read_text().replace("name: sqrt", 'name: ".."')
     assert 'name: ".."' in text
     (sqrt / "sqrt.yaml").write_text(text)
     before = sorted(p.name for p in sqrt.iterdir())

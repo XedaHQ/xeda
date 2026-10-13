@@ -1,8 +1,16 @@
-Trivium has two YAML configurations:
+# Trivium
 
-- `trivium.yaml` holds the design, parameters, testbench and Vivado/Yosys settings. It leaves
-  `G_SETUP_ROUNDS` at the HDL default of four rounds.
-- `trivium-dc.xeda.yaml` is a variant that sets `G_SETUP_ROUNDS: 4` explicitly and also provides
-  Design Compiler target-library settings. Adjust the DC library path for your installation.
+Trivium has two design files:
 
-Both use the 64-bit input/output configuration that the cocotb reference testbench uses.
+- `trivium.yaml` holds the design, its parameters, the testbench and the settings for Vivado and
+  Yosys. It leaves `G_SETUP_ROUNDS` at the HDL default of four rounds.
+- `trivium-dc.xeda.yaml` is a variant. It sets `G_SETUP_ROUNDS: 4` and adds the target libraries
+  for Design Compiler (`dc`). Change the library path to match your installation.
+
+Both use the 64-bit input and output configuration of the cocotb reference testbench.
+
+```bash
+cd examples/vhdl/Trivium
+xeda run ghdl_sim trivium.yaml           # simulate with GHDL
+xeda run yosys_fpga trivium.yaml         # synthesize with Yosys for the Xilinx 7 series part
+```

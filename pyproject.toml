@@ -1,6 +1,6 @@
 [project]
 name = "xeda"
-description = "Cross EDA Abstraction and Automation"
+description = "Xeda automates simulation, synthesis and implementation with commercial and open-source EDA tools."
 readme = "README.md"
 requires-python = ">=3.11"
 dynamic = ["version"]
