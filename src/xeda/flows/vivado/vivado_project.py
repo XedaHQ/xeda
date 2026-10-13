@@ -20,6 +20,15 @@ from ..vivado.vivado_synth import (
 log = logging.getLogger(__name__)
 
 
+def _in_vivado_sim(replacement: str) -> str:
+    """Return the replacement of a setting that `vivado_sim` removed, as it reads for a project:
+    a project has no simulation, so a setting of the simulator is named in `flows.vivado_sim`."""
+    field = replacement.strip("`")
+    if replacement == f"`{field}`" and field in VivadoSim.Settings.model_fields:
+        return f"`flows.vivado_sim.{field}`"
+    return replacement
+
+
 class VivadoProject(Vivado, FpgaSynthFlow):
     """Create an AMD-Xilinx Vivado project for the design, to work on in Vivado.
 
@@ -61,8 +70,8 @@ class VivadoProject(Vivado, FpgaSynthFlow):
                 if field not in VivadoSynth.Settings.model_fields
             },
             **{
-                spelling: text
-                for spelling, text in VivadoSim.Settings.removed_settings.items()
+                spelling: _in_vivado_sim(text)
+                for spelling, text in VivadoSim.Settings.removed_setting_replacements().items()
                 if spelling not in VivadoSynth.Settings.model_fields
             },
         }

@@ -12,7 +12,7 @@ import shutil
 import pytest
 
 from xeda import Design
-from xeda.flow import FlowSettingsError, FlowSettingsException, NoReplacement
+from xeda.flow import FlowSettingsError, FlowSettingsException, NoReplacement, SimFlow
 from xeda.dataclass import input_names
 from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
@@ -87,11 +87,18 @@ REFUSED = [
     ],
     ("quartus", "synthesis_effort", "fast", "delete it"),
     ("vcs", "work_dir", "work", "delete it"),
+    ("vcs", "ucli", True, "Xeda always runs VCS with -ucli; delete it"),
     ("vcs", "optimization_flags", ["-O"], "`vcs_flags`, which reach the `vcs` elaboration"),
     ("modelsim", "optimization_flags", ["-O"], "`vsim_flags`, which reach `vsim`"),
     ("nvc", "optimization_flags", ["-O"], "`optimization_level` (`nvc -e -O`)"),
     ("verilator", "optimization_flags", ["-O"], "`optimize` for the `-O` of Verilator"),
     ("yosys_sim", "optimization_flags", ["-O"], "`cxxrtl.opt` for `write_cxxrtl -O`"),
+    # removed from every simulator
+    *[
+        (flow, "waveform", "dump.vcd", "`vcd`")
+        for flow in sorted(PRODUCT_NAMES)
+        if issubclass(registered_flows[flow][1], SimFlow)
+    ],
     # removed from every flow
     *[
         (flow, name, value, use)
@@ -291,7 +298,7 @@ FORMER_FIELDS = {
     "modelsim": {"optimization_flags"},
     "nvc": {"optimization_flags"},
     "quartus": {"synthesis_effort"},
-    "vcs": {"optimization_flags", "work_dir"},
+    "vcs": {"optimization_flags", "ucli", "work_dir"},
     "verilator": {"optimization_flags"},
     "vivado_postsynth_sim": {"initialize_zeros", "read_oneshot", "suppress_msgs"},
     "vivado_power": {"suppress_msgs"},
@@ -341,6 +348,8 @@ EARLIER_REMOVALS = {
     "yosys_fpga": {"clock_period"},
 }
 EVERYWHERE = {"clean", "timeout_seconds", "no_console"}
+#: The removed settings of every simulator (`SimFlow.Settings`), besides `EVERYWHERE`.
+SIMULATORS = {"waveform"}
 
 
 @pytest.mark.parametrize("flow", sorted(PRODUCT_NAMES))
@@ -369,6 +378,8 @@ def test_a_removal_entry_is_on_a_flow_that_had_the_setting(flow) -> None:
     unknown setting, not as a removed one."""
     cls = registered_flows[flow][1]
     known = EVERYWHERE | FORMER_FIELDS.get(flow, set()) | EARLIER_REMOVALS.get(flow, set())
+    if issubclass(cls, SimFlow):
+        known |= SIMULATORS
     removed = set(cls.Settings.removed_setting_replacements())
     assert removed == known, f"{flow}: {sorted(removed ^ known)}"
 

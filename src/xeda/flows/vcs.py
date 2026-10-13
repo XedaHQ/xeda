@@ -107,6 +107,7 @@ class Vcs(SimFlow):
             "optimization_flags": "`vcs_flags`, which reach the `vcs` elaboration, or `cflags` for the C "
             "compiler",
             "work_dir": NoReplacement("Xeda passed it to nothing"),
+            "ucli": NoReplacement("Xeda always runs VCS with -ucli"),
         }
         simv_flags: List[str] = Field(
             [],
@@ -132,15 +133,10 @@ class Vcs(SimFlow):
             description="Run the simulation in the `vcs` step (`-R`), with no separate `simv` "
             "run. Ignores `simv_flags`.",
         )
-        ucli: bool = Field(
-            False,
-            description="Run the simulator under UCLI (Universal Command Line Interface). Xeda "
-            "always passes `-ucli`. A `ucli_script` also sets this.",
-        )
         ucli_script: Optional[Path] = Field(
             None,
-            description="UCLI script that drives the simulator executable (`simv`). Setting it "
-            "sets `ucli`.",
+            description="UCLI (Universal Command Line Interface) script that drives the simulator "
+            "executable (`simv`). Xeda always runs `simv` under UCLI with its own script.",
         )
         gui: Optional[Union[bool, str]] = Field(
             None,
@@ -292,10 +288,9 @@ class Vcs(SimFlow):
             highlight_rules=rules,
         )
         if ss.ucli_script:
-            ss.ucli = True  # a user's script runs under UCLI
             ss.ucli_script = self.process_path(ss.ucli_script, resolve_to=self.design.design_root)
         # a user's script drives simv, so its output is the script's and stays uncolored
-        driven_by_user = ss.ucli and ss.ucli_script is not None
+        driven_by_user = ss.ucli_script is not None
         self.simv = Tool(
             "./simv", self, version_flag=None, highlight_rules=None if driven_by_user else rules
         )

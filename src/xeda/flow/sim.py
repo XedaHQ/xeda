@@ -322,6 +322,10 @@ class SimFlow(Flow, metaclass=ABCMeta):
     unsupported_waveforms: ClassVar[Mapping[str, str]] = {}
 
     class Settings(Flow.Settings):
+        removed_settings: ClassVar[Dict[str, str]] = {
+            **Flow.Settings.removed_settings,
+            "waveform": "`vcd`",
+        }
         timeout: float | None = Field(
             None,
             gt=0,
@@ -340,7 +344,6 @@ class SimFlow(Flow, metaclass=ABCMeta):
         )
         vcd: Union[str, Path, None] = Field(
             None,
-            alias="waveform",
             description="Write a VCD waveform to this file. `true` writes `dump.vcd`; a name "
             "without an extension gets `.vcd`; `false` or an empty name writes none. A simulator "
             "that cannot write VCD refuses it, and names its own waveform settings.",
