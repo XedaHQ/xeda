@@ -235,7 +235,7 @@ class Dse(FlowLauncher):
 
     class Settings(FlowLauncher.Settings):
         max_runtime_minutes: int = Field(
-            12 * 3600,
+            12 * 60,
             description="Maximum total running time, in minutes. After that, no new flow is "
             "launched. Flows that are already launched continue until they complete or time out.",
         )

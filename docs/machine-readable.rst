@@ -411,7 +411,7 @@ The ``results.json`` of every node is a failure document too, and its ``error.ty
 specific than the one of the top-level document. The top-level ``FlowFailed`` is the verdict of the
 run, and a node names the cause. A failure of a producer is never ``FlowFailed``. The
 ``results.json`` of the producer names its cause, and the flows after it say
-``FlowDependencyFailure`` and quote it (``dependency yosys_fpga failed: ...``). The top-level
+``FlowDependencyFailure`` and quote it (``producer yosys_fpga failed: ...``). The top-level
 ``error`` of a chain whose last flow was never reached says the same. A flow that raises names its
 exception class (``NonZeroExitCode``, ``FlowFatalError`` and so on). Two causes belong to a flow
 that finished without raising. The top-level document of such a flow says ``FlowFailed``:

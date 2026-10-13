@@ -787,7 +787,7 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
         "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga={ICE40_PART}"
     )
     assert result.exit_code == 1 and document["success"] is False
-    # the failure is the producer's and reaches each consumer as a failed dependency
+    # the failure is the producer's and reaches each consumer as a failed producer
     assert _states(document) == dict.fromkeys(
         ["__asc_maker", "fpga_pack", "openfpgaloader"], "failed"
     )
@@ -877,7 +877,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     for name in downstream:
         error = _results(tmp_path, board.design, name)["error"]
         assert error["type"] == "FlowDependencyFailure", (name, error)
-        assert f"dependency {stage} failed" in error["message"], (name, error)
+        assert f"producer {stage} failed" in error["message"], (name, error)
         assert quoted[stage, mode] in error["message"], (name, error)
     _assert_never_programmed(tmp_path, board.design)
 

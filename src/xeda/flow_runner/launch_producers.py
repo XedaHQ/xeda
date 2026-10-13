@@ -125,7 +125,7 @@ def run_producers(
                     if isinstance(error, DeliveryError) and error.before_run:
                         raise  # refused before the producer's tool ran: not its failure
                     raise FlowDependencyFailure(
-                        f"dependency {producer_node.name} failed: {error}"
+                        f"producer {producer_node.name} failed: {error}"
                         + (
                             f"; see {producer_node.run_path / 'results.json'}"
                             if entered(producer_node.run_path)
@@ -135,7 +135,7 @@ def run_producers(
                 completed[key] = producer
             if not producer.succeeded:
                 raise FlowDependencyFailure(
-                    f"dependency {producer.name} failed: {producer.results.get('error', '')}; "
+                    f"producer {producer.name} failed: {producer.results.get('error', '')}; "
                     f"see {producer.run_path / 'results.json'}"
                 )
             if producer not in consumed_from:
