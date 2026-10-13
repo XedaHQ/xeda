@@ -685,9 +685,15 @@ def test_the_bundled_database_passes_the_rule_of_every_board_entry():
         ("boards.yaml", "MY_BOARD:\n  pcf:\n", "pcf", "None"),
         ("boards.toml", '[MY_BOARD.lpf]\npath = "pins.lpf"\n', "lpf", "{'path': 'pins.lpf'}"),
         ("boards.toml", "[MY_BOARD]\npdc = true\n", "pdc", "True"),
+        ("boards.yaml", 'MY_BOARD:\n  lpf: ""\n', "lpf", "''"),
+        ("boards.yaml", "MY_BOARD:\n  xdc: '  '\n", "xdc", "'  '"),
+        ("boards.toml", '[MY_BOARD]\npcf = ""\n', "pcf", "''"),
+        ("boards.toml", '[MY_BOARD]\npdc = " \\t"\n', "pdc", "' \\t'"),
     ],
 )
-def test_a_pin_file_key_of_a_board_entry_must_hold_text(tmp_path, filename, content, key, shown):
+def test_a_pin_file_key_of_a_board_entry_must_hold_a_nonempty_file_name(
+    tmp_path, filename, content, key, shown
+):
     message = database_error(tmp_path, filename, content)
     assert f"Board 'MY_BOARD' in {tmp_path / filename}: `{key}`" in message
-    assert "as text" in message and shown in message
+    assert "a nonempty file name, as text" in message and shown in message

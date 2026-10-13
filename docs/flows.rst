@@ -35,10 +35,11 @@ Discovering flows and their settings
     every other YAML file it reads. A dotted key in an entry is a path, as in a design file:
     ``fpga.part`` and a table ``fpga`` with the key ``part`` mean the same. Giving ``fpga`` as a
     value and also ``fpga.part`` in one entry is an error. An entry has only the keys ``fpga``,
-    ``openfpgaloader_board``, ``lpf``, ``pcf``, ``pdc`` and ``xdc``. A pin file key holds text,
-    the name of the file. Xeda refuses any other key, and a pin file key that is not text. The
-    error names the board, the key and the database file. When a key looks like a misspelling, the
-    error suggests the key that it resembles::
+    ``openfpgaloader_board``, ``lpf``, ``pcf``, ``pdc`` and ``xdc``. The pin file keys and
+    ``openfpgaloader_board`` hold text that is not empty: a file name or a board name. Xeda
+    refuses any other key, and a value of these keys that is empty or not text. The error names
+    the board, the key and the database file. When a key looks like a misspelling, the error
+    suggests the key that it resembles::
 
         # boards.yaml
         MY_BOARD:

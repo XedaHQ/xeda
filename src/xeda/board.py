@@ -140,7 +140,7 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
     other file Xeda reads (`utils.expand_hierarchy`). A key that holds a value and also has keys
     inside it (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, worded by
     `ConflictingKeys`. An unknown key is an error that names the board and the database, with the
-    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold text. An entry that is
+    close matches. A pin file key (`lpf`, `pcf`, `pdc`, `xdc`) must hold a nonempty file name. An entry that is
     not a table is returned as it is: the caller judges that.
     """
     if not isinstance(entry, dict):
@@ -163,17 +163,18 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
                 f"{', '.join(f'`{known}`' for known in BOARD_ENTRY_KEYS)}.{hint}"
             )
     loader = entry.get("openfpgaloader_board")
-    if loader is not None and not (isinstance(loader, str) and loader.strip()):
+    if "openfpgaloader_board" in entry and not (isinstance(loader, str) and loader.strip()):
         raise ValueError(
             f"Board {name!r} in {database}: `openfpgaloader_board` is the board's "
             f"name in openFPGALoader, as text, not {loader!r}; leave it out for a board "
             "openFPGALoader does not know"
         )
     for key in PIN_FILE_KEYS:
-        if key in entry and not isinstance(entry[key], str):
+        value = entry.get(key)
+        if key in entry and not (isinstance(value, str) and value.strip()):
             raise ValueError(
-                f"Board {name!r} in {database}: `{key}` is the name of the board's pin file, as "
-                f"text, not {entry[key]!r}"
+                f"Board {name!r} in {database}: `{key}` is the name of the board's pin file: give "
+                f"a nonempty file name, as text, not {value!r}"
             )
     return entry
 
