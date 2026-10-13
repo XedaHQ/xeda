@@ -635,7 +635,7 @@ def test_the_dotted_and_the_nested_form_of_a_board_entry_are_one_board(tmp_path)
     assert dotted.fpga == nested.fpga
 
 
-def test_a_dotted_key_beside_the_table_it_enters_is_a_conflict_naming_both(tmp_path):
+def test_a_dotted_key_beside_a_value_at_its_first_part_is_a_conflict_naming_both(tmp_path):
     message = database_error(
         tmp_path,
         "boards.yaml",

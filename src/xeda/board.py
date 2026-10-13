@@ -136,10 +136,10 @@ def board_entry(name: Any, entry: Any, database: str) -> Any:
     """Return the entry of the board `name` in `database` as data, after the rules of its keys.
 
     A dotted key means the table it stands for (`fpga.part: P` is `fpga: {part: P}`), as in every
-    other file Xeda reads (`utils.expand_hierarchy`). A key given as a value and as a table
-    (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, as `ConflictingKeys` words it. An unknown key is an error that
-    names the board and the database, with the close matches. An entry that is not a table is
-    returned as it is: the caller judges that.
+    other file Xeda reads (`utils.expand_hierarchy`). A key that holds a value and also has keys
+    inside it (`fpga: P` beside `fpga.part: Q`) is an error that names both keys, worded by
+    `ConflictingKeys`. An unknown key is an error that names the board and the database, with the
+    close matches. An entry that is not a table is returned as it is: the caller judges that.
     """
     if not isinstance(entry, dict):
         return entry
