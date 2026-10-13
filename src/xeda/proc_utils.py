@@ -352,24 +352,28 @@ def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
     for each redraw, without the escape sequences."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""  # the last line, which has not ended yet
-    while True:
-        try:
-            data = os.read(master, 65536)
-        except OSError as error:
-            if error.errno != errno.EIO:  # Linux ends the output so; macOS reads nothing
-                raise
-            data = b""
-        text = decoder.decode(data, final=not data)
-        if text:
-            # Write the log first, as for the lines of a pipe: it keeps what a failing terminal
-            # missed.
-            *ended, pending = _LINE_ENDS.split(pending + text)
-            _write_log_lines(log_file, ended)
-            stream.write(text)
-            stream.flush()
-        if not data:
-            break
-    _write_log_lines(log_file, [pending])
+    try:
+        while True:
+            try:
+                data = os.read(master, 65536)
+            except OSError as error:
+                if error.errno != errno.EIO:  # Linux ends the output so; macOS reads nothing
+                    raise
+                data = b""
+            text = decoder.decode(data, final=not data)
+            if text:
+                # Write the log first, as for the lines of a pipe: it keeps what a failing
+                # terminal missed.
+                *ended, pending = _LINE_ENDS.split(pending + text)
+                _write_log_lines(log_file, ended)
+                stream.write(text)
+                stream.flush()
+            if not data:
+                break
+    finally:
+        # The last line is in the log at the end of the output and when the terminal fails. After
+        # the end of the output the decoder is empty; after a failure it holds a cut character.
+        _write_log_lines(log_file, [pending + decoder.decode(b"", final=True)])
 
 
 def _run_in_terminal(

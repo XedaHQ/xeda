@@ -101,6 +101,22 @@ def terminal(monkeypatch):
     shown.close()
 
 
+class GoneTerminal:
+    """xeda's own terminal when it is gone (a closed ssh session): every write raises."""
+
+    def isatty(self) -> bool:
+        return True
+
+    def fileno(self) -> int:
+        return 1
+
+    def write(self, text: str) -> int:
+        raise OSError(5, "the terminal is gone")
+
+    def flush(self) -> None:
+        pass
+
+
 def child(code: str) -> list[str]:
     return ["-c", code]
 
@@ -186,19 +202,6 @@ def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypa
     """The log is written before the terminal, as the lines of a pipe are: a terminal that is gone
     (a closed ssh session) raises, the tool is stopped, and the log has what came before."""
 
-    class GoneTerminal:
-        def isatty(self) -> bool:
-            return True
-
-        def fileno(self) -> int:
-            return 1
-
-        def write(self, text: str) -> int:
-            raise OSError(5, "the terminal is gone")
-
-        def flush(self) -> None:
-            pass
-
     monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
     log = tmp_path / "tool.log"
     code = "import time; print('first', flush=True); time.sleep(60)"
@@ -207,6 +210,52 @@ def test_a_terminal_that_fails_leaves_the_log_what_the_tool_had_written(monkeypa
         run_process(sys.executable, child(code), tee=log, terminal=True)
     assert time.monotonic() - started < 30  # the tool did not run on
     assert log_lines(log) == ["first"]
+
+
+def test_a_terminal_that_fails_leaves_the_log_the_line_the_tool_had_not_ended(
+    monkeypatch, tmp_path
+):
+    """The tool wrote `first` and has not ended the line, and the terminal fails on that text. The
+    log has `first`, as it has the last line when the output ends. The tool writes no line end
+    until it is stopped, so the terminal gets `first` alone in its first write."""
+
+    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
+    log = tmp_path / "tool.log"
+    code = "import sys, time; sys.stdout.write('first'); sys.stdout.flush(); time.sleep(60)"
+    started = time.monotonic()
+    with pytest.raises(OSError, match="the terminal is gone"):
+        run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert time.monotonic() - started < 30  # the tool did not run on
+    assert log_lines(log) == ["first"]
+
+
+def test_a_terminal_that_fails_leaves_the_log_a_character_the_tool_had_not_ended(
+    monkeypatch, tmp_path
+):
+    """The tool wrote `first` and the first byte of a character of two bytes. The terminal fails
+    on that text. The log has what it has when the output ends there: `first` and a replacement
+    character for the cut character."""
+    monkeypatch.setattr(proc_utils, "_tool_output", GoneTerminal())
+    log = tmp_path / "tool.log"
+    code = (
+        "import sys, time\n"
+        "sys.stdout.buffer.write(b'first\\xc3')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(60)\n"
+    )
+    with pytest.raises(OSError, match="the terminal is gone"):
+        run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert log_lines(log) == ["first\ufffd"]
+
+
+def test_the_output_that_ends_in_a_cut_character_has_the_replacement_character_once(
+    terminal, tmp_path
+):
+    code = "import sys; sys.stdout.buffer.write(b'first\\xc3')"
+    log = tmp_path / "tool.log"
+    run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert log_lines(log) == ["first\ufffd"]
+    assert terminal.shown() == "first\ufffd"
 
 
 def test_what_a_tool_writes_in_pieces_arrives_whole(terminal, tmp_path):
