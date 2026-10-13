@@ -12,6 +12,11 @@ initialize_floorplan \
   -site      {{platform.place_site}}
 ICeWall init_footprint {{settings.sig_map_file|tcl_word}}
 
+{% elif settings.core_area and settings.die_area %}
+# Initialize floorplan using DIE_AREA/CORE_AREA
+initialize_floorplan -die_area {{settings.die_area|join(" ")|embrace}} \
+  -core_area {{settings.core_area|join(" ")|embrace}} \
+  -site {{platform.place_site}}
 {% elif settings.core_utilization %}
 # Initialize floorplan using core_utilization
 initialize_floorplan -utilization {{settings.core_utilization}} \
@@ -19,11 +24,6 @@ initialize_floorplan -utilization {{settings.core_utilization}} \
   -core_space  {{settings.core_margin}} \
   -site {{platform.place_site}}
 
-{% elif settings.core_area and settings.die_area %}
-# Initialize floorplan using DIE_AREA/CORE_AREA
-initialize_floorplan -die_area {{settings.die_area|join(" ")|embrace}} \
-  -core_area {{settings.core_area|join(" ")|embrace}} \
-  -site {{platform.place_site}}
 {% endif %}
 
 {% set make_tracks_tcl = settings.make_tracks_tcl or platform.make_tracks_tcl %}

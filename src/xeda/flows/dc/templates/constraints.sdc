@@ -8,7 +8,7 @@ set input_ports [all_inputs -exclude_clock_ports]
 foreach_in_collection port $input_ports {
     set port_name [get_object_name $port]
     puts "Settings MAX input delay of port $port_name to $max_input_delay"
-    set_input_delay -clock {{clock_name|tcl_word}} -max $max_input_delay $input_ports
+    set_input_delay -clock {{clock_name|tcl_word}} -max $max_input_delay $port
 }
 {% endif -%}
 
@@ -17,8 +17,9 @@ foreach_in_collection port $input_ports {
 set max_output_delay {{settings.default_max_output_delay}}
 set output_ports [all_outputs]
 foreach_in_collection port $output_ports {
+    set port_name [get_object_name $port]
     puts "Settings MAX output delay of port $port_name to $max_output_delay"
-    set_output_delay -clock {{clock_name|tcl_word}} -max $max_output_delay $output_ports
+    set_output_delay -clock {{clock_name|tcl_word}} -max $max_output_delay $port
 }
 {% endif -%}
 # set_dont_touch_network [find port {{clock.port|tcl_word}}]

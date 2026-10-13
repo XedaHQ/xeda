@@ -124,28 +124,30 @@ class Openroad(AsicSynthFlow):
         )
         input_delay: Optional[float] = Field(
             None,
-            description="Input delay in picoseconds. Takes precedence over `input_delay_frac`.",
+            description="Input delay in picoseconds. Xeda converts it to the platform's time unit "
+            "in the generated constraints. Takes precedence over `input_delay_frac`.",
         )
         output_delay: Optional[float] = Field(
             None,
-            description="Output delay in picoseconds. Takes precedence over `output_delay_frac`.",
+            description="Output delay in picoseconds. Xeda converts it to the platform's time unit "
+            "in the generated constraints. Takes precedence over `output_delay_frac`.",
         )
         core_utilization: Optional[float] = Field(
             40.0,
             description="Core utilization in percent (0..100). Sizes the floorplan unless "
-            "`floorplan_def` or `footprint` is set.",
+            "`floorplan_def`, `footprint`, or both `core_area` and `die_area` are set.",
         )
         core_aspect_ratio: float = Field(1.0, description="Ratio of core height to core width.")
         core_margin: float = Field(2.0, description="Core margin in um.")
         core_area: List[Union[int, float]] = Field(
             [],
             description="Explicit core area as [x1, y1, x2, y2] in microns. Used only with "
-            "`die_area`, and only when `core_utilization` is unset.",
+            "`die_area`. When both are set, they replace `core_utilization`.",
         )
         die_area: List[Union[int, float]] = Field(
             [],
             description="Explicit die area as [x1, y1, x2, y2] in microns. Used only with "
-            "`core_area`, and only when `core_utilization` is unset.",
+            "`core_area`. When both are set, they replace `core_utilization`.",
         )
         sdc_files: List[Path] = Field(
             [],
@@ -399,10 +401,31 @@ class Openroad(AsicSynthFlow):
                 value = convert_unit(value, "picoseconds")
             return value
 
+        def delay_in_platform_unit(self, picoseconds: float) -> float:
+            """Return a delay given in picoseconds as a number of the platform's time unit, the
+            unit of the SDC that the flow writes."""
+            assert self.platform is not None
+            return convert_unit(
+                picoseconds, to_unit=self.platform.time_unit, from_unit="picosecond"
+            )
+
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
+        for given, missing in (("core_area", "die_area"), ("die_area", "core_area")):
+            if getattr(settings, given) and not getattr(settings, missing):
+                raise FlowSettingsError(
+                    [
+                        (
+                            missing,
+                            f"`{given}` needs `{missing}`: give both areas or neither",
+                            None,
+                            "value_error",
+                        )
+                    ],
+                    cls.Settings,
+                )
         if settings.footprint and not settings.footprint_def and not settings.sig_map_file:
             raise FlowSettingsError(
                 [

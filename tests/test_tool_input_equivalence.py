@@ -291,6 +291,17 @@ for _name in REVIEWED_RENAMES:
     ] = "blocks was removed; configure flows.yosys.black_box instead"
 REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
 
+# `clocks.sdc` writes the clock period and the relative delays with six decimals instead of three,
+# so that a delay of less than a picosecond stays on a platform in nanoseconds. Its other lines
+# are the same.
+for _name in REVIEWED_RENAMES:
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "files", "<RUN>/mac/openroad/clocks.sdc")
+    ] = "the clock period and the relative delays have six decimals instead of three"
+    REVIEWED_DELTAS[_name][
+        ("nodes", _OPENROAD, "files", "<RUN>/mac/openroad/openroad_0_11.log")
+    ] = "the fake OpenROAD's log follows the digests of the files it reads, `clocks.sdc` among them"
+
 for _deltas in REVIEWED_DELTAS.values():
     _deltas.update(_REMOVED_EVERYWHERE)
 
