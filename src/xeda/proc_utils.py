@@ -371,9 +371,9 @@ def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
             if not data:
                 break
     finally:
-        # The line that has not ended is in the log at the end of the output and when the terminal
-        # fails, as the text that came before it is.
-        _write_log_lines(log_file, [pending])
+        # The last line is in the log at the end of the output and when the terminal fails. After
+        # the end of the output the decoder is empty; after a failure it holds a cut character.
+        _write_log_lines(log_file, [pending + decoder.decode(b"", final=True)])
 
 
 def _run_in_terminal(
