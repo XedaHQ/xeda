@@ -168,6 +168,9 @@ CASES: dict[str, Case] = {
     "vivado-postsynth-sim-timing-activity-without-uut": Case(
         VivadoPostsynthSim, "set `tb.uut`", {"timing_sim": True}
     ),
+    "nvc-library-without-directory": Case(
+        Nvc, "no way to name a library without its directory", {"lib_paths": [("vendor", None)]}, _vhdl
+    ),
     "yosys-sta-without-flatten": Case(
         Yosys, "cannot be combined with flatten=false", {"sta": True, "flatten": False}
     ),

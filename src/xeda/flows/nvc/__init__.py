@@ -231,8 +231,8 @@ class Nvc(SimFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse run flags that compete with `fail_severity` or `stop_time`, and waveform settings
-        that NVC cannot honor.
+        """Refuse run flags that compete with `fail_severity` or `stop_time`, a library in
+        `lib_paths` without a directory, and waveform settings that NVC cannot honor.
 
         NVC writes one waveform, with `--wave` (`vcd` or `fst`). The settings that refine the
         waveform need one.
@@ -240,6 +240,13 @@ class Nvc(SimFlow):
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         settings.runtime_flags()
+        for name, path in settings.lib_paths:
+            if path is None:
+                raise FlowSettingsException(
+                    f"`lib_paths` names the library {name} without a directory: nvc has no way "
+                    "to name a library without its directory. Give the directory that holds the "
+                    f"library directory `{name}`"
+                )
         if settings.vcd is not None and settings.fst is not None:
             raise FlowSettingsException(
                 "nvc writes one waveform, and vcd and fst are set: keep one of them"
@@ -272,7 +279,8 @@ class Nvc(SimFlow):
             cf.append("--ignore-time")
         if ss.heap_size:
             cf += ["-H", ss.heap_size]
-        cf += [f"-L{p}" for p in ss.lib_paths]
+        for _, path in ss.lib_paths:
+            cf += ["-L", str(path)]
         if ss.messages:
             cf.append(f"--messages={ss.messages}")
         if ss.std_error:
