@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from xeda import Design
+from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Dc, Openroad
 from xeda.utils import WorkingDirectory
@@ -86,6 +87,25 @@ def test_core_utilization_sizes_the_floorplan_when_no_areas_are_given(
     script = (flow.run_path / "orflow_0_11.tcl").read_text()
     assert "initialize_floorplan -utilization 55.0" in script
     assert "-die_area" not in script
+
+
+@pytest.mark.parametrize(
+    "given, missing",
+    [
+        ({"core_area": [10, 10, 100, 100]}, "die_area"),
+        ({"die_area": [0, 0, 110, 110]}, "core_area"),
+    ],
+)
+def test_one_area_without_the_other_is_refused_at_planning(given, missing) -> None:
+    settings = Openroad.Settings(platform="nangate45", **given)
+    with pytest.raises(FlowSettingsError, match=f"`{missing}`"):
+        Openroad.check_settings_supported(settings)
+
+
+def test_both_areas_or_neither_are_accepted() -> None:
+    both = {"core_area": [10, 10, 100, 100], "die_area": [0, 0, 110, 110]}
+    for given in (both, {}):
+        Openroad.check_settings_supported(Openroad.Settings(platform="nangate45", **given))
 
 
 def _sdc_delays(flow) -> dict[str, str]:
@@ -246,3 +266,37 @@ def test_dc_keeps_the_infer_multibit_the_user_chose(tmp_path, monkeypatch) -> No
     _, run_path = _run_dc(tmp_path, monkeypatch, infer_multibit="never")
     sets = [c for c in fake_calls(run_path) if c[:2] == ["set_app_var", "hdlin_infer_multibit"]]
     assert sets == [["set_app_var", "hdlin_infer_multibit", "never"]]
+
+
+@pytest.mark.parametrize(
+    "table, key, setting",
+    [
+        ("hdlin", "infer_multibit", "infer_multibit"),
+        ("hdlin", "vhdl_preserve_case", "vhdl_preserve_case"),
+    ],
+)
+def test_a_variable_that_has_a_setting_is_refused_in_the_table_of_variables(
+    table, key, setting
+) -> None:
+    """`hdlin: {infer_multibit: x}` and `infer_multibit: x` are two spellings of one variable."""
+    settings = Dc.Settings(**{table: {key: "true"}})
+    with pytest.raises(FlowSettingsError, match=rf"`{table}\.{key}`.*`{setting}`"):
+        Dc.check_settings_supported(settings)
+
+
+def test_every_variable_with_a_setting_of_its_own_is_in_the_table() -> None:
+    """The settings whose value `init()` writes into `hdlin` or `compile`."""
+    assert Dc.Settings.variable_settings == {
+        ("hdlin", "infer_multibit"): "infer_multibit",
+        ("hdlin", "vhdl_preserve_case"): "vhdl_preserve_case",
+    }
+    for setting in Dc.Settings.variable_settings.values():
+        assert setting in Dc.Settings.model_fields
+
+
+def test_the_other_variables_stay_settable_in_their_tables() -> None:
+    settings = Dc.Settings(
+        hdlin={"enable_upf_compatible_naming": "false", "vhdl_std": "2008"},
+        compile={"seqmap_honor_sync_set_reset": "true"},
+    )
+    Dc.check_settings_supported(settings)

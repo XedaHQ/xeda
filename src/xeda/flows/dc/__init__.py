@@ -2,14 +2,14 @@ import logging
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple, Union
+from typing import ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
 import colorama
 from box import Box
 
 from ...dataclass import WORKING, Field, field_validator
 from ...design import SourceType
-from ...flow import AsicSynthFlow, describe_results, NoReplacement
+from ...flow import AsicSynthFlow, Flow, FlowSettingsError, NoReplacement, describe_results
 from ...tool import Tool
 from ...utils import try_convert, try_convert_to_primitives
 
@@ -98,6 +98,14 @@ class Dc(AsicSynthFlow):
     )
 
     class Settings(AsicSynthFlow.Settings):
+        #: The variables that `hdlin` and `compile` hold and that a setting of its own gives:
+        #: `(table, key)` -> the setting. The table refuses these keys, so a variable has one
+        #: spelling.
+        variable_settings: ClassVar[Dict[Tuple[str, str], str]] = {
+            ("hdlin", "infer_multibit"): "infer_multibit",
+            ("hdlin", "vhdl_preserve_case"): "vhdl_preserve_case",
+        }
+
         removed_settings = {
             **AsicSynthFlow.Settings.removed_settings,
             "platform": "`target_libraries`. The flow never read a platform",
@@ -172,7 +180,9 @@ class Dc(AsicSynthFlow):
                 "infer_mux": "default",
                 "dont_infer_mux_for_resource_sharing": "true",
             },
-            description="Values of the `hdlin_<key>` variables, by key. See the DC documentation.",
+            description="Values of the `hdlin_<key>` variables, by key. See the DC documentation. "
+            "`infer_multibit` and `vhdl_preserve_case` have settings of their own and are "
+            "refused here.",
         )
         infer_multibit: Optional[str] = Field(
             "default_all",
@@ -238,9 +248,28 @@ class Dc(AsicSynthFlow):
             "when `topographical_mode` is true.",
         )
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a variable in `hdlin` or `compile` that has a setting of its own."""
+        super().check_settings_supported(settings)
+        assert isinstance(settings, cls.Settings)
+        errors: List[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = [
+            (
+                f"{table}.{key}",
+                f"`{table}.{key}` is the setting `{setting}`: set `{setting}` instead",
+                None,
+                "value_error",
+            )
+            for (table, key), setting in cls.Settings.variable_settings.items()
+            if key in getattr(settings, table)
+        ]
+        if errors:
+            raise FlowSettingsError(errors, cls.Settings)
+
     def init(self):
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        self.check_settings_supported(ss)
         ss.sdc_files = self.resolve_paths_to_design_or_cwd(ss.sdc_files)
 
         ss.hooks = {
@@ -258,8 +287,7 @@ class Dc(AsicSynthFlow):
             ss.hdlin["enable_hier_map"] = "true"
         if "enable_upf_compatible_naming" not in ss.hdlin:
             ss.hdlin["enable_upf_compatible_naming"] = "true"  # improve the SAIF annotation
-        if "vhdl_preserve_case" not in ss.hdlin:
-            ss.hdlin["vhdl_preserve_case"] = "true" if ss.vhdl_preserve_case else "false"
+        ss.hdlin["vhdl_preserve_case"] = "true" if ss.vhdl_preserve_case else "false"
 
         if "vhdl_std" not in ss.hdlin:
             if self.design.language.vhdl.standard in ("19", "2019"):

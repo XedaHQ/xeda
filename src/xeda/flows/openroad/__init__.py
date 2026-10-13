@@ -413,6 +413,19 @@ class Openroad(AsicSynthFlow):
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
+        for given, missing in (("core_area", "die_area"), ("die_area", "core_area")):
+            if getattr(settings, given) and not getattr(settings, missing):
+                raise FlowSettingsError(
+                    [
+                        (
+                            missing,
+                            f"`{given}` needs `{missing}`: give both areas or neither",
+                            None,
+                            "value_error",
+                        )
+                    ],
+                    cls.Settings,
+                )
         if settings.footprint and not settings.footprint_def and not settings.sig_map_file:
             raise FlowSettingsError(
                 [
