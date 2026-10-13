@@ -77,7 +77,8 @@ class VivadoSim(Vivado, SimFlow):
         prerun_time: Optional[str] = Field(
             None,
             description="Run the simulation for this long before SAIF logging starts, for "
-            'example "10ns". This skips the activity of an initial reset sequence.',
+            'example "10ns". This skips the activity of an initial reset sequence. The VCD '
+            "(`vcd`) is not affected: it records from the start of the simulation.",
         )
         work_lib: str = Field("work", description="Name of the HDL working library.")
         xelab_log: Optional[Path] = Field(

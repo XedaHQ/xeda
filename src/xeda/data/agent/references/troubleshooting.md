@@ -103,6 +103,13 @@ A simulation passes only on recognized evidence that it ended, never on exit sta
 - `verilator` refuses `stop_time` (`verilator cannot stop at a simulated time`): end the
   testbench with `$finish`, or set `timeout`. A C++ source that holds `main` needs `main: false`;
   without it, a C++ source is a DPI helper. `yosys_sim` also refuses `stop_time`.
+- `verilator`'s `optimize` is `true` (`-O3`), `false` (no `-O`) or a level `0`, `1`, `2`, `3`: write
+  `2`, not `-O2` (refused, naming the level). Any other value is refused.
+- `vivado_sim` and `vivado_postsynth_sim` record `saif` (and the latter `timing_sim`, so a
+  `vivado_power` request too) for the instance `tb.uut`. Without `tb.uut` planning fails: set
+  `tb.uut` to the instance name of the unit under test in the testbench.
+- `vcs`: `ucli` was removed (Xeda always runs VCS with `-ucli`); `ucli_script` still sets the
+  script that drives `simv`.
 - `nvc` needs a C++ compiler for non-cocotb runs. Its `exit_severity` was removed: use
   `fail_severity`. `optimization_flags` is a setting of `bsc_sim`, `ghdl_sim`, `vivado_sim` and
   `vivado_postsynth_sim` only; `nvc` has `optimization_level`.
@@ -127,6 +134,7 @@ are refused.
 | `` vcs cannot write a waveform from `vcd`: ... set `vpd`, `fsdb` or `evcd` `` | `to_vcd` converts FSDB or VPD to VCD. |
 | `` yosys_sim cannot write a waveform from `vcd` `` | The design's C++ driver writes the waveform. |
 
+`waveform`, the old name of `vcd`, was removed on every simulator: use `vcd`.
 `nvc` has `vcd` and `fst` (`wave` and `wave_format` were removed). `ghdl_sim` has `vcd`, `vcdgz`,
 `fst` and `wave` (GHW). `modelsim` writes no dump unless `vcd` is set. `vivado_sim`'s `saif` is
 `outputs/<design>.saif`.

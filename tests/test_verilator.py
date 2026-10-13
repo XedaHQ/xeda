@@ -436,6 +436,7 @@ def test_optimize_is_the_level_that_follows_the_o_of_verilator(
         ("4", "true, false or a level of 0, 1, 2 or 3"),
         (4, "true, false or a level of 0, 1, 2 or 3"),
         (-1, "true, false or a level of 0, 1, 2 or 3"),
+        ("", "true, false or a level of 0, 1, 2 or 3"),
         ("-O", "true, false or a level of 0, 1, 2 or 3"),
     ],
 )

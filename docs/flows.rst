@@ -209,7 +209,8 @@ nothing with it.
 
 ``lib_paths``
     Additional HDL libraries, as ``(name, path)`` pairs. GHDL, ModelSim, NVC and the Vivado
-    simulation flows use them.
+    simulation flows use them. NVC uses the path only: it passes ``-L <path>``, where the path is a
+    directory that holds library directories, and it refuses an entry that has a name and no path.
 
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
@@ -1345,7 +1346,8 @@ A waveform setting is named after its format, so the same name means the same th
 simulator. The one exception is ``wave`` of ``ghdl_sim``, which writes GHW, the waveform format of
 GHDL itself.
 
-The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
+The shared ``vcd`` setting writes a VCD file. Its former alias ``waveform`` was removed from every
+simulator; an error says to use ``vcd``.
 
 .. list-table::
    :header-rows: 1
@@ -1366,7 +1368,10 @@ The shared ``vcd`` setting (alias ``waveform``) writes a VCD file:
    * - ``modelsim``
      - ``vcd``. ModelSim dumps nothing unless it is set.
    * - ``vivado_sim``, ``vivado_postsynth_sim``
-     - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``.
+     - ``vcd`` (with ``vcd_scope`` and ``vcd_level``) and ``saif``. ``saif`` records the activity of
+       the instance ``tb.uut``, so the design must set ``tb.uut``. Planning fails without it. That
+       includes ``vivado_postsynth_sim`` with ``timing_sim`` and every ``vivado_power`` request,
+       which switch the activity on.
    * - ``bsc_sim``
      - ``vcd``, on every backend. With the Verilator backend, a run whose driver wrote no
        ``dump.vcd`` fails.
@@ -1433,6 +1438,9 @@ defaults of Verilator unless set.
 
 Defaults and limits:
 
+* ``optimize`` is ``true`` (``-O3``), ``false`` (no ``-O`` option, so Verilator uses its own
+  default) or a level of ``0``, ``1``, ``2`` or ``3``. Write the level only: ``2``, not ``-O2``.
+  Planning refuses any other value, an empty one included.
 * ``random_init`` defaults to false, as in Verilator, and ``random_seed`` is used only with it.
   ``x_initial`` and ``x_assign`` default to ``"0"`` (earlier releases used ``"unique"``).
 * ``timing`` is on by default. It enables the ``--timing`` support of Verilator for delays and

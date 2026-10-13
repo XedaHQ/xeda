@@ -123,7 +123,8 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   `redirect_stdout` and `lib_paths`. A setting with an `alias` accepts both names. A flow whose
   tool has no matching option accepts `nthreads`, `redirect_stdout` or `lib_paths` and ignores it:
   only the Vivado flows redirect output, and only GHDL, ModelSim, NVC and the Vivado simulation
-  flows read `lib_paths`.
+  flows read `lib_paths`. `nvc` passes each path as `-L <path>` (a directory that holds library
+  directories) and refuses an entry that has a name and no path.
 - A flow uses every other setting it lists, and refuses a setting of a related flow:
   - The message names the flow that has it: `vivado_project` refuses `elab_debug`, `stop_time` and
     the other `vivado_sim` settings ("use `flows.vivado_sim.<name>`"); `ghdl_synth` refuses

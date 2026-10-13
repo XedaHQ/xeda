@@ -217,7 +217,7 @@ class Verilator(SimFlow):
         @classmethod
         def _optimize_is_a_level(cls, value: bool | str | int) -> bool | str | int:
             """Accept `true`, `false` and a level that follows the `-O` of Verilator."""
-            if isinstance(value, bool) or value == "" or str(value) in OPTIMIZATION_LEVELS:
+            if isinstance(value, bool) or str(value) in OPTIMIZATION_LEVELS:
                 return value
             if (
                 isinstance(value, str)
@@ -641,7 +641,7 @@ class Verilator(SimFlow):
 
         if ss.optimize is True:
             args += ["-O3"]
-        elif ss.optimize is not False and ss.optimize != "":
+        elif ss.optimize is not False:
             args += [f"-O{ss.optimize}"]
 
         args += [

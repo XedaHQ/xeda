@@ -47,6 +47,8 @@ open_saif {{settings.saif|tcl_word}}
 {%- endif %}
 
 {#- TODO: WDB support with `open_wave_database ${wdb_file}`. #}
+{#- `log_vcd` runs before the pre-run, so the VCD records from time 0. `log_saif` runs after it,
+    so `prerun_time` skips that activity in the SAIF. Verified with Vivado 2024.2. #}
 
 {%- if settings.vcd %}
 puts "\n===========================( Setting up VCD )==========================="
