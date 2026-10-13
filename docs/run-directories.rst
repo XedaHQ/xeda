@@ -658,14 +658,26 @@ location, or ``--outputs-to``, makes Xeda copy or move the output there (see `Ou
 them`_). This is the one deliberate exception. It never deletes anything of yours. Xeda writes the
 destination, and replaces an existing file only with your approval.
 
+A dockerized tool runs in a container. The container mounts the run directory of the flow, which
+is writable, and these directories, which are read-only:
+
+- the design root and the directories of the RTL and testbench sources;
+- the directory of each input file of the flow: the files that the producers handed over and the
+  files that the flow itself registered as inputs, such as the chip database of nextpnr;
+- the directory of each existing file that a setting names (for example ``custom_boards_file`` or a
+  platform file), and each existing directory that a setting names (for example a library path).
+  These are the same files and directories that the trace records as inputs. A setting that names
+  what the flow writes, such as a working location or a deliverable, mounts nothing.
+
+A dockerized flow therefore reads the files of its producers and the files that its settings name
+without a ``Docker.mounts`` entry. A directory is not mounted again when another mount holds it at
+the same path.
+
 Two more exceptions exist, and you configure both explicitly. Xeda does not decide them on its own:
 
 - The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
   ``.dependencies`` directory of the run root.
-- A writable entry of ``Docker.mounts`` that you add yourself. A container otherwise gets the design
-  root and the directories of the RTL and testbench sources, mounted read-only. Xeda does not mount
-  the run directory of a producer at all. A dockerized flow that needs a file of a producer needs a
-  ``Docker.mounts`` entry for it.
+- A writable entry of ``Docker.mounts`` that you add yourself.
 
 In both cases Xeda writes there as you told it and guards nothing about what it finds. That
 directory is yours to manage.
