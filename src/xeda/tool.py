@@ -152,7 +152,8 @@ class Docker(XedaBaseModel):
         docker_args += ["--security-opt", "label=disable"]
         docker_args += [f"--volume={k}:{v}" for k, v in mounts.items()]
         for directory in dict.fromkeys(str(Path(d)) for d in read_only):
-            if directory not in mounts:  # the run directory, or a mount configured writable
+            # the run directory, or a mount configured at the same path (writable or not)
+            if mounts.get(directory, "").split(":")[0] != directory:
                 docker_args.append(f"--volume={directory}:{directory}:ro")
         env = {**self.default_env, **(env or {})}
         if env:
@@ -539,7 +540,8 @@ class Tool(XedaBaseModel):
         (`Flow.input_directories`: the files of its producers, and the files that it registered as
         implicit inputs). The tool writes only in the directory it runs in (the run directory),
         and in a mount that the user configured writable. A directory that the run directory, the
-        design's directories or a configured mount already holds is not mounted again. A
+        design's directories or a configured mount at the same path already holds is not mounted
+        again. A
         read-only mount inside the run directory would make a part of it read-only."""
         design = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
         flow = self._flow() if self._flow is not None else None
@@ -547,7 +549,12 @@ class Tool(XedaBaseModel):
         held = [
             Path.cwd(),
             *design,
-            *(Path(host) for host in (self.docker.mounts if self.docker else ())),
+            # a configured mount holds a directory for the tool only at the same path in the container
+            *(
+                Path(host)
+                for host, target in (self.docker.mounts if self.docker else {}).items()
+                if target.split(":")[0] == host
+            ),
         ]
         added: List[Path] = []
         for directory in sorted(inputs, key=lambda d: len(d.parts)):

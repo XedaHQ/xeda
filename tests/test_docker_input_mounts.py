@@ -232,3 +232,47 @@ def test_a_derived_tool_mounts_the_inputs_too(world):
     # the tool of the flow and its sibling each started one command
     for command in [c for c in commands if "arg" in c]:
         assert f"--volume={consumer.inputs.made.parent}:{consumer.inputs.made.parent}:ro" in command
+
+
+@pytest.mark.parametrize("target, mounted_again", [("{host}", False), ("/cache", True)])
+def test_a_configured_mount_holds_an_input_only_at_the_same_path(world, target, mounted_again):
+    tmp_path, design, commands = world
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "db.bin").write_text("db\n")
+    CONSUMER_INIT.append(
+        lambda flow: flow.tool.docker.mounts.update({str(cache): target.format(host=cache)})
+    )
+    CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(cache / "db.bin"))
+    _launch(tmp_path, design, _Consumer)
+    assert (f"{cache}:{cache}" in _read_only(_volumes(commands))) is mounted_again
+
+
+def test_nested_input_directories_make_one_mount(world):
+    tmp_path, design, commands = world
+    outer = tmp_path / "libs"
+    (outer / "inner").mkdir(parents=True)
+    (outer / "a.bin").write_text("a\n")
+    (outer / "inner" / "b.bin").write_text("b\n")
+    CONSUMER_RUN.append(
+        lambda flow: flow.implicit_inputs.extend([outer / "inner" / "b.bin", outer / "a.bin"])
+    )
+    _launch(tmp_path, design, _Consumer)
+    read_only = _read_only(_volumes(commands))
+    assert f"{outer}:{outer}" in read_only
+    assert f"{outer / 'inner'}:{outer / 'inner'}" not in read_only
+
+
+def test_a_linked_input_mounts_the_directory_of_its_target_too(world):
+    tmp_path, design, commands = world
+    target = tmp_path / "elsewhere" / "real.bin"
+    target.parent.mkdir()
+    target.write_text("x\n")
+    link = tmp_path / "links" / "link.bin"
+    link.parent.mkdir()
+    link.symlink_to(target)
+    CONSUMER_RUN.append(lambda flow: flow.implicit_inputs.append(link))
+    _launch(tmp_path, design, _Consumer)
+    read_only = _read_only(_volumes(commands))
+    assert f"{link.parent}:{link.parent}" in read_only
+    assert f"{target.parent.resolve()}:{target.parent.resolve()}" in read_only

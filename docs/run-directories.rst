@@ -658,17 +658,19 @@ location, or ``--outputs-to``, makes Xeda copy or move the output there (see `Ou
 them`_). This is the one deliberate exception. It never deletes anything of yours. Xeda writes the
 destination, and replaces an existing file only with your approval.
 
+A dockerized tool runs in a container. The container mounts the run directory of the flow, which
+is writable, and these directories, which are read-only: the design root, the directories of the RTL
+and testbench sources, and the directory of each input file of the flow. The input files are the
+files that the producers handed over and the files that the flow itself registered as inputs, such
+as the chip database of nextpnr. A dockerized flow therefore reads the files of its producers
+without a ``Docker.mounts`` entry. A directory is not mounted again when another mount holds it at
+the same path.
+
 Two more exceptions exist, and you configure both explicitly. Xeda does not decide them on its own:
 
 - The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
   ``.dependencies`` directory of the run root.
-- A writable entry of ``Docker.mounts`` that you add yourself. A container otherwise gets the run
-  directory of the flow, which is writable, and these directories, which are read-only: the design
-  root, the directories of the RTL and testbench sources, and the directory of each input file of
-  the flow. The input files are the files that the producers handed over and the files that the
-  flow itself registered as inputs, such as the chip database of nextpnr. A dockerized flow
-  therefore reads the files of its producers without a ``Docker.mounts`` entry. A directory that
-  another mount already holds is not mounted again.
+- A writable entry of ``Docker.mounts`` that you add yourself.
 
 In both cases Xeda writes there as you told it and guards nothing about what it finds. That
 directory is yours to manage.
