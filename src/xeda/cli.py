@@ -15,7 +15,6 @@ from click.shell_completion import get_completion_class
 
 from .cli_types import (
     ChainChoice,
-    ClickMutex,
     DOCUMENT_FORMATS,
     FlowChoice,
     OptionEatAll,
@@ -712,12 +711,10 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
         allow_dash=False,
         path_type=Path,
     ),
-    cls=ClickMutex,
     help="Path to the Xeda design file of a single design.",
 )
 @click.option(
     "--design-name",
-    cls=ClickMutex,
     help="Specify design.name in case multiple designs are available in a project file.",
 )
 @click.option(
@@ -1671,7 +1668,6 @@ SHELLS: Dict[str, Dict[str, Any]] = {
 @click.option(
     "--stdout",
     is_flag=True,
-    cls=ClickMutex,
     help="""Produce the shell completion script and output it to the standard output.\n
     Example usage:\n
          $ xeda completion zsh --stdout  > $HOME/.zsh/completion/_xeda\n

@@ -28,8 +28,6 @@ from typing import (
     get_origin,
 )
 
-import attrs
-
 # pylint: disable=no-name-in-module
 from pydantic import (
     AliasChoices,
@@ -65,7 +63,6 @@ __all__ = [
     "XedaBaseModel",
     "accepts_non_mapping",
     "annotation_args",
-    "asdict",
     "canonical_names",
     "canonical_tree",
     "appended_fields_of",
@@ -912,13 +909,6 @@ def conventional_output(model: type[BaseModel], field: str, design: str) -> Opti
     if isinstance(default, (str, os.PathLike)) and os.fspath(default):
         return PurePath(default)
     return None
-
-
-def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str, Any]:
-    if isinstance(inst, BaseModel):
-        assert filter_ is None
-        return inst.model_dump()
-    return attrs.asdict(inst, filter=filter_)
 
 
 #: The words that YAML 1.1 (and the lax booleans of pydantic) read as a boolean. Xeda reads

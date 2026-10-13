@@ -19,10 +19,6 @@ _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
 _OPAQUE_KEY_START = re.compile(r"(?:flows\.[A-Za-z_][A-Za-z0-9_-]*\.)?([A-Za-z_][A-Za-z0-9_]*)\.")
 
 
-class ClickMutex(click.Option):
-    """A plain command-line option; it adds no rule."""
-
-
 def _opaque_key_fields() -> frozenset[str]:
     """Return the settings of all flows whose keys are names of the tool. The function runs only
     when a key is not shaped like a setting key, so a plain `-s` pays nothing for it."""

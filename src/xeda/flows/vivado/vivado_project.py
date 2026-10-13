@@ -1,6 +1,4 @@
 import logging
-import re
-from typing import List
 
 from ...dataclass import Field, input_names
 from ...design import SourceType
@@ -16,20 +14,10 @@ from ..vivado.vivado_synth import (
     run_steps,
     step_mode_conflicts,
     tcl_property_value,
+    vivado_synth_generics,
 )
 
 log = logging.getLogger(__name__)
-
-
-def vivado_synth_generics(parameters: dict) -> List[str]:
-    generics = []
-    for k, v in parameters.items():
-        if isinstance(v, bool):
-            v = f"1'b{int(v)}"
-        elif isinstance(v, str) and not re.match(r"\d+'b[01]+", v):
-            v = '\\"' + v + '\\"'
-        generics.append(f"{k}={v}")
-    return generics
 
 
 class VivadoProject(Vivado, FpgaSynthFlow):

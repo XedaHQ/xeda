@@ -33,7 +33,6 @@ from simple_term_menu import TerminalMenu
 from . import proc_utils
 from .cli_types import (
     ChainChoice as ChainChoice,
-    ClickMutex as ClickMutex,
     DOCUMENT_FORMATS as DOCUMENT_FORMATS,
     FlowChoice as FlowChoice,
     OptionEatAll as OptionEatAll,
@@ -51,7 +50,6 @@ __all__ = [
     "ChainChoice",
     "HELP_FORMATTER_SETTINGS",
     "XEDA_HELP_THEME",
-    "ClickMutex",
     "ConsoleLogo",
     "DeclaredEnvvarsCommand",
     "FlowChoice",
