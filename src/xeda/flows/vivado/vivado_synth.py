@@ -279,6 +279,27 @@ def post_step_hooks(
     return hooks
 
 
+def power_report_written(flow: Any) -> bool:
+    """Whether this run wrote the power report that `report_power` asks for, in project and
+    non-project mode alike. The scripts pass `-quiet` to `report_power`, so that a design without
+    a clock does not fail the run, and Vivado then reports success for a failed command. A
+    missing report fails the run, and so does one that an earlier run left (`Flow.report_file`)."""
+    if not flow.settings.report_power:
+        return True
+    report = flow.settings.reports_dir / "route_design" / "power.xml"
+    if flow.report_file(report) is not None:
+        return True
+    shown = report.relative_to(flow.run_path) if report.is_relative_to(flow.run_path) else report
+    message = (
+        f"`report_power` is set, but Vivado wrote no power report ({shown}): "
+        "see the Vivado log for report_power"
+    )
+    log.error("%s", message)
+    if not flow.results.get("error"):  # a failed tool's own error is the cause
+        flow.results["error"] = {"type": "ReportedFailure", "message": message}
+    return False
+
+
 def project_outputs(flow: Any, settings: Any) -> Dict[str, Path]:
     """The outputs a project-mode run is asked for (listed in `VivadoSynth`'s docstring), by
     artifact label, each at the path the run writes it to (`post_step_hooks`) and registers it
@@ -696,6 +717,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             failed |= float(whs) < 0.0 and self.settings.fail_timing
         if "_failing_endpoints" in self.results:
             failed |= self.results["_failing_endpoints"] != 0 and self.settings.fail_timing
+        failed |= not power_report_written(self)
         return not failed
 
 
