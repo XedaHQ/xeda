@@ -59,7 +59,7 @@ def test_a_design_text_that_is_not_a_boolean_names_both_spellings(tmp_path):
 def test_a_yaml_11_word_for_a_non_boolean_field_says_what_xeda_yaml_wants(tmp_path, word, fix):
     with pytest.raises(DesignValidationError) as raised:
         _design(tmp_path, f"tb: {{cocotb: {word}}}")
-    assert f"`{word}` is text in xeda YAML (YAML 1.2): write `{fix}`" in str(raised.value)
+    assert f"`{word}` is text in Xeda YAML (YAML 1.2): write `{fix}`" in str(raised.value)
 
 
 def test_a_number_for_a_text_field_says_to_quote_it(tmp_path):
@@ -112,7 +112,7 @@ def test_assigning_a_boolean_word_fails_as_constructing_does():
 def test_a_yaml_11_word_for_a_non_boolean_flow_setting_says_what_to_write():
     with pytest.raises(FlowSettingsError) as raised:
         VivadoSynth.Settings.from_input({"fpga": "xc7a12tcsg325-1", "nthreads": "on"})
-    assert "`on` is text in xeda YAML (YAML 1.2): write `true`" in str(raised.value)
+    assert "`on` is text in Xeda YAML (YAML 1.2): write `true`" in str(raised.value)
 
 
 @pytest.mark.parametrize("word", ["true", "True", "TRUE", "false", "False"])

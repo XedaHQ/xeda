@@ -1,37 +1,38 @@
-"""Whether a design's generator (`Design.Generator`) must run again.
+"""The decision whether the generator of a design (`Design.Generator`) must run again.
 
-A generator runs while the design is loaded, before any flow, run directory or trace exists, so
-the decision cannot use the trace's machinery -- and its record may not be kept beside the design:
-everything outside a run root is the user's. The record is therefore the same object as a
-prepared Xilinx chip database (`flows.xilinx.prepare_chipdb`) with another payload: an entry under
-`<run root>/.cache/generators/`, named by an identity hashed from the generator's inputs and direct
-executable, holding the digest of every source the last generation left, written atomically under
-the entry's own durable lock. A POSIX directory-descriptor lease also serializes loads for the
-same design-root directory across the first generation and different input identities, without a
-sidecar or eager run-root creation.
+A generator runs while the design is loaded, before any flow, run directory or trace exists. The
+decision therefore cannot use the machinery of the trace. The record cannot live beside the design
+either, because everything outside a run root belongs to the user. The record is an entry of the
+same kind as a prepared Xilinx chip database (`flows.xilinx.prepare_chipdb`) with another payload.
+It lies under `<run root>/.cache/generators/` and is named by an identity, a hash of the inputs and
+the direct executable of the generator. It holds the digest of every source that the last
+generation left, and Xeda writes it atomically under the durable lock of the entry. On POSIX, a
+lease on the directory descriptor of the design root also serializes the first generation and the
+loads with different input identities for that design root. It needs no sidecar file and creates
+no run root early.
 
-The decision is **content-based**, as every other change xeda judges is: the generator's own
-sources and selected executable are hashed into the identity, and the sources it produced are
-compared with the digests the record holds. A modification time never decides, so a `touch`, a
-`cp -p` or a branch round-trip costs a hash rather than a wrong answer, and an edit given back
-its old mtime is caught. Metadata is trusted nowhere here (`digest.FileRecord.trusted`):
-that rule needs the time the record was taken, read from the file's own file system
-(`digest.filesystem_time_ns`), which writes a marker in the directory it reads -- and neither the
-design's tree nor anything else a generator reads is xeda's to write in.
+The decision depends on content. The sources of the generator and the selected executable are
+hashed into the identity, and the sources that the generator produced are compared with the
+digests in the record. A modification time never decides. A `touch`, a `cp -p` or a branch
+round-trip costs a hash and gives no wrong answer, and an edit given back its old mtime is caught.
+Metadata is trusted nowhere here (`digest.FileRecord.trusted`), because that rule needs the time
+the record was taken, read from the file system of the file (`digest.filesystem_time_ns`). That
+call writes a marker in the directory it reads, and Xeda must not write in the tree of the design
+or in anything else that a generator reads.
 
-A generator is an external tool: xeda assumes nothing about its language or its environment, so
-what it reads is what the design names in `sources` (a directory counts as every file in it,
-outside the design root too -- a library tree, an editable clone). What xeda cannot see, such as
-an upgraded package, needs `--rebuild-all` or `always_runs`.
+A generator is an external tool, and Xeda assumes nothing about its language or environment. What
+it reads is what the design names in `sources`. A directory counts as every file in it, outside
+the design root too (a library tree, an editable clone). Xeda cannot see a change such as an
+upgraded package: use `--rebuild-all` or `always_runs`.
 
-Where the run root comes from at load time: the launcher puts it there
-(`design.loading_in_run_root`), as it does the directory a Git dependency is cloned into. It is
-made only to write a record, after a generation that succeeded, never to look one up, so a
-generator that fails -- like a design that never reaches one -- leaves no run root behind; a
-record of a generation that did happen outlives a design that fails after it. With none at all --
-a `Design` built directly, a run root whose cache cannot be written -- nothing can record a
-generation, so the generator runs: the direction xeda takes everywhere when it cannot prove
-something is up to date, and `Flow.always_runs()`'s vocabulary for a step that cannot be judged.
+The launcher supplies the run root at load time (`design.loading_in_run_root`), as it does the
+directory that a Git dependency is cloned into. Xeda makes the run root only to write a record
+after a successful generation, and never to look one up. A generator that fails, and a design that
+never reaches one, leave no run root behind. The record of a generation that did happen stays when
+the design fails after it. Without a usable run root (a `Design` built directly, or a run root
+whose cache cannot be written), nothing can record a generation, so the generator runs. Xeda
+always takes this direction when it cannot prove that something is up to date. `Flow.always_runs()`
+uses the same rule for a step that cannot be judged.
 """
 
 from __future__ import annotations
@@ -69,26 +70,32 @@ REBUILD_ALL = "this launch rebuilds everything"
 
 
 def _named(path: Path, root: Path) -> str:
-    """How a file is named in an identity or a record: relative to the design root where it lies
-    under it (so moving a whole design tree changes nothing), else the location it names."""
+    """Return the name of a file in an identity or a record.
+
+    The name is relative to the design root where the file lies under it, so moving a whole
+    design tree changes nothing. Otherwise it is the location the path names.
+    """
     return path.relative_to(root).as_posix() if path.is_relative_to(root) else path.as_posix()
 
 
 def _digests(paths: Sequence[Path], root: Path) -> Tuple[Tuple[str, str], ...]:
-    """Each path's name and the digest of its content, sorted by name, **one entry per name**. A
-    directory is expanded entry by entry (`listing.directory_files`, links followed,
-    version-control metadata left out), exactly as the trace treats a directory a setting names:
-    its own digest is a constant, so a file edited or added inside one would otherwise be
-    invisible. Each entry is recorded as itself (`follow_symlinks=False`), as the trace records a
-    listing: a link by its target and, for a link to a file, that file's content -- so an
-    editor's dangling lock file (`.#Top.scala`) is a file like any other rather than an error.
+    """Return the name and content digest of each path, sorted by name, with one entry per name.
 
-    A file can be named twice -- by a pattern and by its own path, or by a directory and by
-    itself -- and a record naming one file twice reads back as damaged (`_stale`), so the names
-    are made unique here, where the record's entries are made. The path the design declared is
-    recorded as the design names it (a link followed, a missing one an error); a directory's
-    entry for the same name defers to it, so the digest does not depend on the order the paths
-    were given in."""
+    A directory is expanded entry by entry (`listing.directory_files`, links followed,
+    version-control metadata left out), as the trace treats a directory that a setting names. The
+    digest of a directory is a constant, so a file edited or added inside it would otherwise be
+    invisible. Each entry is recorded as itself (`follow_symlinks=False`), as the trace records a
+    listing: a link by its target and, for a link to a file, also by the content of that file. A
+    dangling lock file of an editor (`.#Top.scala`) is therefore a file like any other and not an
+    error.
+
+    A file can be named twice, by a pattern and by its own path, or by a directory and by itself.
+    A record that names one file twice reads back as damaged (`_stale`), so this function makes
+    the names unique where it makes the entries of the record. It records the path that the
+    design declared as the design names it (a link is followed, and a missing file is an error).
+    The entry of a directory for the same name defers to it, so the digest does not depend on
+    the order of the paths.
+    """
     named: dict[str, str] = {}
     for path in paths:
         named[_named(path, root)] = record_file(path).sha
@@ -102,10 +109,13 @@ def _digests(paths: Sequence[Path], root: Path) -> Tuple[Tuple[str, str], ...]:
 
 
 def generation_identity(generator: Generator, design_root: Path) -> str:
-    """What the generator would produce, hashed: its configuration **as the design states it**
-    (never the working directory and environment `process_generation` completes it with -- a
-    record must be reusable from another shell, and xeda tracks no environment variable), the
-    content of every source it declares, and the selected executable."""
+    """Return the identity of what the generator would produce, as a hash.
+
+    The hash covers the configuration of the generator as the design states it, the content of
+    every source that the generator declares, and the selected executable. It does not cover the
+    working directory and the environment that `process_generation` adds. A record must be
+    reusable from another shell, and Xeda tracks no environment variable.
+    """
     executable = generator.execution_executable_path(design_root)
     command = generator.execution_command(design_root)
     recipe = {
@@ -123,9 +133,12 @@ def generation_identity(generator: Generator, design_root: Path) -> str:
 
 
 def _source_digests(generator: Generator, design_root: Path) -> Tuple[Tuple[str, str], ...]:
-    """The content of what the generator reads. A source that cannot be read (removed since the
-    design was validated, a link to nothing) names itself: it is the design's error, not a
-    traceback from inside a hash."""
+    """Return the content digests of what the generator reads.
+
+    A source that cannot be read (removed since the design was validated, a link to nothing) is
+    named in a `ValueError`, so it is an error of the design and not a traceback from inside a
+    hash.
+    """
     try:
         return _digests(generator.sources, design_root)
     except OSError as error:
@@ -137,10 +150,10 @@ def _source_digests(generator: Generator, design_root: Path) -> Tuple[Tuple[str,
 class Generation:
     """The judgement on one generator, and the record of what it produced.
 
-    `reason` is why it must run, in the words of a stale reason, or None when the sources of the
-    last generation are still there with the content it left. `produced()` records what a
-    generation just wrote -- making the run root then, and not before, so a generator that fails
-    leaves none behind.
+    `reason` is why the generator must run, in the words of a stale reason. It is None when the
+    sources of the last generation are still there with the content that it left. `produced()`
+    records what a generation just wrote. It makes the run root at that point and not before, so
+    a generator that fails leaves no run root behind.
     """
 
     def __init__(
@@ -166,12 +179,14 @@ class Generation:
         self._description = description or (generator.describe() if generator else "a generator")
 
     def produced(self) -> None:
-        """Record the sources this generation left, with their content, under the identity its
-        inputs had -- asking for the run root only now, so that a generator that fails, like a
-        design that never reaches one, leaves none behind. Nothing is recorded when there is
-        nowhere to keep it, when the generator produced none of the sources the design declares,
-        or when its inputs changed while it ran: the next load then judges it out of date again,
-        which is the safe answer."""
+        """Record the sources that this generation left, with their content.
+
+        The record uses the identity that the inputs had. The method asks for the run root only
+        now, so a generator that fails, like a design that never reaches one, leaves no run root
+        behind. It records nothing when there is nowhere to keep the record, when the generator
+        produced none of the sources that the design declares, or when its inputs changed while
+        it ran. The next load then judges the generator stale again, which is the safe answer.
+        """
         if self._run_root is None or self._outputs is None:
             return
         assert self._generator is not None and self._design_root is not None
@@ -188,7 +203,7 @@ class Generation:
                 )
                 return
             root = self._root if self._root is not None else self._run_root(True)
-            if root is None:  # pragma: no cover - a provider that creates nothing
+            if root is None:  # pragma: no cover (a provider that creates nothing)
                 return
             owner = RunDirectory(root, root)
             cache = owner.unlinked(root / CACHE_DIRECTORY)
@@ -207,12 +222,13 @@ class Generation:
                 with replacing_file(entry) as stream:
                     yaml.safe_dump(record, stream, sort_keys=True)
         except (OSError, ValueError, yaml.YAMLError) as error:
-            # A record is an optimization: failing to keep one costs a re-run, never a wrong one.
+            # A record is an optimization. Failing to keep one causes another generation, never a
+            # wrong reuse.
             log.warning("Cannot record what %s produced: %s", self._description, error)
 
 
 def _unjudgeable(generator: Generator) -> Optional[str]:
-    """Why this generator can never be judged out of date by its inputs, if it cannot."""
+    """Return why the inputs can never show this generator to be stale, or None if they can."""
     if generator.always_runs:
         return ALWAYS_RUNS
     if not generator.sources:
@@ -226,8 +242,12 @@ def _stale(
     design_root: Path,
     outputs: Callable[[], Optional[List[Path]]],
 ) -> Optional[str]:
-    """Why the generator must run, judging the sources it last produced against the record
-    `entry` holds, or None when every one of them is there with the content it left."""
+    """Return why the generator must run, or None.
+
+    The function judges the sources that the generator last produced against the record in
+    `entry`. It returns None when every one of them is there with the content that the
+    generator left.
+    """
     try:
         data = yaml.safe_load(entry.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -237,7 +257,7 @@ def _stale(
     if not isinstance(data, dict) or data.get("format") != RECORD_FORMAT:
         return f"the record of its last generation ({entry}) is of another format"
     if data.get("identity") != identity:
-        # Cannot happen while the entry is named by the identity; a stale answer is the safe one.
+        # Cannot happen while the identity names the entry. A stale answer is the safe one.
         return "the record of its last generation is of other inputs"
     recorded = data.get("outputs")
     if not isinstance(recorded, list) or not recorded:
@@ -288,9 +308,10 @@ def judging_generation(
 ) -> Iterator[Generation]:
     """Judge a generator under a lease for its design tree, except during planning.
 
-    `read_only` judges as a plan does, creating and writing nothing, but still under the lease:
-    the load that judges a launch's declared design reads the generator's outputs, which another
-    generation of the tree may be writing."""
+    `read_only` judges as a plan does and creates and writes nothing, but still under the lease.
+    The load that judges the declared design of a launch reads the outputs of the generator,
+    which another generation in the tree may be writing.
+    """
     if planning:
         with _judging_generation_unlocked(
             generator, design_root, outputs, run_root, planning, rebuild_all, description
@@ -317,17 +338,18 @@ def _judging_generation_unlocked(
     rebuild_all: bool = False,
     description: Optional[str] = None,
 ) -> Iterator[Generation]:
-    """Judge `generator` under a same-design-root lease and a per-identity record lock.
+    """Judge `generator` under a lease for the design root and a lock for the record.
 
-    `outputs` resolves the sources the generator produces, as the design declares them now --
-    called again after a generation, because a pattern is exactly what one was waiting for.
-    The directory lease serializes first generation and different identities for this design
-    root on POSIX, without writing beside it. `run_root` is asked for a run root that is already
-    there; one is made only to write a record (`Generation.produced`), so a design that fails to
-    load creates none, and with `planning` nothing is created, locked or written at all. With
-    `rebuild_all` (`--rebuild-all`, which
-    `--clean` implies) the generator runs whatever the record says, and records what it leaves;
-    planned, such a design needs a generator, as one with a stale record does.
+    `outputs` resolves the sources that the generator produces, as the design declares them now.
+    The caller asks again after a generation, because a pattern can match files only then. On
+    POSIX, the directory lease serializes the first generation and the generations with
+    different identities for this design root. It writes nothing beside the design root.
+
+    `run_root` is asked for a run root that already exists. Xeda makes one only to write a record
+    (`Generation.produced`), so a design that fails to load creates none. With `planning`,
+    nothing is created, locked or written at all. With `rebuild_all` (`--rebuild-all`, which
+    `--clean` implies), the generator runs whatever the record says and records what it leaves.
+    A plan of such a design needs a generator, as one with a stale record does.
     """
     reason = _unjudgeable(generator)
     if reason is not None:
@@ -337,19 +359,21 @@ def _judging_generation_unlocked(
         yield Generation(NO_RUN_ROOT)
         return
     if rebuild_all:
-        # `--rebuild-all`/`--clean` is what forces everything to run again, generation included;
-        # the record is still written, so the next ordinary launch is up to date. A plan
-        # describes that launch, so it needs a generator too, and a plan starts none.
+        # `--rebuild-all` and `--clean` force everything to run again, generation included. The
+        # record is still written, so the next ordinary launch is up to date. A plan describes
+        # that launch, so it needs a generator too, and a plan starts none.
         reason = REBUILD_ALL
-    # The configuration as the design states it, before `process_generation` completes the
-    # generator with a working directory and this shell's environment: what the identity is of,
-    # and what the recheck after the run compares, so that only its *inputs* can change meanwhile.
+    # The configuration as the design states it, before `process_generation` adds a working
+    # directory and the environment of this shell. The identity covers it, and the recheck after
+    # the run compares it, so only the inputs of the generator can change meanwhile.
     stated = generator.model_copy(deep=True)
     identity = generation_identity(stated, design_root)
 
     def judged(why: Optional[str], root: Optional[Path] = None) -> Generation:
-        """The judgement, with what it takes to record the generation afterwards -- nothing when
-        planning, which writes no record and creates no run root."""
+        """Return the judgement with what it takes to record the generation afterwards.
+
+        When planning, it takes nothing: a plan writes no record and creates no run root.
+        """
         if planning:
             return Generation(why)
         return Generation(
@@ -367,13 +391,13 @@ def _judging_generation_unlocked(
     if root is None:
         if reason is None:
             reason = NO_RECORD
-        # There is no run root yet, and finding out whether one holds a record must not make one:
-        # nothing can have been recorded, so this generates, and records afterwards.
+        # There is no run root yet, and looking for a record must not make one. Nothing can have
+        # been recorded, so the generator runs, and the record is written afterwards.
         yield judged(reason)
         return
     owner = RunDirectory(root, root)
     cache = owner.unlinked(root / CACHE_DIRECTORY)
-    if planning:  # read-only: a plan creates nothing, not even the run root's cache directory
+    if planning:  # read-only: a plan creates nothing, not even the cache directory
         entry = owner.unlinked(cache / f"{identity}.yaml")
         owner.unlinked(_entry_lock(entry))
         yield judged(reason or _stale(entry, identity, design_root, outputs))
@@ -386,12 +410,12 @@ def _judging_generation_unlocked(
             try:
                 cache.mkdir(parents=True, exist_ok=True)
                 stack.enter_context(_locked(entry))
-            except OSError as error:  # a read-only run root: nothing can be recorded, so it runs
+            except OSError as error:  # read-only run root: nothing can be recorded, so it runs
                 log.debug("Cannot keep a record of a generation in %s: %s", cache, error)
                 yield Generation(NO_RUN_ROOT)
                 return
-            # Revalidate names and identity after waiting: another load may have changed an input
-            # while this load waited for the identity-specific lock.
+            # Revalidate the names and the identity after waiting. Another load may have changed an
+            # input while this load waited for the lock of the identity.
             owner.unlinked(entry)
             owner.unlinked(_entry_lock(entry))
             current_identity = generation_identity(stated, design_root)
@@ -405,7 +429,7 @@ def _judging_generation_unlocked(
 
 
 def _entry_lock(entry: Path) -> Path:
-    """The durable lock beside an entry, as every other lock of xeda's is named."""
+    """Return the durable lock beside an entry, named as every other lock of Xeda is."""
     from .flow_runner.run_lock import lock_file  # a leaf of the launcher: imported on use
 
     return lock_file(entry)
@@ -413,7 +437,7 @@ def _entry_lock(entry: Path) -> Path:
 
 @contextmanager
 def _locked(entry: Path) -> Iterator[None]:
-    """Hold the entry's exclusive durable lock (no-op on Windows, as every other one is)."""
+    """Hold the exclusive durable lock of the entry (no effect on Windows, as for every lock)."""
     from .flow_runner.run_lock import run_dir_lock  # a leaf of the launcher: imported on use
 
     with run_dir_lock(entry):

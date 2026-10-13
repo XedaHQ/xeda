@@ -1,4 +1,4 @@
-"""Xeda Command-line interface"""
+"""The Xeda command-line interface."""
 
 from __future__ import annotations
 
@@ -99,9 +99,9 @@ log = logging.getLogger(__name__)
 
 
 class ShortLoggerNames(logging.Formatter):
-    """Shows a log record with its logger's name shortened (`xeda.flow` as `flow`) by formatting a
-    copy of it. The record itself, which every other handler of the process is given as well,
-    keeps the name of its logger."""
+    """A formatter that shows a log record with its logger name shortened (`xeda.flow` as `flow`).
+    It formats a copy of the record. The record itself, which every other handler of the process
+    also receives, keeps the name of its logger."""
 
     def __init__(self, formatter: logging.Formatter) -> None:
         super().__init__()
@@ -127,7 +127,8 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
         logger=log.root,
     )
     if detailed_logs:
-        # only the handler installed here: another party's handler shows names as it likes
+        # Wrap only the handler installed here. The handler of another party shows names as it
+        # likes.
         for handler in root.handlers:
             if handler not in before and handler.formatter is not None:
                 handler.setFormatter(ShortLoggerNames(handler.formatter))
@@ -138,7 +139,7 @@ def setup_logger(log_level, detailed_logs, log_to_file: Optional[Path] = None):
 # click-extra uses the command name as prog_name, including for Click's completion protocol.
 # Keep it aligned with the console entry point and its _XEDA_COMPLETE environment variable.
 @click.group("xeda", cls=XedaHelpGroup, no_args_is_help=True, context_settings=CONTEXT_SETTINGS)
-@click.option("--verbose", "-v", is_flag=True, help="Enables verbose mode.")
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose mode.")
 @click.option("--quiet", "-q", is_flag=True, help="Enable quiet mode.")
 @click.option("--debug", "-d", show_envvar=True, is_flag=True)
 @click.version_option(message="Xeda v%(version)s")
@@ -157,7 +158,8 @@ def _info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Ta
         show_lines=True,
     )
     for name, kwargs in columns:
-        # fold rather than ellipsize: a truncated name cannot be typed back into a command
+        # Fold long text instead of truncating it: a truncated name cannot be typed back into a
+        # command.
         table.add_column(name, overflow="fold", **kwargs)
     return table
 
@@ -165,13 +167,15 @@ def _info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Ta
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
 @output_format_option()
 def list_flows(output_format: str, json_flag: bool):
-    """List every flow xeda can run, with its aliases, category, dependencies and file I/O.
+    """List every flow Xeda can run, with its aliases, category, default producers and declared
+    inputs and outputs.
 
-    Takes and Makes list a declared flow's inputs and outputs as `name (Types)`: [name] is
-    optional, name... is a list. "Can be followed by" names the flows that can come right
-    after it in a chain (`xeda run a+b`); `(depends on the target)` marks a relation the
-    target's family decides, `flow.output` one that needs that output named. A flow that
-    declares no I/O runs alone.
+    The "Depends on" column lists the default producers of a flow. "Takes" and "Makes" list the
+    declared inputs and outputs as `name (Types)`: [name] is optional, and name... is a list.
+    "Can be followed by" names the flows that can come right after this flow in a chain
+    (`xeda run a+b`). `(depends on the target)` marks a relation that the target decides, and
+    `flow.output` marks a relation that needs that output named. A flow that declares no inputs
+    or outputs runs alone.
     """
     fmt = resolve_format(output_format, json_flag)
     info = flows_info()
@@ -181,7 +185,7 @@ def list_flows(output_format: str, json_flag: bool):
     table = _info_table(
         "Available flows",
         [
-            # a name is never folded, so it can be typed back into a command
+            # A name is never folded, so it can be typed back into a command.
             ("Flow", {"header_style": "bold green", "style": "bold", "no_wrap": True}),
             ("Category", {}),
             ("Description", {}),
@@ -207,7 +211,7 @@ def list_flows(output_format: str, json_flag: bool):
     console.print(table)
 
 
-@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List flow settings information")
+@cli.command(context_settings=CONTEXT_SETTINGS, short_help="List the settings of a flow.")
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
@@ -271,13 +275,14 @@ def list_results(flow, output_format: str, json_flag: bool):
 @cli.command(
     "design-schema",
     context_settings=CONTEXT_SETTINGS,
-    short_help="Print the JSON Schema of a design description file.",
+    short_help="Print the JSON Schema of a design file.",
 )
 @output_format_option(formats=DOCUMENT_FORMATS, default="json")
 def design_schema_cmd(output_format: str, json_flag: bool):
-    """Emit the JSON Schema of a xeda design file (TOML/YAML/JSON).
+    """Print the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
-    Useful for validating a design description, or for generating one correctly.
+    Use it to check the structure of a design file or to write one. The schema does not catch
+    every invalid file: it accepts unknown keys, which the design loader refuses.
     """
     emit_structured(design_schema(), resolve_format(output_format, json_flag))
 
@@ -285,7 +290,8 @@ def design_schema_cmd(output_format: str, json_flag: bool):
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled FPGA boards.")
 @output_format_option()
 def list_boards(output_format: str, json_flag: bool):
-    """List the FPGA boards xeda ships, usable as the `board` setting of FPGA flows."""
+    """List the FPGA boards that Xeda ships. A board name is a value of the `board` setting of an
+    FPGA flow."""
     fmt = resolve_format(output_format, json_flag)
     info = boards_info()
     if fmt != "table":
@@ -313,7 +319,7 @@ def list_boards(output_format: str, json_flag: bool):
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled ASIC platforms (PDKs).")
 @output_format_option()
 def list_platforms(output_format: str, json_flag: bool):
-    """List the ASIC platforms available as the `platform` setting of the OpenROAD/DC flows."""
+    """List the ASIC platforms that the `platform` setting of the OpenROAD and DC flows accepts."""
     fmt = resolve_format(output_format, json_flag)
     info = platforms_info()
     if fmt != "table":
@@ -336,7 +342,7 @@ def list_platforms(output_format: str, json_flag: bool):
     console.print(table)
     if not info:
         console.print(
-            "[yellow]No platforms found.[/] Platform data is not shipped in the xeda wheel."
+            "[yellow]No platforms found.[/] Platform data is not shipped in the Xeda wheel."
         )
 
 
@@ -345,7 +351,7 @@ def list_platforms(output_format: str, json_flag: bool):
 )
 @output_format_option()
 def list_optimizers(output_format: str, json_flag: bool):
-    """List the optimizers usable as `xeda dse --optimizer <name>`, and their settings."""
+    """List the optimizers that `xeda dse --optimizer <name>` accepts, and their settings."""
     fmt = resolve_format(output_format, json_flag)
     info = optimizers_info()
     if fmt != "table":
@@ -376,10 +382,11 @@ def list_optimizers(output_format: str, json_flag: bool):
 
 
 def _error_message(exc: BaseException) -> str:
-    """`exc` as the one message that reports it, in text and in `--json` alike: its text, led
-    by its kind -- once. Some exceptions already lead their text with their class name
-    (`DesignValidationError`, `FlowSettingsError`), and prefixing those again printed
-    "DesignValidationError: DesignValidationError: ..."."""
+    """Return the one message that reports `exc`, in text and in `--json` output: its text,
+    led by its class name. Some exceptions already start their text with their class name
+    (`DesignValidationError`, `FlowSettingsError`). Those keep their text, so a message never
+    reads "DesignValidationError: DesignValidationError: ...". An exception with no text reports
+    its class name."""
     kind = type(exc).__name__
     text = str(exc)
     if not text:
@@ -390,13 +397,13 @@ def _error_message(exc: BaseException) -> str:
 
 
 def _removed_option(replacement: str, false_replacement: Optional[str] = None):
-    """A hidden option that only exists to say what replaced it.
+    """Return the callback of a hidden option that only exists to say what replaced it.
 
-    `replacement` is the wording used when the flag as given (`--foo`) was passed; for a
-    boolean pair whose negation (`--no-foo`) needs different wording, `false_replacement` gives
-    that. Matches the launcher's and flow settings' own wording (`` `<name>` was removed: use
-    <replacement>``) exactly, so a removed CLI option, launcher setting and flow setting all read
-    the same way.
+    `replacement` is the text for the option as given (`--foo`). For a pair whose negation
+    (`--no-foo`) needs other text, `false_replacement` gives it. The message has the form of the
+    messages of the launcher settings and the flow settings (`<name>` was removed: use
+    <replacement>), so a removed option, launcher setting and flow setting all read the same
+    way.
     """
 
     def callback(ctx: click.Context, param: click.Parameter, value: Any) -> None:
@@ -409,9 +416,9 @@ def _removed_option(replacement: str, false_replacement: Optional[str] = None):
 
 
 def _removed_run_root_option(ctx: click.Context, param: click.Parameter, value: Any) -> None:
-    """`--xeda-run-dir` and `XEDA_RUN_DIR`, released names of the run root: whichever was given
-    is named. Explicit, because click would suggest `--hashed-run-dirs` for the option and
-    silently ignore the variable."""
+    """Refuse `--xeda-run-dir` and `XEDA_RUN_DIR`, the former names of the run root, and name the
+    one that was given. The check is explicit because click would suggest `--hashed-run-dirs`
+    for the option and would ignore the variable without a message."""
     if value is not None:
         if ctx.get_parameter_source(param.name or "") is ParameterSource.ENVIRONMENT:
             raise click.UsageError("`XEDA_RUN_DIR` was removed: use XEDA_RUN_ROOT", ctx=ctx)
@@ -419,7 +426,8 @@ def _removed_run_root_option(ctx: click.Context, param: click.Parameter, value: 
 
 
 def _run_root_options(func):
-    """`--run-root` (`XEDA_RUN_ROOT`), and the hidden option refusing its removed names."""
+    """Add `--run-root` (`XEDA_RUN_ROOT`) and the hidden option that refuses the removed names of
+    the run root."""
     func = click.option(
         "--xeda-run-dir",
         envvar="XEDA_RUN_DIR",
@@ -449,25 +457,27 @@ def _run_root_options(func):
 
 RUN_HELP = """Run a flow, or the last flow of a chain.
 
-FLOW names one flow (ghdl_sim, GhdlSim and ghdl-sim are the same flow): it runs with whatever
-it needs first. A chain, `yosys_fpga+nextpnr+fpga_pack`, runs its last flow, binding each
-preceding flow's declared output to the next flow's compatible required inputs; `FLOW.OUTPUT`
-names the output when several fit. Unbound inputs use the design's sources or their default
-producers. Use + within one argument; a chain does not search for missing stages.
+FLOW names one flow (ghdl_sim, GhdlSim and ghdl-sim name the same flow). The producers of the
+flow run first. A chain such as `yosys_fpga+nextpnr+fpga_pack` runs its last flow, binding each
+preceding flow's declared output to the compatible required inputs of the next flow.
+`FLOW.OUTPUT` names the output when several fit. Unbound inputs come from the sources of the
+design or from their default producers. Write the + inside one argument. A chain does not
+search for missing stages.
 
--s KEY=VALUE sets the last flow; -s flows.NAME.KEY=VALUE sets another flow of the run. A
-binding can be saved instead, under flows.NAME.inputs in a YAML design or project file. --dry-run
-shows the graph and runs no tools. Chains are local requests: not for --remote.
+-s KEY=VALUE sets a setting of the last flow. -s flows.NAME.KEY=VALUE sets a setting of another
+flow of the run. To save a binding, write it under flows.NAME.inputs in a YAML design file or
+project file. --dry-run shows the plan and runs no tools. A chain is a local request, so
+--remote does not accept it.
 
 Example: xeda run yosys_fpga+nextpnr+fpga_pack design.yaml
 """
 
 
 def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dict[str, Any]]:
-    """One `nodes` entry per run directory the launcher entered, in completion order: what
-    `run --json` reports about each node of the run, whether it was reused, ran, or failed. A
-    flow that always runs (`Flow.always_runs`) is
-    never `reused`, so it is reported as "ran"/"failed", never "fresh"."""
+    """Return one `nodes` entry for each run directory that the launcher entered, in completion
+    order. `run --json` reports these entries. The `state` is `fresh` for a reused run, else
+    `ran` or `failed`. A flow that always runs (`Flow.always_runs`) is never reused. A planned
+    node that the launch never entered has the state `not run`."""
     nodes: List[Dict[str, Any]] = []
     seen = set()
     for f in flows:
@@ -488,7 +498,7 @@ def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dic
                 "inputs": inputs_info(planned) if planned else [],
             }
         )
-    # the planned nodes the launch never entered: a producer failed before their turn
+    # Planned nodes that the launch never entered: a producer failed before their turn.
     for planned in plan.nodes if plan else ():
         if os.path.abspath(planned.run_path) not in seen:
             nodes.append(
@@ -506,15 +516,16 @@ def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dic
 
 
 def _interactive(json_flag: bool) -> bool:
-    """Whether a question may be asked: a terminal on both ends, no machine-readable output."""
+    """Return whether a question may be asked: stdin and stderr are terminals, and the output is
+    not machine-readable."""
     return not json_flag and sys.stdin.isatty() and sys.stderr.isatty()
 
 
 def _prompt_overwrite(conflicts: Sequence[Conflict]) -> bool:
-    """Ask, on the terminal, whether to replace the files in the way of named outputs; no by
-    default, and no when the question cannot be answered."""
+    """Ask on the terminal whether to replace the files that are in the way of the named outputs.
+    The default answer is no, and the answer is also no when the question cannot be answered."""
     click.echo(
-        f"xeda would replace {len(conflicts)} file(s) at the output paths you named:", err=True
+        f"Xeda would replace {len(conflicts)} file(s) at the output paths you named:", err=True
     )
     for conflict in conflicts:
         click.echo(f"  {conflict.destination}   {conflict.why}", err=True)
@@ -534,8 +545,9 @@ def _run_document(
     target: str | None = None,
     loaded: str | None = None,
 ) -> Dict[str, Any]:
-    """The machine-readable summary emitted by `xeda run --json`. `design` is what the command
-    line gave for the design, `loaded` the name of the design the launcher loaded."""
+    """Build the machine-readable summary that `xeda run --json` prints. `design` is what the
+    command line gave for the design, and `loaded` is the name of the design that the launcher
+    loaded."""
     document: Dict[str, Any] = {
         "flow": flow_name,
         **design_info(design, loaded),
@@ -574,7 +586,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
         if freshness is not None:
             said = freshness[node.name]
             click.echo(f"      {said.state}" + (f": {said.reason}" if said.reason else ""))
-        # static class metadata, never the flow's dynamic `always_runs()`
+        # Static class metadata, never the dynamic `always_runs()` of the flow.
         if node.flow_class.action_reason:
             click.echo(f"      always runs: {node.flow_class.action_reason}")
         for resolved in node.inputs:
@@ -584,16 +596,16 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 
 
 @cli.command(
-    # Naming the class is also what lets cloup's `command()` overloads accept the
+    # Naming the class is also what lets the `command()` overloads of cloup accept the
     # `excluded_keywords` keyword below.
     cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
     short_help="Run a flow.",
     help=RUN_HELP,
     no_args_is_help=False,
-    # click-extra highlights command names wherever they appear in help prose. Here the command
-    # is named after an ordinary English verb, so "Don't run dependency flows" and "Flows run
-    # under ..." would be painted as if they referenced the command.
+    # click-extra highlights command names wherever they appear in help prose. This command is
+    # named after an ordinary English verb, so each use of the word "run" in the help would be
+    # painted as if it named the command.
     **RUN_STYLE,
 )
 @click.argument(
@@ -619,9 +631,9 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--rebuild-all",
     is_flag=True,
     default=False,
-    help="Run every flow, dependencies included, even one that is up to date. Without it, a flow "
-    "runs only when its sources, settings, tools or outputs changed since its last successful "
-    "run.",
+    help="Run every flow, producers included, even a flow that is up to date. Without it, a "
+    "flow runs only when its sources, settings, tools or outputs changed since its last "
+    "successful run.",
 )
 @click.option(
     "--hashed-run-dirs",
@@ -687,8 +699,8 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "--design-file",
     "--design",
     # A destination of its own: the positional DESIGN argument is already named `design_file`,
-    # and two parameters sharing a name overwrite each other during parsing (click 8.5 warns
-    # about it). The argument used to win unconditionally, which made this option a no-op.
+    # and two parameters that share a name overwrite each other during parsing (click 8.5
+    # warns about it).
     "design_file_opt",
     type=click.Path(
         exists=True,
@@ -702,22 +714,21 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     ),
     cls=ClickMutex,
     # mutually_exclusive_with=["design_name"],
-    help="Path to Xeda design file containing the description of a single design.",
+    help="Path to the Xeda design file of a single design.",
 )
 @click.option(
     "--design-name",
     cls=ClickMutex,
     # mutually_exclusive_with=["design_file"],
-    help="Specify design.name in case multiple designs are available in a xedaproject.",
+    help="Specify design.name in case multiple designs are available in a project file.",
 )
 @click.option(
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
-    "with a single target needs no selection; one with several does. The target is the "
-    "design's own say for that build: for each key it writes, its value wins over the design's "
-    "and the project's (defaults < project < design < target < -s < API); `-s` and the API "
-    "still win over it.",
+    "with a single target needs no selection; a design with several targets does. For each "
+    "key a target sets, its value wins over the design's and the project's. The order, lowest "
+    "first, is defaults < project < design < target < -s < API.",
 )
 @click.option(
     "--design-overrides",
@@ -725,14 +736,14 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     type=tuple,
     cls=OptionEatAll,
     default=tuple(),
-    help="""Override design attributes.""",
+    help="""Override attributes of the design.""",
 )
 @click.option(
     "--design-allow-extra/--no-design-allow-extra",
     type=bool,
     is_flag=True,
     default=False,
-    help="""Allow extra properties (fields) in design description.""",
+    help="""Allow extra properties (fields) in the design file.""",
 )
 @click.option(
     "--flow-settings",
@@ -746,9 +757,6 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     Example: --settings clock.period=2.345 impl.strategy=Debug
     flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
     """,
-    #  examples: # FIXME move to docs
-    # - xeda vivado_sim --flow-settings stop_time=100us
-    # - xeda vivado_synth --flow-settings impl.strategy=Debug --flow-settings clock.period=2.345
 )
 @click.option(
     "--detailed-logs/--no-detailed-logs",
@@ -760,14 +768,15 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
 @click.option(
     "--post-cleanup",
     is_flag=True,
-    help="After the run, keep only settings.json, results.json and the artifacts in each run "
-    "directory.",
+    help="After the run, keep only these files in each run directory: settings.json, "
+    "results.json, the artifacts listed in results.json and the declared output files, with "
+    "their parent directories. Xeda does not reuse a run that was cleaned up.",
 )
 @click.option(
     "--post-cleanup-purge",
     is_flag=True,
-    help="After the run, remove each run directory. An output delivered to a location you named "
-    "is moved there instead of copied, when it can be.",
+    help="After the run, remove each run directory; this implies --post-cleanup. An output "
+    "delivered to a location you named is moved there instead of copied, when it can be.",
 )
 @click.option(
     "--scrub",
@@ -780,7 +789,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     type=str,
     envvar="XEDA_REMOTE",
     show_envvar=True,
-    help="Run on a remote machine with SSH access. Xeda needs to be installed on the remote machine and PATH env variable should be set correctly.",
+    help="Run on a remote machine with SSH access. Xeda must be installed on the remote machine, and the PATH environment variable there must be set correctly.",
 )
 @click.option(
     "--debug",
@@ -803,26 +812,27 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     "outputs_to",
     type=click.Path(file_okay=False, dir_okay=True, resolve_path=True, path_type=Path),
     default=None,
-    help="Copy the requested flow's outputs (its artifacts, each at its path in the run "
-    "directory) into DIR once it succeeded. An existing file there is replaced only if it is "
-    "xeda's own earlier copy, unchanged (see --overwrite-outputs). Refused before anything runs "
-    "for a flow that writes no outputs (a programmer), naming what delivers the file it reads.",
+    help="Copy the outputs of the requested flow (its artifacts, each at its path in the run "
+    "directory) into DIR once the flow succeeds. An existing file there is replaced only if it "
+    "is an earlier copy that Xeda made and that is unchanged (see --overwrite-outputs). For a "
+    "flow that writes no outputs (a programmer), Xeda refuses this before anything runs and "
+    "names what delivers the file the flow reads.",
 )
 @click.option(
     "--overwrite-outputs",
     is_flag=True,
     default=False,
     help="Replace existing files at the output paths named for this run (by settings or "
-    "--outputs-to), even ones xeda did not write or that changed since it did. Never a design "
-    "source or input, never a directory, never anything else.",
+    "--outputs-to), even files that Xeda did not write or that changed since Xeda wrote them. "
+    "Xeda never replaces a design source, another input or a directory.",
 )
 @click.option(
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Print the resolved plan: each flow in execution order, its run directory, input "
-    "origins and outputs switched on for consumers. Run nothing. Designs needing a generator "
-    "or Git dependency fetch are refused.",
+    help="Print the resolved plan: each flow in execution order, its run directory, what a "
+    "launch would do with it, its input origins and the outputs switched on for consumers. "
+    "Run nothing. Refuse a design that needs a generator run or a Git dependency fetch.",
 )
 @click.option(
     "--json",
@@ -864,14 +874,15 @@ def run(
     dry_run: bool = False,
     json_flag: bool = False,
 ):
-    """`run` command"""
+    """Run a flow or a chain."""
     assert ctx
     options: XedaOptions = ctx.obj or XedaOptions()
-    # FLOW is the canonical request text: results, settings and exit status are its last flow's
+    # FLOW is the canonical request text. The results, the settings and the exit status are
+    # those of its last flow.
     request = parse_request(flow)
     chain, flow = flow, request.requested.name
     if json_flag:
-        # stdout belongs to the JSON document from here on
+        # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
     if help_settings:
         print_flow_settings(flow, options=options, output_format="json" if json_flag else "table")
@@ -920,8 +931,8 @@ def run(
     if remote:
         from .flow_runner import remote as remote_runner
 
-        # The remote flow always runs fresh in hashed directories. `--rebuild-all` also forces
-        # local generators to run before their design is shipped.
+        # The remote flow always runs fresh in hashed run directories. `--rebuild-all` also
+        # forces local generators to run before their design is shipped.
         for name, given in (
             ("--clean", clean),
             ("--hashed-run-dirs", hashed_run_dirs),
@@ -992,7 +1003,7 @@ def run(
             if debug:
                 raise
             sys.exit(1)
-        # The remote flow's own success decides ours; a failed flow is not a successful run.
+        # The success of the remote flow decides the success of this run.
         success = bool(remote_results and remote_results.get("success"))
         if not success:
             log.critical("Remote run of flow '%s' on '%s' failed.", flow, remote)
@@ -1014,12 +1025,13 @@ def run(
     launcher: Optional[DefaultRunner] = None
 
     def loaded_design() -> Optional[str]:
-        """The name of the design the launcher loaded, if it got that far."""
+        """Return the name of the design that the launcher loaded, or None if it got no further."""
         return launcher.design_name if launcher is not None else None
 
     def emit_failure(error_type: str, message: str, exc: Exception) -> None:
-        """Report a failed run identically whether the caller wants text or JSON: with every
-        node the launcher had launched when the run failed."""
+        """Report a failed run: log the message and, with `--json`, write the failure document
+        with every node that the launcher had launched. Then raise `exc` when debugging, or exit
+        with status 1."""
         log.critical("%s", message)
         if json_flag:
             emit_structured(
@@ -1144,8 +1156,8 @@ def run(
             e,
         )
     except XedaException as e:
-        # a user error -- a design or project file that does not load, an unknown flow or
-        # design, invalid settings, a failed dependency -- reported by its own class name
+        # A user error is reported by its own class name: a design file or project file that
+        # does not load, an unknown flow or design, invalid settings or a failed producer.
         emit_failure(type(e).__name__, _error_message(e), e)
     except Exception as e:
         if not json_flag:
@@ -1163,8 +1175,9 @@ def _remote_document(
     target: str | None = None,
     loaded: str | None = None,
 ) -> Dict[str, Any]:
-    """The machine-readable summary emitted by `xeda run --remote --json`. `design` is what the
-    command line gave for the design, `loaded` the name of the design the runner loaded."""
+    """Build the machine-readable summary that `xeda run --remote --json` prints. `design` is what
+    the command line gave for the design, and `loaded` is the name of the design that the runner
+    loaded."""
     document: Dict[str, Any] = {
         "flow": flow_name,
         **design_info(design, loaded),
@@ -1188,7 +1201,7 @@ def _remote_document(
 
 
 def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
-    """The best `FlowOutcome` of a design-space exploration, as JSON-safe data."""
+    """Return the best `FlowOutcome` of a design-space exploration as JSON-safe data."""
     if best is None:
         return None
     return json_safe(best.as_json_value())
@@ -1197,8 +1210,8 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
 @cli.command(
     cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
-    short_help="Execute multiple runs in parallel",
-    help="Runs multiple instances of a flow in parallel to find optimum value(s) of a settings key with respect to a specified objective function.",
+    short_help="Run a design-space exploration in parallel.",
+    help="Run multiple instances of a flow in parallel to find the optimum value of one or more settings for a given objective function.",
     no_args_is_help=False,
 )
 @click.argument(
@@ -1245,10 +1258,9 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "--target",
     metavar="NAME",
     help="Select one of the design's `targets` (`targets.NAME` in the design file). A design "
-    "with a single target needs no selection; one with several does. The target is the "
-    "design's own say for that build: for each key it writes, its value wins over the design's "
-    "and the project's (defaults < project < design < target < -s < API); `-s` and the API "
-    "still win over it.",
+    "with a single target needs no selection; a design with several targets does. For each "
+    "key a target sets, its value wins over the design's and the project's. The order, lowest "
+    "first, is defaults < project < design < target < -s < API.",
 )
 @click.option(
     "--design",
@@ -1271,8 +1283,8 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     "--design-allow-extra/--no-design-allow-extra",
     type=bool,
     is_flag=True,
-    default=True,  # by default allow for dse
-    help="""Allow extra properties (fields) in design description.""",
+    default=True,  # unlike `run`, dse allows extra properties by default
+    help="""Allow extra properties (fields) in the design file.""",
 )
 @click.option(
     "--detailed-logs/--no-detailed-logs",
@@ -1313,7 +1325,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     show_envvar=True,
     type=int,
     default=None,
-    help="Maximum number of concurrent flow executions.",
+    help="Maximum number of concurrent runs.",
 )
 @click.option(
     "--init_freq_low",
@@ -1366,11 +1378,11 @@ def dse(
     debug: bool = False,
     json_flag: bool = False,
 ):
-    """Design-space exploration (e.g. fmax)"""
+    """Run a design-space exploration, for example a search for the maximum frequency."""
     options: XedaOptions = ctx.obj or XedaOptions()
     debug |= options.debug
     if json_flag:
-        # stdout belongs to the JSON document from here on
+        # From here on, stdout belongs to the JSON document.
         machine_readable_mode()
 
     dse: Dse | None = None
@@ -1396,8 +1408,8 @@ def dse(
             raise exc
         sys.exit(1)
 
-    # Resolving the optimizer inside Dse() raises an AttributeError naming nothing useful, so
-    # check it here where the available names are known.
+    # Resolving the optimizer inside Dse() raises an AttributeError that names nothing useful,
+    # so check it here, where the available names are known.
     known_optimizers = {o["name"] for o in optimizers_info()}
     if optimizer not in known_optimizers and "." not in optimizer:
         dse_failure(
@@ -1410,8 +1422,8 @@ def dse(
         log_level = logging.WARNING if options.quiet else logging.DEBUG if debug else logging.INFO
     if debug:
         detailed_logs = True
-    # No log file here: the exploration logs into its run root (`<root>/Logs`), which it makes
-    # when it starts, once its settings have validated -- one log per exploration.
+    # No log file here. The exploration logs into its run root (`<root>/Logs`), which it makes
+    # when it starts, once its settings have validated. There is one log per exploration.
     setup_logger(log_level, detailed_logs)
 
     try:
@@ -1423,10 +1435,11 @@ def dse(
     if max_workers:
         dse_settings_dict["max_workers"] = max_workers  # overrides
 
-    # will deprecate options and only use optimizer_settings
+    # These options are to be deprecated in favor of optimizer_settings.
     opt_settings = {
-        # Only what was given: an omitted option is no value, and passing `None` for one made
-        # the optimizer report `input_value=None` instead of the setting it lacks.
+        # Only the options that were given. An omitted option has no value, and passing `None`
+        # for one would make the optimizer report `input_value=None` instead of the missing
+        # setting.
         **{
             name: value
             for name, value in dict(
@@ -1474,19 +1487,20 @@ def dse(
                 "message": "The exploration produced no successful run.",
             }
         emit_structured(document, "json")
-    # An exploration that produced no successful run is a failure, like every other command.
+    # An exploration with no successful run is a failure.
     sys.exit(0 if best is not None else 1)
 
 
 @cli.command(
     cls=DeclaredEnvvarsCommand,
     context_settings=CONTEXT_SETTINGS,
-    short_help="Remove a flow's run directories for a design.",
+    short_help="Remove the run directories of a flow for a design.",
 )
 @click.argument(
     "flow",
     metavar="FLOW_NAME",
-    # canonical already; a removed flow's name too, whose run directories are still there
+    # FlowChoice returns the canonical name. With `removed=True` it also accepts the name of a
+    # removed flow, whose run directories can still exist.
     type=FlowChoice(flow_names, removed=True),
     required=True,
 )
@@ -1499,9 +1513,10 @@ def dse(
 @click.option(
     "--target",
     metavar="NAME",
-    help="Remove only this target's run directories (<run-root>/<design_name>/NAME/), leaving "
-    "the pre-target ones (<design_name>/<flow>) and every other target's. Without it, FLOW_NAME's "
-    "directories under every target are removed too, as found on disk: no design file is read.",
+    help="Remove only the run directories of this target (<run root>/<design_name>/NAME/). The "
+    "run directories directly under the design (<design_name>/<flow>) and those of every other "
+    "target stay. Without this option, the run directories of FLOW_NAME under every target are "
+    "removed too, as they are found on disk. No design file is read.",
 )
 @click.option(
     "--incremental/--no-incremental",
@@ -1524,10 +1539,13 @@ def dse(
 )
 @click.pass_context
 def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
-    """Remove FLOW_NAME's previous run directories for DESIGN_NAME, under <run-root>/<design_name>:
-    the pre-target ones and those of every target (<design_name>/<target>/), or with --target
-    only that target's. They are listed, and confirmed once. A link named like a run directory
-    that does not lead to a run directory of the flow beside it is skipped, and said."""
+    """Remove the previous run directories of FLOW_NAME for DESIGN_NAME.
+
+    The run directories lie under <run root>/<design_name>: those directly under the design and
+    those of every target (<design_name>/<target>/). With --target, only the run directories of
+    that target are removed. Xeda lists the run directories and asks once for confirmation. It
+    skips a link that is named like a run directory but does not lead to a run directory of the
+    flow beside it, and says so."""
     if json_flag:
         machine_readable_mode()
 
@@ -1559,7 +1577,7 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
 
     try:
         result = scrub_design(flow, run_root / design_name, run_root=run_root, target=target)
-    except RunDirectoryError as e:  # a run directory xeda cannot remove
+    except RunDirectoryError as e:  # a run directory that cannot be removed
         fail(type(e).__name__, _error_message(e))
     if json_flag:
         emit_structured(
@@ -1587,8 +1605,8 @@ def scrub(ctx: click.Context, flow, design_name, target, run_root, json_flag):
 def skill():
     """Instructions and a generated reference that teach a coding agent to drive Xeda.
 
-    The flow catalog is generated from the installed version of xeda, so it cannot drift from the
-    flows and settings you actually have.
+    Xeda generates the flow catalog from the installed version, so it always matches the flows
+    and settings that are installed.
     """
 
 
@@ -1648,7 +1666,8 @@ SHELLS: Dict[str, Dict[str, Any]] = {
 @cli.command(
     context_settings=CONTEXT_SETTINGS,
     short_help="Shell completion",
-    help=f"Name of the shell. Supported shells are: {', '.join(SHELLS.keys())}",
+    help="Show how to enable shell completion, or print the completion script with --stdout. "
+    f"The shell is one of: {', '.join(SHELLS.keys())}. The default is the shell that the SHELL environment variable names.",
 )
 @click.argument(
     "shell",
@@ -1667,7 +1686,7 @@ SHELLS: Dict[str, Dict[str, Any]] = {
 )
 @click.pass_context
 def completion(_ctx: click.Context, stdout: bool, shell: Optional[str] = None):
-    """Xeda shell auto-completion"""
+    """Show how to enable shell completion, or print the completion script with --stdout."""
     os_default_shell_name = None
     os_default_shell = os.environ.get("SHELL")
     if os_default_shell:

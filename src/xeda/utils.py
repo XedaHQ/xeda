@@ -1,6 +1,4 @@
-"""
-XEDA's utility functions and classes
-"""
+"""Utility functions and classes of Xeda."""
 
 import errno
 import hashlib
@@ -43,8 +41,6 @@ from xml.etree import ElementTree
 from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, XedaBaseModel
-
-# install_import_hook("xeda")
 
 __all__ = [
     "SDF",
@@ -124,10 +120,10 @@ class WorkingDirectory(AbstractContextManager):
 
 
 class SDF(XedaBaseModel):
-    """
-    root: region where the SDF is applied
-        /TESTBENCH/UUT
-    if tb.top=TESTBENCH and the simulation netlist is instantiated inside the testbench with an instance name of UUT
+    """Standard Delay Format (SDF) files for a simulation, one for each delay type.
+
+    `root` is the region where the SDF applies. It is `/TESTBENCH/UUT` when `tb.top` is `TESTBENCH`
+    and the simulation netlist is instantiated in the testbench with the instance name `UUT`.
     """
 
     root: Optional[str] = None
@@ -135,17 +131,11 @@ class SDF(XedaBaseModel):
     max: Optional[Path] = None
     typ: Optional[Path] = None
 
-    # def __init__(self, *args: str, **data: str) -> None:
-    #     if args:
-    #         assert len(args) == 1 and isinstance(args[0], str), "only 1 str argument"
-    #         data["max"] = args[0]
-    #     super().__init__(**data)
-
     def __attrs_post_init__(self):
         pass
 
     def delay_items(self) -> Iterable[Tuple[str, Union[Path, None]]]:
-        """returns an iterable of (delay_type, sdf_file)"""
+        """Return the `(delay_type, sdf_file)` pairs for the delay types that have a file."""
         return tuple(
             (delay_type, getattr(self, delay_type))
             for delay_type in ("min", "max", "typ")
@@ -169,7 +159,7 @@ _CREATE_MODE = 0o666 & ~_UMASK
 
 
 def _discard(temporary: str) -> None:
-    """Remove a temporary file xeda made beside a name and did not put there."""
+    """Remove a temporary file that Xeda made beside a name and did not put there."""
     Path(temporary).unlink(missing_ok=True)  # the temporary file, never committed
 
 
@@ -181,13 +171,13 @@ def replacing_file(
     *,
     copy_mode_from: Optional[Union[str, os.PathLike]] = None,
 ) -> Iterator[IO[Any]]:
-    """`open(path, mode)` for writing, except that whatever is at `path` -- a symbolic link
-    included -- is replaced, never written through, and only by a complete file: the content goes
-    to a temporary file beside `path`, which is renamed over it (`os.replace`) once the body has
-    completed. If the body raises, the temporary file is removed and `path` is left as it was.
-    `copy_mode_from`, when given, sets the temporary file's permission bits to that path's
-    (`shutil.copymode`) before it is committed: a failure to read those bits then leaves `path`
-    untouched too, rather than already replaced with the wrong mode."""
+    """Open `path` for writing like `open(path, mode)`, but replace what is at `path` and never
+    write through it, a symbolic link included. The content goes to a temporary file beside
+    `path`. Once the body has completed, `os.replace` renames the temporary file over `path`, so
+    `path` is always a complete file. If the body raises, the temporary file is removed and `path`
+    stays as it was. `copy_mode_from`, when given, sets the permission bits of the temporary file
+    to those of that path (`shutil.copymode`) before the commit. If reading those bits fails,
+    `path` stays untouched and is not replaced with the wrong mode."""
     if mode not in ("w", "wt", "wb"):
         raise ValueError(f"replacing_file writes a file anew; mode {mode!r} is not one of w, wb")
     target = Path(path)
@@ -208,19 +198,21 @@ def replacing_file(
 
 @contextmanager
 def live_log(path: Union[str, os.PathLike], encoding: str = "utf-8") -> Iterator[IO[str]]:
-    """A tool's log, written at its own name from the start and flushed line by line, so that
-    `tail -F` shows a long run as it goes. (Each run replaces the file at the name: `tail -F`
-    follows the new file, where a `tail -f` keeps the one it opened.) This is the one write xeda
-    does not make complete and then rename: a log is meant to be watched while it grows, and a
-    failed tool's partial log is its diagnostic, kept as it stands.
+    """Open the log of a tool at its own name from the start and flush it line by line, so that
+    `tail -F` shows a long run as it goes.
 
-    The log is a new file, made beside `path` and renamed onto it at once (`os.replace`), before
-    anything is written; every line then goes to that file's own descriptor, never to the name. So
-    whatever was at `path` is replaced as a name and never written through: a symbolic link, or
-    a hard link, whose inode a file outside the run directory may share, which a tool may have
-    left there. A log that cannot be made raises here, so a caller that makes it before starting
-    the tool starts nothing. The caller has located `path` in the run directory
-    (`RunDirectory.writable`)."""
+    Each run replaces the file at the name. `tail -F` follows the new file, and `tail -f` keeps
+    the one it opened. This is the one write that Xeda does not make complete and then rename. A
+    log is meant to be watched while it grows, and the partial log of a failed tool is its
+    diagnostic, so it is kept as it stands.
+
+    The log is a new file. Xeda makes it beside `path` and renames it onto `path` at once
+    (`os.replace`), before anything is written. Every line then goes to the descriptor of that
+    file, never to the name. So whatever was at `path` is replaced as a name and never written
+    through. That includes a symbolic link, or a hard link whose inode a file outside the run
+    directory may share, which a tool may have left there. A log that cannot be made raises here,
+    so a caller that makes it before it starts the tool starts nothing. The caller has located
+    `path` in the run directory (`RunDirectory.writable`)."""
     target = Path(path)
     fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.", suffix=".tmp")
     try:
@@ -244,9 +236,10 @@ _COPYFILE_DATA = 1 << 3
 
 
 def _copy_with_copy_file_range(src_fd: int, dst_fd: int, size: int) -> None:
-    """Linux: `os.copy_file_range` at explicit offsets until `size` bytes are copied. It may copy
-    fewer bytes than asked, so it is looped; a return of 0 before `size` is a file shorter than
-    it was said to be (or a filesystem that does not support the call), and raises."""
+    """Copy `size` bytes with `os.copy_file_range` (Linux), at explicit offsets. The call may copy
+    fewer bytes than asked, so the function loops. A return of 0 before `size` bytes means that
+    the file is shorter than it was said to be, or that the file system does not support the
+    call. The function raises in that case."""
     copied = 0
     while copied < size:
         n = os.copy_file_range(  # type: ignore[attr-defined,unused-ignore]
@@ -258,8 +251,8 @@ def _copy_with_copy_file_range(src_fd: int, dst_fd: int, size: int) -> None:
 
 
 def _copy_with_sendfile(src_fd: int, dst_fd: int, size: int) -> None:
-    """Linux: `os.sendfile` at an explicit offset until `size` bytes are copied (looped, as
-    above)."""
+    """Copy `size` bytes with `os.sendfile` (Linux), at an explicit offset, in a loop like
+    `_copy_with_copy_file_range`."""
     copied = 0
     while copied < size:
         n = os.sendfile(dst_fd, src_fd, copied, min(size - copied, _FAST_COPY_CHUNK))
@@ -269,10 +262,11 @@ def _copy_with_sendfile(src_fd: int, dst_fd: int, size: int) -> None:
 
 
 def _copy_with_fcopyfile(src_fd: int, dst_fd: int, size: int) -> None:
-    """macOS: `fcopyfile(3)` with `COPYFILE_DATA` on the two descriptors, from their current
-    offsets (the caller has rewound both). A plain data copy: on descriptors it never clones. It
-    returns 0 or -1 and has no partial result, but the destination's size is checked all the
-    same. Called through `ctypes`, so no private CPython API is needed."""
+    """Copy the data of `src_fd` into `dst_fd` with `fcopyfile(3)` and `COPYFILE_DATA` (macOS),
+    from the current offsets of both descriptors (the caller has rewound them). This is a plain
+    data copy: on descriptors it never clones. The call returns 0 or -1 and has no partial
+    result, but the function still checks the size of the destination. It calls `fcopyfile`
+    through `ctypes`, so it needs no private CPython API."""
     try:
         import ctypes
 
@@ -289,9 +283,9 @@ def _copy_with_fcopyfile(src_fd: int, dst_fd: int, size: int) -> None:
 
 
 def _fast_copies(platform: str = sys.platform) -> List[Callable[[int, int, int], None]]:
-    """The kernel copy primitives `platform` has, best first. Decided by what the interpreter
-    reports (never by importing anything that could fail): `os.copy_file_range` then `os.sendfile`
-    on Linux, `fcopyfile` on macOS, none elsewhere (a plain loop does the work)."""
+    """Return the kernel copy primitives of `platform`, best first. The choice follows what the
+    interpreter reports and imports nothing that could fail: `os.copy_file_range`, then
+    `os.sendfile` on Linux, `fcopyfile` on macOS, none elsewhere (a plain loop does the work)."""
     if platform.startswith("linux"):
         fast: List[Callable[[int, int, int], None]] = []
         if hasattr(os, "copy_file_range"):
@@ -305,8 +299,8 @@ def _fast_copies(platform: str = sys.platform) -> List[Callable[[int, int, int],
 
 
 def _rewind(src_fd: int, dst_fd: int, *, source_is_file: bool) -> None:
-    """Both descriptors at offset 0 and `dst_fd` empty: the state every attempt starts from, so
-    what an earlier attempt wrote before it failed can never be part of the result."""
+    """Put both descriptors at offset 0 and leave `dst_fd` empty. Every attempt starts from this
+    state, so what an earlier attempt wrote before it failed is never part of the result."""
     if source_is_file:
         os.lseek(src_fd, 0, os.SEEK_SET)
     os.lseek(dst_fd, 0, os.SEEK_SET)
@@ -316,22 +310,25 @@ def _rewind(src_fd: int, dst_fd: int, *, source_is_file: bool) -> None:
 
 def copy_fd(src_fd: int, dst_fd: int) -> None:
     """Copy the whole content of the open file `src_fd` into the open, writable file `dst_fd`,
-    replacing what `dst_fd` holds: `shutil.copyfileobj` between two descriptors, through the
-    copy primitive the platform has (`os.copy_file_range`, then `os.sendfile`, on Linux;
-    `fcopyfile` on macOS). The destination is a separate file with the same logical content. On
-    Linux, `copy_file_range` may use filesystem reflinks (shared copy-on-write extents) or a
-    server-side copy. Permission bits are not copied.
+    replacing what `dst_fd` holds.
 
-    A source that is a regular file is read from its start whatever its offset is. Every attempt
-    starts from a rewound source and an emptied destination (`_rewind`), and any `OSError` from
-    a kernel primitive -- it is not there (`ENOSYS`, `EINVAL`, `EBADF`, `EOPNOTSUPP`, a sandbox's
-    `EPERM`), refuses the pair (`EXDEV` across file systems), or fails after copying some bytes --
-    makes the next primitive, and last the plain loop, start again from scratch. A primitive
-    that stops short, or copies nothing before the end of a file that is not empty, counts as
-    a failure the same way. An error that is real (`ENOSPC`, `EIO`) then happens again in the
-    loop, which raises it. An empty file needs no primitive. Pipes and other sources that
-    cannot be rewound go straight to the loop. The result is complete or an exception, and
-    the destination's offset afterwards is not defined."""
+    This is `shutil.copyfileobj` between two descriptors, through the copy primitive of the
+    platform (`os.copy_file_range`, then `os.sendfile`, on Linux; `fcopyfile` on macOS). The
+    destination is a separate file with the same logical content. On Linux, `copy_file_range`
+    may use file-system reflinks (shared copy-on-write extents) or a server-side copy.
+    Permission bits are not copied.
+
+    A source that is a regular file is read from its start, whatever its offset is. Every
+    attempt starts from a rewound source and an emptied destination (`_rewind`). Any `OSError`
+    from a kernel primitive makes the next primitive, and last the plain loop, start again from
+    scratch. Such an error means that the primitive is not there (`ENOSYS`, `EINVAL`, `EBADF`,
+    `EOPNOTSUPP`, or `EPERM` in a sandbox), that it refuses the pair (`EXDEV` across file
+    systems), or that it fails after it copied some bytes. A primitive that stops short, or
+    copies nothing before the end of a file that is not empty, counts as a failure in the same
+    way. A real error (`ENOSPC`, `EIO`) happens again in the loop, which raises it. An empty file
+    needs no primitive. A pipe or another source that cannot be rewound goes straight to the
+    loop. The result is complete or an exception. The offset of the destination afterwards is
+    not defined."""
     st = os.fstat(src_fd)
     source_is_file = stat.S_ISREG(st.st_mode)
     if source_is_file and st.st_size > 0:
@@ -353,9 +350,9 @@ def copy_fd(src_fd: int, dst_fd: int) -> None:
 
 
 def replacing_copy(src: Union[str, os.PathLike], dst: Union[str, os.PathLike]) -> Path:
-    """`shutil.copy(src, dst)` -- the content and the permission bits, into `dst` if it is a
-    directory -- except that a file or link at the destination is replaced, never written
-    through (`replacing_file`). The destination is returned."""
+    """Copy `src` to `dst` like `shutil.copy(src, dst)`: the content and the permission bits, into
+    `dst` if it is a directory. A file or link at the destination is replaced and never written
+    through (`replacing_file`). Return the destination."""
     target = Path(dst)
     if target.is_dir() and not target.is_symlink():
         target = target / Path(src).name
@@ -369,10 +366,7 @@ def backup_existing(path: Path) -> Optional[Path]:
         log.warning("%s does not exist for backup!", path)
         return None
     modifiedTime = os.path.getmtime(path)
-    suffix = (
-        f".backup_{datetime.fromtimestamp(modifiedTime):%Y-%m-%d-%H%M%S}"
-        # .strftime("")}'
-    )
+    suffix = f".backup_{datetime.fromtimestamp(modifiedTime):%Y-%m-%d-%H%M%S}"
     if path.suffix:
         suffix += path.suffix
     backup_path = path.with_suffix(suffix)
@@ -384,18 +378,17 @@ def backup_existing(path: Path) -> Optional[Path]:
 
 
 def model_state(obj: Any) -> Dict[str, Any]:
-    """Field values of a pydantic model, *including* keys accepted via `extra="allow"`.
+    """Return the field values of a pydantic model, including the keys accepted with
+    `extra="allow"`.
 
-    pydantic v2 keeps permitted extras in `__pydantic_extra__` rather than `__dict__`, so reading
-    `__dict__` alone silently drops every key a design supplied under `--design-allow-extra` --
-    from `settings.json` and, worse, from the run hashes, which made two different designs hash
-    identically.
+    pydantic v2 keeps permitted extras in `__pydantic_extra__` and not in `__dict__`. Reading
+    `__dict__` alone would drop every key that a design supplied under `--design-allow-extra`,
+    from `settings.json` and from the run hashes. Two different designs would then hash the same.
 
-    The reverse is true too: a pydantic model's `__dict__` is also where `cached_property`
-    deposits its cache, so `__dict__` alone grows keys such as `Tool.version` the first time one
-    is read. Restricting to declared fields keeps `semantic_hash()` -- and therefore the run
-    directory a flow lands in -- independent of whether a cached property happened to be
-    evaluated first.
+    `__dict__` also holds the cache of each `cached_property`, so it grows keys such as
+    `Tool.version` the first time one is read. Restricting the result to the declared fields
+    keeps `semantic_hash()`, and therefore the run directory of a flow, independent of whether a
+    cached property was evaluated first.
     """
     extra = getattr(obj, "__pydantic_extra__", None)
     fields = getattr(type(obj), "model_fields", None)
@@ -406,8 +399,9 @@ def model_state(obj: Any) -> Dict[str, Any]:
 
 
 def rebuild_like(container: Any, items: List[Any]) -> Any:
-    """`items` in `container`'s builtin kind. Not `type(container)(items)`: a namedtuple's
-    constructor takes its fields positionally, and a subclass's may take anything."""
+    """Return `items` in the built-in kind of `container`. `type(container)(items)` would not do:
+    the constructor of a namedtuple takes its fields positionally, and the constructor of a
+    subclass may take anything."""
     if isinstance(container, tuple):
         return tuple(items)
     if isinstance(container, frozenset):
@@ -417,17 +411,19 @@ def rebuild_like(container: Any, items: List[Any]) -> Any:
     return list(items)
 
 
-#: This installation's package directory: a path under it is xeda's own file, the same on every
-#: installation, so a run's identity counts it relative to it (`$XEDA/...`), as it counts
-#: a path under the design root relative to that. A module attribute, read at each call.
+#: The package directory of this installation. A path under it is a file of Xeda, the same on
+#: every installation, so the identity of a run counts it relative to this directory
+#: (`$XEDA/...`), as it counts a path under the design root relative to that root. This is a
+#: module attribute, read at each call.
 XEDA_PACKAGE_ROOT = Path(__file__).absolute().parent
 
 
 def location_roots(
     design_root: Optional[os.PathLike | str] = None, runner_cwd: Optional[os.PathLike | str] = None
 ) -> list[tuple[str, Path]]:
-    """The roots a run's identity counts paths relative to (`location_free`), most specific
-    first: the design root, the directory xeda was started from, and xeda's own installation."""
+    """Return the roots that the identity of a run counts paths relative to (`location_free`),
+    most specific first: the design root, the directory Xeda was started from, and the
+    installation of Xeda."""
     roots = [
         (var, Path(root).absolute())
         for var, root in (
@@ -450,8 +446,8 @@ def location_roots(
 
 
 def _spellings(path: PurePath) -> list[PurePath]:
-    """`path` as written, then as the file system resolves it, when that differs: one place
-    reached through a symbolic link (a linked prefix, macOS's `/tmp`) has two spellings."""
+    """Return `path` as written, then as the file system resolves it when that differs. A place
+    reached through a symbolic link (a linked prefix, the `/tmp` of macOS) has two spellings."""
     if not path.is_absolute():
         return [path]
     resolved = PurePath(os.path.realpath(path))
@@ -459,20 +455,21 @@ def _spellings(path: PurePath) -> list[PurePath]:
 
 
 def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
-    """`value` with every absolute path under one of `roots` rewritten as ``$VAR/relative``.
+    """Return `value` with every absolute path under one of `roots` rewritten as `$VAR/relative`.
 
-    A root and a path are each recognized as written and as resolved. `roots` are tried in order,
-    most specific first, and the first one holding the path under any spelling of either names it:
-    a place reached through a symbolic link counts as the same place however it is spelled."""
+    Each root and each path is recognized as written and as resolved. The function tries `roots`
+    in order, most specific first, and the first one that holds the path under any spelling of
+    either names it. A place reached through a symbolic link therefore counts as the same place
+    however it is spelled."""
     if isinstance(value, dict):
         return {key: location_free(item, roots) for key, item in value.items()}
     if isinstance(value, (list, tuple, set, frozenset)):
         return rebuild_like(value, [location_free(item, roots) for item in value])
     if isinstance(value, PurePath) or (isinstance(value, str) and os.path.isabs(value)):
         spellings = _spellings(PurePath(value))
-        # The roots are tried in the order given (most specific first), each against every
-        # spelling of the path: the first root that holds the place at all names it, however
-        # the place is written. Spellings in the outer loop let a less specific root claim one
+        # Try the roots in the given order (most specific first), each against every spelling
+        # of the path. The first root that holds the place at all names it, however the place
+        # is written. With the roots in the outer loop, a less specific root cannot claim one
         # spelling of a path that a more specific root holds under the other.
         for var, root in roots:
             for root_spelling in _spellings(root):
@@ -484,27 +481,26 @@ def location_free(value: Any, roots: list[tuple[str, Path]]) -> Any:
 
 
 def json_encodable(obj: Any) -> Any:
-    """What `json` cannot encode by itself, as something it can.
+    """Return a form of `obj` that `json` can encode, for an object it cannot encode by itself.
 
-    A pydantic model goes through pydantic (`mode="json"`), so every serializer its fields
-    declare actually runs and what lands in `settings.json` is what the model would validate
-    back. Reading `__dict__` instead recorded a `DesignSource` as its raw instance state --
-    private attributes and all -- which nothing can load, and quietly skipped the `Path`,
-    enum and `FileResource` conversions the models define.
+    A pydantic model goes through pydantic (`mode="json"`), so every serializer that its fields
+    declare runs, and what lands in `settings.json` is what the model would validate back.
+    Reading `__dict__` would record a `DesignSource` as its raw instance state, private
+    attributes included, which nothing can load. It would also skip the `Path`, enum and
+    `FileResource` conversions that the models define.
 
-    Anything that is not a model says how it wants to be written by defining `as_json_value()`
+    Any object that is not a model says how it is written by defining `as_json_value()`
     (`FileResource`, `DesignSource`, `FlowOutcome`). An `Enum` is written as its value, as
-    pydantic writes one in JSON mode.
+    pydantic writes one in JSON mode. A set or frozenset is written as a list.
 
-    Nothing is written by reading its `__dict__`. An object's attributes are not a
-    serialization format: that is how a private `_specified_path` used to reach `settings.json`,
-    and on a plain `Enum`, whose `__dict__` carries `__objclass__`, descending into it does not
-    even terminate -- `semantic_hash` carries a guard against exactly that. Anything
-    unrecognized is written as its `str()`, which is legible and cannot recurse.
+    Nothing is written by reading its `__dict__`. The attributes of an object are not a
+    serialization format, and descending into a plain `Enum`, whose `__dict__` carries
+    `__objclass__`, does not terminate (`semantic_hash` has a guard against exactly that).
+    Anything unrecognized is written as its `str()`, which is legible and cannot recurse.
 
-    This is the one encoder: `introspect.json_safe`, which builds the documents the CLI prints,
-    hands it every value that is not plain data, so a value printed under `--json` and the same
-    value in a file xeda writes cannot differ.
+    This is the one encoder. `introspect.json_safe`, which builds the documents that the CLI
+    prints, hands it every value that is not plain data. A value printed under `--json` and the
+    same value in a file that Xeda writes therefore cannot differ.
     """
     if isinstance(obj, BaseModel):
         return with_json_keys(obj.model_dump(mode="json"))
@@ -519,10 +515,10 @@ def json_encodable(obj: Any) -> Any:
 
 
 def json_key(key: Any) -> Any:
-    """A mapping key as `json` can write it, by the rule `json_encodable` writes a value: an
-    enum as its value, anything else as its text (`Path("/a")` -> `"/a"`, a tuple as
-    `"('clk', 'rise')"`). `str`, numbers, `bool` and `None` are left to `json`, which writes
-    them itself (`true`, `null`, a `str` enum member as its text)."""
+    """Return a mapping key in a form that `json` can write, by the rule that `json_encodable`
+    uses for a value: an enum as its value, anything else as its text (`Path("/a")` -> `"/a"`, a
+    tuple as `"('clk', 'rise')"`). `str`, numbers, `bool` and `None` are left to `json`, which
+    writes them itself (`true`, `null`, a `str` enum member as its text)."""
     if key is None or isinstance(key, (str, int, float, bool)):
         return key
     if isinstance(key, Enum):
@@ -531,22 +527,23 @@ def json_key(key: Any) -> Any:
 
 
 def with_json_keys(value: Any) -> Any:
-    """`value` with every mapping key in its plain containers one `json` can write.
+    """Return `value` with every mapping key in its plain containers made a key that `json` can
+    write.
 
-    `json` accepts only `str`, numbers, `bool` and `None` as keys, and raises on any other
-    before an encoder hook ever sees it -- so a `Path` or tuple key a flow reports its results
-    under failed `results.json`, and the `--json` document with it: the one document an agent
-    reads, turned into an error. Every document xeda writes or prints goes through this (and
-    `json_encodable` applies it to what it expands), so none can fail on a key, and a printed
-    one still agrees with the file. A key whose JSON text another key of the same mapping
-    already has is qualified with its type rather than dropping either value.
+    `json` accepts only `str`, numbers, `bool` and `None` as keys. It raises on any other before
+    an encoder hook sees it. A `Path` or tuple key in the results of a flow would therefore fail
+    `results.json`, and the `--json` document with it, which is the one document that an agent
+    reads. Every document that Xeda writes or prints goes through this function (and
+    `json_encodable` applies it to what it expands), so no document can fail on a key, and a
+    printed document still agrees with the file. A key whose JSON text another key of the same
+    mapping already has is qualified with its type, so neither value is dropped.
     """
     if isinstance(value, dict):
         converted: Dict[str, Any] = {}
         for key, item in value.items():
             written = json_key(key)
-            # JSON turns even valid non-string keys into strings. Compare the keys *as JSON
-            # writes them*, or `1` and "1" produce duplicate JSON names, and a Path("a")
+            # JSON turns even valid non-string keys into strings. Compare the keys as JSON
+            # writes them. Otherwise `1` and "1" produce duplicate JSON names, and Path("a")
             # followed by "a" silently overwrites one of the values here.
             name = written if isinstance(written, str) else json.dumps(written)
             if name in converted:
@@ -577,35 +574,39 @@ _TCL_SUBSTITUTED = re.compile(r'([\\\[\]"${}])')
 
 
 def tcl_quote(value: Any) -> str:
-    """`value` escaped to stand for itself inside a double-quoted TCL word: every character TCL
-    would substitute (`$`, `[`, `\\`), end the word (`"`) or count as a brace of a script the
-    word sits in (`{`, `}`: `catch {read_verilog ...}`) backslash-escaped. For a path in a
-    message (`puts "Reading {{src|tcl_quote}}"`); a whole word is `tcl_word`."""
+    """Return `value` escaped to stand for itself inside a double-quoted TCL word.
+
+    The function puts a backslash before every character that TCL would substitute (`$`, `[`,
+    `\\`), that would end the word (`"`), or that would count as a brace of the script the word
+    sits in (`{`, `}`, as in `catch {read_verilog ...}`). Use it for a path in a message
+    (`puts "Reading {{src|tcl_quote}}"`). For a whole word, use `tcl_word`."""
     return _TCL_SUBSTITUTED.sub(r"\\\1", str(value))
 
 
 def tcl_word(value: Any) -> str:
-    """`value` as one literal TCL word, however it is spelled: a path with a space, brackets
-    (`fifo[1].v`) or a `$` reaches the command as it is. Unquoted or merely double-quoted, TCL
-    split such a path, read `$v` as a variable, and ran `[x]` as a command -- Vivado's TCL even
-    starts an external program whose name begins with `x`. Every flow's templates have it."""
+    """Return `value` as one literal TCL word, however it is spelled: a path with a space,
+    brackets (`fifo[1].v`) or a `$` reaches the command as it is. Unquoted or double-quoted
+    only, such a path is split by TCL, `$v` is read as a variable, and `[x]` runs as a command
+    (the TCL of Vivado even starts an external program whose name begins with `x`). The
+    templates of every flow have this function."""
     return f'"{tcl_quote(value)}"'
 
 
 def tcl_list(value: Any) -> str:
-    """`value` -- one path, or a list of them -- as a TCL expression for the list of them:
-    `[list "a b.v"]`. For a command that takes its files as a list and splits a single word at its
-    spaces: Vivado's `read_verilog`, `read_vhdl`, `read_xdc`, `add_files`, `get_files`."""
+    """Return `value`, one path or a list of them, as a TCL expression for the list of them:
+    `[list "a b.v"]`. Use it for a command that takes its files as a list and splits a single
+    word at its spaces: the `read_verilog`, `read_vhdl`, `read_xdc`, `add_files` and `get_files`
+    commands of Vivado."""
     items = value if isinstance(value, (list, tuple)) else [value]
     return "[list " + " ".join(tcl_word(item) for item in items) + "]"
 
 
 def unique(lst: List[Any]) -> List[Any]:
-    """returns unique elements of the list in their original order (first occurrence).
+    """Return the unique elements of the list in their original order (first occurrence).
 
-    Falls back to equality comparison when the items are not hashable. A design source may be
-    given as an object (`{file = "a.vhdl"}`), and the hashing fast path raised
-    `TypeError: unhashable type: 'dict'` on it before the sources validator ever saw it.
+    It falls back to an equality comparison when the items are not hashable. A design source may be
+    given as a table (`{file: "a.vhdl"}`), and the hashing fast path raises
+    `TypeError: unhashable type: 'dict'` on it.
     """
     try:
         return list(OrderedDict.fromkeys(lst))
@@ -647,10 +648,9 @@ def load_class(full_class_string: str, default_module_name: Optional[str] = None
 def hierarchical_merge(
     base_dict: Dict[Any, Any], overrides: Dict[Any, Any], add_new_keys: bool = True
 ) -> Dict[Any, Any]:
-    """
-    Hierarchical merge of 'overrides' into 'base_dict' and return the resulting dict
-    returns content of base_dict merge with content of merge_dict.
-    if add_new_keys=False keys in merge_dict not existing in base_dict are ignored
+    """Merge `overrides` into a copy of `base_dict`, recursively where both values are dicts, and
+    return the result. With `add_new_keys=False`, the keys of `overrides` that `base_dict` lacks
+    are ignored.
     """
     rtn_dct = deepcopy(base_dict)
     if add_new_keys is False:
@@ -670,7 +670,7 @@ def hierarchical_merge(
 
 
 def as_list(value: Any) -> List[Any]:
-    """`value` as a list: a list or tuple is its items, anything else is the one item."""
+    """Return `value` as a list: a list or tuple gives its items, anything else gives one item."""
     return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
@@ -679,9 +679,10 @@ _D1 = TypeVar("_D1")
 
 
 def try_convert(value: Any, typ: Type[_T1], default: Optional[_D1] = None) -> Union[None, _T1, _D1]:
+    # Any failure of the conversion stands for the default of the caller.
     try:
         return typ(value)  # type: ignore
-    except Exception:  # noqa: BLE001 - conversion failure is represented by the caller's default
+    except Exception:  # noqa: BLE001
         return default
 
 
@@ -719,7 +720,8 @@ def try_convert_to_primitives(
     return str(s)
 
 
-# hierarchical key separator is dot (.), but can be escaped with a \ (e.g., "\\.")
+#: The separator of a hierarchical key is a dot. A dot after a backslash does not split the key,
+#: and the backslash stays in the key.
 SEP = r"(?<!\\)\."
 
 
@@ -738,11 +740,11 @@ def set_hierarchy(dct: Dict[str, Any], path, value) -> None:
     table of each key before the last. A dict `value` is set key by key, so a dotted key in it is
     a path too.
 
-    A key is a value or a table, never both: one that holds a value cannot have keys inside it
-    (`timing=true` then `timing.x=1`), and one that has keys inside it is not given a value
-    (`timing.x=1` then `timing=true`). Either order is a `ConflictingKeys` naming both keys, not a
-    traceback in the one and a table lost in the other. A key left empty (`None`) is no value, so
-    a table follows it. Setting a key again replaces its value, and a table replaces a table.
+    A key is a value or a table, never both. A key that holds a value cannot have keys inside it
+    (`timing=true` then `timing.x=1`), and a key that has keys inside it is not given a value
+    (`timing.x=1` then `timing=true`). Either order raises a `ConflictingKeys` that names both
+    keys. A key left empty (`None`) holds no value, so a table can follow it. Setting a key again
+    replaces its value, and a table replaces a table.
     """
     parts = _key_parts(path) if isinstance(path, str) else list(path)
     _set_hierarchy(dct, parts, value, ())
@@ -754,8 +756,8 @@ def _key_parts(key: str) -> List[Any]:
 
 
 def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tuple[Any, ...]):
-    """`set_hierarchy` for the table `dct`, which lies under the keys `above` (named in full in
-    an error)."""
+    """Run `set_hierarchy` for the table `dct`, which lies under the keys `above` (an error names
+    them in full)."""
     key = parts[0]
     here = (*above, key)
     if len(parts) > 1:
@@ -768,7 +770,7 @@ def _set_hierarchy(dct: Dict[str, Any], parts: List[Any], value: Any, above: Tup
     if isinstance(value, dict):
         held = dct.get(key)
         if value and held is not None and not isinstance(held, MutableMapping):
-            # a whole table after a value is the same mistake as a dotted key inside it
+            # A whole table after a value is the same mistake as a dotted key inside it.
             raise ConflictingKeys(here, (*here, next(iter(value))))
         table: Dict[str, Any] = {}
         for k, v in value.items():
@@ -809,7 +811,12 @@ def common_root(signals: List[List[_T]]) -> List[_T]:
 
 
 def setting_flag(variable: Any, assign=True, name=None) -> List[str]:
-    """skip if none"""
+    """Return the command-line options for `variable`: one for each truthy item.
+
+    The options are named after `name` or, by default, after the argument that the caller passed.
+    A boolean item gives a bare flag and another item gives `--name=value`, or `--name` and
+    `value` when `assign` is false. None and empty text give an empty list.
+    """
     if variable is None or (not variable and isinstance(variable, (str))):
         return []
     if not name:
@@ -921,7 +928,7 @@ def regex_match(string: str, pattern: str, ignorecase: bool = False) -> Optional
 
 
 def removesuffix(s: str, suffix: str) -> str:
-    """similar to str.removesuffix in Python 3.9+"""
+    """Return `s` without `suffix`, like `str.removesuffix` of Python 3.9 and later."""
     if sys.version_info >= (3, 9):
         return s.removesuffix(suffix)
     else:
@@ -929,7 +936,7 @@ def removesuffix(s: str, suffix: str) -> str:
 
 
 def removeprefix(s: str, prefix: str) -> str:
-    """similar to str.removeprefix in Python 3.9+"""
+    """Return `s` without `prefix`, like `str.removeprefix` of Python 3.9 and later."""
     if sys.version_info >= (3, 9):
         return s.removeprefix(prefix)
     else:
@@ -957,14 +964,11 @@ class UnitTestUtils(unittest.TestCase):
         self.assertEqual(try_convert("1234.5", float), 1234.5)
 
 
-# DictStrHier = Dict[str, "StrOrDictStrHier"]
 DictStrHier = Dict[str, Any]
 StrOrDictStrHier = Union[str, DictStrHier]
 
 
 def conv(v):
-    # if not isinstance(v, (dict, Mapping, list, tuple, Sequence, str, int, float, bool)):
-    #     v = try_convert_to_primitives(v, convert_lists=True)
     return v
 
 
@@ -983,8 +987,6 @@ def settings_to_dict(
 ) -> Dict[str, Any]:
     if not settings:
         return {}
-    # if isinstance(settings, str):
-    #     settings = settings.split(",")
     if isinstance(settings, (tuple, list)):
         res: DictStrHier = {}
         for override in settings:
@@ -1009,19 +1011,20 @@ def settings_to_dict(
 
 
 def flows_table_problems(table: Any, *, layers: bool = False) -> List[Tuple[str, str]]:
-    """What is wrong with the shape of a `flows` table, as `(key path, problem)` pairs.
+    """Return what is wrong with the shape of a `flows` table, as `(key path, problem)` pairs.
 
-    A `flows` table maps flow names, as text, to mappings of that flow's settings. The table and each
-    of its sections are mappings, and an absent one (`None`) is empty. Nothing else is read as one: text,
-    numbers and lists are refused, empty ones included. So a mistake such as `flows: []` or
-    `-s flows.verilator=3` is reported where it was made, by every origin that writes a table (a
-    design, a target, a project, the command line, the API), instead of being ignored or ending
-    in a traceback deeper in a merge. This is the one rule they all use.
+    A `flows` table maps flow names, as text, to mappings of the settings of that flow. The table
+    and each of its sections are mappings, and an absent one (`None`) is empty. Nothing else is
+    read as one: text, numbers and lists are refused, empty ones included. A mistake such as
+    `flows: []` or `-s flows.verilator=3` is therefore reported where it was made, by every
+    origin that writes a table (a design, a target, a project, the command line, the API). It is
+    neither ignored nor does it end in a traceback deeper in a merge. All origins use this one
+    rule.
 
-    With `layers`, a section may also be a list or tuple of `KEY=VALUE` text (empty ones too),
-    which is how code gives a layer of settings (`settings_to_dict`, and the command line's `-s`).
-    The merge of every origin's table (`settings_layers.merge_flow_sections`) takes it, since
-    code reaches it that way; a file never does.
+    With `layers`, a section may also be a list or tuple of `KEY=VALUE` text (empty ones too).
+    This is how code gives a layer of settings (`settings_to_dict`, and `-s` on the command line).
+    The merge of the tables of all origins (`settings_layers.merge_flow_sections`) accepts it,
+    because code reaches the merge that way. A file never does.
     """
     if table is None:
         return []
@@ -1057,9 +1060,10 @@ _xeda_varprog = None
 
 
 def expand_vars(path: str, environ: Dict[str, str]) -> str:
-    """Expand shell variables of form $var and ${var}.  Unknown variables
-    are left unchanged.
-    This is adapted from Python's os.path.expandvars, but uses explicit environ arg instead of os.environ
+    """Expand the shell variables `$var` and `${var}` in `path` with the values in `environ`.
+
+    Unknown variables are left unchanged. This is adapted from `os.path.expandvars`, which reads
+    `os.environ` and takes no explicit mapping.
     """
     path = os.fspath(path)
     global _xeda_varprog
@@ -1092,9 +1096,8 @@ def expand_vars(path: str, environ: Dict[str, str]) -> str:
     return path
 
 
-#: Environment variables that never name a design path, so expanding them into one is
-#: always a mistake. Immutable: this is read on every path expansion, and an earlier
-#: version appended to it from that read path, growing without bound.
+#: Environment variables that never name a design path, so expanding them into one is always a
+#: mistake. The set is immutable because every path expansion reads it.
 _ENV_BLACKLIST = frozenset(
     {
         "PATH",
@@ -1135,11 +1138,11 @@ _ENV_BLACKLIST = frozenset(
     }
 )
 
-#: The variables xeda itself gives a path in a setting, each by the entry of the settings'
-#: validation context that holds its value: the directory xeda was started from, and the design
-#: root under its two names. Any other variable in such a path is read from the environment
-#: (`expand_env_vars`). Every message that says how to give a setting a location derives the
-#: forms it names from this table (`LOCATION_FORMS`).
+#: The variables that Xeda itself gives to a path in a setting, each by the entry of the
+#: validation context of the settings that holds its value: the directory Xeda was started from,
+#: and the design root under its two names. A path in a setting reads any other variable from
+#: the environment (`expand_env_vars`). Every message that says how to give a setting a location
+#: derives the forms it names from this table (`LOCATION_FORMS`).
 PATH_VARIABLES: Mapping[str, str] = MappingProxyType(
     {"PWD": "runner_cwd", "DESIGN_ROOT": "design_root", "DESIGN_DIR": "design_root"}
 )
@@ -1150,9 +1153,9 @@ LOCATION_FORMS = ", ".join(f"${name}/..." for name in PATH_VARIABLES) + " or an 
 
 
 def path_variables(context: Mapping[str, Any]) -> dict[str, Any]:
-    """The value of each of `PATH_VARIABLES` in `context` (its `runner_cwd` and `design_root`),
-    as `expand_env_vars` takes its overrides: None where `context` has none, which leaves that
-    variable as written."""
+    """Return the value of each of `PATH_VARIABLES` in `context` (its `runner_cwd` and
+    `design_root`), in the form that `expand_env_vars` takes as overrides. A variable that
+    `context` lacks gets None, which leaves it as written."""
     return {name: context.get(key) for name, key in PATH_VARIABLES.items()}
 
 
@@ -1161,20 +1164,21 @@ def expand_env_vars(
     overrides: Optional[Dict[str, Any]] = None,
     escape: Optional[Callable[[str], str]] = None,
 ) -> Path:
-    """Substitute environment variables in path with their values.
-    if the value for a variable in overrides is None, then the variable is ignored (not expanded).
-    `escape`, when given, is applied to every substituted value -- `glob.escape` for a pattern,
-    where a value is a literal place, not more pattern.
+    """Return `path` with its environment variables substituted by their values.
+
+    A variable whose value in `overrides` is None is not expanded. `escape`, when given, is
+    applied to every substituted value: use `glob.escape` for a pattern, where a value is a
+    literal place and not more pattern.
     """
     if not isinstance(path, str):
         path = str(path)
-    # fast check
+    # nothing to expand in a path too short to hold a variable
     if len(path) < 2:
         return Path(path)
     if overrides is None:
         overrides = {}
-    # Variables that are not relevant to XEDA, and any starting with an underscore ("_"), are
-    # dropped rather than substituted into a design path.
+    # Never substitute a variable of `_ENV_BLACKLIST`, or one that starts with an underscore,
+    # into a design path.
     environ = {
         k: v for k, v in os.environ.items() if not k.startswith("_") and k not in _ENV_BLACKLIST
     }
@@ -1188,49 +1192,16 @@ def expand_env_vars(
     path = expand_vars(path, environ)
     return Path(path)
 
-    # # intentionally limiting the pattern to uppercase and 2 characters or more + "/"
-    # ENVVAR_START_RE = re.compile(r"^\$(?P<var>[A-Z][A-Z0-9_]+)/")
-    # env_match = ENVVAR_START_RE.match(path)
-    # if not env_match:
-    #     return path
-    # var = env_match.group("var")
-    # if not var:
-    #     return path
-    # if var in overrides:
-    #     var_value = overrides[var]
-    #     if var_value is None:
-    #         return path
-    # else:
-    #     var_value = os.getenv(var)
-    #     if var_value is None:
-    #         log.warning(
-    #             "Environment variable %s not set. Passing on the unchanged value.",
-    #             var,
-    #         )
-    # if var_value is not None:
-    #     remainder = path[len(env_match.group(0)) :]
-    #     p = Path(var_value) / remainder
-    #     log.info(
-    #         "Substituting variable %s in path %s with %s. Expanded path is: %s.",
-    #         var,
-    #         path,
-    #         var_value,
-    #         str(p),
-    #     )
-    #     return p
-    # return path
-
 
 class XedaException(Exception):
-    """Super-class of all xeda exceptions
-    should be caught by CLI and handled appropriately
-    """
+    """The base class of all Xeda exceptions. The command line catches and reports them."""
 
 
 class ConflictingKeys(XedaException, ValueError):
-    """A key given as a value and as a table: `value_key` holds a value, and `child_key` sets a key
-    inside it, whichever came first. A `XedaException`, so the command line reports it, and a
-    `ValueError`, so a validator that expands a key reports it as the field's error."""
+    """A key given as a value and as a table. `value_key` holds a value, and `child_key` sets a
+    key inside it, whichever came first. The class is a `XedaException`, so the command line
+    reports it, and a `ValueError`, so a validator that expands a key reports it as the error of
+    the field."""
 
     def __init__(self, value_key: Any, child_key: Any) -> None:
         self.value_key = _dotted(value_key)
@@ -1246,8 +1217,8 @@ class ConflictingKeys(XedaException, ValueError):
 
 class EscapedName(XedaException, ValueError):
     """A name of a setting in `opaque_key_fields` that contains `dataclass.ESCAPED_DOT`. The
-    expansion of dotted keys keeps such a key whole, which would let one origin give `A` and
-    `A.B` without `ConflictingKeys`. The tool's names have no backslash."""
+    expansion of dotted keys keeps such a key whole, so one origin could give both `A` and `A.B`
+    without a `ConflictingKeys`. The names of the tool have no backslash."""
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -1261,17 +1232,17 @@ class EscapedName(XedaException, ValueError):
 
 
 def _dotted(key: Any) -> str:
-    """A key given as its parts, in the dotted form it is written in."""
+    """Return a key given as its parts in the dotted form it is written in."""
     return ".".join(map(str, key)) if isinstance(key, (tuple, list)) else str(key)
 
 
 class ToolException(XedaException):
-    """Super-class of all tool exceptions"""
+    """The base class of all tool exceptions."""
 
 
 class NonZeroExitCode(ToolException):
-    """A command ended with a nonzero exit code. `args` is what the tool reported, if the caller
-    knows it, shown after the code."""
+    """A command ended with a nonzero exit code. `args` holds what the tool reported, if the
+    caller knows it. The message shows it after the code."""
 
     def __init__(self, command_args: Any, exit_code: int, *args: object) -> None:
         if isinstance(command_args, (list, tuple)):
@@ -1390,9 +1361,9 @@ def semantic_hash(data: Any) -> str:
         if isinstance(data, (list, tuple)):
             return [_sorted_dict_str(val) for val in data]
         if isinstance(data, Enum):
-            # An enum member's `__dict__` carries `__objclass__`, i.e. the enum class, whose own
-            # `__dict__` lists every member -- descending into it never terminates. Hash the
-            # member the way it is written out instead. `SourceType` reaches here through
+            # An enum member's `__dict__` carries `__objclass__`, the enum class, whose own
+            # `__dict__` lists every member, so descending into it never terminates. Hash the
+            # member as it is written out instead. `SourceType` reaches here through
             # `DesignSource.type` whenever a design is hashed directly.
             return str(data)
         if isinstance(data, type):

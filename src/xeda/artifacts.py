@@ -63,7 +63,7 @@ def filter_artifact_paths(artifacts: Any, keep: Callable[[ArtifactPath], bool]) 
 
 
 def _emptied(before: Any, after: Any) -> bool:
-    """Whether filtering took every path from a value that had some."""
+    """Return whether filtering took every path from a value that had some."""
     return next(iter_artifact_paths(before), None) is not None and (
         next(iter_artifact_paths(after), None) is None
     )
@@ -72,14 +72,16 @@ def _emptied(before: Any, after: Any) -> bool:
 def drop_unwritten_artifacts(
     artifacts: Mapping[str, Any], written: Callable[[ArtifactPath], bool], flow_name: str
 ) -> dict[str, Any]:
-    """The artifacts of a failed run of `flow_name` without the paths it did not write (`written`
-    tells), with one warning naming each dropped label and path.
+    """Return the artifacts of a failed run of `flow_name` without the paths it did not write.
+
+    `written` tells which paths the run wrote. One warning names each dropped label and path.
 
     A flow records its outputs where it knows their names, usually before its tool runs, and a
-    failed tool may never write them. Listed anyway, they send every consumer of the results
-    after files that are not there: the remote runner's transfer raised on the first one, so a
-    failed remote run crashed instead of reporting its failure. The launcher applies this to the
-    runs it reports, and the remote runner to what a remote reports, which may be an older xeda.
+    failed tool may never write them. If they stayed listed, every consumer of the results would
+    look for files that do not exist. The transfer of the remote runner raised on the first one,
+    so a failed remote run crashed instead of reporting its failure. The launcher applies this
+    function to the runs it reports, and the remote runner to what a remote reports, which may
+    come from an older Xeda.
     """
     checked: dict[str, bool] = {}
 

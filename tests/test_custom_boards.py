@@ -417,10 +417,10 @@ def test_a_yaml_database_goes_through_the_strict_loader(tmp_path):
     prefix = "MY_BOARD:\n  fpga:\n    part: LFE5U-25F-6BG381C\n"
     # `on` is a YAML 1.1 boolean: here it is text, and no integer.
     message = database_error(tmp_path, "boards.yaml", prefix + "    pins: on\n")
-    assert "`on` is text in xeda YAML (YAML 1.2): write `true`" in message
+    assert "`on` is text in Xeda YAML (YAML 1.2): write `true`" in message
     # `010` is the number ten, not octal eight, and no text.
     message = database_error(tmp_path, "boards.yaml", prefix + "    package: 010\n")
-    assert '`10` is a number in xeda YAML (YAML 1.2): write `"10"` for text' in message
+    assert '`10` is a number in Xeda YAML (YAML 1.2): write `"10"` for text' in message
     # Where text fits, it stays the text that was written.
     path = tmp_path / "text.yaml"
     path.write_text(prefix + "    package: on\n  openfpgaloader_board: no\n")

@@ -1,13 +1,15 @@
-"""xeda's space: a run root it created and marked.
+"""The run root: a directory that Xeda created and marked as its own.
 
-Every run directory lies in a run root: `--run-root`, `XEDA_RUN_ROOT` or the launcher's
-`run_root`, `./xeda_run` by default. xeda works only in a run root it created, or one that was
-empty when it first used it, and marks it so (`RUN_ROOT_MARKER`), with a `.gitignore` of `*` and a
-`CACHEDIR.TAG`, so that version control and backup tools leave it alone. Everything under a marked
-run root is xeda's: keep nothing of yours there. A directory that holds files and no marker is not
-xeda's, and is refused before anything runs, naming it and the fix -- except the default,
-`./xeda_run` at the start directory, which an earlier xeda made: that one is adopted, once, with
-an info line. Creating `.xeda-run-root` in a directory hands it to xeda.
+Every run directory lies in a run root. `--run-root`, `XEDA_RUN_ROOT` or the `run_root` of the
+launcher name it, and `./xeda_run` is the default. Xeda works only in a run root that it created
+or that was empty when Xeda first used it. It marks the run root (`RUN_ROOT_MARKER`) and adds a
+`.gitignore` of `*` and a `CACHEDIR.TAG`, so version control and backup tools leave it alone.
+Everything under a marked run root belongs to Xeda: keep nothing of yours there.
+
+A directory that holds files and has no marker does not belong to Xeda. Xeda refuses it before
+anything runs and names the directory and the fix. The one exception is the default,
+`./xeda_run` in the start directory, which an earlier Xeda made. Xeda adopts that directory once
+and logs an info line. Creating `.xeda-run-root` in a directory hands it to Xeda.
 """
 
 from __future__ import annotations
@@ -40,34 +42,37 @@ __all__ = [
 RUN_ROOT_MARKER = ".xeda-run-root"
 RUN_ROOT_FORMAT = 1
 DEFAULT_RUN_ROOT = "xeda_run"
-GITIGNORE = "# a run root of xeda's: everything here is xeda's own\n*\n"
-#: https://bford.info/cachedir/: backup tools skip a directory holding this file
+GITIGNORE = "# A run root of Xeda: everything here is Xeda's own\n*\n"
+#: The tag file from https://bford.info/cachedir/. Backup tools skip a directory that holds it.
 CACHEDIR_TAG = (
     "Signature: 8a477f597d28d172789f06886806bc55\n"
-    "# This file is a cache directory tag created by xeda.\n"
+    "# This file is a cache directory tag created by Xeda.\n"
     "# For information about cache directory tags, see https://bford.info/cachedir/\n"
 )
 
 
 class RunRootError(XedaException):
-    """A directory named as the run root that xeda cannot take for its own."""
+    """A directory named as the run root that Xeda cannot take for its own."""
 
 
 def is_run_root(path: Path) -> bool:
-    """Whether `path` holds the marker of a run root: a regular file, whatever it holds."""
+    """Return whether `path` holds the marker of a run root: a regular file with any content."""
     marker = Path(path) / RUN_ROOT_MARKER
     return marker.is_file() and not marker.is_symlink()
 
 
 def is_default_location(path: Path, start: Path) -> bool:
-    """Whether `path` is the default run root an earlier xeda made: `xeda_run`, directly in the
-    start directory `start` -- nothing else, `xeda_run_dse` and `xeda_run_<optimizer>` included."""
+    """Return whether `path` is the default run root that an earlier Xeda made.
+
+    That is `xeda_run` directly in the start directory `start`. Any other name does not count,
+    `xeda_run_dse` and `xeda_run_<optimizer>` included.
+    """
     path, start = Path(os.path.realpath(path)), Path(os.path.realpath(start))
     return path.parent == start and path.name == DEFAULT_RUN_ROOT
 
 
 def _create_exclusively(path: Path, text: str) -> bool:
-    """Write `text` to `path` if nothing is there; False if something is."""
+    """Write `text` to `path` if nothing is there. Return False if something is."""
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
     except FileExistsError:
@@ -78,8 +83,12 @@ def _create_exclusively(path: Path, text: str) -> bool:
 
 
 def _mark(root: Path) -> None:
-    """The marker first, exclusively, so that a concurrent xeda that finds the directory holding
-    files finds the marker among them; then the ignore files, where there are none."""
+    """Mark `root` as a run root.
+
+    Write the marker first, with exclusive creation, so a concurrent Xeda that finds the
+    directory holding files finds the marker among them. Then write the ignore files that are
+    absent.
+    """
     marker = {
         "format": RUN_ROOT_FORMAT,
         "created_by": f"xeda {__version__}",
@@ -96,17 +105,18 @@ def ensure_run_root(
     start: Optional[Path] = None,
     create: bool = True,
 ) -> Optional[Path]:
-    """Validate the resolved run root and, with `create`, make it ready for xeda.
+    """Validate the resolved run root and, with `create`, make it ready for Xeda.
 
-    An absent, empty or unmarked default root is created/marked only with `create`; otherwise
-    return None so the launcher still prepares it on first actual use. An already marked root
-    is returned unchanged. Refuse other unmarked roots before anything is written.
+    Return a root that is already marked unchanged. An absent root, an empty root and the
+    unmarked default root are created and marked only with `create`. Without `create`, return
+    None for them, and the launcher prepares the root on its first use. Refuse every other
+    unmarked root before anything is written.
     """
     root = Path(path).resolve()
     start = Path.cwd() if start is None else Path(start)
     if root.exists() and not root.is_dir():
         raise RunRootError(
-            f"{root} is not a directory: the run root is the directory xeda keeps its runs in"
+            f"{root} is not a directory: the run root is the directory Xeda keeps its runs in"
         )
     if not root.exists():
         if not create:
@@ -126,15 +136,15 @@ def ensure_run_root(
             return None
         _mark(root)
         log.info(
-            "xeda now keeps its runs in %s, which an earlier xeda made: it is marked as xeda's "
+            "Xeda now keeps its runs in %s, which an earlier Xeda made: it is marked as Xeda's "
             "(%s); keep nothing of yours in it",
             root,
             RUN_ROOT_MARKER,
         )
         return root
     raise RunRootError(
-        f"{root} holds files and is not a run root xeda created (it has no {RUN_ROOT_MARKER}): "
-        "xeda keeps its runs in a directory of its own. Name a new or empty directory with "
-        f"--run-root; if {root} holds nothing but runs of an earlier xeda, delete them, or "
-        f"create {root / RUN_ROOT_MARKER} to hand the directory to xeda."
+        f"{root} holds files and is not a run root Xeda created (it has no {RUN_ROOT_MARKER}): "
+        "Xeda keeps its runs in a directory of its own. Name a new or empty directory with "
+        f"--run-root; if {root} holds nothing but runs of an earlier Xeda, delete them, or "
+        f"create {root / RUN_ROOT_MARKER} to hand the directory to Xeda."
     )

@@ -27,15 +27,15 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 #: The formats a custom board database (`custom_boards_file`) may be written in, by file suffix.
-#: The databases xeda bundles stay TOML.
+#: The bundled databases are TOML.
 BOARD_DATABASE_FORMATS: Dict[str, str] = {".toml": "toml", ".yaml": "yaml", ".yml": "yaml"}
 
 
 def board_database_format(path: Union[str, os.PathLike]) -> str:
-    """The format (`toml` or `yaml`) custom board database `path` is read in, by its suffix.
+    """Return the format (`toml` or `yaml`) in which a custom board database is read.
 
-    Suffixes are case-sensitive, like every name xeda reads. Any other suffix is a `ValueError`
-    naming the file and the suffixes accepted, never a guess.
+    The file suffix decides the format. Suffixes are case-sensitive. Any other suffix is a
+    `ValueError` that names the file and the accepted suffixes.
     """
     suffix = Path(path).suffix
     fmt = BOARD_DATABASE_FORMATS.get(suffix)
@@ -50,12 +50,12 @@ def board_database_format(path: Union[str, os.PathLike]) -> str:
 
 
 def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
-    """The table of boards in custom board database `path`, TOML or YAML by its suffix.
+    """Return the table of boards in a custom board database, read as TOML or YAML by its suffix.
 
-    YAML goes through xeda's one strict reader (`xeda.yaml_loader`): YAML 1.2 core scalars,
-    string keys only, duplicate keys an error. Every way the content can be wrong is a
-    `ValueError` naming the file (and the line, where the parser knows it); a file that cannot be
-    opened is the `OSError`.
+    YAML goes through the strict reader of Xeda (`xeda.yaml_loader`): YAML 1.2 core scalars,
+    string keys only, and an error for a duplicate key. Any wrong content is a `ValueError` that
+    names the file (and the line, where the parser knows it). A file that cannot be opened raises
+    `OSError`.
     """
     fmt = board_database_format(path)
     try:
@@ -90,11 +90,11 @@ def read_board_database(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def bundled_boards() -> Dict[str, Any]:
-    """The boards xeda bundles (`xeda/data/boards.toml`), by name.
+    """Return the boards that Xeda bundles (`xeda/data/boards.toml`), by name.
 
     A bundled board is stored under a lower-case name and found by its name in any letter case
-    (`get_board_data`). A name that is not lower case would make that lookup ambiguous, so such a
-    database is refused: two names that differ only in case cannot both be in it.
+    (`get_board_data`). Two names that differ only in case would make that lookup ambiguous, so
+    the database must name every board in lower case.
     """
     boards = toml_loads(files("xeda.data").joinpath("boards.toml").read_text())
     odd = [name for name in boards if name != name.lower()]
@@ -109,11 +109,11 @@ def bundled_boards() -> Dict[str, Any]:
 def canonical_board_name(
     board: Any, custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Any:
-    """The name a selected board is stored under, so that every spelling is one setting.
+    """Return the name a selected board is stored under, so that every spelling is one setting.
 
     A bundled board answers to its name in any letter case and is stored in lower case. A board of
-    a custom database is stored as written: its names are case-sensitive. A name no board answers
-    to is returned as written, so the error that names it shows what was given.
+    a custom database is stored as written, because its names are case-sensitive. A name that no
+    board answers to is returned as written, so the error that names it shows what was given.
     """
     if custom_boards_file or not isinstance(board, str):
         return board
@@ -123,8 +123,8 @@ def canonical_board_name(
 def get_board_data(
     board: Optional[str], custom_boards_file: Union[None, str, os.PathLike] = None
 ) -> Optional[Dict[str, Any]]:
-    """The entry for `board`: from `custom_boards_file` (TOML or YAML), else from the bundled
-    (TOML) database.
+    """Return the entry for `board` from `custom_boards_file` (TOML or YAML), else from the
+    bundled (TOML) database.
 
     A bundled board is found by its name in any letter case. The names in a custom database are
     case-sensitive: `board` must be written exactly as the database writes it.
@@ -173,13 +173,14 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
     )
 
     def board_data(self) -> dict[str, Any] | None:
-        """Read this flow's selected board from its configured database."""
+        """Return the entry of the selected board from the configured database."""
         return get_board_data(self.board, self.custom_boards_file)
 
     def board_file(self, name: str) -> AbstractContextManager[Path]:
-        """A file named relative to the board database, such as a board's local `lpf`.
+        """Return a context manager for a file named relative to the board database.
 
-        A context manager: a bundled file may exist on disk only while it is open.
+        An example is a board's local `lpf`. A bundled file may exist on disk only while the
+        context is open.
         """
         if self.custom_boards_file:
             return nullcontext(self.custom_boards_file.parent / name)
@@ -228,7 +229,7 @@ class WithFpgaBoardSettings(FpgaSynthFlow.Settings):
         if custom is not None:
             values["custom_boards_file"] = custom
             if custom and isinstance(custom, (str, os.PathLike)):
-                board_database_format(custom)  # a suffix xeda does not read, even with no board
+                board_database_format(custom)  # a suffix Xeda does not read, even with no board
         if board_name:
             database = f"custom boards file {custom}" if custom else "the bundled board database"
             try:

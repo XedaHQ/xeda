@@ -1,9 +1,8 @@
-"""Machine-readable introspection of xeda's flows, settings, results, and design schema.
+"""Machine-readable introspection of Xeda's flows, settings, results and design schema.
 
-This is the single source of truth behind the CLI's ``--json``/``--format`` output, the
-generated documentation, and the reference files of the agent skill. Everything here returns
-plain JSON-serializable data and never touches the console, so it can be consumed
-programmatically:
+The CLI output of `--json` and `--format`, the generated documentation and the reference files
+of the agent skill all read from this module. Every function returns plain JSON-serializable
+data and never touches the console, so other code can use it too:
 
     >>> from xeda.introspect import flow_info, settings_info
     >>> flow_info("vivado_synth")["category"]
@@ -69,37 +68,36 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------------------------
-# helpers
-# --------------------------------------------------------------------------------------------
-
-
 def json_safe(value: Any) -> Any:
-    """`value` as plain JSON data, exactly as xeda writes it to a file: encoded by `json` with
-    `utils.json_encodable` -- the encoder behind every JSON file xeda writes -- and read back.
-    So a document the CLI prints agrees with `settings.json` or `best.json` on the same value.
+    """Return `value` as plain JSON data, exactly as Xeda writes it to a file.
 
-    It is built by that round trip rather than by walking the value, because a walk re-derives
-    `json`'s own rules and gets some wrong: `json` writes a key `True` as `"true"`, `None` as
-    `"null"` and a `str` enum member as its text, where `str(key)` gave `"True"`, `"None"` and
-    `"E.A"`. The result holds only plain `dict`/`list`/`str`/number/`bool`/`None` data, which
-    `--format yaml` renders as well. Keys go through `utils.with_json_keys` first, as they do for
-    a file, so no key -- a `Path`, a tuple -- turns a document into an error."""
+    The value is encoded by `json` with `utils.json_encodable`, the encoder behind every JSON
+    file Xeda writes, and read back. A document that the CLI prints therefore agrees with
+    `settings.json` or the `fmax_<design>_<flow>_<timestamp>.json` file of a search on the same
+    value.
+
+    The round trip replaces a walk over the value, because a walk re-derives the rules of `json`
+    and gets some wrong: `json` writes the key `True` as `"true"`, `None` as `"null"` and a `str`
+    enum member as its text, where `str(key)` would give `"True"`, `"None"` and `"E.A"`. The
+    result holds only plain `dict`, `list`, `str`, number, `bool` and `None` data, which
+    `--format yaml` also renders. Keys go through `utils.with_json_keys` first, as they do for a
+    file, so a key such as a `Path` or a tuple never turns a document into an error."""
     return json.loads(json.dumps(with_json_keys(value), default=json_encodable))
 
 
 def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
-    """The `design` and `design_file` keys of a `run` or `dse` document.
+    """Return the `design` and `design_file` keys of a `run` or `dse` document.
 
-    `requested` is the design the command line gave: a design file (a `Path`, or text with a
-    design-file suffix, which is how the launcher reads it) or the name of a design in a project;
-    None when it gave none. `loaded` is the name of the design the launcher loaded, if it got that
-    far.
+    `requested` is the design that the command line gave: a design file (a `Path`, or text with
+    a design file suffix, which the launcher reads as a design file) or the name of a design in
+    a project. It is None when the command line gave none. `loaded` is the name of the design
+    that the launcher loaded, if it got that far.
 
-    `design` is always the design's name: the loaded design's, else the name the request gave. A
-    design file that was not read has no name to report, so it is None. `design_file` is the
-    absolute path of the design file the request named, and None when it named none (a design of
-    a project, or no design): a failure to read the file still says which one it was.
+    `design` is always the name of the design: the loaded design's name, else the name that the
+    request gave. A design file that was not read has no name to report, so `design` is None.
+    `design_file` is the absolute path of the design file that the request named. It is None when
+    the request named none (a design entry of a project, or no design). A failure to read the
+    file still says which file it was.
     """
     file = None
     name = loaded
@@ -112,8 +110,9 @@ def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
 
 
 def request_info(request: Any) -> list[dict[str, Any]]:
-    """A request's elements as given, canonical: one for a single flow, several for a chain.
-    `output` is the output a chain element selected for its next edge, else None."""
+    """Return the elements of a request with canonical names: one for a single flow, several for
+    a chain. `output` is the output that a chain element selects for its edge to the next
+    element, else None."""
     return [
         {"node": element.node, "flow": element.flow_class.name, "output": element.output}
         for element in request.elements
@@ -121,7 +120,8 @@ def request_info(request: Any) -> list[dict[str, Any]]:
 
 
 def inputs_info(node: Any) -> list[dict[str, Any]]:
-    """A plan node's resolved inputs, as `plan_info` and `xeda run --json`'s nodes give them."""
+    """Return the resolved inputs of a plan node, as `plan_info` and the nodes of `xeda run
+    --json` give them."""
     return [
         {
             "name": resolved.name,
@@ -139,11 +139,14 @@ def inputs_info(node: Any) -> list[dict[str, Any]]:
 
 
 def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """A resolved plan as plain data: the design's selected target (or None), producers
-    first, directories, input origins, and outputs switched on because a consumer reads them.
-    With `freshness` (`DefaultRunner.plan_with_freshness`), each node also has `state`
-    (`fresh`, `stale` or `unknown`) and `reason`: what a launch would do, and why (the words
-    it logs for a stale node; why nothing can be said for an unknown one; empty if fresh).
+    """Return a resolved plan as plain data: the selected target of the design (or None) and the
+    nodes, producers first, each with its run directory, input origins and the outputs switched
+    on because a consumer reads them.
+
+    With `freshness` (from `DefaultRunner.plan_with_freshness`), each node also has `state`
+    (`fresh`, `stale` or `unknown`) and `reason`, which say what a launch would do and why. The
+    reason of a stale node is the text that the launch logs. The reason of an unknown node says
+    why nothing can be said. The reason of a fresh node is empty.
     """
     return json_safe(
         {
@@ -166,7 +169,7 @@ def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[st
                         if freshness is not None
                         else {}
                     ),
-                    # static class metadata: a dynamic `always_runs()` is never evaluated here
+                    # Static class metadata. `always_runs()` is never called here.
                     "action_reason": node.flow_class.action_reason,
                     "input_types": {
                         name: [t.name for t in selected_types(node.flow_class, node.settings, name)]
@@ -189,7 +192,7 @@ def plan_info(plan: Plan, freshness: Mapping[str, Any] | None = None) -> dict[st
 
 
 def all_flow_classes() -> List[Type[Flow]]:
-    """Every concrete, registered flow class, ordered by canonical name."""
+    """Return every registered flow class, ordered by canonical name."""
     classes = {cls for cls in __builtin_flows__} | {cls for _mod, cls in registered_flows.values()}
     return sorted(classes, key=lambda cls: cls.name)
 
@@ -201,9 +204,9 @@ def _resolve(flow: Union[str, Type[Flow]]) -> Type[Flow]:
 
 
 def _own_docstring(cls: type) -> Optional[str]:
-    """The class's *own* docstring, never one inherited from a base class.
+    """Return the docstring of the class itself, never one inherited from a base class.
 
-    `inspect.getdoc` walks the MRO, which is how `list-flows` came to advertise flows as
+    `inspect.getdoc` walks the MRO, so `list-flows` would describe a flow without a docstring as
     "Superclass of all FPGA synthesis flows".
     """
     doc = cls.__dict__.get("__doc__")
@@ -222,16 +225,12 @@ def _category(cls: Type[Flow]) -> str:
     return "other"
 
 
-# --------------------------------------------------------------------------------------------
-# flows
-# --------------------------------------------------------------------------------------------
-
-
 def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
-    """One follow relation as plain data, seen from the other end: `other` is the flow it
-    names, `output` the producer output a request qualifies when the unqualified one is
-    ambiguous, `binds` the input/output pairs the adjacency binds, and `target_dependent`
-    whether a produced or accepted kind is a union the target narrows."""
+    """Return one follow relation as plain data, seen from the other end. `other` is the flow
+    that the relation names. `output` is the producer output that a request must name, and None
+    when the unqualified request is valid. `binds` lists the input and output pairs that the
+    adjacency binds. `target_dependent` tells whether a type that the relation makes or takes is
+    a union that the target settings narrow."""
     return {
         "flow": other.name,
         "output": edge.output,
@@ -241,13 +240,14 @@ def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
 
 
 def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Everything known about a flow that does not require instantiating it.
+    """Return everything known about a flow without instantiating it.
 
-    `can_precede` lists the flows that can directly follow this one in a chain (`this+other`)
-    and `can_follow` those it can directly follow (`other+this`), both judged by the chain
-    validator on declarations alone (`chains.followers`/`predecessors`), so a hint and a
-    refusal cannot disagree. A relation is `target_dependent` when a union of kinds, which the
-    target narrows, decides it; the resolved plan is authoritative.
+    `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
+    flows that can directly follow this flow in a chain (`this+other`), and `can_follow` lists
+    the flows that this flow can directly follow (`other+this`). The chain validator judges both
+    on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
+    cannot disagree. A relation is `target_dependent` when a union of types decides it and the
+    target settings narrow that union. The resolved plan is authoritative.
     """
     cls = _resolve(flow)
     candidates = all_flow_classes()
@@ -297,8 +297,8 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
 
 
 def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
-    """The `list-flows` table's chain columns for one `flow_info` document: what it takes, what
-    it makes, and what can follow it."""
+    """Return the three chain columns of the `list-flows` table for one `flow_info` document:
+    what the flow takes, what it makes and what can follow it."""
 
     def kinds(item: dict[str, Any]) -> str:
         return "/".join(item["types"])
@@ -335,27 +335,23 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
 
 
 def flows_info() -> List[Dict[str, Any]]:
-    """`flow_info` for every registered flow, ordered by canonical name."""
+    """Return `flow_info` for every registered flow, ordered by canonical name."""
     return [flow_info(cls) for cls in all_flow_classes()]
 
 
-# --------------------------------------------------------------------------------------------
-# settings
-# --------------------------------------------------------------------------------------------
-
-
-#: JSON Schema dialect pydantic v2 emits. Declared on the published document so a validator
-#: selects the matching draft; v2 uses 2020-12 shapes (`$defs`, `prefixItems`).
+#: The JSON Schema dialect that pydantic 2 emits. The published document declares it, so that a
+#: validator selects the matching draft. Draft 2020-12 uses the shapes `$defs` and `prefixItems`.
 JSON_SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
 
 def _is_null_branch(spec: Any) -> bool:
-    """True for the `{"type": "null"}` arm v2 adds to every `Optional[...]` field."""
+    """Return whether `spec` is the `{"type": "null"}` branch that pydantic 2 adds to every
+    `Optional[...]` field."""
     return isinstance(spec, dict) and spec.get("type") == "null" and len(spec) == 1
 
 
 def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) -> str:
-    """Render a JSON-Schema fragment as a short, human- and agent-readable type expression."""
+    """Render a JSON Schema fragment as a short type expression that people and agents can read."""
     definitions = definitions if definitions is not None else {}
     if isinstance(field_schema, (list, tuple)):
         return "|".join(type_str(f, definitions) for f in field_schema)
@@ -371,7 +367,7 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
             return f"dict[string, {type_str(additional, definitions)}]"
         return "object"
     if typ == "array":
-        # draft 2020-12 describes a fixed-length tuple with `prefixItems`, one schema per
+        # Draft 2020-12 describes a fixed-length tuple with `prefixItems`, one schema per
         # position.
         prefix_items = field_schema.get("prefixItems")
         if prefix_items:
@@ -391,7 +387,7 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
                 return "null"
             if len(non_null) == 1:
                 return type_str(non_null[0], definitions)
-            # De-duplicate while preserving order: several arms can render the same way (a
+            # Remove duplicates and keep the order: several branches can render the same way (a
             # plain string and a `format: path` string both read as "string").
             rendered = list(dict.fromkeys(type_str(v, definitions) for v in non_null))
             return joiner.join(rendered)
@@ -401,7 +397,8 @@ def type_str(field_schema: Any, definitions: Optional[Dict[str, Any]] = None) ->
 
 
 def _default_of(model_field: Any) -> Any:
-    """JSON-safe default of a pydantic field; `None` for fields that have no default."""
+    """Return the default of a pydantic field as JSON-safe data, or None for a field with no
+    default."""
     if model_field.is_required():
         return None
     default = model_field.default
@@ -507,11 +504,10 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
 
 
 def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Flattened, fully-named settings of a flow, plus the raw JSON Schema.
+    """Return the settings of a flow, plus the raw JSON Schema.
 
-    Every field is reported under the name that can be typed as ``-s <name>=<value>``, including
-    the fields shared by all flows (``ncpus``, ``dockerized``, ...) which the settings table
-    used to hide.
+    `fields` has one entry for each top-level setting, including the settings that every flow
+    shares (`ncpus`, `dockerized`, ...). `definitions` describes the nested models.
     """
     cls = _resolve(flow)
     schema = cls.Settings.model_json_schema(by_alias=True)
@@ -524,24 +520,19 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     }
 
 
-# --------------------------------------------------------------------------------------------
-# results
-# --------------------------------------------------------------------------------------------
-
-
 _NAMED_GROUP_RE = re.compile(r"\(\?P<([A-Za-z_]\w*)>")
 
 
 def _detected_result_keys(cls: Type[Flow]) -> List[str]:
-    """Result keys a flow's own source shows it reports, from three complementary signals.
+    """Return the result keys that the source of a flow shows it reports. Three signals give them:
 
-    1. assignments to ``self.results[...]`` / ``self.results....``
-    2. named groups of the regexes handed to ``parse_report_regex`` / ``parse_regex``, which is
-       how most flows populate results
-    3. keys the flow reads back via ``self.results[...]`` / ``.get(...)``
+    1. Assignments to `self.results[...]` and `self.results.<key>`.
+    2. Named groups of the regexes passed to `parse_report_regex` and `parse_regex`, which is how
+       most flows fill the results.
+    3. Keys that the flow reads back with `self.results[...]` or `self.results.get(...)`.
 
-    Statically detected, so dynamically-computed keys (e.g. per-resource FPGA utilization) are
-    not listed. By convention, keys starting with ``_`` are internal and excluded.
+    The detection is static, so a key computed at run time (for example, the utilization of each
+    FPGA resource) is not listed. Keys that start with `_` are internal and excluded.
     """
     keys: List[str] = []
     for klass in cls.__mro__:
@@ -549,7 +540,7 @@ def _detected_result_keys(cls: Type[Flow]) -> List[str]:
             continue
         try:
             source = textwrap.dedent(inspect.getsource(klass))
-        except (OSError, TypeError):  # pragma: no cover - source not available
+        except (OSError, TypeError):  # pragma: no cover (source not available)
             continue
         if "parse_regex" in source or "parse_report_regex" in source:
             keys += _NAMED_GROUP_RE.findall(source)
@@ -558,7 +549,7 @@ def _detected_result_keys(cls: Type[Flow]) -> List[str]:
         except SyntaxError:  # pragma: no cover
             continue
         for node in ast.walk(tree):
-            # self.results["key"] anywhere (assigned, augmented, or read back)
+            # `self.results["key"]` anywhere (assigned, augmented or read back)
             if isinstance(node, ast.Subscript):
                 value = node.value
                 if (
@@ -568,7 +559,7 @@ def _detected_result_keys(cls: Type[Flow]) -> List[str]:
                     and isinstance(node.slice.value, str)
                 ):
                     keys.append(node.slice.value)
-            # self.results.key = ... (Box attribute assignment)
+            # `self.results.key = ...` (attribute assignment on the results box)
             elif isinstance(node, (ast.Assign, ast.AugAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
                 for target in targets:
@@ -578,7 +569,7 @@ def _detected_result_keys(cls: Type[Flow]) -> List[str]:
                         and target.value.attr == "results"
                     ):
                         keys.append(target.attr)
-            # self.results.get("key")
+            # `self.results.get("key")`
             elif isinstance(node, ast.Call) and node.args:
                 func = node.func
                 if (
@@ -593,7 +584,7 @@ def _detected_result_keys(cls: Type[Flow]) -> List[str]:
     return sorted(unique([k for k in keys if not k.startswith("_")]))
 
 
-#: Reported by every cocotb-driven simulation flow, via `Cocotb.add_results`.
+#: The result keys of every simulation flow that runs cocotb, added by `Cocotb.add_results`.
 COCOTB_RESULTS: Dict[str, str] = {
     "cocotb.tests": "Number of cocotb tests that ran.",
     "cocotb.errors": "Number of cocotb tests that errored.",
@@ -605,18 +596,19 @@ COCOTB_RESULTS: Dict[str, str] = {
 
 
 def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
-    """Result keys a flow writes to `results.json`, with descriptions where documented.
+    """Return the result keys that a flow writes to `results.json`, with descriptions where
+    documented.
 
-    A flow that declares `results_description` is trusted: only its documented keys (plus the
-    ones every flow reports) are listed. For a flow that has not been documented yet, keys are
-    detected from its source as a best effort and the `note` says so.
+    A flow that declares `results_description` lists only its documented keys, plus the keys that
+    every flow reports. For a flow without that declaration, the keys are detected from its
+    source on a best-effort basis, and the `note` says so.
     """
     cls = _resolve(flow)
     documented: Dict[str, str] = dict(getattr(cls, "results_description", {}) or {})
     if getattr(cls, "cocotb_sim_name", None):
         documented = {**COCOTB_RESULTS, **documented}
-    # A flow counts as documented once it declares `results_description` itself -- including as an
-    # empty dict, which is how a flow states that it reports nothing beyond the common keys.
+    # A flow counts as documented once it declares `results_description` itself. An empty dict
+    # counts: it states that the flow reports nothing beyond the common keys.
     curated = bool(documented) or any(
         "results_description" in klass.__dict__ for klass in cls.__mro__ if klass is not Flow
     )
@@ -677,16 +669,8 @@ def results_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     }
 
 
-# --------------------------------------------------------------------------------------------
-# designs, boards, platforms, optimizers
-# --------------------------------------------------------------------------------------------
-
-
-#: Input shapes a field's validators accept but the model schema does not describe. Keyed by
-#: definition name ("" for the root Design model), then by property name. Where a field has an
-#: alias, both names are listed, because the loader accepts either.
-#: `parameters` (and `generics`) as a list of `{name, value}` objects, which stands for the mapping
-#: they give.
+#: A list of `{name, value}` objects, which stands for the mapping they give. It is an accepted
+#: input form of `parameters` and `generics`.
 _PARAMETER_LIST = {
     "type": "array",
     "items": {
@@ -698,8 +682,11 @@ _PARAMETER_LIST = {
         "required": ["name", "value"],
     },
 }
+#: The input shapes that the validators of a field accept but the model schema does not describe.
+#: The first key is the definition name ("" for the root Design model), the second is the property
+#: name. A field with an alias lists both names, because the loader accepts either.
 _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
-    # Design.authors accepts a single "Name <email>" string
+    # `Design.authors` accepts a single "Name <email>" string
     "": {
         "author": [{"type": "string"}],
         "authors": [{"type": "string"}],
@@ -707,27 +694,28 @@ _EXTRA_INPUT_FORMS: Dict[str, Dict[str, List[Dict[str, Any]]]] = {
         "generics": [_PARAMETER_LIST],
     },
     "RtlSettings": {"parameters": [_PARAMETER_LIST], "generics": [_PARAMETER_LIST]},
-    # tb.top accepts a bare module name; tb.cocotb accepts `true`
+    # `tb.top` accepts a bare module name, and `tb.cocotb` accepts `true`
     "TbSettings": {
         "top": [{"type": "string"}],
         "cocotb": [{"type": "boolean"}],
         "parameters": [_PARAMETER_LIST],
         "generics": [_PARAMETER_LIST],
     },
-    # language.vhdl = "2008" and language.vhdl = 2008 are both accepted
+    # `language.vhdl: "2008"` and `language.vhdl: 2008` are both accepted
     "Language": {
         "vhdl": [{"type": "string"}, {"type": "integer"}],
         "verilog": [{"type": "string"}, {"type": "integer"}],
     },
     "LanguageSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
     "VhdlSettings": {"version": [{"type": "integer"}], "standard": [{"type": "integer"}]},
-    # generator.args is one list; a single string is split on whitespace
+    # `generator.args` is one list, and a single string is split on whitespace
     "Generator": {"args": [{"type": "string"}]},
 }
 
 
 def _add_flat_form(schema: Dict[str, Any]) -> None:
-    """Describe the flat top-level form, e.g. `sources` at the root instead of `rtl.sources`."""
+    """Describe the flat top-level form: `sources` at the root in place of `rtl.sources`, for
+    example."""
     definitions = schema.get("$defs", {})
     rtl_properties = definitions.get("RtlSettings", {}).get("properties", {})
     root = schema.setdefault("properties", {})
@@ -760,10 +748,11 @@ def _add_flat_form(schema: Dict[str, Any]) -> None:
 
 
 def _add_targets(schema: dict[str, Any]) -> None:
-    """Describe `targets`: each one an overlay taking the design's own keys, in every form the
-    root takes them, but for the keys that are the design's alone. Input syntax only: the
-    loader applies the selected target (`Design.select_target`) and records its name as
-    `target`, which a design file therefore does not write."""
+    """Describe `targets`. Each target is an overlay that takes the design's own keys, in every
+    form the root takes them, except the keys that belong to the design alone
+    (`TARGET_FORBIDDEN_KEYS`). This is input syntax only: the loader applies the selected target
+    (`Design.select_target`) and records its name as `target`, so a design file does not write
+    `target`."""
     root = schema.setdefault("properties", {})
     root.pop("target", None)
     definitions = schema.setdefault("$defs", {})
@@ -805,11 +794,11 @@ def _add_targets(schema: dict[str, Any]) -> None:
     properties.update({name: False for name in sorted(TARGET_FORBIDDEN_KEYS)})
     root["targets"] = {
         "type": "object",
-        "description": "Named targets (one per board, say), each an overlay on the design: it "
-        "takes the design's own keys, merged over them. Mappings merge key by key; `sources` "
-        "are appended after the design's; any other list replaces the design's. One is "
-        "selected with `--target NAME`; a design with a single target needs no selection. A "
-        "target is not named as a flow.",
+        "description": "Named targets (for example, one per board), each an overlay on the "
+        "design: it takes the design's own keys, merged over them. Mappings merge key by key; "
+        "`sources` are appended after the design's; any other list replaces the design's. One "
+        "is selected with `--target NAME`; a design with a single target needs no selection. "
+        "A target name cannot be the name of a flow.",
         "propertyNames": {"pattern": f"^{DESIGN_NAME.pattern}$"},
         "additionalProperties": {"type": "object", "properties": properties},
     }
@@ -818,11 +807,11 @@ def _add_targets(schema: dict[str, Any]) -> None:
 def _open_property_sets(node: Any) -> None:
     """Drop `additionalProperties: false` throughout the input schema.
 
-    The models set `extra = forbid`, so pydantic emits a closed property set. A design *file* is
+    The models set `extra = forbid`, so pydantic emits a closed property set. A design file is
     not closed in that sense: it may use dotted-key shorthand (`clock.port`, `hdl.vhdl.standard`,
-    `fpga.part`) that `Design.from_file` expands before the model ever sees it. Keeping the
-    closed set would reject files that load perfectly well. The loader still rejects genuinely
-    unknown keys once the file has been expanded.
+    `fpga.part`) that `Design.from_file` expands before the model sees it. The closed set would
+    reject files that load without error. The loader still rejects unknown keys once it has
+    expanded the file.
     """
     if isinstance(node, dict):
         if node.get("title") == "DesignSource":
@@ -845,15 +834,15 @@ def _widen(spec: Dict[str, Any], extra: List[Dict[str, Any]]) -> Dict[str, Any]:
     if branches is None:
         rest = {k: v for k, v in spec.items() if k not in documentation}
         branches = [rest] if rest else []
-    # copies: the module's tables of extra forms must not be shared with a returned schema
+    # Copy the forms: a returned schema must not share the module's tables of extra forms.
     return {**documentation, "anyOf": [*branches, *deepcopy(extra)]}
 
 
 def _accept_field_names(by_alias: Dict[str, Any], by_name: Dict[str, Any]) -> None:
     """Accept a field's own name wherever the schema names its alias.
 
-    Models set `populate_by_name`, so `language` and `hdl` (its alias) are equally
-    valid in a design file. A schema generated with aliases alone would reject half of that.
+    Models set `populate_by_name`, so `language` and `hdl` (its alias) are equally valid in a
+    design file. A schema generated with aliases alone would reject the field names.
     """
 
     def merge(dst: Dict[str, Any], src: Dict[str, Any]) -> None:
@@ -894,8 +883,8 @@ def _models_reachable_from(model: type[BaseModel]) -> list[type[BaseModel]]:
     return found
 
 
-#: An item of `clocks` that is no whole clock but that the loader takes (`clock_tables`): a port
-#: name, and `null` or an empty table, which say there is no clock.
+#: The forms of an item of `clocks` that are not a whole clock but that the loader takes
+#: (`clock_tables`): a port name, and `null` or an empty table, which both mean no clock.
 _CLOCK_ITEM_FORMS: List[Dict[str, Any]] = [
     {"type": "string"},
     {"type": "null"},
@@ -928,9 +917,10 @@ def _accept_single_items(schema: Dict[str, Any]) -> None:
 
 
 def _accept_alias_choices(schema: dict[str, Any]) -> None:
-    """Accept every name of a field with several (`AliasChoices`): the loader takes any of them,
-    but pydantic's schema names only the first -- `generics` is `parameters` by another name.
-    The spellings come from `dataclass.input_names`, the one table of what the loader accepts."""
+    """Accept every name of a field with several (`AliasChoices`). The loader takes any of them,
+    but the schema of pydantic names only the first. For example, `generics` is another name of
+    `parameters`. The spellings come from `dataclass.input_names`, the one table of what the
+    loader accepts."""
     for model in _models_reachable_from(Design):
         target = schema if model is Design else schema.get("$defs", {}).get(model.__name__)
         properties = (target or {}).get("properties")
@@ -947,24 +937,24 @@ def _accept_alias_choices(schema: dict[str, Any]) -> None:
 
 
 def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
-    """JSON Schema of a xeda design description (a design TOML/YAML/JSON file).
+    """Return the JSON Schema of a Xeda design file (YAML, TOML or JSON).
 
-    By default this describes the *input* syntax: everything a design file may contain, including
-    the shorthands the model's validators accept (a bare string for `tb.top`, `true` for
-    `tb.cocotb`, a field's own name as well as its alias). That is what a file is written
-    against, so it is what `xeda design-schema` emits.
+    By default the schema describes the input syntax: everything a design file may contain,
+    including the shorthands that the validators of the model accept (a bare string for
+    `tb.top`, `true` for `tb.cocotb`, the name of a field as well as its alias). A file is
+    written against this syntax, so `xeda design-schema` emits it.
 
-    Pass `input_syntax=False` for the model's own schema, which describes the validated object
-    rather than the accepted input.
+    Pass `input_syntax=False` for the schema of the model itself, which describes the validated
+    object instead of the accepted input.
 
-    The input schema is deliberately permissive about unknown keys, because a file may use
-    dotted-key shorthand that is expanded before validation. Use it to check that a design file
-    is well formed, not to catch typos; the loader still rejects unknown keys.
+    The input schema is permissive about unknown keys, because a file may use dotted-key
+    shorthand that is expanded before validation. Use it to check that a design file is well
+    formed, not to catch typos. The loader still rejects unknown keys.
     """
     schema = json_safe(Design.model_json_schema(by_alias=True))
-    # pydantic v2 emits draft 2020-12 shapes (`$defs`, `prefixItems` for fixed-length tuples).
-    # Declare the draft it actually produced so validators pick the right one -- never stamp a
-    # draft the document does not conform to.
+    # pydantic 2 emits draft 2020-12 shapes (`$defs`, `prefixItems` for fixed-length tuples).
+    # Declare the draft that pydantic actually produced, so that validators pick the right one.
+    # Do not stamp a draft that the document does not follow.
     schema["$schema"] = JSON_SCHEMA_DIALECT
     if not input_syntax:
         return schema
@@ -982,13 +972,14 @@ def design_schema(input_syntax: bool = True) -> Dict[str, Any]:
         for name, extra in properties.items():
             if name in target_properties:
                 target_properties[name] = _widen(target_properties[name], extra)
+    # Last: a target takes the properties of the root, including those that the steps above added.
     _add_targets(schema)
-    # Last: the transforms above copy properties in from the by-name schema, which has them too.
     return schema
 
 
 def boards_info() -> List[Dict[str, Any]]:
-    """FPGA boards shipped with xeda (`xeda/data/boards.toml`), by their lower-case names."""
+    """Return the FPGA boards that ship with Xeda (`xeda/data/boards.toml`), by their lower-case
+    names."""
     from .board import bundled_boards
 
     try:
@@ -1000,9 +991,9 @@ def boards_info() -> List[Dict[str, Any]]:
 
 
 def platforms_info() -> List[Dict[str, Any]]:
-    """ASIC PDK platforms bundled with xeda (used by the OpenROAD and DC flows).
+    """Return the ASIC PDK platforms bundled with Xeda (the OpenROAD and DC flows use them).
 
-    Platform data is excluded from the wheel, so an installed xeda usually reports none.
+    The wheel excludes the platform data, so an installed Xeda usually reports none.
     """
     platforms: List[Dict[str, Any]] = []
     try:
@@ -1019,14 +1010,15 @@ def platforms_info() -> List[Dict[str, Any]]:
             for key in ("name", "version", "description", "process"):
                 if key in data:
                     entry[key] = json_safe(data[key])
-        except Exception as e:  # noqa: BLE001 - a malformed PDK must not break listing
+        except Exception as e:  # noqa: BLE001
+            # A malformed PDK must not break the listing.
             entry["error"] = str(e)
         platforms.append(entry)
     return platforms
 
 
 def optimizers_info() -> List[Dict[str, Any]]:
-    """DSE optimizers usable via `xeda dse --optimizer <name>`."""
+    """Return the optimizers that `xeda dse --optimizer <name>` accepts."""
     # Keep these imports local to avoid loading the DSE stack during ordinary CLI startup.
     from . import flow_runner
     from .flow_runner.dse import dse_runner

@@ -1,4 +1,5 @@
-"""Interchangeable dataclass abstraction"""
+"""The base model of Xeda (`XedaBaseModel`), its validator decorators, and helpers for the fields
+of settings models: shorthand forms, dotted keys, written paths and waveform settings."""
 
 from __future__ import annotations
 
@@ -110,24 +111,22 @@ __all__ = [
 log = logging.getLogger(__name__)
 
 
-# --------------------------------------------------------------------------------------------
-# validator decorators
+# Validator decorators
 #
-# xeda's `field_validator` / `model_validator` wrap pydantic's with two guarantees for every
-# validator, current or future, without each one having to remember them:
+# `field_validator` and `model_validator` wrap the decorators of pydantic. They give every
+# validator two guarantees, without each validator having to remember them:
 #
-# * A user's mistake is a validation error, never a traceback. pydantic lets a `TypeError` raised
-#   inside a validator propagate, so `sources = 123` or `freq = []` would crash the CLI and be
-#   reported under the wrong class by `--json`; the wrappers turn it into a validation error.
-# * A `mode="before"` validator may normalize its input in place without touching the caller's
-#   data: it receives a copy.
+# * A mistake of the user is a validation error, never a traceback. pydantic lets a `TypeError`
+#   raised inside a validator propagate, so `sources: 123` or `freq: []` would crash the CLI, and
+#   `--json` would report it under the wrong class. The wrappers turn it into a validation error.
+# * A `mode="before"` validator may normalize its input in place without touching the data of the
+#   caller, because it receives a copy.
 #
-# Validators should still guard their own inputs and raise `ValueError` with a useful message;
-# the wrappers are the safety net.
-# --------------------------------------------------------------------------------------------
+# Validators should still guard their own inputs and raise `ValueError` with a useful message.
+# The wrappers are a safety net.
 
 
-#: What is said of a list given as text that is spelled as a list; `key` is the setting as the
+#: The message for a list given as text that is spelled as a list. `key` is the setting as the
 #: command line writes it.
 LIST_TEXT_MESSAGE = (
     "`{shown}` is text, not a list: write `{key}=` for the empty list and "
@@ -136,8 +135,8 @@ LIST_TEXT_MESSAGE = (
 
 
 class ListLiteralText(ValueError):
-    """A list given as text that is spelled as a list: `[]`, `[a,b]`. `shown` is the text (cut if
-    long), `name` the field it was given to."""
+    """A list given as text that is spelled as a list, such as `[]` or `[a,b]`. `shown` is the text
+    (cut if long) and `name` is the field that it was given to."""
 
     def __init__(self, name: str, shown: str) -> None:
         self.name = name
@@ -148,23 +147,24 @@ class ListLiteralText(ValueError):
         return (type(self), (self.name, self.shown))
 
     def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
-        """This refusal as the validation error `list_text` of the field `key` (default: `name`)."""
+        """Return this refusal as the validation error `list_text` of the field `key` (default:
+        `name`)."""
         return PydanticCustomError(
             "list_text", LIST_TEXT_MESSAGE, {"shown": self.shown, "key": key or self.name}
         )
 
 
 def comma_separated_items(name: str, text: str) -> List[str]:
-    """The items of the list setting `name` given as `text` (`a.xdc,b.xdc`): spaces around an item
-    and empty items are dropped, so `""` is the empty list. Text spelled `[...]` is refused with a
-    `ListLiteralText`: it is text, never a list, and would otherwise become the one item `"[]"`
-    (`-s flags=[]`), which is not the empty list its writer means. The two ways to write the list
-    are named instead.
+    """Return the items of the list setting `name` given as `text` (`a.xdc,b.xdc`). Spaces around
+    an item and empty items are dropped, so `""` is the empty list. Text spelled `[...]` is
+    refused with a `ListLiteralText`. It is text and not a list, and it would otherwise become
+    the one item `"[]"` (`-s flags=[]`), which is not the empty list that its writer means. The
+    refusal names the two ways to write the list.
 
     This is the one rule for a list given as text, whichever model takes it: every flow setting
     (`Flow.Settings._normalize_flow_setting`) and the lists of the models nested in them
-    (`CocotbSettings`) go through it. A caller reports the refusal with `validation_error`, and
-    `validation_errors` words it with the key a nested model's field has from the top."""
+    (`CocotbSettings`) use it. A caller reports the refusal with `validation_error`, and
+    `validation_errors` words it with the key that a field of a nested model has from the top."""
     stripped = text.strip()
     if stripped.startswith("[") and stripped.endswith("]"):
         shown = stripped if len(stripped) <= 40 else f"{stripped[:37]}..."
@@ -173,14 +173,14 @@ def comma_separated_items(name: str, text: str) -> List[str]:
 
 
 def _guarded(fn: Any, copy_input: bool) -> Any:
-    """Wrap a validator body with the two guarantees described above.
+    """Wrap a validator body with the two guarantees of the validator decorators.
 
-    `copy_input` copies a `dict`/`list` argument for `mode="before"` validators. pydantic passes
-    the caller's own object straight through, so the common "normalize by writing back into
-    `values`" pattern would otherwise rewrite caller-owned data (a design's `flow[...]` section, a
-    `Settings` kwargs dict). The copy must include nested
-    containers: several validators intentionally normalize nested clock, parameter, and corner
-    mappings before their child models are constructed.
+    `copy_input` copies a `dict` or `list` argument for `mode="before"` validators. pydantic
+    passes the object of the caller straight through, so the common pattern "normalize by writing
+    back into `values`" would otherwise rewrite data that the caller owns (the `flows` section of
+    a design, a `Settings` kwargs dict). The copy must include nested containers, because several
+    validators normalize nested clock, parameter and corner mappings before their child models
+    are constructed.
     """
     unwrapped = fn.__func__ if isinstance(fn, classmethod) else fn
 
@@ -199,14 +199,15 @@ def _guarded(fn: Any, copy_input: bool) -> Any:
 
 
 def _guarded_before_model(fn: Any) -> Any:
-    """Guard a before-model validator and isolate the input it may normalize in place.
+    """Guard a before-model validator and isolate the input that it may normalize in place.
 
-    Pydantic supplies ``field_name`` both when a nested model is being constructed and when an
-    existing model is assignment-validated, so it cannot distinguish those cases by itself.
-    ``data`` is the containing model's already-validated state for nested construction, but is
-    ``None`` for assignment validation.  Construction inputs therefore need a full defensive
-    copy; assignment needs a shallow state copy plus a deep copy of only the newly assigned field.
-    That protects the caller's new value without detaching any unrelated established fields.
+    pydantic supplies `field_name` both when a nested model is constructed and when an existing
+    model is assignment-validated, so `field_name` alone cannot tell the two cases apart. `data`
+    is the already-validated state of the containing model for nested construction, and `None`
+    for assignment validation. Construction inputs therefore need a full defensive copy. An
+    assignment needs a shallow copy of the state and a deep copy of only the newly assigned
+    field. That protects the new value of the caller without detaching any unrelated established
+    field.
     """
     is_classmethod = isinstance(fn, classmethod)
     unwrapped = fn.__func__ if is_classmethod else fn
@@ -215,25 +216,24 @@ def _guarded_before_model(fn: Any) -> Any:
 
     def wrapper(cls: Any, value: Any, info: Any) -> Any:
         if not isinstance(value, dict) and not accepts_non_mapping:
-            # pydantic hands a `mode="before"` model validator the raw input, whatever it is, and
-            # these bodies are written against a mapping (`values.get(...)`): `fpga = ["x"]`
+            # pydantic hands a `mode="before"` model validator the raw input, whatever it is,
+            # and these bodies are written against a mapping (`values.get(...)`): `fpga: ["x"]`
             # would crash them with `AttributeError`. Pass anything else through untouched, and
-            # pydantic reports its own "valid dictionary" error.
-            # A validator that converts a non-mapping shorthand itself opts in with
-            # `@accepts_non_mapping` (see `FPGA`).
+            # pydantic reports its own "valid dictionary" error. A validator that converts a
+            # non-mapping shorthand itself opts in with `@accepts_non_mapping` (see `FPGA`).
             return value
         try:
             if isinstance(value, dict):
                 is_assignment = info.field_name is not None and info.data is None
                 if is_assignment:
-                    # The mapping is the model's established state with the new raw field value
-                    # inserted.  Copy the mapping itself so validators can write top-level keys,
-                    # and isolate only the caller-owned value being assigned.
+                    # The mapping is the established state of the model with the new raw field
+                    # value inserted. Copy the mapping itself so validators can write top-level
+                    # keys, and isolate only the value being assigned, which the caller owns.
                     value = value.copy()
                     if info.field_name in value:
                         value[info.field_name] = deepcopy(value[info.field_name])
                 else:
-                    # Root and nested construction both receive caller-owned input mappings.
+                    # Root and nested construction both receive mappings that the caller owns.
                     value = deepcopy(value)
             elif isinstance(value, list):
                 value = deepcopy(value)
@@ -254,7 +254,7 @@ def accepts_non_mapping(fn: Any) -> Any:
     """Mark a `mode="before"` model validator that converts a non-mapping shorthand itself.
 
     Without it, the wrapper passes any input that is not a `dict` straight through to pydantic,
-    which rejects it. Apply it *under* `@classmethod`.
+    which rejects it. Apply it under `@classmethod`.
     """
     fn.__xeda_accepts_non_mapping__ = True
     return fn
@@ -265,7 +265,8 @@ def _is_before(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> bool:
 
 
 def field_validator(*args: Any, **kwargs: Any) -> Any:
-    """`pydantic.field_validator` with xeda's validator guarantees. See `_guarded`."""
+    """Decorate a field validator like `pydantic.field_validator`, with the guarantees of the
+    validators of Xeda (see `_guarded`)."""
     decorator = _pydantic_field_validator(*args, **kwargs)
     copy_input = _is_before(args, kwargs)
 
@@ -276,8 +277,9 @@ def field_validator(*args: Any, **kwargs: Any) -> Any:
 
 
 def model_validator(*args: Any, **kwargs: Any) -> Any:
-    """`pydantic.model_validator` with xeda's validator guarantees and assignment-aware input
-    isolation. See `_guarded` and `_guarded_before_model`."""
+    """Decorate a model validator like `pydantic.model_validator`, with the guarantees of the
+    validators of Xeda and an isolation of the input that knows assignments (see `_guarded` and
+    `_guarded_before_model`)."""
     decorator = _pydantic_model_validator(*args, **kwargs)
     before = _is_before(args, kwargs)
 
@@ -288,12 +290,10 @@ def model_validator(*args: Any, **kwargs: Any) -> Any:
     return wrap
 
 
-# --------------------------------------------------------------------------------------------
-# annotation introspection
+# Annotation introspection
 #
-# A pydantic field carries only its raw annotation; these answer questions such as "which types
-# does this Optional/Union accept" with `typing` introspection.
-# --------------------------------------------------------------------------------------------
+# A pydantic field carries only its raw annotation. The functions below answer questions such as
+# "which types does this Optional or Union accept" with `typing` introspection.
 
 
 def _number_as_text(value: Any) -> Any:
@@ -302,8 +302,8 @@ def _number_as_text(value: Any) -> Any:
     return value
 
 
-#: Text that is naturally written as a number -- a speed grade (`speed = -1`), a device generation.
-#: Settings declare it field by field; nowhere else is a number accepted for text.
+#: Text that is naturally written as a number, such as a speed grade (`speed: -1`) or a device
+#: generation. A setting declares it field by field. A number is accepted for text nowhere else.
 Code = Annotated[
     str,
     BeforeValidator(_number_as_text, json_schema_input_type=str | int | float),
@@ -311,14 +311,14 @@ Code = Annotated[
 
 
 def annotation_args(annotation: Any) -> Tuple[Any, ...]:
-    """The members of a Union/Optional annotation, or the annotation itself."""
+    """Return the members of a Union or Optional annotation, or the annotation itself."""
     if get_origin(annotation) in (Union, UnionType):
         return tuple(a for a in get_args(annotation) if a is not type(None))
     return (annotation,)
 
 
 def field_annotation(model: Any, name: Optional[str]) -> Any:
-    """The declared annotation of `name` on a model class, or None."""
+    """Return the declared annotation of the field `name` of a model class, or None."""
     if not name:
         return None
     info = getattr(model, "model_fields", {}).get(name)
@@ -327,8 +327,9 @@ def field_annotation(model: Any, name: Optional[str]) -> Any:
 
 @cache
 def input_names(model: Type[BaseModel]) -> Dict[str, str]:
-    """The field every simple key a model's input may use stands for: each field's name, its
-    `alias` and every text choice of its `validation_alias`. A field's own name wins a clash."""
+    """Return the field that each simple key in the input of a model stands for: every field
+    name, every `alias` and every text choice of a `validation_alias`. The name of a field wins a
+    clash."""
     names: Dict[str, str] = {}
     for name, info in model.model_fields.items():
         spellings = [
@@ -342,17 +343,15 @@ def input_names(model: Type[BaseModel]) -> Dict[str, str]:
     return names
 
 
-# --------------------------------------------------------------------------------------------
-# shorthand forms and the tables they stand for
+# Shorthand forms and the tables they stand for
 #
 # A key that takes a table often takes other forms too: a clock as a port name, `fpga` as a part
 # number, `parameters` as a list of `{name, value}` objects. Each form means exactly one table.
 # When two layers meet (a target over its design, a settings layer over the one below), both
-# sides are read as the tables they stand for before it is decided to merge them key by key or
-# to replace one by the other. The one place a model says what its forms mean is its
-# `as_mapping` classmethod (or, for a field whose type is no model, its `field_shorthands`
-# entry), which the model's own validator calls too: nothing converts a form twice.
-# --------------------------------------------------------------------------------------------
+# sides are read as the tables they stand for. Then the merge decides whether to merge them key
+# by key or to replace one by the other. A model says what its forms mean in one place: its
+# `as_mapping` classmethod or, for a field whose type is no model, its `field_shorthands` entry.
+# The validator of the model calls the same function, so nothing converts a form twice.
 
 
 class _Whole:
@@ -363,22 +362,23 @@ class _Whole:
 
 
 #: What `as_mapping` returns for a form that is valid but is no table, so it cannot be merged
-#: key by key: `cocotb: false` (no cocotb) and a platform's name (a whole model, read from a
-#: file). Such a form replaces what is below it, and is replaced by what is above it.
+#: key by key: `cocotb: false` (no cocotb) and the name of a platform (a whole model, read from
+#: a file). Such a form replaces what is below it and is replaced by what is above it.
 WHOLE = _Whole()
 
 
 def unspecified(value: Any) -> Any:
-    """A `field_shorthands` entry for a field that takes `None` to say that nothing is given
-    (`flows:` with no table): the value is `WHOLE`, so it replaces what is below it as it always
-    has. A field that does not take `None` declares none: a `None` there is no form of a table,
-    and is reported."""
+    """Return `WHOLE` for `None` and `None` for any other value.
+
+    This is the `field_shorthands` entry of a field that takes `None` to say that nothing is
+    given (`flows:` with no table). `WHOLE` replaces what is below it. A field that does not take
+    `None` declares no such entry, so a `None` there is no form of a table and is reported."""
     return WHOLE if value is None else None
 
 
 def field_shorthands_of(model: Type[BaseModel]) -> Dict[str, Callable[[Any], Any]]:
-    """The `field_shorthands` of `model`: its own entries and its bases', walking the MRO. A
-    subclass adds to what its bases declare, and its entry for the same field wins."""
+    """Return the `field_shorthands` of `model`: its own entries and those of its bases, along
+    the MRO. A subclass adds to what its bases declare, and its entry for the same field wins."""
     table: Dict[str, Callable[[Any], Any]] = {}
     for klass in reversed(model.__mro__):
         table.update(vars(klass).get("field_shorthands", {}))
@@ -386,8 +386,8 @@ def field_shorthands_of(model: Type[BaseModel]) -> Dict[str, Callable[[Any], Any
 
 
 def appended_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
-    """The `appended_fields` of `model`: its own and its bases', in the order of the MRO from
-    the base."""
+    """Return the `appended_fields` of `model`: its own and those of its bases, in the order of
+    the MRO from the base."""
     fields: Dict[str, None] = {}
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("appended_fields", ())))
@@ -395,8 +395,8 @@ def appended_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
 
 
 def single_item_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
-    """The `single_item_fields` of `model`: its own and its bases', in the order of the MRO from
-    the base."""
+    """Return the `single_item_fields` of `model`: its own and those of its bases, in the order
+    of the MRO from the base."""
     fields: Dict[str, None] = {}
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("single_item_fields", ())))
@@ -404,8 +404,8 @@ def single_item_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
 
 
 def opaque_key_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
-    """The `opaque_key_fields` of `model`: its own and its bases', in the order of the MRO from
-    the base."""
+    """Return the `opaque_key_fields` of `model`: its own and those of its bases, in the order
+    of the MRO from the base."""
     fields: Dict[str, None] = {}
     for klass in reversed(model.__mro__):
         fields.update(dict.fromkeys(vars(klass).get("opaque_key_fields", ())))
@@ -413,7 +413,7 @@ def opaque_key_fields_of(model: Type[BaseModel]) -> Tuple[str, ...]:
 
 
 #: The sequence that `utils.set_hierarchy` keeps whole when it splits a dotted key. The names of
-#: a setting in `opaque_key_fields` have none (`utils.EscapedName`).
+#: a setting in `opaque_key_fields` do not contain it (`utils.EscapedName`).
 ESCAPED_DOT = "\\."
 
 
@@ -421,9 +421,10 @@ class AtomicName(str):
     """A name of a setting in `opaque_key_fields` that a merged table keeps whole, dots included.
 
     Layers of one setting are merged as tables of these (`atomic_keys`): `A` and `A.B` are two
-    names there. Its text is the name with each dot as `ESCAPED_DOT`, which `utils.set_hierarchy`
-    does not split, and the class is what tells it from text a user wrote: that text is a name
-    to fold (`fold_dotted_keys`), and the same text in a user's key is refused."""
+    names there. The text of an `AtomicName` is the name with each dot as `ESCAPED_DOT`, which
+    `utils.set_hierarchy` does not split. The class tells it from text that a user wrote. Text
+    that a user wrote is a name to fold (`fold_dotted_keys`), and a key of a user that contains
+    `ESCAPED_DOT` is refused."""
 
     __slots__ = ()
 
@@ -437,20 +438,21 @@ class AtomicName(str):
 
 
 def fold_dotted_keys(value: Any) -> Any:
-    """The table `value`, given for a setting whose keys are names that contain dots
-    (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`), as a table of those names.
+    """Fold a table given for a setting whose keys are names that contain dots
+    (`STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM`) into a table of those names.
 
-    Every origin expands a dotted key into nested tables before it knows the setting's model
+    Every origin expands a dotted key into nested tables before it knows the model of the setting
     (`utils.set_hierarchy`). So `STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM: 0` arrives as
     `{"STEPS": {"SYNTH_DESIGN": {"ARGS": {"MAX_BRAM": 0}}}}`. A setting named in
     `Flow.Settings.opaque_key_fields` joins each path to a value back into one key. The dotted
     key and the nested tables are the same table, so they are one setting. An `AtomicName` is
     one name already.
 
-    Only a table with entries is a path. An empty table stays a value, and the setting's type
-    judges it. What cannot be folded also stays as given, for the type to judge: a value that is
-    no table, a key that is not text, and a name given twice (`{"a.b": 1, "a": {"b": 2}}`, which
-    no origin makes). A key with `ESCAPED_DOT` is refused (`utils.EscapedName`).
+    Only a table with entries is a path. An empty table stays a value, and the type of the
+    setting judges it. What cannot be folded also stays as given, for the type to judge: a value
+    that is no table, a key that is not text, and a name given twice, such as
+    `{"a.b": 1, "a": {"b": 2}}` (no origin makes it). A key with `ESCAPED_DOT` is refused
+    (`utils.EscapedName`).
     """
     if not isinstance(value, Mapping):
         return value
@@ -482,8 +484,9 @@ def fold_dotted_keys(value: Any) -> Any:
 
 
 def atomic_keys(value: Any) -> Any:
-    """`fold_dotted_keys`, with each name an `AtomicName`: the form in which layers of one
-    setting are merged. The setting's own normalization folds the names back."""
+    """Fold a table like `fold_dotted_keys` and make each name an `AtomicName`. This is the form
+    in which layers of one setting are merged. The normalization of the setting folds the names
+    back."""
     folded = fold_dotted_keys(value)
     if not isinstance(folded, Mapping) or folded is value:
         return value
@@ -491,8 +494,8 @@ def atomic_keys(value: Any) -> Any:
 
 
 def name_inside_another(names: Iterable[str]) -> Optional[Tuple[str, str]]:
-    """`(name, other)` when `other` is `name` followed by a dot and more, else `None`: of two
-    such names, one is a value and the other sets a key inside it (`utils.set_hierarchy`)."""
+    """Return `(name, other)` when `other` is `name` followed by a dot and more, else `None`. Of
+    two such names, one is a value and the other sets a key inside it (`utils.set_hierarchy`)."""
     given = set(names)
     for name in sorted(given):
         for other in sorted(given):
@@ -502,10 +505,11 @@ def name_inside_another(names: Iterable[str]) -> Optional[Tuple[str, str]]:
 
 
 def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"]], bool]:
-    """What a field's annotation says about a value written as a table: `("model", M, optional)`
-    for a field that holds the model `M`, `("dict", None, optional)` for one that holds a
-    mapping, `("other", None, optional)` for anything else, a union with another alternative
-    (`str | list | M`) included: such a field may legitimately hold a value that is no table."""
+    """Return what the annotation of a field says about a value written as a table:
+    `("model", M, optional)` for a field that holds the model `M`, `("dict", None, optional)` for
+    one that holds a mapping, and `("other", None, optional)` for anything else. A union with
+    another alternative (`str | list | M`) is "other": such a field may hold a value that is no
+    table."""
     optional = False
     while True:
         origin = get_origin(annotation)
@@ -528,15 +532,15 @@ def annotation_kind(annotation: Any) -> Tuple[str, Optional[Type["XedaBaseModel"
 
 
 def nested_model(annotation: Any) -> Optional[Type["XedaBaseModel"]]:
-    """The model a table written for a field of this annotation is validated as, if the field
-    holds nothing else."""
+    """Return the model that a table written for a field of this annotation is validated as, if
+    the field holds nothing else."""
     kind, model, _ = annotation_kind(annotation)
     return model if kind == "model" else None
 
 
 def table_entries(annotation: Any) -> Any:
-    """The annotation of the entries of a field that holds a dictionary whose every entry is a
-    table (`Dict[str, Dict[str, Any]]`, `Dict[str, PhysicalClock]`), or None: a field of any
+    """Return the annotation of the entries of a field that holds a dictionary whose every entry
+    is a table (`Dict[str, Dict[str, Any]]`, `Dict[str, PhysicalClock]`), or None. A field of any
     other kind, a dictionary of values that are no tables, and one whose entries may be other
     things (a union) are not judged entry by entry."""
     while True:
@@ -558,9 +562,10 @@ def table_entries(annotation: Any) -> Any:
 
 
 def canonical_names(values: Mapping[str, Any], model: Type[BaseModel]) -> Dict[str, Any]:
-    """`values`' keys at one level of `model`, each as the model spells the field (an alias and
-    its field are one setting). A field given under two spellings keeps both, as written, so
-    validation reports the ambiguity instead of one spelling silently winning."""
+    """Return `values` with each key at one level of `model` spelled as the model spells the
+    field (an alias and its field are one setting). A field given under two spellings keeps
+    both, as written, so validation reports the ambiguity and one spelling does not win
+    silently."""
     names = input_names(model)
     targets = [names.get(key, key) for key in values]
     duplicates = {target for target, count in Counter(targets).items() if count > 1}
@@ -571,7 +576,7 @@ def canonical_names(values: Mapping[str, Any], model: Type[BaseModel]) -> Dict[s
 
 
 def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
-    """`canonical_names` at every level of nested models."""
+    """Return `values` with `canonical_names` applied at every level of nested models."""
     tree = canonical_names(values, model)
     for key, value in tree.items():
         child = nested_model(field_annotation(model, input_names(model).get(key)))
@@ -583,10 +588,10 @@ def canonical_tree(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[st
 def annotation_form(
     annotation: Any, value: Any, shorthand: Optional[Callable[[Any], Any]] = None
 ) -> Any:
-    """The table that `value`, written where `annotation` is expected, stands for: `value` when
-    it is a table; the table of a shorthand form (the `shorthand` function, else the nested
-    model's `as_mapping`); `WHOLE` for a valid form that is no table; `None` for anything else
-    (a mistake, which validation reports)."""
+    """Return the table that `value`, written where `annotation` is expected, stands for: `value`
+    when it is a table; the table of a shorthand form (the `shorthand` function, else the
+    `as_mapping` of the nested model); `WHOLE` for a valid form that is no table; `None` for
+    anything else (a mistake, which validation reports)."""
     if isinstance(value, Mapping):
         return value
     child = nested_model(annotation)
@@ -604,9 +609,9 @@ def annotation_form(
 
 
 def annotation_mistake(annotation: Any, value: Any, form: Any) -> bool:
-    """Whether `value` is no table where `annotation` takes one: its `form` (`annotation_form`)
-    is no table, not `WHOLE`, and the value is not `None` for an optional annotation. An
-    annotation that takes other values than a table is never judged."""
+    """Return whether `value` is no table where `annotation` takes one: its `form`
+    (`annotation_form`) is no table and not `WHOLE`, and the value is not `None` for an optional
+    annotation. An annotation that takes values other than a table is never judged."""
     kind, _, optional = annotation_kind(annotation)
     if kind == "other":
         return False
@@ -614,9 +619,9 @@ def annotation_mistake(annotation: Any, value: Any, form: Any) -> bool:
 
 
 def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> Any:
-    """The table that `value`, written for `owner`'s field `field`, stands for: `value` when it
-    is a table; the table of a shorthand form; `WHOLE` for a valid form that is no table; `None`
-    for anything else (a mistake, which validation reports)."""
+    """Return the table that `value`, written for the field `field` of `owner`, stands for:
+    `value` when it is a table; the table of a shorthand form; `WHOLE` for a valid form that is
+    no table; `None` for anything else (a mistake, which validation reports)."""
     if isinstance(value, Mapping):
         return value
     if not field or field not in getattr(owner, "model_fields", {}):
@@ -627,8 +632,9 @@ def mapping_form(owner: Type[BaseModel], field: Optional[str], value: Any) -> An
 
 
 def expand_forms(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str, Any]:
-    """`values` (a table written for `model`) with every shorthand form read as the table it
-    stands for, through every level of nested models. Anything that is no form is kept as it is."""
+    """Return `values` (a table written for `model`) with every shorthand form read as the table
+    it stands for, through every level of nested models. Anything that is no form stays as it
+    is."""
     names = input_names(model)
     expanded: Dict[str, Any] = {}
     for key, value in values.items():
@@ -643,9 +649,10 @@ def expand_forms(model: Type[BaseModel], values: Mapping[str, Any]) -> Dict[str,
 
 
 def is_mistake(owner: Type[BaseModel], field: str, value: Any) -> bool:
-    """Whether `value` is no table where `owner`'s `field` takes one: not a table, not a
-    shorthand form of one (`mapping_form`), not a valid form that is no table (`WHOLE`), and not
-    `None` for an optional field. A field that takes other values than a table is never judged."""
+    """Return whether `value` is no table where the `field` of `owner` takes one: not a table,
+    not a shorthand form of one (`mapping_form`), not a valid form that is no table (`WHOLE`),
+    and not `None` for an optional field. A field that takes values other than a table is never
+    judged."""
     return annotation_mistake(
         owner.model_fields[field].annotation, value, mapping_form(owner, field, value)
     )
@@ -654,10 +661,10 @@ def is_mistake(owner: Type[BaseModel], field: str, value: Any) -> bool:
 def shape_problems(
     model: Type[BaseModel], values: Mapping[str, Any]
 ) -> List[Tuple[Tuple[str, ...], Any]]:
-    """Where `values` (a table written for `model`) holds a mistake (`is_mistake`) at a key that
-    takes a table: `(key path, value)`, the keys as they are written, through every level of
-    nested models. A key that is no field is judged only if the model says so
-    (`XedaBaseModel.form_problems`). This is a check of shape, not a validation."""
+    """Return where `values` (a table written for `model`) holds a mistake (`is_mistake`) at a
+    key that takes a table, as `(key path, value)` pairs. The keys are as they are written,
+    through every level of nested models. A key that is no field is judged only if the model
+    says so (`XedaBaseModel.form_problems`). This checks the shape and does not validate."""
     problems: List[Tuple[Tuple[str, ...], Any]] = [
         ((key,), value) for key, value in model.form_problems(values)  # type: ignore[attr-defined]
     ]
@@ -683,8 +690,9 @@ def shape_problems(
 def _entry_problems(
     annotation: Any, entries: Mapping[Any, Any]
 ) -> List[Tuple[Tuple[str, ...], Any]]:
-    """`shape_problems` of a dictionary whose entries are tables (`table_entries` gave their
-    `annotation`): the entries that are mistakes, and those of the entries that are models."""
+    """Return the `shape_problems` of a dictionary whose entries are tables (`annotation` is
+    the one that `table_entries` gave): the entries that are mistakes, and the problems inside
+    the entries that are models."""
     problems: List[Tuple[Tuple[str, ...], Any]] = []
     child = nested_model(annotation)
     for name, entry in entries.items():
@@ -696,9 +704,9 @@ def _entry_problems(
     return problems
 
 
-#: The role of a setting whose paths a flow writes, as a `json_schema_extra` marker: a
-#: *working* location (its build or report directory, its log) is a name inside the run
-#: directory; a *deliverable* is a name there, or a location it is delivered to after the run
+#: The role of a setting whose path a flow writes, as a `json_schema_extra` marker. A working
+#: location (a build or report directory, a log) is a name inside the run directory. A
+#: deliverable is a name there, or a location that it is delivered to after the run
 #: (`xeda.deliver`). A path field without a role is read.
 WORKING_ROLE = "working"
 DELIVERABLE_ROLE = "deliverable"
@@ -706,10 +714,11 @@ WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
 
 
 def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:
-    """The marker of a setting whose path is an output the user may want delivered, with its
-    `conventional` name: what the run writes it as when the setting is given a location
-    (`{design}` stands for the design's name; by convention `outputs/<design>.<ext>`); None: the
-    setting's own default name.
+    """Return the marker of a setting whose path is an output that the user may want delivered.
+
+    `conventional` is the name that the run writes the output as when the setting is given a
+    location (`{design}` stands for the name of the design; by convention
+    `outputs/<design>.<ext>`). With None, the name is the default of the setting.
 
     `always` marks an output that the flow writes whether or not the setting is given. When the
     setting is unset, the flow writes the conventional name, and the identity of the run counts
@@ -717,7 +726,7 @@ def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> 
     one run. A setting that switches its output on (unset: nothing is written) is not such an
     output.
 
-    A deliverable that is no waveform (`waveform`) names a file: a model refuses `true` and
+    A deliverable that is no waveform (`waveform`) names a file. A model refuses `true` and
     `false` for it, since the text would become a file named `true`."""
     marker: Dict[str, Any] = {"x-xeda-writes": DELIVERABLE_ROLE}
     if conventional is not None:
@@ -729,26 +738,27 @@ def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> 
     return marker
 
 
-#: The `json_schema_extra` key of a setting that names a waveform file, with the waveform's
-#: format. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
+#: The `json_schema_extra` key of a setting that names a waveform file, with the format of the
+#: waveform. `Flow.Settings` reads a marked setting by one rule (`waveform_value`).
 WAVEFORM_KEY = "x-xeda-waveform"
 
 
 def waveform(extension: str, conventional: Optional[str] = None) -> Dict[str, Any]:
-    """The marker of a setting that names a waveform file of the format `extension` (`vcd`, `fst`,
-    `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name the run writes when the
-    setting is given a location, by default `dump.<extension>`, and `true` stands for that same
-    name, so `true` and a location are one run (`flow.identity_settings`). The name may hold the
-    design's name (`outputs/{design}.saif`). The setting then keeps the text as it is, and the
-    launcher writes the design's name where the run writes the file (`deliver.split_deliveries`)."""
+    """Return the marker of a setting that names a waveform file of the format `extension` (`vcd`,
+    `fst`, `ghw`, `saif`, ...). It is a deliverable. `conventional` is the name that the run
+    writes when the setting is given a location, `dump.<extension>` by default. `true` stands for
+    that same name, so `true` and a location are one run (`flow.identity_settings`). The name may
+    hold the name of the design (`outputs/{design}.saif`). The setting then keeps the text as it
+    is, and the launcher writes the name of the design where the run writes the file
+    (`deliver.split_deliveries`)."""
     marker = deliverable(conventional or f"dump.{extension}")
     marker[WAVEFORM_KEY] = {"format": extension}
     return marker
 
 
 def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, str]]:
-    """`(extension, name)` of `model`'s waveform setting `field` (see `waveform`), `name` being
-    what `true` stands for; None if it is no waveform setting."""
+    """Return `(extension, name)` for the waveform setting `field` of `model` (see `waveform`),
+    where `name` is what `true` stands for. Return None if the field is no waveform setting."""
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     mark = extra.get(WAVEFORM_KEY) if isinstance(extra, dict) else None
@@ -757,11 +767,11 @@ def waveform_format(model: type[BaseModel], field: str) -> Optional[Tuple[str, s
     return str(mark["format"]), str(extra["x-xeda-output"])
 
 
-#: Every extension a tool writes a waveform format under, by format (without the dot, compared in
-#: lower case, the longest match winning). The one table the check of a name against the format
-#: of its setting reads (`format_of_waveform_name`). A format may have more than one extension.
-#: `vcdgz` is VCD compressed with gzip (GHDL's `--vcdgz`): a name that ends in `.gz` is one,
-#: whatever comes before, and `vcd` is always plain.
+#: Every extension that a tool writes a waveform format under, by format (without the dot,
+#: compared in lower case, the longest match winning). The check of a name against the format of
+#: its setting reads this table (`format_of_waveform_name`). A format may have more than one
+#: extension. `vcdgz` is VCD compressed with gzip (`--vcdgz` of GHDL): a name that ends in `.gz`
+#: is one, whatever comes before, and `vcd` is always plain.
 WAVEFORM_SUFFIXES: Dict[str, Tuple[str, ...]] = {
     "vcd": ("vcd",),
     "vcdgz": ("vcd.gz", "vcdgz", "gz"),
@@ -779,15 +789,15 @@ COMPRESSED_FORMATS: Dict[str, str] = {"vcdgz": "vcd"}
 
 
 def waveform_format_name(extension: str) -> str:
-    """How a message names the waveform format `extension`: `VCD`, `FST`, ... and, for a
+    """Return how a message names the waveform format `extension`: `VCD`, `FST`, ... and, for a
     compressed format, `gzip-compressed VCD`."""
     plain = COMPRESSED_FORMATS.get(extension)
     return f"gzip-compressed {plain.upper()}" if plain else extension.upper()
 
 
 def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
-    """`(format, suffix)` of a waveform file name that ends in an extension of
-    `WAVEFORM_SUFFIXES`, the longest one; None for any other name. The suffix is shown in lower
+    """Return `(format, suffix)` for a waveform file name that ends in an extension of
+    `WAVEFORM_SUFFIXES`, the longest one, and None for any other name. The suffix is in lower
     case."""
     if not isinstance(name, (str, os.PathLike)):
         return None
@@ -801,21 +811,22 @@ def format_of_waveform_name(name: Any) -> Optional[Tuple[str, str]]:
 
 
 def waveform_format_of(model: type[BaseModel], field: str) -> Optional[str]:
-    """The format of `model`'s waveform setting `field` (`vcd`, `fst`, `ghw`, ...); None if it
-    is no waveform setting. The marker is the one place that says a setting takes `true` as on."""
+    """Return the format of the waveform setting `field` of `model` (`vcd`, `fst`, `ghw`, ...),
+    or None if it is no waveform setting. The marker is the one place that says a setting takes
+    `true` as on."""
     found = waveform_format(model, field)
     return found[0] if found else None
 
 
 def waveform_fields(model: type[BaseModel]) -> Dict[str, str]:
-    """Every waveform setting of `model` (see `waveform`), with its format."""
+    """Return every waveform setting of `model` (see `waveform`), with its format."""
     return {
         name: found[0] for name in model.model_fields if (found := waveform_format(model, name))
     }
 
 
 class WaveformText(ValueError):
-    """Text that a waveform setting cannot take: a word YAML 1.1 reads as a boolean (`yes`).
+    """Text that a waveform setting cannot take: a word that YAML 1.1 reads as a boolean (`yes`).
     `message` says what to write."""
 
     def __init__(self, message: str) -> None:
@@ -826,26 +837,28 @@ class WaveformText(ValueError):
         return (type(self), (self.message,))
 
     def validation_error(self, key: Optional[str] = None) -> PydanticCustomError:
-        """This refusal as the validation error `boolean_text`."""
+        """Return this refusal as the validation error `boolean_text`."""
         return PydanticCustomError("boolean_text", self.message)
 
 
 def waveform_value(value: Any, extension: str, true_name: str) -> Any:
-    """A waveform setting as the name it stands for, the one rule for every simulator.
+    """Return a waveform setting as the name it stands for. This is the one rule for every
+    simulator.
 
-    `true` (the boolean, or the text in any letter case, which is all `-s` can write) is
-    `true_name`, the name the run writes for a location (`waveform`), which may hold `{design}`. `false` (likewise) and an empty
-    name are none. A name without an extension gets `.<extension>`. The other words YAML 1.1 reads
-    as a boolean (`yes`, `on`, `n`, ...), and `true` or `false` with spaces around it, given as the
-    whole value, are refused as they are for a boolean field (`boolean_text_message`), since a
-    setting is on, off or a name. Other text is a
-    name. Anything else is left as it is, for the field's own validation."""
+    `true` (the boolean, or the text in any letter case, which is all `-s` can write) stands for
+    `true_name`, the name that the run writes for a location (`waveform`), which may hold
+    `{design}`. `false` (likewise) and an empty name stand for none. A name without an extension
+    gets `.<extension>`. A setting is on, off or a name, so the other words that YAML 1.1 reads
+    as a boolean (`yes`, `on`, `n`, ...) are refused as they are for a boolean field
+    (`boolean_text_message`). So is `true` or `false` with spaces around it, given as the whole
+    value. Other text is a name. Anything else is left as it is, for the validation of the
+    field."""
     if isinstance(value, str):
         word = value.strip().lower()
         if value.lower() in ("true", "false"):
             value = value.lower() == "true"
         elif word in ("true", "false") or word in (_TRUE_WORDS | _FALSE_WORDS):
-            # as for a boolean field, text with spaces around `true` is no boolean (and no name)
+            # As for a boolean field, text with spaces around `true` is no boolean and no name.
             raise WaveformText(f"{boolean_text_message(value)} (or give a file name)")
     if value is True:
         return true_name
@@ -857,7 +870,8 @@ def waveform_value(value: Any, extension: str, true_name: str) -> Any:
 
 
 def written_role(model: type[BaseModel], field: str) -> Optional[str]:
-    """The role of `model`'s `field` (`WORKING_ROLE`, `DELIVERABLE_ROLE`), None if it is read."""
+    """Return the role of the `field` of `model` (`WORKING_ROLE`, `DELIVERABLE_ROLE`), or None if
+    it is read."""
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     role = extra.get("x-xeda-writes") if isinstance(extra, dict) else None
@@ -865,15 +879,15 @@ def written_role(model: type[BaseModel], field: str) -> Optional[str]:
 
 
 def written_always(model: type[BaseModel], field: str) -> bool:
-    """Whether `model`'s deliverable `field` is an output the flow writes even when the setting
-    is unset (`deliverable(always=True)`)."""
+    """Return whether the deliverable `field` of `model` is an output that the flow writes even
+    when the setting is unset (`deliverable(always=True)`)."""
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     return isinstance(extra, dict) and extra.get("x-xeda-always") is True
 
 
 def _deliverable_message(key: str, value: Any) -> str:
-    """Why `true` or `false` is no value of the deliverable `key`."""
+    """Return why `true` or `false` is no value of the deliverable `key`."""
     from .utils import LOCATION_FORMS
 
     return (
@@ -883,9 +897,10 @@ def _deliverable_message(key: str, value: Any) -> str:
 
 
 def conventional_output(model: type[BaseModel], field: str, design: str) -> Optional[PurePath]:
-    """The name `model`'s deliverable `field` is written under, in the run directory, when the
-    setting is given a location: its marker's conventional name for the design `design`, or else
-    the field's default name; None if it is no deliverable or has neither."""
+    """Return the name under which the deliverable `field` of `model` is written in the run
+    directory when the setting is given a location: the conventional name of its marker for the
+    design `design`, else the default name of the field. Return None if the field is no
+    deliverable or has neither."""
     if written_role(model, field) != DELIVERABLE_ROLE:
         return None
     info = model.model_fields[field]
@@ -930,8 +945,9 @@ def asdict(inst: Any, filter_: Optional[Callable[..., bool]] = None) -> Dict[str
     return attrs.asdict(inst, filter=filter_)
 
 
-#: The words YAML 1.1 (and pydantic's lax booleans) read as a boolean. xeda reads YAML 1.2, where
-#: they are text, and a setting accepts exactly its declared type, so they are never a boolean.
+#: The words that YAML 1.1 (and the lax booleans of pydantic) read as a boolean. Xeda reads
+#: YAML 1.2, where they are text, and a setting accepts exactly its declared type, so they are
+#: never a boolean.
 _TRUE_WORDS = frozenset({"y", "yes", "on", "t"})
 _FALSE_WORDS = frozenset({"n", "no", "off", "f"})
 
@@ -943,7 +959,7 @@ def _is_boolean_annotation(annotation: Any) -> bool:
 
 
 def boolean_text_message(text: str) -> str:
-    """What to say about `text` given where a boolean is required."""
+    """Return what to say about `text` given where a boolean is required."""
     word = text.strip().lower()
     if word in _TRUE_WORDS:
         return f"`{text}` is text, not a boolean: write `true`"
@@ -953,15 +969,15 @@ def boolean_text_message(text: str) -> str:
 
 
 def yaml11_hint(value: Any) -> Optional[str]:
-    """For a value that does not fit a field, what YAML 1.2 wants written, when the value is a
-    word YAML 1.1 read as a boolean (`on`, `no`)."""
+    """Return what YAML 1.2 wants written for a value that does not fit a field, when the value
+    is a word that YAML 1.1 read as a boolean (`on`, `no`). Return None otherwise."""
     if not isinstance(value, str):
         return None
     word = value.strip().lower()
     if word in _TRUE_WORDS:
-        return f"`{value}` is text in xeda YAML (YAML 1.2): write `true`"
+        return f"`{value}` is text in Xeda YAML (YAML 1.2): write `true`"
     if word in _FALSE_WORDS:
-        return f"`{value}` is text in xeda YAML (YAML 1.2): write `false`"
+        return f"`{value}` is text in Xeda YAML (YAML 1.2): write `false`"
     return None
 
 
@@ -980,49 +996,52 @@ class XedaBaseModel(BaseModel):
     )
 
     #: Fields whose value is no model but has forms that stand for a table (`parameters` as a
-    #: list of `{name, value}`): field name -> function from a form to its table, or `None`
-    #: when the value is not one of the field's forms. A subclass adds its entries to its bases'
-    #: (`field_shorthands_of` walks the MRO); an entry for the same field wins.
+    #: list of `{name, value}`). The table maps the name of a field to a function from a form to
+    #: its table. The function returns `None` when the value is not one of the forms of the
+    #: field. A subclass adds its entries to those of its bases (`field_shorthands_of` walks the
+    #: MRO), and an entry for the same field wins.
     field_shorthands: ClassVar[Mapping[str, Callable[[Any], Any]]] = {}
-    #: Fields that are lists which a layer adds to instead of replacing, when the merge asks for
-    #: it (`merge_layers(append=True)`, a target's merge over its design's `sources`). A subclass
-    #: adds to its bases' (`appended_fields_of`).
+    #: Fields that are lists to which a layer adds instead of replacing them, when the merge
+    #: asks for it (`merge_layers(append=True)`, a target's merge over the `sources` of its
+    #: design). A subclass adds to those of its bases (`appended_fields_of`).
     appended_fields: ClassVar[Tuple[str, ...]] = ()
     #: List fields that also take one item where a list is expected (`sources: rtl/a.v`). The
-    #: field's validator reads that form; `design_schema()` describes it from this declaration. A
-    #: subclass adds to its bases' (`single_item_fields_of`).
+    #: validator of the field reads that form, and `design_schema()` describes it from this
+    #: declaration. A subclass adds to those of its bases (`single_item_fields_of`).
     single_item_fields: ClassVar[Tuple[str, ...]] = ()
 
     @classmethod
     def as_mapping(cls, value: Any) -> Any:
-        """The table that `value`, a form other than a table, stands for as this model: its
-        validator reads the form by this function, and a merge of two layers reads both sides
-        by it. `WHOLE` for a valid form that is no table, `None` for a value that is no form of
-        this model. A model without forms keeps this default."""
+        """Return the table that `value`, a form other than a table, stands for as this model.
+        The validator of the model reads the form by this function, and a merge of two layers
+        reads both sides by it. Return `WHOLE` for a valid form that is no table, and `None` for
+        a value that is no form of this model. A model without forms keeps this default."""
         return None
 
     @classmethod
     def form_problems(cls, values: Mapping[str, Any]) -> List[Tuple[str, Any]]:
-        """The keys of `values` (a table written for this model) that hold a mistake though they
-        are no fields, as `(key, value)`: a model with input-only spellings (a design's `clock`)
-        overrides this, so that `shape_problems` judges them too. The default judges none."""
+        """Return the keys of `values` (a table written for this model) that hold a mistake though
+        they are no fields, as `(key, value)` pairs. A model with input-only spellings (the
+        `clock` of a design) overrides this, so that `shape_problems` judges them too. The
+        default judges none."""
         return []
 
     @classmethod
     def merge_inputs(cls, merged: Dict[str, Any], values: Dict[str, Any]) -> None:
         """Merge the keys of `values` that this model merges by its own rule into `merged`
         (what is below them), and remove them from `values`. Both are canonical tables of this
-        model. A model whose fields have several spellings with one meaning (a design's clock)
-        overrides this; the default merges nothing."""
+        model. A model whose fields have several spellings with one meaning (the clock of a
+        design) overrides this. The default merges nothing."""
 
     @_pydantic_model_validator(mode="before")
     @classmethod
     def _booleans_are_not_text(cls, values: Any) -> Any:
-        """A `bool` or `Optional[bool]` field given text or a number is an error, unless the
-        text is `true` or `false` (a command line has no other way to write a boolean):
-        pydantic's lax booleans would read `yes`, `on`, `y` and `1` as `True`, but a setting
-        accepts exactly its declared type. Every model of xeda -- flow settings, the design,
-        nested models -- shares the rule. The input is only read, never rewritten."""
+        """Refuse text or a number given to a `bool` or `Optional[bool]` field, unless the text is
+        `true` or `false` (a command line has no other way to write a boolean). The lax booleans
+        of pydantic would read `yes`, `on`, `y` and `1` as `True`, but a setting accepts exactly
+        its declared type. There is one more exception: `true` and `false` given to a deliverable
+        that is no waveform are refused too. Every model of Xeda shares this rule: flow settings,
+        the design and nested models. The input is only read and never rewritten."""
         if not isinstance(values, dict):
             return values
         names = input_names(cls)
@@ -1067,9 +1086,10 @@ class XedaBaseModel(BaseModel):
         return values
 
     def invalidate_cached_properties(self):
-        # A `cached_property` caches in the instance `__dict__` whichever class along the MRO
+        """Discard the cached properties, inherited ones included, after the state of the model
+        changes."""
+        # A `cached_property` caches in the instance `__dict__`, whichever class along the MRO
         # declares it, so every base must be searched: `VivadoTool` inherits `Tool.version`.
-        """Discard inherited cached properties after model state changes."""
         for klass in type(self).__mro__:
             for key, value in vars(klass).items():
                 if isinstance(value, cached_property) and key not in type(self).model_fields:
@@ -1082,23 +1102,24 @@ _XedaModelType = TypeVar("_XedaModelType", bound=XedaBaseModel)
 
 @cache
 def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
-    """A subclass of `cls` that tolerates unknown keys.
+    """Return a subclass of `cls` that tolerates unknown keys.
 
-    pydantic v2 compiles a model's validator when the class is created, so mutating
-    `model_config` on an existing class has no effect -- building a subclass is the only form
-    that actually re-runs schema construction, and it keeps the relaxation scoped to the
-    subclass.
+    pydantic v2 compiles the validator of a model when the class is created, so changing
+    `model_config` on an existing class has no effect. Building a subclass is the only form that
+    makes pydantic build the schema again, and it keeps the relaxation within the subclass.
 
-    The result is cached, and instances provide a custom reducer that rebuilds the derived class
-    in a child process. The DSE runner ships a `Design` across a process boundary via `pebble`, so
-    relying on pickle to resolve this runtime-only class by `__module__` + `__qualname__` fails.
+    The result is cached, and its instances have a custom reducer that rebuilds the derived class
+    in a child process. The DSE runner ships a `Design` across a process boundary with `pebble`,
+    so relying on pickle to resolve this class, which exists only at run time, by `__module__`
+    and `__qualname__` fails.
     """
     name = f"{cls.__name__}AllowExtra"
 
     def __reduce__(self):
-        # The class is built at runtime, so a child process (spawn) has no such attribute to
-        # look up. Pickle the *base* -- an ordinary importable class -- and rebuild on the
-        # far side. The DSE runner ships designs to `pebble` workers this way.
+        # The class is built at run time, so a child process (spawn) has no such attribute to
+        # look up. Pickle the base class, which is an ordinary importable class, and rebuild
+        # the derived class on the far side. The DSE runner ships designs to `pebble` workers
+        # this way.
         return (_rebuild_with_allow_extra, (cls, self.__getstate__()))
 
     derived = type(
@@ -1115,7 +1136,8 @@ def model_with_allow_extra(cls: Type[_XedaModelType]) -> Type[_XedaModelType]:
 
 
 def _rebuild_with_allow_extra(base: Any, state: Any) -> Any:
-    """Unpickle counterpart of `model_with_allow_extra` (module-level, so it pickles)."""
+    """Unpickle an instance of `model_with_allow_extra(base)`. A module-level function, so that
+    it pickles."""
     cls: Any = model_with_allow_extra(base)
     obj = cls.__new__(cls)
     obj.__setstate__(state)
@@ -1137,9 +1159,9 @@ def validation_errors(
 
 
 def _list_text_message(error: ErrorDetails) -> Optional[str]:
-    """The message of a list given as text that is spelled as a list (`ListLiteralText`), for a
-    field of a nested model, with the key as the command line writes it from the top
-    (`cocotb.testcase`, not `testcase`): the model that refused it knows only its own field."""
+    """Return the message for a list given as text that is spelled as a list (`ListLiteralText`),
+    for a field of a nested model, with the key as the command line writes it from the top
+    (`cocotb.testcase`, not `testcase`). The model that refused it knows only its own field."""
     loc = error.get("loc", ())
     context = error.get("ctx") or {}
     if error.get("type") == "list_text" and len(loc) > 1:
@@ -1149,8 +1171,9 @@ def _list_text_message(error: ErrorDetails) -> Optional[str]:
 
 
 def _with_yaml_hint(error: ErrorDetails) -> str:
-    """The message of one error, saying what to write when YAML 1.2 changed the input: a word
-    YAML 1.1 read as a boolean (`ncpus: on`), or a number where text is needed (`top: 010`)."""
+    """Return the message of one error, with what to write when YAML 1.2 changed the input: a
+    word that YAML 1.1 read as a boolean (`ncpus: on`), or a number where text is needed
+    (`top: 010`)."""
     msg = str(error.get("msg"))
     if error.get("type") in ("boolean_text", "extra_forbidden"):
         return msg
@@ -1158,5 +1181,5 @@ def _with_yaml_hint(error: ErrorDetails) -> str:
     hint = yaml11_hint(value)
     if hint is None and error.get("type") == "string_type" and isinstance(value, (int, float)):
         shown = repr(value)
-        hint = f'`{shown}` is a number in xeda YAML (YAML 1.2): write `"{shown}"` for text'
+        hint = f'`{shown}` is a number in Xeda YAML (YAML 1.2): write `"{shown}"` for text'
     return f"{msg}; {hint}" if hint else msg
