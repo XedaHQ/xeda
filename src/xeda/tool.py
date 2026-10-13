@@ -7,6 +7,7 @@ import re
 import shutil
 import tempfile
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple, Union
 
@@ -113,8 +114,8 @@ class Docker(XedaBaseModel):
         """Run the tool in a Docker container.
 
         The container mounts the current directory (the run directory) writable and each
-        directory of `read_only` (the design's) read-only. A mount configured in `mounts` stays
-        as configured."""
+        directory of `read_only` read-only: the design's, and those of the flow's input files
+        (`Tool.execute` chooses them). A mount configured in `mounts` stays as configured."""
         note_program(f"{DOCKER_IMAGE_PREFIX}{self.image}:{self.tag or 'latest'}")
         # These are this run's mounts: `mounts` and the directories this run needs. The extra ones
         # stay out of `mounts`, because a later run would mount them again. A version probe's
@@ -265,6 +266,10 @@ class Tool(XedaBaseModel):
     #: The run directory of the flow the tool runs for (`Flow.run_directory`). The files that Xeda
     #: writes for the tool (`env.sh`) go through it. It is None outside a flow.
     _run_directory: Any = PrivateAttr(default=None)
+    #: A weak reference to the flow the tool runs for. A dockerized run asks the flow for the
+    #: directories of its inputs when it starts, because the inputs are filled after the tool is
+    #: made. It is None outside a flow.
+    _flow: Any = PrivateAttr(default=None)
 
     @field_validator("version_flag", mode="before")
     @classmethod
@@ -296,6 +301,7 @@ class Tool(XedaBaseModel):
 
         if flow is not None:
             self._run_directory = flow.run_directory
+            self._flow = weakref.ref(flow)
             self.design_root_ = flow.design_root
             design = flow.design
             source_dirs_ = {src.path.parent for src in design.rtl.sources}
@@ -526,6 +532,30 @@ class Tool(XedaBaseModel):
             tee=tee,
         )
 
+    def _read_only_directories(self) -> List[Path]:
+        """The directories that a container mounts read-only, per run.
+
+        These are the design's and the directories of the flow's input files
+        (`Flow.input_directories`: the files of its producers, and the files that it registered as
+        implicit inputs). The tool writes only in the directory it runs in (the run directory),
+        and in a mount that the user configured writable. A directory that the run directory, the
+        design's directories or a configured mount already holds is not mounted again. A
+        read-only mount inside the run directory would make a part of it read-only."""
+        design = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
+        flow = self._flow() if self._flow is not None else None
+        inputs = flow.input_directories() if flow is not None else []
+        held = [
+            Path.cwd(),
+            *design,
+            *(Path(host) for host in (self.docker.mounts if self.docker else ())),
+        ]
+        added: List[Path] = []
+        for directory in sorted(inputs, key=lambda d: len(d.parts)):
+            if not any(directory.is_relative_to(parent) for parent in held):
+                held.append(directory)
+                added.append(directory)
+        return [*design, *added]
+
     def execute(
         self,
         executable: str,
@@ -547,16 +577,13 @@ class Tool(XedaBaseModel):
         else:
             highlight_rules = None
         if self.docker and self.dockerized:
-            # The design is mounted read-only, per run: the tool writes only in the directory it
-            # runs in (the run directory), and in a mount the user configured writable.
-            read_only = [d for d in (self.design_root_, *self.source_dirs_) if d is not None]
             return self.docker.run(
                 executable,
                 *args,
                 env=env,
                 stdout=stdout,
                 check=check,
-                read_only=read_only,
+                read_only=self._read_only_directories(),
                 print_command=self.print_command,
                 highlight_rules=highlight_rules,
                 merge_stderr=merge_stderr,
@@ -653,6 +680,7 @@ class Tool(XedaBaseModel):
         # It must not share those containers with the source tool.
         new_tool = self.model_copy(deep=True, update=kwargs)
         new_tool._run_directory = self._run_directory  # the flow's own, never a copy of it
+        new_tool._flow = self._flow
         new_tool.invalidate_cached_properties()
         if "default_args" not in kwargs:
             new_tool.default_args = []

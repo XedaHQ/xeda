@@ -662,10 +662,13 @@ Two more exceptions exist, and you configure both explicitly. Xeda does not deci
 
 - The ``clone_dir`` or ``local_cache`` of a Git dependency. Without them, the clone goes to the
   ``.dependencies`` directory of the run root.
-- A writable entry of ``Docker.mounts`` that you add yourself. A container otherwise gets the design
-  root and the directories of the RTL and testbench sources, mounted read-only. Xeda does not mount
-  the run directory of a producer at all. A dockerized flow that needs a file of a producer needs a
-  ``Docker.mounts`` entry for it.
+- A writable entry of ``Docker.mounts`` that you add yourself. A container otherwise gets the run
+  directory of the flow, which is writable, and these directories, which are read-only: the design
+  root, the directories of the RTL and testbench sources, and the directory of each input file of
+  the flow. The input files are the files that the producers handed over and the files that the
+  flow itself registered as inputs, such as the chip database of nextpnr. A dockerized flow
+  therefore reads the files of its producers without a ``Docker.mounts`` entry. A directory that
+  another mount already holds is not mounted again.
 
 In both cases Xeda writes there as you told it and guards nothing about what it finds. That
 directory is yours to manage.

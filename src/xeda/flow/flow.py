@@ -1318,6 +1318,26 @@ class Flow(metaclass=ABCMeta):
         from the answer (`tests/test_prepare_inputs.py`)."""
         return []
 
+    def input_directories(self) -> List[Path]:
+        """The existing directories that hold the files this flow reads from outside its run
+        directory: its declared inputs, once the launcher has filled them, and the files in
+        `implicit_inputs`. A dockerized tool mounts them read-only (`Tool.execute`).
+
+        Each path is absolute as the tool is handed it. When a file is a link, the directory of
+        its target counts too. A directory comes once, in the order of the files."""
+        files: List[Path] = []
+        for name in declared_inputs(type(self)):
+            value = getattr(self.inputs, name, None)
+            files.extend(value if isinstance(value, list) else [] if value is None else [value])
+        files.extend(self.implicit_inputs)
+        found: Dict[Path, None] = {}
+        for file in files:
+            path = Path(os.path.abspath(self.run_path / file))
+            for directory in (path.parent, path.resolve().parent):
+                if directory.is_dir():
+                    found[directory] = None
+        return list(found)
+
     @classmethod
     def _create_jinja_env(
         cls,
