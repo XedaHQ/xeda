@@ -759,6 +759,16 @@ def data_size() -> dict[str, Any]:
     return {MEASURE_KEY: "data_size"}
 
 
+def is_quantity_unit(text: str) -> bool:
+    """Return whether `text` is exactly a unit of one of the quantity kinds (`ns`, `MHz`)."""
+    return text in Quantity._kind_of_unit  # pylint: disable=protected-access
+
+
+def is_number_text(text: str) -> bool:
+    """Return whether `text` is exactly one number in the grammar of a quantity (`5.5`, `1e3`)."""
+    return re.fullmatch(_NUMBER, text) is not None
+
+
 def measure_of(model: type[Any], field: str) -> Optional[str]:
     """Return what the plain number `field` of the pydantic `model` measures (one of `MEASURES`),
     or None when it has no marker."""
@@ -791,6 +801,8 @@ __all__ = [
     "data_size",
     "finalize_template_value",
     "freq_mhz_optional",
+    "is_number_text",
+    "is_quantity_unit",
     "library_units",
     "measure_of",
     "percent",
