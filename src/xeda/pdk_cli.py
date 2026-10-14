@@ -363,8 +363,8 @@ def pdk_install(
         PdkInstallerMissing,
         PdkInstallFailed,
         install,
-        installed,
         plan_install,
+        store_holds,
     )
 
     fmt = resolve_format(output_format, json_flag)
@@ -375,7 +375,7 @@ def pdk_install(
     store = _store_root(root).resolve()
     try:
         plan = plan_install(residue, provider, version, store)
-        present = installed(residue, provider, version, store) is not None
+        present = store_holds(residue, plan, provider, version)
         if not present and fmt == "table":
             _print_plan(plan)
             if not yes and not click.confirm("Install now?", default=False):

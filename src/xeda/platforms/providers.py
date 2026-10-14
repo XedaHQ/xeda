@@ -60,6 +60,7 @@ __all__ = [
     "installed",
     "install_plan",
     "plan_install",
+    "store_holds",
     "locate",
     "orfs_checkout_directory",
     "platform_directory",
@@ -598,6 +599,20 @@ def installed(
         if not _receipt_path(located.root, residue.name, located.version).is_file():
             return None
     return located
+
+
+def store_holds(
+    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
+) -> bool:
+    """Return whether the store holds the platform already, as `install` judges it. The check
+    for links in the store comes first, so nothing looks into the store through a link. Raise
+    `PdkInstallFailed` for a link in the store, and for a file system error, which names the
+    path. `plan` is the plan of an install with a resolved root."""
+    try:
+        _refuse_links(plan, *_written_paths(plan))
+        return installed(residue, provider, version, plan.root) is not None
+    except OSError as error:
+        raise PdkInstallFailed(f"cannot install platform '{plan.platform}': {error}") from None
 
 
 def _already_installed(

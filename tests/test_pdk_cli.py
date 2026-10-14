@@ -1812,3 +1812,79 @@ def test_a_rollback_never_writes_or_deletes_through_a_link(tmp_path, upstream, m
         install_orfs(root, upstream)
     assert tree(elsewhere) == [f"{NANGATE}-{upstream.commit}.json"]
     assert (elsewhere / f"{NANGATE}-{upstream.commit}.json").read_text() == "not the store's\n"
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
+@pytest.mark.parametrize("fmt", [["--json"], []])
+def test_a_link_to_a_directory_that_cannot_be_searched_is_refused_with_its_message(
+    monkeypatch, home, tmp_path, upstream, fmt
+):
+    """The check of the links comes before anything looks into the store, so a link whose
+    target cannot be searched is refused as a link, with no traceback."""
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    closed = tmp_path / "closed"
+    closed.mkdir()
+    link = root / "xeda" / "orfs" / upstream.commit
+    link.parent.mkdir(parents=True)
+    link.symlink_to(closed, target_is_directory=True)
+    before = snapshot(root)
+    closed.chmod(0)
+    try:
+        result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+                        "--yes", *fmt, home=home)  # fmt: skip
+    finally:
+        closed.chmod(0o755)
+    assert result.exit_code == 1, result.output
+    if fmt:
+        answer = json.loads(result.stdout)
+        assert answer["success"] is False
+        assert answer["error"]["type"] == "PdkInstallFailed"
+        message = answer["error"]["message"]
+    else:
+        message = result.output
+    assert f"{link} is a symbolic link" in " ".join(message.split())
+    assert snapshot(root) == before
+
+
+@pytest.mark.parametrize("fmt", [["--json"], []])
+@pytest.mark.parametrize("linked", [True, False])
+def test_a_file_check_that_fails_in_the_store_is_an_install_failure(
+    monkeypatch, home, tmp_path, upstream, fmt, linked
+):
+    """Python 3.11 to 3.13 raise `PermissionError` from `Path.is_file` in a directory that cannot
+    be searched. With a link in the way, the link is the failure. Without one, the failure is the
+    install's own, and it names the path."""
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    link = root / "xeda" / "orfs" / upstream.commit
+    link.parent.mkdir(parents=True)
+    if linked:
+        link.symlink_to(elsewhere, target_is_directory=True)
+    before = snapshot(root, elsewhere)
+    real = Path.is_file
+
+    def is_file(self, *arguments, **keywords):
+        if self.is_relative_to(root):
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *arguments, **keywords)
+
+    monkeypatch.setattr(Path, "is_file", is_file)
+    result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+                    "--yes", *fmt, home=home)  # fmt: skip
+    assert result.exit_code == 1, result.output
+    if fmt:
+        answer = json.loads(result.stdout)
+        assert answer["success"] is False
+        assert answer["error"]["type"] == "PdkInstallFailed"
+        message = answer["error"]["message"]
+    else:
+        message = result.output
+    flat = " ".join(message.split())
+    if linked:
+        assert f"{link} is a symbolic link" in flat
+    else:
+        assert "Permission denied" in flat and str(root) in flat
+    assert snapshot(root, elsewhere) == before
