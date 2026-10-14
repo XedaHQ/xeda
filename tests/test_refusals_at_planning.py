@@ -427,10 +427,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "needs the DEF file of `floorplan.def_file` on disk",
     ),
     "xeda.flows.openroad.place:effective": (
-        5,
-        "judges a value that a stage needs and the platform model lacks (the site, the tie "
-        "cells, the tap cell and its distance, a layer of the routing); the model is built from "
-        "the PDK files on disk, which the configuration of the PDK may complete",
+        6,
+        "judges a value that a stage needs and the platform model lacks (the site, the tracks, "
+        "the tie cells, the tap cell and its distance, a layer of the routing), and a tap cell "
+        "option that the mode of the platform does not use; the model is built from the PDK "
+        "files on disk, which the configuration of the PDK may complete",
     ),
     "xeda.flows.openroad.place:_grid": (
         3,
