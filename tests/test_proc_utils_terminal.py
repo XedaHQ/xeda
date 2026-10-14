@@ -26,7 +26,7 @@ from xeda import proc_utils
 from xeda.flows.openfpgaloader import OpenfpgaloaderTool
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
-from xeda.utils import NonZeroExitCode
+from xeda.utils import NonZeroExitCode, live_log
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -89,7 +89,9 @@ class Terminal:
         raise AssertionError("the terminal did not receive what was written to it")
 
     def close(self) -> None:
-        self.stream.close()
+        self.stream.close()  # the reader reads the end of the output and returns
+        self.reader.join(30)  # a later terminal must not get the number of a descriptor still read
+        assert not self.reader.is_alive(), "the output of the terminal did not end"
         os.close(self.master)
 
 
@@ -251,6 +253,52 @@ def test_a_terminal_that_fails_leaves_the_log_a_character_the_tool_had_not_ended
 def test_the_output_that_ends_in_a_cut_character_has_the_replacement_character_once(
     terminal, tmp_path
 ):
+    code = "import sys; sys.stdout.buffer.write(b'first\\xc3')"
+    log = tmp_path / "tool.log"
+    run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert log_lines(log) == ["first\ufffd"]
+    assert terminal.shown() == "first\ufffd"
+
+
+def test_the_last_output_of_a_child_that_ended_is_not_lost(tmp_path):
+    """macOS discards what the master has not read when the last slave end closes, so the copy
+    of the output holds a slave end until the child has ended and its output is read. Only
+    macOS tells the held slave end from a closed one; on Linux the output is kept either way."""
+    master, slave = pty.openpty()
+    held = [slave]  # the slave end the copy releases
+    shown = tmp_path / "shown.txt"
+    log = tmp_path / "tool.log"
+    try:
+        child_slave = os.dup(slave)
+        os.write(child_slave, b"first\xc3")
+        os.close(child_slave)  # the child writes and ends: only the held slave end is left
+        with (
+            live_log(log, encoding="utf-8") as log_file,
+            shown.open("w", encoding="utf-8", newline="") as stream,
+        ):
+            proc_utils._copy_from_terminal(
+                master, log_file, stream, lambda: True, lambda: os.close(held.pop())
+            )
+    finally:
+        for fd in (master, *held):
+            os.close(fd)
+    assert log_lines(log) == ["first\ufffd"]
+    assert shown.read_text(encoding="utf-8") == "first\ufffd"
+
+
+def test_a_tool_that_ends_before_its_output_is_read_keeps_it(terminal, tmp_path, monkeypatch):
+    """The same through `run_process`: the copy starts only after the tool has ended, so the
+    output is still there only if Xeda still holds its slave end."""
+    copy = proc_utils._copy_from_terminal
+
+    def copy_after_the_end(master, log_file, stream, child_ended, release):
+        deadline = time.monotonic() + 30
+        while not child_ended():
+            assert time.monotonic() < deadline, "the tool did not end"
+            time.sleep(0.01)
+        copy(master, log_file, stream, child_ended, release)
+
+    monkeypatch.setattr(proc_utils, "_copy_from_terminal", copy_after_the_end)
     code = "import sys; sys.stdout.buffer.write(b'first\\xc3')"
     log = tmp_path / "tool.log"
     run_process(sys.executable, child(code), tee=log, terminal=True)

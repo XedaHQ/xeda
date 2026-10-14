@@ -345,15 +345,41 @@ def _write_log_lines(log_file: IO[str], segments: Sequence[str]) -> None:
             log_file.write(text + "\n")
 
 
-def _copy_from_terminal(master: int, log_file: IO[str], stream: TextIO) -> None:
-    """Copy what a child writes to its pseudo-terminal, until the child closes it. `stream` (the
+#: How long the copy of a terminal's output waits for output before it asks if the child ended.
+_CHILD_END_POLL = 0.05
+
+
+def _readable(fd: int, timeout: float) -> bool:
+    return bool(select.select([fd], [], [], timeout)[0])
+
+
+def _copy_from_terminal(
+    master: int,
+    log_file: IO[str],
+    stream: TextIO,
+    child_ended: Callable[[], bool],
+    release: Callable[[], None],
+) -> None:
+    """Copy what a child writes to its pseudo-terminal, until the output ends. `stream` (the
     terminal of Xeda) gets the text as the child wrote it, when it arrives: the colors work, and
     so does a line that the child redraws with a carriage return. The log gets the lines, one
-    for each redraw, without the escape sequences."""
+    for each redraw, without the escape sequences.
+
+    The caller holds a copy of the slave end, so that the output is not lost: macOS discards what
+    the master has not read yet when the last slave end closes, and a tool that writes and exits
+    at once can lose its last output. `child_ended` says that the child has ended. Then this
+    function reads what is left, calls `release` (it closes the slave end of the caller), and
+    reads to the end of the output. The end comes when the last copy of the slave end is closed."""
     decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
     pending = ""  # the last line, which has not ended yet
+    holding = True  # the caller still holds a slave end
     try:
         while True:
+            if holding and not _readable(master, _CHILD_END_POLL):
+                if child_ended() and not _readable(master, 0):  # all output of the child was read
+                    release()
+                    holding = False
+                continue
             try:
                 data = os.read(master, 65536)
             except OSError as error:
@@ -404,10 +430,21 @@ def _run_in_terminal(
                 start_new_session=new_session,
             ) as proc,
         ):
-            os.close(slave)  # the child's copy is the only one left: its end is the EOF
-            slave = -1
+
+            def release_slave() -> None:
+                nonlocal slave
+                if slave >= 0:
+                    os.close(slave)
+                    slave = -1
+
             with _Deadline(proc, timeout, group=new_session, on_stop=on_stop) as deadline:
-                _copy_from_terminal(master, log_file, tool_output_stream())
+                _copy_from_terminal(
+                    master,
+                    log_file,
+                    tool_output_stream(),
+                    lambda: proc.poll() is not None,
+                    release_slave,
+                )
                 ret = proc.wait()
             if deadline.expired:
                 assert timeout is not None
