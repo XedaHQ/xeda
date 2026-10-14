@@ -10,7 +10,7 @@ Three providers serve a platform. A residue lists the ones that serve it in `pro
 
 | provider | the directory of the platform | the version |
 | --- | --- | --- |
-| `orfs` | `<root>/xeda/orfs/<commit>/<directory>`, a sparse checkout of OpenROAD-flow-scripts | the commit |
+| `orfs` | `<root>/xeda/orfs/<commit>/<directory>`, the platform directory of a sparse checkout of OpenROAD-flow-scripts | the commit |
 | `ciel` | `<root>/ciel/<family>/versions/<hash>/<variant>`, as `ciel fetch` writes it | the hash |
 | `directory` | `<root>/<platform>` (layout `orfs`: `<root>` is `flow/platforms` of a checkout) or `<root>/<variant>` (layout `open_pdks`) | `pdk_version` as given, else `unpinned` |
 
@@ -109,7 +109,7 @@ def default_root() -> Path:
 
 
 def orfs_checkout_directory(root: Path, commit: str) -> Path:
-    """Return the directory that holds the sparse checkout of an ORFS commit."""
+    """Return the directory that holds the platform directories of an ORFS commit."""
     return root / "xeda" / "orfs" / commit
 
 
@@ -476,7 +476,8 @@ def install_plan(
       `<root>/xeda/.partial-<partial>`. The first command creates that directory. `partial` is
       required, and the installer chooses it, so that the plan is deterministic. `url` is the
       repository to fetch from, and the default is `ORFS_URL`. After the last command, the
-      installer moves the directory to `orfs_checkout_directory(root, commit)`.
+      installer moves the platform directory of the partial checkout (`directory` of the
+      entry) to the same path below `orfs_checkout_directory(root, commit)`.
     * `directory`: nothing to install. Raise `ValueError`."""
     target = _target(residue, provider, version, root)
     if target.provider == "directory":
@@ -652,22 +653,50 @@ def _remove_tree(path: Path) -> None:
         log.warning("cannot remove %s: %s; remove it", path, error)
 
 
-def _fetch_orfs(residue: Residue, plan: InstallPlan) -> None:
+def _make_parents(directory: Path) -> list[Path]:
+    """Create `directory` and its parents, and return the ones that did not exist, the topmost
+    first."""
+    missing = [path for path in (*reversed(directory.parents), directory) if not path.exists()]
+    directory.mkdir(parents=True, exist_ok=True)
+    return missing
+
+
+def _remove_empty(directories: list[Path]) -> None:
+    """Remove directories that an install made and that are still empty, the deepest first."""
+    for directory in reversed(directories):
+        try:
+            directory.rmdir()
+        except OSError:
+            break
+
+
+def _remove_receipt(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as error:
+        log.warning("cannot remove %s: %s; remove it", path, error)
+
+
+def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
     """Run the Git commands in a partial directory, check that it holds every file of the
-    platform for every corner, and move it to the directory of the commit. Whatever goes wrong,
-    the store keeps neither the partial directory nor a directory of the commit."""
-    final = orfs_checkout_directory(plan.root, plan.version)
-    if os.path.lexists(final):
+    platform for every corner, write the receipt, and move the directory of the platform to its
+    place in the store. The move is the last step, and a rename is whole or not done: the store
+    holds a directory of the platform only after an install that finished. Several platforms of
+    one commit share `<root>/xeda/orfs/<commit>/`, and each install adds only its own directory.
+    The partial directory, with its `.git`, is removed at the end. Whatever goes wrong, the store
+    keeps neither the partial directory, nor the receipt, nor the directory of the platform.
+    Return the receipt."""
+    entry = residue.providers.orfs
+    assert entry is not None
+    if os.path.lexists(plan.directory):
         raise PdkInstallFailed(
-            f"cannot install platform '{plan.platform}': {final} exists, but it lacks files of "
-            "the platform. Move or delete it, and run the command again."
+            f"cannot install platform '{plan.platform}': {plan.directory} exists, but it lacks "
+            "files of the platform. Move or delete it, and run the command again."
         )
     work = Path(plan.commands[0][-1])
     try:
         for command in plan.commands:
             _run(command, None, plan)
-        entry = residue.providers.orfs
-        assert entry is not None
         for corner in residue.files.liberty:
             missing = _missing_files(
                 residue, residue.resolve_corner(corner), work / entry.directory
@@ -677,11 +706,18 @@ def _fetch_orfs(residue: Residue, plan: InstallPlan) -> None:
                     f"cannot install platform '{plan.platform}': commit {plan.version} lacks "
                     f"{', '.join(missing)} in {entry.directory}. Nothing is installed."
                 )
-        final.parent.mkdir(parents=True, exist_ok=True)
-        work.rename(final)
-    except BaseException:
+        receipt = _write_receipt(plan, plan.directory)
+        made: list[Path] = []
+        try:
+            made = _make_parents(plan.directory.parent)
+            (work / entry.directory).rename(plan.directory)
+        except BaseException:
+            _remove_receipt(receipt)
+            _remove_empty(made)
+            raise
+        return receipt
+    finally:
         _remove_tree(work)
-        raise
 
 
 def _check_ciel(plan: InstallPlan, env: dict[str, str]) -> None:
@@ -709,7 +745,7 @@ def _fetch_ciel(plan: InstallPlan) -> None:
     _run(command, env, plan)
 
 
-def _write_receipt(plan: InstallPlan, located: Located) -> Path:
+def _write_receipt(plan: InstallPlan, directory: Path) -> Path:
     path = _receipt_path(plan.root, plan.platform, plan.version)
     path.parent.mkdir(parents=True, exist_ok=True)
     document = {
@@ -717,7 +753,7 @@ def _write_receipt(plan: InstallPlan, located: Located) -> Path:
         "provider": plan.provider,
         "version": plan.version,
         "root": str(plan.root),
-        "directory": str(located.directory),
+        "directory": str(directory),
         "commands": plan.commands,
         "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "xeda_version": __version__,
@@ -734,8 +770,9 @@ def _install_locked(
     found = _already_installed(residue, plan, provider, version)
     if found is not None:
         return found
+    receipt: Optional[Path] = None
     if plan.provider == "orfs":
-        _fetch_orfs(residue, plan)
+        receipt = _install_orfs(residue, plan)
     else:
         _fetch_ciel(plan)
     try:
@@ -746,7 +783,9 @@ def _install_locked(
             f"the install of platform '{plan.platform}' finished, but the store does not hold "
             f"what the platform needs.\n{error}"
         ) from None
-    return InstallResult(located, False, _write_receipt(plan, located), plan.commands)
+    if receipt is None:
+        receipt = _write_receipt(plan, located.directory)
+    return InstallResult(located, False, receipt, plan.commands)
 
 
 def install(
@@ -765,9 +804,11 @@ def install(
     plan, checks every file of every corner with `locate`, checks the pin with `verify_pin` and
     writes `<root>/xeda/receipts/<platform>-<pin>.json`.
 
-    * `orfs`: the Git commands fill `<root>/xeda/.partial-<random>`, and one rename then moves it
-      to the directory of the commit, so that the store never holds a part of a checkout under
-      that name. If a command fails, or a file is missing, the install removes what it made, and
+    * `orfs`: the Git commands fill `<root>/xeda/.partial-<random>`. The install writes the
+      receipt, and one rename then moves the directory of the platform to
+      `<root>/xeda/orfs/<commit>/<directory>`, so that the store never holds a part of a platform
+      under that name. Platforms of one commit share the directory of the commit, and the store
+      keeps no `.git`. If a command fails, a file is missing or the receipt cannot be written,
       the store is as it was. Every `git` command gets a controlled environment: no `GIT_DIR`,
       no configuration of the user and no hook.
     * `ciel`: the plan runs with `PATH`, `HOME` and `LANG` only. A `ciel` on `PATH` must say that

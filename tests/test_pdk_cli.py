@@ -675,15 +675,28 @@ def git(directory: Path, *arguments: str) -> str:
     return done.stdout.strip()
 
 
+SECOND_DIRECTORY = "flow/platforms/second"
+
+
+def second_platform() -> Residue:
+    """Another platform of the same ORFS repository: the files of nangate45 in another
+    directory."""
+    table = nangate().model_dump(mode="json", exclude_none=True)
+    table["name"] = "second"
+    table["providers"]["orfs"]["directory"] = SECOND_DIRECTORY
+    return Residue.model_validate(table)
+
+
 class Upstream:
-    """A repository that looks like OpenROAD-flow-scripts: one platform directory with the files of
-    the residue, and another directory that a sparse checkout must leave out."""
+    """A repository that looks like OpenROAD-flow-scripts: two platform directories with the files
+    of the residue, and another directory that a sparse checkout must leave out."""
 
     def __init__(self, directory: Path, missing: Optional[str] = None) -> None:
         residue = load_residue(NANGATE)
         entry = residue.providers.orfs
         assert entry is not None
         self.platform_directory = entry.directory
+        self.second_directory = SECOND_DIRECTORY
         self.directory = directory
         directory.mkdir()
         git(directory, "init", "--quiet", "--initial-branch=main")
@@ -692,6 +705,7 @@ class Upstream:
         for name in relative_files(residue):
             if name != missing:
                 self.write(f"{entry.directory}/{name}", f"placeholder {name}\n")
+            self.write(f"{SECOND_DIRECTORY}/{name}", f"second {name}\n")
         self.write("flow/designs/other/readme.txt", "another directory of the repository\n")
         git(directory, "add", ".")
         git(directory, "commit", "--quiet", "-m", "platform files")
@@ -804,11 +818,11 @@ def test_an_install_whose_files_are_incomplete_is_removed(tmp_path, quiet_git):
     assert tree(root) == ["xeda", "xeda/.lock"]
 
 
-def test_a_directory_in_the_way_is_refused_and_left_alone(tmp_path, upstream):
-    from xeda.platforms.providers import PdkInstallFailed, orfs_checkout_directory
+def test_a_platform_directory_in_the_way_is_refused_and_left_alone(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed
 
     root = tmp_path / "store"
-    directory = orfs_checkout_directory(root, upstream.commit)
+    directory = nangate_directory(root, upstream.commit)
     directory.mkdir(parents=True)
     (directory / "mine.txt").write_text("a file of the user\n")
     before = tree(root)
@@ -817,6 +831,52 @@ def test_a_directory_in_the_way_is_refused_and_left_alone(tmp_path, upstream):
     assert str(directory) in str(raised.value)
     assert (directory / "mine.txt").read_text() == "a file of the user\n"
     assert sorted(set(tree(root)) - set(before)) == ["xeda/.lock"]
+
+
+def test_two_platforms_of_one_commit_both_install_and_both_locate(tmp_path, upstream):
+    from xeda.platforms.providers import install, locate
+
+    root = tmp_path / "store"
+    first = install_orfs(root, upstream)
+    snapshot = repository_state(first.located.directory)
+    second = install(second_platform(), "orfs", upstream.commit, root, url=upstream.url)
+    assert second.already_installed is False
+    assert second.located.directory == (
+        root / "xeda" / "orfs" / upstream.commit / "flow" / "platforms" / "second"
+    )
+    assert (second.located.directory / "config.mk").read_text() == "second config.mk\n"
+    assert repository_state(first.located.directory) == snapshot
+    assert locate(nangate(), "orfs", upstream.commit, root, None).directory == (
+        first.located.directory
+    )
+    assert locate(second_platform(), "orfs", upstream.commit, root, None).directory == (
+        second.located.directory
+    )
+    assert sorted(p.name for p in (root / "xeda" / "receipts").iterdir()) == sorted(
+        [f"nangate45-{upstream.commit}.json", f"second-{upstream.commit}.json"]
+    )
+
+
+def test_an_orfs_install_keeps_only_the_platform_directory(tmp_path, upstream):
+    root = tmp_path / "store"
+    install_orfs(root, upstream)
+    checkout = root / "xeda" / "orfs" / upstream.commit
+    assert not (checkout / ".git").exists()
+    assert sorted(p.name for p in (root / "xeda").iterdir() if p.name != "orfs") == [
+        ".lock",
+        "receipts",
+    ]
+    assert [p.relative_to(checkout).as_posix() for p in checkout.iterdir()] == ["flow"]
+
+
+def test_an_old_checkout_that_keeps_its_git_directory_still_locates(tmp_path, upstream):
+    from xeda.platforms.providers import locate
+
+    root = tmp_path / "store"
+    install_orfs(root, upstream)
+    checkout = root / "xeda" / "orfs" / upstream.commit
+    (checkout / ".git").mkdir()
+    assert locate(nangate(), "orfs", upstream.commit, root, None).directory.is_dir()
 
 
 def test_a_second_install_into_the_same_root_fails_and_says_who_holds_the_lock(tmp_path, upstream):
@@ -1387,3 +1447,69 @@ def test_the_help_names_every_format_that_asks_no_question():
     text = text.replace("`", "")
     assert "--json, --format json, --format jsonl and --format yaml install without" in text
     assert "without a question" in text
+
+
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")
+def test_an_orfs_install_whose_receipt_cannot_be_written_publishes_nothing(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed, installed
+
+    root = tmp_path / "store"
+    receipts = root / "xeda" / "receipts"
+    receipts.mkdir(parents=True)
+    receipts.chmod(0o555)
+    try:
+        with pytest.raises(PdkInstallFailed) as raised:
+            install_orfs(root, upstream)
+    finally:
+        receipts.chmod(0o755)
+    assert str(receipts) in str(raised.value)
+    assert not (root / "xeda" / "orfs").exists()
+    assert installed(nangate(), "orfs", upstream.commit, root) is None
+    assert tree(root) == ["xeda", "xeda/.lock", "xeda/receipts"]
+
+
+def test_an_orfs_install_whose_rename_fails_leaves_no_receipt(tmp_path, upstream, monkeypatch):
+    from xeda.platforms.providers import PdkInstallFailed, installed
+
+    def refuse(self, target):
+        raise OSError(28, "No space left on device", str(target))
+
+    monkeypatch.setattr(Path, "rename", refuse)
+    root = tmp_path / "store"
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert "No space left" in str(raised.value)
+    assert installed(nangate(), "orfs", upstream.commit, root) is None
+    assert tree(root) == ["xeda", "xeda/.lock", "xeda/receipts"]
+
+
+# ---------------------------------------------------------------------------------------------
+# A platform file that is wrong only after it is merged with the platform it extends
+# ---------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("command", [["path"], ["install", "--yes"]])
+@pytest.mark.parametrize("fmt", [["--json"], []])
+def test_a_platform_file_that_fails_when_merged_is_refused_by_the_option(
+    home, tmp_path, command, fmt
+):
+    user = write_user_file(
+        tmp_path / "mine.yaml",
+        {"name": "mine", "extends": "nangate45", "corners": {"default": "missing"}},
+    )
+    proc = run_xeda(
+        "pdk", *command, "--platform-file", str(user), "--root", str(tmp_path / "store"), *fmt,
+        home=home,
+    )  # fmt: skip
+    assert proc.returncode == 2, proc.stderr
+    assert "Traceback" not in proc.stderr
+    if fmt:
+        error = document(proc)
+        assert error["success"] is False
+        assert error["error"]["type"] == "BadParameter"
+        message = error["error"]["message"]
+    else:
+        message = proc.stderr
+    assert "missing" in message
+    assert "--platform-file" in message
+    assert not (tmp_path / "store").exists()

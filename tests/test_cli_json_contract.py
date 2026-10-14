@@ -129,10 +129,15 @@ def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
         (["pdk", "install", "nangate45", "--version", "main"], "UsageError"),
         (["pdk", "install", "nangate"], "BadParameter"),
         (["pdk", "install"], "UsageError"),
+        (["pdk", "path", "--platform-file", "MERGE_FAILS"], "BadParameter"),
     ],
     ids=lambda value: value if isinstance(value, str) else " ".join(value),
 )
 def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_path):
+    if "MERGE_FAILS" in command:  # a file that loads alone but is wrong over nangate45
+        broken = tmp_path / "mine.yaml"
+        broken.write_text("name: mine\nextends: nangate45\ncorners: {default: missing}\n")
+        command = [str(broken) if word == "MERGE_FAILS" else word for word in command]
     proc = run_xeda(*command, "--json", home=tmp_path)
     document = json_stdout(proc)
     assert proc.returncode != 0

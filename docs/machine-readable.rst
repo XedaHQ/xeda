@@ -38,7 +38,8 @@ and use no network.
 as ``--yes`` does, because a program cannot answer a question. Tool output goes to stderr, and
 stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
 "already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails. A failed
-``orfs`` install leaves the store as it was. A failed ``ciel`` install may leave files of ``ciel``
+``orfs`` install leaves the store as it was, and an ``orfs`` install keeps no ``.git`` in it:
+several platforms can share the directory of one commit. A failed ``ciel`` install may leave files of ``ciel``
 in the store, so a ``ciel`` store counts as installed for this command only when its receipt
 exists.
 

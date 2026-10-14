@@ -185,9 +185,10 @@ setting selects the provider. The default is the ``default`` of the residue file
      - Directory of the platform
      - Version (the pin)
    * - ``orfs``
-     - ``<root>/xeda/orfs/<commit>/<directory>``, a sparse checkout of OpenROAD-flow-scripts that
-       ``xeda pdk install`` writes. ``<directory>`` comes from the residue file, for example
-       ``flow/platforms/nangate45``.
+     - ``<root>/xeda/orfs/<commit>/<directory>``, the platform directory of a sparse checkout of
+       OpenROAD-flow-scripts that ``xeda pdk install`` writes. ``<directory>`` comes from the
+       residue file, for example ``flow/platforms/nangate45``. Several platforms can share one
+       commit, each in its own directory. The store keeps no ``.git`` for it.
      - The commit of OpenROAD-flow-scripts.
    * - ``ciel``
      - ``<root>/ciel/<family>/versions/<hash>/<variant>``, as ``ciel`` writes it. The role paths
@@ -226,8 +227,15 @@ store than ``~/.ciel``.
 what it downloads, an estimate of the size (when the platform gives one), where it installs and
 the commands it runs, and it asks before it starts. ``--yes`` skips the question. Machine-readable
 output (``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) also installs
-without asking, as ``--yes`` does. ``--platform-file`` installs the PDK of a platform of your own. The install is safe to repeat: when the store holds the files already, the command says so
-and does nothing. The other commands only look at the files. See :doc:`machine-readable` for their
+without asking, as ``--yes`` does. ``--platform-file`` installs the PDK of a platform of your own.
+The install is safe to repeat: when the store holds the files already, the command says so and
+does nothing. The other commands only look at the files.
+
+An ``orfs`` install fetches into a partial directory in the store, checks every file, writes the
+receipt and then moves the directory of the platform to its place in one step. If anything fails,
+the store is as it was. The command refuses to install over a platform directory that is there
+but incomplete, and tells you to move it away. A ``ciel`` install runs ``ciel``, which writes into
+the store itself, so a failed install may leave files of ``ciel`` behind. See :doc:`machine-readable` for their
 JSON output.
 
 ``xeda list-platforms`` looks in the default store. Use ``xeda pdk list --root <directory>`` for

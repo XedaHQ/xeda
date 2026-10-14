@@ -201,7 +201,8 @@ def resolve_platform(platform: Optional[str], platform_file: Optional[Path]) -> 
     """Return the residue that finds the files of the platform: a bundled platform, a complete
     platform file, or a platform file over the bundled platform that it extends. Raise a
     `click.UsageError` if the command line names both a platform and a file, or neither, or names
-    what cannot be loaded."""
+    what cannot be loaded, or a file that is wrong when it is merged with the platform that it
+    extends."""
     from .platforms import load_residue
     from .platforms.residue import ResidueError, effective_residue
 
@@ -216,7 +217,12 @@ def resolve_platform(platform: Optional[str], platform_file: Optional[Path]) -> 
         raise click.BadParameter(str(error), param_hint="--platform-file") from None
     if user.extends is None:
         return user
-    return effective_residue(_bundled(user.extends, "--platform-file"), user)
+    base = _bundled(user.extends, "--platform-file")
+    try:
+        return effective_residue(base, user)
+    except (ResidueError, ValueError) as error:
+        # The file loads alone and is wrong over the platform that it extends.
+        raise click.BadParameter(str(error), param_hint="--platform-file") from None
 
 
 @click.argument("platform", required=False)

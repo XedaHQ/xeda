@@ -1210,11 +1210,21 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery record's temporary file, beside the run directory",
     ),
-    ("platforms/providers.py", "work.rename(final)"): (
+    ("platforms/providers.py", "(work / entry.directory).rename(plan.directory)"): (
         1,
-        "the install command writes the PDK store, outside a run: its own partial directory, "
-        "complete and checked, moved to the name of the commit under the store's install lock; "
-        "the name is free, as the install checked under the lock",
+        "the install command writes the PDK store, outside a run: the platform directory of its "
+        "own partial checkout, complete and checked, moved to its name in the store under the "
+        "store's install lock; the name is free, as the install checked under the lock",
+    ),
+    ("platforms/providers.py", "path.unlink(missing_ok=True)"): (
+        1,
+        "the install command writes the PDK store, outside a run: the receipt that this install "
+        "wrote, removed when the move of the platform directory failed",
+    ),
+    ("platforms/providers.py", "directory.rmdir()"): (
+        1,
+        "the install command writes the PDK store, outside a run: an empty parent directory that "
+        "this install made, removed when the move failed (`rmdir` removes no file)",
     ),
     ("platforms/providers.py", "shutil.rmtree(path)"): (
         1,
@@ -1667,9 +1677,10 @@ REVIEWED_WRITES = [
     ),
     (
         "platforms/providers.py",
-        "work.rename(final)",
-        "the install command writes the PDK store, outside a run: a rename of its own "
-        "complete partial directory to a name that the install checked to be free",
+        "(work / entry.directory).rename(plan.directory)",
+        "the install command writes the PDK store, outside a run: a rename of the platform "
+        "directory of its own complete partial checkout to a name that the install checked to be "
+        "free",
     ),
     (
         "platforms/providers.py",
