@@ -318,7 +318,7 @@ def list_boards(output_format: str, json_flag: bool):
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled ASIC platforms (PDKs).")
 @output_format_option()
 def list_platforms(output_format: str, json_flag: bool):
-    """List the ASIC platforms that the `platform` setting of the yosys and DC flows accepts."""
+    """List the ASIC platforms that the `platform` setting of the yosys flow accepts."""
     fmt = resolve_format(output_format, json_flag)
     info = platforms_info()
     if fmt != "table":

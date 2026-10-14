@@ -1009,7 +1009,7 @@ def boards_info() -> List[Dict[str, Any]]:
 
 
 def platforms_info() -> List[Dict[str, Any]]:
-    """Return the ASIC PDK platforms bundled with Xeda (the yosys and DC flows use them).
+    """Return the ASIC PDK platforms bundled with Xeda (the `platform` setting of yosys takes them).
 
     The wheel excludes the platform data, so an installed Xeda usually reports none.
     """

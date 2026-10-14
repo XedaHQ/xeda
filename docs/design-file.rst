@@ -299,8 +299,9 @@ the constraints. A flow that reads the testbench (every simulator, ``bsc`` and
 never refuses a C or C++ file, because it can be a driver or a helper for another flow.
 ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``vivado_impl`` and ``vivado_power``
 read no design source themselves. Each takes what it reads through its declared inputs, from a
-producer or from a typed source. ``nextpnr`` takes the ``Sdc`` files of the design that way, and ``vivado_impl`` takes its ``Xdc`` and ``Sdc`` files. Header files reach the include
-and search paths.
+producer or from a typed source. ``nextpnr`` takes the ``Sdc`` files of the design that way,
+and ``vivado_impl`` takes its ``Xdc`` and ``Sdc`` files. Header files reach the include and search
+paths.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files. It rejects a ``.bh``
@@ -501,7 +502,7 @@ design file can carry the settings of several flows:
         fpga.part: xc7a100tftg256-2L
         clock.period: 5.0
       yosys:
-        platform: sky130hd
+        platform: nangate45
         clock.period: 10.0
       ghdl_sim:
         stop_time: 100us

@@ -213,7 +213,7 @@ flows:
     fpga.part: xc7a100tftg256-2L
     clock.period: 5.0
   yosys:
-    platform: sky130hd
+    platform: nangate45
     clock.period: 10.0
   ghdl_sim:
     stop_time: 100us
