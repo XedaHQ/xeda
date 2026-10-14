@@ -140,19 +140,52 @@ class _LefReader:
         self.pin_name = ""
         self.pin: dict[str, Any] = {}
 
+    #: The words that open or close a block in each state. A line that starts with one of them
+    #: holds a whole statement, since such a line has no `;`.
+    _BLOCK_WORDS = {
+        "top": (
+            "LAYER",
+            "MACRO",
+            "SITE",
+            "VIA",
+            "VIARULE",
+            "NONDEFAULTRULE",
+            "UNITS",
+            "PROPERTYDEFINITIONS",
+            "SPACING",
+            "END",
+        ),
+        "macro": ("PIN", "OBS", "END"),
+        "pin": ("PORT", "END"),
+        "layer": ("END",),
+        "site": ("END",),
+        "skip": ("END",),
+    }
+
     def read(self, text: str) -> None:
+        """Read the statements. One ends with `;` and can span lines. A line that opens or closes
+        a block (`MACRO <name>`, `END <name>`) has no `;` and stands for itself."""
+        pending: list[str] = []
         for line in text.splitlines():
             hash_at = line.find("#")
             if hash_at >= 0:
                 line = line[:hash_at]
-            if self.where in ("port", "obs"):
+            if self.where in ("port", "obs") and not pending:
                 if "END" in line and line.split() == ["END"]:
                     self.where = "pin" if self.where == "port" else "macro"
                 continue
-            for statement in line.split(";"):
-                words = statement.split()
-                if words:
+            fragments = line.split(";")
+            for index, fragment in enumerate(fragments):
+                words = fragment.split()
+                if index < len(fragments) - 1:
+                    pending.extend(words)
+                    if pending:
+                        self.statement(pending)
+                        pending = []
+                elif words and not pending and words[0] in self._BLOCK_WORDS.get(self.where, ()):
                     self.statement(words)
+                else:
+                    pending.extend(words)
 
     def statement(self, words: list[str]) -> None:
         handler = getattr(self, f"in_{self.where}")
@@ -319,6 +352,7 @@ _COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _CALL = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*\((.*)\)\s*", re.DOTALL)
 _ATTRIBUTE = re.compile(r"\s*([A-Za-z_][\w.$]*)\s*:\s*(.*?)\s*", re.DOTALL)
 _PIN_GROUPS = ("pin", "bus", "bundle")
+_NAME = re.compile(r'"([^"]*)"|([^,"]+)')
 
 
 def _unquote(text: str) -> str:
@@ -326,6 +360,13 @@ def _unquote(text: str) -> str:
     if len(text) >= 2 and text[0] == '"' and text[-1] == '"':
         return text[1:-1].strip()
     return text
+
+
+def _names(arguments: str) -> list[str]:
+    """The names in the arguments of a group, quoted or not: `A, "B"` gives `A` and `B`. A group
+    without a name gives one empty name."""
+    names = [(quoted or bare).strip() for quoted, bare in _NAME.findall(arguments)]
+    return [name for name in names if name] or [""]
 
 
 def _capacitance_unit(arguments: str) -> Optional[str]:
@@ -403,8 +444,9 @@ def read_liberty_summary(path: Path) -> LibertySummary:
                     ),
                 )
             elif depth == 3 and closed in _PIN_GROUPS and stack[1] == "cell":
-                cell["pins"].append(
-                    LibertyPin(pin["name"], pin.get("direction"), pin.get("function"))
+                cell["pins"].extend(
+                    LibertyPin(name, pin.get("direction"), pin.get("function"))
+                    for name in pin["names"]
                 )
             continue
         call = _CALL.fullmatch(body)
@@ -413,7 +455,7 @@ def read_liberty_summary(path: Path) -> LibertySummary:
         if depth == 1 and group == "cell" and stack[0] == "library":
             cell = {"name": _unquote(call.group(2)) if call else "", "pins": []}
         elif depth == 2 and group in _PIN_GROUPS and stack[1] == "cell":
-            pin = {"name": _unquote(call.group(2)) if call else ""}
+            pin = {"names": _names(call.group(2)) if call else [""]}
     return summary
 
 

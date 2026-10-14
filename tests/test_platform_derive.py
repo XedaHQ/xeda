@@ -428,6 +428,26 @@ def test_liberty_syntax(tmp_path: Path) -> None:
     assert [(p.name, p.function) for p in summary.cells["ONE_LINE"].pins] == [("Y", "0")]
 
 
+def test_a_pin_list_gives_each_pin_the_attributes_of_the_group(tmp_path: Path) -> None:
+    lib = library('cell (T) { area : 1; pin (HI, "LO") { direction : output; function : "1"; } }\n')
+    summary = read_liberty_summary(write(tmp_path, "list.lib", lib))
+    assert [(p.name, p.direction, p.function) for p in summary.cells["T"].pins] == [
+        ("HI", "output", "1"),
+        ("LO", "output", "1"),
+    ]
+    assert derive_text(tmp_path, lib=lib)["tie_high"] == {"cell": "T", "port": "HI"}
+
+
+def test_inputs_declared_as_a_pin_list_make_no_tie_cell(tmp_path: Path) -> None:
+    lib = library(
+        "cell (C) { area : 1; pin (A, B) { direction : input; } "
+        'pin (Y) { direction : output; function : "1"; } }\n'
+    )
+    summary = read_liberty_summary(write(tmp_path, "list.lib", lib))
+    assert [p.name for p in summary.cells["C"].pins] == ["A", "B", "Y"]
+    assert "tie_high" not in derive_text(tmp_path, lib=lib)
+
+
 def test_a_bus_counts_as_an_input_of_a_cell(tmp_path: Path) -> None:
     lib = library(
         "cell (C) { area : 1; bus (B) { direction : input; } "
@@ -477,6 +497,25 @@ def test_lef_syntax(tmp_path: Path) -> None:
     assert tie_macro.pins["VDD"].use == "POWER"
     assert (tie_macro.pins["Z"].direction, tie_macro.pins["Z"].use) == ("OUTPUT", "SIGNAL")
     assert summary.macros["TWO"].pins["I"].antenna_diff_area == 0.5  # the largest
+
+
+def test_lef_statements_may_span_lines(tmp_path: Path) -> None:
+    lef = (
+        "LAYER a\n  TYPE ROUTING ;\n  PITCH 0.14\n    0.16 ;\n  OFFSET 0.1\n    0.2\n  ;\nEND a\n"
+        "MACRO M\n  CLASS CORE\n    ANTENNACELL ;\n  SIZE 1 BY\n    2 ;\n  SITE\n    s ;\n"
+        "  PIN VDD\n    USE\n      POWER\n    ;\n  END VDD\n"
+        "  PIN I\n    ANTENNADIFFAREA\n      0.5 ;\n  END I\n"
+        "END M\n"
+    )
+    summary = read_lef_summary([write(tmp_path, "span.lef", lef)])
+    assert (summary.layers[0].pitch, summary.layers[0].offset) == ((0.14, 0.16), (0.1, 0.2))
+    macro_m = summary.macros["M"]
+    assert (macro_m.cls, macro_m.size, macro_m.site) == (("CORE", "ANTENNACELL"), (1.0, 2.0), "s")
+    assert macro_m.pins["VDD"].use == "POWER"
+    assert macro_m.pins["I"].antenna_diff_area == 0.5
+    derived = derive_text(tmp_path, lef)
+    assert derived["tracks.a"] == {"x": [0.1, 0.14], "y": [0.2, 0.16]}
+    assert derived["supply.power_pin"] == "VDD"
 
 
 def test_lef_block_of_a_nondefault_rule_or_via_is_no_layer(tmp_path: Path) -> None:
