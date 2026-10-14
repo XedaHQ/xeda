@@ -1423,8 +1423,9 @@ setting:
 * ``abc_dff: true``. The mapping maps the flip-flops with ``dfflibmap`` before ``abc`` runs, so
   ``-dff`` has no effect. Use ``sequential.retime_modules`` to retime. Set it to false or delete
   it.
-* ``post_synth_opt: true``. An ``opt`` after the tail of OpenROAD-flow-scripts leaves ``x``
-  constants in the netlist. Set it to false or delete it.
+* ``post_synth_opt: true``. The mapping runs no extra ``opt`` after ``synth``, so the setting has
+  no effect. Use ``coarse.opt_dff_sat`` to add ``-sat`` to the ``opt`` that follows ``synth``. Set
+  it to false or delete it.
 * ``prep``. The mapping runs its own ``proc``, ``flatten`` and ``synth``. Delete the setting.
 * ``nosynth: true``. The mapping always runs ``synth``. Set it to false or delete it.
 * ``noabc: true``. The mapping always maps with ``abc``. Set it to false or delete it.

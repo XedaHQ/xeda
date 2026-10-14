@@ -173,9 +173,9 @@ LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
     (
         "post_synth_opt",
         lambda value: value is True,
-        "`post_synth_opt: true` cannot map to a liberty library: the mapping ends with the tail of "
-        "OpenROAD-flow-scripts, and an `opt` after it leaves `x` constants in the netlist. Delete "
-        "the setting or set it to false",
+        "`post_synth_opt: true` has no effect with a liberty mapping: the mapping runs no extra "
+        "`opt` after `synth`. Delete the setting or set it to false. `coarse.opt_dff_sat` adds "
+        "`-sat` to the `opt` that follows `synth`",
     ),
     (
         "prep",
@@ -361,8 +361,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         post_synth_opt: Optional[bool] = Field(
             None,
             description="Run additional optimization after synthesis (gates and LUTs only). "
-            "Unset: off. A liberty mapping ends with the tail of OpenROAD-flow-scripts and refuses "
-            "`true`, since a trailing `opt` leaves `x` constants in the netlist.",
+            "Unset: off. A liberty mapping runs no such step and refuses `true`. Use "
+            "`coarse.opt_dff_sat` there.",
         )
         # The base classes declare a plain `bool`, which the FPGA flows keep. `Yosys` adds "unset".
         abc_dff: Optional[bool] = Field(  # type: ignore[assignment]

@@ -855,7 +855,7 @@ LIBERTY_ONLY = {"liberty": ["cells.lib"]}
     "given, mentions",
     [
         ({"abc_dff": True}, ["abc_dff", "no effect", "dfflibmap"]),
-        ({"post_synth_opt": True}, ["post_synth_opt", "x", "constants"]),
+        ({"post_synth_opt": True}, ["post_synth_opt", "no effect", "coarse.opt_dff_sat"]),
         ({"prep": ["-nordff"]}, ["prep"]),
         ({"nosynth": True}, ["nosynth"]),
         ({"noabc": True}, ["noabc"]),
