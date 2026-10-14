@@ -294,6 +294,16 @@ def test_a_line_with_a_key_outside_the_set_is_ignored_whatever_it_holds(tmp_path
     assert read_tcl(tmp_path, text) == {}
 
 
+def test_a_read_of_the_environment_is_not_a_write(tmp_path: Path) -> None:
+    text = (
+        "set ::env(PLACE_SITE) core\n"
+        'puts "$::env(PLACE_SITE) ${::env(PLACE_SITE)} $::env($name)"\n'
+        "set tmp $::env(PLACE_SITE)\n"
+        "if { [info exist ::env(UNRELATED)] } { puts ok }\n"
+    )
+    assert read_tcl(tmp_path, text) == {"site": "core"}
+
+
 def test_a_reference_to_a_key_in_a_line_of_another_key_is_not_an_error(tmp_path: Path) -> None:
     text = 'set ::env(PLACE_SITE) core\nset ::env(OTHER) "$::env(PLACE_SITE)/x"\n'
     assert read_tcl(tmp_path, text) == {"site": "core"}
@@ -321,6 +331,22 @@ TCL_REFUSALS: list[tuple[str, int, str]] = [
     ('set ::env(PLACE_SITE) "a[b]"\n', 1, "["),
     ("set ::env(FILL_CELL) [glob *.lef]\n", 1, "["),
     ("lappend ::env(FILL_CELL) x\n", 1, "FILL_CELL"),
+    ("lappend ::env(FILL_CELLS) x\n", 1, "FILL_CELLS"),
+    ("append ::env(FP_PDN_RAIL_LAYER) x\n", 1, "FP_PDN_RAIL_LAYER"),
+    ("lappend ::env(LAYERS_RC) x\n", 1, "LAYERS_RC"),
+    ("append ::env(DIODE_CELL_PIN) x\n", 1, "DIODE_CELL_PIN"),
+    ("array set ::env {PLACE_SITE x}\n", 1, "::env"),
+    ("array set ::env [list PLACE_SITE x]\n", 1, "::env"),
+    ("array unset ::env\n", 1, "::env"),
+    ("dict set ::env PLACE_SITE x\n", 1, "::env"),
+    ("upvar #0 ::env e\n", 1, "::env"),
+    ("set ::env($k) x\n", 1, "::env"),
+    ("foreach {k v} {PLACE_SITE x} {\n  set ::env($k) $v\n}\n", 2, "::env"),
+    ("set {::env(PLACE_SITE)} x\n", 1, "PLACE_SITE"),
+    ("eval {set ::env(PLACE_SITE) x}\n", 1, "PLACE_SITE"),
+    ("switch x { x { set ::env(RT_MAX_LAYER) m5 } }\n", 1, "RT_MAX_LAYER"),
+    ("set ::env(OTHER) x ; set ::env(PLACE_SITE) y\n", 1, "PLACE_SITE"),
+    ("set ::env(PLACE_SITE) a ; array set ::env {}\n", 1, "PLACE_SITE"),
     ("append ::env(PLACE_SITE) x\n", 1, "PLACE_SITE"),
     ("unset ::env(PLACE_SITE)\n", 1, "PLACE_SITE"),
     ("dict set ::env(PLACE_SITE) a b\n", 1, "PLACE_SITE"),
@@ -488,7 +514,6 @@ def test_every_leaf_of_config_mk_validates_as_its_type(
         "export PLACE_SITE=Site",
         "export PLACE_SITE ?= Site",
         "export PLACE_SITE := Site",
-        "export PLACE_SITE ::= Site",
         "PLACE_SITE = Site",
         "PLACE_SITE\t?=\tSite",
         "export  PLACE_SITE   =   Site   ",
@@ -622,6 +647,15 @@ def test_a_conditional_anywhere_wins_over_an_error_on_an_earlier_line(tmp_path: 
     assert "config.mk:3" in message
 
 
+@pytest.mark.parametrize(
+    "directive", ["include x.mk", "-include x.mk", "sinclude x.mk", "define A", "endef"]
+)
+def test_include_and_define_refuse_the_whole_file(tmp_path: Path, directive: str) -> None:
+    text = f"export PLACE_SITE = A\n{directive}\n"
+    message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", text), tmp_path)
+    assert message.endswith(NEEDS_MAKE) and "config.mk:2" in message, message
+
+
 def test_a_conditional_in_a_comment_or_a_value_is_no_conditional(tmp_path: Path) -> None:
     text = "# ifeq ($(A),1)\nexport PLACE_SITE = ifeq\nexport IR_DROP_LAYER = m1 # endif\n"
     assert read_mk(tmp_path, text) == {"site": "ifeq", "ir_drop_layer": "m1"}
@@ -674,6 +708,42 @@ def test_config_mk_refuses_what_it_does_not_understand_naming_the_line(
     message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", text), tmp_path)
     assert re.search(rf"config\.mk:{line}\b", message), message
     assert fragment in message, message
+
+
+MK_UNSUPPORTED_FORMS = [
+    "ABC_DRIVER_CELL != printf BUF_X1",
+    "export ABC_DRIVER_CELL != printf BUF_X1",
+    "ABC_DRIVER_CELL ::= BUF_X1",
+    "ABC_DRIVER_CELL :::= BUF_X1",
+    "override ABC_DRIVER_CELL = BUF_X1",
+    "export override ABC_DRIVER_CELL = BUF_X1",
+    "override export ABC_DRIVER_CELL = BUF_X1",
+    "private ABC_DRIVER_CELL = BUF_X1",
+    "unexport ABC_DRIVER_CELL",
+    "export ABC_DRIVER_CELL",
+    "ABC_DRIVER_CELL",
+    "ABC_DRIVER_CELL: BUF_X1",
+    "ABC_DRIVER_CELL : dependency",
+    "ABC_DRIVER_CELL BUF_X1",
+]
+
+
+@pytest.mark.parametrize("line", MK_UNSUPPORTED_FORMS)
+def test_a_key_of_the_reader_in_a_form_it_does_not_take_is_refused(
+    tmp_path: Path, line: str
+) -> None:
+    """Make would give the key another value than the reader, so the reader must not skip it."""
+    text = f"ABC_DRIVER_CELL = INV_X1\n{line}\n"
+    message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", text), tmp_path)
+    assert "config.mk:2" in message and "ABC_DRIVER_CELL" in message, message
+
+
+def test_a_name_that_only_starts_like_a_key_is_another_key(tmp_path: Path) -> None:
+    text = (
+        "ABC_DRIVER_CELLS != x\nABC_DRIVER_CELL_2 ::= x\nABC_DRIVER_CELL.x := y\n"
+        "PLACE_SITE_X override = y\nABC_DRIVER_CELL = INV_X1\n"
+    )
+    assert read_mk(tmp_path, text) == {"abc_driver_cell": "INV_X1"}
 
 
 def test_an_error_after_a_continuation_names_the_first_line_of_the_assignment(

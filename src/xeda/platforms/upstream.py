@@ -18,7 +18,9 @@ quoted VALUE, `$::env(OTHER)` and `${::env(OTHER)}` give the value of a key of t
 earlier line or an earlier file read. A trailing `; # comment` is allowed. A backslash at the end
 of a line continues it. The line must be at the top level: a `set` in a block (`if`, `proc`, ...)
 is an error. Any other command on a key of the set (`if`, `lappend`, `unset`, `dict set`, ...) is
-an error, and so is a command substitution (`[...]`) or any other `$`. The files are read in the
+an error, and so is a command substitution (`[...]`) or any other `$`. A command that uses
+`::env` as a whole (`array set ::env`) or with a computed key (`set ::env($name)`) is an error
+too, because the reader cannot tell which key it writes. The files are read in the
 order given and a later value of a key wins.
 
 | key | leaf | value |
@@ -70,6 +72,8 @@ The reader follows Make for these: `?=` sets a key that has no value, and `+=` a
 new words. A backslash at the end of a line continues it, and `#` starts a comment. In a value,
 `$(PLATFORM_DIR)` is the directory of the platform and `$(ADDITIONAL_...)` is empty. A value in
 double quotes loses its quotes. Any other `$` in the value of a key of the set is an error.
+A line that starts with a key of the set in any other form is an error too: `!=`, `::=`,
+`override`, `private`, `unexport`, a bare `export KEY` or a rule.
 A file with a conditional (`ifeq`, `ifneq`, `ifdef`, `ifndef`, `else`, `endif`), `include` or
 `define` needs Make, so the reader refuses the whole file. An empty value gives an empty list
 for a list leaf and no leaf for any other.
@@ -318,7 +322,8 @@ TCL_TABLE_VALUE = re.compile(
 )
 TCL_TAIL = re.compile(r"\s*(?:;\s*(?:#.*)?)?")
 TCL_READ = re.compile(r"\$\{::env\((\w+)\)\}|\$::env\((\w+)\)")
-TCL_MENTION = re.compile(r"::env\((\w+)\)")
+TCL_ANY_READ = re.compile(r"\$\{::env(?:\([^)]*\))?\}|\$::env(?:\([^)]*\))?")
+TCL_MENTION = re.compile(r"::env(\(([^)]*)\))?")
 
 
 def _tcl_lines(text: str) -> list[tuple[int, str]]:
@@ -404,11 +409,19 @@ class _TclReader:
                 )
             self.set_table_value(path, number, table.group(1), table.group(2))
             return
-        for found in TCL_MENTION.finditer(TCL_READ.sub("", text)):
-            if found.group(1) in TCL_NAMES:
+        for found in TCL_MENTION.finditer(TCL_ANY_READ.sub("", text)):
+            name = found.group(2)
+            if name is not None and re.fullmatch(r"\w+", name):
+                if name in TCL_NAMES:
+                    raise _Invalid(
+                        f"`{text.split()[0]}` writes or tests `{name}`; the reader takes "
+                        f"only a plain `set ::env({name}) value`"
+                    )
+            else:
                 raise _Invalid(
-                    f"`{text.split()[0]}` writes or tests `{found.group(1)}`; the reader takes "
-                    f"only a plain `set ::env({found.group(1)}) value`"
+                    f"`{text.split()[0]}` uses `::env` as a whole or with a computed key, so the "
+                    "reader cannot tell which key it writes; it takes only a plain "
+                    "`set ::env(KEY) value`"
                 )
 
     def set_key(self, path: Path, number: int, key: str, rest: Optional[str]) -> None:
@@ -652,8 +665,14 @@ MK_NETS = {"PWR_NETS_VOLTAGES": "supply.power_nets", "GND_NETS_VOLTAGES": "suppl
 
 MK_CONDITIONAL = re.compile(r"(ifeq|ifneq|ifdef|ifndef|else|endif)\b")
 MK_NEEDS_MAKE = re.compile(r"(include|-include|sinclude|define|endef)\b")
-MK_ASSIGNMENT = re.compile(
-    r"(?:(?:export|override|private)\s+)*([A-Za-z_][\w.\-]*)\s*(\+=|::=|:=|\?=|=)\s*(.*)"
+#: The forms of assignment that the reader takes: `KEY = value`, with `?=`, `:=` or `+=`, and an
+#: optional `export`. Any other line that starts with a key of the reader is refused.
+MK_ASSIGNMENT = re.compile(r"(?:export\s+)?([A-Za-z_][\w.\-]*)\s*(\+=|:=|\?=|=)\s*(.*)")
+#: A line that starts with a key of the reader, after any of the words that Make allows before it.
+MK_STARTS_WITH_KEY = re.compile(
+    r"(?:(?:export|override|unexport|private)\s+)*("
+    + "|".join(sorted((*MK_DIRECT, *MK_NETS), key=len, reverse=True))
+    + r")(?![\w.\-])"
 )
 MK_REFERENCE = re.compile(r"\$\$|\$\([A-Za-z0-9_]*\)|\$\S*")
 
@@ -718,6 +737,15 @@ def read_orfs_config_mk(path: Path, platform_dir: Path) -> dict[str, Any]:
     for number, line in lines:
         text = line.strip()
         assignment = MK_ASSIGNMENT.fullmatch(text)
+        named = MK_STARTS_WITH_KEY.match(text)
+        if named and not (assignment and assignment.group(1) == named.group(1)):
+            raise PlatformConfigError(
+                path,
+                number,
+                f"`{named.group(1)}` is written as `{text[:50]}`: the reader takes only "
+                f"`{named.group(1)} = value`, with `?=`, `:=` or `+=` and an optional `export`, "
+                "because it does not run Make",
+            )
         if not assignment:
             continue
         key, operator, value = assignment.groups()
