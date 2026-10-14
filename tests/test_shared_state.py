@@ -53,6 +53,7 @@ from .test_isolation import (
     PLAIN_TB_DESIGN,
     SQRT_DESIGN,
     _world,
+    sweep_settings,
 )
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
 
@@ -83,7 +84,7 @@ HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
 }
 #: The flows whose launch does not reach their `run()` in the sweep's world, and why nothing is
 #: lost. Any other that does not is a failure of the sweep: it would see nothing of it.
-NEVER_RUN = {"openroad": "the asap7 platform's liberty files are not shipped"}
+NEVER_RUN: dict[str, str] = {}
 #: Settings that start a container or reach a machine: never flipped.
 NOT_FLIPPED = ("docker", "remote", "ssh", "junest", "image")
 
@@ -169,7 +170,7 @@ def _launch(flow_class, world, mp, settings: dict, launcher: dict):
 def check_flow(flow_class, tmp_path: Path, variants: Optional[list] = None) -> List[str]:
     """Launch `flow_class` as `variants` say, and say what it left behind in the process."""
     world = _world(tmp_path)
-    base = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    base = sweep_settings(flow_class, world)
     if variants is None:
         variants = [
             ("its own settings", base, {}),

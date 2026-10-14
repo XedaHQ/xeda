@@ -101,8 +101,9 @@ def _flow_section(flow: Dict[str, object]) -> str:
     settings = settings_info(name)
     specific = [f for f in settings["fields"] if not f.get("common")]
     required = [f["name"] for f in specific if f.get("required")]
-    # Add what the flow cannot run without although its model leaves it optional (`fpga`,
-    # `platform` of `openroad`). The launch checks these settings and the model does not.
+    # Add what the flow cannot run without although its model leaves it optional (`fpga` of
+    # `nextpnr`, `target_libraries` of `dc`). The launch checks these settings and the model
+    # does not.
     required += [r for r in get_flow_class(name).required_settings if r not in required]
     if required:
         lines += ["Required settings: " + ", ".join(f"`{r}`" for r in required), ""]

@@ -66,10 +66,17 @@ SHARED_SETTINGS = (
     "platform",
     "corner",
     "dont_use_cells",
+    "platform_file",
+    "pdk_provider",
+    "pdk_version",
+    "pdk_root",
 )
-#: Shared settings that are one value. They are compared and propagated whole, never split into
-#: leaves and merged key by key with the leaves of another node. A platform is a model.
-INDIVISIBLE_SETTINGS = ("platform",)
+#: Shared settings that name a file or a directory. They are compared by the resolved path, a
+#: relative one against the design root.
+SHARED_PATH_SETTINGS = ("prjxray_db", "platform_file", "pdk_root")
+#: The settings that pin the PDK of a platform. The resolver fills them in when the user gives
+#: none (`_pin_pdks`).
+PIN_SETTINGS = ("pdk_provider", "pdk_version")
 log = logging.getLogger(__name__)
 
 
@@ -497,37 +504,8 @@ def _components(requests: list[_Request], shared: str) -> list[list[_Request]]:
 
 
 #: The contribution of one node to a shared setting at one leaf: the value it propagates, the
-#: key it is compared by (the same value for every leaf but `platform` and `corner`), and where
-#: it was given.
+#: key it is compared by, and where it was given.
 _Leaf = tuple[Any, Any, "_Location"]
-
-
-def _platform_key(platform: Any) -> Any:
-    """Return what a platform is compared by.
-
-    That is its validated model, with every path in it written relative to its resolved root (a
-    path outside the root as itself), together with that root. Two spellings of one platform,
-    a bundled name and the path to its `config.toml`, compare equal. Two models that share a
-    name and a root but differ anywhere do not."""
-    if platform is None:
-        return None
-    root = Path(platform.root_dir).resolve()
-
-    def located(value: Any) -> Any:
-        if isinstance(value, Path):
-            path = (value if value.is_absolute() else root / value).resolve()
-            return (
-                ("root", path.relative_to(root).as_posix())
-                if path.is_relative_to(root)
-                else ("path", str(path))
-            )
-        if isinstance(value, Mapping):
-            return {key: located(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [located(item) for item in value]
-        return value
-
-    return (str(root), located(platform.model_dump(exclude={"root_dir"})))
 
 
 def _normalized_leaves(
@@ -546,21 +524,6 @@ def _normalized_leaves(
                     PhysicalClock.model_validate(raw_clock)
                 except ValueError as error:
                     raise _error(request.cls, f"clocks.{name}", str(error)) from error
-    if shared in INDIVISIBLE_SETTINGS:
-        # One value, wherever its parts were given: located at the most specific of them.
-        rank = {"file": 0, "cli": 1, "api": 2}
-        given = [loc for path, loc in request.raw.locations.items() if path and path[0] == shared]
-        value = request.raw.values.get(shared)
-        if not given or value is None or value == {}:
-            return result
-        loc = max(given, key=lambda location: rank[location.kind])
-        try:
-            model = settings_in_context(request.cls, {shared: value}, **context)
-            key = _platform_key(getattr(model, shared))
-        except (ValueError, FlowSettingsError) as error:
-            raise _error(request.cls, shared, f"{error} at {loc.label}") from error
-        result[(shared,)] = (value, key, loc)
-        return result
     for path, loc in request.raw.locations.items():
         if not path or path[0] != shared:
             continue
@@ -584,23 +547,87 @@ def _normalized_leaves(
                 # only after they agree; here check the same strict name syntax as the field.
                 if value is not None and not isinstance(value, str):
                     raise ValueError("board must be a string or None")
-            elif shared in ("prjxray_db", "dont_use_cells"):
+            elif shared in (*SHARED_PATH_SETTINGS, "dont_use_cells"):
                 model = settings_in_context(request.cls, {shared: value}, **context)
                 value = getattr(model, shared)
-                if shared == "prjxray_db" and value is not None:
+                if shared in SHARED_PATH_SETTINGS and value is not None:
                     value = (context["design_root"] / value).resolve()
             elif shared == "custom_boards_file":
                 board = WithFpgaBoardSettings.from_input({shared: value}, **context)
                 value = getattr(board, shared)
         except ValueError as error:
             raise _error(request.cls, ".".join(path), f"{error} at {loc.label}") from error
-        if shared == "corner" and isinstance(value, list):
-            # Propagated as given, and compared by the corner it selects: the first of a list.
-            key = value[0] if value else None
-        else:
-            key = value
-        result[target] = (value, key, loc)
+        result[target] = (value, value, loc)
     return result
+
+
+def _group_value(group: list[_Request], name: str) -> Any:
+    """Return the value that a node of `group` gives to the shared setting `name`, or None.
+    After agreement every node that declares it holds the same value."""
+    return next(
+        (value for request in group if (value := request.raw.values.get(name)) is not None),
+        None,
+    )
+
+
+def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
+    """Fill in the PDK pin that a user left out, in every node of each group of ASIC flows.
+
+    A group is a set of connected nodes that declare `platform`. When the group has a `platform`
+    or a `platform_file`, and `pdk_provider` or `pdk_version` is unset, the provider is that of
+    the residue (`providers.default`) and the version is the one that the residue pins for the
+    provider (`unpinned` for a directory, which pins nothing). The pin then belongs to the
+    settings, so it is part of the identity of every node. The residue is the bundled one, or
+    the user file of `platform_file`, which planning reads like a design file. A group without a
+    platform gets nothing.
+
+    The settings of a flow that declares `platform` must inherit `AsicPlatformSettings`, so that
+    every node of a group declares the pin. A node that cannot hold the pin would leave it out of
+    its identity. Such a flow is a programming error."""
+    from ..flow.asic import platform_residues
+    from ..platforms.providers import PROVIDERS, UNPINNED
+    from ..platforms.residue import effective_residue
+
+    for group in _components(requests, "platform"):
+        for request in group:
+            if not all(name in request.cls.Settings.model_fields for name in PIN_SETTINGS):
+                raise TypeError(
+                    f"{request.cls.name} declares `platform` but not {' and '.join(PIN_SETTINGS)}: "
+                    "its settings must inherit AsicPlatformSettings"
+                )
+        provider = _group_value(group, "pdk_provider")
+        version = _group_value(group, "pdk_version")
+        platform = _group_value(group, "platform")
+        platform_file = _group_value(group, "platform_file")
+        if provider is not None and version is not None:
+            continue
+        if platform is None and platform_file is None:
+            continue
+        first = group[0]
+        if platform is not None:
+            # The name is checked as the field checks it, before it is looked for.
+            settings_in_context(first.cls, {"platform": platform}, **context)
+        if platform_file is not None:
+            platform_file = Path(platform_file)
+            if not platform_file.is_absolute():
+                platform_file = (context["design_root"] / platform_file).resolve()
+        try:
+            bundled, user = platform_residues(platform, platform_file)
+        except FlowSettingsException as error:
+            raise _error(
+                first.cls, "platform_file" if platform_file else "platform", str(error)
+            ) from error
+        residue = effective_residue(bundled, user)
+        if provider is None:
+            provider = residue.providers.default
+        if provider in PROVIDERS and version is None:
+            entry = residue.providers.entry(provider)
+            if entry is not None:
+                version = UNPINNED if provider == "directory" else entry.version
+        for request in group:
+            for name, value in (("pdk_provider", provider), ("pdk_version", version)):
+                if value is not None and request.raw.values.get(name) is None:
+                    request.raw.values[name] = value
 
 
 def _nonshared_input(cls: type[Flow], values: Mapping[str, Any]) -> dict[str, Any]:
@@ -1169,6 +1196,7 @@ def resolve(
                 # A default producer that a source or a binding displaced, or one of its producers.
                 log.info("%s is not part of this run: its settings are unused", unused_name)
     given = agree_targets(requests)
+    _pin_pdks(requests, context)
 
     for request in requests:
         try:

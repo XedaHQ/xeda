@@ -1,6 +1,5 @@
 """The oracles of the one dependency mechanism: no flow registers a dependency of its own, and
-declared flows reach a producer's files only through the resolver. For OpenROAD, see the tests
-on its synthesis prerequisite and on its reads of producer state.
+declared flows reach a producer's files only through the resolver.
 
 Over every registered flow and every combination of its target-narrowing settings reachable from
 `settings_samples.PROBES`:
@@ -42,7 +41,7 @@ from xeda.flow.io import (
 )
 from xeda.flow_runner import get_flow_class
 from xeda.flow_runner.chains import fitting_outputs
-from xeda.flows import Openroad, VivadoSynth
+from xeda.flows import VivadoSynth, Yosys
 
 from .settings_samples import PROBES, flow_classes, minimal_settings
 
@@ -249,18 +248,6 @@ def test_a_bitstream_switch_without_its_override_is_found(monkeypatch) -> None:
         "bitstream" in p and "give `bitstream` a value" in p and "minimal settings" in p
         for p in problems
     ), problems
-
-
-# ------------------------------------------------------------------------------------- OpenROAD
-
-
-def test_openroad_hands_synthesis_nothing_but_its_declared_input():
-    """Synthesis derives its files in its own run directory."""
-    source = inspect.getsource(inspect.getmodule(Openroad))
-    assert "yosys_settings.liberty" not in source
-    inputs = declared_inputs(Openroad)
-    assert inputs["netlist"].producer == "yosys"
-    assert inputs["netlist"].output == "netlist"
 
 
 # ------------------------------------------------------------------------------- no cross-read
@@ -809,7 +796,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     from xeda.flow_runner.default_runner import DefaultRunner
     from xeda.flow_runner.trace import as_recorded
 
-    from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN, UNPLANNABLE
+    from .test_isolation import DESIGNS, SQRT_DESIGN, UNPLANNABLE, sweep_settings
 
     world, outcomes = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
     asked = [(plan, error) for cls, plan, error in outcomes if cls is flow_class]
@@ -830,7 +817,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
         tb=tb,
         language={"vhdl": {"standard": "2008"}},
     )
-    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    settings = sweep_settings(flow_class, world)
     again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
     assert again.node(flow_class.name).flowrun_hash == node.flowrun_hash
     assert node.run_path == world.root / "sqrt" / flow_class.name
@@ -902,7 +889,7 @@ def test_a_flow_that_registers_a_dependency_is_found() -> None:
         results_description: dict[str, str] = {}
 
         def init(self) -> None:
-            self.add_dependency(Openroad, {})
+            self.add_dependency(Yosys, {})
 
         def run(self) -> None:
             pass

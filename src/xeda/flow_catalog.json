@@ -109,13 +109,6 @@
       "": []
     }
   },
-  "openroad": {
-    "aliases": [],
-    "class_name": "Openroad",
-    "followers": {
-      "": []
-    }
-  },
   "quartus": {
     "aliases": [],
     "class_name": "Quartus",
@@ -237,12 +230,8 @@
     "aliases": [],
     "class_name": "Yosys",
     "followers": {
-      "": [
-        "openroad"
-      ],
-      "netlist": [
-        "openroad"
-      ]
+      "": [],
+      "netlist": []
     }
   },
   "yosys_fpga": {

@@ -98,15 +98,14 @@ DECLARED = [YosysFpga, Nextpnr, FpgaPack, Openfpgaloader]
 
 
 def test_the_declared_flows():
-    """The FPGA graph, the Vivado synthesis flows, `yosys`, whose gate-level netlist
-    is a declared output, and `openroad`, which consumes it."""
+    """The FPGA graph, the Vivado synthesis flows, and `yosys`, whose gate-level netlist
+    is a declared output."""
     assert {
         cls.name for cls, _ in flow_classes() if declared_inputs(cls) or declared_outputs(cls)
     } == {
         "fpga_pack",
         "nextpnr",
         "openfpgaloader",
-        "openroad",
         "vivado_alt_synth",
         "vivado_impl",
         "vivado_synth",
@@ -569,3 +568,39 @@ def test_cli_device_conflict_names_both_files_and_override_wins(tmp_path, cli_le
             "flow_settings"
         ]
         assert settings["fpga"]["part"] == PART
+
+
+def test_a_typed_netlist_source_displaces_its_producer(tmp_path):
+    """A JSON netlist among the design's sources is the netlist `nextpnr` reads, so the producer
+    `yosys_fpga` is not planned."""
+    (tmp_path / "d.v").write_text("{}\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={"sources": [{"file": "d.v", "type": "JsonNetlist"}], "top": "d"},
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    plan = runner.plan(Nextpnr, design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"])
+    assert len(plan.nodes) == 1
+    netlist = next(item for item in plan.node("nextpnr").inputs if item.name == "netlist")
+    assert netlist.origin == "source"
+
+
+def test_the_design_s_sdc_sources_are_a_declared_input_in_source_order(tmp_path):
+    """`nextpnr` reads the design's Sdc files through its declared `sdc` input, in source order."""
+    (tmp_path / "d.v").write_text("{}\n")
+    for name in ("a.sdc", "b.sdc"):
+        (tmp_path / name).write_text("set_load 0.1 [all_outputs]\n")
+    design = Design(
+        name="d",
+        design_root=tmp_path,
+        rtl={
+            "sources": [{"file": "d.v", "type": "JsonNetlist"}, "b.sdc", "a.sdc"],
+            "top": "d",
+        },
+    )
+    runner = DefaultRunner(tmp_path / "runs", display_results=False)
+    plan = runner.plan(Nextpnr, design, flow_settings=["fpga.part=LFE5U-25F-6BG381C"])
+    sdc = next(item for item in plan.node("nextpnr").inputs if item.name == "sdc")
+    assert sdc.origin == "source"
+    assert list(sdc.sources) == [tmp_path / "b.sdc", tmp_path / "a.sdc"]

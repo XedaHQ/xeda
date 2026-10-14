@@ -119,7 +119,6 @@ READS_NO_SOURCE = [
     "fpga_pack",
     "nextpnr",
     "openfpgaloader",
-    "openroad",
     "vivado_impl",
     "vivado_power",
 ]
@@ -1311,4 +1310,4 @@ def test_the_examples_name_flows_of_every_kind():
     """The sweep above covers simulators, synthesis and a chain: an oracle over few flows
     proves little."""
     named = {flow for path in EXAMPLE_FILES for _, flow, _ in _example_requests(path)}
-    assert {"verilator", "ghdl_sim", "yosys_sim", "bsc_sim", "openroad", "nextpnr"} <= named
+    assert {"verilator", "ghdl_sim", "yosys_sim", "bsc_sim", "dc", "nextpnr"} <= named

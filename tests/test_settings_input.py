@@ -87,14 +87,6 @@ def test_a_union_keeps_the_type_it_was_given():
     assert SimFlow.Settings(stop_time="5us").stop_time == "5us"
 
 
-def test_fractional_platform_values_are_not_truncated():
-    """Physical quantities from PDK data are `float`: an `int` type would truncate them."""
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("nangate45")
-    assert platform.macro_place_halo == [22.4, 15.12]
-
-
 def test_vivado_run_properties_take_text_numbers_and_booleans():
     """A run property's type says what Vivado accepts, and each kind is rendered for Tcl."""
     from xeda.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value
@@ -179,7 +171,7 @@ def test_every_list_setting_written_as_a_list_literal_is_refused_alike_everywher
 
 
 def _nested_list_fields() -> "list[tuple[type, str]]":
-    """Every list field of every model nested in a flow's settings (`cocotb`, `platform`,
+    """Every list field of every model nested in a flow's settings (`cocotb`,
     `cxxrtl`, `ghdl`, ...), as `(model, field)`, each once, found by walking the annotations."""
     import types
     from typing import Annotated, Union, get_args, get_origin
@@ -228,10 +220,6 @@ def _nested_list_fields() -> "list[tuple[type, str]]":
 def _nested_base(model) -> dict:
     """What `model` needs besides the field under test. A model that cannot be built from its
     defaults gets its base here: a new one fails the sweep below until it has one."""
-    from xeda.platforms.asics import AsicsPlatform
-
-    if model is AsicsPlatform:
-        return AsicsPlatform.from_setting("asap7").model_dump()
     return {}
 
 
@@ -241,7 +229,7 @@ NESTED_LIST_FIELDS = _nested_list_fields()
 def test_the_sweep_finds_the_nested_models_with_list_fields():
     models = {model.__name__ for model, _ in NESTED_LIST_FIELDS}
 
-    assert {"CocotbSettings", "AsicsPlatform", "CxxRtl"} <= models
+    assert {"CocotbSettings", "CxxRtl"} <= models
 
 
 @pytest.mark.parametrize(

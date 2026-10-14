@@ -19,7 +19,7 @@ assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_
 MINIMAL_SETTINGS: Dict[str, Any] = {
     "fpga": {"part": "xc7a100tcsg324-1"},
     "clock": {"period": 5.0},
-    "platform": "asap7",
+    "platform": "nangate45",
     "target_libraries": ["nangate45.lib"],
 }
 

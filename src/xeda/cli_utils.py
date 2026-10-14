@@ -7,11 +7,13 @@ from contextlib import contextmanager
 from typing import (
     Any,
     Dict,
+    Iterable,
     Iterator,
     List,
     NoReturn,
     Optional,
     Sequence,
+    Tuple,
     Type,
     Union,
 )
@@ -57,6 +59,7 @@ __all__ = [
     "XedaCommand",
     "XedaHelpGroup",
     "emit_structured",
+    "info_table",
     "machine_readable_mode",
     "output_format_option",
     "print_flow_settings",
@@ -273,6 +276,24 @@ class XedaHelpGroup(ColorizedGroup):
                 {"success": False, "error": {"type": "Abort", "message": "Aborted."}}, fmt
             )
             sys.exit(1)
+
+
+def info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Table:
+    """Return the empty table that a query command fills: the `title` and the `columns`, each a
+    name with the keyword arguments of its rich column."""
+    table = Table(
+        title=title,
+        show_header=True,
+        header_style="bold yellow",
+        title_style=Style(frame=True, bold=True),
+        box=box.HEAVY_HEAD,
+        show_lines=True,
+    )
+    for name, kwargs in columns:
+        # Fold long text instead of truncating it: a truncated name cannot be typed back into a
+        # command.
+        table.add_column(name, overflow="fold", **kwargs)
+    return table
 
 
 def resolve_format(output_format: str, json_flag: bool) -> str:

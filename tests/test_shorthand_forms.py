@@ -42,7 +42,6 @@ from xeda.flow import FlowSettingsError
 from xeda.flow.fpga import FPGA
 from xeda.flow.synth import SynthFlow
 from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flow_runner.resolver import INDIVISIBLE_SETTINGS
 from xeda.flows import VivadoSynth, Yosys
 
 from .settings_samples import flow_classes, minimal_settings
@@ -70,8 +69,7 @@ def table_fields(root: type) -> list[tuple[type, str]]:
             kind, child, _ = annotation_kind(info.annotation)
             if kind in ("model", "dict"):
                 found.append((model, name))
-            # a platform is a whole model read from a file, never merged key by key
-            if child is not None and name not in INDIVISIBLE_SETTINGS:
+            if child is not None:
                 walk(child)
 
     walk(root)
@@ -308,7 +306,6 @@ def test_the_sweep_walks_the_dictionaries_of_tables():
         ("RtlSettings", "attributes"),
         ("Settings", "clocks"),
         ("Settings", "set_mod_attribute"),
-        ("AsicsPlatform", "corner"),
     ]:
         assert any(
             qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
@@ -330,15 +327,12 @@ def test_the_forms_that_stand_for_a_table():
     assert VhdlSettings.as_mapping("08") == {"standard": "08"}
     assert LanguageSettings.as_mapping(2005) == {"standard": "2005"}
     assert LanguageSettings.as_mapping(True) is None  # a bool is no standard
-    from xeda.platforms.asics import AsicsPlatform
-
-    assert AsicsPlatform.as_mapping("asap7") is WHOLE
 
 
 def test_a_model_already_built_is_a_whole_value():
     assert mapping_form(VivadoSynth.Settings, "fpga", FPGA(part="xc7a35tcpg236-1")) is WHOLE
     assert nested_model(VivadoSynth.Settings.model_fields["fpga"].annotation) is FPGA
-    assert mapping_form(Yosys.Settings, "platform", "asap7") is WHOLE
+    assert mapping_form(Yosys.Settings, "platform", "nangate45") is None, "a name is no table"
 
 
 def test_no_module_converts_a_part_number_or_a_port_by_itself():

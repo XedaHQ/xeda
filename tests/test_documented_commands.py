@@ -177,6 +177,8 @@ def test_a_documented_command_works_where_it_is_shown(where, text, tmp_path, mon
     if any("<" in word for word in words):
         pytest.skip("a template with a placeholder")
     monkeypatch.chdir(SQRT_DIR)
+    # `list-platforms` looks in the default PDK store, which is under `HOME`.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     words = [PLACEHOLDER_DESIGNS.get(word, word) for word in words]
     ran_for_real = True
     if words[0] == "skill":

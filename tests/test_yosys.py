@@ -1,4 +1,3 @@
-import gzip
 import json
 import re
 import shutil
@@ -16,6 +15,7 @@ from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows.yosys.yosys import preproc_libs
 
+from .tiny_platform import TINY, TINY_RESIDUE, tiny_store
 from .tool_utils import (
     _command_succeeds,
     _require,
@@ -56,11 +56,6 @@ def test_yosys_synth_py(tmp_path: Path) -> None:
         assert results_json.exists()
 
 
-NANGATE45_LIB = (
-    Path(__file__).parent.parent
-    / "src/xeda/platforms/nangate45/lib/NangateOpenCellLibrary_typical.lib.gz"
-)
-
 # Every path-valued Yosys setting, set to a location whose directory -- and in places whose file
 # name -- contains a space. Relative outputs land in the run directory.
 SPACED_OUTPUTS = {
@@ -80,6 +75,8 @@ SPACED_INPUTS = (
     "clockgate_map",
     "other_maps",
     "abc_script",
+    "platform_file",
+    "pdk_root",
 )
 # Path settings the sweep does not set: the reports and the flow's other working locations
 # (its log, the merged liberty) are names in the run directory, whose path has a space; yosys
@@ -146,8 +143,9 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     )
     lib = root / "lib dir" / "cells lib.lib"
     lib.parent.mkdir(parents=True)
-    with gzip.open(NANGATE45_LIB, "rb") as src, open(lib, "wb") as dst:
-        shutil.copyfileobj(src, dst)
+    shutil.copyfile(TINY / "tiny.lib", lib)
+    store = tiny_store(root, "pdk dir")
+    platform_file = shutil.copy(TINY_RESIDUE, store / "my platform.yaml")
     black_box = _write(
         root / "lib dir" / "black box.v", "module bb(input a, output y); endmodule\n"
     )
@@ -155,6 +153,8 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     settings = {
         "liberty": [str(lib)],
         "dff_liberty": str(lib),
+        "platform_file": str(platform_file),
+        "pdk_root": str(store),
         "verilog_lib": [str(black_box)],
         "adder_map": str(_write(maps / "adder map.v", "module _unused_fa(); endmodule\n")),
         "clockgate_map": str(_write(maps / "clock gate.v", "module cg(); endmodule\n")),
@@ -558,12 +558,15 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         return _write(path, text)
 
     lib = with_decoy(root / "lib" / "cells[1].lib", "")
-    with gzip.open(NANGATE45_LIB, "rb") as src, open(lib, "wb") as dst:
-        shutil.copyfileobj(src, dst)
+    shutil.copyfile(TINY / "tiny.lib", lib)
+    store = tiny_store(root, "pdk[1]")
+    platform_file = shutil.copy(TINY_RESIDUE, store / "tiny[1].yaml")
     bb = "module bb(input a, output y); endmodule\n"
     settings = {
         "liberty": [str(lib)],
         "dff_liberty": str(lib),
+        "platform_file": str(platform_file),
+        "pdk_root": str(store),
         "verilog_lib": [str(with_decoy(root / "lib" / "bb[1].v", bb))],
         "adder_map": str(with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")),
         "clockgate_map": str(with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")),

@@ -46,7 +46,7 @@ RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 
 #: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
-    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad quartus "
+    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader quartus "
     "vivado_alt_synth vivado_impl vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
@@ -657,7 +657,6 @@ def tb_reads(cls: type[Flow]) -> list[str]:
     [
         ("vivado_synth", {"vivado_synth.tcl", "post_step_hook.tcl", "clock.xdc", "util.tcl"}),
         ("diamond_synth", {"synth.tcl", "constraints.ldc", "constraints.sdc", "constraints.fdc"}),
-        ("openroad", {"orflow.tcl", "utils.tcl", "cts.tcl", "global_place.tcl", "clocks.sdc"}),
         ("yosys", {"yosys_synth.ys", "read_files.ys", "post_rtl.ys", "write_netlist.ys"}),
         ("yosys_fpga", {"read_files.ys"}),
         ("dc", {"dc_script.tcl", "constraints.sdc"}),

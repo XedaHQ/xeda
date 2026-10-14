@@ -36,8 +36,15 @@ QUERY_COMMANDS = [
     ["list-results", "vivado_synth"],
     ["list-boards"],
     ["list-platforms"],
+    ["pdk", "list"],
     ["list-optimizers"],
 ]
+
+
+@pytest.fixture(autouse=True)
+def empty_home(tmp_path_factory, monkeypatch):
+    """The commands that look in the default PDK store read it under `HOME`; keep it empty."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
 
 
 def run_xeda(

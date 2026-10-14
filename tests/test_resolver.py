@@ -12,7 +12,6 @@ from typing import ClassVar
 
 import pytest
 
-import xeda
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
@@ -979,37 +978,20 @@ def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
 
 
 def _asic_taker():
-    """A declared consumer of `yosys`'s netlist that shares its ASIC configuration -- `platform`,
-    `corner` and `dont_use_cells` with yosys's own types -- as `openroad` will once it declares
-    its input. Today it is the only declared edge on which the three can agree."""
-    from typing import List, Optional, Union
-
-    from xeda.dataclass import Field, field_validator
+    """A declared consumer of `yosys`'s netlist that shares its ASIC configuration (`platform`,
+    `corner`, `dont_use_cells` and the PDK pin, through `AsicPlatformSettings`). No flow in the
+    package takes such a netlist, so the test declares one."""
     from xeda.design import SourceType
     from xeda.flow import In
-    from xeda.flows import Yosys
-    from xeda.platforms import AsicsPlatform
+    from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
 
-    fields = Yosys.Settings.model_fields
-
-    class _AsicTaker(Flow):
+    class _AsicTaker(AsicPlatformFlow, Flow):
         """Reads yosys's gate-level netlist for one platform, as a place and route would."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        class Settings(Flow.Settings):
-            platform: Optional[AsicsPlatform] = Field(
-                None, description=fields["platform"].description
-            )
-            corner: Optional[Union[str, List]] = Field(
-                None, description=fields["corner"].description
-            )
-            dont_use_cells: List[str] = Field([], description="Cells not to use.")
-
-            @field_validator("platform", mode="before")
-            @classmethod
-            def _platform(cls, value):
-                return AsicsPlatform.from_setting(value)
+        class Settings(AsicPlatformSettings):
+            pass
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(
@@ -1046,110 +1028,36 @@ def _asic_plan(tmp_path, taker, **kwargs):
     )
 
 
-# Where the installed xeda keeps its bundled platforms: a non-editable install (tox) is not the
-# checkout's `src/xeda`, and `-s platform=nangate45` resolves inside the one that is imported.
-BUNDLED_NANGATE45 = Path(xeda.__file__).parent / "platforms/nangate45/config.toml"
-
-
-def test_every_bundled_platform_is_named_as_its_directory():
-    """`-s platform=<name>` and the path to that platform's `config.toml` are one model only if
-    the file names the platform as `from_resource` does: a `config.toml` without a `name`
-    validated to `name = None` by its path, and the merged library to `None_merged`."""
-    from xeda.platforms import AsicsPlatform
-    from xeda.platforms.platform import bundled_platform_names
-
-    for name in bundled_platform_names():
-        config = BUNDLED_NANGATE45.parent.parent / name / "config.toml"
-        assert AsicsPlatform.from_setting(str(config)).name == name
-
-
-def test_two_spellings_of_one_platform_agree_on_one_yosys(tmp_path):
-    """A bundled name on one node and the path to that bundled `config.toml` on the
-    other are one platform: one plan, one yosys identity, one run."""
-    from xeda.platforms import AsicsPlatform
-
-    taker = _asic_taker()
-    by_name = {"platform": "nangate45"}
-    by_path = {"platform": str(BUNDLED_NANGATE45)}
-    mixed = _asic_plan(
-        tmp_path / "mixed",
-        taker,
-        origins=[("project.yaml", {taker.name: by_name, "yosys": by_path})],
-    )
-    named = _asic_plan(
-        tmp_path / "named",
-        taker,
-        origins=[("project.yaml", {taker.name: by_name, "yosys": by_name})],
-    )
-    assert [node.name for node in mixed.nodes] == ["yosys", taker.name]
-    expected = AsicsPlatform.from_resource("nangate45").model_dump()
-    for node in mixed.nodes:
-        assert node.settings.platform.model_dump() == expected
-    assert mixed.node("yosys").flowrun_hash == named.node("yosys").flowrun_hash
-
-
-def test_two_platforms_that_share_a_name_and_a_root_conflict(tmp_path):
-    """Two `config.toml` files in one directory with one `name` are two platforms;
-    the error names both nodes and both origins."""
-    root = tmp_path / "pdk"
-    root.mkdir(parents=True)
-    for config, load in (("a.toml", 1.0), ("b.toml", 2.0)):
-        (root / config).write_text(
-            f'name = "pdk"\nsc_lef = "x.lef"\nabc_load_in_ff = {load}\nlib_files = ["x.lib"]\n'
-        )
-    taker = _asic_taker()
-    files = {
-        taker.name: {"platform": str(root / "a.toml")},
-        "yosys": {"platform": str(root / "b.toml")},
-    }
-    with pytest.raises(FlowSettingsError) as raised:
-        _asic_plan(tmp_path, taker, origins=[("project.yaml", files)])
-    message = str(raised.value)
-    assert "platform" in message and "project.yaml" in message
-    assert taker.name in message and "yosys" in message
-
-
-def test_a_mapping_platform_is_propagated_whole_and_valid(tmp_path):
-    """The propagated value is a valid `platform` input and each node's model is
-    complete; a mapping is one value, never merged key by key with another node's."""
-    from xeda.platforms import AsicsPlatform
-
-    taker = _asic_taker()
-    bundled = AsicsPlatform.from_resource("nangate45")
-    mapping = bundled.model_dump(exclude={"voltage_expressions_"})
-    plan = _asic_plan(
-        tmp_path, taker, origins=[("project.yaml", {taker.name: {"platform": mapping}})]
-    )
-    for node in plan.nodes:
-        dumped = node.settings.model_dump()["platform"]
-        assert (
-            dumped
-            == node.flow_class.Settings.from_input({"platform": dumped}).model_dump()["platform"]
-        )
-        assert node.settings.platform.model_dump() == bundled.model_dump()
-    other = {**mapping, "abc_load_in_ff": 9.0}
-    files = {taker.name: {"platform": mapping}, "yosys": {"platform": other}}
-    with pytest.raises(FlowSettingsError, match="platform"):
-        _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
+#: A platform file with two corners, for the tests that give a corner.
+TWO_CORNERS = """\
+name: two
+providers:
+  default: directory
+  directory: {layout: orfs}
+corners: {default: typical}
+files:
+  liberty: {typical: [tiny.lib], SS: [tiny.lib]}
+  tech_lef: tiny.tlef
+  cell_lef: [tiny.lef]
+"""
 
 
 @pytest.mark.parametrize("leaf, value", [("corner", "SS"), ("dont_use_cells", "AND2_X2")])
 def test_a_corner_or_dont_use_list_given_once_reaches_both(tmp_path, leaf, value):
     """`-s corner=SS` and `-s dont_use_cells=X`, given once, reach both flows."""
     taker = _asic_taker()
-    platform = "asap7" if leaf == "corner" else "nangate45"
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "two.yaml").write_text(TWO_CORNERS)
     plan = _asic_plan(
         tmp_path,
         taker,
-        origins=[("project.yaml", {taker.name: {"platform": platform}})],
+        origins=[("project.yaml", {taker.name: {"platform_file": "two.yaml"}})],
         command_line={taker.name: {leaf: value}},
     )
     for node in plan.nodes:
         given = getattr(node.settings, leaf)
         assert given == (value if leaf == "corner" else [value]), node.name
-    assert plan.node("yosys").settings.platform.default_corner == (
-        "SS" if leaf == "corner" else "tt"
-    )
+        assert node.settings.platform_file == tmp_path / "d" / "two.yaml", node.name
 
 
 def test_a_dont_use_list_as_text_agrees_with_the_same_list(tmp_path):
@@ -1163,16 +1071,6 @@ def test_a_dont_use_list_as_text_agrees_with_the_same_list(tmp_path):
         assert node.settings.dont_use_cells == ["A", "B"]
     files["yosys"]["dont_use_cells"] = ["A", "C"]
     with pytest.raises(FlowSettingsError, match="dont_use_cells"):
-        _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
-
-
-def test_one_corner_spelled_as_a_list_agrees_and_two_corners_conflict(tmp_path):
-    taker = _asic_taker()
-    files = {taker.name: {"platform": "asap7", "corner": "SS"}, "yosys": {"corner": ["SS"]}}
-    plan = _asic_plan(tmp_path, taker, origins=[("project.yaml", files)])
-    assert plan.node("yosys").settings.platform.default_corner == "SS"
-    files["yosys"]["corner"] = "FF"
-    with pytest.raises(FlowSettingsError, match="corner"):
         _asic_plan(tmp_path / "conflict", taker, origins=[("project.yaml", files)])
 
 

@@ -780,16 +780,15 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
 
 
 def use_fake_asic_tools(monkeypatch: pytest.MonkeyPatch, binary: Path) -> Path:
-    """Put fake `yosys`, `openroad` and `klayout` (`fake_tools/fake_asic_tool.py`) first on
-    `PATH`, in `binary`, a directory of the test's own. They are not among `FAKE_TOOLS_DIR`'s:
-    the tests that run the real yosys must keep finding it there. What they write follows from
-    the contents of the files they are handed, so a flow that hands them another library or
-    another netlist gets another result, and the same request in another directory the same
-    bytes."""
+    """Put a fake `yosys` (`fake_tools/fake_asic_tool.py`) first on `PATH`, in `binary`, a
+    directory of the test's own. It is not among `FAKE_TOOLS_DIR`'s: the tests that run the real
+    yosys must keep finding it there. What it writes follows from the contents of the files it is
+    handed, so a flow that hands it another library or another netlist gets another result, and
+    the same request in another directory the same bytes."""
     use_fake_tools(monkeypatch)
     dispatcher = FAKE_TOOLS_DIR / "fake_asic_tool.py"
     binary.mkdir(parents=True, exist_ok=True)
-    for name in ("yosys", "openroad", "klayout"):
+    for name in ("yosys",):
         link = binary / name
         if not link.exists():
             link.symlink_to(dispatcher)
@@ -836,6 +835,9 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
 #     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
 #   XEDA_TESTS_OPENXC7=1  FPGA builds by the real openXC7 1.0 toolchain (tests/test_openxc7_real.py)
+#   XEDA_TESTS_PDK_ROOT=<directory>  each bundled platform against its real PDK files, in a PDK
+#     store; XEDA_TESTS_PLATFORMS=<names> lists the bundled platforms that store holds
+#     (tests/test_platform_conformance.py)
 # ---------------------------------------------------------------------------------------------
 
 
@@ -890,6 +892,48 @@ def require_openxc7() -> Path:
         if probe is not None and not _command_succeeds(probe):
             pytest.fail(f"XEDA_TESTS_OPENXC7 is set, but `{' '.join(probe)}` fails")
     return prefix
+
+
+def require_pdk_store() -> Path:
+    """Test against the real PDK files only when asked (`XEDA_TESTS_PDK_ROOT=<directory>`), and
+    then insist on a PDK store there. Return the directory."""
+    value = os.environ.get("XEDA_TESTS_PDK_ROOT", "")
+    if not value:
+        pytest.skip("set XEDA_TESTS_PDK_ROOT to a PDK store to test the platforms against it")
+    store = Path(value).expanduser()
+    if not store.is_dir():
+        pytest.fail(f"XEDA_TESTS_PDK_ROOT is set, but {value} is not a directory")
+    return store
+
+
+def pdk_test_platforms() -> List[str]:
+    """Return the bundled platforms that the PDK store of `XEDA_TESTS_PDK_ROOT` holds, as
+    `XEDA_TESTS_PLATFORMS` lists them (comma-separated). A job that holds one platform tests one.
+
+    Without `XEDA_TESTS_PDK_ROOT`, return every bundled platform, so that pytest collects the
+    tests of each one and each skips with the variable named (`require_pdk_store`). With it,
+    `XEDA_TESTS_PLATFORMS` is required, and each name in it must be a bundled platform."""
+    from xeda.platforms import bundled_platform_names
+
+    bundled = bundled_platform_names()
+    if not os.environ.get("XEDA_TESTS_PDK_ROOT", ""):
+        return bundled
+    listed = os.environ.get("XEDA_TESTS_PLATFORMS")
+    if listed is None:
+        pytest.fail(
+            "XEDA_TESTS_PDK_ROOT is set, but XEDA_TESTS_PLATFORMS is not: "
+            "list the bundled platforms that the store holds, separated by commas "
+            f"({', '.join(bundled)})"
+        )
+    names = [name.strip() for name in listed.split(",")]
+    unknown = [name for name in names if name not in bundled]
+    if unknown:
+        shown = ", ".join(repr(name) for name in unknown)
+        pytest.fail(
+            f"XEDA_TESTS_PLATFORMS names {shown}, which is no bundled platform "
+            f"(the bundled platforms are: {', '.join(bundled)})"
+        )
+    return names
 
 
 @lru_cache(maxsize=None)

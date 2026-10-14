@@ -13,7 +13,7 @@ import pytest
 
 from xeda.dataclass import ConfigDict, XedaBaseModel, model_validator
 from xeda.flow.synth import PhysicalClock
-from xeda.flows.openroad import Openroad
+from xeda.flows import Yosys
 from xeda.flows.yosys.yosys_fpga import YosysFpga
 
 # ---------------------------------------------------------------------------------------------
@@ -25,7 +25,7 @@ from xeda.flows.yosys.yosys_fpga import YosysFpga
 def test_before_validator_does_not_mutate_the_caller_mapping():
     payload = {"clocks": {"main_clock": {"freq": "200 MHz"}}}
     before = copy.deepcopy(payload)
-    Openroad.Settings(platform="asap7", **payload)
+    Yosys.Settings(platform="asap7", **payload)
     assert payload == before, "constructing settings rewrote the design's own clock mapping"
 
 
@@ -159,21 +159,6 @@ def test_the_removed_clock_period_fails_without_mutating_input():
     assert payload == before
 
 
-def test_asic_corner_normalization_does_not_mutate_input():
-    from xeda.platforms.asics import AsicsPlatform
-
-    payload = {
-        "root_dir": ".",
-        "sc_lef": "cells.lef",
-        "corner": {"tt": {}},
-        "lib_files": ["cells.lib"],
-    }
-    before = copy.deepcopy(payload)
-
-    AsicsPlatform(**payload)
-    assert payload == before
-
-
 def test_unrelated_assignment_preserves_nested_field_identities():
     """Revalidating one field must not replace unrelated models or containers."""
     settings = YosysFpga.Settings(
@@ -297,29 +282,3 @@ def test_netlist_flags_are_derived_when_used_not_stored():
     settings.netlist_src_attrs = True
     assert settings.write_verilog_flags() == ["custom", "-nodec", "-noexpr"]
     assert settings.attributes_to_unset() == ["keep"]
-
-
-def test_openroad_corner_selection_uses_an_isolated_platform_copy():
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("asap7")
-    original_corner = platform.default_corner
-    original_vdd = platform.pwr_nets_voltages["VDD"]
-    settings = Openroad.Settings(platform=platform, corner="FF", clock={"period": 5.0})
-
-    assert settings.platform is not platform
-    assert platform.default_corner == original_corner
-    assert platform.pwr_nets_voltages["VDD"] == original_vdd
-    assert settings.platform.default_corner == "FF"
-    assert settings.platform.pwr_nets_voltages["VDD"] == 0.77
-
-    selected_platform = settings.platform
-    selected_voltages = settings.platform.pwr_nets_voltages
-    settings.exit = False
-    assert settings.platform is selected_platform
-    assert settings.platform.pwr_nets_voltages is selected_voltages
-
-    settings.corner = ["SS"]
-    assert settings.platform is selected_platform
-    assert settings.platform.default_corner == "SS"
-    assert settings.platform.pwr_nets_voltages["VDD"] == 0.63

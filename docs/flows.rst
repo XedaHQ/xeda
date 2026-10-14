@@ -56,9 +56,8 @@ Discovering flows and their settings
     so.
 
 ``asic_synthesis``
-    Builds a design for a standard-cell process (``dc`` and ``openroad``). ``openroad`` selects
-    the process with the ``platform`` setting, which names a PDK. ``dc`` takes the libraries of
-    the process in ``target_libraries``.
+    Builds a design for a standard-cell process (``dc``). ``dc`` takes the libraries of the
+    process in ``target_libraries``.
 
 ``synthesis``
     Synthesis that the base class does not tie to an FPGA or an ASIC (``yosys`` and
@@ -118,10 +117,7 @@ the same rule:
   on the ``timing_sim`` setting of that flow. ``vivado_power`` itself has no ``timing_sim`` setting
   (see :ref:`the functional alternative <power-activity>`).
 
-``openroad`` takes its netlist from ``yosys`` in the same way. Its synthesis is therefore
-configured in ``flows.yosys`` (``optimize``, ``abc_driver_cell`` and others, for example
-``-s flows.yosys.optimize=speed`` with ``xeda run openroad``), and ``yosys`` derives everything
-else from the ``platform`` that the two flows share.
+The ``openroad`` flow was removed. New OpenROAD flows replace it in a later release.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
@@ -231,7 +227,6 @@ name the stages yourself, see :ref:`flow-chains`.
     yosys_fpga  ->  nextpnr  ->  fpga_pack  ->  openfpgaloader
     yosys_fpga  ->  vivado_impl
     vivado_synth  ->  vivado_postsynth_sim  ->  vivado_power
-    yosys  ->  openroad
 
 A producer runs in its own run directory, a sibling of the run directory of its consumer. Its
 settings are those of its own section (``flows.yosys_fpga``), and you set them on the command line
@@ -265,16 +260,19 @@ Xeda verifies them and records them with content digests in ``results.json``. Co
 those checked records, for producers that ran now and producers that Xeda reused.
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
-``prjxray_db``, ``platform``, ``corner`` and ``dont_use_cells``) must agree where both endpoints
-declare them. A ``platform`` is one value. Xeda compares it by what it describes (a bundled name
-and the path to the ``config.toml`` of that platform agree) and hands it on whole. Xeda compares a
-``corner`` by the corner that it selects. A leaf given on one node applies to both, and disjoint
-leaves combine. Different values for the same leaf fail before anything runs, and the error names
-both files and sections. An example is ``flows.nextpnr.fpga.part`` in a project and
-``flows.yosys_fpga.fpga.part`` in a design. A command-line leaf (``-s fpga.part=...`` or
-``-s flows.yosys_fpga.fpga.part=...``) wins for the connected group and keeps the unrelated leaves.
-API overrides keep their own origin with the highest precedence. Within each node, the normal
-precedence of the layers still applies.
+``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``pdk_provider``,
+``pdk_version`` and ``pdk_root``) must agree where both endpoints declare them. A ``platform`` is
+the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
+the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
+by its name. When ``pdk_provider`` or ``pdk_version`` is unset, Xeda fills it in from the platform
+before it hashes any node, so the version of the PDK is part of the identity of every node in the
+group. ``pdk_root`` is not. It tells where the files are, and the same files in another place are
+the same run. A leaf given on one node applies to both, and disjoint leaves combine. Different
+values for the same leaf fail before anything runs, and the error names both files and sections.
+An example is ``flows.nextpnr.fpga.part`` in a project and ``flows.yosys_fpga.fpga.part`` in a
+design. A command-line leaf (``-s fpga.part=...`` or ``-s flows.yosys_fpga.fpga.part=...``) wins
+for the connected group and keeps the unrelated leaves. API overrides keep their own origin with
+the highest precedence. Within each node, the normal precedence of the layers still applies.
 
 A flow that reads the outputs of a completed producer holds a verified shared lease on the run
 directory of that producer until its own launch ends. Another Xeda process that cleans, rebuilds
@@ -370,7 +368,7 @@ Rules for chains
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs can be chained: those with a nonempty
   ``inputs`` or ``outputs`` in ``xeda list-flows --json``. Today these are ``yosys_fpga``,
-  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``openroad``, ``vivado_synth``,
+  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``vivado_synth``,
   ``vivado_alt_synth``, ``vivado_impl``, ``vivado_postsynth_sim`` and ``vivado_power``. A flow
   without declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim`` and others) runs
   alone. A chain through it is refused: no output fits an input, or the flow after it takes no

@@ -44,7 +44,7 @@ from ..design import (
 from ..flow import Flow, FlowSettingsError
 from ..flow.flow import written_path_problems
 from ..flow.flow import map_keyed_path_leaves
-from ..dataclass import BaseModel, written_role
+from ..dataclass import BaseModel, is_locator, written_role
 from ..listing import VCS_METADATA, directory_files
 from ..proc_utils import tool_output_stream
 from ..utils import (
@@ -473,12 +473,19 @@ def send_design(
             return "$DESIGN_ROOT/" + relative.as_posix()
 
         def packaged_value(value: Any) -> Any:
+            """Return `value` as the remote receives it: its paths archived and repointed.
+
+            A locator (`pdk_root`) is a place on this machine: the remote host uses its own. Its
+            key stays, with the value None."""
             if isinstance(value, BaseModel):
-                values = {}
+                values: Dict[str, Any] = {}
                 for name, field in type(value).model_fields.items():
                     if name not in value.model_fields_set:
                         continue
                     item = getattr(value, name)
+                    if is_locator(type(value), name):
+                        values[name] = None
+                        continue
                     if written_role(type(value), name) is None:
                         item = map_keyed_path_leaves(
                             item, field.annotation, lambda _key, leaf: packaged_path(leaf), name

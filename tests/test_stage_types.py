@@ -1,6 +1,6 @@
 """FPGA netlists and checkpoints are typed by what they are, not only by their file format.
 
-A Vivado netlist is made of FPGA primitives, so a standard-cell flow (`openroad`) cannot take it.
+A Vivado netlist is made of FPGA primitives, so a flow that takes a JSON netlist cannot take it.
 A checkpoint is written at several stages of a Vivado run, and power can only be reported on the
 routed one. Each case is judged by one predicate, `chains.fitting_outputs`, whether it comes from a
 chain, a saved binding or a default producer.
@@ -24,7 +24,6 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.chains import fitting_outputs, parse_request, validate_chain
 from xeda.flows import (
     Nextpnr,
-    Openroad,
     VivadoAltSynth,
     VivadoImpl,
     VivadoPostsynthSim,
@@ -36,9 +35,7 @@ from xeda.flows import (
 from xeda.introspect import all_flow_classes
 
 from .test_tool_input_equivalence import (
-    OPENROAD_SETTINGS,
     VIVADO_SETTINGS,
-    write_asic_design,
     write_vivado_design,
 )
 
@@ -55,9 +52,9 @@ def refused(request: str) -> str:
 # ------------------------------------------------------------------------------ the two chains
 
 
-def test_a_vivado_netlist_does_not_chain_into_an_asic_flow():
-    message = refused("vivado_synth.netlist+openroad")
-    assert "FpgaNetlist" in message and "VerilogNetlist" in message
+def test_a_vivado_netlist_does_not_chain_into_a_json_netlist_flow():
+    message = refused("vivado_synth.netlist+nextpnr")
+    assert "FpgaNetlist" in message and "JsonNetlist" in message
 
 
 def test_a_checkpoint_from_before_routing_does_not_chain_into_power():
@@ -70,24 +67,19 @@ def test_the_routed_checkpoint_chains_into_power():
     validate_chain(parse_request("vivado_alt_synth.checkpoint_route+vivado_power").elements)
 
 
-def test_a_standard_cell_netlist_still_chains_into_openroad():
-    validate_chain(parse_request("yosys+openroad").elements)
-
-
 def test_an_explicit_binding_of_the_wrong_kind_is_refused_naming_the_types(tmp_path):
-    write_asic_design(tmp_path)
+    write_vivado_design(tmp_path)
     with pytest.raises(FlowSettingsException) as error:
         DefaultRunner(tmp_path / "run", display_results=False).plan(
-            "openroad",
+            "nextpnr",
             tmp_path / "design.yaml",
             flow_settings=[
-                *OPENROAD_SETTINGS,
-                "flows.vivado_synth.fpga=xc7a12tcsg325-1",
-                "flows.vivado_synth.clock.period=5.0",
+                *VIVADO_SETTINGS,
+                "flows.nextpnr.fpga.part=LFE5U-25F-6BG381C",
                 "inputs.netlist=vivado_synth.netlist",
             ],
         )
-    assert "VerilogNetlist" in str(error.value) and "FpgaNetlist" in str(error.value)
+    assert "JsonNetlist" in str(error.value) and "FpgaNetlist" in str(error.value)
 
 
 def test_power_refuses_a_checkpoint_bound_from_before_routing(tmp_path):
@@ -272,17 +264,17 @@ def test_every_netlist_or_checkpoint_edge_is_declared_or_reviewed():
 
 
 def test_the_sweep_finds_an_edge_a_wrong_type_would_open():
-    """The oracle's teeth: with the netlist typed as before, the sweep reports vivado_synth's
-    netlist as an undocumented input of openroad."""
+    """With the netlist typed as a JSON netlist, the sweep reports vivado_synth's netlist as an
+    undocumented input of nextpnr, so the sweep does detect an edge a wrong type would open."""
 
-    def typed_as_before(flow):
+    def typed_as_json(flow):
         outputs = declared_outputs(flow)
         if flow is VivadoSynth:
-            outputs["netlist"] = replace(outputs["netlist"], types=(SourceType.VerilogNetlist,))
+            outputs["netlist"] = replace(outputs["netlist"], types=(SourceType.JsonNetlist,))
         return outputs
 
-    opened = undocumented(fitting_edges(typed_as_before)) - REVIEWED_EDGES
-    assert ("vivado_synth", "netlist", "openroad", "netlist") in opened
+    opened = undocumented(fitting_edges(typed_as_json)) - REVIEWED_EDGES
+    assert ("vivado_synth", "netlist", "nextpnr", "netlist") in opened
 
 
 def test_the_flows_that_take_a_stage_type_are_the_ones_that_can_use_it():
@@ -302,7 +294,6 @@ def test_the_flows_that_take_a_stage_type_are_the_ones_that_can_use_it():
 
 def test_the_other_netlists_keep_their_formats():
     assert declared_outputs(Yosys)["netlist"].types == (SourceType.VerilogNetlist,)
-    assert declared_inputs(Openroad)["netlist"].types == (SourceType.VerilogNetlist,)
     assert declared_outputs(YosysFpga)["netlist"].types == (SourceType.JsonNetlist,)
     assert declared_outputs(YosysFpga)["netlist_edif"].types == (SourceType.Edif,)
     assert declared_inputs(Nextpnr)["netlist"].types == (SourceType.JsonNetlist,)

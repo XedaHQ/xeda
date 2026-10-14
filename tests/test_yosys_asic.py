@@ -1,38 +1,43 @@
 """`yosys` owns its ASIC configuration.
 
-`openroad` used to build its `yosys` dependency's whole configuration -- the liberty set and
-its merge, the mapping cells, the abc script and constraints, the netlist format -- from its
-own `platform`. A producer's settings must not depend on which consumer asked, so `yosys`
-derives all of it from a `platform` of its own: `xeda run yosys -s platform=nangate45` alone maps
-to Nangate45 cells and needs nothing from a consumer. `optimize`, `abc_driver_cell` and
-`abc_load_in_ff` are settings of the flow that acts on them, `yosys`, and `openroad` no longer
-has them (`test_removed_settings.py` checks the tombstones from every origin).
+The whole configuration of a standard-cell synthesis -- the liberty set and its merge, the
+mapping cells, the abc script and constraints, the netlist format -- follows from a platform:
+`xeda run yosys -s platform=<name>` alone maps to the cells of that platform and needs nothing
+else. `optimize`, `abc_driver_cell` and `abc_load_in_ff` are settings of `yosys`, which acts on
+them. These tests use the `tiny` platform (`tests/tiny_platform.py`): its files are in a store
+under the test directory, so no PDK needs to be installed. `tests/test_yosys_platform.py` has the
+tests of the platform model itself.
 
 Two liberty bugs are pinned here: a platform's liberty set is always merged into
-one library, named `<platform>_merged` as `openroad` names its own, and the platform's own
-`dont_use_cells` are marked `dont_use` in it beside the setting's.
+one library, named `<platform>_merged`, and the platform's own `dont_use_cells` are marked
+`dont_use` in it beside the setting's.
 """
 
 import contextlib
 import json
-import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, get_args
 
 import pytest
 
 from xeda import Design
 from xeda.dataclass import ValidationError
 from xeda.design import SourceType
-from xeda.flow import FlowException, FlowSettingsError
+from xeda.flow import FlowException, FlowSettingsError, FlowSettingsException
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
-from xeda.flows import Openroad, Yosys, YosysFpga
+from xeda.flows import Yosys, YosysFpga
 from xeda.flows import yosys as yosys_flows
-from xeda.platforms import AsicsPlatform
+from xeda.flows.yosys.yosys import preproc_lib_content
+from xeda.utils import WorkingDirectory
+from xeda.tool import ExecutableNotFound
 
+from .flow_registry import preserved_flow_registry
+from .tiny_platform import TINY, TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import require_yosys
 
 MAC = (
@@ -83,11 +88,17 @@ def _effective(run_dir: Path) -> dict:
     return json.loads((run_dir / "settings.json").read_text())["effective_flow_settings"]
 
 
+def _tiny(tmp_path: Path, **given: Any) -> dict[str, Any]:
+    """Settings that select the `tiny` platform, in a store under `tmp_path`, and a 2 ns clock."""
+    return tiny_settings(tiny_store(tmp_path), clock={"period": 2.0}, **given)
+
+
 # ------------------------------------------------------------------------------ the output
 
 
 def test_yosys_declares_its_verilog_netlist():
-    """The gate-level netlist `openroad` reads is a declared output, switched on by the setting
+    """The gate-level netlist a place-and-route flow reads is a declared output, switched on by
+    the setting
     that names it, whose default writes it."""
     netlist = declared_outputs(Yosys)["netlist"]
     assert netlist.types == (SourceType.VerilogNetlist,)
@@ -121,54 +132,44 @@ def test_abc_driver_cell_is_a_cell_name():
         Yosys.Settings(abc_driver_cell=1)
 
 
-def test_the_moved_settings_are_yosys_s_and_nowhere_else():
-    for name in ("optimize", "abc_driver_cell", "abc_load_in_ff"):
-        assert name in Yosys.Settings.model_fields, name
-        assert name not in Openroad.Settings.model_fields, name
-        assert name not in YosysFpga.Settings.model_fields, name
-    assert Yosys.Settings().optimize == "area"
-    with pytest.raises(ValidationError):
-        Yosys.Settings(optimize="area+speed")
-
-
-def test_corner_selects_a_corner_of_a_private_copy_of_the_platform():
-    """A validator copies a nested model before it changes it: the caller's platform keeps its
-    own corner."""
-    platform = AsicsPlatform.from_resource("nangate45")
-    corners = list(platform.corner)
-    before = platform.model_dump()
-    settings = Yosys.Settings(platform=platform, corner=corners[0])
-    assert settings.platform is not platform
-    assert settings.platform.default_corner == corners[0]
-    assert platform.model_dump() == before
-
-
-def test_corner_needs_a_platform_and_one_of_its_corners():
-    with pytest.raises(ValidationError, match="platform"):
-        Yosys.Settings(corner="tt")
-    with pytest.raises(ValidationError, match="Available corners"):
-        Yosys.Settings(platform="nangate45", corner="nonexistent")
+def test_corner_needs_a_platform_and_one_of_its_corners(tmp_path):
+    with pytest.raises(FlowSettingsException, match="give `platform` or `platform_file` too"):
+        Yosys.check_settings_supported(Yosys.Settings(corner="tt"))
+    with pytest.raises(FlowSettingsException, match="unknown corner 'nonexistent'"):
+        Yosys.check_settings_supported(Yosys.Settings(platform="nangate45", corner="nonexistent"))
+    Yosys.check_settings_supported(Yosys.Settings(platform="nangate45", corner="tt"))
 
 
 # ------------------------------------------------------------------- what a platform derives
 
 
-def _stage_platform(root: Path, dont_use_cells: list[str]) -> Path:
+def _stage_platform(root: Path, dont_use_cells: list[str]) -> dict[str, Any]:
     """A platform whose liberty set is two files, each holding one cell, and whose own
-    dont-use list is `dont_use_cells`: `sky130hs`'s shape when that list is empty."""
-    root.mkdir(parents=True)
+    dont-use list is `dont_use_cells`: `sky130hs`'s shape when that list is empty. Return the
+    settings that select it, in the store `root`."""
+    pdk = root / "store" / "tiny"
+    pdk.mkdir(parents=True)
     for name in ("a", "b"):
-        (root / f"{name}.lib").write_text(
+        (pdk / f"{name}.lib").write_text(
             f"library ({name}) {{\n  cell (CELL_{name.upper()}) {{\n    area : 1;\n  }}\n}}\n"
         )
-    (root / "cells.lef").write_text("")
-    (root / "config.toml").write_text(
-        'name = "tiny"\nsc_lef = "cells.lef"\n'
-        f"dont_use_cells = {json.dumps(dont_use_cells)}\n"
-        'abc_driver_cell = "CELL_A"\nabc_load_in_ff = 1.5\n'
-        '[corner.tt]\nlib_files = ["a.lib", "b.lib"]\n'
+    (pdk / "cells.lef").write_text("")
+    values = {"abc_driver_cell": "CELL_A", "abc_load_in_ff": 1.5}
+    if dont_use_cells:
+        values["dont_use_cells"] = dont_use_cells
+    residue = root / "tiny.yaml"
+    residue.write_text(
+        json.dumps(
+            {
+                "name": "tiny",
+                "providers": {"default": "directory", "directory": {"layout": "orfs"}},
+                "corners": {"default": "tt"},
+                "files": {"liberty": {"tt": ["a.lib", "b.lib"]}, "tech_lef": "cells.lef"},
+                "values": values,
+            }
+        )
     )
-    return root / "config.toml"
+    return {"platform_file": str(residue), "pdk_root": str(root / "store")}
 
 
 @pytest.mark.parametrize("own", [[], ["CELL_B"]], ids=["platform-only", "both"])
@@ -180,8 +181,11 @@ def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
     set, so a platform with an empty list (`sky130hs`) reached abc as several files, of which the
     script hands abc the first; and it ignored the platform's own dont-use list, which its
     description promised."""
-    config = _stage_platform(tmp_path / "tiny", platform_s)
-    settings = {"platform": str(config), "clock": {"period": 2.0}, "dont_use_cells": own}
+    settings = {
+        **_stage_platform(tmp_path, platform_s),
+        "clock": {"period": 2.0},
+        "dont_use_cells": own,
+    }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     (liberty,) = _effective(run_dir)["liberty"]
     merged = run_dir / liberty
@@ -196,59 +200,50 @@ def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
     assert f"-liberty {merged}" in script or f"-liberty {merged.name}" in script
 
 
-def test_a_platform_alone_configures_everything_openroad_imposed(tmp_path, monkeypatch):
-    """Everything `openroad` imposed on its dependency follows from `platform` alone: the
-    merged library and the platform's dff library, the mapping files, tie and buffer cells,
-    flattening, the abc script `optimize` selects with post-synthesis optimization, the abc
-    constraints from the platform's driver cell and load, and a netlist without attributes."""
-    run_dir = _scripted_launch(
-        tmp_path, monkeypatch, Yosys, {"platform": "nangate45", "clock": {"period": 2.0}}
-    )
-    platform = AsicsPlatform.from_resource("nangate45")
-    corner = platform.default_corner_settings
+def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_path, monkeypatch):
+    """Everything a standard-cell synthesis needs follows from the platform alone: the
+    merged library, the mapping files, tie and buffer cells, flattening, the abc script
+    `optimize` selects with post-synthesis optimization, the abc constraints from the driver cell
+    and the load of the platform, and a netlist without attributes."""
+    given = _tiny(tmp_path)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    pdk = Path(given["pdk_root"]) / "tiny"
     effective = _effective(run_dir)
     script = _script(run_dir)
     assert effective["flatten"] is True and "flatten" in script.split()
-    assert effective["adder_map"] == str(platform.adder_map_file)
-    assert effective["clockgate_map"] == (
-        str(platform.clkgate_map_file) if platform.clkgate_map_file else None
-    )
-    assert effective["other_maps"] == [str(platform.latch_map_file)]
-    assert effective["hilomap"]["hi"] == [platform.tiehi_cell, platform.tiehi_port]
-    assert effective["hilomap"]["lo"] == [platform.tielo_cell, platform.tielo_port]
-    assert effective["insbuf"] == [platform.min_buf_cell, *platform.min_buf_ports]
-    assert effective["dff_liberty"] == (str(corner.dff_lib_file) if corner.dff_lib_file else None)
+    assert effective["adder_map"] == str(pdk / "cells_adders.v")
+    assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
+    assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
+    assert effective["hilomap"]["hi"] == ["TIEHI_SMALL", "Z"]
+    assert effective["hilomap"]["lo"] == ["TIELO_X1", "Z"]
+    assert effective["insbuf"] == ["BUF_X1", "A", "Z"]
+    assert effective["dff_liberty"] is None
     assert "opt -full -purge -sat" in script
     assert yosys_flows.abc_opt_script("area").replace(" ", ",") in script
-    assert (run_dir / "abc.constr").read_text() == (
-        f"set_driving_cell {platform.abc_driver_cell}\nset_load {platform.abc_load_in_ff}\n"
-    )
+    assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
     (write,) = [line for line in script.splitlines() if line.startswith("write_verilog")]
     for flag in ("-noattr", "-nohex", "-nodec", "-noexpr"):
         assert flag in write.split(), flag
-    # the merged library is the one openroad makes from the same platform: the same bytes
+    # the merged library is the one the platform's liberty files give: the same bytes
     merged = run_dir / effective["liberty"][0]
     reference = tmp_path / "reference.lib"
-    yosys_flows.preproc_libs(
-        corner.lib_files, reference, platform.dont_use_cells, "nangate45_merged"
-    )
+    yosys_flows.preproc_libs([pdk / "tiny.lib"], reference, ["INV_X4", "NAND2_X4"], "tiny_merged")
     assert merged.read_bytes() == reference.read_bytes()
 
 
 def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypatch):
-    settings = {
-        "platform": "nangate45",
-        "clock": {"period": 2.0},
-        "optimize": "speed",
-        "abc_driver_cell": "BUF_X4",
-        "abc_load_in_ff": 2.5,
-        "flatten": False,
-        "netlist_attrs": True,
-    }
+    settings = _tiny(
+        tmp_path,
+        optimize="speed",
+        abc_driver_cell="INV_X1",
+        abc_load_in_ff=2.5,
+        flatten=False,
+        netlist_attrs=True,
+    )
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     script = _script(run_dir)
     assert yosys_flows.abc_opt_script("speed").replace(" ", ",") in script
-    assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X4\nset_load 2.5\n"
+    assert (run_dir / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 2.5\n"
     assert "flatten" not in script.split()
     (write,) = [line for line in script.splitlines() if line.startswith("write_verilog")]
     assert "-noattr" not in write.split()
@@ -269,41 +264,12 @@ def test_without_a_liberty_library_nothing_is_derived(tmp_path, monkeypatch):
     assert not (run_dir / "abc.constr").exists()
 
 
-# ------------------------------------------------------------------ openroad's dependency
-
-
-def test_openroad_s_dependency_reads_flows_yosys_and_nothing_in_openroad_s_directory(
-    tmp_path, monkeypatch
-):
-    """`openroad` hands its dependency its platform and its shared settings, and nothing it
-    made: the moved settings, given where they now live (`flows.yosys`), reach the script, and
-    the library yosys reads is its own merge, the same bytes as `openroad`'s `merged.lib`."""
-    sections = {"yosys": {"optimize": "speed", "abc_driver_cell": "BUF_X4"}}
-    run_dir = _scripted_launch(
-        tmp_path,
-        monkeypatch,
-        Openroad,
-        {"platform": "nangate45", "clock": {"period": 2.0}},
-        sections,
-    )
-    script = _script(run_dir)
-    assert yosys_flows.abc_opt_script("speed").replace(" ", ",") in script
-    assert (run_dir / "abc.constr").read_text().startswith("set_driving_cell BUF_X4\n")
-    openroad_dir = run_dir.parent / "openroad"
-    assert str(openroad_dir) not in script
-    (liberty,) = _effective(run_dir)["liberty"]
-    assert (run_dir / liberty).parent == run_dir
-    assert (run_dir / liberty).is_file()
-    # A failed producer never starts OpenROAD, so no consumer library is created.
-    assert not (openroad_dir / "merged.lib").exists()
-
-
 # ------------------------------------------------------------------ with the real yosys
 
 
 def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
-    """`xeda run yosys -s platform=nangate45`, alone: Nangate45 cells, merged in its own run
-    directory, one run directory, and the declared netlist recorded."""
+    """`xeda run yosys -s platform_file=... pdk_root=...`, alone: the cells of the platform,
+    merged in its own run directory, one run directory, and the declared netlist recorded."""
     require_yosys()
     design = tmp_path / "design"
     _design(design)
@@ -311,6 +277,7 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
         'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clock:\n    port: clk\n'
     )
     run_root = tmp_path / "xeda_run"
+    store = tiny_store(tmp_path)
     proc = subprocess.run(
         [
             sys.executable,
@@ -322,7 +289,8 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
             "--run-root",
             str(run_root),
             "-s",
-            "platform=nangate45",
+            f"platform_file={TINY_RESIDUE}",
+            f"pdk_root={store}",
             "clock.period=2.0",
             "--json",
         ],
@@ -339,10 +307,10 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
     netlist = Path(results["outputs"]["netlist"]["path"])
     assert netlist == run_dir / "netlist.v"
     text = netlist.read_text()
-    assert "_X1 " in text or "_X2 " in text, "no Nangate45 cells in the netlist"
+    assert "_X1 " in text, "no cells of the platform in the netlist"
     assert "$_" not in text, "an unmapped generic cell is left in the netlist"
     (merged,) = [p for p in run_dir.glob("*.lib")]
-    assert "library (nangate45_merged)" in merged.read_text()
+    assert "library (tiny_merged)" in merged.read_text()
 
 
 # ------------------------------------------------------------------ post_synth_opt
@@ -356,7 +324,7 @@ def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
     """`optimize` turns post-synthesis optimization on only where `post_synth_opt` is left unset:
     `post_synth_opt: false` with the default `optimize: area` keeps the abc script and drops the
     extra optimization, and `true` adds it with `optimize: null`."""
-    settings = {"platform": "nangate45", "clock": {"period": 2.0}, "optimize": optimize}
+    settings = _tiny(tmp_path, optimize=optimize)
     if given is not None:
         settings["post_synth_opt"] = given
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
@@ -379,11 +347,11 @@ def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
 def test_an_explicit_other_maps_wins_over_the_platform_s_latch_map(tmp_path, monkeypatch, given):
     """`other_maps` is derived from the platform only where it is left unset: an explicit empty
     list (`-s other_maps=`) means no extra mapping, not "the platform's latch map"."""
-    settings = {"platform": "nangate45", "clock": {"period": 2.0}}
+    settings = _tiny(tmp_path)
     if given is not None:
         (tmp_path / "extra.v").write_text("module _unused(); endmodule\n")
         settings["other_maps"] = [str(tmp_path / "extra.v") for _ in given]
-    latch = str(AsicsPlatform.from_resource("nangate45").latch_map_file)
+    latch = str(Path(settings["pdk_root"]) / "tiny" / "cells_latch.v")
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     expected = [latch] if given is None else [str(tmp_path / "extra.v") for _ in given]
     effective = _effective(run_dir)["other_maps"]
@@ -398,65 +366,346 @@ def test_an_explicit_other_maps_wins_over_the_platform_s_latch_map(tmp_path, mon
     assert reloaded.other_maps == again.other_maps
 
 
-# ------------------------------------------------------------------ asap7's SS corner
-
-#: A `config.toml` of an asap7 platform with its liberty files present (the package ships the
-#: description, not the libraries). Opt-in: the test below is skipped without it.
-ASAP7_PLATFORM = os.environ.get("XEDA_TESTS_ASAP7_PLATFORM", "")
+# ------------------------------------------------------------------------ the synthesis options
 
 
-def _abc_failure(run_dir: Path) -> list[str]:
-    """ABC's own failure lines in yosys's log, without the temporary paths they name."""
-    log_text = (run_dir / "yosys.log").read_text()
-    lines = [
-        line
-        for line in log_text.splitlines()
-        if "Assertion failed" in line or line.startswith("ERROR")
-    ]
-    return [re.sub(r"\S*yosys-abc-\S+", "<abc>", line) for line in lines]
+OPTIMIZE_CHOICES = [
+    c for a in get_args(Yosys.Settings.model_fields["optimize"].annotation) for c in get_args(a)
+]
 
 
-def test_asap7_ss_hands_abc_the_same_inputs_standalone_and_under_openroad(tmp_path):
-    """The `platform=asap7 -s corner=SS` variant, with the real yosys and the real asap7
-    libraries: `yosys` alone and `openroad`'s dependency hand abc identical inputs -- the merged
-    library, the flip-flop library, the abc constraints and script -- and end alike.
+def test_every_optimize_choice_is_covered():
+    """Every optimize choice is covered."""
+    assert set(OPTIMIZE_CHOICES) == {"speed", "area"}
 
-    Exception: with this design the SS corner crashes yosys's ABC
-    (`Abc_NtkCheck ... A CI/CO pair share the name`, an assertion in `abcFanio.c`) on
-    `origin/main` as well, so no netlist can be compared. Identical ABC inputs and an identical
-    failure are accepted as passing the comparison for this variant; the crash is recorded
-    separately. If a yosys release fixes it, both sides must produce the same netlist instead."""
+
+# One command only each target's abc script runs, to tell the two apart.
+DISTINCTIVE_ABC_COMMAND = {"area": "map -B 0.9", "speed": "&if -g -K 6"}
+
+
+def test_every_optimize_target_has_a_distinctive_abc_command():
+    """Every optimize target has a distinctive abc command."""
+    assert set(DISTINCTIVE_ABC_COMMAND) == set(OPTIMIZE_CHOICES)
+
+
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_optimize_selects_a_script_and_post_synthesis_optimization_together(
+    optimize, tmp_path, monkeypatch
+):
+    """What yosys rendered into its script, given `optimize`: the abc script `optimize` selects --
+    told apart by a command only that target's script runs -- together with post-synthesis
+    optimization.
+
+    No tool runs: this is about the settings and the script, so every command is recorded
+    instead, and the run stops once yosys, having produced nothing, fails.
+    """
+    commands = []
+
+    def record(executable, args=None, **kwargs):
+        commands.append([str(executable), *map(str, args or [])])
+        return "" if kwargs.get("stdout") is True else None
+
+    monkeypatch.setattr("xeda.tool.run_process", record)
+    settings = _tiny(tmp_path, optimize=optimize)
+    with contextlib.suppress(FlowException):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, _design(tmp_path), settings)
+    (settings_json,) = tmp_path.glob("xeda_run/mac/yosys/settings.json")
+    yosys_settings = json.loads(settings_json.read_text())["effective_flow_settings"]
+    script = (settings_json.parent / "yosys_synth.ys").read_text()
+    assert any(Path(cmd[0]).name == "yosys" for cmd in commands), "yosys was never launched"
+
+    assert yosys_settings["optimize"] == optimize
+    assert yosys_settings["post_synth_opt"] is True
+    assert "opt -full -purge -sat" in script
+    (abc,) = [line for line in script.splitlines() if line.startswith("abc ")]
+    for target, command in DISTINCTIVE_ABC_COMMAND.items():
+        selected = target == optimize
+        # `Yosys.Settings` writes a script's commands comma-separated, as `abc -script` wants
+        assert (command.replace(" ", ",") in (yosys_settings["abc_script"] or "")) is selected
+        assert (command.replace(" ", ",") in abc) is selected
+    assert "-script" in abc
+
+
+def test_optimize_is_a_setting_of_the_flow_that_acts_on_it(tmp_path, monkeypatch):
+    """`optimize` acts on yosys's mapping, so it is yosys's setting, and no setting is inert:
+    yosys's is read where its script is rendered -- each target renders its own abc script."""
+    assert "optimize" in Yosys.Settings.model_fields
+    assert "optimize" not in YosysFpga.Settings.model_fields
+
+    def record(executable, args=None, **kwargs):
+        return "" if kwargs.get("stdout") is True else None
+
+    monkeypatch.setattr("xeda.tool.run_process", record)
+    abc_lines = {}
+    given = _tiny(tmp_path)
+    for optimize in OPTIMIZE_CHOICES:
+        run_root = tmp_path / optimize
+        with contextlib.suppress(FlowException):
+            DefaultRunner(run_root).run_flow(
+                Yosys, _design(tmp_path), {**given, "optimize": optimize}
+            )
+        script = (run_root / "mac" / "yosys" / "yosys_synth.ys").read_text()
+        (abc_lines[optimize],) = [line for line in script.splitlines() if line.startswith("abc ")]
+        assert DISTINCTIVE_ABC_COMMAND[optimize].replace(" ", ",") in abc_lines[optimize]
+    assert len(set(abc_lines.values())) == len(OPTIMIZE_CHOICES)
+
+
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_an_optimize_target_selects_an_abc_script_yosys_accepts(optimize):
+    """`abc_opt_script` returned nothing at all, so `optimize` never reached abc; and a script
+    must be the text `Yosys.Settings.abc_script` declares, which a list of commands is not."""
+    script = yosys_flows.abc_opt_script(optimize)
+    assert isinstance(script, str) and script.startswith("+")
+    assert Yosys.Settings(abc_script=script).abc_script
+
+
+def test_area_and_speed_select_different_scripts():
+    """Area and speed select different scripts."""
+    assert yosys_flows.abc_opt_script("area") != yosys_flows.abc_opt_script("speed")
+
+
+def test_area_plus_speed_is_no_longer_a_target():
+    """It selected exactly the area script, so it was "area" under another name."""
+    with pytest.raises(ValidationError):
+        Yosys.Settings(optimize="area+speed")
+
+
+def _contains_run(sequence, run):
+    """Check whether a generated script invokes a command."""
+    return any(sequence[i : i + len(run)] == run for i in range(len(sequence) - len(run) + 1))
+
+
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_the_yosys_flow_synthesizes_with_the_selected_script(optimize, tmp_path):
+    """End to end, with its own template: abc executes exactly the commands the selected script
+    names, in order -- `upsize`/`dnsize` included, which yosys's default mapping never runs."""
     require_yosys()
-    if not ASAP7_PLATFORM or not Path(ASAP7_PLATFORM).is_file():
-        pytest.skip("set XEDA_TESTS_ASAP7_PLATFORM to an asap7 config.toml with its libraries")
+    design = _design(tmp_path)
+    with contextlib.suppress(ExecutableNotFound):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(
+            Yosys, design, _tiny(tmp_path, optimize=optimize)
+        )
+
+    (yosys_results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
+    yosys_run = yosys_results.parent
+    assert json.loads((yosys_run / "results.json").read_text())["success"] is True
+    executed = re.findall(r"^ABC: \+ (.+?)\s*$", (yosys_run / "yosys.log").read_text(), re.M)
+    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
+    assert script is not None
+    selected = [command.replace(",", " ") for command in script[1:].split(";")]
+    assert _contains_run(executed, selected), f"abc did not run the {optimize} script"
+
+
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
+    """The script as the yosys template passes it (`abc -script "<abc_script>"`), run for real
+    against the library of the `tiny` test platform."""
+    require_yosys()
+    lib = tmp_path / "tiny.lib"
+    shutil.copy(TINY / "tiny.lib", lib)
+    (tmp_path / "abc.constr").write_text("set_driving_cell BUF_X1\nset_load 3.5\n")
+    (tmp_path / "top.v").write_text(
+        "module top(input clk, input [7:0] a, b, output reg [15:0] q);\n"
+        "  always @(posedge clk) q <= q + a * b;\n"
+        "endmodule\n"
+    )
+    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
+    commands = (
+        "read_verilog top.v; synth -top top -flatten; dfflibmap -liberty tiny.lib; "
+        f'abc -D 1000 -script "{script}" -liberty tiny.lib -constr abc.constr; '
+        "opt_clean -purge; write_verilog -noattr netlist.v"
+    )
+    proc = subprocess.run(
+        ["yosys", "-q", "-p", commands], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    netlist = (tmp_path / "netlist.v").read_text()
+    assert "_X1 " in netlist, "no cells of the library in the mapped netlist"
+
+
+def test_a_second_launch_of_yosys_is_fresh(tmp_path):
+    """Real yosys synthesis: an unchanged relaunch starts no tools and rewrites no run output,
+    even byte-identically."""
+    from .tool_utils import launch_until_fresh, run_outputs_state
+
+    require_yosys()
+    settings = _tiny(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = _design(tmp_path)
+    first = runner.launch_flow(Yosys, design, settings)
+    assert first.succeeded and not first.reused
+    again = launch_until_fresh(runner, lambda: runner.launch_flow(Yosys, design, settings))
+    before = run_outputs_state(again.run_path)
+    last = len(runner.launched)
+    fresh = runner.launch_flow(Yosys, design, settings)
+    assert fresh.reused and all(flow.reused for flow in runner.launched[last:])
+    assert run_outputs_state(again.run_path) == before
+
+
+def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
+    """`xeda run yosys` with its settings on the command line: the script and the abc constraints
+    follow them (each differs from what the platform gives), and the netlist is written where the
+    flow says. The `speed` target is not set here: on the `tiny` library its abc script fails
+    together with a black box or without post-synthesis optimization (an abc assertion),
+    though `test_the_yosys_flow_synthesizes_with_the_selected_script` runs it alone."""
+    require_yosys()
+    _design(tmp_path)
+    (tmp_path / "design.yaml").write_text(
+        'name: mac\nrtl:\n  sources: ["mac.v"]\n  top: mac\n  clock:\n    port: clk\n'
+    )
+    root = tmp_path / "runs"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "xeda",
+            "run",
+            "yosys",
+            str(tmp_path / "design.yaml"),
+            "--run-root",
+            str(root),
+            "--json",
+            "-s",
+            f"platform_file={TINY_RESIDUE}",
+            f"pdk_root={tiny_store(tmp_path)}",
+            "clock.period=2.0",
+            "abc_driver_cell=INV_X1",
+            "abc_load_in_ff=2.5",
+            "black_box=mul8",
+            "post_synth_opt=false",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    document = json.loads(proc.stdout)
+    assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
+    producer = root / "mac" / "yosys"
+    settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
+    assert settings["abc_driver_cell"] == "INV_X1"
+    assert settings["abc_load_in_ff"] == 2.5
+    assert settings["black_box"] == ["mul8"]
+    assert settings["post_synth_opt"] is False
+    script = (producer / "yosys_synth.ys").read_text()
+    assert "map,-B,0.9" in script and "blackbox mul8" in script
+    assert "opt -full -purge -sat" not in script
+    assert (producer / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 2.5\n"
+
+
+def test_init_and_prepare_inputs_write_nothing(tmp_path):
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    run = tmp_path / "run"
+    run.mkdir()
+    flow = Yosys(tiny_settings(tiny_store(tmp_path)), design, run)
+    with WorkingDirectory(run):
+        flow.init()
+        flow.prepare_inputs()
+    assert list(run.iterdir()) == []
+
+
+# ------------------------------------------------------------------------ the ABC script file
+
+
+def _flow_with_script_file(tmp_path: Path, cls=Yosys):
+    script = tmp_path / "map.abc"
+    script.write_text("strash; map\n")
+    run = tmp_path / "run"
+    run.mkdir()
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    return cls({"abc_script": str(script), "gates": ["AND"]}, design, run), script
+
+
+def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path):
+    """`init()` takes the ABC script from the script setting alone. A flow whose prepared inputs
+    include other files (the files of a platform) must not hand one of them to `init()` as the
+    ABC script."""
+
+    with preserved_flow_registry():
+
+        class _WithOtherInputs(Yosys):
+            def locate_prepared_inputs(self):
+                return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
+
+    flow, script = _flow_with_script_file(tmp_path, _WithOtherInputs)
+    with WorkingDirectory(tmp_path / "run"):
+        flow.init()
+    assert flow.settings.abc_script == str(script)
+    assert flow.implicit_inputs == [script]
+
+
+def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch):
+    """The design root is not the working directory, and yosys runs in the run directory: a
+    relative `liberty` or `dff_liberty` names a file under the design root."""
+    from .tool_utils import use_fake_asic_tools
+
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
     design = _design(tmp_path / "design")
-    settings = {"platform": ASAP7_PLATFORM, "clock": {"period": 2.0}, "corner": "SS"}
-    runs = {}
-    for flow in (Yosys, Openroad):
-        run_root = tmp_path / flow.name
-        with contextlib.suppress(Exception):
-            DefaultRunner(run_root, display_results=False).run_flow(flow, design, dict(settings))
-        runs[flow.name] = run_root / "mac" / "yosys"
-    alone, under = runs["yosys"], runs["openroad"]
+    (tmp_path / "design" / "lib").mkdir()
+    shutil.copy(TINY / "tiny.lib", tmp_path / "design" / "lib" / "x.lib")
+    shutil.copy(TINY / "tiny.lib", tmp_path / "design" / "lib" / "dff.lib")
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+        Yosys,
+        design,
+        {"liberty": ["lib/x.lib"], "dff_liberty": "lib/dff.lib", "clock": {"period": 2.0}},
+    )
+    assert flow.succeeded
+    script = _script(flow.run_path)
+    assert str(tmp_path / "design" / "lib" / "dff.lib") in script
+    effective = _effective(flow.run_path)
+    assert effective["dff_liberty"] == str(tmp_path / "design" / "lib" / "dff.lib")
+    assert effective["liberty"] == [str(tmp_path / "design" / "lib" / "x.lib")]
+    assert f"-liberty {tmp_path / 'design' / 'lib' / 'x.lib'}" in script
 
-    def handed(run_dir: Path) -> dict[str, bytes]:
-        effective = _effective(run_dir)
-        (liberty,) = effective["liberty"]
-        script = _script(run_dir).replace(str(run_dir.parent.parent.parent), "<RUNROOT>")
-        return {
-            "liberty": (run_dir / liberty).read_bytes(),
-            "dff_liberty": Path(effective["dff_liberty"]).read_bytes(),
-            "abc.constr": (run_dir / "abc.constr").read_bytes(),
-            "script": script.encode(),
-        }
 
-    assert handed(alone) == handed(under)
-    outcomes = {
-        name: json.loads((run_dir / "results.json").read_text())["success"]
-        for name, run_dir in runs.items()
-    }
-    assert outcomes["yosys"] == outcomes["openroad"], outcomes
-    if outcomes["yosys"]:
-        assert (alone / "netlist.v").read_bytes() == (under / "netlist.v").read_bytes()
-    else:
-        assert _abc_failure(alone) == _abc_failure(under) != []
+# ------------------------------------------------------------------------ dont-use patterns
+
+LIBRARY = """\
+library (l) {
+  cell (lpflow_a) {
+    area : 1;
+  }
+  cell ("lpflow_b") {
+    area : 1;
+  }
+  cell (xlpflow_a) {
+    area : 1;
+  }
+  cell (lpflow) {
+    area : 1;
+  }
+  cell (plain_x1) {
+    area : 1;
+  }
+  cell (plain_x10) {
+    area : 1;
+  }
+  /* lpflow_c is in a comment, not a cell */
+  attribute : "cell (lpflow_d) {" ;
+}
+"""
+
+
+def _marked(patterns: list[str]) -> set[str]:
+    text = preproc_lib_content(LIBRARY, patterns)
+    return set(re.findall(r"cell \(\"?(\w+)\"?\) \{\n    dont_use : true;", text))
+
+
+def test_a_dont_use_name_marks_exactly_that_cell():
+    assert _marked(["plain_x1"]) == {"plain_x1"}
+
+
+def test_a_star_matches_within_a_cell_name_only():
+    assert _marked(["lpflow_*"]) == {"lpflow_a", "lpflow_b"}
+
+
+def test_a_question_mark_matches_one_character():
+    assert _marked(["plain_x?"]) == {"plain_x1"}
+    assert _marked(["plain_x??"]) == {"plain_x10"}
+
+
+def test_a_dont_use_name_is_text_and_not_a_regular_expression():
+    assert _marked(["lpflow.a", "plain_x1|plain_x10"]) == set()
+
+
+def test_no_dont_use_name_marks_nothing():
+    assert _marked([]) == set()

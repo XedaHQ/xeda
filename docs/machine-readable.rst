@@ -24,7 +24,26 @@ shorthand for ``--format json``:
     xeda design-schema
     xeda list-boards --json
     xeda list-platforms --json
+    xeda pdk list --json
     xeda list-optimizers --json
+
+``xeda pdk path <platform>`` prints the directory of a platform in the PDK store. With ``--json``, it
+gives the files of each role too. If the PDK files are not installed, it fails and the error says
+how to install them. ``pdk list`` and ``pdk path`` only look at the files: they start no process
+and use no network.
+
+``xeda pdk install <platform>`` downloads the PDK files that a platform pins. It is the only
+``pdk`` command that uses the network and writes the PDK store. Every machine-readable format
+(``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) installs without asking,
+as ``--yes`` does, because a program cannot answer a question. Tool output goes to stderr, and
+stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
+"already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails. A failed
+``orfs`` install leaves the store as it was, and an ``orfs`` install keeps no ``.git`` in it:
+several platforms can share the directory of one commit. A failed ``ciel`` install may leave files
+of ``ciel`` in the store, so a ``ciel`` store counts as installed for this command only when its
+receipt exists. The install refuses a symbolic link inside the store, in ``<root>/xeda``, and fails
+with ``"success": false`` before it writes. The root itself may be a link. The install writes only
+real directories inside the store, so that it never writes or deletes outside it.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON

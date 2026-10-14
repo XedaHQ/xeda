@@ -241,18 +241,6 @@ Required settings: `target_libraries`
 
 Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
 
-### `openroad`
-
-*runs first: `yosys` | can follow: `yosys`*
-
-Place and route a gate-level netlist for an ASIC platform with OpenROAD. The netlist comes from the `yosys` flow or from a source of type `VerilogNetlist`. With `generate_gds`, the flow also writes GDSII using KLayout, if KLayout is installed.
-
-Required settings: `platform`
-
-70 flow-specific settings (plus the common ones): `xeda list-settings openroad --json`
-
-Reports: `Fmax`, `wns`, `tns`, `worst_slack`, `setup_violations`, `hold_violations`, `design_area`, `design_area_unit`, `utilization_percent`
-
 ## Synthesis (generic)
 
 ### `ghdl_synth`
@@ -265,13 +253,11 @@ Reports no results beyond the keys every flow reports.
 
 ### `yosys`
 
-*can be followed by: `openroad`*
-
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+74 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
-Reports: `area`, `cells`
+Reports: `area`, `cells`, `platform`
 
 ## Other
 

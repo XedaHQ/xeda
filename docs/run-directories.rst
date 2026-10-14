@@ -316,7 +316,7 @@ The trace records:
     again a place that a link leads back to. A library that is reached only through a link is
     therefore tracked like any other. The listing leaves out the directories of version control
     (``.git``, ``.hg`` and ``.svn``). It also leaves out the working locations of the flow
-    (``reports``, ``outputs``, ``checkpoints``, the ``results`` of OpenROAD and similar), and the
+    (``reports``, ``outputs``, ``checkpoints`` and similar), and the
     run directory and run root where a named directory holds them;
   - every file that a flow resolves before it runs, such as the ``abc_script`` of Yosys, expanded
     against the start directory or the environment;
@@ -499,7 +499,7 @@ flow again. This includes these cases:
   with an error, so the flow runs again at every launch.
 - A missed constraint in ``nextpnr`` without ``timing_allow_fail``. nextpnr stops with an error
   itself, so the flow runs again at every launch.
-- Every failure of ``dc`` and ``openroad``. Xeda never reports these again.
+- Every failure of ``dc``. Xeda never reports these again.
 - Every failure of a flow that always runs. Such a flow keeps no trace.
 
 To run a rejected flow again, change what it consumes, or run with ``--rebuild-all``. Xeda

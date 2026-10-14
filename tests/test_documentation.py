@@ -528,7 +528,9 @@ def test_documented_shared_settings_are_the_resolvers(relative, start):
     if not path.is_file():
         pytest.skip(f"{relative} is not part of this installation")
     names = re.findall(r"`+([a-z_]+)`+", _paragraph(path, start))
-    assert tuple(names[: len(SHARED_SETTINGS)]) == SHARED_SETTINGS, relative
+    # a release note lists the shared settings of its release
+    expected = SHARED_SETTINGS[:8] if relative == "CHANGELOG.md" else SHARED_SETTINGS
+    assert tuple(names[: len(expected)]) == expected, relative
 
 
 def test_the_machine_readable_docs_name_the_chain_keys_list_flows_publishes():

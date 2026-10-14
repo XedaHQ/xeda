@@ -5,8 +5,7 @@ the commands below from the directory of the example. Add `--dry-run` to any `xe
 see the plan without starting a tool.
 
 The cocotb testbenches need `pip install -r examples/requirements.txt`, which you run from the
-root of the repository. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr, Vivado,
-OpenROAD and so on.
+root of the repository. A flow needs its own tool: GHDL, NVC, Verilator, Yosys, nextpnr, Vivado and so on.
 
 ## VHDL
 
@@ -24,8 +23,7 @@ xeda run vivado_synth sqrt.yaml -s clock.period=4.0   # change one setting for t
 
 Other VHDL examples:
 
-- `vhdl/pipeline/pipelined_adder.yaml`: a VHDL design taken through Yosys and OpenROAD to a
-  sky130hd layout (`xeda run openroad pipelined_adder.yaml`).
+- `vhdl/pipeline/pipelined_adder.yaml`: a VHDL pipelined adder with a valid/ready interface.
 - `vhdl/Trivium`: the Trivium stream cipher with a cocotb testbench that calls a C reference model.
   See its README.
 - `vhdl/xedaproject.yaml`: a project file with one design, `full-adder`, and settings for several

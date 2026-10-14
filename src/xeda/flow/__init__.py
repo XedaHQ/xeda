@@ -19,6 +19,7 @@ from .fpga import FPGA
 from ..run_dir import RunDirectoryError
 from .io import In, Out
 from .synth import AsicSynthFlow, FpgaSynthFlow, PhysicalClock, SynthFlow
+from .asic import AsicPlatformFlow, AsicPlatformSettings
 
 if TYPE_CHECKING:
     from .sim import SimFlow as SimFlow
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
 __all__ = [
     "COMMON_RESULT_DESCRIPTIONS",
     "FPGA",
+    "AsicPlatformFlow",
+    "AsicPlatformSettings",
     "AsicSynthFlow",
     "Flow",
     "FlowDependencyFailure",

@@ -23,6 +23,8 @@ from xeda.flow_runner.trace import read_trace
 from xeda.flows import VivadoSynth
 from xeda.utils import dump_json
 
+from .tiny_platform import TINY_RESIDUE
+
 TESTS_DIR = Path(__file__).parent.absolute()
 SQRT = TESTS_DIR.parent / "examples" / "vhdl" / "sqrt"
 
@@ -647,149 +649,94 @@ def test_artifact_names_are_distinct_even_where_folding_is_not(tmp_path):
     assert design.source_artifact_name(design.rtl.sources[0], ".v") == names[0]
 
 
-# ------------------------------------------- a bundled platform names no installation
+# ------------------------------------------- a platform names no installation
 
 # The imported package: under tox it is the installed one, not the checkout's `src/xeda`.
 XEDA_PACKAGE = Path(xeda.__file__).parent
 
 
-def _install_elsewhere(prefix: Path) -> Path:
-    """Another installation's package directory, holding the bundled `nangate45` platform: what
-    `-s platform=nangate45` resolves to under that installation."""
-    package = prefix / "site-packages" / "xeda"
-    shutil.copytree(XEDA_PACKAGE / "platforms" / "nangate45", package / "platforms" / "nangate45")
-    return package
-
-
-def _as_installed_at(monkeypatch, package: Path) -> None:
-    """Make this process resolve bundled platforms, and its own installation, as `package`."""
-    import xeda.platforms.platform
-    import xeda.utils
-
-    monkeypatch.setattr(xeda.utils, "XEDA_PACKAGE_ROOT", package, raising=False)
-    monkeypatch.setattr(xeda.platforms.platform, "files", lambda _package: package / "platforms")
-
-
-def _platform_settings(tmp_path: Path, platform: str, flow_name="yosys"):
+def _platform_settings(tmp_path: Path, flow_name="yosys", **given):
     from xeda.flow_runner import get_flow_class
 
     root, start = tmp_path / "d", tmp_path / "start"
     root.mkdir(exist_ok=True)
     start.mkdir(exist_ok=True)
     return get_flow_class(flow_name).Settings.from_input(
-        {"platform": platform, "clock": {"period": 2.0}}, design_root=root, runner_cwd=start
+        {"clock": {"period": 2.0}, **given}, design_root=root, runner_cwd=start
     )
 
 
-@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
-def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
-    tmp_path, monkeypatch, flow_name
-):
-    """`-s platform=nangate45` is one request under any installation. A
-    validated platform holds absolute paths (`with_absolute_paths`), so its identity named the
-    installation, and two machines never agreed on it."""
-    here = _platform_settings(tmp_path, "nangate45", flow_name)
-    expected = flowrun_hash(flow_name, here, "d")
-    _as_installed_at(monkeypatch, _install_elsewhere(tmp_path / "elsewhere"))
-    there = _platform_settings(tmp_path, "nangate45", flow_name)
-    assert there.platform is not None
-    assert there.platform.root_dir.is_relative_to(tmp_path / "elsewhere")  # really elsewhere
-    assert flowrun_hash(flow_name, there, "d") == expected
-
-
-@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
-def test_the_hashed_settings_name_no_path_under_the_installation(tmp_path, flow_name):
+def test_a_bundled_platform_is_a_name_in_the_hashed_settings(tmp_path):
+    """`-s platform=nangate45` is one request under any installation: the settings hold the
+    name, and the identity names no path under the installation, or any other path."""
     from xeda.flow.flow import identity_values
 
-    values = json.dumps(
-        identity_values(flow_name, _platform_settings(tmp_path, "nangate45", flow_name), "d"),
-        default=str,
-    )
+    settings = _platform_settings(tmp_path, platform="nangate45")
+    assert settings.platform == "nangate45"
+    values = json.dumps(identity_values("yosys", settings, "d"), default=str)
     assert str(XEDA_PACKAGE) not in values and os.path.realpath(XEDA_PACKAGE) not in values
-    assert "$XEDA/platforms/nangate45/" in values
+    assert '"platform": "nangate45"' in values
+    assert "$XEDA" not in values and str(tmp_path) not in values
+
+
+def test_the_place_of_the_pdk_store_is_no_part_of_the_hash(tmp_path):
+    first = _platform_settings(tmp_path, platform="nangate45", pdk_root=str(tmp_path / "a"))
+    second = _platform_settings(tmp_path, platform="nangate45", pdk_root=str(tmp_path / "b"))
+    assert flowrun_hash("yosys", first, "d") == flowrun_hash("yosys", second, "d")
 
 
 @pytest.mark.parametrize("where", ["design", "outside"])
 def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
-    """Only the installation became a root: a `config.toml` under the design root still counts
-    relative to it, and one elsewhere as the absolute location it names."""
+    """A platform file under the design root counts relative to it, and one elsewhere as the
+    absolute location it names."""
     from xeda.flow.flow import identity_values
 
-    source = XEDA_PACKAGE / "platforms" / "nangate45"
     place = (tmp_path / "d" / "pdk") if where == "design" else (tmp_path / "pdks" / "pdk")
-    shutil.copytree(source, place)
+    place.mkdir(parents=True)
+    shutil.copy(TINY_RESIDUE, place / "tiny.yaml")
     values = json.dumps(
-        identity_values("yosys", _platform_settings(tmp_path, str(place / "config.toml")), "d"),
+        identity_values(
+            "yosys", _platform_settings(tmp_path, platform_file=str(place / "tiny.yaml")), "d"
+        ),
         default=str,
     )
     if where == "design":
-        assert "$DESIGN_ROOT/pdk/" in values and str(place) not in values
+        assert "$DESIGN_ROOT/pdk/tiny.yaml" in values and str(place) not in values
     else:
-        assert str(place) in values and "$XEDA" not in values
+        assert str(place / "tiny.yaml") in values and "$DESIGN_ROOT" not in values
 
 
-@pytest.mark.parametrize(
-    "linked,flow_name",
-    [("installation", "yosys"), ("installation", "openroad"), ("design root", None)],
-)
-def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked, flow_name):
+@pytest.mark.parametrize("flow_name", ["yosys", None])
+def test_a_root_counts_however_its_path_is_spelled(tmp_path, flow_name):
     """A root reached through a symbolic link is one root: a path under it counts relative to it
-    whether it is spelled through the link or by the physical path. xeda imported through a
-    linked prefix gave `platform=nangate45` `$XEDA/...`, while the resolved path of that very
-    `config.toml` kept the absolute prefix -- another hash for one platform."""
-    import xeda.utils
+    whether it is spelled through the link or by the physical path."""
     from xeda.flow.flow import identity_values
+    from xeda.flows import VivadoSynth
 
     physical = tmp_path / "physical"
     link = tmp_path / "link"
-    if linked == "installation":
-        package = _install_elsewhere(physical)
-        link.symlink_to(physical, target_is_directory=True)
-        linked_package = link / package.relative_to(physical)
-        _as_installed_at(monkeypatch, linked_package)
-        assert xeda.utils.XEDA_PACKAGE_ROOT == linked_package
-        by_name = _platform_settings(tmp_path, "nangate45", flow_name)
-        by_path = _platform_settings(
-            tmp_path, str(package / "platforms/nangate45/config.toml"), flow_name
-        )
-        assert flowrun_hash(flow_name, by_path, "d") == flowrun_hash(flow_name, by_name, "d")
-        values = json.dumps(identity_values(flow_name, by_path, "d"), default=str)
-        assert str(physical) not in values and "$XEDA/platforms/nangate45/" in values
-    else:
-        physical.mkdir()
-        link.symlink_to(physical, target_is_directory=True)
-        (physical / "c.xdc").write_text("\n")
-        from xeda.flows import VivadoSynth
+    physical.mkdir()
+    link.symlink_to(physical, target_is_directory=True)
+    (physical / "c.xdc").write_text("\n")
+    shutil.copy(TINY_RESIDUE, physical / "tiny.yaml")
 
-        def hashed(root: Path, xdc: Path, start: Path | None = None):
+    def hashed(root: Path, name: str, start: Path | None = None):
+        runner_cwd = start or tmp_path / "start"
+        if flow_name is None:
             settings = VivadoSynth.Settings.from_input(
-                {"fpga": "xc7a100tftg256-2L", "xdc_files": [str(xdc)]},
+                {"fpga": "xc7a100tftg256-2L", "xdc_files": [str(root / name)]},
                 design_root=root,
-                runner_cwd=start or tmp_path / "start",
+                runner_cwd=runner_cwd,
             )
             return json.dumps(identity_values("vivado_synth", settings), default=str)
+        from xeda.flows import Yosys
 
-        for root, xdc in ((link, physical / "c.xdc"), (physical, link / "c.xdc")):
-            values = hashed(root, xdc)
-            assert "$DESIGN_ROOT/c.xdc" in values and str(tmp_path) not in values
+        settings = Yosys.Settings.from_input(
+            {"platform_file": str(root / name)}, design_root=root, runner_cwd=runner_cwd
+        )
+        return json.dumps(identity_values("yosys", settings), default=str)
 
-        # Two roots, one of them reached through a link: the design root is the more specific
-        # place whichever way the file is spelled. Trying each spelling of the path against
-        # every root in turn made `$PWD/design/c.xdc` of one spelling and `$DESIGN_ROOT/c.xdc`
-        # of the other: one file, two identities.
-        (physical / "design").mkdir()
-        (physical / "design" / "c.xdc").write_text("\n")
-        for xdc in (link / "design" / "c.xdc", physical / "design" / "c.xdc"):
-            values = hashed(physical / "design", xdc, start=link)
-            assert "$DESIGN_ROOT/c.xdc" in values and "$PWD" not in values, values
-
-        # Specificity is the place's, not its spelling's: a design root written as a short link
-        # to a deep directory is still the more specific root there.
-        deep = physical / "a" / "b" / "c"
-        deep.mkdir(parents=True)
-        (deep / "c.xdc").write_text("\n")
-        short = tmp_path / "short"
-        short.symlink_to(deep, target_is_directory=True)
-        for xdc in (short / "c.xdc", deep / "c.xdc"):
-            values = hashed(short, xdc, start=physical / "a" / "b")
-            assert "$DESIGN_ROOT/c.xdc" in values and "$PWD" not in values, values
+    name = "c.xdc" if flow_name is None else "tiny.yaml"
+    for root in (link, physical):
+        values = hashed(root, name)
+        assert f"$DESIGN_ROOT/{name}" in values and str(tmp_path) not in values

@@ -787,18 +787,22 @@ class YosysSynthesisBase(YosysBase):
             )
         super().enable_output(settings, name, design_name=design_name)
 
-    def locate_prepared_inputs(self) -> Optional[List[Path]]:
-        """Return the ABC script file that `abc_script` names, as a list of at most one path.
+    def _abc_script_file(self) -> Optional[Path]:
+        """Return the ABC script file that `abc_script` names, or None.
 
         An inline script (one that starts with `+`) names no file.
         """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
         if ss.abc_script and not ss.abc_script.startswith("+"):
-            return [
-                self.process_path(ss.abc_script, subs_vars=True, resolve_to=self.design.design_root)
-            ]
-        return []
+            return self.process_path(
+                ss.abc_script, subs_vars=True, resolve_to=self.design.design_root
+            )
+        return None
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """Return the ABC script file that `abc_script` names, as a list of at most one path."""
+        return [file for file in (self._abc_script_file(),) if file]
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
@@ -824,9 +828,10 @@ class YosysSynthesisBase(YosysBase):
         # the RTL, for one.
         YosysSynthesisBase.check_settings_supported(ss)
         super().init()
-        for path in self.locate_prepared_inputs() or ():
-            ss.abc_script = str(path)
-            self.implicit_inputs.append(path)
+        abc_script = self._abc_script_file()
+        if abc_script:
+            ss.abc_script = str(abc_script)
+            self.implicit_inputs.append(abc_script)
         for name in ("adder_map", "clockgate_map"):
             value = getattr(ss, name, None)
             if value:

@@ -257,7 +257,7 @@ closest types. A ``.v`` file is ``Verilog``. To list a gate-level netlist, write
 type: VerilogNetlist}``.
 
 Xeda types a netlist and a checkpoint by what it is, and not only by its file format. A
-``VerilogNetlist`` is a standard-cell netlist, which ``openroad`` reads. An ``FpgaNetlist`` is a
+``VerilogNetlist`` is a standard-cell gate-level netlist. An ``FpgaNetlist`` is a
 Verilog netlist of FPGA primitives, as Vivado writes it, and ``vivado_postsynth_sim`` simulates
 it. An ``FpgaTimingNetlist`` is the timing netlist of the same design, and that flow simulates it
 with an SDF file. Verilog has no suffix of its own for a timing netlist, so a listed one needs
@@ -265,7 +265,7 @@ with an SDF file. Verilog has no suffix of its own for a timing netlist, so a li
 (``SynthCheckpoint``) and after routing (``RoutedCheckpoint``), and ``vivado_power`` reports power
 only on the routed one. The ``.dcp`` suffix therefore needs its ``type``, and Xeda never takes a
 netlist or checkpoint of one type in place of the other. A Vivado netlist that you list as
-``VerilogNetlist`` feeds ``openroad`` and no Vivado flow. The type ``Checkpoint``, for a
+``VerilogNetlist`` is taken by no Vivado flow. The type ``Checkpoint``, for a
 checkpoint of no stated stage, is kept for old settings files. No flow takes it, so a source with
 that type feeds nothing.
 
@@ -297,11 +297,11 @@ One source of a type that the flow reads is enough, a constraint file included. 
 the constraints. A flow that reads the testbench (every simulator, ``bsc`` and
 ``vivado_project``) checks ``tb.sources`` as well. The other flows check ``rtl.sources``. Xeda
 never refuses a C or C++ file, because it can be a driver or a helper for another flow.
-``nextpnr``, ``openroad``, ``fpga_pack``, ``openfpgaloader``, ``vivado_impl`` and ``vivado_power``
+``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``vivado_impl`` and ``vivado_power``
 read no design source themselves. Each takes what it reads through its declared inputs, from a
-producer or from a typed source. ``openroad`` and ``nextpnr`` take the ``Sdc`` files of the design
-that way, and ``vivado_impl`` takes its ``Xdc`` and ``Sdc`` files. Header files reach the include
-and search paths.
+producer or from a typed source. ``nextpnr`` takes the ``Sdc`` files of the design that way,
+and ``vivado_impl`` takes its ``Xdc`` and ``Sdc`` files. Header files reach the include and search
+paths.
 
 .. note::
    The ``bsc`` flow compiles BH (Bluespec Classic) only from ``.bs`` files. It rejects a ``.bh``
@@ -501,8 +501,8 @@ design file can carry the settings of several flows:
       vivado_synth:
         fpga.part: xc7a100tftg256-2L
         clock.period: 5.0
-      openroad:
-        platform: sky130hd
+      yosys:
+        platform: nangate45
         clock.period: 10.0
       ghdl_sim:
         stop_time: 100us

@@ -23,7 +23,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union, get_args
 
-from importlib_resources import files
 from pydantic import BaseModel
 
 from .dataclass import (
@@ -45,7 +44,7 @@ from .flow.io import declared_inputs, declared_outputs, selected_types
 from .flow_runner import get_flow_class
 from .flow_runner.chains import ChainEdge, followers, predecessors
 from .flows import __builtin_flows__
-from .utils import json_encodable, toml_load, unique, with_json_keys
+from .utils import json_encodable, unique, with_json_keys
 
 if TYPE_CHECKING:
     from .flow_runner.resolver import Plan
@@ -63,6 +62,7 @@ __all__ = [
     "optimizers_info",
     "plan_info",
     "platforms_info",
+    "provider_status",
     "results_info",
     "settings_info",
 ]
@@ -1008,29 +1008,70 @@ def boards_info() -> List[Dict[str, Any]]:
     return [{"board": name, **json_safe(kv)} for name, kv in sorted(data.items())]
 
 
-def platforms_info() -> List[Dict[str, Any]]:
-    """Return the ASIC PDK platforms bundled with Xeda (the OpenROAD and DC flows use them).
+def provider_status(residue: Any, provider: str, root: Path) -> Dict[str, Any]:
+    """Return where one provider keeps the PDK files of a platform in the store at `root`, and
+    whether they are there.
 
-    The wheel excludes the platform data, so an installed Xeda usually reports none.
-    """
-    platforms: List[Dict[str, Any]] = []
-    try:
-        root = Path(str(files("xeda.platforms")))
-    except (ModuleNotFoundError, TypeError) as e:  # pragma: no cover
-        log.debug("xeda.platforms is not importable: %s", e)
-        return platforms
-    if not root.is_dir():  # pragma: no cover
-        return platforms
-    for config in sorted(root.glob("*/config.toml")):
-        entry: Dict[str, Any] = {"platform": config.parent.name, "config": str(config)}
+    The result has the `provider`, its `version` (the pin of the residue, or `unpinned` for a
+    `directory`), `installed` and `directory`, the directory of the platform in the store. The
+    platform is installed by the rule of `pdk install` (`providers.installed`): every file is
+    there, the version marker names the pin, and a `ciel` store has its receipt. If the marker
+    names another version than the pin, `problem` says so. The function only looks at the files:
+    it starts no process, uses no network and writes nothing."""
+    from .platforms import PdkNotInstalled, locate
+    from .platforms.providers import (
+        UNPINNED,
+        PdkVersionMismatch,
+        installed,
+        platform_directory,
+        verify_pin,
+    )
+
+    version = UNPINNED if provider == "directory" else residue.providers.entry(provider).version
+    status: Dict[str, Any] = {"provider": provider, "version": version}
+    status["installed"] = installed(residue, provider, None, root) is not None
+    if not status["installed"]:
         try:
-            data = toml_load(config)
-            for key in ("name", "version", "description", "process"):
-                if key in data:
-                    entry[key] = json_safe(data[key])
-        except Exception as e:  # noqa: BLE001
-            # A malformed PDK must not break the listing.
-            entry["error"] = str(e)
+            verify_pin(locate(residue, provider, None, root, None), residue)
+        except PdkNotInstalled:
+            pass
+        except PdkVersionMismatch as error:
+            status["problem"] = str(error)
+    status["directory"] = str(platform_directory(residue, provider, None, root))
+    return status
+
+
+def platforms_info() -> List[Dict[str, Any]]:
+    """Return the ASIC platforms bundled with Xeda, which the `platform` setting of the ASIC
+    flows (`yosys` today) takes by name.
+
+    Each platform has its `description` and its default `provider`, the `version` that Xeda pins
+    for it, and `installed`: whether the default store (`~/.ciel`) holds the PDK files of that
+    version. An installed platform also has the `directory` that holds them. If the files are
+    there but name another version, `problem` says so. The function starts no process, uses no
+    network and writes nothing.
+    """
+    from .platforms import bundled_platform_names, load_residue
+    from .platforms.providers import default_root
+
+    root = default_root()
+    platforms: List[Dict[str, Any]] = []
+    for name in bundled_platform_names():
+        residue = load_residue(name)
+        provider = residue.providers.default
+        assert provider is not None  # a bundled platform names its default provider
+        status = provider_status(residue, provider, root)
+        entry: Dict[str, Any] = {
+            "platform": name,
+            "description": residue.description,
+            "provider": provider,
+            "version": status["version"],
+            "installed": status["installed"],
+        }
+        if status["installed"]:
+            entry["directory"] = status["directory"]
+        if "problem" in status:
+            entry["problem"] = status["problem"]
         platforms.append(entry)
     return platforms
 

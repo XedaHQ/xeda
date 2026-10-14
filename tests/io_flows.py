@@ -4,9 +4,9 @@ every flow (`settings_samples.flow_classes`) leave them out; they are registered
 `__taker`, ... (`camelcase_to_snakecase`)."""
 
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Optional
 
-from xeda.dataclass import Field
+from xeda.dataclass import LOCATOR, Field, XedaBaseModel
 from xeda.design import SourceType
 from xeda.flow import Flow, FpgaSynthFlow, In, Out
 from xeda.utils import replacing_file
@@ -58,6 +58,62 @@ class _InputMaker(_Maker):
         assert self.settings.input_file is not None
         self.settings.text = self.settings.input_file.read_text()
         super().run()
+
+
+class _ReadsInstalled(_Maker):
+    """Makes its output from `lib.txt` in the store that `store` names, as a flow reads installed
+    data. It registers that one file as its input."""
+
+    results_description = {}
+
+    class Settings(_Maker.Settings):
+        store: Optional[Path] = Field(
+            None, json_schema_extra=LOCATOR, description="Where the data is installed."
+        )
+
+    def prepare_inputs(self) -> None:
+        self.implicit_inputs.extend(self.locate_prepared_inputs() or [])
+
+    def locate_prepared_inputs(self) -> Optional[list[Path]]:
+        store = self.settings.store
+        return [] if store is None else [store / "lib.txt"]
+
+    def run(self) -> None:
+        store = self.settings.store
+        if store is not None:
+            self.settings.text = (store / "lib.txt").read_text()
+        super().run()
+
+
+class _InstalledTaker(_Taker):
+    """Reads the output of `_ReadsInstalled`."""
+
+    results_description = {}
+
+    class Inputs(_Taker.Inputs):
+        made: Path = In(
+            SourceType.Data,
+            producer="__reads_installed",
+            output="made",
+            description="What it reads.",
+        )
+
+
+class _Where(XedaBaseModel):
+    """A model nested in settings that holds a locator."""
+
+    store: Optional[Path] = Field(
+        None, json_schema_extra=LOCATOR, description="Where the data is installed."
+    )
+
+
+class _ReadsInstalledNested(_Maker):
+    """Has its locator inside a nested model."""
+
+    results_description = {}
+
+    class Settings(_Maker.Settings):
+        where: _Where = Field(default_factory=_Where, description="Where the data is.")
 
 
 class _PartialMaker(_Maker):

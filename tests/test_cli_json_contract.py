@@ -28,8 +28,12 @@ FAKE_TOOLS_DIR = TESTS_DIR / "fake_tools"
 SQRT = EXAMPLES_DIR / "vhdl" / "sqrt" / "sqrt.yaml"
 
 
-def run_xeda(*args: str, cwd=None, fake_tools: bool = False) -> subprocess.CompletedProcess:
+def run_xeda(
+    *args: str, cwd=None, fake_tools: bool = False, home=None
+) -> subprocess.CompletedProcess:
     env = dict(os.environ, COLUMNS="80")
+    if home is not None:
+        env["HOME"] = str(home)  # the default PDK store is under HOME
     if fake_tools:
         env["PATH"] = str(FAKE_TOOLS_DIR) + os.pathsep + env.get("PATH", "")
     return subprocess.run(
@@ -101,6 +105,44 @@ def test_group_level_json_is_itself_a_usage_error():
     proc = run_xeda("--json", "--help")
     assert proc.returncode != 0
     assert json_stdout(proc)["error"]["type"] == "NoSuchOption"
+
+
+# ------------------------------------------------------------- the PDK commands read one store
+
+
+@pytest.mark.parametrize("command", [["list-platforms"], ["pdk", "list"]])
+def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
+    proc = run_xeda(*command, "--json", home=tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert {row["platform"] for row in json_stdout(proc)} == {"nangate45"}
+
+
+@pytest.mark.parametrize(
+    ("command", "error_type"),
+    [
+        (["pdk", "path", "nangate45"], "PdkNotInstalled"),  # the empty store under HOME
+        (["pdk", "path", "nangate"], "BadParameter"),
+        (["pdk", "path"], "UsageError"),
+        (["pdk", "path", "nangate45", "--no-such-option"], "NoSuchOption"),
+        # An install that fails before it writes or uses the network.
+        (["pdk", "install", "nangate45", "--provider", "directory"], "UsageError"),
+        (["pdk", "install", "nangate45", "--version", "main"], "UsageError"),
+        (["pdk", "install", "nangate"], "BadParameter"),
+        (["pdk", "install"], "UsageError"),
+        (["pdk", "path", "--platform-file", "MERGE_FAILS"], "BadParameter"),
+    ],
+    ids=lambda value: value if isinstance(value, str) else " ".join(value),
+)
+def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_path):
+    if "MERGE_FAILS" in command:  # a file that loads alone but is wrong over nangate45
+        broken = tmp_path / "mine.yaml"
+        broken.write_text("name: mine\nextends: nangate45\ncorners: {default: missing}\n")
+        command = [str(broken) if word == "MERGE_FAILS" else word for word in command]
+    proc = run_xeda(*command, "--json", home=tmp_path)
+    document = json_stdout(proc)
+    assert proc.returncode != 0
+    assert document["success"] is False
+    assert document["error"]["type"] == error_type
 
 
 # --------------------------------------------------------------- flow-name resolution at the CLI

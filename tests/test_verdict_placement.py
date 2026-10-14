@@ -141,7 +141,6 @@ def swept(owner: type) -> List[Tuple[str, Callable]]:
 #: Classes whose judgment stays in `parse_reports()`, with the reason (keyed by qualname).
 JUDGES_IN_PARSE_REPORTS = {
     "Dc": "judges its results in parse_reports(), so its failures are never replayed",
-    "Openroad": "judges its results in parse_reports(), so its failures are never replayed",
 }
 
 #: Expressions that look like a judgment and only decide how to read a report or what to store,

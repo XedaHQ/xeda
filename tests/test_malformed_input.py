@@ -26,7 +26,6 @@ from xeda.design import Design, DesignValidationError
 from xeda.flow import FPGA, FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.yosys.yosys_fpga import YosysFpga
-from xeda.platforms.asics import AsicsPlatform
 from xeda.utils import XedaException
 
 from .project_files import PROJECT_FILE
@@ -36,8 +35,7 @@ pytestmark = pytest.mark.python_compat
 
 #: What a malformed value may raise: the validation errors of settings (`FlowSettingsError`),
 #: designs (`DesignValidationError`) and plain models (pydantic's `ValidationError`, the only one
-#: of the three that is a `ValueError`), plus the `ValueError` that lookups such as
-#: `AsicsPlatform.from_resource` raise for a name they do not know.
+#: of the three that is a `ValueError`).
 VALIDATION_ERRORS = (ValidationError, FlowSettingsError, DesignValidationError, ValueError)
 
 #: Every structural kind of value, plus a few that only a caller (not a file) can pass.
@@ -121,16 +119,6 @@ def test_a_non_string_part_is_reported_by_the_part_field():
 def test_a_parameter_list_entry_that_is_not_an_object_is_a_design_error(entry):
     with pytest.raises(DesignValidationError, match="parameters/generics"):
         Design(name="d", rtl={**RTL, "parameters": [entry]})
-
-
-def test_an_unknown_platform_lists_the_bundled_ones():
-    with pytest.raises(ValueError, match=r"Unknown platform 'asap8'.*asap7.*nangate45"):
-        AsicsPlatform.from_setting("asap8")
-
-
-def test_a_missing_platform_file_is_a_value_error(tmp_path):
-    with pytest.raises(ValueError, match="Platform file not found"):
-        AsicsPlatform.from_setting(str(tmp_path / "config.toml"))
 
 
 def test_a_missing_verilog_lib_names_the_file(tmp_path):

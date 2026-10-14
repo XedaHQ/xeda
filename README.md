@@ -190,10 +190,6 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   major manufacturers
   - `openfpgaloader`: loads a bitstream onto the board: the one that `fpga_pack` builds after
     `yosys_fpga` and `nextpnr`, or a bitstream source. It is the only flow that touches hardware
-- [OpenROAD](https://github.com/The-OpenROAD-Project/OpenROAD/): integrated chip physical design
-  flow that takes a design from RTL sources to routed layout
-  - `openroad`: ASIC implementation of the netlist that `yosys` writes, with the bundled PDKs
-    (`xeda list-platforms`)
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

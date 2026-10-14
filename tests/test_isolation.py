@@ -38,6 +38,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
 from .settings_samples import flow_classes, minimal_settings
+from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import (
     FAKE_TOOLS_DIR,
     require_bluesim,
@@ -147,7 +148,6 @@ UNPLANNABLE = {
 }
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
-    "openroad": "the asap7 platform's liberty files are not shipped",
     **{name: f"its plan is refused ({reason})" for name, reason in UNPLANNABLE.items()},
 }
 
@@ -203,6 +203,7 @@ class World:
     outside: Path  # what a link in `work` points to
     root: Path  # the run root, `work/xeda_run`
     delivered: Path  # where a launch that names outputs delivers them
+    pdk_store: Path  # the store of the `tiny` platform, for a flow that maps to one
 
 
 def _world(parent: Path) -> World:
@@ -220,7 +221,19 @@ def _world(parent: Path) -> World:
         (work / name).write_text(f"the user's {name}\n")
     (outside / "target.txt").write_text("outside\n")
     (work / "link_to_outside").symlink_to(outside / "target.txt")
-    return World(parent, work, outside, work / "xeda_run", work / "delivered")
+    return World(
+        parent, work, outside, work / "xeda_run", work / "delivered", tiny_store(parent, "pdks")
+    )
+
+
+def sweep_settings(flow_class, world: World) -> dict:
+    """The settings the sweeps launch `flow_class` with in `world`: the least it needs, what makes
+    it reach what it writes, and for a flow that maps to a platform, the platform whose files the
+    world holds."""
+    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    if "platform" in settings:
+        settings.update(tiny_settings(world.pdk_store), platform="tiny")
+    return settings
 
 
 def _state(root: Path, exclude: Sequence[Path]) -> dict:
@@ -429,7 +442,7 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         tb=tb,
         language={"vhdl": {"standard": "2008"}},
     )
-    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    settings = sweep_settings(flow_class, world)
     launcher: dict = {"display_results": False}
     if scenario == "clean":
         launcher["clean"] = True
@@ -1197,6 +1210,27 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery record's temporary file, beside the run directory",
     ),
+    ("platforms/providers.py", "source.rename(plan.directory)"): (
+        1,
+        "the install command writes the PDK store, outside a run: the platform directory of its "
+        "own partial checkout, complete and checked, moved to its name in the store under the "
+        "store's install lock; the name is free, as the install checked under the lock",
+    ),
+    ("platforms/providers.py", "path.unlink(missing_ok=True)"): (
+        1,
+        "the install command writes the PDK store, outside a run: the receipt that this install "
+        "wrote where there was none, removed when the move of the platform directory failed",
+    ),
+    ("platforms/providers.py", "directory.rmdir()"): (
+        1,
+        "the install command writes the PDK store, outside a run: an empty parent directory that "
+        "this install made, removed when the move failed (`rmdir` removes no file)",
+    ),
+    ("platforms/providers.py", "shutil.rmtree(path)"): (
+        1,
+        "the install command writes the PDK store, outside a run: the partial directory that "
+        "this install made, removed after a failure or an interrupt (`rmtree` follows no link)",
+    ),
 }
 
 
@@ -1242,9 +1276,9 @@ def test_the_oracle_sees_what_deletes(tmp_path):
     )
 
 
-#: In a tool script (every file of xeda's that is not Python: templates, the OpenROAD scripts,
-#: the platforms' scripts): a deletion (`file delete`, `file rename`, `rm`), or a tool command
-#: told to replace or overwrite what is there (`-force`, `-overwrite`).
+#: In a tool script (every file of xeda's that is not Python: templates, the platforms' scripts):
+#: a deletion (`file delete`, `file rename`, `rm`), or a tool command told to replace or overwrite
+#: what is there (`-force`, `-overwrite`).
 SCRIPT_DELETION = re.compile(r"\brm\b|\bfile\s+(delete|rename)\b|(?<![\w-])-(force|overwrite)\b")
 #: a tool command a flow runs that deletes where it runs (`ghdl remove`)
 TOOL_DELETION = re.compile(r"\.run\(\s*[\"'](--)?(remove|clean)[\"']")
@@ -1390,24 +1424,6 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "flows/vivado/templates/write_bitstream_hook.tcl",
         "file copy -force ${xeda_top}.bin {{bin_file|tcl_word}}",
     ): (1, "the .bin beside the bitstream, copied from the implementation run's own", None),
-    ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lib"): (
-        1,
-        "an upstream " "PDK helper script xeda never runs",
-        None,
-    ),
-    ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lef"): (
-        1,
-        "an upstream " "PDK helper script xeda never runs",
-        None,
-    ),
-    (
-        "platforms/nangate45/fakeram.tcl",
-        "file copy -force $results_dir/fakeram45_$size/fakeram45_$size.lib $flow_dir/lib/fakeram45_$size.lib",
-    ): (1, "an upstream PDK helper script xeda never runs", None),
-    (
-        "platforms/nangate45/fakeram.tcl",
-        "file copy -force $results_dir/fakeram45_$size/fakeram45_$size.lef $flow_dir/lef/fakeram45_$size.lef",
-    ): (1, "an upstream PDK helper script xeda never runs", None),
     (
         "flows/diamond/templates/synth.tcl",
         "prj_project new -name {{design.name|tcl_word}} -dev {{settings.fpga.part|tcl_word}} "
@@ -1433,7 +1449,7 @@ SCRIPT_REPLACEMENT = re.compile(
 
 def test_every_tool_command_that_deletes_or_replaces_is_reviewed_and_guarded():
     """A mechanical oracle over every file of xeda's that is not Python -- tool scripts, the
-    OpenROAD and platform scripts -- and every tool command in a flow's code: each line that
+    platform scripts -- and every tool command in a flow's code: each line that
     deletes (`file delete`, `file rename`, `rm`), tells a tool to replace or overwrite
     (`-force`, `-overwrite`), replaces by name (`create_project`, `project_new`, ...) or runs a
     deleting tool command (`ghdl remove`) is reviewed in `REVIEWED_SCRIPT_DELETIONS`, as often as
@@ -1660,14 +1676,25 @@ REVIEWED_WRITES = [
         f"`xeda skill install`: {_OUTSIDE_RUNS}",
     ),
     (
-        "platforms/asap7/openroad/post_mergeLib.py",
-        'fo = open(mergedFile, "w")',
-        "a PDK script the tool runs, not xeda",
+        "platforms/providers.py",
+        "source.rename(plan.directory)",
+        "the install command writes the PDK store, outside a run: a rename of the platform "
+        "directory of its own complete partial checkout to a name that the install checked to be "
+        "free",
     ),
     (
-        "platforms/mk_to_toml.py",
-        'with open(Path(args.config_mk).parent / "config.toml", "w") as f:',
-        f"a developer's script converting a PDK's config: {_OUTSIDE_RUNS}",
+        "platforms/providers.py",
+        'with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:',
+        "the install command writes the PDK store, outside a run: the lock file of the store, "
+        "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
+        "install checked the way to the file for links just before",
+    ),
+    (
+        "platforms/providers.py",
+        'with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:',
+        "the install command writes the PDK store, outside a run: the lock file of the store, "
+        "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
+        "install checked the way to the file for links just before",
     ),
 ]
 

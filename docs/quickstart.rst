@@ -107,7 +107,9 @@ The command line describes itself:
     xeda list-settings vivado_synth     # every setting of a flow, with type, default and meaning
     xeda list-results vivado_synth      # the keys that flow writes to results.json
     xeda list-boards                    # bundled FPGA board definitions
-    xeda list-platforms                 # bundled ASIC platforms (PDKs)
+    xeda list-platforms                 # bundled ASIC platforms (PDKs) and whether they are installed
+    xeda pdk list                       # the PDK files of each platform, by provider and version
+    xeda pdk install <platform>         # download the PDK files that a platform pins
     xeda design-schema                  # JSON Schema of a design file
 
 Add ``--json`` to any of them for machine-readable output. See :doc:`machine-readable`.

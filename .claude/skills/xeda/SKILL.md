@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis (yosys, Design Compiler) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
 ---
 
 # Driving Xeda
@@ -19,6 +19,8 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Result keys of a flow | `xeda list-results <flow> --json` |
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
+| Which PDK files of a platform are installed, and where | `xeda pdk list --json`, `xeda pdk path <platform> --json` (fails with the install command when they are missing) |
+| Install the PDK files of a platform (downloads and writes the PDK store; propose it to the user first) | `xeda pdk install <platform> --json` (installs without asking; reports `already_installed` when the files are there) |
 | What a run would do | `xeda run <flow> <design> --dry-run --json` |
 | Run | `xeda run <flow> <design> -s KEY=VALUE --json` |
 | Search for the highest clock frequency | `xeda dse <flow> --design <design> --json` |
@@ -157,7 +159,6 @@ Run the flow you want. Its default producers run first:
 | `vivado_impl` | `yosys_fpga` (`netlist_edif`) |
 | `vivado_power` | `vivado_postsynth_sim`, `vivado_synth` |
 | `vivado_postsynth_sim` | `vivado_synth` |
-| `openroad` | `yosys` (`netlist`) |
 
 A source of the input's type replaces the producer: a `JsonNetlist` source skips `yosys_fpga` for
 `nextpnr`. Set a producer's settings under `flows.<producer>`.
@@ -229,8 +230,11 @@ with the synthesis behind its `activity`. A binding that splits them is refused;
 the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
-`platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree. Disjoint leaves
-combine; two values for one leaf fail and name both origins. A command-line leaf
+`platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`, `pdk_version`,
+`pdk_root`, where both nodes declare them) must agree. `platform` is a bundled name;
+`platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or `pdk_version`
+is filled in from the platform before hashing. Disjoint leaves combine; two values for one leaf
+fail and name both origins. A command-line leaf
 (`-s fpga.part=...` or `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared
 setting written under a flow that is not in the run reaches no node.
 
