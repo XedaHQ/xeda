@@ -1,3 +1,3 @@
-- The ASIC settings of `yosys` moved into groups such as `abc.strategy`, `arithmetic.adder_map`
-  and `finish.tie_cells`. Each old name (`optimize`, `abc_driver_cell`, `hilomap`, ...) says
-  where its setting went.
+- `yosys` maps to a standard-cell library in the order of OpenROAD-flow-scripts and passes
+  `dont_use_cells` as `-dont_use`. Its ASIC settings moved into groups such as `abc.strategy`;
+  the old names say where they went.

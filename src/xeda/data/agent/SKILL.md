@@ -15,7 +15,7 @@ names, settings and result keys; do not guess them. An unknown setting is an err
 | Need | Command |
 | --- | --- |
 | Flows, with aliases, default producers, declared I/O and chain relations | `xeda list-flows --json` |
-| Settings of a flow (name, alias, type, default, enum, `writes`, `common`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has) |
+| Settings of a flow (name, alias, type, default, enum, `writes`, `common`, `tier`, `group`) | `xeda list-settings <flow> --json` (`--no-common` omits the settings every flow has; `--tier common` keeps the most used) |
 | Result keys of a flow | `xeda list-results <flow> --json` |
 | Design file schema | `xeda design-schema` |
 | Boards, ASIC platforms, DSE optimizers | `xeda list-boards --json`, `xeda list-platforms --json`, `xeda list-optimizers --json` |
@@ -123,6 +123,11 @@ xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
   Put the design before `-s`, or end the options with `--`.
 - A dotted key reaches a nested setting. `-s flows.<flow>.<key>=<value>` sets any flow of the run (a
   producer too); `-s <key>` and `-s flows.<requested>.<key>` are one setting.
+- A setting of a settings group has a dotted name, such as `abc.strategy` or
+  `sequential.clock_gating.enabled` for `yosys`. Its `tier` (`common`, `advanced` or
+  `expert`) says how often a user needs it; it affects the listing, never what Xeda
+  accepts. The tier `common` is not the `"common": true` key. For the most used
+  settings of `yosys`, run `xeda list-settings yosys --tier common --json`.
 - A setting with `"opaque_keys": true` (`set_synth_properties` and `set_impl_properties` of
   `vivado_synth` and `vivado_project`, ISE `*_options`) takes a dotted tool name as one key:
   `-s set_synth_properties.STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM=0`. Quote a name with a space.

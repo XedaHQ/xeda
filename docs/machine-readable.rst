@@ -178,6 +178,8 @@ under the name that you can type as ``-s <name>=<value>``:
     }
 
 * ``common`` marks the settings that every flow accepts. ``--no-common`` leaves them out.
+  The tier ``"common"`` (see ``tier``) is a different thing: it says how often a user needs
+  the setting.
 * ``alias`` is a second accepted name. Both names work.
 * ``writes`` says whether the flow writes to the path that the setting names. The value
   ``"working"`` is an intermediate location, which the flow always uses as a bare name inside the
@@ -193,7 +195,7 @@ under the name that you can type as ``-s <name>=<value>``:
 * ``enum`` lists the permitted values when the setting is limited to a set.
 * ``tier`` is ``"common"``, ``"advanced"`` or ``"expert"``: how often a user needs the setting. It
   is for listings and documentation only, and it never changes what Xeda accepts. A setting that
-  declares no tier is ``"common"``.
+  declares no tier is ``"common"``. The key ``common`` is not the tier: see the bullet above.
 * ``group`` is the name of the top-level setting that holds a settings group, for each entry of a
   group and of its sub-groups. It is ``null`` for any other entry, and for the entry of the
   top-level group setting itself.
