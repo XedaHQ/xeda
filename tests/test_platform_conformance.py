@@ -15,6 +15,7 @@ snippets of `docs/platforms.rst` are residue files.
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,19 @@ def test_without_a_store_every_bundled_platform_is_listed_and_skips(monkeypatch)
     """The tests are collected for every platform, and each skips naming the variable."""
     monkeypatch.delenv("XEDA_TESTS_PDK_ROOT", raising=False)
     assert pdk_test_platforms() == bundled_platform_names()
+
+
+def test_the_yosys_test_skips_for_the_store_before_it_asks_for_yosys(monkeypatch, tmp_path):
+    """With `XEDA_TESTS_REQUIRE_TOOLS` set, a missing yosys fails a test. A test that needs the
+    store must skip for the missing store first, whether or not yosys is there."""
+
+    def missing_yosys() -> None:
+        pytest.fail("yosys was asked for before the store")
+
+    monkeypatch.delenv("XEDA_TESTS_PDK_ROOT", raising=False)
+    monkeypatch.setattr(sys.modules[__name__], "require_yosys", missing_yosys)
+    with pytest.raises(pytest.skip.Exception, match="XEDA_TESTS_PDK_ROOT"):
+        test_real_yosys_maps_a_counter_to_the_cells_of_the_platform("nangate45", tmp_path)
 
 
 # ---------------------------------------------------------------------------- always on
@@ -213,6 +227,7 @@ def _liberty_cells(files: list[Path]) -> dict[str, bool]:
 
 @pytest.mark.parametrize("name", pdk_test_platforms())
 def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
+    require_pdk_store()
     require_yosys()
     store, _, located, derived, upstream = _layers(name)
     design_root = tmp_path / "design"

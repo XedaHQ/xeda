@@ -223,9 +223,10 @@ store than ``~/.ciel``.
     xeda list-platforms                 # the bundled platforms and whether they are installed
 
 ``xeda pdk install`` is the only command that uses the network and writes to the store. It shows
-what it downloads, how much, where it installs and the commands it runs, and it asks before it
-starts. ``--yes`` skips the question. ``--platform-file`` installs the PDK of a platform of your
-own. The install is safe to repeat: when the store holds the files already, the command says so
+what it downloads, an estimate of the size (when the platform gives one), where it installs and
+the commands it runs, and it asks before it starts. ``--yes`` skips the question. Machine-readable
+output (``--json``, ``--format json``, ``--format jsonl`` and ``--format yaml``) also installs
+without asking, as ``--yes`` does. ``--platform-file`` installs the PDK of a platform of your own. The install is safe to repeat: when the store holds the files already, the command says so
 and does nothing. The other commands only look at the files. See :doc:`machine-readable` for their
 JSON output.
 
