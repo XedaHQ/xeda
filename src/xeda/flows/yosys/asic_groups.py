@@ -522,10 +522,12 @@ class SequentialGroup(SettingsGroup):
     retime_modules: List[ModuleName] = Field(
         [],
         description="Modules to retime: the flip-flops move over the logic to shorten the "
-        "longest path (`abc -dff` with a retiming script). Each module must stay a module until "
-        "the retiming: it is the top module, a `keep_hierarchy` module, or the design is not "
-        "flattened. Retiming moves flip-flops, so the netlist does not match the names or the "
-        "states of the RTL, and the run checks no equivalence.",
+        "longest path (`abc -dff` with a retiming script). Each module must still be a module "
+        "when the retiming starts: it is the top module, or the flattening keeps it "
+        "(`keep_hierarchy`, a kept instance, a `keep_hierarchy` attribute in the sources or in "
+        "`set_attribute`), or the design is not flattened. If a module is gone, the run stops "
+        "with an error that names it. Retiming moves flip-flops, so the netlist does not match "
+        "the names or the states of the RTL, and the run checks no equivalence.",
         json_schema_extra=tier("advanced"),
     )
     tristate: Literal["off", "logic"] = Field(

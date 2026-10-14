@@ -86,6 +86,9 @@ memory_libmap{% for lib in asic.memory_libmap %} -lib {{lib|path}}{% endfor %}
 techmap -map {{asic.memory_techmap|read_path}}
 {%- endif %}
 {%- if settings.sequential.retime_modules %}
+{%- for name in settings.sequential.retime_modules %}
+select -assert-any {{name|path}}
+{%- endfor %}
 select{% for name in settings.sequential.retime_modules %} {{name|path}}{% endfor %}
 opt -fast -full
 memory_map

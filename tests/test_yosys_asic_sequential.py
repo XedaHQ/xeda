@@ -18,13 +18,13 @@ import pytest
 
 from xeda import Design
 from xeda.dataclass import tier_of
-from xeda.flow import FlowException, FlowSettingsError
+from xeda.flow import FlowException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys
 from xeda.flows.yosys import asic_groups
 from xeda.flows.yosys.yosys import LEGALIZE_ANY_FLIP_FLOP
 
-from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
+from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
 from .test_yosys_asic_groups import NO_LIBERTY, _pdk, _refused, _run
 from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import require_yosys, require_yosys_tcl
@@ -385,7 +385,11 @@ def test_retime_modules_run_abc_with_the_retime_script_on_the_selected_modules(
         sequential={"retime_modules": ["mac", "mul8"]},
     )
     names = [command[0] for command in commands]
-    select = names.index("select")
+    select = commands.index(["select", "mac", "mul8"])
+    assert commands[select - 2 : select] == [
+        ["select", "-assert-any", "mac"],
+        ["select", "-assert-any", "mul8"],
+    ]
     assert commands[select : select + 7] == [
         ["select", "mac", "mul8"],
         ["opt", "-fast", "-full"],
@@ -508,119 +512,12 @@ def test_a_sequential_leaf_is_refused_when_no_liberty_mapping_runs(key, given, m
     assert problems[key] == f"`{key}` {NO_LIBERTY}"
 
 
-def _retime_design(tmp_path: Path, top: str | None = "mac") -> Design:
-    rtl: dict[str, Any] = {"sources": ["mac.v"], "clock": {"port": "clk"}}
-    if top is not None:
-        rtl["top"] = top
-    design = _design(tmp_path / "design")
-    return Design(name="mac", design_root=design.design_root, rtl=rtl)
-
-
-def test_a_retimed_module_that_flattening_dissolves_is_refused_at_planning(tmp_path):
-    design = _retime_design(tmp_path)
-    settings = Yosys.Settings(platform="nangate45", sequential={"retime_modules": ["mul8"]})
-    with pytest.raises(FlowSettingsError) as refused:
-        Yosys.check_design_supported(design, settings)
-    ((key, message, _, _),) = refused.value.errors
-    assert key == "sequential.retime_modules"
-    assert "`mul8`" in message and "`keep_hierarchy`" in message and "`mac`" in message
-
-
-@pytest.mark.parametrize(
-    "given",
-    [
-        {"sequential": {"retime_modules": ["mac"]}},
-        {"sequential": {"retime_modules": ["mul8"]}, "keep_hierarchy": ["mul8"]},
-        {"sequential": {"retime_modules": ["mul8"]}, "keep_hierarchy": ["mul*"]},
-        {
-            "sequential": {"retime_modules": ["mul8"]},
-            "set_mod_attribute": {"keep_hierarchy": {"mul8": 1}},
-        },
-        {
-            "sequential": {"retime_modules": ["mul8"]},
-            "set_mod_attribute": {"keep_hierarchy": {"mul8": True}},
-        },
-        {
-            "sequential": {"retime_modules": ["mul8"]},
-            "set_mod_attribute": {"keep_hierarchy": {"mul8": 2}},
-        },
-        {
-            # a text value is a string attribute for yosys, and a string is true
-            "sequential": {"retime_modules": ["mul8"]},
-            "set_mod_attribute": {"keep_hierarchy": {"mul8": "0"}},
-        },
-        {"sequential": {"retime_modules": ["mul8"]}, "flatten": False},
-        {"sequential": {"retime_modules": ["mul8"]}, "hierarchy": {"keep_min_cost": 5}},
-        {
-            "sequential": {"retime_modules": ["mul8"]},
-            "hierarchy": {"keep_instances": ["mac/m"]},
-        },
-    ],
-    ids=[
-        "top",
-        "kept",
-        "kept-pattern",
-        "kept-attribute",
-        "kept-true",
-        "kept-two",
-        "kept-string",
-        "no-flatten",
-        "cost",
-        "kept-instance",
-    ],
-)
-def test_a_retimed_module_that_stays_a_module_is_accepted(tmp_path, given):
-    design = _retime_design(tmp_path)
-    Yosys.check_design_supported(design, Yosys.Settings(platform="nangate45", **given))
-
-
-@pytest.mark.parametrize("value", [False, 0, 0.0], ids=repr)
-def test_a_keep_hierarchy_attribute_that_is_false_or_zero_keeps_no_module(tmp_path, value):
-    """The script sets the attribute to the value, and yosys keeps a module only for a true or
-    nonzero one."""
-    design = _retime_design(tmp_path)
-    settings = Yosys.Settings(
-        platform="nangate45",
-        sequential={"retime_modules": ["mul8"]},
-        set_mod_attribute={"keep_hierarchy": {"mul8": value}},
-    )
-    with pytest.raises(FlowSettingsError) as refused:
-        Yosys.check_design_supported(design, settings)
-    ((key, message, _, _),) = refused.value.errors
-    assert key == "sequential.retime_modules" and "`mul8`" in message
-
-
-def test_a_zero_attribute_does_not_cancel_a_module_that_keep_hierarchy_names(tmp_path):
-    """`keep_hierarchy: [mul8]` and an attribute of 0 for the same module: the list wins, as the
-    setting writes its 1 over the 0 when the flow starts."""
-    design = _retime_design(tmp_path)
-    Yosys.check_design_supported(
-        design,
-        Yosys.Settings(
-            platform="nangate45",
-            sequential={"retime_modules": ["mul8"]},
-            keep_hierarchy=["mul8"],
-            set_mod_attribute={"keep_hierarchy": {"mul8": 0}},
-        ),
-    )
-
-
-def test_a_design_without_a_top_leaves_the_retimed_modules_unjudged(tmp_path):
-    design = _retime_design(tmp_path, top=None)
-    Yosys.check_design_supported(
-        design, Yosys.Settings(platform="nangate45", sequential={"retime_modules": ["mul8"]})
-    )
-
-
-def test_the_planning_refuses_a_dissolving_retimed_module_before_a_run_directory(tmp_path):
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    with pytest.raises(FlowSettingsError, match="sequential.retime_modules"):
-        runner.plan(
-            Yosys,
-            _retime_design(tmp_path),
-            flow_settings=_tiny(tmp_path, sequential={"retime_modules": ["mul8"]}),
-        )
-    assert not (tmp_path / "xeda_run").exists()
+def test_retime_modules_assert_each_module_before_the_retiming_in_both_formats_only_when_set(
+    tmp_path, monkeypatch
+):
+    for script_format in ("ys", "tcl"):
+        commands = _run(tmp_path / script_format, monkeypatch, script_format)
+        assert ["select", "-assert-any"] not in [command[:2] for command in commands]
 
 
 # ------------------------------------------------------------------------------ input files
@@ -795,3 +692,40 @@ def test_real_yosys_reads_a_dff_map_at_a_path_with_a_space_and_pattern_character
     (maps / "dffs [1].v").write_text(DFF_MAP)
     run = _run_real(tmp_path, script_format, sequential={"dff_map": "my maps/dffs [1].v"})
     assert "DFF_X1" in (run / "netlist.v").read_text()
+
+
+def _run_mac(tmp_path: Path, script_format: str, **given: Any):
+    """Run `yosys` on the `mac` design, whose module `mul8` the flattening dissolves."""
+    design = _design(tmp_path / "design")
+    settings = tiny_settings(
+        tiny_store(tmp_path), clock={"period": 2.0}, script_format=script_format, **given
+    )
+    with contextlib.suppress(FlowException):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
+    (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
+    return results.parent, json.loads(results.read_text())
+
+
+@FORMATS_REAL
+def test_real_yosys_stops_when_a_retimed_module_is_gone_by_the_retiming(tmp_path, script_format):
+    """The flattening dissolves `mul8`, and the assertion names it in the error."""
+    _real(script_format)
+    run, results = _run_mac(tmp_path, script_format, sequential={"retime_modules": ["mul8"]})
+    assert results["success"] is False
+    log = (run / "yosys.log").read_text()
+    error = log.rsplit("ERROR", 1)[-1]
+    assert "ERROR" in log and "mul8" in error
+    assert "Executing ABC pass" not in error
+
+
+@FORMATS_REAL
+def test_real_yosys_retimes_a_module_that_a_cell_attribute_keeps(tmp_path, script_format):
+    _real(script_format)
+    run, results = _run_mac(
+        tmp_path,
+        script_format,
+        sequential={"retime_modules": ["mul8"]},
+        set_attribute={"keep_hierarchy": {"mac/m": 1}},
+    )
+    assert results["success"] is True, results
+    assert "ABC: + retime" in (run / "yosys.log").read_text()

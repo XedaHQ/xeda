@@ -194,6 +194,9 @@ techmap -map {{asic.memory_techmap|read_path}}
 check_memory_sizes {{max_bits}} {{1 if settings.memory.mock_large else 0}} {{1 if settings.memory.keep_mocked else 0}}
 {%- endif %}
 {%- if settings.sequential.retime_modules %}
+{%- for name in settings.sequential.retime_modules %}
+select -assert-any {{name|path}}
+{%- endfor %}
 select{% for name in settings.sequential.retime_modules %} {{name|path}}{% endfor %}
 opt -fast -full
 memory_map

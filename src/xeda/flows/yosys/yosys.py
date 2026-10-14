@@ -1,13 +1,12 @@
 import logging
 import re
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path
 from typing import Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import Field
-from ...design import Design, SourceType
+from ...design import SourceType
 from ...flow import (
     Flow,
     FlowException,
@@ -264,22 +263,6 @@ def _asic_data(name: str) -> Path:
     return Path(str(resources.files("xeda.flows.yosys").joinpath("data", "asic", name)))
 
 
-def _keeps_hierarchy(value: object) -> bool:
-    """Return whether the attribute `keep_hierarchy` with `value` keeps a module.
-
-    The script gives yosys the value as text, and yosys keeps the module for a true attribute.
-    A number or a text that reads as a number is true when it is not zero. A boolean is itself.
-    Any other text is a string, which is true unless it is empty.
-    """
-    if isinstance(value, (bool, int, float)):
-        return bool(value)
-    text = str(value).strip()
-    try:
-        return float(text) != 0
-    except ValueError:
-        return bool(text)
-
-
 def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:
     """Return the dotted names of the group leaves of `settings` that differ from their defaults,
     and `techmap_files` when it is not empty. These settings act on a mapping to a liberty
@@ -503,60 +486,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             raise FlowSettingsError(
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
-
-    @classmethod
-    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
-        """Refuse a retimed module that the flattening dissolves, which the design tells.
-
-        Retiming runs on a module that is still a module: the top, a module that
-        `keep_hierarchy` marks, or any module of a design that is not flattened. All problems
-        come back in one error.
-        """
-        super().check_design_supported(design, settings)
-        if not isinstance(settings, cls.Settings) or not settings.maps_to_liberty():
-            return
-        problems = cls._retime_module_problems(settings, design)
-        if problems:
-            raise FlowSettingsError(
-                [(key, message, None, "value_error") for key, message in problems], cls.Settings
-            )
-
-    @classmethod
-    def _retime_module_problems(
-        cls, settings: "Yosys.Settings", design: Design
-    ) -> List[Tuple[str, str]]:
-        """Return the retimed modules that flattening dissolves before the retiming runs.
-
-        The check needs the top module. A cost limit (`hierarchy.keep_min_cost`) keeps modules by
-        their size, and a kept instance (`hierarchy.keep_instances`) keeps the module of a cell,
-        which only the synthesis knows. So with either, the check judges no module.
-        """
-        top = design.rtl.top
-        if (
-            top is None
-            or settings.flatten is False
-            or settings.hierarchy.keep_min_cost is not None
-            or settings.hierarchy.keep_instances
-        ):
-            return []
-        kept = [
-            *settings.keep_hierarchy,
-            *(
-                name
-                for name, value in settings.set_mod_attribute.get("keep_hierarchy", {}).items()
-                if _keeps_hierarchy(value)
-            ),
-        ]
-        return [
-            (
-                "sequential.retime_modules",
-                f"`sequential.retime_modules` names `{name}`, and the flattening dissolves that "
-                f"module before the retiming runs: name the top module `{top}`, add `{name}` to "
-                "`keep_hierarchy`, or set `flatten: false`",
-            )
-            for name in settings.sequential.retime_modules
-            if name != top and not any(fnmatchcase(name, pattern) for pattern in kept)
-        ]
 
     @classmethod
     def _liberty_mapping_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
