@@ -293,12 +293,13 @@ has a ``state``:
 
 - ``"fresh"``: the recorded run was still valid, and Xeda reused it without running it again.
 - ``"ran"``: the flow ran and succeeded.
-- ``"failed"``: the flow ran and failed, or a failure stopped it.
+- ``"failed"``: the flow ran and failed. Its checks can have rejected the result on this launch.
+  A problem with what its producers handed over can also have stopped it.
 - ``"rejected again"``: the checks of the flow rejected its last run, and nothing it consumes
   changed. Xeda reported that rejection again without running the flow. ``reason`` is the message
-  of the rejection.
-- ``"blocked"``: a producer of the flow was rejected or blocked, so the flow did not run.
-  ``reason`` names the producer.
+  of the rejection. The first launch that finds a rejection gives ``"failed"``.
+- ``"blocked"``: a producer of the flow failed, was rejected or is blocked, so the flow did not
+  run. ``reason`` is ``<producer> did not succeed``.
 
 The ``error`` of the document depends on what stopped the launch. If the requested flow itself was
 rejected, ``error.type`` is ``FlowFailed``, on the launch that ran it and when Xeda reports the

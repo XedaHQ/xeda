@@ -478,11 +478,12 @@ def _node_states(flows: Iterable[Flow], plan: Optional[Plan] = None) -> List[Dic
 
     - `rejected again`: the run was rejected by its checks in an earlier launch, and Xeda
       reported that again without running it. The `reason` is the message of the rejection.
-    - `blocked`: a producer was rejected or blocked, so the flow did not run. The `reason` names
-      that producer.
+    - `blocked`: a producer failed, was rejected or is blocked, so the flow did not run. The
+      `reason` names that producer.
     - `fresh`: the recorded run was reused.
     - `ran`: the flow ran and succeeded.
-    - `failed`: the flow ran and failed, or a failure stopped it.
+    - `failed`: the flow ran and failed. Its checks can have rejected the result on this launch.
+      A problem with what its producers handed over can also have stopped it.
 
     A flow that always runs (`Flow.always_runs`) is never reused. A planned node that the launch
     never entered has the state `not run`."""

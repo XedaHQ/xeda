@@ -302,8 +302,8 @@ is refused.
 The plan also says what a run would do with each flow. The state is ``fresh`` (Xeda reuses the
 result), ``stale: <reason>`` (the flow runs, for the reason that the log would give),
 ``unknown: <reason>``, ``rejected again: <message>`` (the checks rejected the last run, and the
-launch reports that rejection and does not run the flow) or ``blocked: <reason>`` (a producer was
-rejected or is blocked, so the flow does not run). For example, the state is
+launch reports that rejection and does not run the flow) or ``blocked: <reason>`` (a producer is
+``rejected again`` or blocked, so the flow does not run). For example, the state is
 ``unknown: depends on yosys_fpga`` when a producer would run first, because the answer then depends
 on what that run hands over. The dry run reads the run directories and writes nothing, so after an
 edit it shows what will run and why. See :doc:`run-directories`.

@@ -47,13 +47,17 @@ The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `
 | `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `rejected again`, `blocked`, `not run`), `reason`, `deliveries`, `inputs` |
 | `error` | on failure only: `{type, message}`; see "When a run fails" |
 
+Node states: `failed` (the flow ran and failed, or a problem with what its producers handed over
+stopped it), `rejected again` (the recorded rejection of an unchanged run, reported without running
+the tool), `blocked` (a producer failed, was rejected or is blocked, so the flow did not run).
+
 A dry run adds `dry_run: true` and `plan` (`requested`, `target`, `nodes`). A plan node has `name`,
 `flow`, `run_path`, `flowrun_hash`, `settings_hash`, `inputs` (`origin`: `producer`, `source` or
 `none`; `binding_origin`), `switched_on`, `state`, `reason`, `action_reason`, `input_types` and
 `output_types`. `state` is `fresh` (reused), `stale` (runs; `reason` is the one the log gives),
 `unknown` (`reason` says why, for example `depends on yosys_fpga`), `rejected again` (the
 checks rejected the last run and nothing it consumes changed; `reason` is the recorded message, and
-the flow does not run) or `blocked` (a producer was rejected or is blocked; `reason` names it).
+the flow does not run) or `blocked` (a producer is `rejected again` or blocked; `reason` names it).
 
 ## Plan before you run
 
@@ -264,7 +268,7 @@ the flow writes them, and:
 | --- | --- |
 | `settings.json` | `flow_settings` (the merged input) and `effective_flow_settings` (what the flow made of it; read it first when a run surprises you) |
 | `results.json` | the parsed results; a failed run writes `success: false` and `error.type`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
-| `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected |
+| `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected; a failure that no check rejected leaves none |
 
 ## Rebuilds
 
@@ -281,7 +285,8 @@ trace (indirect programs, environment variables, files a tool finds on its own) 
 | Keep only `settings.json`, `results.json` and artifacts afterward | `--post-cleanup` |
 | Remove each run directory afterward | `--post-cleanup-purge` |
 
-A flow that programs a device or draws a new random seed (`random_seed: random`) always runs. A
+A flow that programs a device or draws a new random seed (`random_seed: random`) always runs
+(`always_runs`): it runs every time and keeps no trace. A
 removed option (`--cwd`, `--xeda-run-dir`, `--incremental`, `--cached-dependencies`) fails with
 `<option> was removed: use ...`.
 

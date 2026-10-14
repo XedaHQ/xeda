@@ -1290,9 +1290,9 @@ class FlowLauncher:
                             log.warning(
                                 "%s. Its last run with these inputs and settings was rejected: "
                                 "Xeda reports that again and does not run it. To run it again, "
-                                "use --rebuild-all. A file that the run reads and that no "
-                                "setting or source declares is no input: declare it as a "
-                                "source of the design.",
+                                "use --rebuild-all. A file that the run reads and that Xeda "
+                                "does not track is no input: declare it as a source of the "
+                                "design.",
                                 flow.rejection,
                             )
                         else:

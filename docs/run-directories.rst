@@ -228,8 +228,9 @@ What makes a flow stale
 
 A flow is stale, and runs again, in any of these cases:
 
-- There is no completed previous run: none yet, or the last one failed before its checks could
-  judge it (a tool error, a crash, a kill, a missing report).
+- There is no completed previous run: none yet, or the last one failed without a rejection by its
+  checks (a tool error, a crash, a kill, a missing report). A failure that no check rejected keeps
+  no trace.
 - The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
   fetched from a URL (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points
@@ -284,9 +285,10 @@ first. A launch has one run per flow and enters each run directory once.
 ``trace.json``
 ---------------
 
-Xeda writes the trace last and atomically, only after a run passed or its checks rejected it. It
-removes the trace before the next run in that directory executes. The presence of the trace alone
-therefore means that the last run here completed. Its ``verdict`` is ``passed`` or ``rejected``.
+Xeda writes the trace last and atomically, only after a run passed or its checks rejected it. A
+failure that no check rejected keeps no trace. Xeda removes the trace before the next run in that
+directory executes. The presence of the trace alone therefore means that the last run here
+completed. Its ``verdict`` is ``passed`` or ``rejected``.
 The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
@@ -454,17 +456,53 @@ run every flow again. See :ref:`generators`.
 A run that its checks rejected
 ------------------------------
 
-A run can complete and still fail its checks: timing is not met with ``fail_timing``, or a test
-of a simulation fails. Xeda keeps the trace of such a run. A launch with the same settings, inputs
-and tools reports the same failure again and does not run the tools. The log says so, and
-``xeda run --json`` gives the node the state ``rejected again``. A flow that reads this run's
-outputs does not run either: its state is ``blocked``. To run the flow again, change what it
-consumes, or run with ``--rebuild-all``. A file that the run reads but that no setting or source
-names is no input: declare it as a source of the design, or its edits go unnoticed. A failure
-before the checks (a tool error, a crash, a kill, a timeout, a missing report) keeps no record, and
-the next launch runs the flow again. A tool that stops with an error when timing is not met fails
-before the checks: ``nextpnr`` does so unless ``timing_allow_fail`` is set, so its timing failure
-runs again at every launch.
+Xeda reports a failure again, and does not run the flow, only when all of these are true:
+
+- The tools of the run ended with a normal exit status.
+- Xeda read the reports of the run.
+- The declared outputs of the run are valid.
+- The checks of the flow rejected the results.
+- The flow does not always run (see `Flows that always run`_).
+- Nothing that the flow consumes changed since the run.
+
+Such a run keeps its trace, with the verdict ``rejected``. The log says that the last run with
+these inputs and settings was rejected. ``xeda run --json`` gives the node the state
+``rejected again``, and its ``reason`` is the message of the rejection. The first launch that
+finds the rejection gives the state ``failed``. The next launch, with nothing changed, gives
+``rejected again``. A flow that reads the outputs of this run does not run either. Its state is
+``blocked``, and its ``reason`` is "<producer> did not succeed".
+
+These checks reject a run:
+
+- A simulation (``ghdl_sim``, ``nvc``, ``verilator``, ``modelsim``, ``vcs``, ``bsc_sim``,
+  ``yosys_sim``, ``vivado_sim`` and ``vivado_postsynth_sim``): an end record that shows the
+  simulation did not end as intended, an event at or above ``fail_severity``, or cocotb results
+  that Xeda read and that show failed tests. A missing end record, missing cocotb results and a
+  missing waveform are failures, not rejections.
+- ``quartus`` and ``ise_synth``: negative slack.
+- ``diamond_synth``: negative slack, unrouted nets, timing errors, or a DSP or block RAM that
+  ``allow_dsps`` or ``allow_brams`` forbids.
+- ``vivado_synth``, ``vivado_alt_synth`` and ``vivado_impl`` with ``fail_timing``: negative hold
+  slack (WHS) or violation counts.
+- ``nextpnr``: a missed constraint that nextpnr reports while it exits normally.
+
+All other failures are tool failures. A tool failure keeps no trace, and the next launch runs the
+flow again. This includes these cases:
+
+- A tool that ends with an error status, a crash, a kill, a timeout, and a report that is missing
+  or cannot be read. A simulator that ends with an error status is a tool failure. An example is
+  GHDL after a failed ``severity failure`` assertion.
+- A negative setup slack in Vivado with ``fail_timing``. The Xeda script of Vivado stops the tool
+  with an error, so the flow runs again at every launch.
+- A missed constraint in ``nextpnr`` without ``timing_allow_fail``. nextpnr stops with an error
+  itself, so the flow runs again at every launch.
+- Every failure of ``dc`` and ``openroad``. Xeda never reports these again.
+- Every failure of a flow that always runs. Such a flow keeps no trace.
+
+To run a rejected flow again, change what it consumes, or run with ``--rebuild-all``. Xeda
+notices a change only in what it tracks. If a file that the run reads is not tracked (see `What is
+not tracked`_), an edit of it goes unnoticed, and Xeda reports the old rejection. A data file that a
+testbench reads is the common case: declare it as a source of the design.
 
 What is not tracked
 ---------------------
