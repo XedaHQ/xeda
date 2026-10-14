@@ -53,6 +53,15 @@ def refused(request: str) -> str:
 # ------------------------------------------------------------------------------ the two chains
 
 
+def test_a_vivado_netlist_does_not_chain_into_an_asic_flow():
+    message = refused("vivado_synth.netlist+openroad_place")
+    assert "FpgaNetlist" in message and "VerilogNetlist" in message
+
+
+def test_a_standard_cell_netlist_chains_into_the_placement():
+    validate_chain(parse_request("yosys+openroad_place").elements)
+
+
 def test_a_vivado_netlist_does_not_chain_into_a_json_netlist_flow():
     message = refused("vivado_synth.netlist+nextpnr")
     assert "FpgaNetlist" in message and "JsonNetlist" in message

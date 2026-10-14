@@ -1,0 +1,21 @@
+{# The target density of the global placement. It lives with the stages of this flow, and not with
+   the helper procedures that every flow shares, because it reads the settings of the placement. #}
+{% set gp = settings.global_placement %}
+# The target density for `global_placement`. The cells change between the placements (the buffers
+# go and come back), so a density that comes from the netlist is computed again at each call, and
+# no stage keeps a number from an earlier call.
+proc xeda_density {} {
+{% if gp.density.mode == "auto" %}
+    set lower_bound [gpl::get_global_placement_uniform_density -pad_left {{ gp.cell_padding|tcl_number }} -pad_right {{ gp.cell_padding|tcl_number }}]
+    set density [expr {$lower_bound + ((1.0 - $lower_bound) * {{ gp.density.headroom|tcl_number }}) + 0.01}]
+    if {$density > 1.0} {
+        error "xeda: the placement density $density is above 1.0: lower global_placement.density.headroom or floorplan.core_utilization"
+    }
+    puts "xeda: placement density $density, from the lower bound $lower_bound"
+    return $density
+{% elif gp.density.mode == "fixed" %}
+    return {{ P.density_value|tcl_number }}
+{% else %}
+    return uniform
+{% endif %}
+}

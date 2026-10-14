@@ -1,0 +1,20 @@
+{# The main global placement. OpenROAD-flow-scripts removes the buffers of the synthesis only with
+   the timing-driven placement, then buffers the ports of the design. The cells use the wire RC
+   of the platform through the estimates from the placement. #}
+{% set gp = settings.global_placement %}
+{% set concurrent = settings.io.flow == "concurrent" %}
+proc xeda_global_place {} {
+    xeda_stage globalplace
+{% if gp.timing_driven.enabled and settings.resize.remove_buffers %}
+    remove_buffers
+{% endif %}
+{% if settings.resize.buffer_ports.enabled %}
+    buffer_ports
+{% endif %}
+    {{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp)]|select|join(" ") }}
+{% if concurrent %}
+    xeda_place_pins
+{% endif %}
+    estimate_parasitics -placement
+    xeda_metrics 0 0
+}

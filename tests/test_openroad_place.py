@@ -5,6 +5,7 @@ golden file. They run the rendered script under the fake OpenROAD, so a command 
 OpenROAD command list does not know fails the test. Planning refusals run through the runner.
 """
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -23,27 +24,21 @@ from xeda.platforms.model import CellPort, Pdn, PdnStrap, Track
 from .openroad_utils import (
     openroad_design,
     openroad_settings,
-    register_openroad_flows,
     render_driver,
     run_fake_openroad,
 )
 from .tiny_platform import TINY_OPENROAD_RESIDUE, tiny_settings, tiny_store
-from .tool_utils import fake_calls, require_tclsh, use_fake_openroad
+from .tool_utils import (
+    fake_calls,
+    fake_returns,
+    require_tclsh,
+    use_fake_asic_tools,
+    use_fake_openroad,
+)
 
+RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
 GOLDEN = Path(__file__).parent / "resources" / "openroad" / "place_defaults.tcl"
 TEMPLATES = Path(base.__file__).parent / "templates"
-
-
-@pytest.fixture(autouse=True)
-def place_flow_registered(monkeypatch):
-    """Register the flows, and let the tests build `OpenroadPlace` while it is not complete.
-
-    The flow keeps one abstract method until its driver holds every stage. Then the class is
-    concrete, and this fixture changes nothing more than the registration."""
-    with register_openroad_flows():
-        if OpenroadPlace.__abstractmethods__:
-            monkeypatch.setattr(OpenroadPlace, "__abstractmethods__", frozenset())
-        yield
 
 
 # ------------------------------------------------------------------------------ helpers
@@ -105,6 +100,11 @@ def run_script(flow: OpenroadPlace, script: str | None = None) -> list[list[str]
     return fake_calls(flow.run_path)
 
 
+def floorplan_calls(calls: list[list[str]]) -> list[list[str]]:
+    """The commands up to the stage of the tap cells: those of the load and the floorplan."""
+    return calls[: [call[0] for call in calls].index("tapcell")]
+
+
 def names(calls: list[list[str]], *wanted: str) -> list[str]:
     """The names of the recorded commands that are among `wanted`, in order."""
     return [call[0] for call in calls if call[0] in wanted]
@@ -120,11 +120,12 @@ def lines(script: str) -> list[str]:
 
 
 def stage(script: str, name: str) -> list[str]:
-    """The lines of the body of the procedure `name` in a rendered script."""
-    found = lines(script)
-    start = found.index(f"proc {name} {{}} {{")
-    end = found.index("}", start)
-    return found[start + 1 : end]
+    """The lines of the body of the procedure `name` in a rendered script, without comments and
+    indentation. The body ends at the first line that holds only `}` and is not indented."""
+    raw = script.splitlines()
+    start = raw.index(f"proc {name} {{}} {{")
+    end = raw.index("}", start)
+    return lines("\n".join(raw[start + 1 : end]))
 
 
 def plan(tmp_path: Path, *texts: str, typed: dict[str, Any] | None = None):
@@ -259,12 +260,6 @@ def test_the_defaults_run_the_commands_of_the_flow_in_order(tmp_path):
         "write_sdc",
     ]
     assert [first[name] for name in order] == sorted(first[name] for name in order)
-
-
-def test_the_metrics_of_each_stage_have_the_name_of_the_stage(tmp_path):
-    calls = run_script(place_flow(tmp_path))
-    stages = [call[1] for call in calls if call[0] == "utl::set_metrics_stage"]
-    assert stages == ["synth__{}", "floorplan__{}", "tapcell__{}", "pdn__{}"]
 
 
 # ------------------------------------------------------------------------------ the floorplan
@@ -436,7 +431,7 @@ def test_tie_fanout_is_repaired_for_the_low_and_then_the_high_tie_cell(tmp_path)
 def test_tie_fanout_comes_before_any_removal_of_buffers(tmp_path):
     """One tie cell can drive buffers that drive many outputs, so the repair needs the buffers."""
     flow = place_flow(tmp_path, {"floorplan": {"netlist_cleanup": {"mode": "remove_buffers"}}})
-    calls = run_script(flow)
+    calls = floorplan_calls(run_script(flow))
     found = names(calls, "repair_tie_fanout", "remove_buffers", "repair_timing")
     assert found == ["repair_tie_fanout", "repair_tie_fanout", "remove_buffers"]
 
@@ -469,7 +464,7 @@ def test_the_netlist_cleanup_repairs_setup_without_parasitics(tmp_path):
         '-sequence "unbuffer,sizeup,swap,vt_swap" -repair_tns "100.0" -skip_last_gasp -verbose'
     )
     assert "estimate_parasitics" not in " ".join(body)
-    calls = run_script(flow, script)
+    calls = floorplan_calls(run_script(flow, script))
     assert names(calls, "estimate_parasitics") == []
 
 
@@ -589,7 +584,7 @@ def test_the_wire_rc_is_applied_before_the_floorplan_repairs(tmp_path):
 
 def test_the_floorplan_arith_swap_runs_before_the_netlist_cleanup(tmp_path):
     flow = place_flow(tmp_path, {"hierarchical": True, "arith_swap": {"enabled": True}})
-    calls = run_script(flow)
+    calls = floorplan_calls(run_script(flow))
     found = names(calls, "replace_arith_modules", "repair_timing", "repair_tie_fanout")
     assert found == [
         "repair_tie_fanout",
@@ -717,11 +712,22 @@ def test_a_leaf_of_the_grid_in_the_settings_replaces_the_leaf_of_the_platform(tm
 
 
 def test_the_grid_of_the_settings_may_give_a_leaf_that_the_platform_leaves_empty(tmp_path):
-    grid = {"power_net": "VPWR", "ground_net": "VGND", "global_connects": []}
-    flow = place_flow(tmp_path, {"pdn": {"grid": grid}})
+    grid = {
+        "power_net": "VPWR",
+        "ground_net": "VGND",
+        "rails": [{"layer": "m1", "width": 0.1}],
+    }
+    flow = place_flow(tmp_path, {"pdn": {"grid": grid}}, model={"pdn": Pdn()})
     body = stage(render(flow), "xeda_pdn")
     assert 'set_voltage_domain -name CORE -power "VPWR" -ground "VGND"' in body
     assert not [line for line in body if line.startswith("add_global_connection")]
+
+
+def test_an_empty_list_in_the_grid_keeps_the_list_of_the_platform(tmp_path):
+    """A leaf that the settings leave empty is a leaf that they do not give."""
+    flow = place_flow(tmp_path, {"pdn": {"grid": {"global_connects": []}}})
+    body = stage(render(flow), "xeda_pdn")
+    assert len([line for line in body if line.startswith("add_global_connection")]) == 2
 
 
 def test_a_global_connection_without_a_kind_takes_it_from_the_net(tmp_path):
@@ -737,11 +743,27 @@ def test_a_global_connection_without_a_kind_takes_it_from_the_net(tmp_path):
     ]
 
 
-def test_a_global_connection_to_a_net_of_no_kind_is_refused(tmp_path):
+def test_a_global_connection_to_a_net_of_no_kind_is_refused_before_openroad_starts(tmp_path):
+    """`prepare_inputs()` computes the values of the templates, so the refusal comes before the
+    run, and `place_flow` runs it."""
     connects = [{"net": "OTHER", "pin_pattern": "^X$"}]
-    flow = place_flow(tmp_path, {"pdn": {"grid": {"global_connects": connects}}})
     with pytest.raises(FlowSettingsException, match=r"OTHER.*kind"):
-        effective(flow.settings, flow.platform_model)
+        place_flow(tmp_path, {"pdn": {"grid": {"global_connects": connects}}})
+
+
+def test_a_leaf_of_the_grid_replaces_the_platform_leaf_in_a_planned_flow(tmp_path):
+    """The planner validates the settings again, which marks every field of the grid as given.
+    A leaf that the user left out still keeps the value of the platform."""
+    planned = plan(
+        tmp_path,
+        typed={"pdn.grid": {"straps": [{"layer": "m4", "width": 1, "pitch": 6, "offset": 1}]}},
+    )
+    settings = planned.nodes[0].settings
+    assert {"power_net", "rails"} <= settings.pdn.grid.model_fields_set
+    model = place_flow(tmp_path / "flow").platform_model
+    grid = effective(settings, model).pdn
+    assert [(strap.layer, strap.pitch) for strap in grid.straps] == [("m4", 6)]
+    assert grid.power_net == "VDD" and [rail.layer for rail in grid.rails] == ["m1"]
 
 
 def test_the_power_grid_mode_none_builds_no_grid(tmp_path):
@@ -812,6 +834,458 @@ def test_tie_fanout_needs_the_tie_cells_of_the_platform(tmp_path):
     assert "tie_high" in message and "tie.repair_fanout: false" in message
     flow.settings.tie.repair_fanout = False
     assert effective(flow.settings, model).tie_high is None
+
+
+# ------------------------------------------------------------------------------ the placement
+
+DEFAULT_GLOBAL_PLACEMENT = (
+    "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -routability_driven "
+    "-timing_driven -force_center_initial_place"
+)
+
+
+def global_placement_calls(calls: list[list[str]]) -> list[list[str]]:
+    return [call for call in calls if call[0] == "global_placement"]
+
+
+def test_the_density_is_the_density_of_the_platform_by_default(tmp_path):
+    assert stage(render(place_flow(tmp_path)), "xeda_density") == ["return 0.6"]
+
+
+def test_a_density_in_the_settings_replaces_the_density_of_the_platform(tmp_path):
+    flow = place_flow(tmp_path, {"global_placement": {"density": {"value": 0.45}}})
+    assert stage(render(flow), "xeda_density") == ["return 0.45"]
+
+
+def test_a_platform_density_is_needed_for_the_fixed_density(tmp_path):
+    flow = place_flow(tmp_path, model={"place_density": None})
+    with pytest.raises(FlowSettingsException, match=r"place_density.*global_placement\.density"):
+        flow.effective()
+    flow = place_flow(tmp_path / "given", {"global_placement": {"density": {"value": 0.5}}})
+    assert flow.effective().density_value == 0.5
+
+
+def test_the_uniform_density_asks_the_tool_for_the_uniform_density(tmp_path):
+    flow = place_flow(tmp_path, {"global_placement": {"density": {"mode": "uniform"}}})
+    assert stage(render(flow), "xeda_density") == ["return uniform"]
+    assert flow.effective().density_value is None
+
+
+def test_the_automatic_density_is_computed_again_at_each_placement(tmp_path):
+    """The netlist changes between the placements (the buffers go and come), so the density is
+    a procedure that the script calls at each placement, never a number that it keeps."""
+    settings = {
+        "global_placement": {
+            "cell_padding": 2,
+            "density": {"mode": "auto", "headroom": 0.2},
+        }
+    }
+    flow = place_flow(tmp_path, settings)
+    script = render(flow)
+    assert stage(script, "xeda_density")[0] == (
+        "set lower_bound [gpl::get_global_placement_uniform_density -pad_left 2 -pad_right 2]"
+    )
+    assert "return $density" in stage(script, "xeda_density")
+    calls = run_script(flow, script)
+    placements = global_placement_calls(calls)
+    assert len(placements) == 2
+    assert len(names(calls, "gpl::get_global_placement_uniform_density")) == len(placements)
+    for placement in placements:
+        assert placement[placement.index("-density") + 1] == "0.61"
+
+
+def test_an_automatic_density_above_one_stops_the_script(tmp_path, monkeypatch):
+    require_tclsh()
+    fake_returns(monkeypatch, {("gpl::get_global_placement_uniform_density",): "0.995"})
+    settings = {"global_placement": {"density": {"mode": "auto", "headroom": 0.5}}}
+    flow = place_flow(tmp_path, settings)
+    flow.bind_template_values()
+    flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(flow.run_path, render(flow), driver="openroad_place")
+    assert done.returncode != 0
+    assert "above 1.0" in done.stderr + done.stdout
+
+
+def test_the_cells_are_placed_without_the_pins_first(tmp_path):
+    flow = place_flow(tmp_path)
+    assert stage(render(flow), "xeda_global_place_skip_io") == [
+        "xeda_stage globalplace_skip_io",
+        "if {![all_pins_placed]} {",
+        "global_placement -skip_io -density [xeda_density] -pad_left 0 -pad_right 0",
+        "}",
+    ]
+
+
+def test_the_pass_without_the_pins_is_skipped_when_all_pins_are_placed(tmp_path, monkeypatch):
+    fake_returns(monkeypatch, {("all_pins_placed",): "1"})
+    calls = run_script(place_flow(tmp_path))
+    assert len(global_placement_calls(calls)) == 1
+    assert all("-skip_io" not in call for call in global_placement_calls(calls))
+
+
+def test_the_seed_reaches_both_placements(tmp_path):
+    flow = place_flow(tmp_path, {"global_placement": {"random_seed": 7}})
+    script = render(flow)
+    for name in ("xeda_global_place_skip_io", "xeda_global_place"):
+        assert any(line.endswith('-random_seed "7"') for line in stage(script, name)), name
+
+
+def test_the_pins_are_placed_on_the_layers_of_the_platform(tmp_path):
+    flow = place_flow(tmp_path)
+    script = render(flow)
+    assert stage(script, "xeda_place_pins") == [
+        'place_pins -hor_layers [list "m3"] -ver_layers [list "m4"]'
+    ]
+    assert stage(script, "xeda_io_placement") == ["xeda_stage io_placement", "xeda_place_pins"]
+
+
+def test_the_settings_replace_the_layers_of_the_pins_and_add_the_distances(tmp_path):
+    io = {
+        "horizontal_layers": ["m2", "m4"],
+        "vertical_layers": ["m3"],
+        "min_distance": 4,
+        "min_distance_unit": "tracks",
+        "corner_avoidance": 1.5,
+        "extra_args": ["-group_pins", "q0"],
+    }
+    flow = place_flow(tmp_path, {"io": io})
+    (line,) = stage(render(flow), "xeda_place_pins")
+    assert line == (
+        'place_pins -hor_layers [list "m2" "m4"] -ver_layers [list "m3"] '
+        '-min_distance_in_tracks -min_distance 4 -corner_avoidance "1.5" "-group_pins" "q0"'
+    )
+    run_script(flow)
+
+
+def test_the_distance_of_the_pins_in_micrometers_is_a_number_and_in_tracks_a_whole_number(tmp_path):
+    um = place_flow(tmp_path, {"io": {"min_distance": 2.5}})
+    assert stage(render(um), "xeda_place_pins")[0].endswith("-min_distance 2.5")
+    tracks = place_flow(tmp_path / "t", {"io": {"min_distance": 3, "min_distance_unit": "tracks"}})
+    assert " -min_distance 3 " in stage(render(tracks), "xeda_place_pins")[0] + " "
+    message = refusal(tmp_path / "r", "io.min_distance=2.5", "io.min_distance_unit=tracks")
+    assert "whole number" in message and "io.min_distance" in message
+
+
+def test_the_pins_use_the_plural_flags_and_never_the_obsolete_random_flag(tmp_path):
+    (line,) = stage(render(place_flow(tmp_path)), "xeda_place_pins")
+    assert "-hor_layers" in line and "-ver_layers" in line
+    assert "-random" not in line and "-hor_layer " not in line
+
+
+def test_the_pins_are_placed_between_the_two_placements(tmp_path):
+    names_in_order = names(
+        run_script(place_flow(tmp_path)), "global_placement", "place_pins", "buffer_ports"
+    )
+    assert names_in_order == ["global_placement", "place_pins", "buffer_ports", "global_placement"]
+
+
+def test_concurrent_placement_of_the_pins_places_them_with_the_cells_and_then_legalizes_them(
+    tmp_path,
+):
+    flow = place_flow(
+        tmp_path,
+        {
+            "io": {"flow": "concurrent"},
+            "global_placement": {
+                "timing_driven": {"enabled": False},
+                "routability_driven": {"enabled": False},
+            },
+        },
+    )
+    script = render(flow)
+    assert stage(script, "xeda_global_place_skip_io") == ["xeda_stage globalplace_skip_io"]
+    assert stage(script, "xeda_io_placement") == ["xeda_stage io_placement"]
+    body = stage(script, "xeda_global_place")
+    assert body.index(
+        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -place_ios "
+        "-force_center_initial_place"
+    ) < body.index("xeda_place_pins")
+    calls = run_script(flow, script)
+    assert names(calls, "global_placement", "place_pins") == ["global_placement", "place_pins"]
+
+
+def test_the_pins_stay_where_they_are_with_the_fixed_flow(tmp_path):
+    flow = place_flow(tmp_path, {"io": {"flow": "fixed"}})
+    script = render(flow)
+    assert "xeda_place_pins" not in script
+    calls = run_script(flow, script)
+    assert names(calls, "place_pins") == []
+    assert all("-skip_io" not in call for call in global_placement_calls(calls))
+
+
+def test_a_floorplan_from_a_def_file_keeps_its_pins(tmp_path):
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
+    flow = place_flow(
+        tmp_path, {"floorplan": {"sizing": "def", "def_file": "plan.def"}}, model={"site": None}
+    )
+    script = render(flow)
+    assert stage(script, "xeda_global_place_skip_io") == ["xeda_stage globalplace_skip_io"]
+    assert stage(script, "xeda_io_placement") == ["xeda_stage io_placement"]
+    assert names(run_script(flow, script), "place_pins") == []
+
+
+def test_timing_driven_placement_removes_the_buffers_before_it_buffers_the_ports(tmp_path):
+    body = stage(render(place_flow(tmp_path)), "xeda_global_place")
+    assert body == [
+        "xeda_stage globalplace",
+        "remove_buffers",
+        "buffer_ports",
+        DEFAULT_GLOBAL_PLACEMENT,
+        "estimate_parasitics -placement",
+        "xeda_metrics 0 0",
+    ]
+
+
+def test_no_buffers_are_removed_without_timing_driven_placement_or_when_switched_off(tmp_path):
+    off = {"global_placement": {"timing_driven": {"enabled": False}}}
+    assert "remove_buffers" not in stage(render(place_flow(tmp_path, off)), "xeda_global_place")
+    keep = {"resize": {"remove_buffers": False}}
+    flow = place_flow(tmp_path / "keep", keep)
+    assert "remove_buffers" not in stage(render(flow), "xeda_global_place")
+
+
+def test_the_ports_are_not_buffered_when_switched_off(tmp_path):
+    flow = place_flow(tmp_path, {"resize": {"buffer_ports": {"enabled": False}}})
+    assert "buffer_ports" not in stage(render(flow), "xeda_global_place")
+
+
+def test_the_buffers_are_removed_in_the_global_placement_and_not_in_the_floorplan(tmp_path):
+    """The default cleanup removes the buffers with the `unbuffer` move of `repair_timing`, and
+    the removal of buffers runs in the global placement. The tie cells are repaired first."""
+    script = render(place_flow(tmp_path))
+    assert "remove_buffers" not in stage(script, "xeda_floorplan")
+    assert "remove_buffers" in stage(script, "xeda_global_place")
+
+
+def test_the_placement_modes_follow_their_settings(tmp_path):
+    settings = {
+        "global_placement": {
+            "cell_padding": 1,
+            "timing_driven": {"enabled": False},
+            "routability_driven": {"enabled": False},
+            "initial_place": {"from_center": False},
+            "nesterov": {"min_phi_coef": 0.9, "max_phi_coef": 1.1},
+            "extra_args": ["-skip_initial_place"],
+        }
+    }
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_global_place")
+    assert (
+        "global_placement -density [xeda_density] -pad_left 1 -pad_right 1 "
+        '-min_phi_coef "0.9" -max_phi_coef "1.1" "-skip_initial_place"'
+    ) in body
+
+
+def test_the_parasitics_of_the_placement_are_estimated_after_each_change(tmp_path):
+    """Before the global route, every estimate is made from the placement."""
+    script = render(place_flow(tmp_path))
+    for name in ("xeda_global_place", "xeda_resize", "xeda_detail_place"):
+        body = stage(script, name)
+        assert "estimate_parasitics -placement" in body, name
+    assert "-global_routing" not in script
+
+
+def test_the_resize_stage_repairs_the_design_after_the_placement_and_not_before(tmp_path):
+    script = render(place_flow(tmp_path))
+    assert not [line for line in stage(script, "xeda_floorplan") if "repair_design" in line]
+    assert stage(script, "xeda_resize") == [
+        "xeda_stage placeopt",
+        "estimate_parasitics -placement",
+        'repair_design -slew_margin "0.0" -cap_margin "0.0" -verbose',
+        "report_floating_nets",
+        "xeda_metrics 1 0",
+    ]
+
+
+def test_the_repair_of_the_design_follows_its_settings(tmp_path):
+    repair = {
+        "max_wire_length": 500,
+        "slew_margin": 10,
+        "cap_margin": 5,
+        "match_cell_footprint": True,
+    }
+    flow = place_flow(tmp_path, {"resize": {"repair_design": repair}})
+    body = stage(render(flow), "xeda_resize")
+    assert (
+        'repair_design -max_wire_length "500.0" -slew_margin "10.0" -cap_margin "5.0" '
+        "-match_cell_footprint -verbose"
+    ) in body
+
+
+def test_the_repair_of_the_design_can_be_switched_off(tmp_path):
+    flow = place_flow(tmp_path, {"resize": {"repair_design": {"enabled": False}}})
+    assert not [line for line in stage(render(flow), "xeda_resize") if "repair_design" in line]
+
+
+def test_the_repair_of_the_timing_after_the_placement_is_off_by_default_and_estimates_first(
+    tmp_path,
+):
+    assert not [
+        line
+        for line in stage(render(place_flow(tmp_path)), "xeda_resize")
+        if "repair_timing" in line
+    ]
+    flow = place_flow(
+        tmp_path / "on",
+        {
+            "resize": {
+                "repair_timing": {"enabled": True, "setup_margin": 0.05, "tns_end_percent": 50}
+            }
+        },
+        model={"time_unit": "1ps"},
+    )
+    body = stage(render(flow), "xeda_resize")
+    repair = body.index(
+        'repair_timing -setup_margin 50.0 -hold_margin 0.0 -repair_tns "50.0" -verbose'
+    )
+    assert body[repair - 1] == "estimate_parasitics -placement"
+    design = next(i for i, line in enumerate(body) if line.startswith("repair_design"))
+    assert design < repair < body.index("report_floating_nets")
+    run_script(flow)
+
+
+def test_swapped_arithmetic_modules_are_placed_again_before_the_repair(tmp_path):
+    flow = place_flow(tmp_path, {"arith_swap": {"enabled": True}, "hierarchical": True})
+    body = stage(render(flow), "xeda_resize")
+    swap = body.index("replace_arith_modules")
+    assert body[swap + 1 : swap + 3] == [
+        "global_placement -incremental -density [xeda_density] -pad_left 0 -pad_right 0",
+        "estimate_parasitics -placement",
+    ]
+    assert swap < [i for i, line in enumerate(body) if line.startswith("repair_design")][0]
+
+
+def test_the_cells_are_legalized_and_optimized_after_the_resize(tmp_path):
+    calls = run_script(place_flow(tmp_path))
+    legal = names(
+        calls,
+        "set_placement_padding",
+        "detailed_placement",
+        "improve_placement",
+        "optimize_mirroring",
+        "check_placement",
+    )
+    assert legal == [
+        "set_placement_padding",
+        "detailed_placement",
+        "improve_placement",
+        "optimize_mirroring",
+        "check_placement",
+    ]
+
+
+def test_the_detailed_placement_follows_its_settings(tmp_path):
+    script = render(place_flow(tmp_path))
+    assert stage(script, "xeda_detail_place") == [
+        "xeda_stage detailedplace",
+        "set_placement_padding -global -left 0 -right 0",
+        "detailed_placement",
+        'improve_placement -max_displacement "5 1"',
+        "optimize_mirroring",
+        "if {[catch {check_placement -verbose} message]} {",
+        'puts "xeda: check_placement found violations ($message), and the flow goes on"',
+        "}",
+        "estimate_parasitics -placement",
+        "xeda_metrics 1 0",
+    ]
+
+
+def test_the_displacement_of_the_optimization_is_one_list_argument(tmp_path):
+    settings = {"detailed_placement": {"improve": {"max_displacement": [3, 2]}}}
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_detail_place")
+    assert 'improve_placement -max_displacement "3 2"' in body
+    calls = run_script(place_flow(tmp_path / "run", settings))
+    (improve,) = [call for call in calls if call[0] == "improve_placement"]
+    assert improve == ["improve_placement", "-max_displacement", "3 2"]
+
+
+def test_the_optimizations_of_the_detailed_placement_can_be_switched_off(tmp_path):
+    settings = {
+        "detailed_placement": {
+            "cell_padding": 1,
+            "improve": {"enabled": False},
+            "mirroring": False,
+            "extra_args": ["-disable_window_extension"],
+        }
+    }
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_detail_place")
+    assert "set_placement_padding -global -left 1 -right 1" in body
+    assert 'detailed_placement "-disable_window_extension"' in body
+    assert not [
+        line for line in body if line.startswith(("improve_placement", "optimize_mirroring"))
+    ]
+
+
+def test_an_illegal_placement_is_reported_or_stops_the_flow_as_the_settings_say(
+    tmp_path, monkeypatch
+):
+    """`check_placement` raises an error when a check fails (the installed OpenROAD reports
+    DPL-0033). With `check: report` the script catches it and goes on."""
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "check_placement")
+    flow = place_flow(tmp_path / "report")
+    calls = run_script(flow)
+    assert names(calls, "check_placement") == ["check_placement"]
+    assert (flow.run_path / "place.odb").is_file()
+    stop = place_flow(tmp_path / "fail", {"detailed_placement": {"check": "fail"}})
+    body = stage(render(stop), "xeda_detail_place")
+    assert "check_placement -verbose" in body and not [line for line in body if "catch" in line]
+    require_tclsh()
+    stop.bind_template_values()
+    stop.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(stop.run_path, render(stop), driver="openroad_place")
+    assert done.returncode != 0
+    assert (stop.run_path / "openroad_place-failed.odb").is_file()
+    assert not (stop.run_path / "place.odb").exists()
+
+
+def test_the_metrics_stages_follow_the_stages_in_order(tmp_path):
+    calls = run_script(place_flow(tmp_path))
+    stages = [call[1] for call in calls if call[0] == "utl::set_metrics_stage"]
+    assert stages == [
+        "synth__{}",
+        "floorplan__{}",
+        "tapcell__{}",
+        "pdn__{}",
+        "globalplace_skip_io__{}",
+        "io_placement__{}",
+        "globalplace__{}",
+        "placeopt__{}",
+        "detailedplace__{}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"io": {"flow": "skip_io_pass"}},
+        {"io": {"flow": "fixed"}},
+        {
+            "io": {"flow": "concurrent"},
+            "global_placement": {
+                "timing_driven": {"enabled": False},
+                "routability_driven": {"enabled": False},
+            },
+        },
+        {"io": {"min_distance": 3, "min_distance_unit": "um"}},
+        {"io": {"min_distance": 3, "min_distance_unit": "tracks"}},
+        {"global_placement": {"density": {"mode": "fixed"}}},
+        {"global_placement": {"density": {"mode": "uniform"}}},
+        {"global_placement": {"density": {"mode": "auto", "headroom": 0.1}}},
+        {"detailed_placement": {"check": "fail"}},
+        {"detailed_placement": {"check": "report"}},
+        {"resize": {"repair_timing": {"enabled": True, "fix": "setup"}}},
+        {"resize": {"repair_timing": {"enabled": True, "fix": "hold"}}},
+        {"resize": {"repair_timing": {"enabled": True, "fix": "setup_and_hold"}}},
+    ],
+    ids=lambda settings: "-".join(
+        f"{group}.{leaf}={value}"
+        for group, leaves in settings.items()
+        for leaf, value in leaves.items()
+        if not isinstance(value, dict)
+    ),
+)
+def test_every_choice_of_the_placement_groups_renders_and_runs(tmp_path, settings):
+    run_script(place_flow(tmp_path, settings))
 
 
 # ------------------------------------------------------------------------------ the constraints
@@ -946,8 +1420,6 @@ def test_every_user_text_reaches_the_script_through_a_filter():
     """A name, a path or a pattern is never written raw: a `{{ }}` of a stage template names a
     filter or a number, never a bare setting."""
     for path in (TEMPLATES / "stages").glob("*.tcl.j2"):
-        if path.name not in ("floorplan.tcl.j2", "tapcell.tcl.j2", "pdn.tcl.j2"):
-            continue
         for expression in re.findall(r"\{\{(.*?)\}\}", path.read_text()):
             expression = expression.strip()
             choice = re.fullmatch(r'"[^"]*" if [\w.]+ == "[^"]*" else "[^"]*"', expression)
@@ -971,20 +1443,6 @@ def test_the_flow_is_an_asic_synthesis_flow_that_reads_a_netlist_and_sdc_files()
 def test_the_prepared_inputs_are_the_files_that_the_dry_run_locates(tmp_path):
     flow = place_flow(tmp_path)
     assert flow.locate_prepared_inputs() == flow.implicit_inputs
-
-
-def test_every_setting_of_the_stages_so_far_is_read():
-    """The settings of the placement stages that follow the power grid are not read yet."""
-    from .test_unread_settings import unread_settings
-
-    groups = ("design", "floorplan", "routing", "tie", "tapcell", "pdn")
-    own = ("sdc_files", "input_delay", "output_delay", "input_delay_frac", "output_delay_frac")
-    unread = [
-        name
-        for name in unread_settings(OpenroadPlace)
-        if name.split(".")[0] in groups or name in own
-    ]
-    assert unread == []
 
 
 def test_a_valid_set_of_settings_plans(tmp_path):
@@ -1087,3 +1545,360 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
     flow = runner.run(OpenroadPlace, design, flow_settings=settings)
     assert flow is not None and flow.succeeded
     assert not failed.exists()
+
+
+# ------------------------------------------------------------------------------ the pins and the density at planning
+
+
+@pytest.mark.parametrize(
+    "leaf",
+    [
+        "io.horizontal_layers=m2",
+        "io.vertical_layers=m3",
+        "io.min_distance=3",
+        "io.corner_avoidance=1",
+        "io.extra_args=-annealing",
+    ],
+)
+def test_a_setting_for_the_placement_of_the_pins_has_no_effect_when_the_pins_stay(tmp_path, leaf):
+    message = refusal(tmp_path, leaf, "io.flow=fixed")
+    key = leaf.split("=")[0]
+    assert f"`{key}`" in message and "io.flow" in message and "fixed" in message
+    plan(tmp_path / "ok", leaf)
+
+
+def test_a_floorplan_from_a_def_file_refuses_a_setting_for_the_pins(tmp_path):
+    def_texts = ["floorplan.sizing=def", "floorplan.def_file=plan.def"]
+    message = refusal(tmp_path, *def_texts, "io.min_distance=3")
+    assert "io.min_distance" in message and "floorplan.sizing: def" in message
+    plan(
+        tmp_path / "again",
+        *def_texts,
+        "io.min_distance=3",
+        "io.flow=concurrent",
+        "global_placement.timing_driven.enabled=false",
+        "global_placement.routability_driven.enabled=false",
+    )
+    plan(tmp_path / "plain", *def_texts)
+
+
+def test_the_concurrent_placement_of_the_pins_plans_with_the_default_placement_modes(tmp_path):
+    """OpenROAD refuses `-place_ios` together with `-timing_driven` and `-routability_driven`
+    (GPL-0179 and GPL-0181). The settings stay available, and the tool tells."""
+    plan(tmp_path, "io.flow=concurrent")
+
+
+def test_the_pins_need_the_layers_of_the_platform_unless_they_stay(tmp_path):
+    residue = tmp_path / "no_io.yaml"
+    residue.write_text(
+        "\n".join(
+            line
+            for line in TINY_OPENROAD_RESIDUE.read_text().splitlines()
+            if not line.startswith("  io_layers")
+        )
+    )
+    no_io = f"platform_file={residue}"
+    message = refusal(tmp_path, no_io)
+    assert "io_layers.horizontal" in message and "io.flow: fixed" in message
+    plan(tmp_path / "given", no_io, "io.horizontal_layers=m3", "io.vertical_layers=m4")
+    plan(tmp_path / "fixed", no_io, "io.flow=fixed")
+
+
+def test_a_fixed_density_needs_a_density_in_the_residue_files_or_the_settings(tmp_path):
+    residue = tmp_path / "no_density.yaml"
+    residue.write_text(
+        "\n".join(
+            line
+            for line in TINY_OPENROAD_RESIDUE.read_text().splitlines()
+            if "place_density" not in line
+        )
+    )
+    no_density = f"platform_file={residue}"
+    message = refusal(tmp_path, no_density)
+    assert "place_density" in message and "global_placement.density.value" in message
+    plan(tmp_path / "value", no_density, "global_placement.density.value=0.5")
+    plan(tmp_path / "uniform", no_density, "global_placement.density.mode=uniform")
+
+
+def test_a_platform_that_reads_the_pdk_configuration_may_give_the_density_later(tmp_path):
+    """The bundled `nangate45` has `PLACE_DENSITY` in the configuration of its PDK, which only
+    the files tell. So planning refuses nothing there."""
+    given = {"platform": "nangate45", "clocks": {"clk": {"period": 5}}}
+    settings = OpenroadPlace.Settings.from_input(given, design_root=tmp_path, runner_cwd=tmp_path)
+    OpenroadPlace.check_settings_supported(settings)
+
+
+def test_the_density_rules_of_the_settings_come_at_planning(tmp_path):
+    assert "value" in refusal(
+        tmp_path, "global_placement.density.mode=uniform", "global_placement.density.value=0.5"
+    )
+    assert "headroom" in refusal(tmp_path / "a", "global_placement.density.headroom=0.2")
+    assert "headroom" in refusal(tmp_path / "b", "global_placement.density.mode=auto")
+    assert "min_phi_coef" in refusal(
+        tmp_path / "c",
+        "global_placement.nesterov.min_phi_coef=1.2",
+        "global_placement.nesterov.max_phi_coef=1.1",
+    )
+
+
+def test_a_detailed_padding_above_the_global_padding_is_a_warning(tmp_path, monkeypatch, caplog):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    store = tiny_store(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    settings = openroad_settings(
+        store, **{"clock.period": "5", "detailed_placement.cell_padding": "2"}
+    )
+    with caplog.at_level("WARNING"):
+        flow = runner.run(
+            OpenroadPlace, openroad_design(tmp_path / "design"), flow_settings=settings
+        )
+    assert flow is not None and flow.succeeded
+    assert any(
+        "detailed_placement.cell_padding (2) is above global_placement.cell_padding (0)"
+        in record.getMessage()
+        for record in caplog.records
+    )
+
+
+# ------------------------------------------------------------------------------ the results
+
+EXPECTED_COMMANDS = [
+    "read_liberty",
+    "read_lef",
+    "read_lef",
+    "read_verilog",
+    "link_design",
+    "read_sdc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_layer_rc",
+    "set_wire_rc",
+    "set_wire_rc",
+    "set_dont_use",
+    "eliminate_dead_logic",
+    "check_setup",
+    "initialize_floorplan",
+    "make_tracks",
+    "make_tracks",
+    "make_tracks",
+    "set_global_routing_layer_adjustment",
+    "set_global_routing_layer_adjustment",
+    "set_routing_layers",
+    "set_routing_layers",
+    "repair_tie_fanout",
+    "repair_tie_fanout",
+    "repair_timing",
+    "tapcell",
+    "add_global_connection",
+    "add_global_connection",
+    "global_connect",
+    "set_voltage_domain",
+    "define_pdn_grid",
+    "add_pdn_stripe",
+    "add_pdn_stripe",
+    "add_pdn_stripe",
+    "add_pdn_connect",
+    "add_pdn_connect",
+    "pdngen",
+    "all_pins_placed",
+    "global_placement",
+    "place_pins",
+    "remove_buffers",
+    "buffer_ports",
+    "global_placement",
+    "estimate_parasitics",
+    "estimate_parasitics",
+    "repair_design",
+    "report_floating_nets",
+    "set_placement_padding",
+    "detailed_placement",
+    "improve_placement",
+    "optimize_mirroring",
+    "check_placement",
+    "estimate_parasitics",
+    "write_db",
+    "write_sdc",
+]
+#: The commands that the stages call to write metrics and to measure the design. They are no
+#: part of the order that the flow decides.
+MEASURING_COMMANDS = (
+    "report_design_area",
+    "report_design_area_metrics",
+    "report_units_metric",
+    "report_tns_metric",
+    "report_worst_slack_metric",
+    "report_fmax_metric",
+    "report_erc_metrics",
+    "report_power_metric",
+    "utl::set_metrics_stage",
+    "get_lib_cell",
+    "get_property",
+    "get_name",
+)
+
+
+def launch(tmp_path, monkeypatch):
+    """Launch `openroad_place` on the tiny design with the fake OpenROAD. Return the runner, the
+    design, the settings and the flow."""
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    store = tiny_store(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = openroad_design(tmp_path / "design")
+    settings = openroad_settings(store, **{"clock.period": "5"})
+    flow = runner.run(OpenroadPlace, design, flow_settings=settings)
+    assert flow is not None and flow.succeeded
+    return runner, design, settings, flow
+
+
+def test_a_launch_runs_the_commands_in_order_and_reports_the_recorded_metrics(
+    tmp_path, monkeypatch
+):
+    _, _, _, flow = launch(tmp_path, monkeypatch)
+    run_dir = Path(flow.run_path)
+    commands = [call[0] for call in fake_calls(run_dir) if call[0] not in MEASURING_COMMANDS]
+    assert commands == EXPECTED_COMMANDS
+    assert (run_dir / "place.odb").is_file() and (run_dir / "place.sdc").is_file()
+    results = json.loads((run_dir / "results.json").read_text())
+    assert results["success"] is True
+    assert results["worst_slack"] == pytest.approx(-0.154591)
+    assert results["wns"] == pytest.approx(-0.154591)
+    assert results["tns"] == pytest.approx(-6.68972)
+    assert results["whs"] == pytest.approx(0.0846505)
+    assert results["hold_tns"] == 0
+    assert results["Fmax"] == pytest.approx(2471.63)
+    assert results["area"] == pytest.approx(807.044)
+    assert results["utilization"] == pytest.approx(0.745271)
+    assert results["power"] == pytest.approx(0.00524598)
+    assert results["platform"]["name"] == "tiny"
+
+
+def test_a_second_launch_reuses_the_run(tmp_path, monkeypatch):
+    runner, design, settings, first = launch(tmp_path, monkeypatch)
+    again = runner.launch_flow(
+        OpenroadPlace, Design.from_file(design), dict(s.split("=", 1) for s in settings)
+    )
+    assert again.succeeded and again.reused
+    assert not first.reused
+
+
+def test_a_missing_metrics_file_fails_the_reading_of_the_results(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    empty = tmp_path / "metrics"
+    empty.mkdir()
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(empty))
+    store = tiny_store(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(
+        OpenroadPlace,
+        openroad_design(tmp_path / "design"),
+        flow_settings=openroad_settings(store, **{"clock.period": "5"}),
+    )
+    assert flow is None or not flow.succeeded
+    (run_dir,) = (tmp_path / "xeda_run").rglob("openroad_place")
+    assert not (run_dir / "trace.json").exists()
+
+
+def test_a_metric_that_is_no_number_fails_the_reading_of_the_results(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    recorded = json.loads((RECORDED / "openroad_place.json").read_text())
+    recorded["detailedplace__timing__setup__ws"] = "unknown"
+    broken = tmp_path / "metrics"
+    broken.mkdir()
+    (broken / "openroad_place.json").write_text(json.dumps(recorded))
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(broken))
+    store = tiny_store(tmp_path)
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(
+        OpenroadPlace,
+        openroad_design(tmp_path / "design"),
+        flow_settings=openroad_settings(store, **{"clock.period": "5"}),
+    )
+    assert flow is None or not flow.succeeded
+
+
+def test_the_results_are_described():
+    from xeda.flow.flow import COMMON_RESULT_DESCRIPTIONS
+
+    described = OpenroadPlace.results_description
+    for key in (
+        "wns",
+        "tns",
+        "whs",
+        "worst_slack",
+        "Fmax",
+        "utilization",
+        "power",
+        "area",
+        "hold_tns",
+        "platform",
+    ):
+        assert described[key], key
+    for key in ("utilization", "power"):
+        assert key in COMMON_RESULT_DESCRIPTIONS
+
+
+# ------------------------------------------------------------------------------ the dry run
+
+
+def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypatch):
+    runner, design_file, settings, _ = launch(tmp_path, monkeypatch)
+    design = Design.from_file(design_file)
+    given = dict(s.split("=", 1) for s in settings)
+    store = Path(given["pdk_root"])
+    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    assert states["openroad_place"].state == "fresh"
+    library = store / "tiny" / "tiny.lib"
+    library.write_text(library.read_text() + "\n/* edited */\n")
+    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    assert states["openroad_place"].state == "stale"
+    assert states["openroad_place"].reason == f"input changed: {library.resolve()}"
+    library.write_text(library.read_text().replace("\n/* edited */\n", ""))
+    netlist = design.design_root / "counter_netlist.v"
+    netlist.write_text(netlist.read_text() + "// edited\n")
+    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    assert states["openroad_place"].state == "stale"
+    assert states["openroad_place"].reason == f"input changed: {netlist.resolve()}"
+
+
+def test_a_dry_run_shows_a_missing_store_as_unknown(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = Design.from_file(openroad_design(tmp_path / "design"))
+    given = dict(s.split("=", 1) for s in openroad_settings(empty, **{"clock.period": "5"}))
+    _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
+    assert states["openroad_place"].state == "unknown"
+    assert "tiny" in states["openroad_place"].reason
+
+
+# ------------------------------------------------------------------------------ chains
+
+
+def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    store = tiny_store(tmp_path)
+    given = dict(text.split("=", 1) for text in openroad_settings(store, **{"clock.period": "5"}))
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    design = openroad_design(tmp_path / "design", rtl=True)
+    planned = runner.plan("yosys+openroad_place", design, flow_settings=given)
+    assert [node.name for node in planned.nodes] == ["yosys", "openroad_place"]
+    flow = runner.run("yosys+openroad_place", design, flow_settings=given)
+    assert flow is not None and flow.succeeded
+    assert Path(flow.inputs.netlist).parent.name == "yosys"
+
+
+def test_a_netlist_source_of_the_design_displaces_the_synthesis(tmp_path):
+    planned = plan(tmp_path, "floorplan.core_utilization=40")
+    assert [node.name for node in planned.nodes] == ["openroad_place"]

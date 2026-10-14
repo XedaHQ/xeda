@@ -409,7 +409,8 @@ class PdnGroup(SettingsGroup):
         None,
         description="The grid: the supply nets, the connections of the pins to them, the rails, "
         "the straps, the pairs of layers that the vias connect, and the layers of the pins. "
-        "Each leaf that you give replaces the same leaf of the grid of the platform. Needs "
+        "Each leaf that you give, and that is not empty, replaces the same leaf of the grid of the "
+        "platform. Needs "
         "`mode: generated`. Unset: the grid of the platform.",
         json_schema_extra=tier("common"),
     )
@@ -430,21 +431,23 @@ class PdnGroup(SettingsGroup):
 class IoGroup(SettingsGroup):
     """The placement of the pins of the design (`place_pins`)."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("min_distance", "-min_distance", "value"),
-        Flag("corner_avoidance", "-corner_avoidance", "value"),
-    )
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("corner_avoidance", "-corner_avoidance", "value"),)
     #: The flags of `place_pins` that no setting covers. The layers, the distance and the corner
-    #: avoidance have settings, and the flow decides the others.
+    #: avoidance have settings, and the flow decides the others. The flow prints `min_distance`
+    #: itself: it is a whole number in tracks.
     EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset({"-annealing", "-exclude", "-group_pins"})
 
     flow: Literal["skip_io_pass", "concurrent", "fixed"] = Field(
         "skip_io_pass",
         description="How the pins get their places. `skip_io_pass` places the cells without the "
         "pins first, then places the pins, then places the cells again. `concurrent` places the "
-        "pins together with the cells (`global_placement -place_ios`), then legalizes them. "
-        "`fixed` keeps the pins that the floorplan already placed. The default is the one of "
-        "OpenROAD-flow-scripts.",
+        "pins together with the cells (`global_placement -place_ios`), then runs `place_pins` to "
+        "legalize them. OpenROAD refuses `-place_ios` together with the timing-driven and the "
+        "routability-driven placement (GPL-0179 and GPL-0181), so set both modes off for it. "
+        "`fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed "
+        "pins (`floorplan.sizing: def`), else the global placement stops with GPL-0326 on the "
+        "unplaced pins. With `floorplan.sizing: def` the pins of the DEF file stay, except "
+        "with `concurrent`. The default is the one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
     )
     horizontal_layers: Optional[list[Annotated[str, Field(min_length=1)]]] = Field(
@@ -463,7 +466,8 @@ class IoGroup(SettingsGroup):
         None,
         ge=0,
         description="The smallest distance between two pins, in the unit of `min_distance_unit` "
-        "(`-min_distance`). Unset: the default of the tool, 2 tracks.",
+        "(`-min_distance`). In tracks it must be a whole number, which is what OpenROAD takes. "
+        "Unset: the default of the tool, 2 tracks.",
         json_schema_extra=tier("advanced"),
     )
     min_distance_unit: Literal["um", "tracks"] = Field(
@@ -487,8 +491,20 @@ class IoGroup(SettingsGroup):
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
-        """Refuse a unit without a distance, and an empty list of layers."""
+        """Refuse a unit without a distance, a fraction of a track, an empty list of layers, and a
+        setting for the placement of the pins when the pins stay where the floorplan put them."""
         found: list[tuple[str, str]] = []
+        if self.flow == "fixed":
+            for leaf in differing_leaves(self, key):
+                if leaf != f"{key}.flow":
+                    found.append(
+                        (
+                            leaf,
+                            f"`{leaf}` has no effect with `{key}.flow: fixed`, which keeps the "
+                            f"pins that the floorplan placed: set `{key}.flow: skip_io_pass` or "
+                            f"delete `{leaf}`",
+                        )
+                    )
         for leaf in ("horizontal_layers", "vertical_layers"):
             if getattr(self, leaf) == []:
                 found.append(
@@ -498,6 +514,19 @@ class IoGroup(SettingsGroup):
                         "take the layers of the platform",
                     )
                 )
+        if (
+            self.min_distance_unit == "tracks"
+            and self.min_distance is not None
+            and self.min_distance != int(self.min_distance)
+        ):
+            found.append(
+                (
+                    f"{key}.min_distance",
+                    f"`{key}.min_distance` is {self.min_distance} tracks, and OpenROAD takes a "
+                    f"whole number of tracks: give a whole number or set "
+                    f"`{key}.min_distance_unit: um`",
+                )
+            )
         if self.min_distance_unit != "um" and self.min_distance is None:
             found.append(
                 (
@@ -724,9 +753,10 @@ class ResizeGroup(SettingsGroup):
 
     remove_buffers: bool = Field(
         True,
-        description="Remove the buffers of the synthesis before the optimization "
-        "(`remove_buffers`), so that the repair chooses the buffering. OpenROAD-flow-scripts "
-        "does it with the timing-driven placement.",
+        description="Remove the buffers of the synthesis before the global placement "
+        "(`remove_buffers`), so that the repair chooses the buffering. Needs "
+        "`global_placement.timing_driven.enabled`: OpenROAD-flow-scripts removes the buffers "
+        "only with the timing-driven placement, and so does this flow.",
         json_schema_extra=tier("advanced"),
     )
     buffer_ports: BufferPortsGroup = Field(
@@ -811,9 +841,9 @@ class DetailedPlacementGroup(SettingsGroup):
     )
     check: Literal["fail", "report"] = Field(
         "report",
-        description="What the flow does with an illegal placement (`check_placement`). `fail` "
-        "stops the flow. `report` prints the violations and goes on. The default is the one of "
-        "OpenROAD-flow-scripts.",
+        description="What the flow does with an illegal placement (`check_placement`, which raises "
+        "an error when a check fails). `fail` stops the flow, as OpenROAD-flow-scripts does. "
+        "`report` prints the violations and goes on.",
         json_schema_extra=tier("common"),
     )
     extra_args: list[str] = Field(

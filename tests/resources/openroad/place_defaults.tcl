@@ -126,7 +126,62 @@ proc xeda_pdn {} {
     add_pdn_connect -grid grid -layers [list "m3" "m4"]
     pdngen
 }
-if {[catch { xeda_floorplan; xeda_tapcell; xeda_pdn } message options]} {
+# The target density for `global_placement`. The cells change between the placements (the buffers
+# go and come back), so a density that comes from the netlist is computed again at each call, and
+# no stage keeps a number from an earlier call.
+proc xeda_density {} {
+    return 0.6
+}
+proc xeda_global_place_skip_io {} {
+    xeda_stage globalplace_skip_io
+    if {![all_pins_placed]} {
+        global_placement -skip_io -density [xeda_density] -pad_left 0 -pad_right 0
+    }
+}
+proc xeda_place_pins {} {
+    place_pins -hor_layers [list "m3"] -ver_layers [list "m4"]
+}
+proc xeda_io_placement {} {
+    xeda_stage io_placement
+    xeda_place_pins
+}
+proc xeda_global_place {} {
+    xeda_stage globalplace
+    remove_buffers
+    buffer_ports
+    global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -routability_driven -timing_driven -force_center_initial_place
+    estimate_parasitics -placement
+    xeda_metrics 0 0
+}
+proc xeda_resize {} {
+    xeda_stage placeopt
+    estimate_parasitics -placement
+    repair_design -slew_margin "0.0" -cap_margin "0.0" -verbose
+    report_floating_nets
+    xeda_metrics 1 0
+}
+proc xeda_detail_place {} {
+    xeda_stage detailedplace
+    set_placement_padding -global -left 0 -right 0
+    detailed_placement
+    improve_placement -max_displacement "5 1"
+    optimize_mirroring
+    if {[catch {check_placement -verbose} message]} {
+        puts "xeda: check_placement found violations ($message), and the flow goes on"
+    }
+    estimate_parasitics -placement
+    xeda_metrics 1 0
+}
+if {[catch {
+    xeda_floorplan
+    xeda_tapcell
+    xeda_pdn
+    xeda_global_place_skip_io
+    xeda_io_placement
+    xeda_global_place
+    xeda_resize
+    xeda_detail_place
+} message options]} {
     catch { write_db "openroad_place-failed.odb" }
     return -options $options $message
 }

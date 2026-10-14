@@ -1,0 +1,12 @@
+{# The first placement: the cells without the pins. It gives the pin placer the positions of the
+   cells it connects to. It is skipped when the pins come from the floorplan (a DEF file or pins
+   that are placed already), and with the other ways to place the pins. #}
+{% set gp = settings.global_placement %}
+proc xeda_global_place_skip_io {} {
+    xeda_stage globalplace_skip_io
+{% if settings.io.flow == "skip_io_pass" and settings.floorplan.sizing != "def" %}
+    if {![all_pins_placed]} {
+        {{ ["global_placement -skip_io -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), render_flags(gp)]|select|join(" ") }}
+    }
+{% endif %}
+}

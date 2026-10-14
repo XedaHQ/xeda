@@ -241,6 +241,40 @@ Required settings: `target_libraries`
 
 Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_violating_paths`, `hold_num_violating_paths`, `aspect_ratio`, `utilization_ratio`, `area_combinational`, `area_noncombinational`, `area_macro_bbox`, `area_cell_total`, `area_total`, `area_core`, `area`, `drc`, `path_groups`, `num_ports`, `num_nets`, `num_cells`, `num_cells_combinational`, `num_cells_sequential`, `num_cells_sequentual`, `num_macro_bbox`
 
+### `openroad_place`
+
+*runs first: `yosys` | can follow: `yosys`*
+
+Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD. One OpenROAD process loads the Liberty and LEF files of the platform, the netlist and the constraints. It makes the floorplan, places the tap cells and builds the power grid, places the pins and the cells globally, optimizes the design, and legalizes the placement. It writes the database `place.odb` and the constraints `place.sdc`. The constraints are the SDC files of the design, then the clocks that the `clocks` setting gives, then `sdc_files`. The routing layers, the capacity of each layer and the cells that the resizer must not touch stay in the database, so the flows after this one keep them. These settings belong to this flow.
+
+Required settings: `platform`
+
+27 flow-specific settings (plus the common ones): `xeda list-settings openroad_place --json`
+
+Group `design`: no common settings; 2 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `floorplan`: `floorplan.sizing`, `floorplan.core_utilization`, `floorplan.aspect_ratio`, `floorplan.core_margin`, `floorplan.die_area`, `floorplan.core_area`, `floorplan.netlist_cleanup.repair.enabled`, `floorplan.netlist_cleanup.repair.fix`, `floorplan.netlist_cleanup.repair.setup_margin`, `floorplan.netlist_cleanup.repair.hold_margin`; 13 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `routing`: `routing.signal_layers`, `routing.clock_layers`; 1 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `tie`: `tie.repair_fanout`; 1 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `tapcell`: `tapcell.mode`; 3 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `pdn`: `pdn.mode`, `pdn.grid`
+
+Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 4 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 6 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `resize`: `resize.buffer_ports.enabled`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 16 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `arith_swap`: no common settings; 1 more: `xeda list-settings openroad_place --tier expert --json`
+
+Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 4 more: `xeda list-settings openroad_place --tier expert --json`
+
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
+
 ## Synthesis (generic)
 
 ### `ghdl_synth`
@@ -252,6 +286,8 @@ Convert a VHDL design to Verilog with `ghdl --synth`.
 Reports no results beyond the keys every flow reports.
 
 ### `yosys`
+
+*can be followed by: `openroad_place`*
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 

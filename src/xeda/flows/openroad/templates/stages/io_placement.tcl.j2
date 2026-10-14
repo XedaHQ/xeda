@@ -1,0 +1,18 @@
+{# The placement of the pins. `place_pins` takes the plural flags `-hor_layers` and `-ver_layers`;
+   the flag `-random` is obsolete, and the command skips the placement when it gets it.
+   The pass without pins places the pins before the main placement. The concurrent placement
+   places them together with the cells and then needs `place_pins` once more, because it does not
+   put the pins on the routing tracks. #}
+{% set io = settings.io %}
+{% set before_placement = io.flow == "skip_io_pass" and settings.floorplan.sizing != "def" %}
+{% if before_placement or io.flow == "concurrent" %}
+proc xeda_place_pins {} {
+    {{ ["place_pins", "-hor_layers " ~ (P.io_horizontal|tcl_list), "-ver_layers " ~ (P.io_vertical|tcl_list), "-min_distance_in_tracks" if io.min_distance_unit == "tracks" else "", "-min_distance " ~ ((io.min_distance|int if io.min_distance_unit == "tracks" else io.min_distance)|tcl_number) if io.min_distance is not none else "", render_flags(io)]|select|join(" ") }}
+}
+{% endif %}
+proc xeda_io_placement {} {
+    xeda_stage io_placement
+{% if before_placement %}
+    xeda_place_pins
+{% endif %}
+}

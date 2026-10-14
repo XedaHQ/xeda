@@ -789,6 +789,8 @@ COMMON_RESULT_DESCRIPTIONS: Dict[str, str] = {
     "area_cell_total": "Total cell area, excluding net interconnect.",
     "area_total": "Total area, including net interconnect where the tool reports it.",
     "area_core": "Area of the core region.",
+    "utilization": "Share of the core area that the standard cells fill, as a ratio from 0 to 1.",
+    "power": "Total power of the design in watts, as the tool estimates it.",
     "io": "Number of I/O buffers/pads used.",
     "timing_met": "Whether every constrained clock domain met its constraint.",
     "clock_domains": "Number of clock domains the timing analysis reported.",

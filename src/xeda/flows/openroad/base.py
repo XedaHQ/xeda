@@ -39,6 +39,7 @@ __all__ = [
     "base_values",
     "merge_wire_rc",
     "platform_time_unit",
+    "space_word",
     "tcl_number",
     "tcl_numbers",
     "to_lib_time",
@@ -63,6 +64,13 @@ def tcl_numbers(values: Any) -> str:
     """Return the numbers `values` as one Tcl list word: `[list 0.0 1.5]`. Each item goes through
     `tcl_number`, so text is never written as a number."""
     return "[list " + " ".join(tcl_number(value) for value in values) + "]"
+
+
+def space_word(items: Sequence[Any]) -> str:
+    """Return the items as one Tcl word with spaces between them: `"5 1"`. A command such as
+    `improve_placement -max_displacement` reads its list from one word. Pass it as the `list_word`
+    of `render_flags`."""
+    return tcl_word(" ".join(str(item) for item in items))
 
 
 def platform_time_unit(model: PlatformModel) -> str:
@@ -257,9 +265,9 @@ class OpenroadStage(AsicPlatformFlow, Flow):
     def add_template_helpers(self) -> None:
         """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
         quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
-        `comma_word`), `comma_word`, `fix_flags`, the filters `tcl_number`, `tcl_numbers` and `lib_time`,
-        `reports` and `failed_odb`. `init()` calls it. Code that renders a template without
-        `init()`, such as a test, can call it."""
+        `comma_word`), `comma_word`, `space_word`, `fix_flags`, the filters `tcl_number`,
+        `tcl_numbers` and `lib_time`, `reports` and `failed_odb`. `init()` calls it. Code that
+        renders a template without `init()`, such as a test, can call it."""
         self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
         self.add_template_filter("tcl_numbers", tcl_numbers, replace_existing=True)
         self.add_template_filter("lib_time", self._lib_time, replace_existing=True)
@@ -271,6 +279,7 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         self.jinja_env.globals.update(
             render_flags=lambda group, list_word=None: render_flags(group, tcl_word, list_word),
             comma_word=comma_word,
+            space_word=space_word,
             fix_flags=FIX_FLAGS,
             reports=dict(self.reports),
             failed_odb=self.failed_odb,

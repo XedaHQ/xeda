@@ -7,7 +7,22 @@
 {% include "stages/floorplan.tcl.j2" %}
 {% include "stages/tapcell.tcl.j2" %}
 {% include "stages/pdn.tcl.j2" %}
-if {[catch { xeda_floorplan; xeda_tapcell; xeda_pdn } message options]} {
+{% include "stages/density.tcl.j2" %}
+{% include "stages/global_place_skip_io.tcl.j2" %}
+{% include "stages/io_placement.tcl.j2" %}
+{% include "stages/global_place.tcl.j2" %}
+{% include "stages/resize.tcl.j2" %}
+{% include "stages/detail_place.tcl.j2" %}
+if {[catch {
+    xeda_floorplan
+    xeda_tapcell
+    xeda_pdn
+    xeda_global_place_skip_io
+    xeda_io_placement
+    xeda_global_place
+    xeda_resize
+    xeda_detail_place
+} message options]} {
     catch { write_db {{ failed_odb|tcl_word }} }
     return -options $options $message
 }

@@ -47,8 +47,8 @@ RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 
 #: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
-    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader quartus "
-    "vivado_alt_synth vivado_impl vivado_power vivado_synth yosys yosys_fpga"
+    "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad_place "
+    "quartus vivado_alt_synth vivado_impl vivado_power vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
     "bsc bsc_sim ghdl_sim modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
@@ -734,6 +734,24 @@ def tb_reads(cls: type[Flow]) -> list[str]:
         ("yosys", {"yosys_synth.ys", "read_files.ys", "post_rtl.ys", "write_netlist.ys"}),
         ("yosys_fpga", {"read_files.ys"}),
         ("dc", {"dc_script.tcl", "constraints.sdc"}),
+        (
+            "openroad_place",
+            {
+                "drivers/openroad_place.tcl.j2",
+                "restart.tcl.j2",
+                "procs.tcl.j2",
+                "clocks.sdc",
+                "stages/floorplan.tcl.j2",
+                "stages/tapcell.tcl.j2",
+                "stages/pdn.tcl.j2",
+                "stages/density.tcl.j2",
+                "stages/global_place_skip_io.tcl.j2",
+                "stages/io_placement.tcl.j2",
+                "stages/global_place.tcl.j2",
+                "stages/resize.tcl.j2",
+                "stages/detail_place.tcl.j2",
+            },
+        ),
     ],
 )
 def test_the_scan_reaches_the_templates_a_flow_renders_and_only_those(name, templates) -> None:

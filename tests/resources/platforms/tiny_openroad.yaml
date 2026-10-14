@@ -21,6 +21,7 @@ values:
   # The values that the OpenROAD flows read. TAP_X1 and ENDCAP_X1 are no cells of the library:
   # no test reads their LEF.
   fill_cells: [FILL_X1]
+  place_density: 0.6
   tap_cell: TAP_X1
   endcap_cell: ENDCAP_X1
   tapcell: {distance: 12}

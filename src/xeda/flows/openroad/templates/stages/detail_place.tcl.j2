@@ -1,0 +1,25 @@
+{# The legalization and the optimization of the placement. `improve_placement` takes the
+   displacement as one argument that holds a list. `check_placement` raises an error when a check
+   fails (the installed OpenROAD reports DPL-0033 and prints the violations before). With `check:
+   report` the script catches that error and goes on; with `check: fail` the error stops it. #}
+{% set dp = settings.detailed_placement %}
+proc xeda_detail_place {} {
+    xeda_stage detailedplace
+    set_placement_padding -global -left {{ dp.cell_padding|tcl_number }} -right {{ dp.cell_padding|tcl_number }}
+    {{ ["detailed_placement", render_flags(dp)]|select|join(" ") }}
+{% if dp.improve.enabled %}
+    {{ ["improve_placement", render_flags(dp.improve, space_word)]|select|join(" ") }}
+{% endif %}
+{% if dp.mirroring %}
+    optimize_mirroring
+{% endif %}
+{% if dp.check == "fail" %}
+    check_placement -verbose
+{% else %}
+    if {[catch {check_placement -verbose} message]} {
+        puts "xeda: check_placement found violations ($message), and the flow goes on"
+    }
+{% endif %}
+    estimate_parasitics -placement
+    xeda_metrics 1 0
+}

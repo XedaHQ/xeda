@@ -1,25 +1,29 @@
 """The placement flow.
 
 `openroad_place` reads a gate-level netlist and the constraints, makes the floorplan, places the
-tap cells and builds the power grid. It owns the routing and optimization options that the
-database stores, so no later flow sets them again.
+tap cells and builds the power grid, places the pins and the cells, optimizes the design and
+legalizes the placement. It owns the routing and optimization options that the database stores,
+so no later flow sets them again.
 
 `effective` is the one function that turns the settings and the platform into the values that
 the templates read as `P`. It reads nothing else. A value that a stage needs and neither the
 settings nor the platform give is an error that names where to give it, before OpenROAD starts.
 """
 
-from abc import abstractmethod
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Literal, Optional
 
 from ...dataclass import Field, tier
 from ...design import SourceType
-from ...flow import AsicSynthFlow, Flow, In, Out
+from ...flow import AsicSynthFlow, Flow, In, Out, describe_results
+from ...flow.asic import AsicPlatformSettings
 from ...flow.flow import FlowSettingsError, FlowSettingsException
 from ...platforms.model import CellPort, PlatformModel, Pdn, Track
-from .base import EffectiveBase, OpenroadStage, base_values
+from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
+from .groups import differing_leaves
+from .metrics import MetricsError, stage_results
 from .place_groups import (
     ArithSwapGroup,
     DesignGroup,
@@ -35,6 +39,8 @@ from .place_groups import (
 )
 
 __all__ = ["EffectivePlace", "OpenroadPlace", "effective"]
+
+log = logging.getLogger(__name__)
 
 #: The name of the file that the flow writes the constraints of the `clocks` setting to.
 CLOCKS_SDC = "clocks.sdc"
@@ -66,6 +72,12 @@ class EffectivePlace(EffectiveBase):
     pdn: Pdn
     #: Whether the resizer swaps a cell only for a cell with the same footprint.
     match_cell_footprint: bool
+    #: The target density of the placement with `density.mode: fixed`, else `None`.
+    density_value: Optional[float]
+    #: The layers of the pins on the horizontal and on the vertical edges. Empty when no stage
+    #: places pins.
+    io_horizontal: tuple[str, ...]
+    io_vertical: tuple[str, ...]
 
 
 def _platform_gap(model: PlatformModel, what: str, need: str, fix: str) -> FlowSettingsException:
@@ -75,6 +87,24 @@ def _platform_gap(model: PlatformModel, what: str, need: str, fix: str) -> FlowS
         f"the platform {model.name!r} gives no {what}, which {need}: {fix}. A residue file "
         "(`platform_file`) gives a platform value under `values`"
     )
+
+
+def _platform_cannot_give(settings: AsicPlatformSettings, leaf: str) -> bool:
+    """Return whether no layer of the platform can give the leaf `leaf` (a dotted key of the
+    platform model). A platform that reads the configuration of its PDK (`upstream`) may give any
+    leaf, and only the files tell. Without it, the residue files are all that give values. This
+    reads the residue files only."""
+    if settings.residue().upstream is not None:
+        return False
+    for residue in settings.residue_layers():
+        if residue is None:
+            continue
+        value: object = residue.values
+        for part in leaf.split("."):
+            value = getattr(value, part)
+        if value not in (None, [], {}):
+            return False
+    return True
 
 
 def _layer_range(low: Optional[str], high: Optional[str]) -> Optional[str]:
@@ -87,8 +117,11 @@ def _grid(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Pdn:
     given = settings.pdn.grid
     grid = model.pdn
     if given is not None:
+        # The settings of a launched flow are validated again, which marks every field of the
+        # grid as given. So a leaf counts as given when it holds something.
+        leaves = {name: getattr(given, name) for name in Pdn.model_fields}
         grid = grid.model_copy(
-            update={name: getattr(given, name) for name in sorted(given.model_fields_set)}
+            update={name: value for name, value in leaves.items() if value not in (None, [])}
         )
     fix = "give `pdn.grid`, or set `pdn.mode: none` to build no grid"
     if grid.power_net is None or grid.ground_net is None:
@@ -134,6 +167,53 @@ def _layer_adjustments(
             "give `routing.signal_layers` or `routing.layer_adjustments`",
         )
     return {signal: routing.layer_adjustment}
+
+
+def places_pins(settings: "OpenroadPlace.Settings") -> bool:
+    """Return whether the flow runs `place_pins`: after a placement without pins, unless a DEF
+    file gives the pins, and after a placement of the pins together with the cells."""
+    flow = settings.io.flow
+    return flow == "concurrent" or (flow == "skip_io_pass" and settings.floorplan.sizing != "def")
+
+
+def _density(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Optional[float]:
+    """Return the target density for `density.mode: fixed`: the setting, else the platform."""
+    if settings.global_placement.density.mode != "fixed":
+        return None
+    if settings.global_placement.density.value is not None:
+        return settings.global_placement.density.value
+    if model.place_density is None:
+        raise _platform_gap(
+            model,
+            "`place_density`",
+            "`global_placement.density.mode: fixed` needs",
+            "add it, or give `global_placement.density.value`, or set "
+            "`global_placement.density.mode` to `auto` or `uniform`",
+        )
+    return float(model.place_density)
+
+
+def _io_layers(
+    settings: "OpenroadPlace.Settings", model: PlatformModel
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the layers of the pins on the horizontal and on the vertical edges: the settings,
+    else the platform. Both are empty when no stage places pins."""
+    if not places_pins(settings):
+        return (), ()
+    found = []
+    for edge, given, layer in (
+        ("horizontal", settings.io.horizontal_layers, model.io_layers.horizontal),
+        ("vertical", settings.io.vertical_layers, model.io_layers.vertical),
+    ):
+        if given is None and layer is None:
+            raise _platform_gap(
+                model,
+                f"layer for the pins on the {edge} edges (`io_layers.{edge}`)",
+                "the placement of the pins needs",
+                f"add it, or give `io.{edge}_layers`, or set `io.flow: fixed`",
+            )
+        found.append(tuple(given) if given is not None else (str(layer),))
+    return found[0], found[1]
 
 
 def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> EffectivePlace:
@@ -189,6 +269,7 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
                 "`tapcell.mode: tap_endcap` needs",
                 "add it, or give the setting `tapcell.distance`",
             )
+    io_horizontal, io_vertical = _io_layers(settings, model)
     return EffectivePlace(
         **base_values(settings, model),
         site=model.site,
@@ -204,6 +285,9 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
         endcap_master=settings.tapcell.endcap_master or model.endcap_cell,
         pdn=_grid(settings, model) if settings.pdn.mode == "generated" else Pdn(),
         match_cell_footprint=bool(model.match_cell_footprint),
+        density_value=_density(settings, model),
+        io_horizontal=io_horizontal,
+        io_vertical=io_vertical,
     )
 
 
@@ -211,7 +295,8 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
     """Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD.
 
     One OpenROAD process loads the Liberty and LEF files of the platform, the netlist and the
-    constraints. It makes the floorplan, places the tap cells and builds the power grid. It writes
+    constraints. It makes the floorplan, places the tap cells and builds the power grid, places
+    the pins and the cells globally, optimizes the design, and legalizes the placement. It writes
     the database `place.odb` and the constraints `place.sdc`. The constraints are the SDC files of
     the design, then the clocks that the `clocks` setting gives, then `sdc_files`.
 
@@ -219,7 +304,21 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
     stay in the database, so the flows after this one keep them. These settings belong to this
     flow."""
 
-    results_description = {}
+    results_description = describe_results(
+        "wns",
+        "tns",
+        "whs",
+        "worst_slack",
+        "Fmax",
+        "utilization",
+        "power",
+        area="Area of the standard cells after the placement, in square micrometers.",
+        hold_tns="Total negative hold slack (ns) after the placement, from the parasitics that "
+        "OpenROAD estimates from the placement.",
+        platform="The platform that the design is placed on: `name`, the PDK `provider` and "
+        "`version`, the `corner`, and `sources`, the layer (derived, upstream, residue or user) "
+        "that gave each value of the platform model.",
+    )
     design_parts = frozenset({"rtl"})
     design_source_types = frozenset({SourceType.Sdc, SourceType.VerilogNetlist})
 
@@ -341,24 +440,65 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse what the groups cannot judge alone: the swap of arithmetic modules needs the
-        hierarchy of the design. This reads the settings only."""
+        """Refuse what the groups cannot judge alone. The swap of arithmetic modules needs the
+        hierarchy of the design. A floorplan from a DEF file keeps the pins of the file, so a
+        setting for the placement of the pins has no effect. A platform that gives no density or
+        no pin layer, and cannot get one, needs the setting. This reads the settings and the
+        residue files only."""
         super().check_settings_supported(settings)
-        if isinstance(settings, cls.Settings) and settings.arith_swap.enabled:
-            if not settings.hierarchical:
-                raise FlowSettingsError(
-                    [
-                        (
-                            "arith_swap.enabled",
-                            "`arith_swap.enabled` swaps the arithmetic modules of a hierarchical "
-                            "netlist, and `hierarchical` is false: set `hierarchical: true` or "
-                            "delete `arith_swap.enabled`",
-                            None,
-                            "value_error",
-                        )
-                    ],
-                    cls.Settings,
+        if not isinstance(settings, cls.Settings):
+            return
+        problems: List[tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = []
+
+        def refuse(key: str, message: str) -> None:
+            problems.append((key, message, None, "value_error"))
+
+        if settings.arith_swap.enabled and not settings.hierarchical:
+            refuse(
+                "arith_swap.enabled",
+                "`arith_swap.enabled` swaps the arithmetic modules of a hierarchical netlist, "
+                "and `hierarchical` is false: set `hierarchical: true` or delete "
+                "`arith_swap.enabled`",
+            )
+        if settings.floorplan.sizing == "def" and settings.io.flow == "skip_io_pass":
+            for leaf in differing_leaves(settings.io, "io"):
+                refuse(
+                    leaf,
+                    f"`{leaf}` has no effect with `floorplan.sizing: def`, which keeps the pins "
+                    f"of the DEF file: set `io.flow: concurrent` to place the pins again, or "
+                    f"delete `{leaf}`",
                 )
+        if settings.platform is not None or settings.platform_file is not None:
+            density = settings.global_placement.density
+            if (
+                density.mode == "fixed"
+                and density.value is None
+                and _platform_cannot_give(settings, "place_density")
+            ):
+                refuse(
+                    "global_placement.density.value",
+                    f"the platform {settings.residue().name!r} gives no `place_density`, which "
+                    "`global_placement.density.mode: fixed` needs: give "
+                    "`global_placement.density.value`, add `place_density` to `values` in the "
+                    "residue file (`platform_file`), or set `global_placement.density.mode` to "
+                    "`auto` or `uniform`",
+                )
+            if places_pins(settings):
+                for edge, given in (
+                    ("horizontal", settings.io.horizontal_layers),
+                    ("vertical", settings.io.vertical_layers),
+                ):
+                    if given is None and _platform_cannot_give(settings, f"io_layers.{edge}"):
+                        refuse(
+                            f"io.{edge}_layers",
+                            f"the platform {settings.residue().name!r} gives no layer for the "
+                            f"pins on the {edge} edges (`io_layers.{edge}`), which the placement "
+                            f"of the pins needs: give `io.{edge}_layers`, add `io_layers` to "
+                            "`values` in the residue file (`platform_file`), or set `io.flow: "
+                            "fixed`",
+                        )
+        if problems:
+            raise FlowSettingsError(problems, cls.Settings)
 
     # --- the files ----------------------------------------------------------------------------
 
@@ -371,7 +511,10 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
         return None if given is None else self.normalize_path_to_design_root(given)
 
     def prepare_inputs(self) -> None:
-        """Find the files of the platform, and check the DEF file of the floorplan."""
+        """Find the files of the platform, and check the DEF file of the floorplan.
+
+        Then compute the values of the templates. A value that a stage needs and the platform
+        lacks stops the run here, before OpenROAD starts."""
         super().prepare_inputs()
         path = self.floorplan_def()
         if path is not None and not path.is_file():
@@ -379,6 +522,7 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
                 f"`floorplan.def_file` names {path}, which is not a file: give the DEF file, or "
                 "set `floorplan.sizing: utilization` or `floorplan.sizing: area`"
             )
+        self.effective()
 
     def sdc_list(self) -> List[Path]:
         """Return the SDC files that the process reads, in order: those of the design, the file
@@ -407,15 +551,52 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
 
     def run(self) -> None:
         """Write the constraints of the clocks, then run the process that builds the placement
-        database."""
+        database. Warn when the padding of the legalization is above the padding of the global
+        placement."""
         odb, sdc = self.run_path / "place.odb", self.run_path / "place.sdc"
         self.outputs.odb, self.outputs.sdc = odb, sdc  # type: ignore[attr-defined]
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        detail = settings.detailed_placement.cell_padding
+        if detail > settings.global_placement.cell_padding:
+            log.warning(
+                "detailed_placement.cell_padding (%d) is above global_placement.cell_padding "
+                "(%d): the legalization may find no legal place for a cell that the global "
+                "placement packed closer",
+                detail,
+                settings.global_placement.cell_padding,
+            )
         self.bind_template_values()
         self.copy_from_template(CLOCKS_SDC, trim_blocks=True, lstrip_blocks=True)
         self.run_openroad("openroad_place", "metrics.json", [odb, sdc, self.failed_odb])
 
-    @abstractmethod
-    def _placement_stages_missing(self) -> None:
-        """Keep the flow incomplete. The driver ends after the power grid, so the flow does not
-        place the cells yet, and Xeda does not register an incomplete flow. The change that adds
-        the placement stages removes this method."""
+    # --- the results --------------------------------------------------------------------------
+
+    def parse_reports(self) -> bool:
+        """Read the metrics of the last stage, the legalization. The slacks are estimates from the
+        placement, before any clock tree or route. Return False if the metrics file is missing or
+        holds a value that is no number."""
+        model = self.platform_model
+        assert model is not None, "prepare_inputs() builds the platform model"
+        platform = self.platform_result()
+        if platform is not None:
+            self.results["platform"] = platform
+        metrics = self.read_metrics("metrics.json")
+        if metrics is None:
+            log.error(
+                "OpenROAD wrote no usable metrics file: %s",
+                Path(self.run_path) / "metrics.json",
+            )
+            return False
+        try:
+            found = stage_results(
+                metrics,
+                "detailedplace",
+                time_unit=platform_time_unit(model),
+                file=Path(self.run_path) / "metrics.json",
+            )
+        except MetricsError as error:
+            log.error("%s", error)
+            return False
+        self.results.update(found)
+        return True

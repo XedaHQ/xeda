@@ -642,7 +642,7 @@ def test_the_flags_of_the_global_placement_groups():
 
 def test_the_flags_of_the_pin_placement_and_the_tie_cells():
     io = settings_of(OpenroadPlace, "io.min_distance=4", "io.corner_avoidance=2.5").io
-    assert render(io) == '-min_distance "4.0" -corner_avoidance "2.5"'
+    assert render(io) == '-corner_avoidance "2.5"'  # the flow prints `min_distance` itself
     assert render(OpenroadPlace.Settings().io) == ""
     assert render(OpenroadPlace.Settings().tie) == '-separation "0.0"'
 
@@ -1213,7 +1213,6 @@ def test_an_unknown_flag_in_a_hatch_is_refused_with_the_allowed_flags(command):
 @pytest.mark.parametrize(
     "key, flag, field",
     [
-        ("io", "-min_distance", "io.min_distance"),
         ("io", "-corner_avoidance", "io.corner_avoidance"),
         ("global_placement", "-random_seed", "global_placement.random_seed"),
     ],

@@ -1,0 +1,28 @@
+{# The optimization after the global placement. The repair of the design runs here and not at the
+   floorplan, with the parasitics of the placement. The repair of the timing is off by default.
+   A swap of the arithmetic modules comes first, and its incremental placement makes the cells
+   ready for the repairs. #}
+{% set gp = settings.global_placement %}
+{% set resize = settings.resize %}
+{% set rd = settings.resize.repair_design %}
+{% set rt = settings.resize.repair_timing %}
+{% set rd_footprint = P.match_cell_footprint if rd.match_cell_footprint is none else rd.match_cell_footprint %}
+{% set rt_footprint = P.match_cell_footprint if rt.match_cell_footprint is none else rt.match_cell_footprint %}
+proc xeda_resize {} {
+    xeda_stage placeopt
+    estimate_parasitics -placement
+{% if settings.arith_swap.enabled %}
+    replace_arith_modules
+    global_placement -incremental -density [xeda_density] -pad_left {{ gp.cell_padding|tcl_number }} -pad_right {{ gp.cell_padding|tcl_number }}
+    estimate_parasitics -placement
+{% endif %}
+{% if rd.enabled %}
+    repair_design {{ [render_flags(rd), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
+{% endif %}
+{% if rt.enabled %}
+    estimate_parasitics -placement
+    repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, comma_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+{% endif %}
+    report_floating_nets
+    xeda_metrics 1 0
+}

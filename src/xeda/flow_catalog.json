@@ -109,6 +109,15 @@
       "": []
     }
   },
+  "openroad_place": {
+    "aliases": [],
+    "class_name": "OpenroadPlace",
+    "followers": {
+      "": [],
+      "odb": [],
+      "sdc": []
+    }
+  },
   "quartus": {
     "aliases": [],
     "class_name": "Quartus",
@@ -230,8 +239,12 @@
     "aliases": [],
     "class_name": "Yosys",
     "followers": {
-      "": [],
-      "netlist": []
+      "": [
+        "openroad_place"
+      ],
+      "netlist": [
+        "openroad_place"
+      ]
     }
   },
   "yosys_fpga": {
