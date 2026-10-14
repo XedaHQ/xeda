@@ -113,9 +113,25 @@
     "aliases": [],
     "class_name": "OpenroadCts",
     "followers": {
+      "": [
+        "openroad_grt"
+      ],
+      "odb": [
+        "openroad_grt"
+      ],
+      "sdc": [
+        "openroad_grt"
+      ]
+    }
+  },
+  "openroad_grt": {
+    "aliases": [],
+    "class_name": "OpenroadGrt",
+    "followers": {
       "": [],
       "odb": [],
-      "sdc": []
+      "sdc": [],
+      "guides": []
     }
   },
   "openroad_place": {
@@ -123,7 +139,8 @@
     "class_name": "OpenroadPlace",
     "followers": {
       "": [
-        "openroad_cts"
+        "openroad_cts",
+        "openroad_grt"
       ],
       "odb": [
         "openroad_cts"
@@ -131,6 +148,13 @@
       "sdc": [
         "openroad_cts"
       ]
+    },
+    "routes": {
+      "": {
+        "openroad_grt": [
+          "openroad_cts"
+        ]
+      }
     }
   },
   "quartus": {
@@ -256,22 +280,32 @@
     "followers": {
       "": [
         "openroad_place",
-        "openroad_cts"
+        "openroad_cts",
+        "openroad_grt"
       ],
       "netlist": [
         "openroad_place",
-        "openroad_cts"
+        "openroad_cts",
+        "openroad_grt"
       ]
     },
     "routes": {
       "": {
         "openroad_cts": [
           "openroad_place"
+        ],
+        "openroad_grt": [
+          "openroad_place",
+          "openroad_cts"
         ]
       },
       "netlist": {
         "openroad_cts": [
           "openroad_place"
+        ],
+        "openroad_grt": [
+          "openroad_place",
+          "openroad_cts"
         ]
       }
     }

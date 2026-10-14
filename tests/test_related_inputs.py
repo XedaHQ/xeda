@@ -239,6 +239,7 @@ def test_the_relations_exist_in_the_flows_that_declare_them():
     found = {(flow.name, declaration.name) for flow, declaration in declaring_flows()}
     assert found == {
         ("openroad_cts", "sdc"),
+        ("openroad_grt", "sdc"),
         ("vivado_postsynth_sim", "netlist"),
         ("vivado_postsynth_sim", "sdf"),
         ("vivado_power", "checkpoint"),

@@ -452,6 +452,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "needs the routing layers of the platform model, which the configuration of the PDK "
         "may give",
     ),
+    "xeda.flows.openroad.grt:effective": (
+        1,
+        "judges a power recovery against the polish of the platform model, which the "
+        "configuration of the PDK may give; planning judges the residue files",
+    ),
     "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
         1,
         "needs `nextpnr-himbaechel` on PATH",

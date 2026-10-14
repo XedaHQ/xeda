@@ -48,8 +48,8 @@ RTL, BOTH = frozenset({"rtl"}), frozenset({"rtl", "tb"})
 #: The values every flow takes: the flows that read no testbench, and those that do.
 RTL_FLOWS = (
     "dc diamond_synth fpga_pack ghdl_synth ise_synth nextpnr openfpgaloader openroad_cts "
-    "openroad_place quartus vivado_alt_synth vivado_impl vivado_power vivado_synth yosys "
-    "yosys_fpga"
+    "openroad_grt openroad_place quartus vivado_alt_synth vivado_impl vivado_power "
+    "vivado_synth yosys yosys_fpga"
 ).split()
 RTL_AND_TB_FLOWS = (
     "bsc bsc_sim ghdl_sim modelsim nvc vcs verilator vivado_postsynth_sim vivado_project "
@@ -742,6 +742,15 @@ def tb_reads(cls: type[Flow]) -> list[str]:
                 "restart.tcl.j2",
                 "procs.tcl.j2",
                 "stages/cts.tcl.j2",
+            },
+        ),
+        (
+            "openroad_grt",
+            {
+                "drivers/openroad_grt.tcl.j2",
+                "restart.tcl.j2",
+                "procs.tcl.j2",
+                "stages/global_route.tcl.j2",
             },
         ),
         (

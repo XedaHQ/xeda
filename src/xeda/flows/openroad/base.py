@@ -32,7 +32,8 @@ from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import render_flags
 from ...platforms.model import PlatformModel, WireRc
-from ...tool import Tool
+from ...proc_utils import ProcessTimeout
+from ...tool import NonZeroExitCode, Tool
 from ...units import convert_unit
 from ...utils import tcl_word, unique
 from .groups import FIX_FLAGS, comma_word
@@ -43,6 +44,7 @@ __all__ = [
     "OpenroadStage",
     "effective_base",
     "base_values",
+    "failure_lines",
     "WireRcSettings",
     "merge_wire_rc",
     "platform_time_unit",
@@ -71,6 +73,16 @@ def tcl_numbers(values: Any) -> str:
     """Return the numbers `values` as one Tcl list word: `[list 0.0 1.5]`. Each item goes through
     `tcl_number`, so text is never written as a number."""
     return "[list " + " ".join(tcl_number(value) for value in values) + "]"
+
+
+def failure_lines(log_text: str, *, last_errors: int = 5) -> list[str]:
+    """Return the lines of the log of an OpenROAD process that say why it failed: the last line
+    of the Tcl error (`Error: ...`), then the last `last_errors` lines of the form `[ERROR ...]`,
+    in the order of the log. A log with neither gives an empty list."""
+    lines = log_text.splitlines()
+    tcl_errors = [line for line in lines if line.startswith("Error:")]
+    tool_errors = [line for line in lines if line.startswith("[ERROR")]
+    return [*tcl_errors[-1:], *tool_errors[-last_errors:]]
 
 
 def space_word(items: Sequence[Any]) -> str:
@@ -422,19 +434,39 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         )
         log_file = self.run_directory.writable(f"{driver}.log")
         threads = self.settings.nthreads or "max"
-        self.openroad().run(
-            "-no_init",
-            "-no_splash",
-            "-threads",
-            str(threads),
-            "-exit",
-            "-metrics",
-            metrics,
-            script,
-            env=env,
-            tee=log_file,
-            merge_stderr=True,
-        )
+        try:
+            self.openroad().run(
+                "-no_init",
+                "-no_splash",
+                "-threads",
+                str(threads),
+                "-exit",
+                "-metrics",
+                metrics,
+                script,
+                env=env,
+                tee=log_file,
+                merge_stderr=True,
+            )
+        except NonZeroExitCode as error:
+            if isinstance(error, ProcessTimeout):
+                raise
+            raise NonZeroExitCode(
+                error.command_args,
+                error.exit_code,
+                self._failure_message(driver, log_file),
+            ) from None
+
+    def _failure_message(self, driver: str, log_file: Path) -> str:
+        """Return what a failed process of `driver` adds to the message of the failure: the flow,
+        the script and the error lines of this run's log (`failure_lines`). OpenROAD reports the
+        error of a script only in the log."""
+        message = f"{self.name}: OpenROAD stopped while it ran {driver}.tcl"
+        report = self.report_file(log_file)
+        found = failure_lines(report.read_text(errors="replace")) if report is not None else []
+        if not found:
+            return f"{message}; see {driver}.log"
+        return f"{message}; see {driver}.log: " + " | ".join(found)
 
     def read_metrics(self, name: str) -> Optional[Dict[str, Any]]:
         """Return the metrics file `name` of the run directory, or `None`.

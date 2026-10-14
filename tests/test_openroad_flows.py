@@ -112,14 +112,16 @@ def test_the_flows_read_no_source_but_their_declared_inputs():
 
 def test_a_flow_that_is_not_complete_is_not_registered_by_importing_the_flows():
     """The skeletons stay unregistered until each flow can run, whatever imports `xeda.flows`.
-    `openroad_place` and `openroad_cts` run, so they are registered; the other two are not."""
+    `openroad_place`, `openroad_cts` and `openroad_grt` run, so they are registered; `openroad`
+    is not."""
     code = (
         "import xeda.flows, xeda.flow as f; "
         "print(sorted(name for name in f.registered_flows if 'openroad' in name.lower()))"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert done.stdout.strip() == (
-        "['OpenroadCts', 'OpenroadPlace', 'openroad_cts', 'openroad_place']"
+        "['OpenroadCts', 'OpenroadGrt', 'OpenroadPlace', "
+        "'openroad_cts', 'openroad_grt', 'openroad_place']"
     )
 
 

@@ -1,0 +1,70 @@
+{# The global route: the pin access, the route, and the repair of the design and the timing with
+   the parasitics of the route. A repair changes the netlist or moves cells, so an incremental
+   route follows it and routes only the nets that changed. The restart header has already set the
+   cells that must not be used. The database carries the routing layers and the layer
+   adjustments of the placement, so this stage sets none. The seed is router state, which the
+   database does not store. `-allow_congestion` goes to every route and to the antenna repair:
+   a call without it routes a congested design harder and then fails on it. A flag of the
+   resistance-aware router stays in the routes that end an increment. `repair_timing` reads the
+   moves of `-sequence` and the names of `-phases` as words with spaces between them; it does
+   not split `-phases` at a comma. #}
+{% set pin = settings.pin_access %}
+{% set cong = settings.congestion %}
+{% set router = settings.router %}
+{% set rep = settings.repair %}
+{% set rd = rep.design %}
+{% set rt = rep.timing %}
+{% set ant = settings.antenna %}
+{% set rd_footprint = P.match_cell_footprint if rd.match_cell_footprint is none else rd.match_cell_footprint %}
+{% set rt_footprint = P.match_cell_footprint if rt.match_cell_footprint is none else rt.match_cell_footprint %}
+{% set allow = "-allow_congestion" if cong.allow else "" %}
+{% set aware = "-resistance_aware" if "-resistance_aware" in router.extra_args else "" %}
+proc xeda_global_route {} {
+    xeda_stage globalroute
+{% if pin.enabled %}
+    {{ ["pin_access", render_flags(pin)]|select|join(" ") }}
+{% endif %}
+{% if router.seed is not none %}
+    set_global_routing_random -seed {{ router.seed|tcl_number }}
+{% endif %}
+    {{ ["global_route", "-congestion_report_file " ~ (reports.congestion|tcl_word), render_flags(cong), "-congestion_report_iter_step 5", "-verbose", render_flags(router)]|select|join(" ") }}
+    set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}
+    set_propagated_clock [all_clocks]
+    estimate_parasitics -global_routing
+{% if rep.strategy == "incremental" %}
+{% if rd.enabled %}
+    repair_design {{ [render_flags(rd), "-match_cell_footprint" if rd_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -start_incremental", allow]|select|join(" ") }}
+    detailed_placement
+    {{ ["global_route -end_incremental", allow, aware, "-congestion_report_file " ~ (reports.post_repair_design|tcl_word)]|select|join(" ") }}
+    estimate_parasitics -global_routing
+{% endif %}
+{% if rt.enabled %}
+    repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, space_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -start_incremental", allow]|select|join(" ") }}
+    detailed_placement
+    check_placement -verbose
+    {{ ["global_route -end_incremental", allow, aware, "-congestion_report_file " ~ (reports.post_repair_timing|tcl_word)]|select|join(" ") }}
+    estimate_parasitics -global_routing
+{% endif %}
+{% if P.wns_polish %}
+    repair_timing {{ ["-setup", "-sequence \"vt_swap reroute\"", "-skip_last_gasp", "-repair_tns 0", "-setup_margin " ~ (rt.setup_margin|lib_time) if rt.setup_margin else "", "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+{% elif rep.recover_power_percent is not none %}
+    {{ ["global_route -start_incremental", allow]|select|join(" ") }}
+    repair_timing {{ ["-recover_power " ~ (rep.recover_power_percent|tcl_number), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    {{ ["global_route -end_incremental", allow, aware, "-congestion_report_file " ~ (reports.post_recover_power|tcl_word)]|select|join(" ") }}
+{% endif %}
+{% endif %}
+{% if ant.repair %}
+{% if P.diode_usable %}
+    {{ ["repair_antennas", (P.diode_cell|tcl_word) if P.diode_cell else "", render_flags(ant), "-allow_congestion" if cong.allow else ""]|select|join(" ") }}
+    check_placement -verbose
+{% else %}
+    puts "xeda: the platform has no usable antenna diode; antenna repair skipped"
+{% endif %}
+{% endif %}
+    check_antennas -report_file {{ reports.antennas|tcl_word }}
+    estimate_parasitics -global_routing
+    xeda_metrics 1 1
+    write_guides {{ outputs.guides|tcl_word }}
+}

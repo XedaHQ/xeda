@@ -196,6 +196,8 @@ generated scripts, reports and the effective settings are in the run root, `xeda
     and its clocks. It writes the placed database and its SDC file
   - `openroad_cts`: clock tree synthesis, legalization and timing repair of the placed database.
     It writes the database and its SDC file, with propagated clocks
+  - `openroad_grt`: pin access, global route, repair of the design, the timing and the antenna
+    violations. It writes the database, its SDC file and the route guides
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator
