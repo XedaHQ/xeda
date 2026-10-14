@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Find newer versions of the tools that CI pins, and write them into the workflow files.
 
-CI pins four tools. A pin is one line of a workflow file (two lines for bsc and for the image):
+CI pins five tools. A pin is one line of a workflow file (two lines for bsc and for the image):
 
 * the OSS CAD Suite, by the date of its build: the `version` of the
   `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml`;
@@ -11,7 +11,10 @@ CI pins four tools. A pin is one line of a workflow file (two lines for bsc and 
   `.github/workflows/openxc7.yml`;
 * the OpenROAD-flow-scripts (ORFS) Docker image that runs the OpenROAD tests, by its tag
   (`<yy>Q<q>-<n>-g<commit>`, as a comment) and the digest of that tag: the `image` of the
-  container in `.github/workflows/openroad.yml`.
+  container in `.github/workflows/openroad.yml`;
+* uv, which installs Python for that job, by its release: the `version` of the
+  `astral-sh/setup-uv` step in `.github/workflows/openroad.yml`. (The action itself stays at the
+  version the workflow names.)
 
 For each pin, the script asks GitHub (Docker Hub for the image) for the newest upstream and
 replaces the pin when upstream is newer. It never moves a pin back. A workflow file that does not
@@ -55,6 +58,8 @@ TITLE = "Update the pinned CI tools"
 # `re.ASCII` flag would not carry over.)
 OSS_CAD_TAG = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 BSC_TAG = re.compile(r"[0-9]{4}\.[0-9]{2}(?:\.[0-9]+)?")
+# The release number of uv, as the tag of its release: no `v`, no release candidate.
+UV_TAG = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 # A tag of the ORFS image: the year, the quarter, the number of commits since the start of the
@@ -66,6 +71,7 @@ GITHUB = "https://github.com"
 OSS_CAD_REPOSITORY = "YosysHQ/oss-cad-suite-build"
 BSC_REPOSITORY = "B-Lang-org/bsc"
 INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
+UV_REPOSITORY = "astral-sh/uv"
 ORFS_REPOSITORY = "The-OpenROAD-Project/OpenROAD-flow-scripts"
 ORFS_IMAGE = "openroad/orfs"
 DOCKER_HUB = "https://hub.docker.com"
@@ -101,6 +107,7 @@ PINS = (
     Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`"),
     Pin("installer", "openXC7 toolchain installer", OPENXC7, "`INSTALLER_REV`"),
     Pin("orfs", "ORFS image for the OpenROAD tests", ORFS, "`image` of the container"),
+    Pin("uv", "uv", ORFS, "`version` of the setup-uv step"),
 )
 
 
@@ -147,12 +154,12 @@ _OSS_CAD_VERSION = re.compile(
 _OSS_CAD_EXAMPLE = 'version: "2026-09-15"'
 
 
-def _oss_cad_step(text: str) -> tuple[int, int]:
-    """The start and end offsets of the text of the setup-oss-cad-suite step."""
+def _action_step(text: str, uses: re.Pattern[str], action: str) -> tuple[int, int]:
+    """The start and end offsets of the text of the one step whose `uses:` line matches `uses`."""
     lines = text.splitlines(keepends=True)
-    starts = [i for i, line in enumerate(lines) if _OSS_CAD_STEP.match(line.rstrip("\r\n"))]
+    starts = [i for i, line in enumerate(lines) if uses.match(line.rstrip("\r\n"))]
     if len(starts) != 1:
-        raise PinError(f"expected one setup-oss-cad-suite step, found {len(starts)}")
+        raise PinError(f"expected one {action} step, found {len(starts)}")
     first = starts[0]
     key_column = lines[first].index("uses:")
     end = first + 1
@@ -165,6 +172,10 @@ def _oss_cad_step(text: str) -> tuple[int, int]:
     return offset, offset + sum(len(line) for line in lines[first:end])
 
 
+def _oss_cad_step(text: str) -> tuple[int, int]:
+    return _action_step(text, _OSS_CAD_STEP, "setup-oss-cad-suite")
+
+
 def read_oss_cad(text: str) -> str:
     start, end = _oss_cad_step(text)
     match = _single(text[start:end], _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
@@ -175,6 +186,23 @@ def write_oss_cad(text: str, version: str) -> str:
     start, end = _oss_cad_step(text)
     step = text[start:end]
     match = _single(step, _OSS_CAD_VERSION, "OSS CAD Suite", _OSS_CAD_EXAMPLE)
+    return text[:start] + _replace(step, match, version) + text[end:]
+
+
+_UV_STEP = re.compile(r"^\s*(?:-\s+)?uses:\s*astral-sh/setup-uv@\S+\s*$")
+_UV_VERSION = re.compile(rf'^\s+version:\s*"(?P<value>{UV_TAG.pattern})"[ \t\r]*$', re.MULTILINE)
+_UV_EXAMPLE = 'version: "0.12.23"'
+
+
+def read_uv(text: str) -> str:
+    start, end = _action_step(text, _UV_STEP, "setup-uv")
+    return _single(text[start:end], _UV_VERSION, "uv", _UV_EXAMPLE).group("value")
+
+
+def write_uv(text: str, version: str) -> str:
+    start, end = _action_step(text, _UV_STEP, "setup-uv")
+    step = text[start:end]
+    match = _single(step, _UV_VERSION, "uv", _UV_EXAMPLE)
     return text[:start] + _replace(step, match, version) + text[end:]
 
 
@@ -275,6 +303,25 @@ def newest_oss_cad(answer: Any) -> str:
 
 def _release_number(tag: str) -> tuple[int, ...]:
     return tuple(int(part) for part in tag.split("."))
+
+
+def uv_archive() -> str:
+    """The archive `setup-uv` downloads on the Linux runner of the job."""
+    return "uv-x86_64-unknown-linux-gnu.tar.gz"
+
+
+def newest_uv(answer: Any) -> str:
+    """The number of the newest release that has the Linux archive `setup-uv` downloads."""
+    tags = [
+        tag
+        for release in _releases(answer, "uv")
+        if isinstance(tag := release.get("tag_name"), str)
+        and UV_TAG.fullmatch(tag)
+        and uv_archive() in _asset_names(release)
+    ]
+    if not tags:
+        raise PinError("uv: no release has a Linux x64 archive")
+    return max(tags, key=_release_number)
 
 
 def bsc_tarball(tag: str) -> str:
@@ -459,6 +506,16 @@ def find_update(
             warn(f"{reason}, so the pin stays. If upstream rewrote main, move the pin by hand.")
             return None
         return Update(pin, old, new, (("compare", _compare(INSTALLER_REPOSITORY, old, new)),))
+    if pin.kind == "uv":
+        old = read_uv(text)
+        new = newest_uv(fetch(f"/repos/{UV_REPOSITORY}/releases?per_page=30"))
+        if _release_number(new) <= _release_number(old):
+            return None
+        links = (
+            ("release", f"{GITHUB}/{UV_REPOSITORY}/releases/tag/{new}"),
+            ("compare", _compare(UV_REPOSITORY, old, new)),
+        )
+        return Update(pin, old, new, links)
     if pin.kind == "orfs":
         old, _ = read_orfs_image(text)
         image = newest_orfs(fetch(ORFS_TAGS_URL))
@@ -480,6 +537,8 @@ def apply_update(text: str, update: Update) -> str:
         return write_bsc(text, update.new, update.sha256)
     if kind == "installer":
         return write_installer(text, update.new)
+    if kind == "uv":
+        return write_uv(text, update.new)
     if kind == "orfs":
         return write_orfs_image(text, update.new, update.sha256)
     raise PinError(f"unknown kind of pin: {kind}")

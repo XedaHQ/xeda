@@ -50,6 +50,8 @@ OLD_ORFS_TAG = "26Q4-132-g6b305a712"
 OLD_ORFS_DIGEST = "63981d1ac8990a9bee8bf874c95ee2c1ee3fe7b99f57d459282ab8c31a8ed663"
 NEW_ORFS_TAG = "26Q4-145-g08ddc64f8"
 NEW_ORFS_DIGEST = "cd" * 32
+OLD_UV = "0.12.23"
+NEW_UV = "0.13.1"
 
 CI_TEXT = f"""\
 jobs:
@@ -94,6 +96,17 @@ jobs:
       # openroad/orfs:{OLD_ORFS_TAG}
       image: openroad/orfs@sha256:{OLD_ORFS_DIGEST}
       options: --user root
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          version: "1999-01-01"
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "{OLD_UV}"
+          enable-cache: false
+      - uses: some/other-action@v1
+        with:
+          version: "2030.1.1"
 """
 
 
@@ -133,6 +146,14 @@ AMD64_IMAGE = {
 }
 
 
+def uv_release(tag: Any, linux: bool = True, **flags: bool) -> dict[str, Any]:
+    """A uv release: its Linux archive is what `setup-uv` downloads."""
+    names = ["uv-aarch64-apple-darwin.tar.gz"]
+    if linux:
+        names.append("uv-x86_64-unknown-linux-gnu.tar.gz")
+    return release(tag, *names, **flags)
+
+
 def orfs_tag(
     name: Any, digest: Any = NEW_ORFS_DIGEST, images: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
@@ -158,8 +179,14 @@ class Upstream:
         sha256=NEW_SHA256,
         comparison="ahead",
         orfs_tags=None,
+        uv_releases=None,
     ):
         self.answers = {
+            f"/repos/{pins.UV_REPOSITORY}/releases?per_page=30": (
+                uv_releases
+                if uv_releases is not None
+                else [uv_release(NEW_UV), uv_release("0.13.0"), uv_release(OLD_UV)]
+            ),
             pins.ORFS_TAGS_URL: (
                 orfs_tags
                 if orfs_tags is not None
@@ -200,6 +227,7 @@ def current_upstream() -> Upstream:
         [bsc("2026.07.1")],
         OLD_COMMIT,
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
+        uv_releases=[uv_release(OLD_UV)],
     )
 
 
@@ -225,10 +253,12 @@ def test_the_workflow_files_of_the_repository_hold_pins_the_script_reads(pin_):
         assert pins.BSC_TAG.fullmatch(version) and pins.SHA256.fullmatch(sha256)
     elif pin_.kind == "installer":
         assert pins.COMMIT.fullmatch(pins.read_installer(text))
-    else:
-        assert pin_.kind == "orfs"
+    elif pin_.kind == "orfs":
         tag, digest = pins.read_orfs_image(text)
         assert pins.ORFS_TAG.fullmatch(tag) and pins.SHA256.fullmatch(digest)
+    else:
+        assert pin_.kind == "uv"
+        assert pins.UV_TAG.fullmatch(pins.read_uv(text))
 
 
 def test_ci_downloads_the_bsc_tarball_from_the_address_the_script_hashes():
@@ -245,6 +275,7 @@ def test_each_pin_is_read():
     assert pins.read_bsc(CI_TEXT) == ("2026.07.1", OLD_SHA256)
     assert pins.read_installer(OPENXC7_TEXT) == OLD_COMMIT
     assert pins.read_orfs_image(ORFS_TEXT) == (OLD_ORFS_TAG, OLD_ORFS_DIGEST)
+    assert pins.read_uv(ORFS_TEXT) == OLD_UV
 
 
 def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
@@ -314,6 +345,30 @@ def test_the_oss_cad_pin_is_the_version_of_its_own_step_and_no_other():
             ORFS_TEXT.replace(OLD_ORFS_TAG, "latest"), "orfs", "image", id="tag of another form"
         ),
         pytest.param(ORFS_TEXT + ORFS_TEXT, "orfs", "image", id="image twice"),
+        pytest.param(ORFS_TEXT.replace("setup-uv", "setup-pdm"), "uv", "step", id="uv step"),
+        pytest.param(ORFS_TEXT.replace(f'"{OLD_UV}"', OLD_UV), "uv", "version", id="uv no quotes"),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', '"latest"'), "uv", "version", id="uv not a version"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', '"0.12"'), "uv", "version", id="uv two numbers"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', f'"{OLD_UV}rc1"'), "uv", "version", id="uv rc"
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'"{OLD_UV}"', f'"{OLD_UV}"'.translate(ARABIC_INDIC)),
+            "uv",
+            "version",
+            id="uv other digits",
+        ),
+        pytest.param(
+            ORFS_TEXT.replace(f'          version: "{OLD_UV}"\n', ""),
+            "uv",
+            "version",
+            id="no uv version",
+        ),
+        pytest.param(ORFS_TEXT + ORFS_TEXT, "uv", "step", id="uv step twice"),
         pytest.param(
             CI_TEXT.replace('"2026-09-15"', '"2026-09-15"'.translate(ARABIC_INDIC)),
             "oss",
@@ -328,6 +383,7 @@ def test_a_pin_in_another_format_is_an_error_not_a_guess(text, reader, message):
         "bsc": pins.read_bsc,
         "installer": pins.read_installer,
         "orfs": pins.read_orfs_image,
+        "uv": pins.read_uv,
     }
     with pytest.raises(pins.PinError, match=message):
         read[reader](text)
@@ -343,12 +399,24 @@ def test_replacing_a_pin_changes_that_line_and_no_other():
     assert rewritten.replace("2026.10", "2026.07.1").replace(NEW_SHA256, OLD_SHA256) == CI_TEXT
     rewritten = pins.write_installer(OPENXC7_TEXT, NEW_COMMIT)
     assert rewritten.replace(NEW_COMMIT, OLD_COMMIT) == OPENXC7_TEXT
+    rewritten = pins.write_uv(ORFS_TEXT, NEW_UV)
+    assert pins.read_uv(rewritten) == NEW_UV
+    assert rewritten.replace(NEW_UV, OLD_UV) == ORFS_TEXT
     rewritten = pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST)
     assert pins.read_orfs_image(rewritten) == (NEW_ORFS_TAG, NEW_ORFS_DIGEST)
     assert (
         rewritten.replace(NEW_ORFS_TAG, OLD_ORFS_TAG).replace(NEW_ORFS_DIGEST, OLD_ORFS_DIGEST)
         == ORFS_TEXT
     )
+
+
+def test_the_uv_pin_is_the_version_of_its_own_step_and_no_other():
+    """The `version` of another action, before or after the step, is not the pin."""
+    own = f'          version: "{OLD_UV}"\n'
+    assert pins.read_uv(ORFS_TEXT) == OLD_UV  # another step follows the pin, with its own version
+    with pytest.raises(pins.PinError, match="version"):
+        pins.read_uv(ORFS_TEXT.replace(own, ""))
+    assert pins.write_uv(ORFS_TEXT, NEW_UV).count('"2030.1.1"') == 1
 
 
 def test_replacing_a_pin_keeps_the_quotes_and_the_line_endings():
@@ -558,6 +626,39 @@ def test_an_orfs_tag_with_a_bad_digest_is_an_error(digest):
         pins.newest_orfs(orfs_answer(orfs_tag(NEW_ORFS_TAG, digest)))
 
 
+def test_the_newest_uv_release_has_the_linux_archive_the_action_downloads():
+    answer = [
+        uv_release("0.12.9"),
+        uv_release("0.13.2", linux=False),  # no archive for Linux
+        uv_release("0.13.3", draft=True),
+        uv_release("0.13.4", prerelease=True),
+        uv_release("0.13.5rc1"),  # not a release number
+        uv_release("v0.13.6"),
+        uv_release("0.13.1"),
+        uv_release("0.12.24"),
+    ]
+    assert pins.newest_uv(answer) == "0.13.1"
+
+
+def test_uv_releases_are_ordered_as_numbers_not_as_text():
+    assert pins.newest_uv([uv_release("0.9.30"), uv_release("0.12.2"), uv_release("0.12.10")]) == (
+        "0.12.10"
+    )
+    assert pins.newest_uv([uv_release("1.0.0"), uv_release("0.99.99")]) == "1.0.0"
+
+
+def test_a_uv_tag_written_with_other_digits_is_no_release_tag():
+    other = "0.13.1".translate(ARABIC_INDIC)
+    assert pins.newest_uv([uv_release("0.12.23"), uv_release(other)]) == "0.12.23"
+    assert not pins.UV_TAG.fullmatch(other)
+
+
+@pytest.mark.parametrize("answer", [[], {"message": "rate limit"}, "text", [1], [release("0.1.0")]])
+def test_no_usable_uv_release_is_an_error(answer):
+    with pytest.raises(pins.PinError):
+        pins.newest_uv(answer)
+
+
 # ----------------------------------------------------------- finding and applying updates
 
 
@@ -651,6 +752,31 @@ def test_a_newer_installer_commit_is_an_update_with_a_compare_link():
     assert pins.apply_update(OPENXC7_TEXT, update) == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
 
 
+def test_a_newer_uv_is_an_update_with_its_links():
+    upstream = newer_upstream()
+    update = pins.find_update(pin("uv"), ORFS_TEXT, upstream.fetch, upstream.digest)
+    assert (update.old, update.new) == (OLD_UV, NEW_UV)
+    assert dict(update.links) == {
+        "release": f"https://github.com/astral-sh/uv/releases/tag/{NEW_UV}",
+        "compare": f"https://github.com/astral-sh/uv/compare/{OLD_UV}...{NEW_UV}",
+    }
+    assert pins.apply_update(ORFS_TEXT, update) == pins.write_uv(ORFS_TEXT, NEW_UV)
+    assert pins.read_orfs_image(pins.apply_update(ORFS_TEXT, update))[0] == OLD_ORFS_TAG
+
+
+def test_uv_never_moves_back_and_a_pin_at_the_newest_is_not_an_update():
+    for releases in ([uv_release("0.12.22"), uv_release("0.9.30")], [uv_release(OLD_UV)]):
+        upstream = newer_upstream(uv_releases=releases)
+        assert pins.find_update(pin("uv"), ORFS_TEXT, upstream.fetch, upstream.digest) is None
+
+
+def test_a_uv_pin_is_compared_with_the_releases_by_number_not_by_text():
+    text = ORFS_TEXT.replace(OLD_UV, "0.9.30")  # older than 0.12.2
+    upstream = newer_upstream(uv_releases=[uv_release("0.12.2")])
+    update = pins.find_update(pin("uv"), text, upstream.fetch, upstream.digest)
+    assert update is not None and update.new == "0.12.2"
+
+
 def test_a_newer_orfs_image_is_an_update_with_its_links():
     upstream = newer_upstream()
     update = pins.find_update(pin("orfs"), ORFS_TEXT, upstream.fetch, upstream.digest)
@@ -738,7 +864,7 @@ def test_a_run_leaves_a_bsc_without_a_published_digest_and_goes_on_with_the_othe
         log=log.append,
         warn=warnings.append,
     )
-    assert [u.pin.kind for u in updates] == ["oss_cad", "installer", "orfs"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "installer", "orfs", "uv"]
     assert pins.read_bsc((tmp_path / pins.CI).read_text()) == ("2026.07.1", OLD_SHA256)
     assert warnings == [f"{BSC_WITHOUT_DIGEST} (the pin stays at 2026.07.1)"]
     assert not any("Bluespec" in line and "up to date" in line for line in log)
@@ -927,7 +1053,7 @@ def test_a_dry_run_finds_every_update_and_writes_nothing(tmp_path):
     upstream = newer_upstream()
     log: list[str] = []
     updates = pins.run(tmp_path, upstream.fetch, upstream.digest, dry_run=True, log=log.append)
-    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs"]
+    assert [u.pin.kind for u in updates] == ["oss_cad", "bsc", "installer", "orfs", "uv"]
     assert contents(tmp_path) == before
     assert any("2026-09-15 -> 2026-10-07" in line for line in log)
     assert any(NEW_SHA256 in line for line in log)
@@ -942,7 +1068,9 @@ def test_a_run_writes_the_pins_and_only_the_pins(tmp_path):
         pins.write_oss_cad(CI_TEXT, "2026-10-07"), "2026.10", NEW_SHA256
     )
     assert after[str(pins.OPENXC7)] == OPENXC7_TEXT.replace(OLD_COMMIT, NEW_COMMIT)
-    assert after[str(pins.ORFS)] == pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST)
+    assert after[str(pins.ORFS)] == pins.write_uv(
+        pins.write_orfs_image(ORFS_TEXT, NEW_ORFS_TAG, NEW_ORFS_DIGEST), NEW_UV
+    )
     # a second run finds nothing more to do
     again = pins.run(
         tmp_path,
@@ -982,7 +1110,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
     upstream = newer_upstream()
     updates = [
         pins.find_update(p, text, upstream.fetch, upstream.digest)
-        for p, text in zip(pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT))
+        for p, text in zip(pins.PINS, (CI_TEXT, CI_TEXT, OPENXC7_TEXT, ORFS_TEXT, ORFS_TEXT))
     ]
     title, body = pins.pull_request_text(updates)
     message = pins.commit_message(updates)
@@ -992,6 +1120,7 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
         "Bluespec Compiler (bsc): 2026.07.1 -> 2026.10",
         "openXC7 toolchain installer: efe9e07 -> 1234567",
         f"ORFS image for the OpenROAD tests: {OLD_ORFS_TAG} -> {NEW_ORFS_TAG}",
+        f"uv: {OLD_UV} -> {NEW_UV}",
     ):
         assert line in message
     assert "`2026-09-15` | `2026-10-07`" in body
@@ -1001,8 +1130,10 @@ def test_the_pull_request_and_the_commit_say_what_changed_and_where_to_read_more
         "https://github.com/B-Lang-org/bsc/releases/tag/2026.10",
         f"https://github.com/openXC7/toolchain-installer/compare/{OLD_COMMIT}...{NEW_COMMIT}",
         f"https://hub.docker.com/r/openroad/orfs/tags?name={NEW_ORFS_TAG}",
+        f"https://github.com/astral-sh/uv/releases/tag/{NEW_UV}",
     ):
         assert url in body
+    assert f"`{OLD_UV}` | `{NEW_UV}`" in body
     assert f"`{OLD_ORFS_TAG}` | `{NEW_ORFS_TAG}`" in body
     assert f"`sha256:{NEW_ORFS_DIGEST}`" in body and "providers.orfs.version" in body
     assert f"`{NEW_SHA256}`" in body and "bsc-2026.10-ubuntu-24.04.tar.gz" in body
@@ -1028,12 +1159,13 @@ def test_the_text_names_only_the_tools_that_changed():
         bsc_releases=[bsc("2026.07.1")],
         installer_sha=OLD_COMMIT,
         orfs_tags=orfs_answer(orfs_tag(OLD_ORFS_TAG, OLD_ORFS_DIGEST)),
+        uv_releases=[uv_release(OLD_UV)],
     )
     update = pins.find_update(pin("oss_cad"), CI_TEXT, upstream.fetch, upstream.digest)
     _, body = pins.pull_request_text([update])
     assert "OSS CAD Suite" in body
     assert "bsc" not in body and "installer" not in body and "SHA-256" not in body
-    assert "orfs" not in body.lower() and "sha256:" not in body
+    assert "orfs" not in body.lower() and "sha256:" not in body and "uv" not in body
 
 
 # ------------------------------------------------------------------------ the warnings
