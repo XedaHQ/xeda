@@ -19,6 +19,7 @@ To drive Xeda from a script or a coding agent, read :doc:`machine-readable`.
    tutorial/index
    design-file
    flows
+   platforms
    run-directories
    machine-readable
    bugs

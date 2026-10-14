@@ -33,7 +33,8 @@ python tools/generate_flow_catalog.py [--check]   # regenerate/check src/xeda/fl
   fails a test that changes a file in the checkout.
 - Real-tool tests skip when the tool is missing (`require_*` in `tests/tool_utils.py`);
   `XEDA_TESTS_REQUIRE_TOOLS=1` (set in CI) makes a skip fail. Opt-in layers: `XEDA_TESTS_VIVADO`,
-  `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`.
+  `XEDA_TESTS_DOCKER`, `XEDA_TESTS_EXTERNAL`, `XEDA_TESTS_OPENXC7`, `XEDA_TESTS_PDK_ROOT` (a PDK
+  store) with `XEDA_TESTS_PLATFORMS` (the bundled platforms it holds).
 - `pytest &` in a non-interactive shell ignores SIGINT: a test that interrupts a tool sets
   `DEFAULT_SIGINT` (`tests/test_proc_utils.py`) and waits for a ready signal, never a sleep.
 
