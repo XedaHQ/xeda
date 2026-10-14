@@ -28,6 +28,7 @@ from typing import Any, List, Optional, Sequence
 import pytest
 
 __all__ = [
+    "OPENROAD_COMMANDS",
     "fake_calls",
     "fake_returns",
     "require_bluesim",
@@ -51,6 +52,7 @@ __all__ = [
     "require_yosys_ghdl_plugin",
     "require_yosys_tcl",
     "use_fake_asic_tools",
+    "use_fake_openroad",
     "use_fake_tools",
     "yosys_json_attribute_holders",
     "checkout_work_dir",
@@ -698,6 +700,159 @@ def use_fake_tools(monkeypatch: pytest.MonkeyPatch) -> None:
         and os.access(loader, os.X_OK)
     ), f"missing or incorrect fake openFPGALoader: {loader}; refusing real programmer fallback"
     monkeypatch.setenv("PATH", str(FAKE_TOOLS_DIR) + os.pathsep + os.environ.get("PATH", ""))
+
+
+# ---------------------------------------------------------------------------------------------
+# The fake OpenROAD (`tests/fake_tools/openroad`) runs the Tcl that the OpenROAD flows render,
+# under `tclsh`, after `fake_openroad_prelude.tcl`. The prelude defines one command for each
+# name of `OPENROAD_COMMANDS` and nothing else, so a command that is not in the list is a Tcl
+# error (`invalid command name`), and `fake_calls` fails the test. The real-tool tests compare
+# the same list with the `help` of the installed OpenROAD.
+# ---------------------------------------------------------------------------------------------
+
+#: Every OpenROAD command that a template may emit, grouped by the stage that first needs it. A
+#: template that emits a command which is not here adds it here.
+OPENROAD_COMMANDS: tuple[str, ...] = (
+    # restart header: libraries, design, constraints, layer and wire parasitics, dont-use cells
+    "read_liberty",
+    "read_lef",
+    "read_verilog",
+    "link_design",
+    "read_db",
+    "read_sdc",
+    "set_layer_rc",
+    "set_wire_rc",
+    "set_dont_use",
+    # metrics and queries that the helper procedures use
+    "utl::set_metrics_stage",
+    "report_tns_metric",
+    "report_worst_slack_metric",
+    "report_fmax_metric",
+    "report_clock_skew_metric",
+    "report_erc_metrics",
+    "report_power_metric",
+    "report_design_area_metrics",
+    "report_units_metric",
+    "get_lib_cell",
+    "get_property",
+    "get_name",
+    "ord::get_db",
+    "ord::get_db_block",
+    "odb::dbObstruction_destroy",
+    # floorplan
+    "eliminate_dead_logic",
+    "report_design_area",
+    "check_setup",
+    "initialize_floorplan",
+    "read_def",
+    "make_tracks",
+    "set_global_routing_layer_adjustment",
+    "set_routing_layers",
+    "set_dont_touch",
+    "set_opt_config",
+    "set_global_sizing_config",
+    "repair_tie_fanout",
+    "replace_arith_modules",
+    "remove_buffers",
+    # tap cells and power grid
+    "tapcell",
+    "cut_rows",
+    "add_global_connection",
+    "global_connect",
+    "set_voltage_domain",
+    "define_pdn_grid",
+    "add_pdn_stripe",
+    "add_pdn_connect",
+    "pdngen",
+    # global placement and pin placement
+    "gpl::get_global_placement_uniform_density",
+    "global_placement",
+    "all_pins_placed",
+    "place_pins",
+    "buffer_ports",
+    "estimate_parasitics",
+    # resizing and detailed placement
+    "repair_design",
+    "repair_timing",
+    "report_floating_nets",
+    "set_placement_padding",
+    "detailed_placement",
+    "improve_placement",
+    "optimize_mirroring",
+    "check_placement",
+    # clock tree synthesis
+    "repair_clock_inverters",
+    "clock_tree_synthesis",
+    "repair_clock_nets",
+    # global route
+    "pin_access",
+    "set_global_routing_random",
+    "global_route",
+    "set_propagated_clock",
+    "all_clocks",
+    "repair_antennas",
+    "check_antennas",
+    "write_guides",
+    # detailed route and fill
+    "detailed_route",
+    "grt::have_routes",
+    "design_is_routed",
+    "filler_placement",
+    # final outputs and report
+    "write_db",
+    "write_sdc",
+    "write_def",
+    "write_verilog",
+    "write_cdl",
+    "write_sdf",
+    "write_abstract_lef",
+    "write_timing_model",
+    "define_process_corner",
+    "set_extraction_rules_file",
+    "extract_parasitics",
+    "write_spef",
+    "read_spef",
+    "set_pdnsim_net_voltage",
+    "analyze_power_grid",
+    "report_cell_usage",
+    # images (OpenROAD with a graphical interface)
+    "ord::openroad_gui_compiled",
+    "ord::dbu_to_microns",
+    "gui::save_display_controls",
+    "gui::restore_display_controls",
+    "gui::select_marker_category",
+    "gui::clear_highlights",
+    "gui::clear_selections",
+    "gui::fit",
+    "gui::set_display_controls",
+    "gui::set_heatmap",
+    "gui::show_widget",
+    "gui::hide_widget",
+    "gui::select_clockviewer_clock",
+    "gui::show_worst_path",
+    "get_clocks",
+    "get_scenes",
+    "select",
+    "save_image",
+    "save_clocktree_image",
+)
+
+
+def use_fake_openroad(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Put the fake OpenROAD, with the other fake tools, first on PATH for the rest of the test.
+
+    The fake runs the Tcl script it is given under `tclsh` (`require_tclsh`) and records the
+    commands in `fake_openroad.calls` in its working directory (`fake_calls`). Without `tclsh`
+    it runs nothing, as the other Tcl fakes do. `XEDA_FAKE_TOOL_FAIL`, `XEDA_FAKE_TOOL_RETURNS`
+    (`fake_returns`) and `XEDA_FAKE_OPENROAD_METRICS` (the directory of the recorded metrics
+    files) change what it does."""
+    fake = FAKE_TOOLS_DIR / "openroad"
+    assert (
+        fake.is_file()
+        and fake.resolve() == (FAKE_TOOLS_DIR / "fake_tool.py").resolve()
+        and os.access(fake, os.X_OK)
+    ), f"missing or incorrect fake openroad: {fake}"
+    use_fake_tools(monkeypatch)
 
 
 def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
