@@ -435,6 +435,36 @@ def test_a_removed_leaf_of_a_sub_group_is_refused_by_that_group():
         Inner(gone=1)
 
 
+@pytest.mark.parametrize(
+    "value", [3, "old", "toy", ["old"], 2.5], ids=["int", "removed-name", "text", "list", "float"]
+)
+def test_a_value_that_is_no_table_is_refused_as_the_wrong_type(toy_flow, value):
+    """The group has removed settings, and the value is no mapping: a number, a text that names a
+    removed leaf, a list. Each one is refused as the wrong type, never with a traceback and never
+    as if it named a removed leaf."""
+    with pytest.raises(FlowSettingsError) as raised:
+        toy_flow.Settings.from_input({"toy": value})
+    ((location, message, _, kind),) = raised.value.errors
+    assert (location, kind) == ("toy", "model_type")
+    assert message.startswith("Input should be a valid dictionary or instance of _Toy")
+
+
+@pytest.mark.parametrize("item", ["toy=3", "toy=old", "toy=a,b"])
+def test_a_command_line_value_that_is_no_table_is_refused_as_the_wrong_type(toy_flow, item):
+    with pytest.raises(FlowSettingsError) as raised:
+        _settings(toy_flow, [item])
+    ((location, _, _, kind),) = raised.value.errors
+    assert (location, kind) == ("toy", "model_type")
+
+
+@pytest.mark.parametrize("value", [3, "old", ["old"]], ids=["int", "removed-name", "list"])
+def test_assigning_a_value_that_is_no_table_to_a_group_is_refused(toy_flow, value):
+    settings = toy_flow.Settings()
+    with pytest.raises(ValidationError, match="model_type"):
+        settings.toy = value
+    assert settings.toy == _Toy()
+
+
 # ------------------------------------------------------------------------------- list text
 
 
