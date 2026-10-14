@@ -26,7 +26,7 @@ from xeda import proc_utils
 from xeda.flows.openfpgaloader import OpenfpgaloaderTool
 from xeda.proc_utils import run_process
 from xeda.tool import Tool
-from xeda.utils import NonZeroExitCode
+from xeda.utils import NonZeroExitCode, live_log
 
 pytestmark = [
     pytest.mark.python_compat,
@@ -89,7 +89,8 @@ class Terminal:
         raise AssertionError("the terminal did not receive what was written to it")
 
     def close(self) -> None:
-        self.stream.close()
+        self.stream.close()  # the reader reads the end of the output and returns
+        self.reader.join()  # a later terminal must not get the number of a descriptor still read
         os.close(self.master)
 
 
@@ -256,6 +257,30 @@ def test_the_output_that_ends_in_a_cut_character_has_the_replacement_character_o
     run_process(sys.executable, child(code), tee=log, terminal=True)
     assert log_lines(log) == ["first\ufffd"]
     assert terminal.shown() == "first\ufffd"
+
+
+def test_the_last_output_of_a_child_that_ended_is_not_lost(tmp_path):
+    """macOS discards what the master has not read when the last slave end closes, so the copy
+    of the output holds a slave end until the child has ended and its output is read. Only
+    macOS tells the held slave end from a closed one; on Linux the output is kept either way."""
+    master, slave = pty.openpty()
+    shown = tmp_path / "shown.txt"
+    log = tmp_path / "tool.log"
+    try:
+        child_slave = os.dup(slave)
+        os.write(child_slave, b"first\xc3")
+        os.close(child_slave)  # the child writes and ends: only the held slave end is left
+        with (
+            live_log(log, encoding="utf-8") as log_file,
+            shown.open("w", encoding="utf-8", newline="") as stream,
+        ):
+            proc_utils._copy_from_terminal(
+                master, log_file, stream, lambda: True, lambda: os.close(slave)
+            )
+    finally:
+        os.close(master)
+    assert log_lines(log) == ["first\ufffd"]
+    assert shown.read_text(encoding="utf-8") == "first\ufffd"
 
 
 def test_what_a_tool_writes_in_pieces_arrives_whole(terminal, tmp_path):
