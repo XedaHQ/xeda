@@ -896,8 +896,7 @@ class FinishGroup(SettingsGroup):
     allow_tristate: bool = Field(
         False,
         description="Warning: a tri-state buffer in the netlist is not a mapped cell. Let the "
-        "check of mapped cells pass the tri-state buffers (`check -allow-tbuf`). Not with "
-        "`arithmetic.wrap_operators`, whose check does not look for mapped cells.",
+        "check of mapped cells pass the tri-state buffers (`check -allow-tbuf`).",
         json_schema_extra=tier("expert"),
     )
 

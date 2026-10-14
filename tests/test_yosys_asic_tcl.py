@@ -342,22 +342,37 @@ def test_a_script_without_wrapping_maps_the_adders_without_asking(tmp_path, monk
     assert ["design_has_extracted_operators"] not in calls and ["extract_fa"] in calls
 
 
-def test_wrapping_checks_the_design_without_the_mapped_option_and_keeps_the_attributes(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("mapper", ["abc", "abc_new"])
+def test_wrapping_checks_that_every_cell_is_mapped_and_keeps_the_attributes(
+    tmp_path, monkeypatch, mapper
 ):
-    """The wrapped modules leave `$buf` cells, which `check -mapped` refuses. The place and route
+    """The check of the mapped cells runs with wrapping as it does without. The place and route
     tool needs the attributes of the netlist, so `-noattr` is not given."""
-    run_dir, calls = _render(tmp_path, monkeypatch, **WRAPPED)
-    checks = [call for call in calls if call[0] == "check"]
-    assert ["check", "-assert"] in checks and ["check", "-assert", "-mapped"] not in checks
+    run_dir, calls = _render(
+        tmp_path, monkeypatch, arithmetic={"wrap_operators": True}, abc={"mapper": mapper}
+    )
+    checks = [call for call in calls if call[0] == "check" and "-initdrv" not in call]
+    assert checks == [["check", "-assert", "-mapped"]]
     assert "-noattr" not in calls[-1] and calls[-1][0] == "write_verilog"
     effective = json.loads((run_dir / "settings.json").read_text())["effective_flow_settings"]
     assert effective["netlist_attrs"] is True
 
 
-def test_wrapping_with_check_assert_off_runs_a_plain_check(tmp_path, monkeypatch):
+def test_wrapping_with_check_assert_off_runs_a_mapped_check_without_assert(tmp_path, monkeypatch):
     _, calls = _render(tmp_path, monkeypatch, check_assert=False, **WRAPPED)
-    assert ["check"] in calls and ["check", "-mapped"] not in calls
+    assert ["check", "-mapped"] in calls and ["check"] not in calls
+
+
+def test_wrapping_with_allow_tristate_lets_the_mapped_check_pass_the_tristate_buffers(
+    tmp_path, monkeypatch
+):
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45", script_format="tcl", finish={"allow_tristate": True}, **WRAPPED
+        )
+    )
+    _, calls = _render(tmp_path, monkeypatch, finish={"allow_tristate": True}, **WRAPPED)
+    assert ["check", "-assert", "-mapped", "-allow-tbuf"] in calls
 
 
 def test_both_modes_together(tmp_path, monkeypatch):
@@ -856,6 +871,25 @@ def test_real_yosys_keeps_a_module_above_the_cost_and_flattens_one_below(tmp_pat
     assert "big" in modules and "top" in modules, list(modules)
     assert "small" not in modules, list(modules)
     assert re.search(r"^\s*big\s", modules["top"], re.M)
+
+
+WIDE = (
+    "module wide(input clk, input [31:0] a, b, output reg [63:0] q, output reg [40:0] s);\n"
+    "  always @(posedge clk) begin q <= a * b + q; s <= a + b + s[31:0]; end\n"
+    "endmodule\n"
+)
+
+
+@pytest.mark.parametrize("mapper", ["abc", "abc_new"])
+@pytest.mark.parametrize("source,top", [(ADDER, "adder"), (WIDE, "wide")], ids=["adder", "wide"])
+def test_real_yosys_passes_the_mapped_check_with_wrapped_operators(tmp_path, source, top, mapper):
+    """`check -assert -mapped` runs after wrapping, and the netlist has wrapped modules."""
+    require_yosys_tcl()
+    flow, netlist = _launch(
+        tmp_path, source, top, arithmetic={"wrap_operators": True}, abc={"mapper": mapper}
+    )
+    assert "check -assert -mapped" in (flow.run_path / "yosys_synth.tcl").read_text()
+    assert "architecture" in netlist and "module ALU_" in netlist
 
 
 def test_real_yosys_maps_each_wrapped_operator_with_the_script_it_carries(tmp_path):

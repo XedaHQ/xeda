@@ -1408,8 +1408,8 @@ with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl
     ABC maps each wrapped operator with the script that the operator carries, as
     OpenROAD-flow-scripts does. With ``abc``, ABC maps every module with the script of
     ``abc.strategy``.
-    Xeda refuses ``netlist_attrs: false``, a ``netlist_unset_attributes`` entry that names one of
-    these attributes, and ``finish.allow_tristate``.
+    Xeda refuses ``netlist_attrs: false`` and a ``netlist_unset_attributes`` entry that names one
+    of these attributes.
 
 ``memory.max_bits``
     Stops the run when a memory is larger than this many bits. The error suggests raising

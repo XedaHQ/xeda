@@ -609,16 +609,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         f"(`arithmetic.wrap_operators`): delete `{name}` from the list",
                     )
                 )
-            if settings.finish.allow_tristate:
-                problems.append(
-                    (
-                        "finish.allow_tristate",
-                        "`finish.allow_tristate` lets the check of mapped cells pass the "
-                        "tri-state buffers, and operator wrapping "
-                        "(`arithmetic.wrap_operators`) runs no such check, since the wrapped "
-                        "modules leave `$buf` cells: delete one of them",
-                    )
-                )
             if settings.netlist_attrs is False:
                 problems.append(
                     (

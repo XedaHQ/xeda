@@ -246,20 +246,6 @@ def test_a_cell_with_its_switch_on_is_accepted():
     )
 
 
-def test_allow_tristate_is_refused_where_the_check_is_not_mapped():
-    """Operator wrapping leaves `$buf` cells, so its check does not use `-mapped`."""
-    problems = dict(
-        _problems(
-            script_format="tcl",
-            arithmetic={"wrap_operators": True},
-            abc={"mapper": "abc_new"},
-            finish={"allow_tristate": True},
-        )
-    )
-    message = problems["finish.allow_tristate"]
-    assert "`finish.allow_tristate`" in message and "`arithmetic.wrap_operators`" in message
-
-
 @pytest.mark.parametrize(
     "given",
     [

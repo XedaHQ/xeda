@@ -303,8 +303,9 @@ autoname
 {%- if settings.finish.normalize_single_bit %}
 attrmap -remove single_bit_vector
 {%- endif %}
-{#- the wrapped modules leave `$buf` cells, which `check -mapped` refuses #}
-check{% if settings.check_assert %} -assert{% endif %}{% if not wrap_operators %} -mapped{% if settings.finish.allow_tristate %} -allow-tbuf{% endif %}{% endif %}
+{#- The check of the mapped cells runs with wrapping too: the `$buf` cells that the wrapped modules
+    once left, and that `-mapped` refused, are gone since YosysHQ/yosys#4931 (yosys 0.51). #}
+check{% if settings.check_assert %} -assert{% endif %} -mapped{% if settings.finish.allow_tristate %} -allow-tbuf{% endif %}
 
 {#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
     which `write_json` refuses to write. A liberty library holds blackboxes only. #}
