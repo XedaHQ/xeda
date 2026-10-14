@@ -21,6 +21,7 @@ from click.testing import CliRunner
 
 from xeda import pdk_cli
 from xeda.cli import cli
+from xeda.introspect import provider_status
 from xeda.platforms import Residue, load_residue
 from xeda.platforms.providers import PROVIDERS
 
@@ -29,6 +30,7 @@ pytestmark = pytest.mark.python_compat
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 
 OTHER_COMMIT = "1111111111111111111111111111111111111111"
+PIN = "6b305a712966be72d8908695c04398acdbe273ca"
 
 
 def run_xeda(*args: str, home: Path) -> subprocess.CompletedProcess:
@@ -181,7 +183,21 @@ def test_pdk_list_names_the_other_installed_versions_by_path(home, store):
     (store / "xeda" / "orfs" / "notes").mkdir()
     orfs = listed(home, "--root", str(store))["nangate45", "orfs"]
     assert orfs["installed"] is True
-    assert orfs["other_versions"] == [str(older)]
+    assert orfs["other_versions"] == [
+        {"version": OTHER_COMMIT, "directory": str(older), "installed": True}
+    ]
+
+
+def test_pdk_list_marks_a_partial_other_version_as_not_installed(home, store):
+    partial = nangate_directory(store, OTHER_COMMIT)
+    names = relative_files(load_residue("nangate45"))
+    for name in names[:-1]:
+        (partial / name).parent.mkdir(parents=True, exist_ok=True)
+        (partial / name).write_text("")
+    orfs = listed(home, "--root", str(store))["nangate45", "orfs"]
+    assert orfs["other_versions"] == [
+        {"version": OTHER_COMMIT, "directory": str(partial), "installed": False}
+    ]
 
 
 def test_pdk_list_shows_other_versions_when_the_pin_is_missing(home, tmp_path):
@@ -190,7 +206,9 @@ def test_pdk_list_shows_other_versions_when_the_pin_is_missing(home, tmp_path):
     touch_all(older, load_residue("nangate45"))
     orfs = listed(home, "--root", str(root))["nangate45", "orfs"]
     assert orfs["installed"] is False
-    assert orfs["other_versions"] == [str(older)]
+    assert orfs["other_versions"] == [
+        {"version": OTHER_COMMIT, "directory": str(older), "installed": True}
+    ]
 
 
 def test_pdk_list_table_names_the_root(home, store):
@@ -398,10 +416,7 @@ def test_pdk_path_locates_a_user_file_over_the_platform_it_extends(home, tmp_pat
 
 
 def test_a_missing_pdk_of_a_user_file_is_refused_like_a_bundled_one(home, tmp_path):
-    user = write_user_file(
-        tmp_path / "mine.yaml",
-        {"name": "mine", "extends": "nangate45", "providers": {"default": "directory"}},
-    )
+    user = write_user_file(tmp_path / "mine.yaml", {"name": "mine", "extends": "nangate45"})
     proc = run_xeda(
         "pdk",
         "path",
@@ -414,7 +429,63 @@ def test_a_missing_pdk_of_a_user_file_is_refused_like_a_bundled_one(home, tmp_pa
     )
     assert proc.returncode != 0
     assert document(proc)["error"]["type"] == "PdkNotInstalled"
-    assert "platform 'mine' needs the PDK files" in document(proc)["error"]["message"]
+    message = document(proc)["error"]["message"]
+    assert "platform 'mine' needs the PDK files" in message
+    assert f"install:   xeda pdk install --platform-file {user.resolve()} --root " in message
+
+
+def mine_in_a_checkout(tmp_path: Path, head: str) -> tuple[Path, Path]:
+    """A user file over nangate45 served by a directory, and an ORFS checkout that holds the
+    files and whose HEAD says `head`. Return the file and the root (`flow/platforms`)."""
+    root = tmp_path / "checkout" / "flow" / "platforms"
+    touch_all(root / "mine", load_residue("nangate45"))
+    (tmp_path / "checkout" / ".git").mkdir()
+    (tmp_path / "checkout" / ".git" / "HEAD").write_text(head + "\n")
+    user = write_user_file(
+        tmp_path / "mine.yaml",
+        {"name": "mine", "extends": "nangate45", "providers": {"default": "directory"}},
+    )
+    return user, root
+
+
+def test_pdk_path_accepts_a_checkout_at_the_pinned_version(home, tmp_path):
+    user, root = mine_in_a_checkout(tmp_path, PIN)
+    proc = run_xeda(
+        *["pdk", "path", "--platform-file", str(user), "--root", str(root)],
+        *["--version", PIN, "--json"],
+        home=home,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert document(proc)["version"] == PIN
+
+
+def test_pdk_path_refuses_files_whose_marker_names_another_version(home, tmp_path):
+    user, root = mine_in_a_checkout(tmp_path, OTHER_COMMIT)
+    arguments = ["pdk", "path", "--platform-file", str(user), "--root", str(root)]
+    arguments += ["--version", PIN]
+    text = run_xeda(*arguments, home=home)
+    assert text.returncode != 0
+    assert text.stdout == ""
+    assert PIN in text.stderr and OTHER_COMMIT in text.stderr
+    proc = run_xeda(*arguments, "--json", home=home)
+    assert proc.returncode != 0
+    error = document(proc)
+    assert error["success"] is False
+    assert error["error"]["type"] == "PdkVersionMismatch"
+    assert error["error"]["message"] + "\n" == text.stderr
+
+
+def test_a_store_whose_marker_names_another_version_is_not_installed(tmp_path):
+    from .test_pdk_providers import CIEL_HASH, OTHER_HASH, make_store, write
+
+    store = make_store(tmp_path, "ciel")
+    status = provider_status(store.residue, "ciel", store.root)
+    assert status["installed"] is True and "problem" not in status
+    write(store.directory / "SOURCES", f"open_pdks {OTHER_HASH}\n")
+    status = provider_status(store.residue, "ciel", store.root)
+    assert status["installed"] is False
+    assert status["directory"] == str(store.directory)
+    assert CIEL_HASH in status["problem"] and OTHER_HASH in status["problem"]
 
 
 def test_a_user_file_that_is_not_a_platform_fails_naming_the_file(home, tmp_path):

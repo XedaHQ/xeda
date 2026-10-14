@@ -70,25 +70,34 @@ def _fail(error_type: str, message: str, fmt: str) -> NoReturn:
 # ---------------------------------------------------------------------------------------------
 
 
-def _other_orfs_versions(residue: Residue, root: Path) -> list[str]:
-    """The platform directories of the other commits that the store holds, by path, sorted."""
+def _other_orfs_versions(residue: Residue, root: Path) -> list[dict[str, Any]]:
+    """The other commits that the store holds a directory of the platform for, sorted. Each has
+    its `version`, its `directory` and `installed`: whether every file of the platform is there.
+    A partial directory, which an interrupted install leaves, is not installed."""
+    from .platforms import PdkNotInstalled, locate
     from .platforms.providers import orfs_checkout_directory
     from .platforms.residue import COMMIT
 
     entry = residue.providers.orfs
     assert entry is not None
-    checkouts = orfs_checkout_directory(root.absolute(), entry.version).parent
+    root = root.absolute()
+    checkouts = orfs_checkout_directory(root, entry.version).parent
     try:
         names = sorted(path.name for path in checkouts.iterdir())
     except OSError:
         return []
     found = []
     for name in names:
-        if name == entry.version or not COMMIT.fullmatch(name):
+        directory = orfs_checkout_directory(root, name) / entry.directory
+        if name == entry.version or not COMMIT.fullmatch(name) or not directory.is_dir():
             continue
-        directory = orfs_checkout_directory(root.absolute(), name) / entry.directory
-        if directory.is_dir():
-            found.append(str(directory))
+        try:
+            locate(residue, "orfs", name, root, None)
+        except PdkNotInstalled:
+            installed = False
+        else:
+            installed = True
+        found.append({"version": name, "directory": str(directory), "installed": installed})
     return found
 
 
@@ -113,6 +122,8 @@ def store_rows(root: Path) -> list[dict[str, Any]]:
                 "installed": status["installed"],
                 "directory": status["directory"],
             }
+            if "problem" in status:
+                row["problem"] = status["problem"]
             if provider == "orfs":
                 row["other_versions"] = _other_orfs_versions(residue, root)
             rows.append(row)
@@ -156,8 +167,17 @@ def pdk_list(root: Optional[Path], output_format: str, json_flag: bool) -> None:
             escape(row["directory"]),
         )
         for other in row.get("other_versions", []):
-            table.add_row("", "", "other version", "yes", escape(other))
+            table.add_row(
+                "",
+                "",
+                escape(_short(other["version"])),
+                "yes" if other["installed"] else "no",
+                escape(other["directory"]),
+            )
     console.print(table)
+    for row in rows:
+        if "problem" in row:
+            console.print(escape(row["problem"]), highlight=False)
 
 
 # ---------------------------------------------------------------------------------------------
@@ -244,13 +264,17 @@ def pdk_path(
     from .cli_utils import emit_structured, resolve_format
     from .introspect import json_safe
     from .platforms import PdkNotInstalled, locate
+    from .platforms.providers import PdkVersionMismatch, verify_pin
 
     fmt = resolve_format(output_format, json_flag)
     residue = resolve_platform(platform, platform_file)
     try:
-        located = locate(residue, provider, version, _store_root(root), corner)
-    except PdkNotInstalled as error:
-        _fail("PdkNotInstalled", str(error), fmt)
+        located = locate(
+            residue, provider, version, _store_root(root), corner, platform_file=platform_file
+        )
+        verify_pin(located, residue)
+    except (PdkNotInstalled, PdkVersionMismatch) as error:
+        _fail(type(error).__name__, str(error), fmt)
     except ValueError as error:
         raise click.UsageError(str(error)) from None
     if fmt == "table":

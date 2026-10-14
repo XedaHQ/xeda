@@ -332,6 +332,9 @@ def list_platforms(output_format: str, json_flag: bool):
             escape(str(platform.get("directory", "-"))),
         )
     console.print(table)
+    for platform in info:
+        if "problem" in platform:
+            console.print(escape(platform["problem"]), highlight=False)
     missing = [p["platform"] for p in info if not p["installed"]]
     if missing:
         console.print(

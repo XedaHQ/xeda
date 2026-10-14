@@ -1014,23 +1014,25 @@ def provider_status(residue: Any, provider: str, root: Path) -> Dict[str, Any]:
 
     The result has the `provider`, its `version` (the pin of the residue, or `unpinned` for a
     `directory`), `installed` and `directory`, the directory of the platform in the store. The
-    function only looks at the files: it starts no process, uses no network and writes nothing."""
+    files are not installed if one is missing, or if the version marker of the store names
+    another version than the pin. In the second case, `problem` says so. The function only looks
+    at the files: it starts no process, uses no network and writes nothing."""
     from .platforms import PdkNotInstalled, locate
-    from .platforms.providers import UNPINNED, platform_directory
+    from .platforms.providers import UNPINNED, PdkVersionMismatch, platform_directory, verify_pin
 
     version = UNPINNED if provider == "directory" else residue.providers.entry(provider).version
+    status: Dict[str, Any] = {"provider": provider, "version": version}
     try:
-        locate(residue, provider, None, root, None)
+        verify_pin(locate(residue, provider, None, root, None), residue)
     except PdkNotInstalled:
-        installed = False
+        status["installed"] = False
+    except PdkVersionMismatch as error:
+        status["installed"] = False
+        status["problem"] = str(error)
     else:
-        installed = True
-    return {
-        "provider": provider,
-        "version": version,
-        "installed": installed,
-        "directory": str(platform_directory(residue, provider, None, root)),
-    }
+        status["installed"] = True
+    status["directory"] = str(platform_directory(residue, provider, None, root))
+    return status
 
 
 def platforms_info() -> List[Dict[str, Any]]:
@@ -1039,8 +1041,9 @@ def platforms_info() -> List[Dict[str, Any]]:
 
     Each platform has its `description` and its default `provider`, the `version` that Xeda pins
     for it, and `installed`: whether the default store (`~/.ciel`) holds the PDK files of that
-    version. An installed platform also has the `directory` that holds them. The function
-    starts no process, uses no network and writes nothing.
+    version. An installed platform also has the `directory` that holds them. If the files are
+    there but name another version, `problem` says so. The function starts no process, uses no
+    network and writes nothing.
     """
     from .platforms import bundled_platform_names, load_residue
     from .platforms.providers import default_root
@@ -1061,6 +1064,8 @@ def platforms_info() -> List[Dict[str, Any]]:
         }
         if status["installed"]:
             entry["directory"] = status["directory"]
+        if "problem" in status:
+            entry["problem"] = status["problem"]
         platforms.append(entry)
     return platforms
 
