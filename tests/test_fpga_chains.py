@@ -787,10 +787,12 @@ def test_an_upstream_output_that_was_never_written_never_reaches_the_programmer(
         "run", "__asc_maker+fpga_pack+openfpgaloader", design, "-s", f"fpga={ICE40_PART}"
     )
     assert result.exit_code == 1 and document["success"] is False
-    # the failure is the producer's and reaches each consumer as a failed producer
-    assert _states(document) == dict.fromkeys(
-        ["__asc_maker", "fpga_pack", "openfpgaloader"], "failed"
-    )
+    # the failure is the producer's: each consumer is blocked by it and does not run
+    assert _states(document) == {
+        "__asc_maker": "failed",
+        "fpga_pack": "blocked",
+        "openfpgaloader": "blocked",
+    }
     maker = _results(tmp_path, "top", "__asc_maker")
     assert maker["success"] is False and maker["error"]["type"] == "MissingOutput"
     assert "did not produce its output `config`" in maker["error"]["message"]
@@ -813,7 +815,7 @@ def test_a_packer_that_makes_no_whole_bitstream_never_reaches_the_programmer(
     # the refusal is the packer's: everything before it ran, and the packer itself was started
     states = _states(document)
     assert [states[name] for name in STAGES[:3]] == ["ran", "ran", "failed"]
-    assert states["openfpgaloader"] in ("failed", "not run")
+    assert states["openfpgaloader"] == "blocked"
     assert [call["tool"] for call in _calls(tmp_path, board.design, "fpga_pack")] == [board.packer]
     pack = _results(tmp_path, board.design, "fpga_pack")
     assert pack["success"] is False and "bitstream" not in pack.get("outputs", {})
@@ -852,7 +854,7 @@ def test_an_upstream_failure_stops_the_chain_before_the_programmer(
     states = _states(document)
     downstream = STAGES[STAGES.index(stage) + 1 :]
     assert states[stage] == "failed"
-    assert all(states.get(name, "not run") in ("failed", "not run") for name in downstream)
+    assert all(states.get(name, "not run") == "blocked" for name in downstream)
     # the failing tool was reached, and nothing after it was ever started
     assert [call["tool"] for call in _calls(tmp_path, board.design, stage)] == [tool]
     for name in downstream:
