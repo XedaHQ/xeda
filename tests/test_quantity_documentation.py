@@ -74,6 +74,7 @@ def test_the_documented_error_messages_are_the_ones_the_code_writes() -> None:
         (Time, 10),
         (Time, "5 MHz"),
         (Capacitance, "3.9 ff"),
+        (Time, "5 ns * 2"),
         (Time, "10 nanoseconds"),
         (Annotated[Time, Bounds(gt="0 ns")], "-1 ns"),
     ]
