@@ -757,13 +757,13 @@ destination of a delivery therefore never runs the flow again and never changes 
 It changes only where the copy lands.
 
 A run is identified by what it writes: whether it writes the output, and the name it writes the
-output under in the run directory. A location is not part of that. A run that is up to date
-therefore delivers to a location that you give it later, without running again. If the flow writes
-the output in any case, you can give a location, change it or remove it, and the run stays the same.
-When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always writes its
-bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the file. The same
-holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr`` on Xilinx
-targets.
+output under in the run directory. A location is not part of that. A run that passed and is up to
+date therefore delivers to a location that you give it later, without running again. If the flow
+writes the output in any case, you can give a location, change it or remove it, and the run stays
+the same. When the setting is unset, the flow writes the conventional name. ``fpga_pack`` always
+writes its bitstream, so ``-s bitstream=$PWD/blinky.bit`` after a plain run only delivers the
+file. The same holds for ``verilog_output`` of ``ghdl_synth`` and for ``placement`` of ``nextpnr``
+on Xilinx targets.
 
 A setting that switches an output on works in another way. ``vivado_synth`` writes no bitstream
 until ``bitstream`` is set. The first location you give it runs the flow again. Later locations do
