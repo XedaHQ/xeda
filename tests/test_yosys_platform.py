@@ -213,6 +213,30 @@ def test_a_platform_together_with_generic_cells_is_refused(platform, generic):
     ]
 
 
+@pytest.mark.parametrize("generic", [{"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}])
+def test_excluded_cells_together_with_generic_cells_are_refused(generic):
+    """Generic cells are no library cells, so there is nothing to exclude. The refusal names both
+    settings."""
+    (cells,) = generic
+    settings = Yosys.Settings.from_input({**generic, "dont_use_cells": ["BUF_X1"]})
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(settings)
+    assert refused.value.errors == [
+        (
+            "dont_use_cells",
+            f"`dont_use_cells` and `{cells}` cannot both be set: `{cells}` maps to generic cells, "
+            "which have no library cells to exclude. Set only one of them",
+            None,
+            "value_error",
+        )
+    ]
+
+
+@pytest.mark.parametrize("generic", [{"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}])
+def test_no_excluded_cells_with_generic_cells_is_accepted(generic):
+    Yosys.check_settings_supported(Yosys.Settings.from_input({**generic, "dont_use_cells": []}))
+
+
 def test_generic_cells_without_a_platform_read_no_platform(fake_yosys):
     flow = _runner(fake_yosys).launch_flow(
         Yosys, _design(fake_yosys / "design"), {"gates": ["AND", "OR", "NOT"], **CLOCK}

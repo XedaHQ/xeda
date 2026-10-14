@@ -215,6 +215,16 @@ CASES: dict[str, Case] = {
         r"`lut` and `platform_file` cannot both be set",
         {"platform_file": str(TINY_RESIDUE), "lut": "4"},
     ),
+    "yosys-dont-use-cells-with-gates": Case(
+        Yosys,
+        r"`dont_use_cells` and `gates` cannot both be set",
+        {"dont_use_cells": ["BUF_X1"], "gates": ["AND"]},
+    ),
+    "yosys-dont-use-cells-with-lut": Case(
+        Yosys,
+        r"`dont_use_cells` and `lut` cannot both be set",
+        {"dont_use_cells": ["BUF_X1"], "lut": "4"},
+    ),
     "ghdl-run-flag-against-severity": Case(
         GhdlSim, "conflicts with fail_severity", {"run_flags": ["--assert-level=note"]}, _vhdl
     ),

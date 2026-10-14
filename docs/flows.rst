@@ -1329,6 +1329,9 @@ each name appears once. A name is a glob pattern: ``*`` matches any number of ch
 matches one character, and ``[...]`` matches one character of a set. Xeda passes each name as it
 is.
 
+Xeda refuses ``dont_use_cells`` together with ``gates`` or ``lut``. Those settings map to generic
+cells, which have no library cells to exclude.
+
 Settings groups
 ---------------
 

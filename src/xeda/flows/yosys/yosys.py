@@ -465,10 +465,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Refuse settings the run cannot honor, before anything runs.
 
         These are a result that a run stopped by `stop_after` does not write
-        (`stop_after_conflicts`), a platform together with `gates` or `lut`, the settings of
-        the groups when no liberty mapping runs, the settings that the liberty mapping cannot
-        honor (`LIBERTY_REFUSALS`), and the rules that join several groups. All problems come
-        back in one error.
+        (`stop_after_conflicts`), a platform or `dont_use_cells` together with `gates` or `lut`,
+        the settings of the groups when no liberty mapping runs, the settings that the liberty
+        mapping cannot honor (`LIBERTY_REFUSALS`), and the rules that join several groups. All
+        problems come back in one error.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
@@ -483,6 +483,17 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                             f"`{name}` and `{selector}` cannot both be set: `{selector}` maps to "
                             f"the standard cells of the platform and `{name}` maps to generic "
                             "cells. Set only one of them",
+                        )
+                    )
+        if settings.dont_use_cells:
+            for name in ("gates", "lut"):
+                if getattr(settings, name):
+                    problems.append(
+                        (
+                            "dont_use_cells",
+                            f"`dont_use_cells` and `{name}` cannot both be set: `{name}` maps to "
+                            "generic cells, which have no library cells to exclude. Set only one "
+                            "of them",
                         )
                     )
         if settings.maps_to_liberty():
