@@ -754,6 +754,8 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_global_sizing_config",
     "repair_tie_fanout",
     "insert_tiecells",
+    "create_blockage",
+    "create_obstruction",
     "replace_arith_modules",
     "remove_buffers",
     # tap cells and power grid
@@ -764,6 +766,8 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_voltage_domain",
     "define_pdn_grid",
     "add_pdn_stripe",
+    "add_pdn_ring",
+    "check_power_grid",
     "add_pdn_connect",
     "pdngen",
     # global placement and pin placement

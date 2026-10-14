@@ -8,6 +8,7 @@ OpenROAD command list does not know fails the test. Planning refusals run throug
 import json
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,8 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
 from xeda.flows.openroad.base import to_lib_time
 from xeda.flows.openroad.place import EffectivePlace, effective
-from xeda.platforms.model import CellPort, Pdn, PdnStrap, Track
+from xeda.flows.openroad.place_pdn import PdnStripe
+from xeda.platforms.model import CellPort, Pdn, Track
 
 from .openroad_utils import (
     openroad_design,
@@ -375,6 +377,277 @@ def test_a_platform_without_tracks_has_the_tracks_of_the_lef_files(tmp_path):
     flow = place_flow(tmp_path, model={"tracks": {}})
     body = stage(render(flow), "xeda_floorplan")
     assert [line for line in body if line.startswith("make_tracks")] == ["make_tracks"]
+
+
+def test_the_tracks_can_come_from_the_lef_files_although_the_platform_lists_them(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"tracks": "from_tech"}})
+    body = stage(render(flow), "xeda_floorplan")
+    assert [line for line in body if line.startswith("make_tracks")] == ["make_tracks"]
+    run_script(flow)
+
+
+def test_the_tracks_can_be_asked_from_the_platform(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"tracks": "platform"}})
+    body = stage(render(flow), "xeda_floorplan")
+    assert [line.split()[1] for line in body if line.startswith("make_tracks")] == [
+        '"m1"',
+        '"m2"',
+        '"m3"',
+    ]
+    run_script(flow)
+
+
+def test_tracks_from_a_platform_that_lists_none_are_refused_naming_the_way_out(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"tracks": "platform"}})
+    with pytest.raises(FlowSettingsException, match=r"tracks.*floorplan\.tracks: from_tech"):
+        effective(flow.settings, flow.platform_model.model_copy(update={"tracks": {}}))
+
+
+def test_the_site_of_the_settings_replaces_the_site_of_the_platform(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"site": "othersite"}})
+    body = stage(render(flow), "xeda_floorplan")
+    assert any(line.endswith('-site "othersite"') for line in body)
+    area = place_flow(
+        tmp_path / "area",
+        {
+            "floorplan": {
+                "sizing": "area",
+                "die_area": [0, 0, 100, 90],
+                "core_area": [2, 2, 98, 88],
+                "site": "othersite",
+            }
+        },
+    )
+    assert '-site "othersite"' in " ".join(stage(render(area), "xeda_floorplan"))
+
+
+def test_a_site_in_the_settings_makes_the_floorplan_without_a_site_in_the_platform(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"site": "othersite"}})
+    model = flow.platform_model.model_copy(update={"site": None})
+    assert effective(flow.settings, model).site == "othersite"
+
+
+def test_the_rows_get_their_options(tmp_path):
+    flow = place_flow(
+        tmp_path,
+        {
+            "floorplan": {
+                "additional_sites": ["s2", "s3"],
+                "flip_sites": ["s2"],
+                "row_gap": 6.0,
+                "row_parity": "odd",
+            }
+        },
+    )
+    line = [l for l in stage(render(flow), "xeda_floorplan") if l.startswith("initialize")][0]
+    assert line.endswith(
+        '-site "tinysite" -row_parity ODD -additional_sites [list "s2" "s3"] '
+        '-flip_sites [list "s2"] -gap "6.0"'
+    )
+    run_script(flow)
+
+
+def test_the_row_options_go_to_the_floorplan_by_areas_too(tmp_path):
+    flow = place_flow(
+        tmp_path,
+        {
+            "floorplan": {
+                "sizing": "area",
+                "die_area": [0, 0, 100, 90],
+                "core_area": [2, 2, 98, 88],
+                "row_parity": "even",
+            }
+        },
+    )
+    line = [l for l in stage(render(flow), "xeda_floorplan") if l.startswith("initialize")][0]
+    assert line.endswith('-site "tinysite" -row_parity EVEN')
+
+
+@pytest.mark.parametrize("parity, flag", [("none", ""), ("odd", "ODD"), ("even", "EVEN")])
+def test_every_row_parity_renders_and_runs(tmp_path, parity, flag):
+    flow = place_flow(tmp_path, {"floorplan": {"row_parity": parity}})
+    line = [l for l in stage(render(flow), "xeda_floorplan") if l.startswith("initialize")][0]
+    assert ("-row_parity " + flag in line) == bool(flag)
+    run_script(flow)
+
+
+def test_a_row_parity_in_capitals_is_refused(tmp_path):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, "floorplan.row_parity=ODD")
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [
+        ("site", "x"),
+        ("additional_sites", "x"),
+        ("flip_sites", "x"),
+        ("row_gap", "2"),
+        ("row_parity", "odd"),
+    ],
+)
+def test_a_floorplan_from_a_def_file_has_no_row_option(tmp_path, leaf, value):
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
+    message = refusal(
+        tmp_path, "floorplan.sizing=def", "floorplan.def_file=plan.def", f"floorplan.{leaf}={value}"
+    )
+    assert f"floorplan.{leaf}" in message and "sizing: utilization" in message
+
+
+def test_the_margin_of_the_core_can_differ_on_each_side(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"core_margin": [1, 2, 3, 4.5]}})
+    body = stage(render(flow), "xeda_floorplan")
+    assert any("-core_space [list 1.0 2.0 3.0 4.5] -site" in line for line in body)
+    run_script(flow)
+
+
+@pytest.mark.parametrize("margin", [[1, 2, 3], [1, 2, 3, 4, 5], [1, 2, 3, -4], -1])
+def test_a_core_margin_is_one_distance_or_four(tmp_path, margin):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"floorplan.core_margin": margin})
+
+
+POLYGON_DIE = [0, 0, 100, 0, 100, 100, 50, 100, 50, 50, 0, 50]
+POLYGON_CORE = [2, 2, 98, 2, 98, 98, 52, 98, 52, 52, 2, 52]
+
+
+def test_the_floorplan_takes_a_polygon_for_the_die_and_the_core(tmp_path):
+    flow = place_flow(
+        tmp_path,
+        {"floorplan": {"sizing": "area", "die_area": POLYGON_DIE, "core_area": POLYGON_CORE}},
+    )
+    line = [l for l in stage(render(flow), "xeda_floorplan") if l.startswith("initialize")][0]
+    assert "-die_area [list 0.0 0.0 100.0 0.0 100.0 100.0 50.0 100.0 50.0 50.0 0.0 50.0]" in line
+    assert "-core_area [list 2.0 2.0 98.0 2.0 98.0 98.0 52.0 98.0 52.0 52.0 2.0 52.0]" in line
+    run_script(flow)
+
+
+@pytest.mark.parametrize("count", [5, 6, 7, 9])
+def test_a_die_is_a_rectangle_or_a_polygon_with_corners(tmp_path, count):
+    message = refusal(
+        tmp_path,
+        "floorplan.sizing=area",
+        typed={
+            "floorplan.die_area": [float(n) for n in range(count)],
+            "floorplan.core_area": [1, 1, 9, 9],
+        },
+    )
+    assert "die_area" in message and "4 numbers" in message
+
+
+def test_a_polygon_and_a_rectangle_are_left_to_the_tool(tmp_path):
+    """OpenROAD stops with IFP-0077 on a rectangle for the die and a polygon for the core. A
+    rectangle is a polygon, so xeda does not refuse the pair."""
+    plan(
+        tmp_path,
+        "floorplan.sizing=area",
+        typed={"floorplan.die_area": [0, 0, 100, 100], "floorplan.core_area": POLYGON_CORE},
+    )
+
+
+def test_a_polygon_is_not_refused_with_the_power_grid_or_the_concurrent_pins(tmp_path):
+    """The power grid generator assumes a rectangular design, and the concurrent placement of the
+    pins does not support a polygon. The tool says so, and the descriptions name the limits."""
+    plan(
+        tmp_path,
+        "floorplan.sizing=area",
+        "io.flow=concurrent",
+        "global_placement.timing_driven.enabled=false",
+        "global_placement.routability_driven.enabled=false",
+        typed={"floorplan.die_area": POLYGON_DIE, "floorplan.core_area": POLYGON_CORE},
+    )
+    from xeda.flows.openroad.place_groups import FloorplanGroup
+
+    for leaf in ("die_area", "core_area"):
+        text = FloorplanGroup.model_fields[leaf].description or ""
+        assert "pdngen" in text and "place_ios" in text
+
+
+def test_blockages_of_the_placement_and_of_the_routing_follow_the_tracks(tmp_path):
+    flow = place_flow(
+        tmp_path,
+        {
+            "floorplan": {
+                "placement_blockages": [
+                    {"region": [1, 2, 3, 4]},
+                    {"region": [5, 6, 7, 8], "soft": True},
+                    {"region": [9, 10, 11, 12], "max_density_percent": 40},
+                ],
+                "routing_blockages": [{"layer": "m2", "region": [1, 1, 2, 2]}],
+            }
+        },
+    )
+    body = stage(render(flow), "xeda_floorplan")
+    assert [line for line in body if "blockage" in line or "obstruction" in line] == [
+        "create_blockage -region [list 1.0 2.0 3.0 4.0]",
+        "create_blockage -region [list 5.0 6.0 7.0 8.0] -soft",
+        "create_blockage -region [list 9.0 10.0 11.0 12.0] -max_density 40.0",
+        'create_obstruction -layer "m2" -region [list 1.0 1.0 2.0 2.0]',
+    ]
+    found = names(
+        floorplan_calls(run_script(flow)),
+        "make_tracks",
+        "create_blockage",
+        "create_obstruction",
+        "repair_tie_fanout",
+    )
+    assert found == ["make_tracks"] * 3 + ["create_blockage"] * 3 + [
+        "create_obstruction",
+        "repair_tie_fanout",
+        "repair_tie_fanout",
+    ]
+
+
+def test_a_soft_blockage_has_no_density(tmp_path):
+    """OpenROAD ignores `-soft` when it gets `-max_density` (ODB-1016): the density makes the
+    blockage partial, so the pair says nothing sensible."""
+    message = refusal(
+        tmp_path,
+        typed={
+            "floorplan.placement_blockages": [
+                {"region": [1, 2, 3, 4], "soft": True, "max_density_percent": 40}
+            ]
+        },
+    )
+    assert (
+        "placement_blockages" in message and "soft" in message and "max_density_percent" in message
+    )
+
+
+@pytest.mark.parametrize(
+    "key, item",
+    [
+        ("placement_blockages", {"region": [3, 2, 1, 4]}),
+        ("placement_blockages", {"region": [1, 2, 3, 2]}),
+        ("routing_blockages", {"layer": "m2", "region": [3, 2, 1, 4]}),
+    ],
+)
+def test_a_blockage_region_lists_the_lower_left_and_the_upper_right_corner(tmp_path, key, item):
+    message = refusal(tmp_path, typed={f"floorplan.{key}": [item]})
+    assert key in message and "lower-left" in message
+
+
+@pytest.mark.parametrize(
+    "key, item",
+    [
+        ("placement_blockages", {"region": [1, 2, 3]}),
+        ("placement_blockages", {"region": [1, 2, 3, 4], "max_density_percent": 101}),
+        ("placement_blockages", {"region": [1, 2, 3, 4], "max_density_percent": -1}),
+        ("placement_blockages", {"region": [1, 2, 3, 4], "layer": "m1"}),
+        ("routing_blockages", {"region": [1, 2, 3, 4]}),
+        ("routing_blockages", {"layer": "", "region": [1, 2, 3, 4]}),
+    ],
+)
+def test_a_malformed_blockage_is_refused(tmp_path, key, item):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={f"floorplan.{key}": [item]})
+
+
+def test_the_check_of_the_setup_can_be_switched_off(tmp_path):
+    flow = place_flow(tmp_path, {"floorplan": {"check_setup": False}})
+    assert "check_setup" not in stage(render(flow), "xeda_floorplan")
+    assert not names(run_script(flow), "check_setup")
 
 
 def test_the_layers_and_their_capacity_come_from_the_platform(tmp_path):
@@ -904,6 +1177,307 @@ def test_a_leaf_of_the_grid_replaces_the_platform_leaf_in_a_planned_flow(tmp_pat
     assert grid.power_net == "VDD" and [rail.layer for rail in grid.rails] == ["m1"]
 
 
+def grid_lines(tmp_path: Path, settings: dict[str, Any], prefix: str) -> list[str]:
+    """The lines of the power grid stage that start with `prefix`, for a flow in a new directory
+    of `tmp_path`."""
+    flow = place_flow(Path(tempfile.mkdtemp(dir=tmp_path)), {"pdn": settings})
+    return [line for line in stage(render(flow), "xeda_pdn") if line.startswith(prefix)]
+
+
+def test_the_secondary_power_nets_belong_to_the_voltage_domain(tmp_path):
+    lines_ = grid_lines(tmp_path, {"secondary_power": ["VDDA", "VDDB"]}, "set_voltage_domain")
+    assert lines_ == [
+        'set_voltage_domain -name CORE -power "VDD" -ground "VSS" '
+        '-secondary_power [list "VDDA" "VDDB"]'
+    ]
+
+
+@pytest.mark.parametrize("polarity", ["power", "ground"])
+def test_the_grid_starts_with_power_or_ground(tmp_path, polarity):
+    found = grid_lines(tmp_path, {"grid": {"starts_with": polarity}}, "define_pdn_grid")
+    assert found == [
+        f'define_pdn_grid -name grid -voltage_domains CORE -pins [list "m4"] '
+        f"-starts_with {polarity.upper()}"
+    ]
+    run_script(place_flow(tmp_path / polarity, {"pdn": {"grid": {"starts_with": polarity}}}))
+
+
+def test_the_options_of_a_stripe_are_passed_after_its_size(tmp_path):
+    strap = {
+        "layer": "m4",
+        "width": 0.5,
+        "pitch": 12,
+        "offset": 1,
+        "spacing": 3,
+        "offset_type": "center",
+        "starts_with": "power",
+        "extend": "core_ring",
+        "extend_by": 2,
+        "snap_to_grid": True,
+        "number_of_straps": 4,
+        "nets": ["VDD", "VSS"],
+        "allow_out_of_core": True,
+    }
+    found = grid_lines(tmp_path, {"grid": {"straps": [strap]}}, "add_pdn_stripe")
+    assert found[1] == (
+        'add_pdn_stripe -grid grid -layer "m4" -width 0.5 -pitch 12.0 -offset 1.0 -spacing 3.0 '
+        "-offset_type CENTER -starts_with POWER -extend_to_core_ring -extend_by 2.0 "
+        '-snap_to_grid -number_of_straps 4 -nets [list "VDD" "VSS"] -allow_out_of_core'
+    )
+    flow = place_flow(tmp_path / "run", {"pdn": {"grid": {"straps": [strap]}}})
+    run_script(flow)
+
+
+@pytest.mark.parametrize(
+    "kind, flag", [("core_ring", "-extend_to_core_ring"), ("boundary", "-extend_to_boundary")]
+)
+@pytest.mark.parametrize("offset_type", ["start", "first", "center", "last", "end"])
+def test_every_choice_of_a_stripe_renders_and_runs(tmp_path, kind, flag, offset_type):
+    strap = {
+        "layer": "m4",
+        "width": 0.5,
+        "pitch": 12,
+        "offset": 1,
+        "extend": kind,
+        "offset_type": offset_type,
+    }
+    flow = place_flow(tmp_path, {"pdn": {"grid": {"straps": [strap]}}})
+    line = [l for l in stage(render(flow), "xeda_pdn") if l.startswith("add_pdn_stripe")][1]
+    assert flag in line and f"-offset_type {offset_type.upper()}" in line
+    run_script(flow)
+
+
+def test_a_stripe_of_the_platform_has_no_option(tmp_path):
+    """The stripes of the platform keep the form they have in the golden script."""
+    found = grid_lines(tmp_path, {}, "add_pdn_stripe")
+    assert found == [l for l in PDN_LINES if l.startswith("add_pdn_stripe")]
+
+
+@pytest.mark.parametrize(
+    "strap",
+    [
+        {"layer": "m4", "width": 0, "pitch": 12, "offset": 1},
+        {"layer": "m4", "width": 1, "pitch": 0, "offset": 1},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": -1},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "spacing": 0},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "number_of_straps": 0},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "extend": "pads"},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "offset_type": "FIRST"},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "starts_with": "POWER"},
+        {"layer": "m4", "width": 1, "pitch": 12, "offset": 1, "spacing": "2"},
+    ],
+)
+def test_a_malformed_stripe_is_refused(tmp_path, strap):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"pdn.grid": {"straps": [strap]}})
+
+
+RING = {"layers": ["m3", "m4"], "widths": 1, "spacings": 1, "core_offset": 0.5}
+
+
+def test_a_ring_surrounds_the_core(tmp_path):
+    found = grid_lines(tmp_path, {"grid": {"rings": [RING]}}, "add_pdn_ring")
+    assert found == [
+        'add_pdn_ring -grid grid -layers [list "m3" "m4"] -widths 1.0 -spacings 1.0 '
+        "-core_offsets 0.5"
+    ]
+    run_script(place_flow(tmp_path / "run", {"pdn": {"grid": {"rings": [RING]}}}))
+
+
+def test_the_options_of_a_ring_are_passed(tmp_path):
+    ring = {
+        "layers": ["m3", "m4"],
+        "widths": [1, 2],
+        "spacings": [0.5, 0.75],
+        "core_offset": [1, 2, 3, 4],
+        "add_connect": True,
+        "extend_to_boundary": True,
+        "nets": ["VDD"],
+        "starts_with": "ground",
+        "allow_out_of_die": True,
+    }
+    found = grid_lines(tmp_path, {"grid": {"rings": [ring]}}, "add_pdn_ring")
+    assert found == [
+        'add_pdn_ring -grid grid -layers [list "m3" "m4"] -widths [list 1.0 2.0] '
+        "-spacings [list 0.5 0.75] -core_offsets [list 1.0 2.0 3.0 4.0] -add_connect "
+        '-extend_to_boundary -nets [list "VDD"] -starts_with GROUND -allow_out_of_die'
+    ]
+    run_script(place_flow(tmp_path / "run", {"pdn": {"grid": {"rings": [ring]}}}))
+
+
+def test_the_rings_come_after_the_stripes_and_before_the_connections(tmp_path):
+    flow = place_flow(tmp_path, {"pdn": {"grid": {"rings": [RING]}}})
+    found = names(run_script(flow), "add_pdn_stripe", "add_pdn_ring", "add_pdn_connect")
+    assert found == ["add_pdn_stripe"] * 3 + ["add_pdn_ring"] + ["add_pdn_connect"] * 2
+
+
+@pytest.mark.parametrize(
+    "ring",
+    [
+        {**RING, "layers": ["m3"]},
+        {**RING, "layers": ["m3", "m4", "m5"]},
+        {**RING, "widths": 0},
+        {**RING, "widths": [1, 2, 3]},
+        {**RING, "spacings": -1},
+        {**RING, "core_offset": [1, 2]},
+        {**RING, "core_offset": -1},
+        {k: v for k, v in RING.items() if k != "core_offset"},
+        {**RING, "pad_offsets": 1},
+    ],
+)
+def test_a_malformed_ring_is_refused(tmp_path, ring):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"pdn.grid": {"rings": [ring]}})
+
+
+def test_a_connection_is_a_pair_of_layers_or_an_object_with_options(tmp_path):
+    connects = [
+        ["m1", "m3"],
+        {
+            "layers": ["m3", "m4"],
+            "cut_pitch": [0.2, 0.3],
+            "fixed_vias": ["via34"],
+            "dont_use_vias": ["bad*"],
+            "max_rows": 2,
+            "max_columns": 3,
+            "ongrid": ["m3"],
+            "min_width_layers": ["m2"],
+            "split_cuts": {"m3": 0.38, "m4": 0.5},
+            "split_cuts_staggered": True,
+        },
+        {"layers": ["m4", "m5"], "cut_pitch": 0.2},
+    ]
+    found = grid_lines(tmp_path, {"grid": {"connects": connects}}, "add_pdn_connect")
+    assert found == [
+        'add_pdn_connect -grid grid -layers [list "m1" "m3"]',
+        'add_pdn_connect -grid grid -layers [list "m3" "m4"] -cut_pitch [list 0.2 0.3] '
+        '-fixed_vias [list "via34"] -dont_use_vias [list "bad*"] -max_rows 2 -max_columns 3 '
+        '-ongrid [list "m3"] -min_width_layers [list "m2"] -split_cuts [list "m3" 0.38 "m4" 0.5] '
+        "-split_cuts_staggered",
+        'add_pdn_connect -grid grid -layers [list "m4" "m5"] -cut_pitch 0.2',
+    ]
+    run_script(place_flow(tmp_path / "run", {"pdn": {"grid": {"connects": connects}}}))
+
+
+def test_the_connections_of_the_platform_have_no_option(tmp_path):
+    found = grid_lines(tmp_path, {}, "add_pdn_connect")
+    assert found == [l for l in PDN_LINES if l.startswith("add_pdn_connect")]
+
+
+@pytest.mark.parametrize(
+    "connect",
+    [
+        ["m1"],
+        {"layers": ["m1", "m2"], "max_rows": 0},
+        {"layers": ["m1", "m2"], "cut_pitch": 0},
+        {"layers": ["m1", "m2"], "cut_pitch": [1, 2, 3]},
+        {"layers": ["m1", "m2"], "split_cuts": {"m1": 0}},
+        {"layers": ["m1", "m2"], "unknown": 1},
+    ],
+)
+def test_a_malformed_connection_is_refused(tmp_path, connect):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"pdn.grid": {"connects": [connect]}})
+
+
+def test_split_cuts_are_staggered_only_when_there_are_split_cuts(tmp_path):
+    message = refusal(
+        tmp_path,
+        typed={"pdn.grid": {"connects": [{"layers": ["m1", "m2"], "split_cuts_staggered": True}]}},
+    )
+    assert "split_cuts_staggered" in message and "split_cuts" in message
+
+
+def test_the_trim_and_the_pins_of_the_generator_follow_the_settings(tmp_path):
+    assert grid_lines(tmp_path, {}, "pdngen") == ["pdngen"]
+    assert grid_lines(tmp_path, {"skip_trim": True}, "pdngen") == ["pdngen -skip_trim"]
+    assert grid_lines(tmp_path, {"block_pins": False}, "pdngen") == ["pdngen -dont_add_pins"]
+    both = grid_lines(tmp_path, {"skip_trim": True, "block_pins": False}, "pdngen")
+    assert both == ["pdngen -skip_trim -dont_add_pins"]
+
+
+def test_the_power_grid_is_not_checked_by_default(tmp_path):
+    """`check_power_grid` stops on a design without pads unless it gets
+    `-dont_require_terminals`, and OpenROAD-flow-scripts does not run it."""
+    assert grid_lines(tmp_path, {}, "check_power_grid") == []
+
+
+def test_a_failing_check_of_the_power_grid_stops_the_flow(tmp_path, monkeypatch):
+    flow = place_flow(tmp_path, {"pdn": {"check": {"mode": "fail"}}})
+    body = stage(render(flow), "xeda_pdn")
+    assert body[-2:] == [
+        'check_power_grid -net "VDD" -dont_require_terminals',
+        'check_power_grid -net "VSS" -dont_require_terminals',
+    ]
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "check_power_grid")
+    require_tclsh()
+    flow.bind_template_values()
+    flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(flow.run_path, render(flow), driver="openroad_place")
+    assert done.returncode != 0
+    assert (flow.run_path / "openroad_place-failed.odb").is_file()
+
+
+def test_a_warning_check_of_the_power_grid_goes_on_after_a_failure(tmp_path, monkeypatch):
+    flow = place_flow(tmp_path, {"pdn": {"check": {"mode": "warn"}}})
+    monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "check_power_grid")
+    calls = run_script(flow)
+    assert names(calls, "check_power_grid") == ["check_power_grid"] * 2
+    assert (flow.run_path / "place.odb").is_file()
+
+
+def test_the_check_of_the_power_grid_can_require_terminals(tmp_path):
+    found = grid_lines(
+        tmp_path, {"check": {"mode": "warn", "require_terminals": True}}, "check_power_grid"
+    )
+    assert found == []  # the call is inside a catch
+    body = stage(
+        render(
+            place_flow(tmp_path, {"pdn": {"check": {"mode": "fail", "require_terminals": True}}})
+        ),
+        "xeda_pdn",
+    )
+    assert body[-2:] == ['check_power_grid -net "VDD"', 'check_power_grid -net "VSS"']
+
+
+@pytest.mark.parametrize("mode", ["off", "warn", "fail"])
+def test_every_mode_of_the_check_of_the_power_grid_renders_and_runs(tmp_path, mode):
+    calls = run_script(place_flow(tmp_path, {"pdn": {"check": {"mode": mode}}}))
+    assert len(names(calls, "check_power_grid")) == (0 if mode == "off" else 2)
+
+
+@pytest.mark.parametrize("mode", ["generated", "none"])
+def test_every_mode_of_the_power_grid_renders_and_runs(tmp_path, mode):
+    run_script(place_flow(tmp_path, {"pdn": {"mode": mode}}))
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [
+        ("secondary_power", ["VDDA"]),
+        ("skip_trim", True),
+        ("block_pins", False),
+        ("check", {"mode": "warn"}),
+    ],
+)
+def test_no_grid_option_has_an_effect_without_a_grid(tmp_path, leaf, value):
+    message = refusal(tmp_path, "pdn.mode=none", typed={f"pdn.{leaf}": value})
+    assert "no effect" in message and "pdn" in message
+
+
+def test_the_terminals_of_the_check_matter_only_when_it_runs(tmp_path):
+    message = refusal(tmp_path, "pdn.check.require_terminals=true")
+    assert "pdn.check.require_terminals" in message and "no effect" in message
+
+
+def test_a_stripe_of_the_platform_and_the_settings_have_one_shape(tmp_path):
+    """The templates read the options of every stripe, also of those that the platform gives."""
+    flow = place_flow(tmp_path, {"pdn": {"grid": {"rings": [RING]}}})
+    grid = effective(flow.settings, flow.platform_model).pdn
+    assert all(hasattr(strap, "snap_to_grid") for strap in grid.straps)
+    assert all(hasattr(connect, "cut_pitch") for connect in grid.connects)
+
+
 def test_the_power_grid_mode_none_builds_no_grid(tmp_path):
     flow = place_flow(tmp_path, {"pdn": {"mode": "none"}}, model={"pdn": Pdn()})
     assert stage(render(flow), "xeda_pdn") == ["xeda_stage pdn"]
@@ -945,7 +1519,7 @@ def test_a_grid_of_the_settings_does_not_change_the_platform_or_the_settings(tmp
     flow = place_flow(tmp_path, {"pdn": {"grid": grid}})
     before = flow.platform_model.pdn.model_copy(deep=True)
     values = effective(flow.settings, flow.platform_model)
-    assert values.pdn.straps == [PdnStrap(layer="m3", width=0.3, pitch=4.0, offset=2.0)]
+    assert values.pdn.straps == [PdnStripe(layer="m3", width=0.3, pitch=4.0, offset=2.0)]
     assert flow.platform_model.pdn == before
     assert len(flow.settings.pdn.grid.straps) == 1
 

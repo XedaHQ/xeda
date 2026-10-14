@@ -20,10 +20,11 @@ from ...design import SourceType
 from ...flow import AsicSynthFlow, Flow, In, Out, describe_results
 from ...flow.asic import AsicPlatformSettings
 from ...flow.flow import FlowSettingsError, FlowSettingsException
-from ...platforms.model import CellPort, PlatformModel, Pdn, Track
+from ...platforms.model import CellPort, PlatformModel, Track
 from .base import EffectiveBase, OpenroadStage, base_values, platform_time_unit
 from .groups import differing_leaves
 from .metrics import MetricsError, stage_results
+from .place_pdn import PdnGrid, connect_of, stripe_of
 from .place_groups import (
     ArithSwapGroup,
     DesignGroup,
@@ -69,7 +70,7 @@ class EffectivePlace(EffectiveBase):
     tap_master: Optional[str]
     endcap_master: Optional[str]
     #: The power grid, with the kind of every global connection resolved. Empty without a grid.
-    pdn: Pdn
+    pdn: PdnGrid
     #: Whether the resizer swaps a cell only for a cell with the same footprint.
     match_cell_footprint: bool
     #: The target density of the placement with `density.mode: fixed`, else `None`.
@@ -111,15 +112,16 @@ def _layer_range(low: Optional[str], high: Optional[str]) -> Optional[str]:
     return f"{low}-{high}" if low and high else None
 
 
-def _grid(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Pdn:
+def _grid(settings: "OpenroadPlace.Settings", model: PlatformModel) -> PdnGrid:
     """Return the power grid: the grid of the platform with each leaf of the setting over it,
-    with the kind of each global connection resolved. Raise if the grid cannot be built."""
+    with the kind of each global connection resolved and every stripe and connection in the one
+    shape that the templates read. Raise if the grid cannot be built."""
     given = settings.pdn.grid
-    grid = model.pdn
+    grid = PdnGrid.model_validate(model.pdn.model_dump())
     if given is not None:
         # The settings of a launched flow are validated again, which marks every field of the
         # grid as given. So a leaf counts as given when it holds something.
-        leaves = {name: getattr(given, name) for name in Pdn.model_fields}
+        leaves = {name: getattr(given, name) for name in PdnGrid.model_fields}
         grid = grid.model_copy(
             update={name: value for name, value in leaves.items() if value not in (None, [])}
         )
@@ -144,7 +146,13 @@ def _grid(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Pdn:
                 f"{grid.ground_net!r}: give `kind: power` or `kind: ground` in `pdn.grid`"
             )
         connections.append(connection.model_copy(update={"kind": kind}))
-    return grid.model_copy(update={"global_connects": connections})
+    return grid.model_copy(
+        update={
+            "global_connects": connections,
+            "straps": [stripe_of(strap) for strap in grid.straps],
+            "connects": [connect_of(connect) for connect in grid.connects],
+        }
+    )
 
 
 def _layer_adjustments(
@@ -224,12 +232,22 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
     `FlowSettingsException` if a stage needs a value and neither gives it."""
     routing = model.routing
     sizing = settings.floorplan.sizing
-    if sizing != "def" and model.site is None:
+    site = settings.floorplan.site or model.site
+    if sizing != "def" and site is None:
         raise _platform_gap(
             model,
             "`site`",
             f"`floorplan.sizing: {sizing}` needs to make the rows",
-            "add it, or take the floorplan from a DEF file with `floorplan.sizing: def`",
+            "add it, or give `floorplan.site`, or take the floorplan from a DEF file with "
+            "`floorplan.sizing: def`",
+        )
+    if settings.floorplan.tracks == "platform" and not model.tracks:
+        raise _platform_gap(
+            model,
+            "`tracks`",
+            "`floorplan.tracks: platform` needs",
+            "add them, or set `floorplan.tracks: from_tech` to take the pitch of each layer from "
+            "the LEF files",
         )
     for leaf in ("repair_fanout", "insert_cells"):
         if not getattr(settings.tie, leaf):
@@ -279,8 +297,8 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
     io_horizontal, io_vertical = _io_layers(settings, model)
     return EffectivePlace(
         **base_values(settings, model),
-        site=model.site,
-        tracks=dict(model.tracks),
+        site=site,
+        tracks={} if settings.floorplan.tracks == "from_tech" else dict(model.tracks),
         layer_adjustments=_layer_adjustments(settings, model, signal),
         signal_layers=signal,
         clock_layers=clock,
@@ -290,7 +308,7 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
         tap_distance=distance,
         tap_master=master,
         endcap_master=settings.tapcell.endcap_master or model.endcap_cell,
-        pdn=_grid(settings, model) if settings.pdn.mode == "generated" else Pdn(),
+        pdn=_grid(settings, model) if settings.pdn.mode == "generated" else PdnGrid(),
         match_cell_footprint=bool(model.match_cell_footprint),
         density_value=_density(settings, model),
         io_horizontal=io_horizontal,

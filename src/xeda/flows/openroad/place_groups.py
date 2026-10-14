@@ -10,12 +10,12 @@ choose between flags or that need the platform.
 """
 
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple
+from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, tier
+from ...dataclass import Field, XedaBaseModel, tier
 from ...flow.settings_group import Flag, SettingsGroup
-from ...platforms.model import Pdn
 from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves
+from .place_pdn import PdnConnect, PdnGrid
 
 __all__ = [
     "ArithSwapGroup",
@@ -30,6 +30,7 @@ __all__ = [
     "InitialPlaceGroup",
     "IoGroup",
     "NesterovGroup",
+    "PdnCheckGroup",
     "NetlistCleanupGroup",
     "PdnGroup",
     "PlaceRepairTiming",
@@ -154,8 +155,53 @@ class NetlistCleanupGroup(SettingsGroup):
         ]
 
 
+class PlacementBlockage(XedaBaseModel):
+    """A region where the placement keeps cells away (`create_blockage`)."""
+
+    region: Rectangle = Field(
+        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
+        "upper-right y (`-region`)."
+    )
+    soft: bool = Field(
+        False,
+        description="A soft blockage keeps cells away during the first global placement only "
+        "(`-soft`). The later steps may use the region. Not with `max_density_percent`.",
+    )
+    max_density_percent: Optional[Annotated[float, Field(ge=0, le=100)]] = Field(
+        None,
+        description="The share of the region that cells may fill, in percent (`-max_density`). "
+        "It makes the blockage partial. Unset: no cell may enter. Not with `soft`.",
+    )
+
+
+class RoutingBlockage(XedaBaseModel):
+    """A region where the router keeps wires out (`create_obstruction`)."""
+
+    layer: str = Field(min_length=1, description="The routing layer of the obstruction (`-layer`).")
+    region: Rectangle = Field(
+        description="The region, in micrometers: lower-left x, lower-left y, upper-right x, "
+        "upper-right y (`-region`)."
+    )
+
+
+#: An outline: a rectangle (4 numbers) or a polygon (8 or more numbers, an even count), the
+#: corners as x, y pairs in micrometers.
+Outline = Annotated[list[float], Field(min_length=4)]
+#: A distance that is not negative.
+Distance = Annotated[float, Field(ge=0)]
+
+
 class FloorplanGroup(SettingsGroup):
-    """The size and the shape of the floorplan."""
+    """The size and the shape of the floorplan.
+
+    The tool judges a rectangle for one outline and a polygon for the other (`IFP-0077`) and a
+    `site` that the LEF files do not define, so no rule of ours repeats them."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("additional_sites", "-additional_sites", "list"),
+        Flag("flip_sites", "-flip_sites", "list"),
+        Flag("row_gap", "-gap", "value"),
+    )
 
     sizing: Literal["utilization", "area", "def"] = Field(
         "utilization",
@@ -181,24 +227,28 @@ class FloorplanGroup(SettingsGroup):
         "`sizing: utilization`.",
         json_schema_extra=tier("common"),
     )
-    core_margin: float = Field(
+    core_margin: Union[Distance, tuple[Distance, Distance, Distance, Distance]] = Field(
         1.0,
-        ge=0,
         description="The space between the core and the die, in micrometers (`-core_space`). "
-        "The default is the one of OpenROAD-flow-scripts. Needs `sizing: utilization`.",
+        "One distance for all sides, or four: bottom, top, left, right. The default is the one "
+        "of OpenROAD-flow-scripts. Needs `sizing: utilization`.",
         json_schema_extra=tier("common"),
     )
-    die_area: Optional[Rectangle] = Field(
+    die_area: Optional[Outline] = Field(
         None,
-        description="The die as a rectangle, in micrometers: lower-left x, lower-left y, "
-        "upper-right x, upper-right y (`-die_area`). Needs `sizing: area`, and `core_area` too.",
+        description="The die, in micrometers: a rectangle as 4 numbers (lower-left x, lower-left "
+        "y, upper-right x, upper-right y), or a polygon as 8 or more numbers, the x and y of each "
+        "corner in turn (`-die_area`). Needs `sizing: area`, and `core_area` too. OpenROAD "
+        "needs both outlines to be polygons or both rectangles. A polygon has limits: the "
+        "documentation of the power grid generator (`pdngen`) says it assumes a rectangular "
+        "design, and `global_placement -place_ios` does not support a polygon die.",
         json_schema_extra=tier("common"),
     )
-    core_area: Optional[Rectangle] = Field(
+    core_area: Optional[Outline] = Field(
         None,
-        description="The core as a rectangle, in micrometers: lower-left x, lower-left y, "
-        "upper-right x, upper-right y (`-core_area`). The core must lie inside the die. Needs "
-        "`sizing: area`, and `die_area` too.",
+        description="The core, in micrometers, written as `die_area` (`-core_area`). A rectangle "
+        "must lie inside the die. Needs `sizing: area`, and `die_area` too. A polygon has the "
+        "limits of `die_area` for `pdngen` and for `global_placement -place_ios`.",
         json_schema_extra=tier("common"),
     )
     def_file: Optional[Path] = Field(
@@ -208,32 +258,101 @@ class FloorplanGroup(SettingsGroup):
         "Needs `sizing: def`.",
         json_schema_extra=tier("advanced"),
     )
+    site: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The site of the rows (`-site`). Needs `sizing: utilization` or `sizing: "
+        "area`. Unset: the value of the platform.",
+        json_schema_extra=tier("advanced"),
+    )
+    additional_sites: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="More sites to make rows for (`-additional_sites`), for example for cells of "
+        "double height. Needs `sizing: utilization` or `sizing: area`.",
+        json_schema_extra=tier("advanced"),
+    )
+    flip_sites: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The sites whose rows start flipped (`-flip_sites`), for cells of mixed "
+        "height whose power pin sits on another side. No platform gives them. Needs `sizing: "
+        "utilization` or `sizing: area`.",
+        json_schema_extra=tier("expert"),
+    )
+    row_parity: Literal["none", "odd", "even"] = Field(
+        "none",
+        description="Force the number of rows to be odd or even (`-row_parity`). `none` leaves "
+        "it free, which is the default of the tool. Needs `sizing: utilization` or `sizing: "
+        "area`.",
+        json_schema_extra=tier("expert"),
+    )
+    row_gap: Optional[float] = Field(
+        None,
+        gt=0,
+        description="The space between the rows of two power domains, in micrometers (`-gap`). "
+        "Unset: the tool uses 6 times the least height of a site. Needs `sizing: utilization` "
+        "or `sizing: area`.",
+        json_schema_extra=tier("expert"),
+    )
+    tracks: Optional[Literal["platform", "from_tech"]] = Field(
+        None,
+        description="Where the routing tracks come from. `platform` makes the tracks that the "
+        "platform lists, layer by layer. `from_tech` runs `make_tracks`, which takes the pitch "
+        "of each layer from the LEF files. Unset: the tracks of the platform if it lists any, "
+        "else those of the LEF files.",
+        json_schema_extra=tier("advanced"),
+    )
+    placement_blockages: list[PlacementBlockage] = Field(
+        [],
+        description="The regions where the placement keeps cells away (`create_blockage`). The "
+        "database stores them.",
+        json_schema_extra=tier("advanced"),
+    )
+    routing_blockages: list[RoutingBlockage] = Field(
+        [],
+        description="The regions where the router keeps wires out (`create_obstruction`). The "
+        "database stores them.",
+        json_schema_extra=tier("advanced"),
+    )
+    check_setup: bool = Field(
+        True,
+        description="Report the unconstrained endpoints, the loops and the missing clocks "
+        "(`check_setup`) before the floorplan. OpenROAD-flow-scripts runs it. It only reports.",
+        json_schema_extra=tier("advanced"),
+    )
     netlist_cleanup: NetlistCleanupGroup = Field(
         default_factory=NetlistCleanupGroup,
         description="The cleanup of the netlist before the placement.",
     )
 
+    #: The leaves that one way of sizing owns, with the ways. A leaf of another way has no effect.
+    OWNERS: ClassVar[dict[str, tuple[str, ...]]] = {
+        "core_utilization": ("utilization",),
+        "aspect_ratio": ("utilization",),
+        "core_margin": ("utilization",),
+        "die_area": ("area",),
+        "core_area": ("area",),
+        "def_file": ("def",),
+        "site": ("utilization", "area"),
+        "additional_sites": ("utilization", "area"),
+        "flip_sites": ("utilization", "area"),
+        "row_parity": ("utilization", "area"),
+        "row_gap": ("utilization", "area"),
+    }
+
     def problems(self, key: str) -> list[tuple[str, str]]:
         """Refuse the leaves that another way of sizing owns, a way of sizing that lacks its
-        leaves, and a rectangle that is not one."""
+        leaves, an outline that is not one, and a blockage that is not one."""
         found: list[tuple[str, str]] = []
         default = type(self)()
         sizing = self.sizing
-        owners = {
-            "core_utilization": "utilization",
-            "aspect_ratio": "utilization",
-            "core_margin": "utilization",
-            "die_area": "area",
-            "core_area": "area",
-            "def_file": "def",
-        }
-        for leaf, owner in owners.items():
-            if owner != sizing and getattr(self, leaf) != getattr(default, leaf):
+        for leaf, owners in self.OWNERS.items():
+            if sizing not in owners and getattr(self, leaf) != getattr(default, leaf):
+                ways = " or ".join(f"`{key}.sizing: {owner}`" for owner in owners)
                 found.append(
                     (
                         f"{key}.{leaf}",
-                        f"`{key}.{leaf}` is a leaf of `{key}.sizing: {owner}`, and `{key}.sizing` "
-                        f"is `{sizing}`: set `{key}.sizing: {owner}` or delete `{key}.{leaf}`",
+                        f"`{key}.{leaf}` is a leaf of {ways}, and `{key}.sizing` is `{sizing}`: "
+                        f"set {ways.replace(' or ', ' or set ')} or delete `{key}.{leaf}`",
                     )
                 )
         if sizing == "area":
@@ -255,8 +374,19 @@ class FloorplanGroup(SettingsGroup):
                 )
             )
         for leaf in ("die_area", "core_area"):
-            box = getattr(self, leaf)
-            if box is not None and not (box[0] < box[2] and box[1] < box[3]):
+            outline = getattr(self, leaf)
+            if outline is None:
+                continue
+            if len(outline) != 4 and (len(outline) < 8 or len(outline) % 2):
+                found.append(
+                    (
+                        f"{key}.{leaf}",
+                        f"`{key}.{leaf}` is a rectangle of 4 numbers or a polygon of 8 or more "
+                        f"numbers in pairs, and it has {len(outline)}: list the x and y of each "
+                        "corner",
+                    )
+                )
+            elif len(outline) == 4 and not (outline[0] < outline[2] and outline[1] < outline[3]):
                 found.append(
                     (
                         f"{key}.{leaf}",
@@ -269,6 +399,8 @@ class FloorplanGroup(SettingsGroup):
         if (
             die is not None
             and core is not None
+            and len(die) == 4
+            and len(core) == 4
             and die[0] < die[2]
             and die[1] < die[3]
             and core[0] < core[2]
@@ -284,6 +416,35 @@ class FloorplanGroup(SettingsGroup):
                     "enlarge the die",
                 )
             )
+        for number, blockage in enumerate(self.placement_blockages):
+            where = f"{key}.placement_blockages[{number}]"
+            if blockage.soft and blockage.max_density_percent is not None:
+                found.append(
+                    (
+                        f"{key}.placement_blockages",
+                        f"`{where}` has `soft` and `max_density_percent`: OpenROAD ignores `soft` when "
+                        "it gets a density, because a density makes the blockage partial. Give "
+                        "one of them",
+                    )
+                )
+        regions: list[tuple[str, int, Rectangle]] = [
+            ("placement_blockages", number, blockage.region)
+            for number, blockage in enumerate(self.placement_blockages)
+        ] + [
+            ("routing_blockages", number, blockage.region)
+            for number, blockage in enumerate(self.routing_blockages)
+        ]
+        for name, number, region in regions:
+            x0, y0, x1, y1 = region
+            if not (x0 < x1 and y0 < y1):
+                found.append(
+                    (
+                        f"{key}.{name}",
+                        f"`{key}.{name}[{number}].region` must list the lower-left corner "
+                        "and then the upper-right corner, so that x and y of the second "
+                        "are larger than x and y of the first",
+                    )
+                )
         return found
 
 
@@ -517,8 +678,50 @@ class TapcellGroup(SettingsGroup):
         return found
 
 
+class PdnCheckGroup(SettingsGroup):
+    """The check that the power grid is connected, after the grid is built."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("require_terminals", "-dont_require_terminals", "skip"),
+    )
+
+    mode: Literal["off", "warn", "fail"] = Field(
+        "off",
+        description="`off` runs no check. `warn` runs `check_power_grid` on the power net and the "
+        "ground net and logs a warning when it fails. `fail` stops the flow when it fails. "
+        "OpenROAD-flow-scripts runs no check.",
+        json_schema_extra=tier("advanced"),
+    )
+    require_terminals: bool = Field(
+        False,
+        description="Require that the grid reaches a terminal of the design (a pin or a pad). "
+        "False passes `-dont_require_terminals`: a design without pads has no terminal on its "
+        "power nets, and the check stops with PSM-0025 without that flag. Needs `mode` `warn` "
+        "or `fail`.",
+        json_schema_extra=tier("advanced"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse the terminals of a check that does not run."""
+        if self.mode == "off" and self.require_terminals:
+            return [
+                (
+                    f"{key}.require_terminals",
+                    f"`{key}.require_terminals` has no effect with `{key}.mode: off`: set "
+                    f"`{key}.mode: warn` or `{key}.mode: fail`, or delete "
+                    f"`{key}.require_terminals`",
+                )
+            ]
+        return []
+
+
 class PdnGroup(SettingsGroup):
     """The power grid over the standard cells."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("skip_trim", "-skip_trim", "switch"),
+        Flag("block_pins", "-dont_add_pins", "skip"),
+    )
 
     mode: Literal["generated", "none"] = Field(
         "generated",
@@ -526,27 +729,72 @@ class PdnGroup(SettingsGroup):
         "`none` builds no grid.",
         json_schema_extra=tier("common"),
     )
-    grid: Optional[Pdn] = Field(
+    grid: Optional[PdnGrid] = Field(
         None,
         description="The grid: the supply nets, the connections of the pins to them, the rails, "
-        "the straps, the pairs of layers that the vias connect, and the layers of the pins. "
-        "Each leaf that you give, and that is not empty, replaces the same leaf of the grid of the "
-        "platform. Needs "
-        "`mode: generated`. Unset: the grid of the platform.",
+        "the straps, the rings, the pairs of layers that the vias connect, and the layers of the "
+        "pins. Each leaf that you give, and that is not empty, replaces the same leaf of the "
+        "grid of the platform. Needs `mode: generated`. Unset: the grid of the platform.",
         json_schema_extra=tier("common"),
+    )
+    secondary_power: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The secondary power nets of the voltage domain "
+        "(`set_voltage_domain -secondary_power`). Needs `mode: generated`.",
+        json_schema_extra=tier("advanced"),
+    )
+    block_pins: bool = Field(
+        True,
+        description="Promote the straps of the layers in `grid.pin_layers` to pins of the "
+        "block. False adds `-dont_add_pins` to `pdngen`, which makes no pins at all. Needs "
+        "`mode: generated`.",
+        json_schema_extra=tier("advanced"),
+    )
+    skip_trim: bool = Field(
+        False,
+        description="Keep the metal stubs that the generator would remove (`pdngen "
+        "-skip_trim`). Needs `mode: generated`.",
+        json_schema_extra=tier("expert"),
+    )
+    check: PdnCheckGroup = Field(
+        default_factory=PdnCheckGroup,
+        description="The check of the grid after it is built.",
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
-        """Refuse a grid when no grid is built."""
-        if self.mode == "none" and self.grid is not None:
-            return [
+        """Refuse a leaf when no grid is built, and a staggering of cuts that has no cuts."""
+        found: list[tuple[str, str]] = []
+        if self.mode == "none":
+            default = type(self)()
+            leaves: list[str] = []
+            for name in type(self).model_fields:
+                value = getattr(self, name)
+                if name == "mode":
+                    continue
+                if isinstance(value, SettingsGroup):
+                    leaves += differing_leaves(value, f"{key}.{name}")
+                elif value != getattr(default, name):
+                    leaves.append(f"{key}.{name}")
+            found += [
                 (
-                    f"{key}.grid",
-                    f"`{key}.grid` has no effect with `{key}.mode: none`: set "
-                    f"`{key}.mode: generated` or delete `{key}.grid`",
+                    leaf,
+                    f"`{leaf}` has no effect with `{key}.mode: none`: set "
+                    f"`{key}.mode: generated` or delete `{leaf}`",
                 )
+                for leaf in leaves
             ]
-        return []
+        for connect in self.grid.connects if self.grid is not None else []:
+            if isinstance(connect, PdnConnect) and connect.split_cuts_staggered:
+                if not connect.split_cuts:
+                    found.append(
+                        (
+                            f"{key}.grid.connects",
+                            f"the connection of {connect.layers[0]} and {connect.layers[1]} has "
+                            "`split_cuts_staggered`, and it has no `split_cuts`: give the "
+                            "layers that use split cuts, or delete `split_cuts_staggered`",
+                        )
+                    )
+        return found
 
 
 class IoGroup(SettingsGroup):
