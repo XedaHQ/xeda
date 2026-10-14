@@ -1,5 +1,6 @@
 # platform.yaml (nangate45): values from OpenROAD-flow-scripts, see ../NOTICE.md
 name: nangate45
+description: FreePDK45 with the Nangate Open Cell Library
 providers:
   default: orfs
   orfs: {version: 6b305a712966be72d8908695c04398acdbe273ca, directory: flow/platforms/nangate45, download_mib: 1.7}
@@ -28,9 +29,9 @@ values:
     metal7: [1.87501E-04, 1.17491E-01], metal8: [1.87501E-04, 9.45346E-02],
     metal9: [3.74996E-05, 1.06091E-01], metal10: [3.75000E-05, 7.37095E-01]}}
   pdn: {power_net: VDD, ground_net: VSS, global_connects: [
-    {net: VDD, pin_pattern: ^VDD$, kind: power}, {net: VDD, pin_pattern: ^VDDPE$},
-    {net: VDD, pin_pattern: ^VDDCE$}, {net: VSS, pin_pattern: ^VSS$, kind: ground},
-    {net: VSS, pin_pattern: ^VSSE$}], rails: [{layer: metal1, width: 0.17}], straps: [
+    {net: VDD, pin_pattern: ^VDD$, kind: power},
+    {net: VSS, pin_pattern: ^VSS$, kind: ground}],
+    rails: [{layer: metal1, width: 0.17, pitch: 2.4, offset: 0}], straps: [
     {layer: metal4, width: 0.48, pitch: 56, offset: 2},
     {layer: metal7, width: 1.4, pitch: 30, offset: 2}],
     connects: [[metal1, metal4], [metal4, metal7]], pin_layers: [metal7]}

@@ -520,6 +520,7 @@ def test_the_bundled_nangate45_builds_with_the_values_it_gives(tmp_path: Path) -
     )
     model = build_platform(found, residue, None, {}, {})
     assert model.name == "nangate45" and model.corner == "typical"
+    assert residue.description
     assert model.tapcell.distance == 120 and model.endcap_cell == "TAPCELL_X1"
     assert model.wire_rc.signal_layer == "metal3" and model.wire_rc.clock_layer == "metal5"
     assert len(model.wire_rc.layers) == 10
@@ -527,7 +528,9 @@ def test_the_bundled_nangate45_builds_with_the_values_it_gives(tmp_path: Path) -
     assert model.wire_rc.layers["metal10"] == (3.75000e-05, 7.37095e-01)
     assert model.routing.layer_adjustments == {"metal2-metal3": 0.5, "metal4-metal10": 0.25}
     assert (model.pdn.power_net, model.pdn.ground_net) == ("VDD", "VSS")
-    assert [(r.layer, r.width) for r in model.pdn.rails] == [("metal1", 0.17)]
+    assert [(r.layer, r.width, r.pitch, r.offset) for r in model.pdn.rails] == [
+        ("metal1", 0.17, 2.4, 0.0)
+    ]
     assert [(s.layer, s.width, s.pitch, s.offset) for s in model.pdn.straps] == [
         ("metal4", 0.48, 56.0, 2.0),
         ("metal7", 1.4, 30.0, 2.0),
@@ -536,10 +539,7 @@ def test_the_bundled_nangate45_builds_with_the_values_it_gives(tmp_path: Path) -
     assert model.pdn.pin_layers == ["metal7"]
     assert [(g.net, g.pin_pattern, g.kind) for g in model.pdn.global_connects] == [
         ("VDD", "^VDD$", "power"),
-        ("VDD", "^VDDPE$", None),
-        ("VDD", "^VDDCE$", None),
         ("VSS", "^VSS$", "ground"),
-        ("VSS", "^VSSE$", None),
     ]
     assert sorted(model.tracks) == ["metal1", "metal2", "metal3"]
     assert model.tracks["metal1"].x == (0.095, 0.19) and model.tracks["metal1"].y == (0.07, 0.14)

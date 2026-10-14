@@ -21,19 +21,14 @@ directory that holds them. The residue files only say where each file is in such
 * the power grid, from `grid_strategy-M1-M4-M7.tcl`;
 * the track pitches, from `make_tracks.tcl`.
 
-The Yosys techmap files (`*.v`) in a platform directory are copies of files of
-OpenROAD-flow-scripts. OpenROAD-flow-scripts publishes its build and run scripts under the
-BSD 3-Clause License. The license text follows. It applies to the build and run scripts of
-OpenROAD-flow-scripts, which are the source of these values and files. It does not apply to
-the tools or to the platform library files.
+Xeda ships a Yosys techmap file (`*.v`) in a platform directory only when the source of the
+platform lacks it. Such a file is a copy from its source and keeps its license header.
+`nangate45` has none: its techmap files stay in the PDK store.
 
-BSD 3-Clause License with its text below.
-The flow relies on several tools, platforms and designs that each have their own licenses.
-
-The license below applies ***only*** to the build and run scripts, not the OpenROAD tools.
-See the README.md file LICENSE section for details on the location of each components' individual license.
-
-License for Build and Run scripts in the OpenROAD-flow-scripts repository only :
+OpenROAD-flow-scripts publishes its build and run scripts under the BSD 3-Clause License. The
+license text follows. It applies to the build and run scripts of OpenROAD-flow-scripts, which are
+the source of these values and file names. It does not apply to the tools or to the platform
+library files.
 
 BSD 3-Clause License
 
