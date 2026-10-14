@@ -243,7 +243,7 @@ Reports: `Fmax`, `clock_name`, `clock_period`, `setup_wns`, `hold_wns`, `num_vio
 
 ### `openroad_place`
 
-*runs first: `yosys` | can follow: `yosys`*
+*runs first: `yosys` | can follow: `yosys` | can be followed by: `openroad_cts`*
 
 Read a gate-level netlist, then floorplan, place and optimize it with OpenROAD. One OpenROAD process loads the Liberty and LEF files of the platform, the netlist and the constraints. It makes the floorplan, places the tap cells and builds the power grid, places the pins and the cells globally, optimizes the design, and legalizes the placement. It writes the database `place.odb` and the constraints `place.sdc`. The constraints are the SDC files of the design, then the clocks that the `clocks` setting gives, then `sdc_files`. The routing layers, the capacity of each layer and the cells that the resizer must not touch stay in the database, so the flows after this one keep them. These settings belong to this flow.
 
@@ -253,15 +253,15 @@ Required settings: `platform`
 
 Group `design`: no common settings; 2 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `floorplan`: `floorplan.sizing`, `floorplan.core_utilization`, `floorplan.aspect_ratio`, `floorplan.core_margin`, `floorplan.die_area`, `floorplan.core_area`, `floorplan.netlist_cleanup.repair.enabled`, `floorplan.netlist_cleanup.repair.fix`, `floorplan.netlist_cleanup.repair.setup_margin`, `floorplan.netlist_cleanup.repair.hold_margin`; 13 more: `xeda list-settings openroad_place --tier expert --json`
+Group `floorplan`: `floorplan.sizing`, `floorplan.core_utilization_percent`, `floorplan.aspect_ratio`, `floorplan.core_margin`, `floorplan.die_area`, `floorplan.core_area`, `floorplan.netlist_cleanup.repair.enabled`, `floorplan.netlist_cleanup.repair.fix`, `floorplan.netlist_cleanup.repair.setup_margin`, `floorplan.netlist_cleanup.repair.hold_margin`; 22 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `routing`: `routing.signal_layers`, `routing.clock_layers`; 1 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `tie`: `tie.repair_fanout`; 1 more: `xeda list-settings openroad_place --tier expert --json`
+Group `tie`: `tie.repair_fanout`; 3 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `tapcell`: `tapcell.mode`; 3 more: `xeda list-settings openroad_place --tier expert --json`
+Group `tapcell`: `tapcell.mode`; 15 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `pdn`: `pdn.mode`, `pdn.grid`
+Group `pdn`: `pdn.mode`, `pdn.grid`; 5 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 4 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -287,7 +287,7 @@ Reports no results beyond the keys every flow reports.
 
 ### `yosys`
 
-*can be followed by: `openroad_place`*
+*can be followed by: `openroad_place`, `openroad_cts` (through `openroad_place`)*
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
@@ -318,3 +318,27 @@ Compile a Bluespec (BSV or BH) design to Verilog with the Bluespec compiler, bsc
 60 flow-specific settings (plus the common ones): `xeda list-settings bsc --json`
 
 Reports: `modules`
+
+### `openroad_cts`
+
+*runs first: `openroad_place` | can follow: `openroad_place`, `yosys` (through `openroad_place`)*
+
+Build the clock tree of a placed design with OpenROAD and repair its timing. One OpenROAD process loads the Liberty files of the platform, the placed database and its SDC file. It repairs the clock inverters, builds the clock tree, legalizes the placement and repairs the timing with the clocks propagated. It writes the database `cts.odb` and the constraints `cts.sdc`. The clock tree changes the constraints: the clocks are propagated in `cts.sdc`. The wire RC and the cells that the resizer must not use are no part of the database. The process sets them again from the platform and the settings `wire_rc` and `dont_use_cells`.
+
+Required settings: `platform`
+
+16 flow-specific settings (plus the common ones): `xeda list-settings openroad_cts --json`
+
+Group `buffers`: `buffers.select`, `buffers.cells`; 2 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `sink_clustering`: `sink_clustering.mode`, `sink_clustering.size`, `sink_clustering.max_diameter`
+
+Group `tree`: `tree.buffer_distance`; 1 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `repair_clock_nets`: `repair_clock_nets.when`
+
+Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 11 more: `xeda list-settings openroad_cts --tier expert --json`
+
+Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`

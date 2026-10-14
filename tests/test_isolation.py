@@ -72,6 +72,7 @@ FAKED = {
     "dc",
     "diamond_synth",
     "modelsim",
+    "openroad_cts",
     "openroad_place",
 } | FPGA_FAKED
 #: the design most flows run: sqrt, with its cocotb testbench
@@ -103,7 +104,8 @@ SQRT_VERILOG_DESIGN = (
     {"sources": ["sqrt_stand_in.v"], "top": "sqrt_stand_in", "clock": {"port": "clk"}},
     SQRT_DESIGN[1],
 )
-#: a gate-level netlist for `openroad_place`, which reads one and runs no synthesis
+#: a gate-level netlist for `openroad_place`, which reads one and runs no synthesis; the flows
+#: after it start from its database
 SQRT_NETLIST = "module sqrt_stand_in(input clk); endmodule\n"
 SQRT_NETLIST_DESIGN = (
     {
@@ -113,7 +115,12 @@ SQRT_NETLIST_DESIGN = (
     },
     SQRT_DESIGN[1],
 )
-DESIGNS = {"bsc": GCD_DESIGN, "bsc_sim": GCD_DESIGN, "openroad_place": SQRT_NETLIST_DESIGN}
+DESIGNS = {
+    "bsc": GCD_DESIGN,
+    "bsc_sim": GCD_DESIGN,
+    "openroad_cts": SQRT_NETLIST_DESIGN,
+    "openroad_place": SQRT_NETLIST_DESIGN,
+}
 DESIGNS.update(
     (cls.name, SQRT_VERILOG_DESIGN)
     for cls, _ in flow_classes()
@@ -153,7 +160,7 @@ LOCATED = {
     "bsc_sim": {"vcd": "bsc_sim.vcd"},
 }
 #: The flows that read the values of OpenROAD from the platform
-OPENROAD_FLOWS = {"openroad_place"}
+OPENROAD_FLOWS = {"openroad_cts", "openroad_place"}
 #: The flows the resolver refuses in the sweep's world, with what its refusal says: the sweep's
 #: testbench is cocotb's, and `vivado_postsynth_sim`, which `vivado_power` reads, cannot run it.
 UNPLANNABLE = {

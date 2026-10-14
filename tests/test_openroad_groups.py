@@ -750,15 +750,13 @@ def test_the_clock_tree_groups_render_the_flags_of_their_choices():
         "tree.buffer_distance=100",
     )
     assert problems(OpenroadCts, "buffers.select=list", "buffers.cells=CLKBUF_X1") == []
-    assert render_flags(cts.buffers, tcl_word) == (
-        '-buf_list [list "CLKBUF_X1" "CLKBUF_X2"] -root_buf "CLKBUF_X2"'
-    )
+    assert (
+        render_flags(cts.buffers, tcl_word) == '-root_buf "CLKBUF_X2"'
+    )  # the flow prints the rest
     assert render(cts.sink_clustering) == (
         '-sink_clustering_size "20" -sink_clustering_max_diameter "60.0"'
     )
-    assert render(cts.tree) == '-distance_between_buffers "100.0"'
-    library = settings_of(OpenroadCts, "buffers.select=library", "buffers.library=slow").buffers
-    assert render(library) == '-library "slow"'
+    assert render(cts.tree) == ""  # the flow prints the distance when the style asks for it
     assert render(OpenroadCts.Settings().buffers) == ""
 
 

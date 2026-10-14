@@ -194,6 +194,8 @@ generated scripts, reports and the effective settings are in the run root, `xeda
   - `openroad_place`: floorplan, power grid, placement and timing repair of the gate-level
     netlist that `yosys` writes for a standard-cell platform, with the constraints of the design
     and its clocks. It writes the placed database and its SDC file
+  - `openroad_cts`: clock tree synthesis, legalization and timing repair of the placed database.
+    It writes the database and its SDC file, with propagated clocks
 - Synopsys Design Compiler
   - `dc`: ASIC logic synthesis
 - Synopsys VCS simulator

@@ -119,6 +119,7 @@ READS_NO_SOURCE = [
     "fpga_pack",
     "nextpnr",
     "openfpgaloader",
+    "openroad_cts",
     "openroad_place",
     "vivado_impl",
     "vivado_power",

@@ -4,7 +4,9 @@
    left. The written SDC file holds the propagated clocks, so the flows after this one read it.
    The repair of the clock nets in the tree (`-repair_clock_nets`) runs before the tree balances
    the latencies; the standalone one runs after the tree. #}
+{% set buf = settings.buffers %}
 {% set sc = settings.sink_clustering %}
+{% set tree = settings.tree %}
 {% set rcn = settings.repair_clock_nets %}
 {% set crt = settings.repair %}
 {% set crt_footprint = P.match_cell_footprint if crt.match_cell_footprint is none else crt.match_cell_footprint %}
@@ -13,7 +15,7 @@ proc xeda_cts {} {
 {% if settings.repair_clock_inverters %}
     repair_clock_inverters
 {% endif %}
-    {{ ["clock_tree_synthesis", render_flags(settings.buffers), "-sink_clustering_enable" if sc.mode != "off" else "", render_flags(sc), render_flags(settings.tree), "-repair_clock_nets" if rcn.when == "in_cts" else ""]|select|join(" ") }}
+    {{ ["clock_tree_synthesis", "-buf_list " ~ (buf.cells|tcl_list) if buf.select == "list" else "", render_flags(buf), "-library " ~ (buf.library|tcl_word) if buf.select == "library" else "", "-sink_clustering_enable" if sc.mode != "off" else "", render_flags(sc), "-distance_between_buffers " ~ (tree.buffer_distance|tcl_word) if tree.style == "simple_segments" else "", render_flags(tree), "-repair_clock_nets" if rcn.when == "in_cts" else ""]|select|join(" ") }}
 {% if rcn.when == "after" %}
     estimate_parasitics -placement
     repair_clock_nets

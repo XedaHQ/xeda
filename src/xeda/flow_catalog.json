@@ -109,13 +109,28 @@
       "": []
     }
   },
-  "openroad_place": {
+  "openroad_cts": {
     "aliases": [],
-    "class_name": "OpenroadPlace",
+    "class_name": "OpenroadCts",
     "followers": {
       "": [],
       "odb": [],
       "sdc": []
+    }
+  },
+  "openroad_place": {
+    "aliases": [],
+    "class_name": "OpenroadPlace",
+    "followers": {
+      "": [
+        "openroad_cts"
+      ],
+      "odb": [
+        "openroad_cts"
+      ],
+      "sdc": [
+        "openroad_cts"
+      ]
     }
   },
   "quartus": {
@@ -240,11 +255,25 @@
     "class_name": "Yosys",
     "followers": {
       "": [
-        "openroad_place"
+        "openroad_place",
+        "openroad_cts"
       ],
       "netlist": [
-        "openroad_place"
+        "openroad_place",
+        "openroad_cts"
       ]
+    },
+    "routes": {
+      "": {
+        "openroad_cts": [
+          "openroad_place"
+        ]
+      },
+      "netlist": {
+        "openroad_cts": [
+          "openroad_place"
+        ]
+      }
     }
   },
   "yosys_fpga": {

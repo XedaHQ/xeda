@@ -17,11 +17,9 @@ __all__ = ["CtsBuffersGroup", "CtsTreeGroup", "RepairClockNetsGroup", "SinkClust
 class CtsBuffersGroup(SettingsGroup):
     """The buffers that the clock tree may use."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("cells", "-buf_list", "list"),
-        Flag("root", "-root_buf", "value"),
-        Flag("library", "-library", "value"),
-    )
+    #: The flow prints `-buf_list` and `-library` itself, since `select` decides which of them the
+    #: command gets.
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("root", "-root_buf", "value"),)
 
     select: Literal["inferred", "list", "library"] = Field(
         "inferred",
@@ -136,9 +134,9 @@ class SinkClusteringGroup(SettingsGroup):
 class CtsTreeGroup(SettingsGroup):
     """The shape of the clock tree."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("buffer_distance", "-distance_between_buffers", "value"),
-    )
+    #: The flow prints `-distance_between_buffers` itself, since `style` decides whether the
+    #: command gets it.
+    FLAGS: ClassVar[Tuple[Flag, ...]] = ()
 
     style: Literal["lut", "simple_segments"] = Field(
         "lut",
