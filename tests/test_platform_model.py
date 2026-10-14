@@ -18,7 +18,6 @@ import tomllib
 import yaml
 
 from xeda.platforms import (
-    AsicsPlatform,
     Located,
     PlatformModel,
     Residue,
@@ -820,10 +819,6 @@ def test_the_pure_modules_start_no_process_and_build_reads_no_file(module: str) 
         assert not called & FILE_READS
 
 
-def test_the_old_platform_classes_are_still_exported() -> None:
-    assert AsicsPlatform is not None
-
-
 # ---------------------------------------------------------------------------------------------
 # Packaging
 # ---------------------------------------------------------------------------------------------
@@ -859,6 +854,44 @@ def test_every_platform_file_that_xeda_ships_is_selected_by_the_packaging() -> N
         assert not any(matches(pattern, relative) for pattern in exclude), relative
     # The techmaps of a platform ride along.
     assert any(matches(pattern, "nangate45/cells_latch.v") for pattern in include)
+
+
+def shipping_problems(root: Path) -> list[str]:
+    """Name each file under `root` that is none of the kinds the wheel may ship."""
+    problems = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        relative = path.relative_to(root)
+        parts = relative.parts
+        if path.suffix == ".py" or relative.as_posix() == "NOTICE.md":
+            continue
+        if len(parts) == 2 and (parts[1] == "platform.yaml" or path.suffix == ".v"):
+            continue
+        problems.append(relative.as_posix())
+    return problems
+
+
+def test_the_platforms_directory_holds_only_the_kinds_of_file_it_may_ship() -> None:
+    assert shipping_problems(PLATFORMS) == []
+
+
+def test_a_pdk_library_file_under_the_platforms_directory_is_named_as_a_problem(
+    tmp_path: Path,
+) -> None:
+    for relative in ("nangate45/lib/cells.lib.gz", "nangate45/lef/cells.lef", "nangate45/x.gds"):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_bytes(b"")
+    (tmp_path / "nangate45" / "cells_latch.v").write_text("")
+    (tmp_path / "nangate45" / "platform.yaml").write_text("")
+    (tmp_path / "model.py").write_text("")
+    (tmp_path / "__pycache__").mkdir()
+    (tmp_path / "__pycache__" / "model.cpython-311.pyc").write_bytes(b"")
+    assert shipping_problems(tmp_path) == [
+        "nangate45/lef/cells.lef",
+        "nangate45/lib/cells.lib.gz",
+        "nangate45/x.gds",
+    ]
 
 
 def test_the_package_data_of_the_platforms_is_read_from_the_installed_package() -> None:

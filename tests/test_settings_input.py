@@ -87,14 +87,6 @@ def test_a_union_keeps_the_type_it_was_given():
     assert SimFlow.Settings(stop_time="5us").stop_time == "5us"
 
 
-def test_fractional_platform_values_are_not_truncated():
-    """Physical quantities from PDK data are `float`: an `int` type would truncate them."""
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("nangate45")
-    assert platform.macro_place_halo == [22.4, 15.12]
-
-
 def test_vivado_run_properties_take_text_numbers_and_booleans():
     """A run property's type says what Vivado accepts, and each kind is rendered for Tcl."""
     from xeda.flows.vivado.vivado_synth import VivadoSynth, tcl_property_value

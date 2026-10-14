@@ -12,7 +12,6 @@ from typing import ClassVar
 
 import pytest
 
-import xeda
 from xeda import Design
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException, flowrun_hash
 from xeda.flow_runner.bindings import node_identity
@@ -1027,23 +1026,6 @@ def _asic_plan(tmp_path, taker, **kwargs):
         / node,
         **kwargs,
     )
-
-
-# Where the installed xeda keeps its bundled platforms: a non-editable install (tox) is not the
-# checkout's `src/xeda`, and `-s platform=nangate45` resolves inside the one that is imported.
-BUNDLED_NANGATE45 = Path(xeda.__file__).parent / "platforms/nangate45/config.toml"
-
-
-def test_every_bundled_platform_is_named_as_its_directory():
-    """`-s platform=<name>` and the path to that platform's `config.toml` are one model only if
-    the file names the platform as `from_resource` does: a `config.toml` without a `name`
-    validated to `name = None` by its path, and the merged library to `None_merged`."""
-    from xeda.platforms import AsicsPlatform
-    from xeda.platforms.platform import bundled_platform_names
-
-    for name in bundled_platform_names():
-        config = BUNDLED_NANGATE45.parent.parent / name / "config.toml"
-        assert AsicsPlatform.from_setting(str(config)).name == name
 
 
 #: A platform file with two corners, for the tests that give a corner.

@@ -9,7 +9,6 @@ re-impose anything on an assignment that does not concern it.
 """
 
 import copy
-import json
 from pathlib import Path
 
 import pytest
@@ -184,67 +183,6 @@ def test_assigning_rtl_clock_shorthand_updates_the_clock_list(value, port):
     assert rtl.clock.port == port
     assert len(rtl.clocks) == 1
     assert rtl.clocks[0].port == port
-
-
-# ---------------------------------------------------------------------------------------------
-# ASIC platforms: supply voltages written as `$(VOLTAGE)` follow the selected corner.
-# ---------------------------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "rebuild",
-    [
-        pytest.param(lambda p: type(p).model_validate(p.model_dump()), id="model_validate"),
-        pytest.param(lambda p: p.model_copy(deep=True), id="model_copy"),
-        pytest.param(
-            lambda p: type(p).model_validate(json.loads(p.model_dump_json())), id="json_round_trip"
-        ),
-        pytest.param(lambda p: p.with_absolute_paths(), id="with_absolute_paths"),
-    ],
-)
-def test_corner_dependent_voltages_survive_a_platform_rebuild(rebuild):
-    """ASAP7 spells VDD as `$(VOLTAGE)`, which only the selected corner can resolve.
-
-    The source expression has to outlive every way a platform gets reconstructed -- reloaded
-    from `settings.json`, deep-copied into flow settings, or rebuilt by `with_absolute_paths` --
-    or `select_corner` quietly keeps the voltage of whichever corner happened to load first.
-    """
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = rebuild(AsicsPlatform.from_resource("asap7"))
-    assert platform.pwr_nets_voltages["VDD"] == 0.7  # TT, the platform default
-
-    platform.select_corner("FF")
-
-    assert platform.default_corner == "FF"
-    assert platform.pwr_nets_voltages["VDD"] == 0.77
-
-
-def test_select_corner_walks_every_bundled_asap7_corner():
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("asap7")
-    for corner, voltage in (("FF", 0.77), ("SS", 0.63), ("TT", 0.7), ("FF", 0.77)):
-        platform.select_corner(corner)
-        assert (platform.default_corner, platform.pwr_nets_voltages["VDD"]) == (corner, voltage)
-
-
-def test_select_corner_names_the_available_corners_when_asked_for_a_missing_one():
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("asap7")
-    with pytest.raises(ValueError, match="Unknown platform corner: typo"):
-        platform.select_corner("typo")
-
-
-def test_a_corner_free_platform_keeps_its_literal_voltages():
-    """nangate45 writes `pwr_nets_voltages = "VDD 1.1"`: nothing to re-evaluate."""
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("nangate45")
-
-    assert platform.voltage_expressions_ == {}
-    assert platform.pwr_nets_voltages == {"VDD": 1.1}
 
 
 # ---------------------------------------------------------------------------------------------

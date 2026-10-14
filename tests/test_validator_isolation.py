@@ -159,21 +159,6 @@ def test_the_removed_clock_period_fails_without_mutating_input():
     assert payload == before
 
 
-def test_asic_corner_normalization_does_not_mutate_input():
-    from xeda.platforms.asics import AsicsPlatform
-
-    payload = {
-        "root_dir": ".",
-        "sc_lef": "cells.lef",
-        "corner": {"tt": {}},
-        "lib_files": ["cells.lib"],
-    }
-    before = copy.deepcopy(payload)
-
-    AsicsPlatform(**payload)
-    assert payload == before
-
-
 def test_unrelated_assignment_preserves_nested_field_identities():
     """Revalidating one field must not replace unrelated models or containers."""
     settings = YosysFpga.Settings(

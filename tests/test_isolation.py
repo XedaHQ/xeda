@@ -1414,24 +1414,6 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "flows/vivado/templates/write_bitstream_hook.tcl",
         "file copy -force ${xeda_top}.bin {{bin_file|tcl_word}}",
     ): (1, "the .bin beside the bitstream, copied from the implementation run's own", None),
-    ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lib"): (
-        1,
-        "an upstream " "PDK helper script xeda never runs",
-        None,
-    ),
-    ("platforms/nangate45/fakeram.tcl", "file delete fakeram45_$size.lef"): (
-        1,
-        "an upstream " "PDK helper script xeda never runs",
-        None,
-    ),
-    (
-        "platforms/nangate45/fakeram.tcl",
-        "file copy -force $results_dir/fakeram45_$size/fakeram45_$size.lib $flow_dir/lib/fakeram45_$size.lib",
-    ): (1, "an upstream PDK helper script xeda never runs", None),
-    (
-        "platforms/nangate45/fakeram.tcl",
-        "file copy -force $results_dir/fakeram45_$size/fakeram45_$size.lef $flow_dir/lef/fakeram45_$size.lef",
-    ): (1, "an upstream PDK helper script xeda never runs", None),
     (
         "flows/diamond/templates/synth.tcl",
         "prj_project new -name {{design.name|tcl_word}} -dev {{settings.fpga.part|tcl_word}} "
@@ -1694,16 +1676,6 @@ REVIEWED_WRITES = [
         'with open(lock_path, "a") as lock:',
         "the install command writes the PDK store, outside a run: the lock file of the store, "
         "opened to be locked, not written",
-    ),
-    (
-        "platforms/asap7/openroad/post_mergeLib.py",
-        'fo = open(mergedFile, "w")',
-        "a PDK script the tool runs, not xeda",
-    ),
-    (
-        "platforms/mk_to_toml.py",
-        'with open(Path(args.config_mk).parent / "config.toml", "w") as f:',
-        f"a developer's script converting a PDK's config: {_OUTSIDE_RUNS}",
     ),
 ]
 

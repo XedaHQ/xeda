@@ -327,9 +327,6 @@ def test_the_forms_that_stand_for_a_table():
     assert VhdlSettings.as_mapping("08") == {"standard": "08"}
     assert LanguageSettings.as_mapping(2005) == {"standard": "2005"}
     assert LanguageSettings.as_mapping(True) is None  # a bool is no standard
-    from xeda.platforms.asics import AsicsPlatform
-
-    assert AsicsPlatform.as_mapping("asap7") is WHOLE
 
 
 def test_a_model_already_built_is_a_whole_value():
