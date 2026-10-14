@@ -1,0 +1,32 @@
+{# The clock tree: the tree and the repair of the clock nets, the legalization of the placement,
+   and the repair of the timing with the clocks propagated. The restart header has already set the
+   cells that must not be used, and the tree builder picks its buffers from the cells that are
+   left. The written SDC file holds the propagated clocks, so the flows after this one read it.
+   The repair of the clock nets in the tree (`-repair_clock_nets`) runs before the tree balances
+   the latencies; the standalone one runs after the tree. #}
+{% set sc = settings.sink_clustering %}
+{% set rcn = settings.repair_clock_nets %}
+{% set crt = settings.repair %}
+{% set crt_footprint = P.match_cell_footprint if crt.match_cell_footprint is none else crt.match_cell_footprint %}
+proc xeda_cts {} {
+    xeda_stage cts
+{% if settings.repair_clock_inverters %}
+    repair_clock_inverters
+{% endif %}
+    {{ ["clock_tree_synthesis", render_flags(settings.buffers), "-sink_clustering_enable" if sc.mode != "off" else "", render_flags(sc), render_flags(settings.tree), "-repair_clock_nets" if rcn.when == "in_cts" else ""]|select|join(" ") }}
+{% if rcn.when == "after" %}
+    estimate_parasitics -placement
+    repair_clock_nets
+{% endif %}
+    estimate_parasitics -placement
+    set_placement_padding -global -left {{ settings.legalize.cell_padding|tcl_number }} -right {{ settings.legalize.cell_padding|tcl_number }}
+    detailed_placement
+    estimate_parasitics -placement
+{% if crt.enabled %}
+    repair_timing {{ [fix_flags[crt.fix], "-setup_margin " ~ (crt.setup_margin|lib_time), "-hold_margin " ~ (crt.hold_margin|lib_time), render_flags(crt, comma_word), render_flags(crt.moves), "-match_cell_footprint" if crt_footprint else "", "-verbose"]|select|join(" ") }}
+    detailed_placement
+{% endif %}
+    check_placement -verbose
+    estimate_parasitics -placement
+    xeda_metrics 1 1
+}
