@@ -6,14 +6,19 @@
     expanding commands (`read_liberty`, `dfflibmap`) name them with `read_path`.
     The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
 {%- set liberty_read = true -%}
+{%- set clockgate_map = asic.clockgate_map -%}
+{%- set extra_map -%}
+{%- set architecture = {"kogge_stone": "kogge-stone", "han_carlson": "han-carlson", "sklansky": "sklansky"}.get(settings.arithmetic.adder_architecture) -%}
+{%- if architecture %} -extra-map +/choices/{{architecture}}.v{% endif -%}
+{%- endset -%}
 {%- set dont_use_words -%}
 {%- for cell in dont_use %} -dont_use {{cell|path}}{% endfor -%}
 {%- endset -%}
 {% for lib in settings.liberty -%}
 read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
 {% endfor -%}
-{% if settings.dff_liberty and settings.dff_liberty not in settings.liberty -%}
-read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}
+{% if asic.dff_liberty and asic.dff_liberty not in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}
 {% endif -%}
 {% include 'read_files.ys' %}
 proc
@@ -24,37 +29,45 @@ flatten
 {% include "post_rtl.ys" %}
 {#- yosys scripts have no `exit`, so `stop_after == "rtl"` omits the rest #}
 {%- if settings.stop_after != "rtl" %}
-synth{% if settings.flatten %} -flatten{% endif %} -run :fine{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
-synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
 chformal -remove
 delete t:$print
 rename -wire
 opt -purge
-{%- if settings.adder_map %}
+{%- if asic.adder_map %}
 extract_fa
-techmap -map {{settings.adder_map|read_path}}
+techmap -map {{asic.adder_map|read_path}}
 {%- endif %}
 techmap
 opt -fast -purge
-{%- for map in settings.other_maps or [] %}
+{%- if asic.latch_map %}
 dfflegalize -cell $_DLATCH_P_ x -cell $_DLATCH_N_ x t:$_DLATCH_*
+techmap -map {{asic.latch_map|read_path}}
+{%- endif %}
+{%- for map in asic.techmap_files %}
 techmap -map {{map|read_path}}
 {%- endfor %}
-dfflibmap{% for lib in ([settings.dff_liberty] if settings.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
+dfflibmap{% for lib in ([asic.dff_liberty] if asic.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
 opt
+{%- if settings.finish.tie_undefined == "zero" %}
 setundef -zero
-abc{% if settings.abc_script %} -script {{settings.abc_script|path}}{% endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- elif settings.finish.tie_undefined == "one" %}
+setundef -one
+{%- endif %}
+abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
 {%- if abc_constr_file %} -constr {{abc_constr_file|path}}{% endif %}
+{%- if asic.delay_target_ps is not none %} -D {{"%.3f"|format(asic.delay_target_ps)}}{% endif %}
 {%- for flag in settings.abc_flags %} {{flag}}{% endfor %}
 {%- if settings.splitnets %}
 splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
 {%- endif %}
 opt_clean -purge
-{%- if settings.hilomap %}
-hilomap{% if settings.hilomap.singleton %} -singleton{% endif %} -hicell {{settings.hilomap.hi|join(" ")}} -locell {{settings.hilomap.lo|join(" ")}}
+{%- if asic.tie_cells %}
+hilomap{% if asic.tie_cells.singleton %} -singleton{% endif %} -hicell {{asic.tie_cells.hi|join(" ")}} -locell {{asic.tie_cells.lo|join(" ")}}
 {%- endif %}
-{%- if settings.insbuf %}
-insbuf -buf {{settings.insbuf|join(" ")}}
+{%- if asic.buffer_cell %}
+insbuf -buf {{asic.buffer_cell|join(" ")}}
 {%- endif %}
 {%- if settings.rmports %}
 rmports

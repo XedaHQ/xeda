@@ -1326,7 +1326,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ): (1, IN_MEMORY, None),
     (
         "flows/yosys/templates/yosys_liberty_synth.ys",
-        "read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}",
+        "read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}",
     ): (1, IN_MEMORY, None),
     (
         "flows/yosys/templates/yosys_liberty_synth.tcl",
@@ -1334,7 +1334,7 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
     ): (1, IN_MEMORY, None),
     (
         "flows/yosys/templates/yosys_liberty_synth.tcl",
-        "yosys read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}",
+        "yosys read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}",
     ): (1, IN_MEMORY, None),
     (
         "flows/vivado/templates/vivado_alt_synth.tcl",

@@ -765,7 +765,7 @@ def test_every_setting_the_reader_script_renders_has_a_decision_for_the_mode():
         name
         for suffix in ("ys", "tcl")
         for name in re.findall(
-            r"settings\.([a-z_0-9]+)|\b(defines|ghdl_args)\b",
+            r"settings\.([a-z_0-9]+)|\b(defines|ghdl_args|clockgate_map)\b",
             (folder / f"read_files.{suffix}").read_text(),
         )
         for name in name

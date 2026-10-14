@@ -171,13 +171,25 @@ def test_a_setting_outside_a_group_has_no_group_and_a_setting_without_a_tier_is_
         assert by_name[name]["tier"] == "common"
 
 
-@pytest.mark.parametrize("flow", ["vivado_synth", "yosys", "ghdl_sim", "nextpnr"])
+@pytest.mark.parametrize("flow", ["vivado_synth", "ghdl_sim", "nextpnr"])
 def test_every_entry_of_a_real_flow_has_a_tier_and_a_group(flow):
     fields = settings_info(flow)["fields"]
     assert fields
     for field in fields:
         assert field["tier"] == "common", field["name"]
         assert field["group"] is None, field["name"]
+
+
+def test_the_entries_of_yosys_name_the_group_of_each_dotted_name():
+    """`yosys` is the one product flow with groups: a leaf of a group has a dotted name and names
+    its group, and a setting outside the groups, or the field of a group, has neither."""
+    fields = settings_info("yosys")["fields"]
+    assert any(field["group"] is not None for field in fields)
+    for field in fields:
+        assert field["tier"] in ("common", "advanced", "expert"), field["name"]
+        assert (field["group"] is not None) == ("." in field["name"]), field["name"]
+        if field["group"] is not None:
+            assert field["name"].startswith(field["group"] + "."), field["name"]
 
 
 def test_no_flow_of_the_product_lists_a_dotted_name_yet():

@@ -255,7 +255,17 @@ Reports no results beyond the keys every flow reports.
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
-73 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+72 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+
+Group `hierarchy`: `hierarchy.keep_min_cost`
+
+Group `arithmetic`: `arithmetic.adder_architecture`, `arithmetic.adder_map`; 2 more: `xeda list-settings yosys --tier expert --json`
+
+Group `sequential`: no common settings; 3 more: `xeda list-settings yosys --tier expert --json`
+
+Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 2 more: `xeda list-settings yosys --tier expert --json`
+
+Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`
 
 Reports: `area`, `cells`, `platform`
 

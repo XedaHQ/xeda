@@ -57,7 +57,10 @@ def _render(
         extra.update(
             read_tb_sources=True, hierarchy_top="top", ghdl_top=None, cxxrtl_filename="sim.cc"
         )
+    if flow_cls is Yosys:
+        extra.update(asic=flow.asic_values(), dont_use=flow.dont_use_cells())
     if flow_cls is YosysFpga:
+        extra["clockgate_map"] = flow.settings.clockgate_map
         extra["synth_command"] = flow.settings.synth_command(NEWEST_CHECKED_YOSYS)
         libraries = flow.settings.primitive_libraries()
         # as `YosysFpga.run()` does: the reads, and the `verilog_lib` entries that are not one

@@ -1,12 +1,14 @@
 from .cxx_rtl import CxxRtl, YosysSim
-from .yosys import HiLoMap, Yosys, abc_opt_script
+from .asic_groups import HiLoMap
+from .yosys import AsicValues, Yosys, abc_strategy_script
 from .yosys_fpga import YosysFpga
 
 __all__ = [
+    "AsicValues",
     "CxxRtl",
     "HiLoMap",
     "Yosys",
     "YosysFpga",
     "YosysSim",
-    "abc_opt_script",
+    "abc_strategy_script",
 ]

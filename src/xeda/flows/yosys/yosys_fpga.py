@@ -1010,6 +1010,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
+            # `read_files.ys` reads the clock-gating map from this variable. `yosys` passes none.
+            clockgate_map=ss.clockgate_map,
             synth_command=synth_command,
             # `primitive_libraries` names what the pass reads in its `begin` step.
             # `synth_pass_only` lets the pass do that itself. An early read is redundant, and it

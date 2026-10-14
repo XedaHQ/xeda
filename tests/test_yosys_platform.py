@@ -97,10 +97,11 @@ def test_the_script_maps_to_the_liberty_files_and_cells_of_the_platform(fake_yos
     assert "-hicell TIEHI_SMALL Z -locell TIELO_X1 Z" in script
     assert "insbuf -buf BUF_X1 A Z" in script
     assert (flow.run_path / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
-    assert effective["adder_map"] == str(pdk / "cells_adders.v")
-    assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
-    assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
-    assert effective["dff_liberty"] is None, "the platform has no flip-flop library of its own"
+    assert f"techmap -map {pdk / 'cells_adders.v'}\n" in script
+    assert f"read_verilog -defer {pdk / 'cells_clkgate.v'}\n" in script
+    assert f"techmap -map {pdk / 'cells_latch.v'}\n" in script
+    assert effective["sequential"]["dff_liberty"] is None, "no flip-flop library of its own"
+    assert effective["sequential"]["latch_map"] is None, "the platform's map is not a setting"
 
 
 def _dont_use(flow) -> dict[str, list[str]]:
@@ -140,16 +141,15 @@ def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file
 def test_a_setting_the_user_gave_wins_over_the_model(fake_yosys):
     flow, _ = _launch(
         fake_yosys,
-        abc_driver_cell="INV_X1",
-        abc_load_in_ff=1.5,
-        hilomap={"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Z"]},
-        insbuf=["INV_X1", "A", "ZN"],
-        other_maps=[],
+        abc={"driver_cell": "INV_X1", "load": 1.5},
+        finish={
+            "tie_cells": {"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Z"]},
+            "buffer_cell": ["INV_X1", "A", "ZN"],
+        },
     )
     script = _script(flow)
     assert (flow.run_path / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 1.5\n"
     assert "-hicell TIEHI_BIG Z" in script and "insbuf -buf INV_X1 A ZN" in script
-    assert _effective(flow)["other_maps"] == []
 
 
 def test_a_liberty_file_the_user_gave_replaces_the_one_of_the_platform(fake_yosys):
@@ -455,11 +455,11 @@ def test_a_corner_that_the_platform_lacks_is_refused_at_planning(fake_yosys):
         )
 
 
-@pytest.mark.parametrize("name", ["abc_driver_cell", "abc_load_in_ff"])
+@pytest.mark.parametrize("name", ["driver_cell", "load"])
 def test_an_abc_cell_setting_without_a_liberty_mapping_names_the_ways_to_map(name):
-    value = "BUF_X1" if name == "abc_driver_cell" else 1.5
+    value = "BUF_X1" if name == "driver_cell" else 1.5
     with pytest.raises(FlowSettingsError) as refused:
-        Yosys.check_settings_supported(Yosys.Settings.from_input({name: value}))
+        Yosys.check_settings_supported(Yosys.Settings.from_input({"abc": {name: value}}))
     for text in ("`platform`", "`platform_file`", "`liberty`"):
         assert text in str(refused.value)
 
@@ -469,7 +469,7 @@ def test_an_abc_cell_setting_without_a_liberty_mapping_names_the_ways_to_map(nam
     [{"platform": "nangate45"}, {"platform_file": str(TINY_RESIDUE)}, {"liberty": ["a.lib"]}],
 )
 def test_the_abc_cell_settings_are_accepted_with_a_liberty_mapping(given):
-    settings = Yosys.Settings.from_input({"abc_driver_cell": "BUF_X1", **given})
+    settings = Yosys.Settings.from_input({"abc": {"driver_cell": "BUF_X1"}, **given})
     Yosys.check_settings_supported(settings)
 
 

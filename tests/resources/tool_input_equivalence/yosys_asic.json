@@ -254,20 +254,26 @@
     ]
    ],
    "effective_flow_settings": {
-    "abc_constr": [
-     "set_driving_cell BUF_X1",
-     "set_load 3.5"
-    ],
+    "abc": {
+     "delay_target": null,
+     "driver_cell": null,
+     "load": null,
+     "mapper": "abc",
+     "strategy": "speed_roundtrip"
+    },
+    "abc_constr": [],
     "abc_dff": false,
-    "abc_driver_cell": "BUF_X1",
     "abc_flags": [],
-    "abc_load_in_ff": 3.5,
-    "abc_script": "+&get,-n;&st;&dch;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;buffer,-c;topo;stime,-c;upsize,-c;dnsize,-c",
-    "adder_map": "<WORK>/pdks/tiny/cells_adders.v",
+    "abc_script": null,
+    "arithmetic": {
+     "adder_architecture": "yosys",
+     "adder_map": "platform",
+     "adder_map_file": null,
+     "wrap_operators": false
+    },
     "black_box": [],
     "check_assert": true,
     "checkpoints_dir": "checkpoints",
-    "clockgate_map": "<WORK>/pdks/tiny/cells_clkgate.v",
     "clocks": {
      "main_clock": {
       "duty_cycle": 0.5,
@@ -279,14 +285,19 @@
       "uncertainty": null
      }
     },
+    "coarse": {},
     "console_colors": true,
     "corner": null,
     "debug": false,
     "defines": {},
-    "dff_liberty": null,
     "docker": null,
     "dockerized": false,
     "dont_use_cells": [],
+    "finish": {
+     "buffer_cell": null,
+     "tie_cells": null,
+     "tie_undefined": "zero"
+    },
     "flatten": true,
     "gates": null,
     "ghdl": {
@@ -341,22 +352,9 @@
      "werror": false,
      "work": null
     },
-    "hilomap": {
-     "hi": [
-      "TIEHI_SMALL",
-      "Z"
-     ],
-     "lo": [
-      "TIELO_X1",
-      "Z"
-     ],
-     "singleton": true
+    "hierarchy": {
+     "keep_min_cost": null
     },
-    "insbuf": [
-     "BUF_X1",
-     "A",
-     "Z"
-    ],
     "keep_hierarchy": [],
     "lib_paths": [],
     "liberty": [
@@ -365,6 +363,7 @@
     "log_file": "yosys.log",
     "ltp": false,
     "lut": null,
+    "memory": {},
     "netlist_attrs": false,
     "netlist_blackboxes": false,
     "netlist_dec": false,
@@ -387,10 +386,6 @@
     "noabc": false,
     "nosynth": false,
     "nthreads": null,
-    "optimize": "speed",
-    "other_maps": [
-     "<WORK>/pdks/tiny/cells_latch.v"
-    ],
     "outputs_dir": "outputs",
     "pdk_provider": "directory",
     "pdk_root": "<WORK>/pdks",
@@ -423,6 +418,11 @@
     "rtl_json": null,
     "rtl_verilog": null,
     "script_format": "ys",
+    "sequential": {
+     "clockgate_map": null,
+     "dff_liberty": null,
+     "latch_map": null
+    },
     "set_attribute": {},
     "set_mod_attribute": {},
     "splitnets": true,
@@ -432,6 +432,7 @@
     "stop_after": null,
     "synth_flags": [],
     "systemverilog": "slang",
+    "techmap_files": [],
     "top_is_vhdl": null,
     "use_slang_plugin": true,
     "verbose": 0,
@@ -527,7 +528,7 @@
   "settings": [
    "platform_file=tiny.yaml",
    "clock.period=2.0",
-   "optimize=speed",
+   "abc.strategy=speed_roundtrip",
    "pdk_root=<WORK>/pdks"
   ]
  },

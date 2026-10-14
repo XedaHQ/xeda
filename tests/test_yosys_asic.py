@@ -3,7 +3,7 @@
 The whole configuration of a standard-cell synthesis -- the liberty files, the mapping cells, the
 abc script and constraints, the netlist format -- follows from a platform:
 `xeda run yosys -s platform=<name>` alone maps to the cells of that platform and needs nothing
-else. `optimize`, `abc_driver_cell` and `abc_load_in_ff` are settings of `yosys`, which acts on
+else. `abc.strategy`, `abc.driver_cell` and `abc.load` are settings of `yosys`, which acts on
 them. These tests use the `tiny` platform (`tests/tiny_platform.py`): its files are in a store
 under the test directory, so no PDK needs to be installed. `tests/test_yosys_platform.py` has the
 tests of the platform model itself.
@@ -32,6 +32,7 @@ from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows import yosys as yosys_flows
+from xeda.flows.yosys.asic_groups import AbcGroup
 from xeda.utils import WorkingDirectory
 from xeda.tool import ExecutableNotFound
 
@@ -164,9 +165,9 @@ def test_stop_after_rtl_with_a_netlist_is_refused_before_anything_runs(tmp_path)
 
 def test_abc_driver_cell_is_a_cell_name():
     """A cell name is text: `BUF_X1` validates, and a number is not a cell name."""
-    assert Yosys.Settings(abc_driver_cell="BUF_X1").abc_driver_cell == "BUF_X1"
+    assert Yosys.Settings(abc={"driver_cell": "BUF_X1"}).abc.driver_cell == "BUF_X1"
     with pytest.raises(ValidationError):
-        Yosys.Settings(abc_driver_cell=1)
+        Yosys.Settings(abc={"driver_cell": 1})
 
 
 def test_corner_needs_a_platform_and_one_of_its_corners(tmp_path):
@@ -246,9 +247,10 @@ def test_every_liberty_file_is_read_and_mapped_to_and_the_dont_use_cells_are_wor
 
 def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_path, monkeypatch):
     """Everything a standard-cell synthesis needs follows from the platform alone: the
-    Liberty files, the mapping files, tie and buffer cells, flattening, the abc script `optimize`
+    Liberty files, the mapping files, tie and buffer cells, flattening, the abc script `abc.strategy`
     selects, the abc constraints from the driver cell and the load of the platform, and a netlist
-    without attributes. Post-synthesis optimization stays off."""
+    without attributes. Post-synthesis optimization stays off. The settings of the groups stay as
+    the user gave them: the platform's values are in the script only."""
     given = _tiny(tmp_path)
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     pdk = Path(given["pdk_root"]) / "tiny"
@@ -256,15 +258,16 @@ def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_pa
     script = _script(run_dir)
     assert effective["flatten"] is True and "flatten" in script.split()
     assert effective["liberty"] == [str(pdk / "tiny.lib")]
-    assert effective["adder_map"] == str(pdk / "cells_adders.v")
-    assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
-    assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
-    assert effective["hilomap"]["hi"] == ["TIEHI_SMALL", "Z"]
-    assert effective["hilomap"]["lo"] == ["TIELO_X1", "Z"]
-    assert effective["insbuf"] == ["BUF_X1", "A", "Z"]
-    assert effective["dff_liberty"] is None
+    assert f"techmap -map {pdk / 'cells_adders.v'}" in script
+    assert f"read_verilog -defer {pdk / 'cells_clkgate.v'}" in script
+    assert f"techmap -map {pdk / 'cells_latch.v'}" in script
+    assert "hilomap -singleton -hicell TIEHI_SMALL Z -locell TIELO_X1 Z" in script
+    assert "insbuf -buf BUF_X1 A Z" in script
+    assert effective["sequential"] == Yosys.Settings().sequential.model_dump(mode="json")
+    assert effective["abc"] == Yosys.Settings().abc.model_dump(mode="json")
+    assert effective["finish"] == Yosys.Settings().finish.model_dump(mode="json")
     assert effective["post_synth_opt"] is False and "opt -full" not in script
-    assert yosys_flows.abc_opt_script("area").replace(" ", ",") in script
+    assert yosys_flows.abc_strategy_script("area") in script
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
     (write,) = [line for line in script.splitlines() if line.startswith("write_verilog")]
     for flag in ("-noattr", "-nohex", "-nodec", "-noexpr"):
@@ -276,15 +279,13 @@ def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_pa
 def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypatch):
     settings = _tiny(
         tmp_path,
-        optimize="speed",
-        abc_driver_cell="INV_X1",
-        abc_load_in_ff=2.5,
+        abc={"strategy": "speed", "driver_cell": "INV_X1", "load": 2.5},
         flatten=False,
         netlist_attrs=True,
     )
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     script = _script(run_dir)
-    assert yosys_flows.abc_opt_script("speed").replace(" ", ",") in script
+    assert yosys_flows.abc_strategy_script("speed") in script
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 2.5\n"
     assert "flatten" not in script.split()
     (write,) = [line for line in script.splitlines() if line.startswith("write_verilog")]
@@ -293,7 +294,7 @@ def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypa
 
 def test_without_a_liberty_library_nothing_is_derived(tmp_path, monkeypatch):
     """A generic-gate run is what it was: no abc script, no constraints, no flattening, the
-    netlist's attributes kept -- `optimize` and the cell settings act on a liberty mapping."""
+    netlist's attributes kept -- the group settings act on a liberty mapping."""
     run_dir = _scripted_launch(
         tmp_path, monkeypatch, Yosys, {"gates": ["AND", "OR", "NOT"], "clock": {"period": 2.0}}
     )
@@ -359,14 +360,14 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
 
 
 @pytest.mark.parametrize("given", [None, False])
-@pytest.mark.parametrize("optimize", ["area", None])
+@pytest.mark.parametrize("strategy", ["area", "yosys"])
 def test_a_liberty_mapping_never_runs_the_post_synthesis_optimization(
-    tmp_path, monkeypatch, given, optimize
+    tmp_path, monkeypatch, given, strategy
 ):
-    """The liberty mapping ends with the tail of OpenROAD-flow-scripts, so `optimize` does not
+    """The liberty mapping ends with the tail of OpenROAD-flow-scripts, so `abc.strategy` does not
     turn post-synthesis optimization on: unset, `post_synth_opt` is false, and no `opt -full`
-    is in the script. `optimize: null` keeps the default mapping script of yosys."""
-    settings = _tiny(tmp_path, optimize=optimize)
+    is in the script. `abc.strategy: yosys` keeps the default mapping script of yosys."""
+    settings = _tiny(tmp_path, abc={"strategy": strategy})
     if given is not None:
         settings["post_synth_opt"] = given
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
@@ -394,59 +395,23 @@ def test_the_gate_mapping_keeps_its_post_synthesis_optimization_setting(
     assert ("opt -full -purge -sat" in _script(run_dir)) is bool(given)
 
 
-# ------------------------------------------------------------------ other_maps
-
-
-@pytest.mark.parametrize("given", [None, [], ["extra.v"]])
-def test_an_explicit_other_maps_wins_over_the_platform_s_latch_map(tmp_path, monkeypatch, given):
-    """`other_maps` is derived from the platform only where it is left unset: an explicit empty
-    list (`-s other_maps=`) means no extra mapping, not "the platform's latch map"."""
-    settings = _tiny(tmp_path)
-    if given is not None:
-        (tmp_path / "extra.v").write_text("module _unused(); endmodule\n")
-        settings["other_maps"] = [str(tmp_path / "extra.v") for _ in given]
-    latch = str(Path(settings["pdk_root"]) / "tiny" / "cells_latch.v")
-    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
-    expected = [latch] if given is None else [str(tmp_path / "extra.v") for _ in given]
-    effective = _effective(run_dir)["other_maps"]
-    assert effective == expected
-    assert (latch in _script(run_dir)) is (given is None)
-    recorded = json.loads((run_dir / "settings.json").read_text())["flow_settings"]
-    assert recorded["other_maps"] == (None if given is None else settings["other_maps"])
-    # reloaded from `settings.json`, the settings are the same again, the unset value included
-    reloaded = Yosys.Settings.from_input(recorded)
-    again = Yosys.Settings.from_input(json.loads(json.dumps(reloaded.model_dump(mode="json"))))
-    assert again.model_dump() == reloaded.model_dump()
-    assert reloaded.other_maps == again.other_maps
-
-
 # ------------------------------------------------------------------------ the synthesis options
 
 
-OPTIMIZE_CHOICES = [
-    c for a in get_args(Yosys.Settings.model_fields["optimize"].annotation) for c in get_args(a)
-]
+STRATEGY_CHOICES = list(get_args(AbcGroup.model_fields["strategy"].annotation))
+SCRIPT_STRATEGIES = [choice for choice in STRATEGY_CHOICES if choice != "yosys"]
 
 
-def test_every_optimize_choice_is_covered():
-    """Every optimize choice is covered."""
-    assert set(OPTIMIZE_CHOICES) == {"speed", "area"}
+def test_every_strategy_choice_is_covered():
+    """Every strategy choice is covered."""
+    assert set(STRATEGY_CHOICES) == {"area", "speed", "speed_roundtrip", "yosys"}
 
 
-# One command only each target's abc script runs, to tell the two apart.
-DISTINCTIVE_ABC_COMMAND = {"area": "map -B 0.9", "speed": "&if -g -K 6"}
-
-
-def test_every_optimize_target_has_a_distinctive_abc_command():
-    """Every optimize target has a distinctive abc command."""
-    assert set(DISTINCTIVE_ABC_COMMAND) == set(OPTIMIZE_CHOICES)
-
-
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
-def test_optimize_selects_the_abc_script(optimize, tmp_path, monkeypatch):
-    """What yosys rendered into its script, given `optimize`: the abc script `optimize` selects,
-    told apart by a command only that target's script runs. It selects no post-synthesis
-    optimization.
+@pytest.mark.parametrize("strategy", STRATEGY_CHOICES)
+def test_strategy_selects_the_abc_script(strategy, tmp_path, monkeypatch):
+    """What yosys rendered into its script, given `abc.strategy`: the abc script that the
+    strategy selects, or none for `yosys`. It selects no post-synthesis optimization, and the
+    flat `abc_script` setting stays unset: the script is a value of the run, not a setting.
 
     No tool runs: this is about the settings and the script, so every command is recorded
     instead, and the run stops once yosys, having produced nothing, fails.
@@ -458,7 +423,7 @@ def test_optimize_selects_the_abc_script(optimize, tmp_path, monkeypatch):
         return "" if kwargs.get("stdout") is True else None
 
     monkeypatch.setattr("xeda.tool.run_process", record)
-    settings = _tiny(tmp_path, optimize=optimize)
+    settings = _tiny(tmp_path, abc={"strategy": strategy})
     with contextlib.suppress(FlowException):
         DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, _design(tmp_path), settings)
     (settings_json,) = tmp_path.glob("xeda_run/mac/yosys/settings.json")
@@ -466,60 +431,44 @@ def test_optimize_selects_the_abc_script(optimize, tmp_path, monkeypatch):
     script = (settings_json.parent / "yosys_synth.ys").read_text()
     assert any(Path(cmd[0]).name == "yosys" for cmd in commands), "yosys was never launched"
 
-    assert yosys_settings["optimize"] == optimize
+    assert yosys_settings["abc"]["strategy"] == strategy
+    assert yosys_settings["abc_script"] is None
     assert yosys_settings["post_synth_opt"] is False
     assert "opt -full" not in script
     (abc,) = [line for line in script.splitlines() if line.startswith("abc ")]
-    for target, command in DISTINCTIVE_ABC_COMMAND.items():
-        selected = target == optimize
-        # `Yosys.Settings` writes a script's commands comma-separated, as `abc -script` wants
-        assert (command.replace(" ", ",") in (yosys_settings["abc_script"] or "")) is selected
-        assert (command.replace(" ", ",") in abc) is selected
-    assert "-script" in abc
+    expected = yosys_flows.abc_strategy_script(strategy)
+    if expected is None:
+        assert "-script" not in abc
+    else:
+        assert f" -script {expected} " in abc
 
 
-def test_optimize_is_a_setting_of_the_flow_that_acts_on_it(tmp_path, monkeypatch):
-    """`optimize` acts on yosys's mapping, so it is yosys's setting, and no setting is inert:
-    yosys's is read where its script is rendered -- each target renders its own abc script."""
-    assert "optimize" in Yosys.Settings.model_fields
-    assert "optimize" not in YosysFpga.Settings.model_fields
-
-    def record(executable, args=None, **kwargs):
-        return "" if kwargs.get("stdout") is True else None
-
-    monkeypatch.setattr("xeda.tool.run_process", record)
-    abc_lines = {}
-    given = _tiny(tmp_path)
-    for optimize in OPTIMIZE_CHOICES:
-        run_root = tmp_path / optimize
-        with contextlib.suppress(FlowException):
-            DefaultRunner(run_root).run_flow(
-                Yosys, _design(tmp_path), {**given, "optimize": optimize}
-            )
-        script = (run_root / "mac" / "yosys" / "yosys_synth.ys").read_text()
-        (abc_lines[optimize],) = [line for line in script.splitlines() if line.startswith("abc ")]
-        assert DISTINCTIVE_ABC_COMMAND[optimize].replace(" ", ",") in abc_lines[optimize]
-    assert len(set(abc_lines.values())) == len(OPTIMIZE_CHOICES)
+def test_a_strategy_is_a_setting_of_the_flow_that_acts_on_it():
+    """`abc.strategy` acts on yosys's mapping, so it is yosys's setting."""
+    assert "abc" in Yosys.Settings.model_fields
+    assert "abc" not in YosysFpga.Settings.model_fields
 
 
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
-def test_an_optimize_target_selects_an_abc_script_yosys_accepts(optimize):
-    """`abc_opt_script` returned nothing at all, so `optimize` never reached abc; and a script
-    must be the text `Yosys.Settings.abc_script` declares, which a list of commands is not."""
-    script = yosys_flows.abc_opt_script(optimize)
-    assert isinstance(script, str) and script.startswith("+")
-    assert Yosys.Settings(abc_script=script).abc_script
+@pytest.mark.parametrize("strategy", SCRIPT_STRATEGIES)
+def test_a_strategy_selects_an_abc_script_yosys_accepts(strategy):
+    """A script must be the text `Yosys.Settings.abc_script` declares, which a list of commands
+    is not: commands separated by `;`, words by `,`, after a `+`."""
+    script = yosys_flows.abc_strategy_script(strategy)
+    assert isinstance(script, str) and script.startswith("+") and " " not in script
+    assert Yosys.Settings(abc_script=script).abc_script == script
 
 
-def test_area_and_speed_select_different_scripts():
-    """Area and speed select different scripts."""
-    assert yosys_flows.abc_opt_script("area") != yosys_flows.abc_opt_script("speed")
+def test_the_strategies_select_different_scripts():
+    """Each strategy has a script of its own, and `yosys` has none."""
+    scripts = [yosys_flows.abc_strategy_script(strategy) for strategy in STRATEGY_CHOICES]
+    assert len(set(scripts)) == len(STRATEGY_CHOICES)
+    assert yosys_flows.abc_strategy_script("yosys") is None
 
 
-def test_area_plus_speed_is_no_longer_a_target():
+def test_area_plus_speed_is_no_strategy():
     """It selected exactly the area script, so it was "area" under another name."""
     with pytest.raises(ValidationError):
-        Yosys.Settings(optimize="area+speed")
+        Yosys.Settings(abc={"strategy": "area+speed"})
 
 
 def _contains_run(sequence, run):
@@ -527,29 +476,29 @@ def _contains_run(sequence, run):
     return any(sequence[i : i + len(run)] == run for i in range(len(sequence) - len(run) + 1))
 
 
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
-def test_the_yosys_flow_synthesizes_with_the_selected_script(optimize, tmp_path):
+@pytest.mark.parametrize("strategy", SCRIPT_STRATEGIES)
+def test_the_yosys_flow_synthesizes_with_the_selected_script(strategy, tmp_path):
     """End to end, with its own template: abc executes exactly the commands the selected script
     names, in order -- `upsize`/`dnsize` included, which yosys's default mapping never runs."""
     require_yosys()
     design = _design(tmp_path)
     with contextlib.suppress(ExecutableNotFound):
         DefaultRunner(tmp_path / "xeda_run").run_flow(
-            Yosys, design, _tiny(tmp_path, optimize=optimize)
+            Yosys, design, _tiny(tmp_path, abc={"strategy": strategy})
         )
 
     (yosys_results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
     yosys_run = yosys_results.parent
     assert json.loads((yosys_run / "results.json").read_text())["success"] is True
     executed = re.findall(r"^ABC: \+ (.+?)\s*$", (yosys_run / "yosys.log").read_text(), re.M)
-    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
+    script = yosys_flows.abc_strategy_script(strategy)
     assert script is not None
     selected = [command.replace(",", " ") for command in script[1:].split(";")]
-    assert _contains_run(executed, selected), f"abc did not run the {optimize} script"
+    assert _contains_run(executed, selected), f"abc did not run the {strategy} script"
 
 
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
-def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
+@pytest.mark.parametrize("strategy", SCRIPT_STRATEGIES)
+def test_real_yosys_maps_with_the_selected_script(strategy, tmp_path):
     """The script as the yosys template passes it (`abc -script "<abc_script>"`), run for real
     against the library of the `tiny` test platform."""
     require_yosys()
@@ -561,7 +510,7 @@ def test_real_yosys_maps_with_the_selected_script(optimize, tmp_path):
         "  always @(posedge clk) q <= q + a * b;\n"
         "endmodule\n"
     )
-    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
+    script = yosys_flows.abc_strategy_script(strategy)
     commands = (
         "read_verilog top.v; synth -top top -flatten; dfflibmap -liberty tiny.lib; "
         f'abc -D 1000 -script "{script}" -liberty tiny.lib -constr abc.constr; '
@@ -621,8 +570,8 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={tiny_store(tmp_path)}",
             "clock.period=2.0",
-            "abc_driver_cell=INV_X1",
-            "abc_load_in_ff=2.5",
+            "abc.driver_cell=INV_X1",
+            "abc.load=2.5",
             "black_box=mul8",
             "post_synth_opt=false",
         ],
@@ -634,8 +583,8 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
     producer = root / "mac" / "yosys"
     settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
-    assert settings["abc_driver_cell"] == "INV_X1"
-    assert settings["abc_load_in_ff"] == 2.5
+    assert settings["abc"]["driver_cell"] == "INV_X1"
+    assert settings["abc"]["load"] == 2.5
     assert settings["black_box"] == ["mul8"]
     assert settings["post_synth_opt"] is False
     script = (producer / "yosys_synth.ys").read_text()
@@ -687,7 +636,7 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
 
 def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch):
     """The design root is not the working directory, and yosys runs in the run directory: a
-    relative `liberty` or `dff_liberty` names a file under the design root."""
+    relative `liberty` or `sequential.dff_liberty` names a file under the design root."""
     from .tool_utils import use_fake_asic_tools
 
     use_fake_asic_tools(monkeypatch, tmp_path / "bin")
@@ -698,13 +647,16 @@ def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys,
         design,
-        {"liberty": ["lib/x.lib"], "dff_liberty": "lib/dff.lib", "clock": {"period": 2.0}},
+        {
+            "liberty": ["lib/x.lib"],
+            "sequential": {"dff_liberty": "lib/dff.lib"},
+            "clock": {"period": 2.0},
+        },
     )
     assert flow.succeeded
     script = _script(flow.run_path)
     assert str(tmp_path / "design" / "lib" / "dff.lib") in script
     effective = _effective(flow.run_path)
-    assert effective["dff_liberty"] == str(tmp_path / "design" / "lib" / "dff.lib")
     assert effective["liberty"] == [str(tmp_path / "design" / "lib" / "x.lib")]
     assert f"-liberty {tmp_path / 'design' / 'lib' / 'x.lib'}" in script
 
@@ -716,15 +668,15 @@ TINY_DONT_USE = ["INV_X4", "NAND2_X4"]
 
 
 def _expected_order(
-    given: dict[str, Any], design: Path, optimize: str, dont_use: list[str]
+    given: dict[str, Any], design: Path, strategy: str, dont_use: list[str]
 ) -> list[list[str]]:
     """The commands of the liberty mapping for the `tiny` platform and the `mac` design, from
     `logger` to the check of the mapped design, as the words of each command."""
     pdk = Path(given["pdk_root"]) / "tiny"
     liberty = ["-liberty", str(pdk / "tiny.lib")]
     unusable = [word for cell in dont_use for word in ("-dont_use", cell)]
-    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
-    assert script is not None
+    script = yosys_flows.abc_strategy_script(strategy)
+    abc_script = ["-script", script] if script is not None else []
     return [
         ["logger", "-notime"],
         ["read_liberty", "-overwrite", "-setattr", "liberty_cell", "-lib", str(pdk / "tiny.lib")],
@@ -749,7 +701,7 @@ def _expected_order(
         ["dfflibmap", *liberty, *unusable],
         ["opt"],
         ["setundef", "-zero"],
-        ["abc", "-script", script, *liberty, *unusable, "-constr", "abc.constr"],
+        ["abc", *abc_script, *liberty, *unusable, "-constr", "abc.constr"],
         ["splitnets"],
         ["opt_clean", "-purge"],
         ["hilomap", "-singleton", "-hicell", "TIEHI_SMALL", "Z", "-locell", "TIELO_X1", "Z"],
@@ -759,18 +711,18 @@ def _expected_order(
 
 
 @SCRIPT_FORMATS
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+@pytest.mark.parametrize("strategy", STRATEGY_CHOICES)
 def test_the_liberty_mapping_runs_the_commands_in_the_order_of_openroad_flow_scripts(
-    tmp_path, monkeypatch, optimize, script_format
+    tmp_path, monkeypatch, strategy, script_format
 ):
     """Both script formats hand yosys the same commands in the same order: the read of the
     Liberty files, the design, the coarse and the fine part of `synth` without `abc`, the
-    mapping of adders and latches, `dfflibmap`, `abc` with the script `optimize` selects, and the
+    mapping of adders and latches, `dfflibmap`, `abc` with the script `abc.strategy` selects, and the
     check that every cell is mapped. Then the netlist is written."""
-    given = _tiny(tmp_path, optimize=optimize, script_format=script_format)
+    given = _tiny(tmp_path, abc={"strategy": strategy}, script_format=script_format)
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     commands = _commands(run_dir, script_format, tmp_path)
-    expected = _expected_order(given, tmp_path / "design", optimize, TINY_DONT_USE)
+    expected = _expected_order(given, tmp_path / "design", strategy, TINY_DONT_USE)
     assert commands[: len(expected)] == expected
     # then the netlist: its reports and its writers, with `check` and `stat` after the mapping
     rest = commands[len(expected) :]
@@ -783,10 +735,12 @@ def test_the_liberty_mapping_reads_the_liberty_files_once_and_before_the_design(
     tmp_path, monkeypatch, script_format
 ):
     """The Liberty files are read as library cells before the sources, with the attribute that
-    marks them, and the generic read of the reader template is not repeated. `dff_liberty`, when
+    marks them, and the generic read of the reader template is not repeated. `sequential.dff_liberty`, when
     given, is read the same way."""
     shutil.copy(TINY / "tiny.lib", tmp_path / "dff.lib")
-    given = _tiny(tmp_path, dff_liberty=str(tmp_path / "dff.lib"), script_format=script_format)
+    given = _tiny(
+        tmp_path, sequential={"dff_liberty": str(tmp_path / "dff.lib")}, script_format=script_format
+    )
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     commands = _commands(run_dir, script_format, tmp_path)
     names = [call[0] for call in commands]
@@ -1053,9 +1007,9 @@ def _split_liberty(source: Path, first: Path, second: Path, names: tuple[str, ..
 
 
 @SCRIPT_FORMATS
-@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+@pytest.mark.parametrize("strategy", STRATEGY_CHOICES)
 def test_real_yosys_maps_a_counter_with_an_adder_and_constant_outputs(
-    tmp_path, optimize, script_format
+    tmp_path, strategy, script_format
 ):
     """The order of the liberty mapping on the `tiny` platform, run for real: the counter maps,
     the netlist holds cells of the library only, no undefined constant is left in it, and the
@@ -1066,7 +1020,7 @@ def test_real_yosys_maps_a_counter_with_an_adder_and_constant_outputs(
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys,
         _counter_design(tmp_path / "design"),
-        _tiny(tmp_path, optimize=optimize, script_format=script_format),
+        _tiny(tmp_path, abc={"strategy": strategy}, script_format=script_format),
     )
     assert flow.succeeded
     netlist = (flow.run_path / "netlist.v").read_text()
