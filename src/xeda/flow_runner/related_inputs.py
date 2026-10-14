@@ -215,11 +215,15 @@ def _paired_message(node: Node, names: list[str]) -> str:
         ]
         if moves:
             advice = f" To use `{producer}` for both, add `-s {' '.join(moves)}`."
-    listing = " and ".join(f"`{name}`" for name in generated)
-    removing = (
-        " Remove the binding of it first." if any(_explicit(node, n) for n in generated) else ""
-    )
-    return head + advice + f" Or list {listing} as a typed source of the design too." + removing
+    steps = [
+        (
+            f"remove the binding of `{name}` and give it as a typed source of the design"
+            if _explicit(node, name)
+            else f"list `{name}` as a typed source of the design too"
+        )
+        for name in generated
+    ]
+    return head + advice + " Or " + ", and ".join(steps) + "."
 
 
 def _check_paired(node: Node, declaration: InputDeclaration) -> None:

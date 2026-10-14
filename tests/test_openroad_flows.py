@@ -215,7 +215,7 @@ def test_a_binding_that_replaces_one_listed_file_is_refused(tmp_path):
     )
     assert "`odb` and `sdc` are written together" in message
     assert "odb <- openroad_cts.odb" in message and "sdc <- source" in message
-    assert "Remove the binding of it first" in message
+    assert "remove the binding of `odb` and give it as a typed source" in message
 
 
 def test_the_binding_the_refusal_suggests_makes_the_plan_pass(tmp_path):
