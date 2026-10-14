@@ -550,6 +550,24 @@ def test_mfs3_is_accepted_with_every_composed_strategy_and_reaches_the_script(
     assert ";mfs3," in _abc_script(commands)
 
 
+def test_the_description_of_mfs3_warns_and_states_what_was_measured():
+    description = asic_groups.AbcGroup.model_fields["mfs3"].description
+    assert description.startswith("Warning:")
+    for fact in (
+        "`Abc_TtExpand`",
+        "OSS CAD yosys 0.69+286",
+        "Homebrew yosys 0.69+post",
+        "yosys 0.68 and 0.66",
+        "`mfs3 -e -m`",
+        "`src/opt/sfm/sfmDec.c`",
+        "not equivalent",
+        "0.2%",
+    ):
+        assert fact in description, fact
+    assert "http" not in description and "#" not in description
+    assert tier_of(asic_groups.AbcGroup, "mfs3") == "expert"
+
+
 def test_the_limits_of_buffering_need_buffering():
     for leaf, value in (("max_fanout", 8), ("max_slew", 150)):
         problems = _keys(abc={"strategy": "area_0", leaf: value})
