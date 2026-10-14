@@ -614,6 +614,14 @@ def test_a_conditional_refuses_the_whole_file(tmp_path: Path, directive: str) ->
     assert "config.mk:2" in message
 
 
+def test_a_conditional_anywhere_wins_over_an_error_on_an_earlier_line(tmp_path: Path) -> None:
+    """The file needs Make as a whole: say that, not the first line the reader cannot read."""
+    text = "export PLACE_SITE = $(MYSTERY)\n\nifeq ($(A),1)\nexport PLACE_SITE = A\nendif\n"
+    message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", text), tmp_path)
+    assert message.endswith(NEEDS_MAKE), message
+    assert "config.mk:3" in message
+
+
 def test_a_conditional_in_a_comment_or_a_value_is_no_conditional(tmp_path: Path) -> None:
     text = "# ifeq ($(A),1)\nexport PLACE_SITE = ifeq\nexport IR_DROP_LAYER = m1 # endif\n"
     assert read_mk(tmp_path, text) == {"site": "ifeq", "ir_drop_layer": "m1"}

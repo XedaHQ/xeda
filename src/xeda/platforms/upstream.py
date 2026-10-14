@@ -705,18 +705,18 @@ def read_orfs_config_mk(path: Path, platform_dir: Path) -> dict[str, Any]:
     `PlatformConfigError`, which names the file and the line.
     """
     path = Path(path)
-    state: dict[str, tuple[str, int]] = {}
-    for number, line in _mk_lines(_read_text(path)):
-        text = line.strip()
-        if not text:
-            continue
-        needs_make = MK_CONDITIONAL.match(text) or MK_NEEDS_MAKE.match(text)
+    lines = _mk_lines(_read_text(path))
+    for number, line in lines:
+        needs_make = MK_CONDITIONAL.match(line.strip()) or MK_NEEDS_MAKE.match(line.strip())
         if needs_make:
             raise PlatformConfigError(
                 path,
                 number,
                 f"`{needs_make.group(1)}` needs Make: give these values in the residue file",
             )
+    state: dict[str, tuple[str, int]] = {}
+    for number, line in lines:
+        text = line.strip()
         assignment = MK_ASSIGNMENT.fullmatch(text)
         if not assignment:
             continue
