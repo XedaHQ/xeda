@@ -103,7 +103,8 @@ from the producer of an input of the flow that makes the ``same_producer_as`` in
 the ``checkpoint`` of ``vivado_power`` comes from the synthesis whose ``netlist_timing`` the
 simulation behind ``activity`` read. Both keys are ``null`` for most inputs. Only generated inputs,
 those with a producer in the plan, are compared. An input that comes from a source you list, or that
-is absent, is not.
+is absent, is not. With ``paired`` true, the two inputs also cannot mix the two origins: both come
+from sources you list, or both from one producer.
 
 For example, ``nextpnr`` declares the input ``netlist`` of type ``JsonNetlist``, with the default
 producer ``yosys_fpga`` and its output ``netlist``. Sources of an accepted type displace that

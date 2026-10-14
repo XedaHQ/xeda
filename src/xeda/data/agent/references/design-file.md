@@ -170,12 +170,15 @@ A suffix gives the type when it is in this table:
 | `.blif` / `.edf`, `.edif` | `Blif` / `Edif` |
 | `.sdf` / `.spef` / `.saif` | `Sdf` / `Spef` / `Saif` |
 | `.vcd` / `.fst` / `.ghw` / `.vpd` / `.fsdb` | `Vcd` / `Fst` / `Ghw` / `Vpd` / `Fsdb` |
-| `.lib` / `.def` / `.odb` / `.gds` / `.cdl` / `.vlt` | `Liberty` / `Def` / `Odb` / `Gds` / `Cdl` / `Vlt` |
+| `.lib` / `.def` / `.gds` / `.cdl` / `.vlt` | `Liberty` / `Def` / `Gds` / `Cdl` / `Vlt` |
 
 Suffixes match as written (`TOP.VHD` is an error naming `.vhd`). `.json`, `.bin`, `.cfg`,
-`.config`, `.dcp` and any suffix not in the table need `type`. These types are given only that
-way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`,
-`FpgaTimingNetlist`, `SynthCheckpoint`, `RoutedCheckpoint`, `Chipdb`, `Data`. `Data` has no
+`.config`, `.dcp`, `.odb` and any suffix not in the table need `type`. These types are given only
+that way: `JsonNetlist`, `EcpConfig`, `VerilogNetlist`, `VhdlNetlist`, `FpgaNetlist`,
+`FpgaTimingNetlist`, `SynthCheckpoint`, `RoutedCheckpoint`, `OpenroadDbPlaced`, `OpenroadDbCts`,
+`OpenroadDbGlobalRouted`, `OpenroadDbRouted`, `OpenroadSdcPlaced`, `OpenroadSdcCts`,
+`OpenroadSdcGlobalRouted`, `OpenroadSdcRouted`, `Chipdb`, `Data`. `.odb` is one of the four
+`OpenroadDb` types, by stage. `Data` has no
 automatic HDL frontend; a flow or the design can still read it. An invalid `type` is an error
 that names the closest types; type names are case-tolerant, suffixes are not.
 

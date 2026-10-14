@@ -34,6 +34,7 @@ from xeda.flows import (
 )
 from xeda.introspect import all_flow_classes
 
+from .openroad_utils import register_openroad_flows
 from .test_tool_input_equivalence import (
     VIVADO_SETTINGS,
     write_vivado_design,
@@ -180,6 +181,20 @@ def test_the_stage_types_are_given_by_type_only_and_a_checkpoint_suffix_asks_for
         assert DesignSource({"file": str(path), "type": member.name}).type is member
 
 
+def test_the_openroad_types_are_given_by_type_only_and_an_odb_suffix_asks_for_one(tmp_path):
+    for member in (*OPENROAD_DBS, *OPENROAD_SDCS):
+        assert member in TYPE_ONLY
+        assert member not in set(SOURCE_SUFFIXES.values())
+    assert "odb" not in SOURCE_SUFFIXES
+    assert set(AMBIGUOUS_SUFFIXES["odb"]) == OPENROAD_DBS
+    path = tmp_path / "top.odb"
+    path.write_text("x\n")
+    with pytest.raises(ValueError, match=r"`\.odb` names several kinds of file"):
+        DesignSource(path)
+    for member in OPENROAD_DBS:
+        assert DesignSource({"file": str(path), "type": member.name}).type is member
+
+
 # ------------------------------------------------------------------------------ the sweep
 
 NETLIST_KINDS = frozenset(
@@ -193,6 +208,24 @@ NETLIST_KINDS = frozenset(
     }
 )
 CHECKPOINT_KINDS = frozenset({SourceType.Checkpoint, *CHECKPOINTS})
+#: The OpenROAD databases and the SDC files that a stage writes with its database. Each stage has
+#: its own member of both, so a database or an SDC file fits the next stage only.
+OPENROAD_DBS = frozenset(
+    {
+        SourceType.OpenroadDbPlaced,
+        SourceType.OpenroadDbCts,
+        SourceType.OpenroadDbGlobalRouted,
+        SourceType.OpenroadDbRouted,
+    }
+)
+OPENROAD_SDCS = frozenset(
+    {
+        SourceType.OpenroadSdcPlaced,
+        SourceType.OpenroadSdcCts,
+        SourceType.OpenroadSdcGlobalRouted,
+        SourceType.OpenroadSdcRouted,
+    }
+)
 
 #: Edges between two netlists or two checkpoints that a consumer does not declare as its default
 #: wiring but takes all the same, each with why it is right (or a known limit). The default
@@ -211,12 +244,26 @@ REVIEWED_EDGES = {
 }
 
 
+#: The edges that the OpenROAD flows add, which the sweep reports once the flows are registered.
+#: The flows are not registered yet, so the plain sweep does not see them. They move into
+#: `REVIEWED_EDGES` when the flows register.
+OPENROAD_REVIEWED_EDGES = {
+    # the routed netlist is a standard-cell netlist, so the placement flow takes it too; placing
+    # it again needs an explicit binding
+    ("openroad", "netlist", "openroad_place", "netlist"),
+}
+
+
 def kind_of(types) -> str | None:
     members = set(types)
     if members and members <= NETLIST_KINDS:
         return "netlist"
     if members and members <= CHECKPOINT_KINDS:
         return "checkpoint"
+    if members and members <= OPENROAD_DBS:
+        return "database"
+    if members and members <= OPENROAD_SDCS:
+        return "stage_sdc"
     return None
 
 
@@ -261,6 +308,27 @@ def test_every_netlist_or_checkpoint_edge_is_declared_or_reviewed():
         "wiring has to be reviewed (add it to REVIEWED_EDGES with the reason), and a reviewed edge "
         f"that no longer exists has to go: {sorted(undocumented(edges) ^ REVIEWED_EDGES)}"
     )
+
+
+def test_the_openroad_flows_open_no_edge_beyond_the_reviewed_ones():
+    with register_openroad_flows():
+        edges = fitting_edges()
+    assert {edge for edge in edges if "openroad" in edge[0] or "openroad" in edge[2]}, "no edge"
+    assert undocumented(edges) == REVIEWED_EDGES | OPENROAD_REVIEWED_EDGES
+
+
+def test_the_openroad_stages_hand_each_other_their_own_database_and_sdc():
+    with register_openroad_flows():
+        edges = fitting_edges()
+    assert {edge for edge in edges if "openroad" in edge[0] and edge[2].startswith("openroad")} == {
+        ("openroad_place", "odb", "openroad_cts", "odb"),
+        ("openroad_place", "sdc", "openroad_cts", "sdc"),
+        ("openroad_cts", "odb", "openroad_grt", "odb"),
+        ("openroad_cts", "sdc", "openroad_grt", "sdc"),
+        ("openroad_grt", "odb", "openroad", "odb"),
+        ("openroad_grt", "sdc", "openroad", "sdc"),
+        ("openroad", "netlist", "openroad_place", "netlist"),
+    }
 
 
 def test_the_sweep_finds_an_edge_a_wrong_type_would_open():

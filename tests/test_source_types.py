@@ -31,6 +31,8 @@ MEMBERS = [
     "Sdf", "Spef", "Saif", "Vcd", "Fst", "Ghw", "Vpd", "Fsdb", "Checkpoint",
     "Liberty", "Def", "Odb", "Gds", "Cdl", "Chipdb", "C", "CHeader", "ObjectFile", "Vlt", "Data",
     "FpgaNetlist", "SynthCheckpoint", "RoutedCheckpoint", "FpgaTimingNetlist",
+    "OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted",
+    "OpenroadSdcPlaced", "OpenroadSdcCts", "OpenroadSdcGlobalRouted", "OpenroadSdcRouted",
 ]
 # fmt: on
 
@@ -69,6 +71,19 @@ def test_an_ambiguous_suffix_asks_for_a_type(tmp_path, suffix):
     with pytest.raises(ValueError, match=rf"`\.{suffix}` names several kinds of file") as raised:
         DesignSource(path)
     assert "type: " in str(raised.value)
+
+
+def test_an_odb_file_asks_for_the_stage_of_its_database(tmp_path):
+    path = tmp_path / "design.odb"
+    path.write_text("x\n")
+    with pytest.raises(ValueError, match=r"`\.odb` names several kinds of file") as raised:
+        DesignSource(path)
+    for name in ("OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted"):
+        assert name in str(raised.value)
+    assert "odb" not in SOURCE_SUFFIXES
+    assert SourceType.Odb in TYPE_ONLY
+    for name in ("OpenroadDbPlaced", "OpenroadDbCts", "OpenroadDbGlobalRouted", "OpenroadDbRouted"):
+        assert DesignSource({"file": str(path), "type": name}).type is SourceType[name]
 
 
 def test_an_unknown_suffix_asks_for_a_type_and_offers_data(tmp_path):

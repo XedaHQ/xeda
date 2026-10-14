@@ -74,6 +74,7 @@ def In(
     output: str | None = None,
     optional: bool = False,
     same_producer_as: str | None = None,
+    paired: bool = False,
     via: str | None = None,
     equivalence: bool = False,
     description: str,
@@ -86,7 +87,9 @@ def In(
 
     `same_producer_as` names another input of the flow that this one belongs with: the plan takes
     both from one producer node. An input that comes from the design's sources or is absent is not
-    compared, because a file the user lists is the user's own choice. `via` moves the comparison
+    compared, because a file the user lists is the user's own choice. With `paired`, the two inputs
+    also must not mix the two origins: both come from the design's sources, or both from one
+    producer node (the `.odb` and `.sdc` that one OpenROAD stage writes). `via` moves the comparison
     one step: it names an input of the flow that makes the other input, and this input has to
     come from the producer of that input. `vivado_power` uses it for its checkpoint, which must
     come from the synthesis behind the netlist that the simulation of its `activity` read (the
@@ -105,6 +108,8 @@ def In(
     }
     if same_producer_as is not None:
         marker["same_producer_as"] = same_producer_as
+    if paired:
+        marker["paired"] = True
     if via is not None:
         marker["via"] = via
     if equivalence:
@@ -144,6 +149,9 @@ class InputDeclaration:
     description: str
     #: Another input of the flow that must come from the same producer as this one.
     same_producer_as: str | None = None
+    #: With `same_producer_as`, whether the two inputs also must not mix a design source and a
+    #: producer.
+    paired: bool = False
     #: With `same_producer_as`, an input of the flow that makes that input. This input must come
     #: from the producer of that input.
     via: str | None = None
@@ -207,6 +215,7 @@ def declared_inputs(flow_cls: Any) -> dict[str, InputDeclaration]:
             optional=marker["optional"],
             description=model.model_fields[name].description or "",
             same_producer_as=marker.get("same_producer_as"),
+            paired=bool(marker.get("paired")),
             via=marker.get("via"),
             equivalence=bool(marker.get("equivalence")),
         )
@@ -254,7 +263,7 @@ def check_io_declarations(flow_cls: Any) -> None:
 
     Each field must be made with `In` or `Out`, have a description and be annotated `Path`,
     `Path | None` or `list[Path]`. An input's `same_producer_as` must name another input that
-    declares none itself. `optional` is for lists only, `output` needs a `producer`, and
+    declares none itself, and `paired` needs a `same_producer_as`. `optional` is for lists only, `output` needs a `producer`, and
     `equivalence` needs a normalizer for every type of the input. An output's `enabled_by` must
     name a setting of the flow, and the output must be able to be absent."""
     inputs = declared_inputs(flow_cls)
@@ -300,6 +309,8 @@ def _check_relation(
     if anchor is None:
         if declaration.via is not None:
             raise TypeError(f"{where} names `via` and needs `same_producer_as` too")
+        if declaration.paired:
+            raise TypeError(f"{where} is `paired` and needs `same_producer_as` too")
         return
     if anchor == declaration.name:
         raise TypeError(f"{where} is related to itself")
@@ -313,6 +324,8 @@ def _check_relation(
             f"{where} is related to `{anchor}`, which declares one too: relate every input to "
             "one that declares none"
         )
+    if declaration.paired and declaration.via is not None:
+        raise TypeError(f"{where} is `paired` and names `via`: a pair has no step between")
     if declaration.via is not None and inputs[anchor].producer is None:
         raise TypeError(
             f"{where} names `via`, which looks `{declaration.via}` up in the flow that makes "

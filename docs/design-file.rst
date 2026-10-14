@@ -239,19 +239,21 @@ A path string is enough when its extension identifies the type:
      - ``Sdf`` / ``Spef`` / ``Saif``
    * - ``.vcd`` / ``.fst`` / ``.ghw`` / ``.vpd`` / ``.fsdb``
      - ``Vcd`` / ``Fst`` / ``Ghw`` / ``Vpd`` / ``Fsdb``
-   * - ``.lib`` / ``.def`` / ``.odb`` / ``.gds`` / ``.cdl`` / ``.vlt``
-     - ``Liberty`` / ``Def`` / ``Odb`` / ``Gds`` / ``Cdl`` / ``Vlt``
+   * - ``.lib`` / ``.def`` / ``.gds`` / ``.cdl`` / ``.vlt``
+     - ``Liberty`` / ``Def`` / ``Gds`` / ``Cdl`` / ``Vlt``
 
 Every source has a type. Xeda matches a suffix exactly as written: it infers no type for
 ``TOP.VHD``, and the error names ``.vhd``. A source needs an explicit ``type`` when its suffix gives
 it none. Xeda infers nothing from ``.json``, ``.cfg`` and ``.config``, because these suffixes are
 used for many kinds of file. The error suggests ``JsonNetlist`` for ``.json`` and ``EcpConfig`` for
-``.cfg`` and ``.config``. ``.bin`` and ``.dcp`` each name several of the types of Xeda: ``.bin`` is
-a ``Bitstream`` or a ``Chipdb``, and ``.dcp`` is a ``SynthCheckpoint`` or a ``RoutedCheckpoint``. A
-suffix that is not in the table names nothing that Xeda knows. Some types are only ever given this
+``.cfg`` and ``.config``. ``.bin``, ``.dcp`` and ``.odb`` each name several of the types of Xeda:
+``.bin`` is a ``Bitstream`` or a ``Chipdb``, ``.dcp`` is a ``SynthCheckpoint`` or a
+``RoutedCheckpoint``, and ``.odb`` is the OpenROAD database of one stage (``OpenroadDbPlaced``,
+``OpenroadDbCts``, ``OpenroadDbGlobalRouted`` or ``OpenroadDbRouted``). A suffix that is not in the table names nothing that Xeda knows. Some types are only ever given this
 way: ``JsonNetlist``, ``EcpConfig``, ``VerilogNetlist``, ``VhdlNetlist``, ``FpgaNetlist``,
-``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, ``Chipdb``, ``Data`` and the
-legacy ``Checkpoint``, which no flow takes. Type names are case-tolerant, and suffixes are not.
+``FpgaTimingNetlist``, ``SynthCheckpoint``, ``RoutedCheckpoint``, the four ``OpenroadDb`` types, the
+four ``OpenroadSdc`` types, ``Chipdb``, ``Data`` and the legacy ``Checkpoint`` and ``Odb``, which no
+flow takes. Type names are case-tolerant, and suffixes are not.
 ``Data`` is for a file with no automatic HDL front end, such as test vectors or the input of a
 script. A flow or the design can still read it. An invalid ``type`` is an error that names the
 closest types. A ``.v`` file is ``Verilog``. To list a gate-level netlist, write ``{file: "net.v",
@@ -269,6 +271,13 @@ netlist or checkpoint of one type in place of the other. A Vivado netlist that y
 ``VerilogNetlist`` is taken by no Vivado flow. The type ``Checkpoint``, for a
 checkpoint of no stated stage, is kept for old settings files. No flow takes it, so a source with
 that type feeds nothing.
+
+An OpenROAD stage writes a database (``.odb``) and the SDC file that goes with it. Each stage has
+its own type for both. For example, the clock tree stage writes ``OpenroadDbCts`` and
+``OpenroadSdcCts``. Clock tree synthesis changes the SDC file, so an ``.sdc`` file of your design
+never stands in for the SDC file of a stage. To start a chain at a later stage, list both files of
+that stage with their types. A listed database with the SDC file of a flow is an error, and so is
+the reverse: both files come from your sources, or both from one flow.
 
 A source of a later stage stands in for the flows that would build it. A ``JsonNetlist`` skips
 synthesis for ``nextpnr``. An ``Edif`` netlist skips it for ``vivado_impl``. ``fpga_pack`` packs a

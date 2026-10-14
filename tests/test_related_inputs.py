@@ -22,7 +22,7 @@ from xeda.flow.io import declared_inputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import registered_flow
 from xeda.flows import VivadoPostsynthSim, VivadoPower
-from xeda.introspect import all_flow_classes, flow_info
+from xeda.introspect import all_flow_classes, flow_chain_cells, flow_info
 
 from .flow_registry import preserved_flow_registry
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
@@ -281,6 +281,17 @@ def test_list_flows_shows_the_relation():
     }
 
 
+def test_list_flows_shows_a_paired_relation():
+    from .openroad_utils import register_openroad_flows
+
+    with register_openroad_flows():
+        inputs = {item["name"]: item for item in flow_info("openroad_cts")["inputs"]}
+        assert inputs["sdc"]["same_producer_as"] == "odb" and inputs["sdc"]["paired"] is True
+        assert inputs["odb"]["paired"] is False
+        assert "same producer as odb, paired" in flow_chain_cells(flow_info("openroad_cts"))[0]
+    assert all(item["paired"] is False for item in flow_info("vivado_postsynth_sim")["inputs"])
+
+
 def test_without_the_declaration_the_resolver_accepts_the_mix(tmp_path, monkeypatch):
     """The refusal comes from the declaration alone: with the relation removed from the flow's
     inputs, the same plan passes."""
@@ -314,6 +325,11 @@ def declare(**kwargs):
             "declares one too",
         ),
         ({"a": declare(via="b"), "b": declare()}, "needs `same_producer_as`"),
+        ({"a": declare(paired=True)}, "`paired` and needs `same_producer_as`"),
+        (
+            {"a": declare(same_producer_as="b", via="c", paired=True), "b": declare()},
+            "`paired` and names `via`",
+        ),
         (
             {"a": declare(same_producer_as="b", via="c"), "b": declare()},
             "needs a default `producer`",
