@@ -267,7 +267,7 @@ Group `memory`: no common settings; 7 more: `xeda list-settings yosys --tier exp
 
 Group `sequential`: no common settings; 15 more: `xeda list-settings yosys --tier expert --json`
 
-Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 2 more: `xeda list-settings yosys --tier expert --json`
+Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 13 more: `xeda list-settings yosys --tier expert --json`
 
 Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`
 

@@ -19,6 +19,7 @@ from ...flow.settings_group import Flag, SettingsGroup
 __all__ = [
     "AbcGroup",
     "ArithmeticGroup",
+    "COMPOSED_STRATEGIES",
     "ClockGatingGroup",
     "CoarseGroup",
     "ExtractFaGroup",
@@ -540,15 +541,36 @@ class SequentialGroup(SettingsGroup):
         return found
 
 
+#: The ABC strategies that the flow composes from the steps of ABC: `area_0` to `area_2` map for
+#: area, and `delay_0` to `delay_3` map for delay.
+COMPOSED_STRATEGIES = ("area_0", "area_1", "area_2", "delay_0", "delay_1", "delay_2", "delay_3")
+
+
 class AbcGroup(SettingsGroup):
     """The mapping of the logic with ABC."""
 
-    strategy: Literal["area", "speed", "speed_roundtrip", "yosys"] = Field(
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("liberty_args", "-liberty_args", "value"),)
+
+    strategy: Literal[
+        "area",
+        "speed",
+        "speed_roundtrip",
+        "yosys",
+        "area_0",
+        "area_1",
+        "area_2",
+        "delay_0",
+        "delay_1",
+        "delay_2",
+        "delay_3",
+    ] = Field(
         "area",
         description="The ABC mapping script. `area` and `speed` are the scripts of "
         "OpenROAD-flow-scripts, `speed_roundtrip` is the former speed script of Xeda (it moves "
         "the network between ABC and yosys in each round), and `yosys` keeps the default script "
-        "of yosys. `abc_script` replaces the script of the strategy.",
+        "of yosys. `area_0` to `area_2` and `delay_0` to `delay_3` are the strategies that "
+        "LibreLane composes from the steps of ABC; the options below act on them only. "
+        "`abc_script` replaces the script of the strategy.",
         json_schema_extra=tier("common"),
     )
     mapper: Literal["abc", "abc_new"] = Field(
@@ -577,6 +599,173 @@ class AbcGroup(SettingsGroup):
         "main clock. Unset: no `-D`.",
         json_schema_extra=tier("advanced"),
     )
+    clock_derating: float = Field(
+        0.0,
+        ge=0,
+        lt=1,
+        description="Warning: a large value makes ABC optimize for a period much shorter than the "
+        "clock period, and that can grow the netlist. The part of the clock period that ABC "
+        "leaves free, as a fraction: ABC gets the period times one minus this number. Needs "
+        "`delay_target: auto`.",
+        json_schema_extra=tier("expert"),
+    )
+    buffering: bool = Field(
+        False,
+        description="End the composed script with `buffer`, `upsize` and `dnsize`, which buffer "
+        "the high-fanout nets and size the cells. Needs a composed strategy. The default is the "
+        "one of LibreLane.",
+        json_schema_extra=tier("advanced"),
+    )
+    sizing: bool = Field(
+        False,
+        description="End the composed script with `upsize` and `dnsize`, which size the cells. "
+        "Needs a composed strategy, and not `buffering`, which sizes too. The default is the one "
+        "of LibreLane.",
+        json_schema_extra=tier("advanced"),
+    )
+    max_fanout: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The largest fanout that `buffer` leaves (`buffer -N`). Unset: the value of "
+        "ABC, 10. Needs `buffering`.",
+        json_schema_extra=tier("advanced"),
+    )
+    max_slew: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The slew that `buffer` aims at, in picoseconds (`buffer -S`). Unset: the "
+        "value of ABC, 100. Needs `buffering`.",
+        json_schema_extra=tier("advanced"),
+    )
+    mfs3: bool = Field(
+        False,
+        description="Warning: this step is experimental in ABC, and ABC can stop on an assertion "
+        "failure in it, depending on the design. Add a SAT-based remapping (`mfs3`) after the "
+        "mapping of an area strategy. The delay strategies refuse it: ABC stops in it on every "
+        "design that was tried.",
+        json_schema_extra=tier("expert"),
+    )
+    area_mapper: Literal["amap", "nf"] = Field(
+        "amap",
+        description="Warning: `nf` is less tested for these strategies. The mapper for area of "
+        "the composed strategies `area_0` to `area_2` and `delay_3`: `amap`, or `&nf` on the "
+        "AIG of ABC. The other delay strategies do not map for area.",
+        json_schema_extra=tier("expert"),
+    )
+    legacy_refactor: bool = Field(
+        False,
+        description="Warning: LibreLane calls the legacy commands less stable. Use `refactor` "
+        "instead of `drf -l` in a composed strategy.",
+        json_schema_extra=tier("expert"),
+    )
+    legacy_rewrite: bool = Field(
+        False,
+        description="Warning: LibreLane calls the legacy commands less stable. Use `rewrite` "
+        "instead of `drw -l` in a composed strategy.",
+        json_schema_extra=tier("expert"),
+    )
+    keep_ff: bool = Field(
+        False,
+        description="Keep the names of the flip-flop outputs that the retiming run of ABC moves "
+        "(`abc -keepff`). Only the retiming run passes flip-flops through ABC, so this needs "
+        "`sequential.retime_modules`.",
+        json_schema_extra=tier("expert"),
+    )
+    liberty_args: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Extra arguments for the `read_lib` command that reads the Liberty files in "
+        'ABC, such as "-G 250" (`abc -liberty_args`). Not with `mapper: abc_new`.',
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> List[Tuple[str, str]]:
+        """Refuse the options of the composed strategies where no composed strategy reads them,
+        and the other settings of the group that cannot work together."""
+        found: List[Tuple[str, str]] = []
+        default = type(self)()
+        composition = (
+            "buffering",
+            "sizing",
+            "max_fanout",
+            "max_slew",
+            "mfs3",
+            "area_mapper",
+            "legacy_refactor",
+            "legacy_rewrite",
+        )
+        if self.strategy not in COMPOSED_STRATEGIES:
+            for name in composition:
+                if getattr(self, name) != getattr(default, name):
+                    found.append(
+                        (
+                            f"{key}.{name}",
+                            f"`{key}.{name}` acts on the composed strategies (`area_0` to "
+                            f"`area_2`, `delay_0` to `delay_3`), and `{key}.strategy: "
+                            f"{self.strategy}` is not one of them: choose a composed strategy "
+                            f"or delete `{key}.{name}`",
+                        )
+                    )
+        else:
+            for name in ("max_fanout", "max_slew"):
+                if getattr(self, name) is not None and not self.buffering:
+                    found.append(
+                        (
+                            f"{key}.{name}",
+                            f"`{key}.{name}` is a limit of `buffer`, and `{key}.buffering` is "
+                            f"false: set `{key}.buffering: true` or delete `{key}.{name}`",
+                        )
+                    )
+            if self.mfs3 and self.strategy.startswith("delay_"):
+                found.append(
+                    (
+                        f"{key}.mfs3",
+                        f"`{key}.mfs3` stops ABC with an assertion failure (`Abc_TtExpand`, "
+                        f"`utilTruth.h`) in the delay strategies, including `{key}.strategy: "
+                        f"{self.strategy}`: use an area strategy (`area_0` to `area_2`), or "
+                        f"delete `{key}.mfs3`",
+                    )
+                )
+            if self.buffering and self.sizing:
+                found.append(
+                    (
+                        f"{key}.sizing",
+                        f"`{key}.sizing` has no effect with `{key}.buffering: true`, which "
+                        "sizes the cells too: delete one of them",
+                    )
+                )
+            if self.area_mapper != default.area_mapper and self.strategy in (
+                "delay_0",
+                "delay_1",
+                "delay_2",
+            ):
+                found.append(
+                    (
+                        f"{key}.area_mapper",
+                        f"`{key}.area_mapper` has no effect with `{key}.strategy: "
+                        f"{self.strategy}`, which does not map for area: use `area_0`, "
+                        "`area_1`, `area_2` or `delay_3`, or delete it",
+                    )
+                )
+        if self.clock_derating != 0 and self.delay_target != "auto":
+            found.append(
+                (
+                    f"{key}.clock_derating",
+                    f"`{key}.clock_derating` shortens the period that `{key}.delay_target: "
+                    f"auto` takes, and `{key}.delay_target` is not `auto`: set "
+                    f"`{key}.delay_target: auto` or delete `{key}.clock_derating`",
+                )
+            )
+        if self.mapper == "abc_new" and self.liberty_args is not None:
+            found.append(
+                (
+                    f"{key}.liberty_args",
+                    f"`{key}.liberty_args` is an option of `abc`, and `{key}.mapper: abc_new` "
+                    "runs `abc_new`, which has no such option: delete "
+                    f"`{key}.liberty_args`",
+                )
+            )
+        return found
 
 
 class FinishGroup(SettingsGroup):

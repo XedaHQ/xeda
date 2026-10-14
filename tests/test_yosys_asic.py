@@ -404,7 +404,10 @@ SCRIPT_STRATEGIES = [choice for choice in STRATEGY_CHOICES if choice != "yosys"]
 
 def test_every_strategy_choice_is_covered():
     """Every strategy choice is covered."""
-    assert set(STRATEGY_CHOICES) == {"area", "speed", "speed_roundtrip", "yosys"}
+    assert set(STRATEGY_CHOICES) == {
+        *("area", "speed", "speed_roundtrip", "yosys"),
+        *("area_0", "area_1", "area_2", "delay_0", "delay_1", "delay_2", "delay_3"),
+    }
 
 
 @pytest.mark.parametrize("strategy", STRATEGY_CHOICES)

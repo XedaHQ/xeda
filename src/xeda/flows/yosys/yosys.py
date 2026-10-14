@@ -21,7 +21,9 @@ from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.settings_group import SettingsGroup, render_flags
 from ...utils import replacing_file, tcl_word
 from ..ghdl import GhdlSynth
+from .abc_strategies import Composition, composed_abc_script
 from .asic_groups import (
+    COMPOSED_STRATEGIES,
     AbcGroup,
     ArithmeticGroup,
     CoarseGroup,
@@ -49,17 +51,21 @@ _ABC_TAIL = ["buffer -c", "topo", "stime -c", "upsize -c", "dnsize -c"]
 _ABC_SPEED_ROUND = ["&st", "&syn2", "&if -g -K 6", "&synch2", "&nf"]
 
 
-def abc_strategy_script(strategy: str) -> Optional[str]:
+def abc_strategy_script(strategy: str, options: Optional[Composition] = None) -> Optional[str]:
     """Return the abc mapping script of `abc.strategy`, in the form `abc -script` takes.
 
     The text starts with `+`. It holds the commands separated by `;`, and each command has its
     words separated by `,`. `area` and `speed` are `abc_area.script` and `abc_speed.script` of
     OpenROAD-flow-scripts (`flow/scripts`). `speed_roundtrip` is the speed script that Xeda
     used before: it moves the network back to yosys and into ABC again in each round
-    (`&put`, `&get -n`). `None` selects the default mapping script of yosys.
+    (`&put`, `&get -n`). `area_0` to `area_2` and `delay_0` to `delay_3` are composed from the
+    steps of ABC (`abc_strategies.py`) with the `options`. `None` selects the default mapping
+    script of yosys.
     """
     if strategy == "yosys":
         return None
+    if strategy in COMPOSED_STRATEGIES:
+        return composed_abc_script(strategy, options if options is not None else Composition())
     if strategy == "area":
         commands = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
         commands += ["upsize -c", "dnsize -c"]
@@ -198,6 +204,23 @@ SYNTH_OPTIONS_OF_SETTINGS: Dict[str, str] = {
     "-no-rw-check": "memory.rw_check",
     "-hieropt": "hierarchy.cross_boundary_opt",
     "-latches": "coarse.latches",
+}
+
+
+#: The options of `abc` that a setting owns, each with that setting. The setting renders the
+#: option, so `abc_flags` does not repeat it.
+ABC_OPTIONS_OF_SETTINGS: Dict[str, str] = {
+    "-keepff": "abc.keep_ff",
+    "-liberty_args": "abc.liberty_args",
+    "-D": "abc.delay_target",
+    "-script": "abc_script",
+    "-constr": "abc_constr",
+    "-liberty": "liberty",
+    "-dont_use": "dont_use_cells",
+    "-dff": "abc_dff",
+    "-g": "gates",
+    "-lut": "lut",
+    "-luts": "lut",
 }
 
 
@@ -541,6 +564,16 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         problems += cls._tcl_mode_problems(settings)
         problems += cls._hierarchy_problems(settings)
         problems += cls._synth_flag_problems(settings)
+        problems += cls._abc_flag_problems(settings)
+        if settings.abc.keep_ff and not settings.sequential.retime_modules:
+            problems.append(
+                (
+                    "abc.keep_ff",
+                    "`abc.keep_ff` keeps the flip-flops that the retiming run of ABC moves, and "
+                    "`sequential.retime_modules` names no module: name a module, or delete "
+                    "`abc.keep_ff`",
+                )
+            )
         if settings.abc_script is not None and settings.abc.strategy != "area":
             problems.append(
                 (
@@ -592,6 +625,22 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         "synth_flags",
                         f"`{words[0]}` in `synth_flags` is the setting `{owner}`: set that "
                         "instead",
+                    )
+                )
+        return problems
+
+    @classmethod
+    def _abc_flag_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return the `abc_flags` that repeat an option which a setting owns."""
+        problems: List[Tuple[str, str]] = []
+        for item in settings.abc_flags:
+            words = item.split()
+            owner = ABC_OPTIONS_OF_SETTINGS.get(words[0]) if words else None
+            if owner is not None:
+                problems.append(
+                    (
+                        "abc_flags",
+                        f"`{words[0]}` in `abc_flags` is the setting `{owner}`: set that instead",
                     )
                 )
         return problems
@@ -780,7 +829,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         delay_target_ps = None
         if target == "auto":
             clock = ss.main_clock
-            delay_target_ps = clock.period_ps if clock and clock.period_ps else None
+            if clock and clock.period_ps:
+                delay_target_ps = clock.period_ps * (1 - ss.abc.clock_derating)
         elif target is not None:
             delay_target_ps = float(target)
         constraints = []
@@ -803,7 +853,21 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             tie_cells=tie_cells,
             buffer_cell=buffer_cell,
             abc_script=(
-                ss.abc_script if ss.abc_script is not None else abc_strategy_script(ss.abc.strategy)
+                ss.abc_script
+                if ss.abc_script is not None
+                else abc_strategy_script(
+                    ss.abc.strategy,
+                    Composition(
+                        buffering=ss.abc.buffering,
+                        sizing=ss.abc.sizing,
+                        max_fanout=ss.abc.max_fanout,
+                        max_slew=ss.abc.max_slew,
+                        mfs3=ss.abc.mfs3,
+                        area_mapper=ss.abc.area_mapper,
+                        legacy_refactor=ss.abc.legacy_refactor,
+                        legacy_rewrite=ss.abc.legacy_rewrite,
+                    ),
+                )
             ),
             abc_new_script=ABC_NEW_SCRIPT if ss.abc.mapper == "abc_new" else None,
             wrap_script=(

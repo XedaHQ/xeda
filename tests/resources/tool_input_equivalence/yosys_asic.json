@@ -255,10 +255,21 @@
    ],
    "effective_flow_settings": {
     "abc": {
+     "area_mapper": "amap",
+     "buffering": false,
+     "clock_derating": 0.0,
      "delay_target": null,
      "driver_cell": null,
+     "keep_ff": false,
+     "legacy_refactor": false,
+     "legacy_rewrite": false,
+     "liberty_args": null,
      "load": null,
      "mapper": "abc",
+     "max_fanout": null,
+     "max_slew": null,
+     "mfs3": false,
+     "sizing": false,
      "strategy": "speed_roundtrip"
     },
     "abc_constr": [],

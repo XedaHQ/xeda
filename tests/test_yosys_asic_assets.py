@@ -70,6 +70,37 @@ def test_the_notice_names_both_files_and_holds_the_license() -> None:
     assert "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE." in notice
 
 
+LIBRELANE_COMMIT = "e39720fff016c354d822885b2d1acd5508010653"
+LIBRELANE_FILE = "librelane/scripts/pyosys/construct_abc_script.py"
+
+
+def test_the_notice_names_librelane_its_file_its_commit_and_holds_the_apache_license() -> None:
+    notice = (ASSETS / NOTICE).read_text()
+    assert LIBRELANE_FILE in notice
+    assert LIBRELANE_COMMIT in notice
+    assert "Copyright 2020-2024 Efabless Corporation" in notice
+    assert "Apache License, Version 2.0" in notice
+    # the license text of LibreLane, copied verbatim
+    assert "                                 Apache License\n" in notice
+    assert "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" in notice
+    assert "4. Redistribution." in notice
+    assert "END OF TERMS AND CONDITIONS" in notice
+    assert "limitations under the License." in notice
+
+
+def test_the_module_that_composes_the_strategies_names_its_source_and_its_license() -> None:
+    module = (REPO / "src" / "xeda" / "flows" / "yosys" / "abc_strategies.py").read_text()
+    assert LIBRELANE_FILE in module and LIBRELANE_COMMIT in module
+    assert "Apache License 2.0" in module and "NOTICE.md" in module
+    assert "Efabless Corporation" in module
+
+
+def test_the_notice_names_the_parts_of_the_scripts_that_the_python_modules_carry() -> None:
+    notice = (ASSETS / NOTICE).read_text()
+    for name in ("abc_speed_gia_only.script", "abc_retime.script", "get_module_names"):
+        assert name in notice, name
+
+
 def tcl_top_level_problems(text: str) -> list[str]:
     """The lines of a Tcl text that run outside a procedure, as `line number: text` strings.
 

@@ -40,6 +40,8 @@
 {%- set hieropt = " -hieropt" if settings.hierarchy.cross_boundary_opt else "" -%}
 {#- `dfflegalize` takes the limits of the sequential group (`-mince`, `-minsrst`) as flags. -#}
 {%- set legalize_limits = render_flags(settings.sequential) -%}
+{#- the flags of `abc` that the group `abc` owns (`-dress`, `-liberty_args`) -#}
+{%- set abc_options = render_flags(settings.abc) -%}
 {%- set fa = settings.arithmetic.extract_fa -%}
 {#- `extract_fa` refuses a limit (`-d`, `-b`) as its last word, so the kinds of adders come after
     the limits, and a run with limits names both kinds when it extracts both. -#}
@@ -185,7 +187,7 @@ opt -fast -full
 memory_map
 opt -full
 techmap
-abc -dff -script {{asic.retime_script|path}}
+abc -dff{% if settings.abc.keep_ff %} -keepff{% endif %} -script {{asic.retime_script|path}}
 select -clear
 {%- endif %}
 {%- if wrap_operators %}
@@ -251,6 +253,7 @@ abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}
 {%- endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
 {%- if abc_constr_file %} -constr {{abc_constr_file|path}}{% endif %}
 {%- if asic.delay_target_ps is not none %} -D {{"%.3f"|format(asic.delay_target_ps)}}{% endif %}
+{%- if abc_options %} {{abc_options}}{% endif %}
 {%- for flag in settings.abc_flags %} {{flag}}{% endfor %}
 {%- if abc_new %}
 delete {t:$specify*}
