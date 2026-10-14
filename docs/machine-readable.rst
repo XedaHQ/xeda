@@ -270,18 +270,19 @@ delivered the file there once the run finished:
 
 ``xeda run`` also takes a chain, such as ``xeda run yosys_fpga+nextpnr+fpga_pack design.yaml``. The
 last flow of a chain is the requested flow: ``flow``, ``results``, ``run_path`` and the exit status
-are those of that flow. Each earlier flow supplies the compatible required inputs of the next flow.
-The ``request`` key lists the elements of the request as given, in canonical form. Each element is
-an object with ``node``, ``flow``, ``output`` and ``through``, where ``output`` is the
-``FLOW.OUTPUT`` qualifier or ``null``, and ``through`` lists the flows that the link to the next
-element passes through. A single flow gives a one-element list. Each ``nodes`` entry carries its
-``node`` name and its resolved ``inputs``, which are empty for a flow that declares none. The plan
-of a dry run uses the same representation for the inputs (the section on planning, below, describes
-the fields). When a producer fails, the planned nodes that were never entered come after the other
-nodes, with ``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or
-output, a repeated flow, a programmer before the end, or a pair with no compatible output) is a
-usage error. It gives one error document and exit status 2, with no ``request``, ``plan`` or
-``nodes``. Chains are local requests, and ``--remote`` and ``dse`` refuse them.
+are those of that flow. Each earlier flow supplies the compatible required inputs of the next flow
+or, when the link passes through flows, the inputs that it feeds in the plan of the next flow. The
+``request`` key lists the elements of the request as given, in canonical form. Each element is an
+object with ``node``, ``flow``, ``output`` and ``through``, where ``output`` is the ``FLOW.OUTPUT``
+qualifier or ``null``, and ``through`` lists the flows that the link to the next element passes
+through. A single flow gives a one-element list. Each ``nodes`` entry carries its ``node`` name and
+its resolved ``inputs``, which are empty for a flow that declares none. The plan of a dry run uses
+the same representation for the inputs (the section on planning, below, describes the fields). When
+a producer fails, the planned nodes that were never entered come after the other nodes, with
+``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
+repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
+It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. Chains
+are local requests, and ``--remote`` and ``dse`` refuse them.
 
 ``design`` is always the name of the design: the ``name`` in its design file, or the name you gave
 for a design of a project (``--design-name``). ``design_file`` is the absolute path of the design
