@@ -421,7 +421,7 @@ def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str]
     A `{% set name = settings.path %}` makes `name.rest` and `render_flags(name` stand for
     `settings.path.rest` from there to the end of the template that sets it, and in the templates
     that one includes (`{% include "name" %}`, and `{% include step + "tail" %}` for the
-    templates that end in `tail`). Another template does not see the name, and a template that
+    templates that end in `tail`), with the names as they are at the include. Another template does not see the name, and a template that
     sets the name again gives it the new path from there on. A name that stands for another name
     resolves too. Each template is read once alone, and once for every template that includes it,
     with the names of that template."""
@@ -440,12 +440,6 @@ def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str]
     def resolve(roots: dict[str, str], root: str, rest: list[str]) -> str:
         return ".".join([*filter(None, [roots[root]]), *rest])
 
-    def included(text: str) -> list[str]:
-        found = [target for target in literal.findall(text) if target in texts]
-        for ending in computed.findall(text):
-            found += [name for name in texts if name.endswith(ending)]
-        return found
-
     def read(chunk: str, roots: dict[str, str]) -> None:
         names = "|".join(re.escape(root) for root in sorted(roots, key=len, reverse=True))
         chain = re.compile(rf"(?<![\w.])({names})({tail})(?!\w)")
@@ -461,29 +455,36 @@ def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str]
             if group:
                 rendered.add(group)
 
+    events = re.compile(f"{assignment.pattern}|{literal.pattern}|{computed.pattern}")
+
     def scan(name: str, inherited: dict[str, str], above: tuple[str, ...]) -> None:
         text = texts[name]
         roots = dict(inherited)
         position = 0
-        for match in assignment.finditer(text):
+        for match in events.finditer(text):
             read(text[position : match.start()], roots)
             position = match.end()
-            alias, value = match.group(1), match.group(2)
-            if alias in SETTINGS_EXPRESSIONS:
+            alias, value, target, ending = match.groups()
+            if alias is not None:
+                if alias in SETTINGS_EXPRESSIONS:
+                    continue
+                first, *rest = path_of(value)
+                # `self.settings` is two words: the longest root that starts the value wins
+                for root in sorted(roots, key=len, reverse=True):
+                    words = root.split(".")
+                    if [first, *rest][: len(words)] == words:
+                        roots[alias] = resolve(roots, root, [*rest][len(words) - 1 :])
+                        break
+                else:
+                    roots.pop(alias, None)  # the name stands for something else from here on
                 continue
-            first, *rest = path_of(value)
-            # `self.settings` is two words: the longest root that starts the value wins
-            for root in sorted(roots, key=len, reverse=True):
-                words = root.split(".")
-                if [first, *rest][: len(words)] == words:
-                    roots[alias] = resolve(roots, root, [*rest][len(words) - 1 :])
-                    break
-            else:
-                roots.pop(alias, None)  # the name stands for something else from here on
+            # an include reads its template with the names as they are here; one that loops
+            # back is no new text to read
+            found = [target] if target is not None else [n for n in texts if n.endswith(ending)]
+            for included in found:
+                if included in texts and included not in above:
+                    scan(included, roots, (*above, name))
         read(text[position:], roots)
-        for target in included(text):
-            if target not in above:  # an include that loops back is no new text to read
-                scan(target, roots, (*above, name))
 
     base = {expression: "" for expression in SETTINGS_EXPRESSIONS}
     for name in texts:
@@ -1367,6 +1368,21 @@ def test_an_alias_set_in_an_included_template_does_not_reach_the_including_templ
     ]
     chains, _ = template_group_reads(templates)
     assert chains == {"g", "g.x"}
+
+
+def test_an_included_template_sees_the_names_as_they_are_at_the_include() -> None:
+    """A name that the including template sets again after the include does not change what the
+    included template reads."""
+    templates = [
+        (
+            "driver.tcl",
+            "{% set gp = settings.first %}{% include 'child.tcl' %}"
+            "{% set gp = settings.second %}{{ gp.y }}",
+        ),
+        ("child.tcl", "{{ gp.x }}"),
+    ]
+    chains, _ = template_group_reads(templates)
+    assert chains == {"first", "first.x", "second", "second.y"}
 
 
 def test_a_group_added_to_a_real_flow_is_reported_by_its_leaves() -> None:
