@@ -60,6 +60,7 @@ from ..design import (
 )
 from ..flow import (
     Flow,
+    FlowDependencyFailure,
     FlowFatalError,
     FlowSettingsException,
     registered_flows,
@@ -826,7 +827,10 @@ class FlowLauncher:
            files that it resolves, before the check whether it is up to date.
         6. Freshness. Without `rebuild_all` or `clean` (the default), a flow whose trace still
            matches what it would consume now (`trace.check_trace`) is not run again: its
-           recorded results are reused. Otherwise `flow.stale_reason` says why it runs. A flow
+           recorded results are reused. If the trace says its checks rejected the run
+           (`Flow.reject`), and `results.json` agrees (`launch_report.adoptable_document`), the
+           launch reports that rejection again: it gives the results, not the outputs, and
+           hands nothing over. Otherwise `flow.stale_reason` says why it runs. A flow
            that can never be reused (`Flow.always_runs`: it programs a device, draws a new
            random seed, ...) always runs, with that reason, and no trace records it.
         7. Run. Delete the trace and the reports that the last run read (`Trace.reports`: a
@@ -836,7 +840,8 @@ class FlowLauncher:
            (`launch_run.execute`: `run()`, `parse_reports()`, `check_results()`, results). A
            failed run reports the artifacts that it wrote (`Flow.wrote_output`) and no others.
         8. Report (`launch_report.report`). Write the artifacts and `results.json`. For a
-           successful run, then write the trace (`trace_inputs.build_trace`: the inputs of the
+           passed run, or a rejected run whose `results.json` was written, then write the
+           trace (`trace_inputs.build_trace`: its verdict, the inputs of the
            snapshot; the files that the depfiles and settings of the run name, an input unless
            the run directory holds it; and the outputs of the run, every file of its run
            directory). The post-run clean-up (`_clean_up`) of every flow that ran waits until
@@ -854,8 +859,9 @@ class FlowLauncher:
         launch starts (`_check_deliveries_ahead`): first what no answer could allow, then the
         questions, with the questions of the requested flow last. All of it comes before the
         launch scrubs older runs (`scrub_old_runs`) and before it takes the lock of its run
-        directory. Deliveries are noted when their flow succeeded or was found up to date. They
-        are delivered once the whole launch has finished, and only when the requested flow
+        directory. Deliveries are noted when their flow succeeded or was found up to date. A
+        rejected flow notes none, whether it ran or its rejection was reported again. The
+        deliveries are made once the whole launch has finished, and only when the requested flow
         succeeded or was found up to date. A launch that raised, or whose requested flow reports
         failure, delivers nothing, not even the outputs of a producer that succeeded
         (`_finish_launch`).
@@ -1248,13 +1254,15 @@ class FlowLauncher:
                         # flow did not run, and the launch does not list it as launched.
                         untouched = True
                         raise
-                    # A producer failed or raised, so this flow did not run. Its directory no
-                    # longer vouches for a success.
+                    # A producer failed, was rejected or raised, so this flow did not run. Its
+                    # directory no longer vouches for a run.
                     remove_trace(run_path)
                     run_directory.remove(results_json)
                     launch_run.record_identity(flow, run_path)
                     flow.results.success = False
                     flow.results["error"] = {"type": type(e).__name__, "message": str(e)}
+                    if isinstance(e, FlowDependencyFailure) and e.producer:
+                        flow.blocked_by = e.producer
                     report(flow, design, results_json, self.settings, record=True)
                     raise
 
@@ -1274,15 +1282,26 @@ class FlowLauncher:
                     freshness = check_trace(
                         run_path, expected, locate_program, refresh=depender is None
                     )
-                    if freshness.fresh and reuse_results(flow, results_json):
+                    if freshness.fresh and reuse_results(flow, results_json, freshness):
                         if freshness.refreshed is not None:
                             write_trace(run_path, freshness.refreshed)
                         flow.run_id = freshness.run_id
-                        note = ran_again_note(
-                            expected.declared_inputs,
-                            {str(p.run_path) for p in producers if not p.reused},
-                        )
-                        log.info("%s is up to date (%s)", flow.name, note or run_path)
+                        if flow.rejected_again:
+                            log.warning(
+                                "%s: its last run with these inputs and settings was rejected: "
+                                "%s. Xeda reports that again without running it. To run it "
+                                "again, use --rebuild-all. A file that the run reads and that "
+                                "no setting or source declares is no input: declare it as a "
+                                "source of the design.",
+                                flow.name,
+                                flow.rejection,
+                            )
+                        else:
+                            note = ran_again_note(
+                                expected.declared_inputs,
+                                {str(p.run_path) for p in producers if not p.reused},
+                            )
+                            log.info("%s is up to date (%s)", flow.name, note or run_path)
                         for name in freshness.equivalent:
                             log.info(
                                 "%s: `%s` differs from the one it consumed only in what its "
@@ -1292,10 +1311,11 @@ class FlowLauncher:
                                 name,
                             )
                         report(flow, design, results_json, self.settings, record=False)
-                        self._defer_delivery(flow, delivery, outputs_to)
+                        if flow.succeeded:
+                            self._defer_delivery(flow, delivery, outputs_to)
                         return flow
                     flow.stale_reason = (
-                        freshness.reason or f"no successful results in {results_json}"
+                        freshness.reason or f"no completed results in {results_json}"
                     )
                     log.info("Running %s: %s", flow.name, flow.stale_reason)
                 else:
@@ -1383,10 +1403,19 @@ class FlowLauncher:
                     # transient snapshot.
                     dump_json(all_settings, settings_json, backup=False)
                 report(flow, design, results_json, self.settings, record=True)
-                if flow.succeeded and expected is not None and snapshot is not None:
-                    # Recorded once the run has written everything, `results.json` included, and
-                    # before the clean-up, which may remove files the trace names (a depfile).
-                    # The clean-up only removes files: the trace is the last thing a run writes.
+                if (
+                    expected is not None
+                    and snapshot is not None
+                    and (
+                        flow.outcome == "passed"
+                        or (flow.outcome == "rejected" and self.settings.dump_results_json)
+                    )
+                ):
+                    # A rejected run keeps a trace only if `results.json` was written: a replay
+                    # reads the rejection from it. Recorded once the run has written everything,
+                    # `results.json` included, and before the clean-up, which may remove files the
+                    # trace names (a depfile). The clean-up only removes files: the trace is the
+                    # last thing a run writes.
                     trace = build_trace(
                         expected, flow, programs, snapshot, input_settings, previous
                     )

@@ -228,7 +228,8 @@ What makes a flow stale
 
 A flow is stale, and runs again, in any of these cases:
 
-- There is no successful previous run, because there is none yet or the last one failed.
+- There is no completed previous run: none yet, or the last one failed before its checks could
+  judge it (a tool error, a crash, a kill, a missing report).
 - The flow always runs. It programs a device, draws a new random seed, or reads pin constraints
   fetched from a URL (see `Flows that always run`_).
 - Its settings changed (the reason names which ones), or a path that a setting names now points

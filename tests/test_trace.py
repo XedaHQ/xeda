@@ -173,7 +173,7 @@ def test_a_trace_without_a_run_id_is_no_trace(recorded):
     trace = json.loads((run_dir / "trace.json").read_text())
     del trace["run_id"]
     (run_dir / "trace.json").write_text(json.dumps(trace))
-    assert _check(run_dir, expected).reason == "no successful previous run"
+    assert _check(run_dir, expected).reason == "no completed previous run"
 
 
 def test_a_dependency_that_ran_again_is_no_change_in_itself(recorded):
@@ -265,7 +265,7 @@ def test_an_equivalent_output_is_no_change_for_an_input_that_opts_in(tmp_path):
 
 def test_without_a_trace_nothing_is_fresh(tmp_path, recorded):
     _, _, _, expected = recorded
-    assert _check(tmp_path, expected).reason == "no successful previous run"
+    assert _check(tmp_path, expected).reason == "no completed previous run"
 
 
 def test_a_settings_change_names_the_setting(recorded):

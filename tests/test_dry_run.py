@@ -73,7 +73,7 @@ def test_a_dry_run_prints_the_plan_and_runs_nothing(tmp_path, monkeypatch):
     assert text.index("  yosys_fpga  ") < text.index("  nextpnr  ")
     assert "netlist <- yosys_fpga.netlist" in text
     # nothing has run: each flow says what a run would do with it
-    assert text.count("      stale: no successful previous run") == 2
+    assert text.count("      stale: no completed previous run") == 2
     assert str(run_root / "blink" / "nextpnr") in text
     assert not run_root.exists()
 
@@ -94,7 +94,7 @@ def test_json_plan_matches_the_public_api_and_materialized_design(tmp_path, monk
     assert plan_info(plan_again, states_again) == expected
     # nothing has run, so every node is stale, and plan_info alone says nothing of it
     assert [(n["state"], n["reason"]) for n in expected["nodes"]] == [
-        ("stale", "no successful previous run")
+        ("stale", "no completed previous run")
     ] * 2
     assert all("state" not in n for n in plan_info(runner.plan("nextpnr", loaded))["nodes"])
     args = ["--hashed-run-dirs"] if hashed else []

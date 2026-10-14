@@ -579,7 +579,7 @@ def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, mon
         plan, states = graph.dry()
     assert watch.problems() == []
     assert states["ghdl_sim"].state == STALE, states
-    assert states["ghdl_sim"].reason == "no successful previous run"
+    assert states["ghdl_sim"].reason == "no completed previous run"
 
 
 def _forge_record(graph: Graph, node: str, edit: Callable[[dict], None]) -> None:

@@ -644,7 +644,7 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run
     assert nodes["__chain_action"]["action_reason"] == "performs a test action"
     assert nodes["__chain_simple_producer"]["action_reason"] is None
     assert nodes["__chain_action"]["state"] == "stale"
-    assert nodes["__chain_action"]["reason"] == "no successful previous run"
+    assert nodes["__chain_action"]["reason"] == "no completed previous run"
     text = _xeda("run", request, design, "--dry-run").output
     assert "always runs: performs a test action" in text
     assert text.count("always runs") == 1

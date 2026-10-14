@@ -29,7 +29,7 @@ log = logging.getLogger(__name__)
 
 
 #: The files that a launch writes in every run directory it enters (the trace only after a
-#: success). A directory that holds one is a run directory, whatever it is called, and never the
+#: passed or rejected run). A directory that holds one is a run directory, whatever it is called, and never the
 #: directory of a target.
 LAUNCH_DOCUMENTS = ("settings.json", "results.json", "trace.json")
 

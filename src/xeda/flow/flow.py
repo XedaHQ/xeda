@@ -1831,7 +1831,14 @@ class FlowException(XedaException):
 
 
 class FlowDependencyFailure(FlowException):
-    """A producer of a flow failed, or what the producers hand over cannot be used."""
+    """A producer of a flow failed, or what the producers hand over cannot be used.
+
+    `producer` is the name of the producer that failed or was rejected, when the failure is
+    that; it is None for a problem with what the producers hand over."""
+
+    def __init__(self, *args: object, producer: str | None = None) -> None:
+        super().__init__(*args)
+        self.producer = producer
 
 
 class FlowSettingsException(FlowException):

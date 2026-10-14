@@ -25,6 +25,7 @@ from ..deliver import deliverable_setting_names
 from ..design import Design
 from ..flow import Flow
 from ..utils import LOCATION_FORMS, dump_json, json_encodable, with_json_keys
+from .trace import Freshness
 
 log = logging.getLogger(__name__)
 
@@ -179,19 +180,62 @@ def report(
         )
 
 
-def reuse_results(flow: Flow, results_json: Path) -> bool:
+def adoptable_document(document: Any, verdict: str, error: Optional[Mapping[str, str]]) -> bool:
+    """Return whether the `results.json` document `document` agrees with the trace of its run.
+
+    `verdict` and `error` are those of the trace (`Trace.verdict`, `Trace.error`). The document
+    agrees only in one of two cases:
+
+    - The trace says `passed`, and the document is a mapping with `success` true.
+    - The trace says `rejected`, and the document is a mapping with `success` false whose
+      `error` is a mapping equal to the `error` of the trace, which is a mapping with a text
+      `type` and a text `message`.
+
+    Any other combination is False: a document that is not a mapping, a `success` that is not
+    a boolean, an unknown verdict, or a trace and a document that disagree (one was edited, or
+    a later run replaced the document without writing a trace). The launch and the dry run
+    apply this one rule, so neither reuses a result that the other would refuse."""
+    if not isinstance(document, Mapping):
+        return False
+    success = document.get("success")
+    if not isinstance(success, bool):
+        return False
+    if verdict == "passed":
+        return success
+    if verdict != "rejected" or success:
+        return False
+    if not isinstance(error, Mapping):
+        return False
+    if not all(isinstance(error.get(key), str) for key in ("type", "message")):
+        return False
+    return document.get("error") == error
+
+
+def reuse_results(flow: Flow, results_json: Path, freshness: Freshness) -> bool:
     """Adopt the recorded results of a run that is up to date.
 
-    Return False if they cannot be read."""
+    `freshness` is the result of the check of the trace. The results are adopted only if they
+    agree with its verdict (`adoptable_document`). For a rejected run, the flow then holds the
+    rejection (`Flow.rejection`) and is marked as rejected again (`Flow.rejected_again`). Its
+    results hold an error and no `outputs`, so a consumer is handed nothing.
+
+    Return False if the results cannot be read or do not agree."""
     try:
         previous = Box(json.loads(results_json.read_text()))
     except (OSError, ValueError):
         return False
-    if not previous.get("success"):
+    if not adoptable_document(previous, freshness.verdict, freshness.error):
         return False
     flow.results.update(**previous)
     flow.artifacts = previous.get("artifacts", Box())
     flow.reused = True
+    if freshness.verdict == "rejected":
+        assert freshness.error is not None
+        flow.rejected_again = True
+        flow.outcome = "rejected"
+        flow.rejection = freshness.error["message"]
+    else:
+        flow.outcome = "passed"
     return True
 
 
