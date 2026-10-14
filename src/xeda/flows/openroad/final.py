@@ -2,10 +2,18 @@
 
 from pathlib import Path
 
-from ...dataclass import Field
+from ...dataclass import Field, tier
 from ...design import SourceType
 from ...flow import In, Out
 from .base import OpenroadStage
+from .final_groups import (
+    DetailedRouteGroup,
+    ExtractionGroup,
+    FillGroup,
+    FinalAntennaGroup,
+    GdsGroup,
+    IrDropGroup,
+)
 
 __all__ = ["Openroad"]
 
@@ -20,7 +28,54 @@ class Openroad(OpenroadStage):
 
         write_gds: bool = Field(
             False,
-            description="Whether to write the GDSII layout of the design with KLayout.",
+            description="Write the GDSII layout of the routed design with KLayout. It needs the "
+            "KLayout files and the GDSII files of the platform.",
+            json_schema_extra=tier("common"),
+        )
+        save_images: bool = Field(
+            False,
+            description="Save images of the routed design in the directory `images` of the run "
+            "directory. It needs an OpenROAD build that includes the GUI.",
+            json_schema_extra=tier("advanced"),
+        )
+        fail_timing: bool = Field(
+            True,
+            description="The flow fails if the routed design does not meet timing.",
+            json_schema_extra=tier("common"),
+        )
+        fail_drc: bool = Field(
+            True,
+            description="The flow fails if the detailed route leaves design rule violations.",
+            json_schema_extra=tier("common"),
+        )
+        fail_antenna: bool = Field(
+            True,
+            description="The flow fails if antenna violations remain after the repair.",
+            json_schema_extra=tier("common"),
+        )
+        detailed_route: DetailedRouteGroup = Field(
+            default_factory=DetailedRouteGroup,
+            description="The detailed router.",
+        )
+        antenna: FinalAntennaGroup = Field(
+            default_factory=FinalAntennaGroup,
+            description="The repair of the antenna violations of the detailed route.",
+        )
+        fill: FillGroup = Field(
+            default_factory=FillGroup,
+            description="The filler cells that fill the gaps in the rows.",
+        )
+        extraction: ExtractionGroup = Field(
+            default_factory=ExtractionGroup,
+            description="The extraction of the parasitics of the routed design.",
+        )
+        ir_drop: IrDropGroup = Field(
+            default_factory=IrDropGroup,
+            description="The analysis of the IR drop of the power grid.",
+        )
+        gds: GdsGroup = Field(
+            default_factory=GdsGroup,
+            description="The GDSII file of the routed design.",
         )
 
     class Inputs(OpenroadStage.Inputs):
