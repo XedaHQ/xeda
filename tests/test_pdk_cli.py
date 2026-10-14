@@ -60,6 +60,22 @@ def relative_files(residue: Residue) -> list[str]:
     return paths
 
 
+def every_corner_file(residue: Residue) -> list[str]:
+    """Every file that finding the platform checks for any corner, relative to its directory."""
+    names: list[str] = []
+    for corner in residue.files.liberty:
+        names += relative_files_of(residue, corner)
+    return list(dict.fromkeys(names))
+
+
+def relative_files_of(residue: Residue, corner: Optional[str]) -> list[str]:
+    paths = [p for files in residue.files.role_paths(residue.resolve_corner(corner)).values()
+             for p in files]  # fmt: skip
+    if residue.upstream is not None:
+        paths += residue.upstream.files
+    return paths
+
+
 def touch_all(directory: Path, residue: Residue) -> None:
     for name in relative_files(residue):
         path = directory / name
@@ -528,8 +544,8 @@ def test_the_provider_choices_are_the_providers_of_the_store():
 def test_the_pdk_commands_read_only_the_environment_variables_they_declare():
     group = cli.commands["pdk"]
     assert isinstance(group, click.Group)
-    assert set(group.commands) - {"help"} == {"list", "path"}
-    for command in (group.commands[name] for name in ("list", "path")):
+    assert set(group.commands) - {"help"} == {"list", "path", "install"}
+    for command in (group.commands[name] for name in ("list", "path", "install")):
         parent = click.Context(group, info_name="pdk", auto_envvar_prefix="XEDA")
         ctx = command.make_context(command.name, [], parent=parent, resilient_parsing=True)
         assert ctx.auto_envvar_prefix is None
@@ -606,3 +622,566 @@ def test_the_read_only_commands_start_no_process_and_write_nothing(home, store, 
     assert seen == []
     assert sorted(path.name for path in home.iterdir()) == ["teeth"]
     assert not (store / "nothing").exists()
+
+
+# ---------------------------------------------------------------------------------------------
+# xeda pdk install
+#
+# No test uses the network. The `orfs` provider fetches from a repository under `tmp_path`, with
+# the real `git`. The `ciel` provider runs a fake `ciel` that is the only program on `PATH`.
+# ---------------------------------------------------------------------------------------------
+
+NANGATE = "nangate45"
+
+
+@pytest.fixture
+def quiet_git(monkeypatch):
+    """The real `git`, without the configuration of the machine that runs the tests."""
+    from .tool_utils import require_git
+
+    require_git()
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def git(directory: Path, *arguments: str) -> str:
+    done = subprocess.run(
+        ["git", "-c", "user.name=test", "-c", "user.email=test@example.com", *arguments],
+        cwd=directory,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return done.stdout.strip()
+
+
+class Upstream:
+    """A repository that looks like OpenROAD-flow-scripts: one platform directory with the files of
+    the residue, and another directory that a sparse checkout must leave out."""
+
+    def __init__(self, directory: Path, missing: Optional[str] = None) -> None:
+        residue = load_residue(NANGATE)
+        entry = residue.providers.orfs
+        assert entry is not None
+        self.platform_directory = entry.directory
+        self.directory = directory
+        directory.mkdir()
+        git(directory, "init", "--quiet", "--initial-branch=main")
+        git(directory, "config", "uploadpack.allowFilter", "true")
+        git(directory, "config", "uploadpack.allowAnySHA1InWant", "true")
+        for name in relative_files(residue):
+            if name != missing:
+                self.write(f"{entry.directory}/{name}", f"placeholder {name}\n")
+        self.write("flow/designs/other/readme.txt", "another directory of the repository\n")
+        git(directory, "add", ".")
+        git(directory, "commit", "--quiet", "-m", "platform files")
+        self.commit = git(directory, "rev-parse", "HEAD")
+        self.url = directory.as_uri()
+
+    def write(self, name: str, text: str) -> None:
+        path = self.directory / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+
+@pytest.fixture
+def upstream(tmp_path, quiet_git) -> Upstream:
+    return Upstream(tmp_path / "upstream")
+
+
+def nangate() -> Residue:
+    return load_residue(NANGATE)
+
+
+def tree(root: Path) -> list[str]:
+    """Every entry under `root`, relative and sorted, or nothing if `root` does not exist."""
+    if not root.exists():
+        return []
+    return sorted(path.relative_to(root).as_posix() for path in root.rglob("*"))
+
+
+def install_orfs(root: Path, upstream: Upstream, **keywords: Any):
+    from xeda.platforms.providers import install
+
+    return install(nangate(), "orfs", upstream.commit, root, url=upstream.url, **keywords)
+
+
+def test_an_orfs_install_fetches_only_the_platform_directory_of_the_commit(tmp_path, upstream):
+    root = tmp_path / "store"
+    result = install_orfs(root, upstream)
+    directory = root / "xeda" / "orfs" / upstream.commit / upstream.platform_directory
+    assert result.already_installed is False
+    assert result.located.directory == directory
+    for name in relative_files(nangate()):
+        assert (directory / name).read_text() == f"placeholder {name}\n"
+    assert not (root / "xeda" / "orfs" / upstream.commit / "flow" / "designs").exists()
+    assert [p for p in (root / "xeda").iterdir() if p.name.startswith(".partial")] == []
+
+
+def test_an_orfs_install_writes_a_receipt(tmp_path, upstream):
+    from xeda.platforms.providers import orfs_checkout_directory
+    from xeda.version import __version__
+
+    root = tmp_path / "store"
+    result = install_orfs(root, upstream)
+    assert result.receipt == root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
+    receipt = json.loads(result.receipt.read_text())
+    assert receipt["platform"] == NANGATE
+    assert receipt["provider"] == "orfs"
+    assert receipt["version"] == upstream.commit
+    assert receipt["root"] == str(root)
+    assert receipt["directory"] == str(result.located.directory)
+    assert receipt["xeda_version"] == __version__
+    assert receipt["time"].endswith("+00:00")
+    commands = receipt["commands"]
+    work = commands[0][-1]
+    assert Path(work).name.startswith(".partial-")
+    assert Path(work).parent == root / "xeda"
+    assert [command[0] for command in commands] == ["git"] * 5
+    assert commands[0][:3] == ["git", "init", "--quiet"]
+    assert commands[1] == ["git", "-C", work, "remote", "add", "origin", upstream.url]
+    assert commands[3][3:] == [
+        *["fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", upstream.commit]
+    ]
+    assert commands[4][3:] == ["checkout", "--quiet", "FETCH_HEAD"]
+    # The commands filled the partial directory, which the install moved: it is gone now.
+    assert not Path(work).exists()
+    assert result.located.directory.is_relative_to(orfs_checkout_directory(root, upstream.commit))
+
+
+def test_an_orfs_install_that_finds_the_files_runs_nothing_and_writes_nothing(tmp_path):
+    root = tmp_path / "store"
+    touch_all(nangate_directory(root, OTHER_COMMIT), nangate())
+    before = tree(root)
+    from xeda.platforms.providers import install
+
+    # The URL leads nowhere: a git command would fail.
+    result = install(nangate(), "orfs", OTHER_COMMIT, root, url=(tmp_path / "nowhere").as_uri())
+    assert result.already_installed is True
+    assert result.receipt is None
+    assert tree(root) == before
+
+
+def test_a_failed_orfs_fetch_leaves_the_store_as_it_was(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    root = tmp_path / "store"
+    unknown = "3" * 40  # a commit that the repository does not have
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(nangate(), "orfs", unknown, root, url=upstream.url)
+    assert "git" in str(raised.value)
+    assert tree(root) == ["xeda", "xeda/.lock"]
+
+
+def test_an_install_whose_files_are_incomplete_is_removed(tmp_path, quiet_git):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    damaged = Upstream(tmp_path / "damaged", missing="rcx_patterns.rules")
+    root = tmp_path / "store"
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(nangate(), "orfs", damaged.commit, root, url=damaged.url)
+    assert "rcx_patterns.rules" in str(raised.value)
+    assert tree(root) == ["xeda", "xeda/.lock"]
+
+
+def test_a_directory_in_the_way_is_refused_and_left_alone(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed, orfs_checkout_directory
+
+    root = tmp_path / "store"
+    directory = orfs_checkout_directory(root, upstream.commit)
+    directory.mkdir(parents=True)
+    (directory / "mine.txt").write_text("a file of the user\n")
+    before = tree(root)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert str(directory) in str(raised.value)
+    assert (directory / "mine.txt").read_text() == "a file of the user\n"
+    assert sorted(set(tree(root)) - set(before)) == ["xeda/.lock"]
+
+
+def test_a_second_install_into_the_same_root_fails_and_says_who_holds_the_lock(tmp_path, upstream):
+    import fcntl
+
+    from xeda.platforms.providers import PdkInstallBusy
+
+    root = tmp_path / "store"
+    lock = root / "xeda" / ".lock"
+    lock.parent.mkdir(parents=True)
+    with open(lock, "a") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        with pytest.raises(PdkInstallBusy) as raised:
+            install_orfs(root, upstream)
+    message = str(raised.value)
+    assert str(lock) in message
+    assert "another" in message and "again" in message
+    assert tree(root) == ["xeda", "xeda/.lock"]
+    # Once the lock is free, the same call installs.
+    assert install_orfs(root, upstream).already_installed is False
+
+
+def test_an_install_into_a_directory_that_does_not_exist_makes_it(tmp_path, upstream):
+    root = tmp_path / "a" / "b" / "store"
+    install_orfs(root, upstream)
+    assert (root / "xeda" / "receipts").is_dir()
+
+
+def test_the_directory_provider_has_nothing_to_install(tmp_path):
+    from xeda.platforms.providers import install
+
+    with pytest.raises(ValueError, match="nothing to install"):
+        install(nangate(), "directory", None, tmp_path / "store")
+    assert not (tmp_path / "store").exists()
+
+
+# ----------------------------------------------------------------------------- ciel (a fake)
+
+FAKE_CIEL = """#!{python}
+import json, os, sys
+from pathlib import Path
+
+if sys.argv[1:] == ["--version"]:
+    print("ciel {version}")
+    sys.exit(0)
+with open({record!r}, "a") as record:
+    record.write(json.dumps({{"argv": sys.argv[1:], "env": dict(os.environ)}}) + "\\n")
+if {fail}:
+    print("ciel: cannot fetch")
+    sys.exit(3)
+arguments = sys.argv[1:]
+assert arguments[0] == "fetch", arguments
+root = Path(arguments[arguments.index("--pdk-root") + 1])
+family = arguments[arguments.index("--pdk-family") + 1]
+directory = root / "ciel" / family / "versions" / arguments[-1] / {variant!r}
+for name in {files!r}:
+    (directory / name).parent.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text("")
+"""
+
+
+class FakeCiel:
+    def __init__(
+        self,
+        directory: Path,
+        version: str = "3.0.1",
+        fail: bool = False,
+        leave_out: Optional[str] = None,
+    ) -> None:
+        from .test_pdk_providers import tiny_residue
+
+        residue, _names = tiny_residue("ciel")
+        entry = residue.providers.ciel
+        assert entry is not None
+        self.residue = residue
+        self.entry = entry
+        self.directory = directory
+        self.record = directory / "calls.jsonl"
+        directory.mkdir()
+        program = directory / "ciel"
+        program.write_text(
+            FAKE_CIEL.format(
+                python=sys.executable,
+                version=version,
+                record=str(self.record),
+                fail=fail,
+                variant=entry.variant,
+                files=[name for name in every_corner_file(residue) if name != leave_out],
+            )
+        )
+        program.chmod(0o755)
+
+    def calls(self) -> list[dict[str, Any]]:
+        if not self.record.exists():
+            return []
+        return [json.loads(line) for line in self.record.read_text().splitlines()]
+
+
+def fake_ciel(monkeypatch, tmp_path: Path, **keywords: Any) -> FakeCiel:
+    """A `ciel` that is the only program on `PATH`, so that neither `uv` nor `pipx` is found."""
+    fake = FakeCiel(tmp_path / "fakes", **keywords)
+    monkeypatch.setenv("PATH", str(fake.directory))
+    return fake
+
+
+def test_a_ciel_install_runs_ciel_with_a_clean_environment(tmp_path, monkeypatch):
+    from xeda.platforms.providers import CIEL_VERSION, install
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    monkeypatch.setenv("PDK_ROOT", "/not/this")
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    monkeypatch.setenv("CIEL_DATA_SOURCE", "elsewhere")
+    monkeypatch.setenv("LANG", "C.UTF-8")
+    root = tmp_path / "store"
+    result = install(fake.residue, "ciel", None, root)
+    entry = fake.entry
+    (call,) = fake.calls()
+    assert call["argv"] == [
+        *["fetch", "--pdk-root", str(root), "--pdk-family", entry.family],
+        *["-l", entry.library, entry.version],
+    ]
+    # macOS adds `__CF_USER_TEXT_ENCODING` to every process it starts.
+    assert set(call["env"]) - {"__CF_USER_TEXT_ENCODING"} <= {"PATH", "HOME", "LANG"}
+    assert call["env"]["PATH"] == str(fake.directory)
+    assert call["env"]["LANG"] == "C.UTF-8"
+    assert result.located.directory == (
+        root / "ciel" / entry.family / "versions" / entry.version / entry.variant
+    )
+    receipt = json.loads(result.receipt.read_text())
+    assert receipt["provider"] == "ciel"
+    assert receipt["version"] == entry.version
+    assert receipt["commands"] == [["ciel", *call["argv"]]]
+    assert CIEL_VERSION.startswith("3.")
+
+
+def test_a_ciel_install_verifies_every_corner(tmp_path, monkeypatch):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    fake = fake_ciel(monkeypatch, tmp_path, leave_out="libs.ref/tinylib/lib/tiny_fast.lib")
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(fake.residue, "ciel", None, tmp_path / "store")
+    assert "tiny_fast.lib" in str(raised.value)
+
+
+def test_a_ciel_that_is_not_version_3_is_refused_before_it_fetches(tmp_path, monkeypatch):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    fake = fake_ciel(monkeypatch, tmp_path, version="2.9.0")
+    root = tmp_path / "store"
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(fake.residue, "ciel", None, root)
+    assert "3" in str(raised.value) and "2.9.0" in str(raised.value)
+    assert fake.calls() == []
+    assert tree(root) == ["xeda", "xeda/.lock"]
+
+
+def test_a_failed_ciel_fetch_is_reported(tmp_path, monkeypatch):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    fake = fake_ciel(monkeypatch, tmp_path, fail=True)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(fake.residue, "ciel", None, tmp_path / "store")
+    assert "ciel" in str(raised.value) and "3" in str(raised.value)
+    assert not (tmp_path / "store" / "xeda" / "receipts").exists()
+
+
+# ------------------------------------------------------------------------------ the command
+
+
+def write_tiny_file(path: Path) -> Path:
+    from .test_pdk_providers import tiny_residue
+
+    residue, _names = tiny_residue("ciel")
+    path.write_text(yaml.safe_dump(residue.model_dump(mode="json", exclude_none=True)))
+    return path
+
+
+def invoke(monkeypatch, *arguments: str, home: Path, input: Optional[str] = None):
+    monkeypatch.setenv("HOME", str(home))
+    return CliRunner().invoke(cli, ["pdk", "install", *arguments], input=input)
+
+
+def local_orfs(monkeypatch, upstream: Upstream) -> None:
+    monkeypatch.setattr("xeda.platforms.providers.ORFS_URL", upstream.url)
+
+
+def test_the_plan_names_the_provider_the_pin_the_size_the_directory_and_the_commands(
+    monkeypatch, home, tmp_path, upstream
+):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+        home=home, input="n\n",
+    )  # fmt: skip
+    text = result.stdout
+    assert "orfs" in text
+    assert upstream.commit in text
+    assert "1.7 MiB" in text
+    assert str(nangate_directory(root, upstream.commit)) in text
+    assert f"fetch --quiet --depth 1 --filter=blob:none origin {upstream.commit}" in text
+    assert upstream.url in text
+    assert ".partial-" in text
+
+
+def test_a_refused_confirmation_installs_nothing(monkeypatch, home, tmp_path, upstream):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+        home=home, input="n\n",
+    )  # fmt: skip
+    assert result.exit_code != 0
+    assert not root.exists()
+
+
+def test_an_accepted_confirmation_installs(monkeypatch, home, tmp_path, upstream):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+        home=home, input="y\n",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    directory = nangate_directory(root, upstream.commit)
+    assert str(directory) in result.stdout
+    assert (directory / "config.mk").is_file()
+
+
+def test_yes_installs_without_a_question(monkeypatch, home, tmp_path, upstream):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit, "--yes",
+        home=home,
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert "[y/N]" not in result.stdout
+    assert nangate_directory(root, upstream.commit).is_dir()
+
+
+def test_json_installs_without_a_question_and_gives_one_document(
+    monkeypatch, home, tmp_path, upstream
+):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    result = invoke(
+        monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit, "--json",
+        home=home,
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.stdout)
+    directory = nangate_directory(root, upstream.commit)
+    assert answer["success"] is True
+    assert answer["platform"] == NANGATE
+    assert answer["provider"] == "orfs"
+    assert answer["version"] == upstream.commit
+    assert answer["directory"] == str(directory)
+    assert answer["already_installed"] is False
+    receipt = Path(answer["receipt"])
+    assert receipt == root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
+    assert json.loads(receipt.read_text())["directory"] == str(directory)
+
+
+def test_json_reports_an_installed_pin_without_running_anything(monkeypatch, home, store):
+    result = invoke(monkeypatch, NANGATE, "--root", str(store), "--json", home=home)
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.stdout)
+    assert answer["success"] is True
+    assert answer["already_installed"] is True
+    assert answer["receipt"] is None
+    assert answer["directory"] == str(nangate_directory(store))
+
+
+def test_text_reports_an_installed_pin_and_asks_nothing(monkeypatch, home, store):
+    result = invoke(monkeypatch, NANGATE, "--root", str(store), home=home)
+    assert result.exit_code == 0, result.output
+    assert "already installed" in result.stdout
+    assert str(nangate_directory(store)) in result.stdout
+    assert "[y/N]" not in result.stdout
+
+
+def test_a_failed_install_gives_a_failure_document_and_leaves_the_store(
+    monkeypatch, home, tmp_path, upstream
+):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    unknown = "4" * 40
+    result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", unknown, "--json",
+                    home=home)  # fmt: skip
+    assert result.exit_code == 1
+    answer = json.loads(result.stdout)
+    assert answer["success"] is False
+    assert answer["error"]["type"] == "PdkInstallFailed"
+    assert unknown in answer["error"]["message"]
+    assert tree(root) == ["xeda", "xeda/.lock"]
+
+
+def test_a_busy_store_fails_with_a_document(monkeypatch, home, tmp_path, upstream):
+    import fcntl
+
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    (root / "xeda").mkdir(parents=True)
+    with open(root / "xeda" / ".lock", "a") as held:
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)
+        result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+                        "--json", home=home)  # fmt: skip
+    assert result.exit_code == 1
+    answer = json.loads(result.stdout)
+    assert answer["error"]["type"] == "PdkInstallBusy"
+    assert not nangate_directory(root, upstream.commit).exists()
+
+
+def test_the_tool_output_of_a_json_install_stays_off_stdout(home, tmp_path):
+    """A `git` that writes to stdout and fails: stdout still holds exactly one document."""
+    fakes = tmp_path / "fakes"
+    fakes.mkdir()
+    program = fakes / "git"
+    program.write_text(f"#!{sys.executable}\nprint('noise from git')\nraise SystemExit(1)\n")
+    program.chmod(0o755)
+    root = tmp_path / "store"
+    env = dict(os.environ, HOME=str(home), PATH=str(fakes) + os.pathsep + os.environ["PATH"])
+    proc = subprocess.run(
+        [sys.executable, "-m", "xeda", "pdk", "install", NANGATE, "--root", str(root), "--json"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert proc.returncode == 1
+    assert document(proc)["success"] is False
+    assert "noise from git" in proc.stderr
+    assert "noise" not in proc.stdout.replace(document(proc)["error"]["message"], "")
+    assert tree(root) == ["xeda", "xeda/.lock"]
+
+
+def test_a_user_platform_file_installs_through_ciel(monkeypatch, home, tmp_path):
+    fake = fake_ciel(monkeypatch, tmp_path)
+    user = write_tiny_file(tmp_path / "tiny.yaml")
+    root = tmp_path / "store"
+    result = invoke(monkeypatch, "--platform-file", str(user), "--root", str(root), "--yes",
+                    home=home)  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert "ciel" in result.stdout and "fetch" in result.stdout
+    (call,) = fake.calls()
+    assert call["argv"][:2] == ["fetch", "--pdk-root"]
+    directory = root / "ciel" / "tinyfam" / "versions" / fake.entry.version / "tinyA"
+    assert (directory / "libs.ref" / "tinylib" / "lib" / "tiny.lib").is_file()
+    assert (root / "xeda" / "receipts" / f"tiny-{fake.entry.version}.json").is_file()
+
+
+@pytest.mark.parametrize(
+    ("extra", "needle"),
+    [
+        (["--provider", "directory"], "nothing to install"),
+        (["--provider", "ciel"], "not served by provider 'ciel'"),
+        (["--version", "main"], "not a full commit hash"),
+    ],
+)
+def test_an_install_the_platform_cannot_take_is_a_usage_error(
+    monkeypatch, home, tmp_path, extra, needle
+):
+    root = tmp_path / "store"
+    result = invoke(monkeypatch, NANGATE, "--root", str(root), "--yes", *extra, home=home)
+    assert result.exit_code == 2
+    assert needle in result.output
+    assert not root.exists()
+
+
+def test_a_missing_installer_is_reported_before_anything_is_written(monkeypatch, home, tmp_path):
+    user = write_tiny_file(tmp_path / "tiny.yaml")
+    monkeypatch.setenv("PATH", str(tmp_path))  # no uv, no pipx, no ciel
+    root = tmp_path / "store"
+    result = invoke(monkeypatch, "--platform-file", str(user), "--root", str(root), "--json",
+                    home=home)  # fmt: skip
+    assert result.exit_code == 1
+    assert json.loads(result.stdout)["error"]["type"] == "PdkInstallerMissing"
+    assert not root.exists()
+
+
+def test_the_help_says_that_json_asks_no_question():
+    result = CliRunner().invoke(cli, ["pdk", "install", "--help"])
+    text = click.unstyle(result.output)
+    assert "--yes" in text
+    assert "--json" in text
+    assert "without a question" in " ".join(text.split())

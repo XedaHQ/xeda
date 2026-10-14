@@ -1,10 +1,12 @@
-"""The `xeda pdk` commands: show which ASIC platforms are installed and where their files are.
+"""The `xeda pdk` commands: show which ASIC platforms are installed and where their files are,
+and install them.
 
-The commands here only read. They start no process, use no network and write nothing, so a user
-can run them at any time. A platform is a bundled name or a platform file of the user
-(`--platform-file`, as the setting `platform_file`). The PDK files are in a store at `--root`
-(default `~/.ciel`, with `~` from `HOME`). See `xeda.platforms.providers` for the layout of a
-store.
+`list` and `path` only read. They start no process, use no network and write nothing, so a user
+can run them at any time. `install` is the only command that uses the network and writes the
+store, and it does so only when the user runs it. A platform is a bundled name or a platform file
+of the user (`--platform-file`, as the setting `platform_file`). The PDK files are in a store at
+`--root` (default `~/.ciel`, with `~` from `HOME`). See `xeda.platforms.providers` for the layout
+of a store.
 
 The module imports only what `click` needs to declare the commands. The code that runs them is
 imported when a command runs, so shell completion stays light.
@@ -284,6 +286,121 @@ def pdk_path(
 
 
 # ---------------------------------------------------------------------------------------------
+# xeda pdk install
+# ---------------------------------------------------------------------------------------------
+
+
+def _print_plan(plan: Any) -> None:
+    import shlex
+
+    size = "unknown size" if plan.download_mib is None else f"about {plan.download_mib:g} MiB"
+    click.echo(f"Install platform '{plan.platform}' from provider {plan.provider}.")
+    click.echo(f"  version:    {plan.version}")
+    click.echo(f"  download:   {size}")
+    click.echo(f"  install to: {plan.directory}")
+    click.echo("  commands:")
+    for command in plan.commands:
+        click.echo(f"    {shlex.join(command)}")
+
+
+@click.argument("platform", required=False)
+@click.option(
+    "--platform-file",
+    "platform_file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    default=None,
+    help="A platform file of your own, in place of PLATFORM.",
+)
+@_root_option
+@click.option(
+    "--version",
+    "version",
+    default=None,
+    help="The version of the PDK files. The default is the version that Xeda pins.",
+)
+@click.option(
+    "--provider",
+    "provider",
+    type=click.Choice(PROVIDER_NAMES),
+    default=None,
+    help="Where the PDK files come from. The default is that of the platform.",
+)
+@click.option(
+    "--yes",
+    "yes",
+    is_flag=True,
+    default=False,
+    help="Install without asking for confirmation.",
+)
+@output_format_option()
+def pdk_install(
+    platform: Optional[str],
+    platform_file: Optional[Path],
+    root: Optional[Path],
+    version: Optional[str],
+    provider: Optional[str],
+    yes: bool,
+    output_format: str,
+    json_flag: bool,
+) -> None:
+    """Install the PDK files of a platform into the PDK store. This is the only command that uses
+    the network and writes the store. It shows what it downloads, where it installs and the
+    commands, and it asks for confirmation. `--yes` skips the question. A machine-readable format
+    such as `--json` also installs without a question, because a program cannot answer. If the
+    store holds the files already, the command says so and runs nothing. Only one install at a
+    time can use a store."""
+    from .cli_utils import emit_structured, machine_readable_mode, resolve_format
+    from .platforms.providers import (
+        PdkInstallBusy,
+        PdkInstallerMissing,
+        PdkInstallFailed,
+        install,
+        installed,
+        plan_install,
+    )
+
+    fmt = resolve_format(output_format, json_flag)
+    if fmt != "table":
+        machine_readable_mode()  # stdout belongs to the document; tool output goes to stderr
+    residue = resolve_platform(platform, platform_file)
+    store = _store_root(root).absolute()
+    try:
+        plan = plan_install(residue, provider, version, store)
+        present = installed(residue, provider, version, store) is not None
+        if not present and fmt == "table":
+            _print_plan(plan)
+            if not yes and not click.confirm("Install now?", default=False):
+                click.echo("Nothing is installed.", err=True)
+                sys.exit(1)
+        result = install(residue, provider, version, store)
+    except (PdkInstallerMissing, PdkInstallFailed, PdkInstallBusy) as error:
+        _fail(type(error).__name__, str(error), fmt)
+    except ValueError as error:
+        raise click.UsageError(str(error)) from None
+    located = result.located
+    if fmt == "table":
+        what = "is already installed in" if result.already_installed else "is installed in"
+        click.echo(f"Platform '{residue.name}' {what} {located.directory}")
+        if result.receipt is not None:
+            click.echo(f"Receipt: {result.receipt}")
+        return
+    emit_structured(
+        {
+            "success": True,
+            "platform": residue.name,
+            "provider": located.provider,
+            "version": located.version,
+            "root": str(located.root),
+            "directory": str(located.directory),
+            "already_installed": result.already_installed,
+            "receipt": None if result.receipt is None else str(result.receipt),
+            "commands": result.commands,
+        },
+        fmt,
+    )
+
+
+# ---------------------------------------------------------------------------------------------
 # The commands
 # ---------------------------------------------------------------------------------------------
 
@@ -305,3 +422,9 @@ def add_pdk_commands(
         context_settings=context_settings,
         short_help="Print the directory of a platform in the PDK store.",
     )(pdk_path)
+    group.command(
+        "install",
+        cls=command_class,
+        context_settings=context_settings,
+        short_help="Download the PDK files of a platform into the PDK store.",
+    )(pdk_install)

@@ -351,8 +351,9 @@ def pdk():
     """The PDK files of the ASIC platforms.
 
     A platform needs the files of its PDK: Liberty, LEF and more. They live in a store, by
-    default `~/.ciel`. These commands show which platforms the store holds and where the files
-    are. They start no process, use no network and write nothing.
+    default `~/.ciel`. `list` and `path` show which platforms the store holds and where the files
+    are. They start no process, use no network and write nothing. `install` downloads the files
+    of a platform into the store.
     """
 
 

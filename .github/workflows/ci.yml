@@ -114,6 +114,8 @@ jobs:
   #   store paths behind links (a macOS temporary directory is behind a link), so that a run
   #     registers and compares the files of a store by their resolved paths: test_locator_settings
   #   store paths behind links, which the PDK providers stat: test_pdk_providers
+  #   file locks (flock) of the PDK install lock, and a rename of a directory into the PDK store:
+  #     test_pdk_cli
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -158,6 +160,7 @@ jobs:
           tests/test_isolation.py
           tests/test_locator_settings.py
           tests/test_pdk_providers.py
+          tests/test_pdk_cli.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

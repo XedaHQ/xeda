@@ -1196,6 +1196,17 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery record's temporary file, beside the run directory",
     ),
+    ("platforms/providers.py", "work.rename(final)"): (
+        1,
+        "the install command writes the PDK store, outside a run: its own partial directory, "
+        "complete and checked, moved to the name of the commit under the store's install lock; "
+        "the name is free, as the install checked under the lock",
+    ),
+    ("platforms/providers.py", "shutil.rmtree(path)"): (
+        1,
+        "the install command writes the PDK store, outside a run: the partial directory that "
+        "this install made, removed after a failure or an interrupt (`rmtree` follows no link)",
+    ),
 }
 
 
@@ -1657,6 +1668,18 @@ REVIEWED_WRITES = [
         "agent_skill.py",
         'shutil.copyfile(source / "SKILL.md", target / "SKILL.md")',
         f"`xeda skill install`: {_OUTSIDE_RUNS}",
+    ),
+    (
+        "platforms/providers.py",
+        "work.rename(final)",
+        "the install command writes the PDK store, outside a run: a rename of its own "
+        "complete partial directory to a name that the install checked to be free",
+    ),
+    (
+        "platforms/providers.py",
+        'with open(lock_path, "a") as lock:',
+        "the install command writes the PDK store, outside a run: the lock file of the store, "
+        "opened to be locked, not written",
     ),
     (
         "platforms/asap7/openroad/post_mergeLib.py",

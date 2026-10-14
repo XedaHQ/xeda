@@ -29,8 +29,15 @@ shorthand for ``--format json``:
 
 ``xeda pdk path <platform>`` prints the directory of a platform in the PDK store. With ``--json``, it
 gives the files of each role too. If the PDK files are not installed, it fails and the error says
-how to install them. Both ``pdk`` commands only look at the files: they start no process and use no
-network.
+how to install them. ``pdk list`` and ``pdk path`` only look at the files: they start no process
+and use no network.
+
+``xeda pdk install <platform>`` downloads the PDK files that a platform pins. It is the only
+``pdk`` command that uses the network and writes the PDK store. With ``--json`` it asks no question
+and installs, as ``--yes`` does. Tool output goes to stderr, and stdout carries one document:
+``{"success": true, "directory": ..., "receipt": ..., "already_installed": ...}``, or
+``{"success": false, "error": ...}`` if the install fails. A failed install leaves the store as it
+was.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON

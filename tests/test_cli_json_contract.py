@@ -124,10 +124,15 @@ def test_the_pdk_queries_put_one_document_on_stdout(command, tmp_path):
         (["pdk", "path", "nangate"], "BadParameter"),
         (["pdk", "path"], "UsageError"),
         (["pdk", "path", "nangate45", "--no-such-option"], "NoSuchOption"),
+        # An install that fails before it writes or uses the network.
+        (["pdk", "install", "nangate45", "--provider", "directory"], "UsageError"),
+        (["pdk", "install", "nangate45", "--version", "main"], "UsageError"),
+        (["pdk", "install", "nangate"], "BadParameter"),
+        (["pdk", "install"], "UsageError"),
     ],
     ids=lambda value: value if isinstance(value, str) else " ".join(value),
 )
-def test_a_failed_pdk_path_reports_json_and_fails(command, error_type, tmp_path):
+def test_a_failed_pdk_command_reports_json_and_fails(command, error_type, tmp_path):
     proc = run_xeda(*command, "--json", home=tmp_path)
     document = json_stdout(proc)
     assert proc.returncode != 0

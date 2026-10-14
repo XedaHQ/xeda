@@ -3,8 +3,8 @@
 A provider maps the role names of a residue (`liberty`, `tech_lef`, ...) to files by path
 arithmetic on a store root and the pinned version. Finding the files uses `stat` only: it starts
 no process, opens no connection, writes nothing and creates no directory. So planning and
-`--dry-run` can run it. Only the install command, which is separate, uses the network and writes
-the store.
+`--dry-run` can run it. Only `install`, which the command `xeda pdk install` runs, uses the
+network and writes the store.
 
 Three providers serve a platform. A residue lists the ones that serve it in `providers`:
 
@@ -15,30 +15,50 @@ Three providers serve a platform. A residue lists the ones that serve it in `pro
 | `directory` | `<root>/<platform>` (layout `orfs`: `<root>` is `flow/platforms` of a checkout) or `<root>/<variant>` (layout `open_pdks`) | `pdk_version` as given, else `unpinned` |
 
 The root is the setting `pdk_root`, and the default is `~/.ciel`. No code here reads the
-environment except `HOME`, through `Path.home()`.
+environment except `HOME`, through `Path.home()`, and `install`, which gives `PATH`, `HOME` and
+`LANG` to `ciel` and nothing else.
 """
 
 import json
+import logging
+import os
+import re
+import secrets
 import shlex
 import shutil
+import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from xeda.flow import FlowFatalError
 from xeda.platforms.model import Located
 from xeda.platforms.residue import COMMIT, Residue
+from xeda.proc_utils import run_process
+from xeda.utils import NonZeroExitCode, replacing_file
+from xeda.version import __version__
+
+if sys.platform != "win32":
+    import fcntl
 
 __all__ = [
     "CIEL_VERSION",
     "ORFS_URL",
     "PROVIDERS",
     "UNPINNED",
+    "InstallPlan",
+    "InstallResult",
+    "PdkInstallBusy",
+    "PdkInstallFailed",
     "PdkInstallerMissing",
     "PdkNotInstalled",
     "PdkVersionMismatch",
     "default_root",
+    "install",
+    "installed",
     "install_plan",
+    "plan_install",
     "locate",
     "orfs_checkout_directory",
     "platform_directory",
@@ -53,6 +73,8 @@ UNPINNED = "unpinned"
 CIEL_VERSION = "3.0.1"
 #: The repository that the `orfs` provider fetches.
 ORFS_URL = "https://github.com/The-OpenROAD-Project/OpenROAD-flow-scripts"
+
+log = logging.getLogger(__name__)
 
 SHORT_HASH = 12
 CHOOSE_ANOTHER = "or name another location: -s pdk_root=<directory>"
@@ -70,6 +92,15 @@ class PdkVersionMismatch(FlowFatalError):
 
 class PdkInstallerMissing(FlowFatalError):
     """No program is available that can install the PDK files."""
+
+
+class PdkInstallFailed(FlowFatalError):
+    """The install did not finish. The message says which step failed. What the install had
+    written into the store, other than its lock file, is removed."""
+
+
+class PdkInstallBusy(FlowFatalError):
+    """Another install holds the lock of the store."""
 
 
 def default_root() -> Path:
@@ -176,6 +207,11 @@ def _relative_files(residue: Residue, corner: str) -> list[str]:
     return list(dict.fromkeys(paths))
 
 
+def _missing_files(residue: Residue, corner: str, directory: Path) -> list[str]:
+    """The files of the platform for the corner that `directory` lacks, relative to it."""
+    return [path for path in _relative_files(residue, corner) if not (directory / path).is_file()]
+
+
 def _first_line(residue: Residue, target: _Target) -> str:
     entry = target.entry
     if target.provider == "orfs":
@@ -207,7 +243,7 @@ def _install_line(residue: Residue, target: _Target, platform_file: Optional[Pat
     return shlex.join(command)
 
 
-def _not_installed(
+def _notinstalled(
     residue: Residue, target: _Target, missing: list[str], platform_file: Optional[Path]
 ) -> PdkNotInstalled:
     more = f", and {len(missing) - 1} more" if len(missing) > 1 else ""
@@ -249,11 +285,9 @@ def locate(
     commit hash (`orfs`, `ciel`) and an unknown corner."""
     token = residue.resolve_corner(corner)
     target = _target(residue, provider, version, root)
-    missing = [
-        path for path in _relative_files(residue, token) if not (target.directory / path).is_file()
-    ]
+    missing = _missing_files(residue, token, target.directory)
     if missing:
-        raise _not_installed(residue, target, missing, platform_file)
+        raise _notinstalled(residue, target, missing, platform_file)
     files = {
         role: [target.directory / path for path in paths]
         for role, paths in residue.files.role_paths(token).items()
@@ -411,12 +445,12 @@ def _ciel_plan(residue: Residue, target: _Target) -> list[list[str]]:
     )
 
 
-def _orfs_plan(target: _Target, partial: str) -> list[list[str]]:
+def _orfs_plan(target: _Target, partial: str, url: str) -> list[list[str]]:
     work = str(target.root / "xeda" / f".partial-{partial}")
     git = ["git", "-C", work]
     return [
         ["git", "init", "--quiet", work],
-        [*git, "remote", "add", "origin", ORFS_URL],
+        [*git, "remote", "add", "origin", url],
         [*git, "sparse-checkout", "set", "--cone", target.entry.directory],
         [*git, "fetch", "--quiet", "--depth", "1", "--filter=blob:none", "origin", target.version],
         [*git, "checkout", "--quiet", "FETCH_HEAD"],
@@ -430,6 +464,7 @@ def install_plan(
     root: Path,
     *,
     partial: Optional[str] = None,
+    url: Optional[str] = None,
 ) -> list[list[str]]:
     """Return the argument vectors that install the files of the platform, in the order to run.
     Nothing here starts a process or writes.
@@ -439,8 +474,9 @@ def install_plan(
       Raise `PdkInstallerMissing` if there is none.
     * `orfs`: the Git commands that fetch the platform directory of the commit into
       `<root>/xeda/.partial-<partial>`. The first command creates that directory. `partial` is
-      required, and the installer chooses it, so that the plan is deterministic. After the
-      last command, the installer moves the directory to `orfs_checkout_directory(root, commit)`.
+      required, and the installer chooses it, so that the plan is deterministic. `url` is the
+      repository to fetch from, and the default is `ORFS_URL`. After the last command, the
+      installer moves the directory to `orfs_checkout_directory(root, commit)`.
     * `directory`: nothing to install. Raise `ValueError`."""
     target = _target(residue, provider, version, root)
     if target.provider == "directory":
@@ -452,4 +488,274 @@ def install_plan(
         return _ciel_plan(residue, target)
     if partial is None:
         raise ValueError("the plan of provider 'orfs' needs the name of its partial directory")
-    return _orfs_plan(target, partial)
+    return _orfs_plan(target, partial, ORFS_URL if url is None else url)
+
+
+# ---------------------------------------------------------------------------------------------
+# Installing
+# ---------------------------------------------------------------------------------------------
+
+#: The variables of the environment that `ciel` gets. Others, such as `PDK_ROOT` and
+#: `GITHUB_TOKEN`, change where it installs or how it reaches the network.
+CIEL_ENVIRONMENT = ("PATH", "HOME", "LANG")
+#: The text of a partial directory that an install fills before it moves the directory.
+PARTIAL_PREFIX = ".partial-"
+
+
+@dataclass(frozen=True)
+class InstallPlan:
+    """What an install will do, before it does anything."""
+
+    platform: str
+    provider: str
+    #: The pin: a commit (`orfs`) or a hash (`ciel`).
+    version: str
+    root: Path
+    #: The directory of the platform when the install is done.
+    directory: Path
+    #: The estimated download in MiB, if the residue says.
+    download_mib: Optional[float]
+    #: The argument vectors, in the order to run.
+    commands: list[list[str]]
+
+
+@dataclass(frozen=True)
+class InstallResult:
+    """What an install did."""
+
+    #: Where the files are, for the default corner.
+    located: Located
+    #: Whether every file was in the store already, so that nothing ran.
+    already_installed: bool
+    #: The receipt file, or `None` if there is none (a store that nobody installed into).
+    receipt: Optional[Path]
+    #: The argument vectors that ran. Empty if `already_installed`.
+    commands: list[list[str]]
+
+
+def plan_install(
+    residue: Residue,
+    provider: Optional[str],
+    version: Optional[str],
+    root: Path,
+    *,
+    partial: str = "<random>",
+    url: Optional[str] = None,
+) -> InstallPlan:
+    """Return what `install` would do with the same arguments, without a file system access
+    beyond the search for the programs that install. `partial` stands for the random name of the
+    partial directory of provider `orfs`. Raise what `install_plan` raises."""
+    target = _target(residue, provider, version, root)
+    commands = install_plan(residue, provider, version, root, partial=partial, url=url)
+    return InstallPlan(
+        platform=residue.name,
+        provider=target.provider,
+        version=target.version,
+        root=target.root,
+        directory=target.directory,
+        download_mib=getattr(target.entry, "download_mib", None),
+        commands=commands,
+    )
+
+
+def _locate_everywhere(
+    residue: Residue, provider: Optional[str], version: Optional[str], root: Path
+) -> Located:
+    """Locate the platform for every corner of the residue, and return the default corner.
+    Raise `PdkNotInstalled` for the first corner that lacks a file."""
+    corners = list(residue.files.liberty)
+    found = [locate(residue, provider, version, root, corner) for corner in corners]
+    default = residue.resolve_corner(None)
+    return next((located for located in found if located.corner == default), found[0])
+
+
+def installed(
+    residue: Residue, provider: Optional[str], version: Optional[str], root: Path
+) -> Optional[Located]:
+    """Return the platform if the store holds every file at the pinned version, else `None`."""
+    try:
+        located = _locate_everywhere(residue, provider, version, root)
+        verify_pin(located, residue)
+    except (PdkNotInstalled, PdkVersionMismatch):
+        return None
+    return located
+
+
+def _alreadyinstalled(
+    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
+) -> Optional[InstallResult]:
+    located = installed(residue, provider, version, plan.root)
+    if located is None:
+        return None
+    receipt = _receipt_path(plan)
+    return InstallResult(located, True, receipt if receipt.is_file() else None, [])
+
+
+def _receipt_path(plan: InstallPlan) -> Path:
+    return plan.root / "xeda" / "receipts" / f"{plan.platform}-{plan.version}.json"
+
+
+def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -> None:
+    try:
+        run_process(command[0], command[1:], env=env)
+    except NonZeroExitCode as error:
+        raise PdkInstallFailed(
+            f"cannot install platform '{plan.platform}': `{shlex.join(command)}` ended with "
+            f"status {error.exit_code}. Nothing is installed."
+        ) from None
+    except OSError as error:
+        raise PdkInstallFailed(
+            f"cannot install platform '{plan.platform}': cannot run `{command[0]}` ({error}). "
+            "Nothing is installed."
+        ) from None
+
+
+def _remove_tree(path: Path) -> None:
+    """Remove a directory that an install made. A failure is only logged: it must not hide the
+    error that made the install remove it."""
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        log.warning("cannot remove %s: %s; remove it", path, error)
+
+
+def _fetch_orfs(residue: Residue, plan: InstallPlan) -> None:
+    """Run the Git commands in a partial directory, check that it holds every file of the
+    platform for every corner, and move it to the directory of the commit. Whatever goes wrong,
+    the store keeps neither the partial directory nor a directory of the commit."""
+    final = orfs_checkout_directory(plan.root, plan.version)
+    if os.path.lexists(final):
+        raise PdkInstallFailed(
+            f"cannot install platform '{plan.platform}': {final} exists, but it lacks files of "
+            "the platform. Move or delete it, and run the command again."
+        )
+    work = Path(plan.commands[0][-1])
+    try:
+        for command in plan.commands:
+            _run(command, None, plan)
+        entry = residue.providers.orfs
+        assert entry is not None
+        for corner in residue.files.liberty:
+            missing = _missing_files(
+                residue, residue.resolve_corner(corner), work / entry.directory
+            )
+            if missing:
+                raise PdkInstallFailed(
+                    f"cannot install platform '{plan.platform}': commit {plan.version} lacks "
+                    f"{', '.join(missing)} in {entry.directory}. Nothing is installed."
+                )
+        final.parent.mkdir(parents=True, exist_ok=True)
+        work.rename(final)
+    except BaseException:
+        _remove_tree(work)
+        raise
+
+
+def _check_ciel(plan: InstallPlan, env: dict[str, str]) -> None:
+    """Check that the `ciel` of `PATH` is the version 3 that the plan was made for."""
+    try:
+        said = run_process("ciel", ["--version"], env=env, stdout=True, check=False)
+    except OSError as error:
+        raise PdkInstallFailed(f"cannot run `ciel --version` ({error})") from None
+    match = re.search(r"\b(\d+)\.\d+(?:\.\d+)?\b", said or "")
+    major = CIEL_VERSION.split(".")[0]
+    if match is None or match.group(1) != major:
+        raise PdkInstallFailed(
+            f"cannot install platform '{plan.platform}': the `ciel` on PATH says "
+            f"`{(said or '').strip() or 'nothing'}`, and Xeda needs ciel {major}.x. "
+            f"Install uv or pipx, which run ciel=={CIEL_VERSION} in their own environment, "
+            f"or install ciel=={CIEL_VERSION}."
+        )
+
+
+def _fetch_ciel(plan: InstallPlan) -> None:
+    env = {name: os.environ[name] for name in CIEL_ENVIRONMENT if name in os.environ}
+    (command,) = plan.commands
+    if command[0] == "ciel":
+        _check_ciel(plan, env)
+    _run(command, env, plan)
+
+
+def _write_receipt(plan: InstallPlan, located: Located) -> Path:
+    path = _receipt_path(plan)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    document = {
+        "platform": plan.platform,
+        "provider": plan.provider,
+        "version": plan.version,
+        "root": str(plan.root),
+        "directory": str(located.directory),
+        "commands": plan.commands,
+        "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "xeda_version": __version__,
+    }
+    with replacing_file(path, encoding="utf-8") as out:
+        json.dump(document, out, indent=2)
+        out.write("\n")
+    return path
+
+
+def _install_locked(
+    residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
+) -> InstallResult:
+    found = _alreadyinstalled(residue, plan, provider, version)
+    if found is not None:
+        return found
+    if plan.provider == "orfs":
+        _fetch_orfs(residue, plan)
+    else:
+        _fetch_ciel(plan)
+    try:
+        located = _locate_everywhere(residue, provider, version, plan.root)
+        verify_pin(located, residue)
+    except (PdkNotInstalled, PdkVersionMismatch) as error:
+        raise PdkInstallFailed(
+            f"the install of platform '{plan.platform}' finished, but the store does not hold "
+            f"what the platform needs.\n{error}"
+        ) from None
+    return InstallResult(located, False, _write_receipt(plan, located), plan.commands)
+
+
+def install(
+    residue: Residue,
+    provider: Optional[str],
+    version: Optional[str],
+    root: Path,
+    *,
+    url: Optional[str] = None,
+) -> InstallResult:
+    """Install the files of the platform into the store at `root`, and write a receipt.
+
+    Arguments are as for `locate`. `url` is the repository that provider `orfs` fetches from,
+    and the default is `ORFS_URL`. If the store holds every file already, nothing runs and
+    nothing is written. Otherwise the install takes the lock `<root>/xeda/.lock`, runs the
+    plan, checks every file of every corner with `locate`, checks the pin with `verify_pin` and
+    writes `<root>/xeda/receipts/<platform>-<pin>.json`.
+
+    * `orfs`: the Git commands fill `<root>/xeda/.partial-<random>`, and one rename then moves it
+      to the directory of the commit, so that the store never holds a part of a checkout under
+      that name. If a command fails, or a file is missing, the install removes what it made.
+    * `ciel`: the plan runs with `PATH`, `HOME` and `LANG` only. A `ciel` on `PATH` must say that
+      it is version 3. `ciel` writes the store itself, and one build may hold several libraries,
+      so the install never removes it.
+
+    Raise `PdkInstallBusy` if another install holds the lock, `PdkInstallFailed` if the install
+    does not finish, and what `install_plan` raises for a plan that cannot be made."""
+    plan = plan_install(residue, provider, version, root, partial=secrets.token_hex(6), url=url)
+    found = _alreadyinstalled(residue, plan, provider, version)
+    if found is not None:
+        return found
+    lock_path = plan.root / "xeda" / ".lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a") as lock:
+        if sys.platform != "win32":
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise PdkInstallBusy(
+                    f"another install holds {lock_path}. Wait until it ends, "
+                    "and run the command again."
+                ) from None
+        return _install_locked(residue, plan, provider, version)
