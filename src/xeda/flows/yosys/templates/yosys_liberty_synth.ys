@@ -7,6 +7,11 @@
     The options of the coarse part of `synth` (`coarse_words`) go on the first `synth` command
     only. `-hieropt` goes on both parts. `-latches` is an option of the `proc` that this script
     runs, since the `proc` inside `synth` finds no process left.
+    The maps of the user (`techmap_files`) run at the point that each `when` names: before the
+    first part of `synth`, after the coarse part (and the memory mapping and the retiming), before
+    the flip-flop mapping, and after it. The finishing options of the group `finish` switch the
+    removal of formal cells, the renaming, the single-bit vectors, the extra checks, and the tie
+    and buffer cells.
     The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
 {%- set liberty_read = true -%}
 {%- set clockgate_map = asic.clockgate_map -%}
@@ -63,6 +68,12 @@ flatten
 {% include "post_rtl.ys" %}
 {#- yosys scripts have no `exit`, so `stop_after == "rtl"` omits the rest #}
 {%- if settings.stop_after != "rtl" %}
+{%- if settings.finish.check_pre %}
+check
+{%- endif %}
+{%- for map in asic.techmaps("pre_synth") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{coarse_words}}{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
 {%- if settings.sequential.tristate == "logic" %}
 tribuf -logic
@@ -83,10 +94,17 @@ techmap
 abc -dff{% if settings.abc.keep_ff %} -keepff{% endif %} -script {{asic.retime_script|path}}
 select -clear
 {%- endif %}
+{%- for map in asic.techmaps("post_coarse") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+{%- if settings.finish.drop_formal %}
 chformal -remove
 delete t:$print
+{%- endif %}
+{%- if settings.finish.names == "rename_wire" %}
 rename -wire
+{%- endif %}
 opt -purge{% if settings.coarse.opt_dff_sat %} -sat{% endif %}
 {%- if asic.adder_map %}
 extract_fa{{extract_fa_words}}
@@ -98,7 +116,7 @@ opt -fast -purge
 dfflegalize -cell $_DLATCH_P_ x -cell $_DLATCH_N_ x t:$_DLATCH_*
 techmap -map {{asic.latch_map|read_path}}
 {%- endif %}
-{%- for map in asic.techmap_files %}
+{%- for map in asic.techmaps("pre_dff") %}
 techmap -map {{map|read_path}}
 {%- endfor %}
 {%- if settings.sequential.clock_gating.enabled %}
@@ -122,6 +140,9 @@ dfflegalize{% for cell in asic.legalize_any %} -cell {{cell|path}} x{% endfor %}
 {%- endif %}
 dfflibmap{% for lib in ([asic.dff_liberty] if asic.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
 {%- endif %}
+{%- for map in asic.techmaps("post_dff") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 opt
 {%- if settings.finish.tie_undefined == "zero" %}
 setundef -zero
@@ -146,7 +167,13 @@ insbuf -buf {{asic.buffer_cell|join(" ")}}
 {%- if settings.rmports %}
 rmports
 {%- endif %}
-check {% if settings.check_assert -%} -assert {% endif -%} -mapped
+{%- if settings.finish.names == "autoname" %}
+autoname
+{%- endif %}
+{%- if settings.finish.normalize_single_bit %}
+attrmap -remove single_bit_vector
+{%- endif %}
+check {% if settings.check_assert -%} -assert {% endif -%} -mapped{% if settings.finish.allow_tristate %} -allow-tbuf{% endif %}
 
 {#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
     which `write_json` refuses to write. A liberty library holds blackboxes only. #}

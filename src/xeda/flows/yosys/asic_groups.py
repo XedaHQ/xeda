@@ -13,7 +13,7 @@ when `synth` has an option for it.
 from pathlib import Path
 from typing import Annotated, ClassVar, List, Literal, Optional, Tuple, Union
 
-from ...dataclass import Field, XedaBaseModel, tier
+from ...dataclass import Field, XedaBaseModel, accepts_non_mapping, model_validator, tier
 from ...flow.settings_group import Flag, SettingsGroup
 
 __all__ = [
@@ -28,6 +28,8 @@ __all__ = [
     "HierarchyGroup",
     "MemoryGroup",
     "SequentialGroup",
+    "TECHMAP_POSITIONS",
+    "TechmapFile",
 ]
 
 
@@ -37,6 +39,34 @@ class HiLoMap(XedaBaseModel):
     hi: Tuple[str, str]
     lo: Tuple[str, str]
     singleton: bool = True
+
+
+#: The points of the script where a user map can run, in the order of the script.
+TECHMAP_POSITIONS = ("pre_synth", "post_coarse", "pre_dff", "post_dff")
+
+
+class TechmapFile(XedaBaseModel):
+    """A Verilog map that the script applies with `techmap -map` at one point of the script.
+
+    A bare path is the shorthand for a map at `pre_dff`."""
+
+    path: Path = Field(
+        description="The Verilog map. A relative path is relative to the design root.",
+    )
+    when: Literal["pre_synth", "post_coarse", "pre_dff", "post_dff"] = Field(
+        "pre_dff",
+        description="Where the script applies the map: `pre_synth` before the first part of "
+        "`synth`; `post_coarse` after the coarse part of `synth` and the memory mapping, before "
+        "the fine part; `pre_dff` after the maps of the latches and the platform, before clock "
+        "gating and the flip-flop mapping; `post_dff` after the flip-flop mapping.",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    @accepts_non_mapping
+    def _bare_path(cls, value):
+        """Read a bare path as a map at the default position."""
+        return {"path": value} if isinstance(value, (str, Path)) else value
 
 
 class HierarchyGroup(SettingsGroup):
@@ -779,12 +809,74 @@ class FinishGroup(SettingsGroup):
     tie_cells: Optional[HiLoMap] = Field(
         None,
         description="Tie-high and tie-low cells that drive the constant nets (`hilomap`). Unset: "
-        "the cells of the platform.",
+        "the cells of the platform. Not with `insert_tie_cells: false`.",
         json_schema_extra=tier("common"),
+    )
+    insert_tie_cells: bool = Field(
+        True,
+        description="Drive the constant nets with tie cells (`hilomap`) when the platform or "
+        "`tie_cells` names the cells. False runs no `hilomap`, so a constant stays a constant "
+        "net.",
+        json_schema_extra=tier("advanced"),
     )
     buffer_cell: Optional[Tuple[str, str, str]] = Field(
         None,
         description="Buffer cell, its input port and its output port, for `insbuf`. Unset: the "
-        "minimum buffer of the platform.",
+        "minimum buffer of the platform. Not with `insert_buffers: false`.",
         json_schema_extra=tier("common"),
     )
+    insert_buffers: bool = Field(
+        True,
+        description="Put a buffer on each wire that connects two ports directly (`insbuf`) when "
+        "the platform or `buffer_cell` names the cell. False runs no `insbuf`; a design that "
+        "synthesizes its modules one by one needs that.",
+        json_schema_extra=tier("advanced"),
+    )
+    drop_formal: bool = Field(
+        True,
+        description="Remove the formal cells and the `$print` cells (`chformal -remove` and "
+        "`delete t:$print`), which the place and route tools do not read. False keeps them.",
+        json_schema_extra=tier("advanced"),
+    )
+    names: Literal["rename_wire", "autoname", "none"] = Field(
+        "rename_wire",
+        description="How the objects with private names get public names. `rename_wire` names "
+        "each cell after the wire that it drives (`rename -wire`), before the mapping, so the "
+        "name of a register shows in its flip-flop. `autoname` names every private object when "
+        "the netlist is complete (`autoname`); the names can be long. `none` renames nothing.",
+        json_schema_extra=tier("advanced"),
+    )
+    normalize_single_bit: bool = Field(
+        False,
+        description="Warning: this changes the declarations in the netlist. Write a one-bit "
+        "vector as a scalar: remove the `single_bit_vector` attribute (`attrmap -remove`), so "
+        "`[0:0]` does not appear.",
+        json_schema_extra=tier("expert"),
+    )
+    check_pre: bool = Field(
+        False,
+        description="Warning: this prints more checks in the log and fails nothing. Run `check` "
+        "once before the synthesis, to find problems in the design as it is read.",
+        json_schema_extra=tier("expert"),
+    )
+    allow_tristate: bool = Field(
+        False,
+        description="Warning: a tri-state buffer in the netlist is not a mapped cell. Let the "
+        "check of mapped cells pass the tri-state buffers (`check -allow-tbuf`). Not with "
+        "`arithmetic.wrap_operators`, whose check does not look for mapped cells.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> List[Tuple[str, str]]:
+        """Refuse a cell that its switch turns off."""
+        found: List[Tuple[str, str]] = []
+        for cell, switch in (("tie_cells", "insert_tie_cells"), ("buffer_cell", "insert_buffers")):
+            if getattr(self, cell) is not None and not getattr(self, switch):
+                found.append(
+                    (
+                        f"{key}.{cell}",
+                        f"`{key}.{cell}` names cells, and `{key}.{switch}` is false, so the "
+                        f"script uses none: delete `{key}.{cell}` or set `{key}.{switch}: true`",
+                    )
+                )
+        return found

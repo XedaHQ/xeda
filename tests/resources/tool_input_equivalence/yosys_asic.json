@@ -321,7 +321,14 @@
     "dockerized": false,
     "dont_use_cells": [],
     "finish": {
+     "allow_tristate": false,
      "buffer_cell": null,
+     "check_pre": false,
+     "drop_formal": true,
+     "insert_buffers": true,
+     "insert_tie_cells": true,
+     "names": "rename_wire",
+     "normalize_single_bit": false,
      "tie_cells": null,
      "tie_undefined": "zero"
     },

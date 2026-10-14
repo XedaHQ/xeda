@@ -911,9 +911,12 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     assert values.adder_map == root / "maps/add.v"
     assert values.clockgate_map == root / "maps/cg.v"
     assert values.latch_map == root / "maps/latch.v"
-    assert values.techmap_files == (root / "maps/a.v", root / "maps/b.v")
+    assert values.techmap_files == (("pre_dff", root / "maps/a.v"), ("pre_dff", root / "maps/b.v"))
     assert flow.settings.sequential.clockgate_map_file == Path("maps/cg.v")
-    assert flow.settings.techmap_files == [Path("maps/a.v"), Path("maps/b.v")]
+    assert [item.path for item in flow.settings.techmap_files] == [
+        Path("maps/a.v"),
+        Path("maps/b.v"),
+    ]
     fpga = YosysFpga(
         YosysFpga.Settings(
             fpga={"part": "xc7a12tcsg325-1"}, clock={"period": 5.0}, clockgate_map="maps/cg.v"

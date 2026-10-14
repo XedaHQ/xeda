@@ -15,7 +15,12 @@
     procedure `check_memory_sizes` reads the size of each memory from the design.
     `abc.mapper: abc_new` maps with `abc_new`, which takes its script from a scratchpad variable.
     The hierarchical mode and `abc_new` read the Liberty files again with their models
-    (whiteboxes): `convert_liberty_areas` takes the areas from them and `abc_new` the functions. -#}
+    (whiteboxes): `convert_liberty_areas` takes the areas from them and `abc_new` the functions.
+    The maps of the user (`techmap_files`) run at the point that each `when` names: before the
+    first part of `synth`, after the coarse part (and the memory mapping and the retiming), before
+    the flip-flop mapping, and after it. The finishing options of the group `finish` switch the
+    removal of formal cells, the renaming, the single-bit vectors, the extra checks, and the tie
+    and buffer cells. -#}
 {%- set liberty_read = true -%}
 {%- set keep_min_cost = settings.hierarchy.keep_min_cost -%}
 {%- set wrap_operators = settings.arithmetic.wrap_operators -%}
@@ -83,6 +88,12 @@ flatten
 {% include "post_rtl.tcl" %}
 {#- as in the `.ys` script, `stop_after == "rtl"` omits the rest #}
 {%- if settings.stop_after != "rtl" %}
+{%- if settings.finish.check_pre %}
+check
+{%- endif %}
+{%- for map in asic.techmaps("pre_synth") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 {%- if max_bits is not none %}
 # The procedure `check_memory_sizes` follows two parts of OpenROAD-flow-scripts at commit
 # 6b305a712966be72d8908695c04398acdbe273ca, which has the license BSD-3-Clause (see
@@ -190,15 +201,22 @@ techmap
 abc -dff{% if settings.abc.keep_ff %} -keepff{% endif %} -script {{asic.retime_script|path}}
 select -clear
 {%- endif %}
+{%- for map in asic.techmaps("post_coarse") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 {%- if wrap_operators %}
 source {{asic.wrap_script|tcl_word}}
 wrap_operators {{asic.booth_map|tcl_word}} {{asic.wrapped_adders|tcl_list}} {{asic.wrapped_multipliers|tcl_list}}
 {%- else %}
 synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
 {%- endif %}
+{%- if settings.finish.drop_formal %}
 chformal -remove
 delete {t:$print}
+{%- endif %}
+{%- if settings.finish.names == "rename_wire" %}
 yosys rename -wire
+{%- endif %}
 opt -purge{% if settings.coarse.opt_dff_sat %} -sat{% endif %}
 {%- if asic.adder_map and wrap_operators %}
 if {![design_has_extracted_operators]} {
@@ -215,7 +233,7 @@ opt -fast -purge
 dfflegalize -cell {$_DLATCH_P_} x -cell {$_DLATCH_N_} x {t:$_DLATCH_*}
 techmap -map {{asic.latch_map|read_path}}
 {%- endif %}
-{%- for map in asic.techmap_files %}
+{%- for map in asic.techmaps("pre_dff") %}
 techmap -map {{map|read_path}}
 {%- endfor %}
 {%- if settings.sequential.clock_gating.enabled %}
@@ -239,6 +257,9 @@ dfflegalize{% for cell in asic.legalize_any %} -cell {{cell|path}} x{% endfor %}
 {%- endif %}
 dfflibmap{% for lib in ([asic.dff_liberty] if asic.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
 {%- endif %}
+{%- for map in asic.techmaps("post_dff") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
 opt
 {%- if settings.finish.tie_undefined == "zero" %}
 setundef -zero
@@ -271,8 +292,14 @@ insbuf -buf {{asic.buffer_cell|join(" ")}}
 {%- if settings.rmports %}
 rmports
 {%- endif %}
+{%- if settings.finish.names == "autoname" %}
+autoname
+{%- endif %}
+{%- if settings.finish.normalize_single_bit %}
+attrmap -remove single_bit_vector
+{%- endif %}
 {#- the wrapped modules leave `$buf` cells, which `check -mapped` refuses #}
-check{% if settings.check_assert %} -assert{% endif %}{% if not wrap_operators %} -mapped{% endif %}
+check{% if settings.check_assert %} -assert{% endif %}{% if not wrap_operators %} -mapped{% if settings.finish.allow_tristate %} -allow-tbuf{% endif %}{% endif %}
 
 {#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
     which `write_json` refuses to write. A liberty library holds blackboxes only. #}

@@ -102,6 +102,13 @@ LEAF_TIERS = {
     "finish.tie_undefined": "common",
     "finish.tie_cells": "common",
     "finish.buffer_cell": "common",
+    "finish.insert_tie_cells": "advanced",
+    "finish.insert_buffers": "advanced",
+    "finish.drop_formal": "advanced",
+    "finish.names": "advanced",
+    "finish.normalize_single_bit": "expert",
+    "finish.check_pre": "expert",
+    "finish.allow_tristate": "expert",
 }
 
 #: The scripts of the strategies, as `abc -script` takes them: commands separated by `;` and the
@@ -146,7 +153,7 @@ def test_yosys_has_the_seven_groups_in_order_and_a_flat_list_of_techmap_files():
         assert issubclass(Yosys.Settings.model_fields[name].annotation, SettingsGroup)
         assert Yosys.Settings.model_fields[name].description
     assert Yosys.Settings().techmap_files == []
-    assert Yosys.Settings.model_fields["techmap_files"].annotation == List[Path]
+    assert Yosys.Settings.model_fields["techmap_files"].annotation == List[asic_groups.TechmapFile]
 
 
 def test_the_defaults_of_the_first_leaves():
@@ -618,7 +625,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
     assert values.latch_map == pdk / "cells_latch.v"
     assert values.clockgate_map == pdk / "cells_clkgate.v"
     assert values.adder_map == pdk / "cells_adders.v"
-    assert values.techmap_files == (design.design_root / "extra.v",)
+    assert values.techmap_files == (("pre_dff", design.design_root / "extra.v"),)
     assert values.driver_cell == "BUF_X1" and values.load == 1.5
     assert values.tie_cells is not None and values.tie_cells.hi == ("TIEHI_SMALL", "Z")
     assert values.buffer_cell == ("BUF_X1", "A", "Z")
@@ -818,7 +825,7 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
     assert values.clockgate_map == root / "cg.v"
     assert values.dff_liberty == root / "dff.lib"
     assert values.adder_map == root / "fa.v"
-    assert values.techmap_files == (root / "extra.v",)
+    assert values.techmap_files == (("pre_dff", root / "extra.v"),)
     assert values.memory_libmap == (root / "mem.txt",)
     assert values.memory_techmap == root / "mem_map.v"
 

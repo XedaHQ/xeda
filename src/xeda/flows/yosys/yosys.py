@@ -32,6 +32,7 @@ from .asic_groups import (
     HierarchyGroup,
     MemoryGroup,
     SequentialGroup,
+    TechmapFile,
 )
 from .common import (
     STOP_AFTER_DESCRIPTION,
@@ -237,7 +238,8 @@ class AsicValues:
     * `legalize_any`: the cell types of a `dfflegalize` that changes no flip-flop.
     * `retime_script`: the script of the retiming run.
     * `adder_map`: the map of full adders that follows `extract_fa`.
-    * `techmap_files`: the user's maps for `techmap -map`, in order.
+    * `techmap_files`: the user's maps for `techmap -map`, each as `(position, path)`, in order.
+      `techmaps(position)` gives the paths at one position.
     * `dff_liberty`: the Liberty file for `dfflibmap` instead of the Liberty files.
     * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints.
     * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
@@ -256,7 +258,7 @@ class AsicValues:
     latch_map: Optional[Path] = None
     clockgate_map: Optional[Path] = None
     adder_map: Optional[Path] = None
-    techmap_files: Tuple[Path, ...] = ()
+    techmap_files: Tuple[Tuple[str, Path], ...] = ()
     dff_liberty: Optional[Path] = None
     dff_map: Optional[Path] = None
     dff_map_cells: Tuple[str, ...] = ()
@@ -276,6 +278,10 @@ class AsicValues:
     memory_techmap: Optional[Path] = None
     delay_target_ps: Optional[float] = None
     constraints: Tuple[str, ...] = ()
+
+    def techmaps(self, position: str) -> Tuple[Path, ...]:
+        """Return the user's maps at `position`, in the order of the setting."""
+        return tuple(path for where, path in self.techmap_files if where == position)
 
 
 def _asic_data(name: str) -> Path:
@@ -425,10 +431,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             description="The last commands of a mapping to a liberty library, before the netlist "
             "is written.",
         )
-        techmap_files: List[Path] = Field(
+        techmap_files: List[TechmapFile] = Field(
             [],
             description="Verilog techmap files of a mapping to a liberty library. Each one is "
-            "applied with `techmap -map` after the latch map and before the flip-flop mapping.",
+            "applied with `techmap -map` at its `when` position: `pre_synth`, `post_coarse`, "
+            "`pre_dff` or `post_dff`. A bare path is a map at `pre_dff`, after the latch map and "
+            "before clock gating and the flip-flop mapping. Maps at one position run in the "
+            "order of the list.",
         )
 
         def uses_platform(self) -> bool:
@@ -688,6 +697,16 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         f"(`arithmetic.wrap_operators`): delete `{name}` from the list",
                     )
                 )
+            if settings.finish.allow_tristate:
+                problems.append(
+                    (
+                        "finish.allow_tristate",
+                        "`finish.allow_tristate` lets the check of mapped cells pass the "
+                        "tri-state buffers, and operator wrapping "
+                        "(`arithmetic.wrap_operators`) runs no such check, since the wrapped "
+                        "modules leave `$buf` cells: delete one of them",
+                    )
+                )
             if settings.netlist_attrs is False:
                 problems.append(
                     (
@@ -816,13 +835,17 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             if adder_map is None:
                 adder_map = platform_file("adder_map")
         tie_cells = ss.finish.tie_cells
-        if tie_cells is None and model and model.tie_high and model.tie_low:
+        if not ss.finish.insert_tie_cells:
+            tie_cells = None
+        elif tie_cells is None and model and model.tie_high and model.tie_low:
             tie_cells = HiLoMap(
                 hi=(model.tie_high.cell, model.tie_high.port),
                 lo=(model.tie_low.cell, model.tie_low.port),
             )
         buffer_cell = ss.finish.buffer_cell
-        if buffer_cell is None and model and model.min_buffer:
+        if not ss.finish.insert_buffers:
+            buffer_cell = None
+        elif buffer_cell is None and model and model.min_buffer:
             buffer = model.min_buffer
             buffer_cell = (buffer.cell, buffer.input, buffer.output)
         driver_cell = ss.abc.driver_cell
@@ -848,7 +871,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             latch_map=latch_map,
             clockgate_map=clockgate_map,
             adder_map=adder_map,
-            techmap_files=tuple(self.normalize_path_to_design_root(f) for f in ss.techmap_files),
+            techmap_files=tuple(
+                (item.when, self.normalize_path_to_design_root(item.path))
+                for item in ss.techmap_files
+            ),
             dff_liberty=given(ss.sequential.dff_liberty),
             dff_map=dff_map,
             dff_map_cells=dff_map_cells(dff_map) if dff_map is not None else (),

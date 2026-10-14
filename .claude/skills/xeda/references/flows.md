@@ -269,7 +269,7 @@ Group `sequential`: no common settings; 15 more: `xeda list-settings yosys --tie
 
 Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 13 more: `xeda list-settings yosys --tier expert --json`
 
-Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`
+Group `finish`: `finish.tie_undefined`, `finish.tie_cells`, `finish.buffer_cell`; 7 more: `xeda list-settings yosys --tier expert --json`
 
 Reports: `area`, `cells`, `platform`
 
