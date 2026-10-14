@@ -222,6 +222,18 @@ def test_the_default_store_is_the_home_directory_of_ciel(tmp_path, monkeypatch):
         settings.locate_platform()
 
 
+def test_the_install_command_of_a_user_file_names_the_file(tmp_path):
+    """A platform from a user file is installed with `--platform-file`, not by a bundled name."""
+    user = _write_residue(tmp_path, default="orfs")
+    store = tmp_path / "empty"
+    with pytest.raises(PdkNotInstalled) as raised:
+        _settings(tmp_path, platform_file="tiny.yaml", pdk_root=str(store)).locate_platform()
+    install = [line for line in str(raised.value).splitlines() if "install:" in line]
+    assert len(install) == 1
+    assert f"--platform-file {user.resolve()}" in install[0]
+    assert "xeda pdk install tiny" not in install[0]
+
+
 def test_a_variable_in_the_location_is_expanded(tmp_path, monkeypatch):
     store = _store(tmp_path)
     monkeypatch.setenv("HOME", str(tmp_path))

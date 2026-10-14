@@ -223,6 +223,7 @@ class AsicPlatformSettings(Flow.Settings):
                 self.pdk_version,
                 self.store_root(),
                 self.corner,
+                platform_file=self.user_platform_file(),
             )
         except ValueError as error:
             raise FlowSettingsException(str(error)) from None
