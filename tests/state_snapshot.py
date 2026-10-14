@@ -41,6 +41,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 import xeda
+from xeda.units import Quantity
 
 #: Module variables that are Python's own bookkeeping.
 MODULE_BOOKKEEPING = frozenset(
@@ -282,6 +283,9 @@ _NOT_MUTABLE = (
     logging.Logger,
     types.CodeType,
     functools.partial,
+    # A quantity (`Time`, `Frequency`, ...) is immutable: it has slots and refuses assignment.
+    # Flows and class defaults may share one without a write showing in the other.
+    Quantity,
 )
 
 

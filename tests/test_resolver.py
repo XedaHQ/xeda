@@ -304,8 +304,12 @@ def test_different_clock_periods_disagree(tmp_path):
         "__place": {"fpga": PART, "clock": {"period": "10 ns"}},
         "__synth": {"clock": {"period": "5 ns"}},
     }
-    with pytest.raises(FlowSettingsError, match="clocks.main_clock.period.*disagrees"):
+    with pytest.raises(FlowSettingsError) as raised:
         _plan(tmp_path, _Place, compose_flow_settings(_Place, [sections]), sections)
+    message = str(raised.value)
+    assert "clocks.main_clock.period=10 ns at " in message
+    assert "clocks.main_clock.period=5 ns at " in message
+    assert "Time(" not in message
 
 
 def test_a_clock_period_without_a_unit_is_refused_when_flows_agree(tmp_path):
