@@ -182,8 +182,8 @@ LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
     (
         "nosynth",
         lambda value: value is True,
-        "`nosynth` cannot map to a liberty library: the mapping always runs `synth`. Delete the "
-        "setting or set it to false",
+        "`nosynth` cannot map to a liberty library: mapping to library cells needs `synth` to "
+        "reduce the design to gates first. Delete `nosynth` or set it to false",
     ),
     (
         "noabc",

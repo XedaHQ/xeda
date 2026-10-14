@@ -1436,7 +1436,8 @@ setting:
 * ``post_synth_opt: true``. The mapping runs no extra ``opt`` after ``synth``, so the setting has
   no effect. Use ``coarse.opt_dff_sat`` to add ``-sat`` to the ``opt`` that follows ``synth``. Set
   it to false or delete it.
-* ``nosynth: true``. The mapping always runs ``synth``. Set it to false or delete it.
+* ``nosynth: true``. Mapping to library cells needs ``synth`` to reduce the design to gates
+  first. Set it to false or delete it.
 * ``noabc: true``. The mapping always maps with ``abc``. Set it to false or delete it.
 
 A group setting that acts on a liberty mapping, such as ``abc.load``, is refused without a

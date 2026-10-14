@@ -856,7 +856,7 @@ LIBERTY_ONLY = {"liberty": ["cells.lib"]}
     [
         ({"abc_dff": True}, ["abc_dff", "no effect", "dfflibmap"]),
         ({"post_synth_opt": True}, ["post_synth_opt", "no effect", "coarse.opt_dff_sat"]),
-        ({"nosynth": True}, ["nosynth"]),
+        ({"nosynth": True}, ["nosynth", "needs `synth`", "reduce the design to gates"]),
         ({"noabc": True}, ["noabc"]),
     ],
     ids=["abc_dff", "post_synth_opt", "nosynth", "noabc"],
