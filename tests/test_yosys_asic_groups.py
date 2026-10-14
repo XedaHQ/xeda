@@ -658,6 +658,20 @@ NO_LIBERTY = (
     "acts on mapping to a liberty library: give `platform`, `platform_file` or `liberty` too"
 )
 
+GENERIC = {
+    "gates": "`gates` maps to generic cells instead",
+    "lut": "`lut` maps to LUTs instead",
+}
+
+
+def no_liberty_message(key: str, mapping: dict) -> str:
+    """What a group leaf `key` is told when `mapping` leaves no liberty mapping to act on."""
+    for name, reason in GENERIC.items():
+        if name in mapping:
+            return f"`{key}` acts on mapping to a liberty library, and {reason}: delete `{key}` or `{name}`"
+    return f"`{key}` {NO_LIBERTY}"
+
+
 #: A leaf set to a non-default value, with a mapping that is no liberty mapping.
 NO_MAPPING_CASES = [
     ("hierarchy.keep_min_cost", {"hierarchy": {"keep_min_cost": 5}}),
@@ -702,7 +716,7 @@ NO_MAPPING_CASES = [
 @pytest.mark.parametrize("key,given", NO_MAPPING_CASES, ids=[key for key, _ in NO_MAPPING_CASES])
 def test_a_group_leaf_is_refused_when_no_liberty_mapping_runs(key, given, mapping):
     problems = dict(_refused(**given, **mapping))
-    assert problems[key] == f"`{key}` {NO_LIBERTY}"
+    assert problems[key] == no_liberty_message(key, mapping)
 
 
 def test_every_problem_comes_back_in_one_error():
@@ -958,3 +972,17 @@ def test_real_yosys_takes_each_adder_architecture(tmp_path, architecture):
         )
     (results,) = tmp_path.glob("xeda_run/mac/yosys/results.json")
     assert json.loads(results.read_text())["success"] is True
+
+
+def test_a_platform_with_gates_gives_both_messages_and_the_right_reason_for_the_leaf():
+    problems = _refused(platform="nangate45", gates=["AND", "OR"], abc={"strategy": "speed"})
+    messages = dict(problems)
+    assert "`gates` and `platform` cannot both be set" in messages["gates"]
+    assert messages["abc.strategy"] == no_liberty_message("abc.strategy", {"gates": 1})
+    assert "give `platform`" not in messages["abc.strategy"]
+
+
+def test_a_platform_with_lut_names_lut_as_the_reason():
+    messages = dict(_refused(platform="nangate45", lut="4", abc={"strategy": "speed"}))
+    assert "`lut` maps to LUTs instead" in messages["abc.strategy"]
+    assert "`lut` and `platform` cannot both be set" in messages["lut"]

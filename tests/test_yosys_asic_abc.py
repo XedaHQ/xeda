@@ -22,7 +22,7 @@ from xeda.flows.yosys import abc_strategy_script, asic_groups
 from xeda.flows.yosys.abc_strategies import Composition
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
-from .test_yosys_asic_groups import _abc_script, _refused, _run
+from .test_yosys_asic_groups import no_liberty_message, _abc_script, _refused, _run
 from .test_yosys_asic_sequential import _enable_design
 from .tool_utils import require_yosys, require_yosys_tcl
 
@@ -594,7 +594,7 @@ def test_other_abc_flags_are_accepted():
 @pytest.mark.parametrize("mapping", [{"gates": ["AND"]}, {}], ids=str)
 def test_a_new_abc_leaf_is_refused_when_no_liberty_mapping_runs(key, given, mapping):
     problems = dict(_refused(**given, **mapping))
-    assert "acts on mapping to a liberty library" in problems[key]
+    assert no_liberty_message(key, mapping) == problems[key]
 
 
 # ------------------------------------------------------------------------------ real yosys

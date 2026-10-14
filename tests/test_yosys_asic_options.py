@@ -26,7 +26,7 @@ from xeda.flows import Yosys
 from xeda.flows.yosys import asic_groups
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _tiny, _words
-from .test_yosys_asic_groups import _refused, _run
+from .test_yosys_asic_groups import no_liberty_message, _refused, _run
 from .tool_utils import require_yosys, require_yosys_tcl
 
 #: The default commands that the new settings change, as `_run` returns them.
@@ -491,7 +491,7 @@ def test_other_synth_flags_are_accepted():
 @pytest.mark.parametrize("mapping", [{"gates": ["AND"]}, {}], ids=str)
 def test_a_new_leaf_is_refused_when_no_liberty_mapping_runs(key, given, mapping):
     problems = dict(_refused(**given, **mapping))
-    assert "acts on mapping to a liberty library" in problems[key]
+    assert no_liberty_message(key, mapping) == problems[key]
 
 
 # ------------------------------------------------------------------------------ real yosys

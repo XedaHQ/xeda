@@ -19,7 +19,7 @@ from xeda.flows import Yosys
 from xeda.flows.yosys import asic_groups
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
-from .test_yosys_asic_groups import NO_LIBERTY, _given, _refused, _run, _runner
+from .test_yosys_asic_groups import no_liberty_message, _given, _refused, _run, _runner
 from .test_yosys_asic_tcl import _render
 from .test_yosys_asic_sequential import _real, _run_real
 from .tiny_platform import tiny_store
@@ -277,7 +277,7 @@ def test_allow_tristate_is_refused_where_the_check_is_not_mapped():
 def test_a_finish_leaf_is_refused_when_no_liberty_mapping_runs(given, mapping):
     (name,) = given
     problems = dict(_refused(finish=given, **mapping))
-    assert NO_LIBERTY in problems[f"finish.{name}"]
+    assert problems[f"finish.{name}"] == no_liberty_message(f"finish.{name}", mapping)
 
 
 # ------------------------------------------------------------------------------ the techmap files

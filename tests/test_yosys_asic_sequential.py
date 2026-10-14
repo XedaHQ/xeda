@@ -25,7 +25,7 @@ from xeda.flows.yosys import asic_groups
 from xeda.flows.yosys.yosys import LEGALIZE_ANY_FLIP_FLOP
 
 from .test_yosys_asic import SCRIPT_FORMATS, _design, _words
-from .test_yosys_asic_groups import NO_LIBERTY, _pdk, _refused, _run
+from .test_yosys_asic_groups import no_liberty_message, _pdk, _refused, _run
 from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import require_yosys, require_yosys_tcl
 
@@ -509,7 +509,7 @@ def test_a_clock_gating_leaf_is_refused_while_clock_gating_is_off(leaf, value):
 @pytest.mark.parametrize("mapping", [{"gates": ["AND"]}, {}], ids=str)
 def test_a_sequential_leaf_is_refused_when_no_liberty_mapping_runs(key, given, mapping):
     problems = dict(_refused(**given, **mapping))
-    assert problems[key] == f"`{key}` {NO_LIBERTY}"
+    assert problems[key] == no_liberty_message(key, mapping)
 
 
 def test_retime_modules_assert_each_module_before_the_retiming_in_both_formats_only_when_set(

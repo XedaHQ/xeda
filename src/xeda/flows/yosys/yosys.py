@@ -289,6 +289,23 @@ def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:
     return found
 
 
+def _no_liberty_message(settings: "Yosys.Settings", key: str) -> str:
+    """Return what to tell the user about the group setting `key` when no liberty mapping runs.
+
+    With `gates` or `lut`, the reason is that the run maps to generic cells or LUTs instead, even
+    when a platform is given. Otherwise nothing names a liberty library."""
+    for name, instead in (("gates", "generic cells"), ("lut", "LUTs")):
+        if getattr(settings, name):
+            return (
+                f"`{key}` acts on mapping to a liberty library, and `{name}` maps to {instead} "
+                f"instead: delete `{key}` or `{name}`"
+            )
+    return (
+        f"`{key}` acts on mapping to a liberty library: give `platform`, `platform_file` or "
+        "`liberty` too"
+    )
+
+
 class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     """Synthesize a design with Yosys to a standard-cell, gate or LUT netlist."""
 
@@ -475,12 +492,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             problems += cls._liberty_mapping_problems(settings)
         else:
             problems += [
-                (
-                    key,
-                    f"`{key}` acts on mapping to a liberty library: give `platform`, "
-                    "`platform_file` or `liberty` too",
-                )
-                for key in _changed_group_leaves(settings)
+                (key, _no_liberty_message(settings, key)) for key in _changed_group_leaves(settings)
             ]
         if problems:
             raise FlowSettingsError(
