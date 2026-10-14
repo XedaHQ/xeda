@@ -81,6 +81,18 @@
         "fpga_pack",
         "openfpgaloader"
       ]
+    },
+    "routes": {
+      "": {
+        "openfpgaloader": [
+          "fpga_pack"
+        ]
+      },
+      "config": {
+        "openfpgaloader": [
+          "fpga_pack"
+        ]
+      }
     }
   },
   "nvc": {
@@ -238,19 +250,39 @@
     "class_name": "YosysFpga",
     "followers": {
       "": [
-        "fpga_pack",
         "nextpnr",
-        "openfpgaloader",
-        "vivado_impl"
+        "vivado_impl",
+        "fpga_pack",
+        "openfpgaloader"
       ],
       "netlist": [
-        "fpga_pack",
         "nextpnr",
+        "fpga_pack",
         "openfpgaloader"
       ],
       "netlist_edif": [
         "vivado_impl"
       ]
+    },
+    "routes": {
+      "": {
+        "fpga_pack": [
+          "nextpnr"
+        ],
+        "openfpgaloader": [
+          "nextpnr",
+          "fpga_pack"
+        ]
+      },
+      "netlist": {
+        "fpga_pack": [
+          "nextpnr"
+        ],
+        "openfpgaloader": [
+          "nextpnr",
+          "fpga_pack"
+        ]
+      }
     }
   },
   "yosys_sim": {

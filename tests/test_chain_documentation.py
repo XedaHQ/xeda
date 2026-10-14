@@ -647,6 +647,23 @@ def test_the_dry_run_of_a_pass_through_chain_lists_the_flows_between(tmp_path):
     assert _input(document, "nextpnr", "netlist")["binding_origin"] == "chain"
 
 
+def test_the_documented_pass_through_command_plans_the_flow_between_its_two_flows(tmp_path):
+    """The chapter shows `xeda run yosys_fpga+fpga_pack design.yaml` and says it runs `nextpnr` in
+    between. The command in the guide is the one planned here, with the design the guide gives."""
+    chapter = _section(FLOWS_RST, *CHAIN_SECTION)
+    shown = re.findall(r"^    xeda run (yosys_fpga\+fpga_pack) (\S+\.yaml)$", chapter, re.M)
+    assert shown == [("yosys_fpga+fpga_pack", "design.yaml")]
+    assert "``yosys_fpga+fpga_pack`` runs ``nextpnr`` in between" in " ".join(chapter.split())
+    root = _stage(tmp_path, "routed_demo.yaml")
+    (root / "design.yaml").write_text((root / "routed_demo.yaml").read_text())
+    document = _planned("yosys_fpga+fpga_pack", root / "design.yaml")
+    assert [n["name"] for n in document["plan"]["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    assert [(e["node"], e["through"]) for e in document["request"]] == [
+        ("yosys_fpga", ["nextpnr"]),
+        ("fpga_pack", []),
+    ]
+
+
 def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
     design = _stage(tmp_path, "routed_demo.yaml") / "routed_demo.yaml"
     result, document = _xeda(

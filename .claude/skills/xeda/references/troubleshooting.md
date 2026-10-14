@@ -56,9 +56,12 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 
 | Message | Fix |
 | --- | --- |
-| `` Flow `a` has no compatible output for a required input of `b` `` / `` ... takes no required input `` | The pair does not fit. `Did you mean ...?` names a valid chain. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no I/O: run each alone. |
+| `` Flow `a` has no compatible output for a required input of `b` `` / `` ... takes no required input `` | The pair does not fit, and the default producers of `b` do not reach `a`. `Did you mean ...?` names a valid chain when another output of `a` fixes it. `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` declare no I/O: run each alone. |
 | `` Flow `openfpgaloader` programs a device and can only end a chain `` | Put it last. |
 | `` Flow `a` appears more than once `` | A chain is a path; each flow once. |
+| `` Input `nextpnr.netlist` takes JsonNetlist, but `yosys_fpga.netlist_edif` makes Edif `` | A link that skips flows binds every input of them that the producer feeds, and `a.output` must fit each. Use the output the `Did you mean ...?` names, or none. |
+| `` Flow `x` appears more than once ... The link `a+b` passes through `x` `` | A flow that a link skips cannot appear elsewhere in the chain. Remove it, or name the flows between `a` and `b` yourself. |
+| `` The chain link `a+b` passes through `x`, which the source of `b.input` takes out of the plan `` | A planning error (exit 1). A source or binding for an input of a later flow removes the skipped flow `x`. Drop that source or binding, or write the chain without the link that skips `x`. |
 | a binding error naming the consumer, input and where it was written | `unknown input`, `unknown producer` or `declares no inputs`. A binding names a flow's output (`yosys_fpga.netlist`), never a file. A chain and a command-line or API binding of one input conflict even when equal: bind it in one place. |
 | `` vivado_power: `checkpoint` must come from the producer of the `netlist_timing` ... `` | Related inputs come from one producer. Add the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings the message lists. |
 

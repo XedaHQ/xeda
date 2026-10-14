@@ -416,15 +416,27 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
     from xeda.flow_runner.chains import followers, predecessors
     from xeda.flows import FpgaPack, Nextpnr, Openfpgaloader, VivadoImpl, YosysFpga
 
-    classes = [c for c in _classes() if c.__module__.startswith("xeda.flows")]
-    # the JSON netlist feeds nextpnr, and the EDIF netlist Vivado: each by its own output
+    classes = _product_classes()
+    # the JSON netlist feeds nextpnr, and the EDIF netlist Vivado: each by its own output. The
+    # packer and the loader come after them, through the flows between
     assert _pairs(followers(YosysFpga, classes), "consumer") == [
         ("nextpnr", None, False),
         ("vivado_impl", None, False),
+        ("fpga_pack", None, False),
+        ("openfpgaloader", None, False),
+    ]
+    assert [[f.name for f in e.through] for e in followers(YosysFpga, classes)] == [
+        [],
+        [],
+        ["nextpnr"],
+        ["nextpnr", "fpga_pack"],
     ]
     # nextpnr makes a configuration of whichever family the target selects: a hint that
     # depends on the target
-    assert _pairs(followers(Nextpnr, classes), "consumer") == [("fpga_pack", None, True)]
+    assert _pairs(followers(Nextpnr, classes), "consumer") == [
+        ("fpga_pack", None, True),
+        ("openfpgaloader", None, True),
+    ]
     assert _pairs(followers(FpgaPack, classes), "consumer") == [("openfpgaloader", None, False)]
     assert followers(Openfpgaloader, classes) == []
     # the Vivado flows write a bitstream on request (`bitstream`), which the loader reads
@@ -433,9 +445,15 @@ def test_the_open_fpga_flows_follow_each_other_by_their_declarations():
         ("vivado_alt_synth", None, False),
         ("vivado_impl", None, False),
         ("vivado_synth", None, False),
+        ("nextpnr", None, True),
+        ("yosys_fpga", None, False),
     ]
     assert _pairs(predecessors(Nextpnr, classes), "producer") == [("yosys_fpga", None, False)]
     assert _pairs(predecessors(VivadoImpl, classes), "producer") == [("yosys_fpga", None, False)]
+    assert _pairs(predecessors(FpgaPack, classes), "producer") == [
+        ("nextpnr", None, True),
+        ("yosys_fpga", None, False),
+    ]
     # and its routed checkpoint (`write_checkpoint`) is what the power report reads
     assert _pairs(followers(VivadoImpl, classes), "consumer") == [
         ("openfpgaloader", None, False),
@@ -468,27 +486,63 @@ def test_follow_relations_come_from_declarations_not_from_a_name_table():
     assert edge.binds == (("netlist", "netlist"), ("data", "data"))
 
 
-def _accepts(producer, output, consumer):
-    """Whether `producer.output+consumer` is a direct link: follow relations list only those."""
+def _link_of(producer, output, consumer):
+    """The link `producer.output+consumer` that the chain validator accepts, or None."""
     try:
         (link,) = validate_chain((ChainElement(producer, output), ChainElement(consumer)))
     except FlowSettingsException:
-        return False
-    return not link.through
+        return None
+    return link
 
 
-def test_a_follow_relation_is_exactly_the_direct_links_the_chain_validator_accepts():
-    from xeda.flow_runner.chains import followers
+def test_a_follow_relation_is_exactly_a_link_the_chain_validator_accepts():
+    """Every relation is a request that `xeda run` accepts: a direct link or one that passes
+    through other flows. Nothing else is listed, and a direct link is listed before the others."""
+    from xeda.flow_runner.chains import followers, predecessors
 
     classes = _classes()
     for producer in classes:
+        listed = followers(producer, classes)
+        assert [bool(e.through) for e in listed] == sorted(bool(e.through) for e in listed)
         for consumer in classes:
-            edges = [e.output for e in followers(producer, classes) if e.consumer is consumer]
-            if _accepts(producer, None, consumer):
-                assert edges == [None], (producer.name, consumer.name)
-                continue
-            qualified = [o for o in declared_outputs(producer) if _accepts(producer, o, consumer)]
-            assert edges == qualified, (producer.name, consumer.name)
+            found = [e for e in listed if e.consumer is consumer]
+            if (link := _link_of(producer, None, consumer)) is not None:
+                expected = [(None, link)]
+            else:
+                outputs = declared_outputs(producer)
+                expected = [
+                    (o, link)
+                    for o in outputs
+                    if (link := _link_of(producer, o, consumer)) is not None
+                ]
+            expected.sort(key=lambda pair: bool(pair[1].through))
+            assert [(e.output, e.through) for e in found] == [
+                (output, link.through) for output, link in expected
+            ], (producer.name, consumer.name)
+            for edge, (_output, link) in zip(found, expected):
+                assert edge.bound_flows == tuple(flow for flow, _name, _made in link.binds)
+                assert edge.binds == tuple((name, made) for _flow, name, made in link.binds)
+    for consumer in classes:
+        assert {(e.producer, e.output) for e in predecessors(consumer, classes)} == {
+            (e.producer, e.output)
+            for producer in classes
+            for e in followers(producer, classes)
+            if e.consumer is consumer
+        }
+
+
+def test_a_link_that_passes_through_flows_is_listed_with_the_flows_it_binds():
+    from xeda.flow_runner.chains import followers
+    from xeda.flows import Nextpnr, YosysFpga
+
+    classes = _product_classes()
+    (edge,) = [e for e in followers(YosysFpga, classes) if e.consumer.name == "fpga_pack"]
+    assert [flow.name for flow in edge.through] == ["nextpnr"]
+    assert edge.bound_flows == (Nextpnr,)
+    assert edge.binds == (("netlist", "netlist"),)
+    # a direct link lists no flow in between and binds inputs of its consumer
+    (direct,) = [e for e in followers(YosysFpga, classes) if e.consumer is Nextpnr]
+    assert direct.through == () and direct.bound_flows == (Nextpnr,)
 
 
 # ---------------------------------------------------------------------------- completion
@@ -507,6 +561,18 @@ def test_a_follow_relation_is_exactly_the_direct_links_the_chain_validator_accep
             ["yosys_fpga+nextpnr+fpga_pack+openfpgaloader"],
         ),
         ("nextpnr+fp", ["nextpnr+fpga_pack"]),
+        ("nextpnr+", ["nextpnr+fpga_pack", "nextpnr+openfpgaloader"]),
+        ("yosys_fpga+fpga_pack+", ["yosys_fpga+fpga_pack+openfpgaloader"]),
+        ("yosys_fpga+fpga_pack+o", ["yosys_fpga+fpga_pack+openfpgaloader"]),
+        ("nextpnr+fpga_pack+", ["nextpnr+fpga_pack+openfpgaloader"]),
+        ("yosys_fpga+fpga_pack.", ["yosys_fpga+fpga_pack.bitstream"]),
+        ("yosys_fpga+nextpnr.", ["yosys_fpga+nextpnr.config"]),
+        # a flow that a link passes through cannot come again, as an element or in another link
+        ("yosys_fpga+fpga_pack+nextpnr", []),
+        ("yosys_fpga+fpga_pack+ne", []),
+        ("yosys_fpga+openfpgaloader+", []),
+        ("yosys_fpga+openfpgaloader+fpga_pack", []),
+        ("nextpnr+openfpgaloader+fpga_pack", []),
         ("ne", ["nextpnr"]),
         # the prefix is returned as it was typed, whatever spelling it used
         ("yosys-fpga+ne", ["yosys-fpga+nextpnr"]),
@@ -557,6 +623,80 @@ def test_completion_of_an_unfinished_request_returns_the_full_token(incomplete, 
     from xeda.flow_runner.chains import complete_request
 
     assert complete_request(incomplete, _classes()) == expected
+
+
+def _product_classes():
+    return [cls for cls in _classes() if cls.__module__.startswith("xeda.flows")]
+
+
+def test_completion_offers_the_direct_followers_first_and_then_the_ones_a_link_passes_through():
+    from xeda.flow_runner.chains import complete_request
+
+    classes = _product_classes()
+    assert complete_request("yosys_fpga+", classes) == [
+        "yosys_fpga+nextpnr",
+        "yosys_fpga+vivado_impl",
+        "yosys_fpga+fpga_pack",
+        "yosys_fpga+openfpgaloader",
+    ]
+    assert complete_request("yosys_fpga.netlist+", classes) == [
+        "yosys_fpga.netlist+nextpnr",
+        "yosys_fpga.netlist+fpga_pack",
+        "yosys_fpga.netlist+openfpgaloader",
+    ]
+    assert complete_request("yosys_fpga.netlist_edif+", classes) == [
+        "yosys_fpga.netlist_edif+vivado_impl"
+    ]
+    assert complete_request("yosys_fpga+o", classes) == ["yosys_fpga+openfpgaloader"]
+    assert complete_request("yosys_fpga+vivado_impl+", classes) == [
+        "yosys_fpga+vivado_impl+openfpgaloader",
+        "yosys_fpga+vivado_impl+vivado_power",
+    ]
+
+
+def test_completion_offers_no_flow_that_a_link_of_the_prefix_passes_through():
+    from xeda.flow_runner.chains import complete_request
+
+    classes = _product_classes()
+    # `yosys_fpga+fpga_pack` runs `nextpnr` in between, so `nextpnr` cannot come again
+    assert complete_request("yosys_fpga+fpga_pack+", classes) == [
+        "yosys_fpga+fpga_pack+openfpgaloader"
+    ]
+    assert complete_request("yosys_fpga+fpga_pack+ne", classes) == []
+    assert complete_request("yosys_fpga+fpga_pack+nextpnr", classes) == []
+    assert complete_request("yosys_fpga+fpga_pack.", classes) == ["yosys_fpga+fpga_pack.bitstream"]
+    assert complete_request("yosys_fpga+openfpgaloader+", classes) == []
+    assert complete_request("nextpnr+openfpgaloader+fpga_pack", classes) == []
+    # a prefix that is no chain completes to nothing
+    assert complete_request("yosys_fpga+openfpgaloader+fpga_pack+", classes) == []
+
+
+def test_completion_does_not_offer_a_flow_that_an_earlier_link_skips():
+    from xeda.flow_runner.chains import complete_request
+
+    skip = [
+        getattr(io_flows, name)
+        for name in ("_SkipMake", "_SkipMid", "_SkipEnd", "_SkipSide", "_SkipSink")
+    ]
+    # `_SkipMake+_SkipEnd` skips `_SkipMid`, which could take the netlist of `_SkipEnd` directly
+    assert complete_request("__skip_end+", skip) == [
+        "__skip_end+__skip_mid",
+        "__skip_end+__skip_side",
+    ]
+    assert complete_request("__skip_make+", skip) == [
+        "__skip_make+__skip_mid",
+        "__skip_make+__skip_side",
+        "__skip_make+__skip_end",
+        "__skip_make+__skip_sink",
+    ]
+    assert complete_request("__skip_make+__skip_end+", skip) == [
+        "__skip_make+__skip_end+__skip_side"
+    ]
+    assert complete_request("__skip_make+__skip_end+__skip_m", skip) == []
+    # a second link that would skip `_SkipMid` again is refused, as an element and as a route
+    assert complete_request("__skip_make+__skip_end+__skip_side+", skip) == []
+    assert complete_request("__skip_make+__skip_end.", skip) == ["__skip_make+__skip_end.end"]
+    assert complete_request("__skip_make+__skip_end+__skip_side.", skip) == []
 
 
 def test_completion_is_static(monkeypatch, tmp_path):

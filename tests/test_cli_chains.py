@@ -541,11 +541,23 @@ def _real(edges):
     return [edge for edge in edges if not edge["flow"].startswith("__")]
 
 
-def _edge(flow, output=None, binds=(), target_dependent=False):
+def _edge(flow, output=None, binds=(), target_dependent=False, through=None):
+    """A direct relation has no `through` key, and its `binds` items name no flow. A relation that
+    passes through other flows lists them, and its `binds` items are `(flow, input, output)`."""
+    if through is None:
+        items = [{"input": i, "output": o} for i, o in binds]
+        return {
+            "flow": flow,
+            "output": output,
+            "binds": items,
+            "target_dependent": target_dependent,
+        }
+    items = [{"flow": f, "input": i, "output": o} for f, i, o in binds]
     return {
         "flow": flow,
         "output": output,
-        "binds": [{"input": i, "output": o} for i, o in binds],
+        "through": list(through),
+        "binds": items,
         "target_dependent": target_dependent,
     }
 
@@ -564,10 +576,36 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
     )
     # the family-union configuration is a target-dependent hint
     assert _real(nextpnr["can_follow"]) == [_edge("yosys_fpga", None, [("netlist", "netlist")])]
-    assert _real(nextpnr["can_precede"]) == [_edge("fpga_pack", None, [("config", "config")], True)]
+    assert _real(nextpnr["can_precede"]) == [
+        _edge("fpga_pack", None, [("config", "config")], True),
+        # the loader reads the packed bitstream: the link passes through the packer
+        _edge(
+            "openfpgaloader",
+            None,
+            [("fpga_pack", "config", "config")],
+            True,
+            through=["fpga_pack"],
+        ),
+    ]
     assert flows["yosys_fpga"]["can_follow"] == []
     assert _real(flows["fpga_pack"]["can_precede"]) == [
         _edge("openfpgaloader", None, [("bitstream", "bitstream")])
+    ]
+    # a link that skips a flow is listed after the direct ones, with the flows it passes through
+    assert _real(flows["yosys_fpga"]["can_precede"]) == [
+        _edge("nextpnr", None, [("netlist", "netlist")]),
+        _edge("vivado_impl", None, [("netlist", "netlist_edif")]),
+        _edge("fpga_pack", None, [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
+        _edge(
+            "openfpgaloader",
+            None,
+            [("nextpnr", "netlist", "netlist")],
+            through=["nextpnr", "fpga_pack"],
+        ),
+    ]
+    assert _real(flows["fpga_pack"]["can_follow"]) == [
+        _edge("nextpnr", None, [("config", "config")], True),
+        _edge("yosys_fpga", None, [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
     ]
 
 
@@ -581,6 +619,8 @@ def test_list_flows_json_shows_an_action_and_a_flow_without_declared_io_by_their
         "vivado_alt_synth",
         "vivado_impl",
         "vivado_synth",
+        "nextpnr",
+        "yosys_fpga",
     ]
     assert flows["nextpnr"]["action_reason"] is None
     bsc = flows["bsc"]
@@ -626,6 +666,11 @@ def test_list_flows_table_names_takes_makes_followers_and_the_boundary(monkeypat
     assert "[constraints...] (Lpf/Pcf/Pdc/Xdc)" in rows["nextpnr"]
     assert "config (EcpConfig/IceAsc/Fasm)" in rows["nextpnr"]
     assert "fpga_pack (depends on the target)" in rows["nextpnr"]
+    # a follower that a link reaches through other flows names them, so it never reads as direct
+    assert "openfpgaloader (through fpga_pack) (depends on the target)" in rows["nextpnr"]
+    assert "fpga_pack (through nextpnr)" in rows["yosys_fpga"]
+    assert "openfpgaloader (through nextpnr, fpga_pack)" in rows["yosys_fpga"]
+    assert "nextpnr (through" not in rows["yosys_fpga"]
     assert "it programs a device" in rows["openfpgaloader"]
     assert "ends a chain" in rows["openfpgaloader"]
     assert "declared" not in rows["bsc"] and "runs alone" not in rows["bsc"]

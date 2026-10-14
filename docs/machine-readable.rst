@@ -90,21 +90,26 @@ For example, ``nextpnr`` declares the input ``netlist`` of type ``JsonNetlist``,
 producer ``yosys_fpga`` and its output ``netlist``. Sources of an accepted type displace that
 default producer.
 
-``can_precede`` lists the flows that can come directly after this flow in a chain (``xeda run
-this+other``), and ``can_follow`` lists the flows that this flow can come directly after. The
-validator that ``xeda run`` applies judges both, on declarations alone, so a pair that the validator
-refuses is never listed. Planning checks one more thing that declarations cannot show: related
-inputs of a flow must come from one producer. A listed pair can therefore still be refused there,
-with the bindings to add. For example, ``vivado_alt_synth`` is listed before ``vivado_power``, but
-the ``activity`` input of ``vivado_power`` still comes from ``vivado_synth`` unless you bind the
-simulation too.
+``can_precede`` lists the flows that can come after this flow in a chain (``xeda run this+other``),
+and ``can_follow`` lists the flows that this flow can come after. The direct relations come first.
+An entry with ``through`` is a link that skips the flows between the two, which Xeda plans as it
+does for the second flow alone. The validator that ``xeda run`` applies judges both, on declarations
+alone, so a pair that the validator refuses is never listed. Planning checks one more thing that
+declarations cannot show: related inputs of a flow must come from one producer. A listed pair can
+therefore still be refused there, with the bindings to add. For example, ``vivado_alt_synth`` is
+listed before ``vivado_power``, but the ``activity`` input of ``vivado_power`` still comes from
+``vivado_synth`` unless you bind the simulation too.
 
 Each entry of these two lists has these keys:
 
 - ``flow`` is the other flow.
 - ``output`` is the producer output that the request must name. It is ``null`` when the unqualified
   request is valid.
-- ``binds`` lists the ``input`` and ``output`` pairs that the adjacency binds.
+- ``through`` lists the flows that the link skips, in chain order. The key is only in an entry
+  whose link skips flows, so a direct relation has no ``through``.
+- ``binds`` lists the ``input`` and ``output`` pairs that the link binds. For a link that skips
+  flows, each item also has ``flow``: the flow whose input it binds, such as ``nextpnr`` for
+  ``netlist`` in ``yosys_fpga+fpga_pack``.
 - ``target_dependent`` is true when a produced or accepted kind is a union that the target selects
   from, so the resolved plan is authoritative. For example, ``nextpnr`` makes the configuration of
   the family of the target.
@@ -268,14 +273,14 @@ are those of that flow. Each earlier flow supplies the compatible required input
 The ``request`` key lists the elements of the request as given, in canonical form. Each element is
 an object with ``node``, ``flow``, ``output`` and ``through``, where ``output`` is the
 ``FLOW.OUTPUT`` qualifier or ``null``, and ``through`` lists the flows that the link to the next
-element passes through. A single flow gives a one-element list. Each ``nodes`` entry carries its ``node`` name
-and its resolved ``inputs``, which are empty for a flow that declares none. The plan of a dry run
-uses the same representation for the inputs (the section on planning, below, describes the fields).
-When a producer fails, the planned nodes that were never entered come after the other nodes, with
-``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or output, a
-repeated flow, a programmer before the end, or a pair with no compatible output) is a usage error.
-It gives one error document and exit status 2, with no ``request``, ``plan`` or ``nodes``. Chains
-are local requests, and ``--remote`` and ``dse`` refuse them.
+element passes through. A single flow gives a one-element list. Each ``nodes`` entry carries its
+``node`` name and its resolved ``inputs``, which are empty for a flow that declares none. The plan
+of a dry run uses the same representation for the inputs (the section on planning, below, describes
+the fields). When a producer fails, the planned nodes that were never entered come after the other
+nodes, with ``"state": "not run"``. A chain that is malformed (an empty element, an unknown flow or
+output, a repeated flow, a programmer before the end, or a pair with no compatible output) is a
+usage error. It gives one error document and exit status 2, with no ``request``, ``plan`` or
+``nodes``. Chains are local requests, and ``--remote`` and ``dse`` refuse them.
 
 ``design`` is always the name of the design: the ``name`` in its design file, or the name you gave
 for a design of a project (``--design-name``). ``design_file`` is the absolute path of the design

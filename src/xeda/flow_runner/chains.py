@@ -448,7 +448,7 @@ def binding_points(
 
 @dataclass(frozen=True)
 class ChainEdge:
-    """One way `producer` can directly precede `consumer`.
+    """One way `producer` can precede `consumer`, directly or through the flows between them.
 
     It is exactly what the chain validator accepts for that adjacency, with the input and
     output pairs it binds."""
@@ -458,18 +458,23 @@ class ChainEdge:
     #: The output of the producer that a qualified request names; None when the unqualified
     #: request is valid.
     output: str | None
+    #: The `(input, output)` pairs the link binds, in the order of `ChainLink.binds`.
     binds: tuple[tuple[str, str], ...]
     #: Whether a produced or accepted kind is a union that the settings narrow, so that the
     #: final plan decides.
     target_dependent: bool
+    #: The flows between `producer` and `consumer`, in chain order; empty for a direct link.
+    through: tuple[type[Flow], ...] = ()
+    #: The flow that takes each input of `binds`: the consumer for a direct link.
+    bound_flows: tuple[type[Flow], ...] = ()
 
 
 def edges(producer: type[Flow], consumer: type[Flow]) -> list[ChainEdge]:
-    """Return the ways `producer+consumer` is a valid direct adjacency.
+    """Return the ways `producer+consumer` is a valid link, direct ones before the others.
 
     That is the unqualified request, else one qualified request per output of the producer that
-    makes it valid. The chain validator itself judges, on declarations alone. A link that
-    passes through other flows is no direct adjacency and is not listed."""
+    makes it valid. The chain validator itself judges, on declarations alone. A link is direct
+    when the producer feeds the consumer, else it passes through the flows between them."""
     outputs = declared_outputs(producer)
     found: list[ChainEdge] = []
     for output in (None, *outputs):
@@ -477,35 +482,37 @@ def edges(producer: type[Flow], consumer: type[Flow]) -> list[ChainEdge]:
             (link,) = _check_chain((ChainElement(producer, output), ChainElement(consumer)))
         except (FlowSettingsException, _EdgeFailure):
             continue
-        if link.through:
-            continue
-        binds = tuple((name, made) for _flow, name, made in link.binds)
-        inputs = declared_inputs(consumer)
         found.append(
             ChainEdge(
                 producer,
                 consumer,
                 output,
-                binds,
+                tuple((name, made) for _flow, name, made in link.binds),
                 target_dependent=any(
-                    len(outputs[made].types) > 1 or len(inputs[taken].types) > 1
-                    for taken, made in binds
+                    len(outputs[made].types) > 1 or len(declared_inputs(flow)[taken].types) > 1
+                    for flow, taken, made in link.binds
                 ),
+                through=link.through,
+                bound_flows=tuple(flow for flow, _taken, _made in link.binds),
             )
         )
         if output is None:
             break
-    return found
+    return sorted(found, key=lambda edge: bool(edge.through))
 
 
 def followers(producer: type[Flow], candidates: Sequence[type[Flow]]) -> list[ChainEdge]:
-    """Return the direct edges from `producer` to each of `candidates`, in candidate order."""
-    return [edge for consumer in candidates for edge in edges(producer, consumer)]
+    """Return the links from `producer` to each of `candidates`: the direct links, then the
+    ones that pass through other flows, each group in candidate order."""
+    found = [edge for consumer in candidates for edge in edges(producer, consumer)]
+    return sorted(found, key=lambda edge: bool(edge.through))
 
 
 def predecessors(consumer: type[Flow], candidates: Sequence[type[Flow]]) -> list[ChainEdge]:
-    """Return the direct edges from each of `candidates` to `consumer`, in candidate order."""
-    return [edge for producer in candidates for edge in edges(producer, consumer)]
+    """Return the links from each of `candidates` to `consumer`: the direct links, then the
+    ones that pass through other flows, each group in candidate order."""
+    found = [edge for producer in candidates for edge in edges(producer, consumer)]
+    return sorted(found, key=lambda edge: bool(edge.through))
 
 
 def _lenient_element(token: str) -> ChainElement | None:
@@ -528,7 +535,9 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
     completed element. After a `+`, only flows that the validator accepts as the next element
     are offered. A flow is offered only if it does not repeat one, does not follow an action,
     takes a required input and has a compatible link from the flow before it (a direct edge, or a
-    pass-through of the default producers between them). In a qualifier
+    pass-through of the default producers between them) that does not pass through a flow of the
+    request. The flows that follow directly come first, then the ones that follow through other
+    flows, each group in candidate order. In a qualifier
     (`nextpnr.`), the outputs of the producer that lead to some follower are offered. The
     function is static: it reads declarations only, loads no design, constructs no flow and
     probes no tool.
@@ -559,18 +568,23 @@ def complete_request(incomplete: str, candidates: Sequence[type[Flow]]) -> list[
                 found.append(f"{typed}{name}.{made}")
         return found
     wanted = name.lower().replace("-", "_")
-    found = []
+    direct: list[str] = []
+    passing: list[str] = []
     for flow_class in candidates:
         spellings = [
             n for n in (flow_class.name, *flow_class.aliases) if n.lower().startswith(wanted)
         ]
         if not spellings:
             continue
-        if head and not _valid((*head, ChainElement(flow_class))):
-            continue
+        passes = False
+        if head:
+            try:
+                passes = bool(_check_chain((*head, ChainElement(flow_class)))[-1].through)
+            except (FlowSettingsException, _EdgeFailure):
+                continue
         spelling = flow_class.name if flow_class.name in spellings else spellings[0]
-        found.append(typed + spelling)
-    return found
+        (passing if passes else direct).append(typed + spelling)
+    return direct + passing
 
 
 def fitting_outputs(

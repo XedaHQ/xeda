@@ -167,6 +167,23 @@ def test_plain_flow_completion_includes_canonical_name_and_ghdl_alias(shell, tmp
         ("xeda run yosys_fpga.netlist+ne", ["yosys_fpga.netlist+nextpnr"]),
         ("xeda run nextpnr.", ["nextpnr.config"]),
         ("xeda run yosys_fpga++", []),
+        # the direct followers come first, then the ones a link reaches through other flows
+        (
+            "xeda run yosys_fpga+",
+            [
+                "yosys_fpga+nextpnr",
+                "yosys_fpga+vivado_impl",
+                "yosys_fpga+fpga_pack",
+                "yosys_fpga+openfpgaloader",
+            ],
+        ),
+        ("xeda run yosys_fpga.netlist+f", ["yosys_fpga.netlist+fpga_pack"]),
+        ("xeda run yosys_fpga+fpga_pack+", ["yosys_fpga+fpga_pack+openfpgaloader"]),
+        ("xeda run nextpnr+", ["nextpnr+fpga_pack", "nextpnr+openfpgaloader"]),
+        ("xeda run nextpnr+openfpgaloader+", []),
+        # a flow that a link skips cannot come again
+        ("xeda run yosys_fpga+fpga_pack+ne", []),
+        ("xeda run yosys_fpga+openfpgaloader+fpga_pack", []),
     ],
 )
 @pytest.mark.parametrize("shell", SHELLS)

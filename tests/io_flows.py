@@ -511,3 +511,82 @@ class _DiamondTail(Flow):
 
     def run(self) -> None:
         pass
+
+
+class _SkipMake(Flow):
+    """The head of a route a link can skip: makes a netlist."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        made: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipSide(Flow):
+    """Makes the constraints file that `_SkipMid` also reads. Its own input has no default."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        net: Path = In(SourceType.JsonNetlist, description="The netlist it reads.")
+
+    class Outputs(Flow.Outputs):
+        side: Path = Out(SourceType.Sdc, description="The constraints file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipMid(Flow):
+    """The middle of the route: reads `_SkipMake`'s netlist and `_SkipSide`'s file, makes data."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        made: Path = In(
+            SourceType.JsonNetlist, producer="__skip_make", output="made", description="Netlist."
+        )
+        side: Path = In(
+            SourceType.Sdc, producer="__skip_side", output="side", description="Constraints."
+        )
+
+    class Outputs(Flow.Outputs):
+        mid: Path = Out(SourceType.Data, description="The data.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipEnd(Flow):
+    """Reads `_SkipMid`'s data and makes a netlist, which `_SkipMid` and `_SkipSide` could take
+    directly: `_SkipMake+_SkipEnd` skips `_SkipMid`, which a flow after it could name."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        mid: Path = In(
+            SourceType.Data, producer="__skip_mid", output="mid", description="The data."
+        )
+
+    class Outputs(Flow.Outputs):
+        end: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _SkipSink(Flow):
+    """Reads `_SkipMid`'s data: `_SkipSide+_SkipSink` skips `_SkipMid` as `_SkipMake+_SkipEnd` does."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        mid: Path = In(
+            SourceType.Data, producer="__skip_mid", output="mid", description="The data."
+        )
+
+    def run(self) -> None:
+        pass

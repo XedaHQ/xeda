@@ -237,12 +237,27 @@ def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     """Return one follow relation as plain data, seen from the other end. `other` is the flow
     that the relation names. `output` is the producer output that a request must name, and None
     when the unqualified request is valid. `binds` lists the input and output pairs that the
-    adjacency binds. `target_dependent` tells whether a type that the relation makes or takes is
-    a union that the target settings narrow."""
+    link binds. `target_dependent` tells whether a type that the relation makes or takes is
+    a union that the target settings narrow.
+
+    A relation whose link passes through other flows has the key `through`, which lists them in
+    chain order, and each item of its `binds` also names the flow whose input it binds (`flow`).
+    A direct relation has neither."""
+    if not edge.through:
+        return {
+            "flow": other.name,
+            "output": edge.output,
+            "binds": [{"input": taken, "output": made} for taken, made in edge.binds],
+            "target_dependent": edge.target_dependent,
+        }
     return {
         "flow": other.name,
         "output": edge.output,
-        "binds": [{"input": taken, "output": made} for taken, made in edge.binds],
+        "through": [flow.name for flow in edge.through],
+        "binds": [
+            {"flow": flow.name, "input": taken, "output": made}
+            for flow, (taken, made) in zip(edge.bound_flows, edge.binds)
+        ],
         "target_dependent": edge.target_dependent,
     }
 
@@ -251,8 +266,9 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return everything known about a flow without instantiating it.
 
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
-    flows that can directly follow this flow in a chain (`this+other`), and `can_follow` lists
-    the flows that this flow can directly follow (`other+this`). The chain validator judges both
+    flows that can follow this flow in a chain (`this+other`), and `can_follow` lists the flows
+    that this flow can follow (`other+this`). The direct relations come first. A relation whose
+    link skips the flows between the two has them in `through`. The chain validator judges both
     on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
     cannot disagree. A relation is `target_dependent` when a union of types decides it and the
     target settings narrow that union. The resolved plan is authoritative.
@@ -327,18 +343,18 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
         makes.append(f"{name} ({kinds(item)})")
     if info["action_reason"]:
         makes.append(f"action: {info['action_reason']} (ends a chain)")
-    following = [
-        (
+    following = []
+    for edge in info["can_precede"]:
+        text = (
             edge["flow"]
             if edge["output"] is None
             else f"{info['name']}.{edge['output']}+{edge['flow']}"
         )
-        for edge in info["can_precede"]
-    ]
-    following = [
-        f"{name} (depends on the target)" if edge["target_dependent"] else name
-        for name, edge in zip(following, info["can_precede"])
-    ]
+        if edge.get("through"):
+            text += f" (through {', '.join(edge['through'])})"
+        if edge["target_dependent"]:
+            text += " (depends on the target)"
+        following.append(text)
     return "\n".join(takes) or "-", "\n".join(makes) or "-", "\n".join(following) or "-"
 
 
