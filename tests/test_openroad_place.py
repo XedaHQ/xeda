@@ -1894,9 +1894,7 @@ def test_the_detailed_placement_follows_its_settings(tmp_path):
         "detailed_placement",
         'improve_placement -max_displacement "5 1"',
         "optimize_mirroring",
-        "if {[catch {check_placement -verbose} message]} {",
-        'puts "xeda: check_placement found violations ($message), and the flow goes on"',
-        "}",
+        "check_placement -verbose",
         "estimate_parasitics -placement",
         "xeda_metrics 1 0",
     ]
@@ -1928,17 +1926,20 @@ def test_the_optimizations_of_the_detailed_placement_can_be_switched_off(tmp_pat
     ]
 
 
-def test_an_illegal_placement_is_reported_or_stops_the_flow_as_the_settings_say(
+def test_an_illegal_placement_stops_the_flow_unless_the_settings_say_to_report_it(
     tmp_path, monkeypatch
 ):
     """`check_placement` raises an error when a check fails (the installed OpenROAD reports
-    DPL-0033). With `check: report` the script catches it and goes on."""
+    DPL-0033), and OpenROAD-flow-scripts does not catch it, so the default stops the flow. With
+    `check: report` the script catches the error and goes on."""
     monkeypatch.setenv("XEDA_FAKE_TOOL_FAIL", "check_placement")
-    flow = place_flow(tmp_path / "report")
-    calls = run_script(flow)
+    report = place_flow(tmp_path / "report", {"detailed_placement": {"check": "report"}})
+    calls = run_script(report)
     assert names(calls, "check_placement") == ["check_placement"]
-    assert (flow.run_path / "place.odb").is_file()
-    stop = place_flow(tmp_path / "fail", {"detailed_placement": {"check": "fail"}})
+    assert (report.run_path / "place.odb").is_file()
+    body = stage(render(report), "xeda_detail_place")
+    assert "if {[catch {check_placement -verbose} message]} {" in body
+    stop = place_flow(tmp_path / "fail")
     body = stage(render(stop), "xeda_detail_place")
     assert "check_placement -verbose" in body and not [line for line in body if "catch" in line]
     require_tclsh()
@@ -1948,6 +1949,15 @@ def test_an_illegal_placement_is_reported_or_stops_the_flow_as_the_settings_say(
     assert done.returncode != 0
     assert (stop.run_path / "openroad_place-failed.odb").is_file()
     assert not (stop.run_path / "place.odb").exists()
+
+
+def test_the_check_of_the_legalization_defaults_to_the_one_of_openroad_flow_scripts():
+    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+
+    assert DetailedPlacementGroup().check == "fail"
+    assert "OpenROAD-flow-scripts" in (
+        DetailedPlacementGroup.model_fields["check"].description or ""
+    )
 
 
 def test_the_metrics_stages_follow_the_stages_in_order(tmp_path):

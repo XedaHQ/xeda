@@ -166,9 +166,7 @@ proc xeda_detail_place {} {
     detailed_placement
     improve_placement -max_displacement "5 1"
     optimize_mirroring
-    if {[catch {check_placement -verbose} message]} {
-        puts "xeda: check_placement found violations ($message), and the flow goes on"
-    }
+    check_placement -verbose
     estimate_parasitics -placement
     xeda_metrics 1 0
 }

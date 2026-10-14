@@ -1210,10 +1210,11 @@ class DetailedPlacementGroup(SettingsGroup):
         json_schema_extra=tier("advanced"),
     )
     check: Literal["fail", "report"] = Field(
-        "report",
+        "fail",
         description="What the flow does with an illegal placement (`check_placement`, which raises "
-        "an error when a check fails). `fail` stops the flow, as OpenROAD-flow-scripts does. "
-        "`report` prints the violations and goes on.",
+        "an error when a check fails). `fail` stops the flow. The default follows "
+        "OpenROAD-flow-scripts, which does not catch the error and so stops on an illegal "
+        "placement. `report` prints the violations and goes on.",
         json_schema_extra=tier("common"),
     )
     extra_args: list[str] = Field(

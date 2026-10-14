@@ -668,7 +668,7 @@ def test_the_defaults_of_the_placement_are_the_stage_defaults():
     assert place.resize.remove_buffers is True and place.resize.buffer_ports.enabled is True
     assert place.arith_swap.enabled is False
     detail = place.detailed_placement
-    assert (detail.cell_padding, detail.mirroring, detail.check) == (0, True, "report")
+    assert (detail.cell_padding, detail.mirroring, detail.check) == (0, True, "fail")
     assert (detail.improve.enabled, detail.improve.max_displacement) == (True, [5, 1])
     assert place.tapcell.mode is None and place.routing.signal_layers is None
 
