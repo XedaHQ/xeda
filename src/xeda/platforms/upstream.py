@@ -73,7 +73,8 @@ new words. A backslash at the end of a line continues it, and `#` starts a comme
 `$(PLATFORM_DIR)` is the directory of the platform and `$(ADDITIONAL_...)` is empty. A value in
 double quotes loses its quotes. Any other `$` in the value of a key of the set is an error.
 A line that starts with a key of the set in any other form is an error too: `!=`, `::=`,
-`override`, `private`, `unexport`, a bare `export KEY` or a rule.
+`override`, `private`, `unexport`, a bare `export KEY` or a rule. So is an assignment to a key
+anywhere else on a line, such as `synth: KEY = value` for one target.
 A file with a conditional (`ifeq`, `ifneq`, `ifdef`, `ifndef`, `else`, `endif`), `include` or
 `define` needs Make, so the reader refuses the whole file. An empty value gives an empty list
 for a list leaf and no leaf for any other.
@@ -674,6 +675,13 @@ MK_STARTS_WITH_KEY = re.compile(
     + "|".join(sorted((*MK_DIRECT, *MK_NETS), key=len, reverse=True))
     + r")(?![\w.\-])"
 )
+#: A key of the reader that a line assigns to, anywhere on the line (a rule such as
+#: `synth: KEY = value` sets it for one target), with any operator of Make.
+MK_ASSIGNS_KEY = re.compile(
+    r"(?<![\w.\-])("
+    + "|".join(sorted((*MK_DIRECT, *MK_NETS), key=len, reverse=True))
+    + r")\s*(?:[+?!]|:{0,3})="
+)
 MK_REFERENCE = re.compile(r"\$\$|\$\([A-Za-z0-9_]*\)|\$\S*")
 
 
@@ -738,12 +746,21 @@ def read_orfs_config_mk(path: Path, platform_dir: Path) -> dict[str, Any]:
         text = line.strip()
         assignment = MK_ASSIGNMENT.fullmatch(text)
         named = MK_STARTS_WITH_KEY.match(text)
-        if named and not (assignment and assignment.group(1) == named.group(1)):
+        refused = (
+            named.group(1)
+            if named and not (assignment and assignment.group(1) == named.group(1))
+            else None
+        )
+        for found in MK_ASSIGNS_KEY.finditer(text):
+            if not (assignment and found.start(1) == assignment.start(1)):
+                refused = found.group(1)
+                break
+        if refused is not None:
             raise PlatformConfigError(
                 path,
                 number,
-                f"`{named.group(1)}` is written as `{text[:50]}`: the reader takes only "
-                f"`{named.group(1)} = value`, with `?=`, `:=` or `+=` and an optional `export`, "
+                f"`{refused}` is written as `{text[:50]}`: the reader takes only "
+                f"`{refused} = value`, with `?=`, `:=` or `+=` and an optional `export`, "
                 "because it does not run Make",
             )
         if not assignment:

@@ -738,6 +738,49 @@ def test_a_key_of_the_reader_in_a_form_it_does_not_take_is_refused(
     assert "config.mk:2" in message and "ABC_DRIVER_CELL" in message, message
 
 
+MK_OPERATORS = ["=", ":=", "::=", ":::=", "?=", "+=", "!="]
+MK_SCOPES = [
+    "synth:",
+    "%.v:",
+    "synth floorplan:",
+    "synth: export",
+    "synth: override",
+    "synth: private",
+    "%.v: export override",
+]
+
+
+@pytest.mark.parametrize("operator", MK_OPERATORS)
+@pytest.mark.parametrize("scope", MK_SCOPES)
+def test_a_target_or_pattern_specific_assignment_to_a_key_is_refused(
+    tmp_path: Path, scope: str, operator: str
+) -> None:
+    """Make gives the key that value for the target, so the reader must not keep the plain one."""
+    text = f"ABC_DRIVER_CELL = INV_X1\n{scope} ABC_DRIVER_CELL {operator} BUF_X1\n"
+    message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", text), tmp_path)
+    assert "config.mk:2" in message and "ABC_DRIVER_CELL" in message, message
+
+
+def test_an_assignment_to_a_key_without_spaces_or_in_a_value_is_refused(tmp_path: Path) -> None:
+    for line in (
+        "synth: ABC_DRIVER_CELL=BUF_X1",
+        "synth: PLACE_SITE?=A",
+        "target:PLACE_SITE:=A",
+        "OTHER = $(call set,PLACE_SITE=A)",
+    ):
+        message = refusal(read_orfs_config_mk, write(tmp_path, "config.mk", line + "\n"), tmp_path)
+        assert "config.mk:1" in message, message
+
+
+def test_a_name_that_only_contains_a_key_is_another_name(tmp_path: Path) -> None:
+    text = (
+        "synth: ABC_DRIVER_CELLS = x\nsynth: MY_ABC_DRIVER_CELL := x\n"
+        "OTHER = -DABC_DRIVER_CELL=1 --ABC_DRIVER_CELL=2 ABC_DRIVER_CELL.x=3\n"
+        "synth: ABC_DRIVER_CELL_2 += y\nABC_DRIVER_CELL = INV_X1 # ABC_DRIVER_CELL = x\n"
+    )
+    assert read_mk(tmp_path, text) == {"abc_driver_cell": "INV_X1"}
+
+
 def test_a_name_that_only_starts_like_a_key_is_another_key(tmp_path: Path) -> None:
     text = (
         "ABC_DRIVER_CELLS != x\nABC_DRIVER_CELL_2 ::= x\nABC_DRIVER_CELL.x := y\n"
@@ -802,6 +845,16 @@ def test_nangate45_config_mk_gives_the_values_that_the_platform_needs() -> None:
         "supply.ground_nets.VSS": 0.0,
         "ir_drop_layer": "metal1",
     }
+
+
+@pytest.mark.parametrize("platform", ["nangate45", "sky130hd", "sky130hs"])
+def test_the_config_mk_of_the_plain_platforms_still_reads(platform: str) -> None:
+    """Reference data on this machine: the guard against other forms keeps these files readable."""
+    directory = NANGATE45_CONFIG.parent.parent / platform
+    if not (directory / "config.mk").is_file():
+        pytest.skip("no OpenROAD-flow-scripts checkout at the reference location")
+    leaves = read_orfs_config_mk(directory / "config.mk", directory)
+    assert leaves["site"] and leaves["tie_high"]["cell"] and leaves["min_buffer"]["cell"]
 
 
 # ---------------------------------------------------------------------------------------------
