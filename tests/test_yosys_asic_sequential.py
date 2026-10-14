@@ -536,6 +536,19 @@ def test_a_retimed_module_that_flattening_dissolves_is_refused_at_planning(tmp_p
             "sequential": {"retime_modules": ["mul8"]},
             "set_mod_attribute": {"keep_hierarchy": {"mul8": 1}},
         },
+        {
+            "sequential": {"retime_modules": ["mul8"]},
+            "set_mod_attribute": {"keep_hierarchy": {"mul8": True}},
+        },
+        {
+            "sequential": {"retime_modules": ["mul8"]},
+            "set_mod_attribute": {"keep_hierarchy": {"mul8": 2}},
+        },
+        {
+            # a text value is a string attribute for yosys, and a string is true
+            "sequential": {"retime_modules": ["mul8"]},
+            "set_mod_attribute": {"keep_hierarchy": {"mul8": "0"}},
+        },
         {"sequential": {"retime_modules": ["mul8"]}, "flatten": False},
         {"sequential": {"retime_modules": ["mul8"]}, "hierarchy": {"keep_min_cost": 5}},
         {
@@ -543,11 +556,53 @@ def test_a_retimed_module_that_flattening_dissolves_is_refused_at_planning(tmp_p
             "hierarchy": {"keep_instances": ["mac/m"]},
         },
     ],
-    ids=["top", "kept", "kept-pattern", "kept-attribute", "no-flatten", "cost", "kept-instance"],
+    ids=[
+        "top",
+        "kept",
+        "kept-pattern",
+        "kept-attribute",
+        "kept-true",
+        "kept-two",
+        "kept-string",
+        "no-flatten",
+        "cost",
+        "kept-instance",
+    ],
 )
 def test_a_retimed_module_that_stays_a_module_is_accepted(tmp_path, given):
     design = _retime_design(tmp_path)
     Yosys.check_design_supported(design, Yosys.Settings(platform="nangate45", **given))
+
+
+@pytest.mark.parametrize("value", [False, 0, 0.0], ids=repr)
+def test_a_keep_hierarchy_attribute_that_is_false_or_zero_keeps_no_module(tmp_path, value):
+    """The script sets the attribute to the value, and yosys keeps a module only for a true or
+    nonzero one."""
+    design = _retime_design(tmp_path)
+    settings = Yosys.Settings(
+        platform="nangate45",
+        sequential={"retime_modules": ["mul8"]},
+        set_mod_attribute={"keep_hierarchy": {"mul8": value}},
+    )
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_design_supported(design, settings)
+    ((key, message, _, _),) = refused.value.errors
+    assert key == "sequential.retime_modules" and "`mul8`" in message
+
+
+def test_a_zero_attribute_does_not_cancel_a_module_that_keep_hierarchy_names(tmp_path):
+    """`keep_hierarchy: [mul8]` and an attribute of 0 for the same module: the list wins, as the
+    setting writes its 1 over the 0 when the flow starts."""
+    design = _retime_design(tmp_path)
+    Yosys.check_design_supported(
+        design,
+        Yosys.Settings(
+            platform="nangate45",
+            sequential={"retime_modules": ["mul8"]},
+            keep_hierarchy=["mul8"],
+            set_mod_attribute={"keep_hierarchy": {"mul8": 0}},
+        ),
+    )
 
 
 def test_a_design_without_a_top_leaves_the_retimed_modules_unjudged(tmp_path):

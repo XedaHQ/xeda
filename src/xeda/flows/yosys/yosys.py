@@ -258,6 +258,22 @@ def _asic_data(name: str) -> Path:
     return Path(str(resources.files("xeda.flows.yosys").joinpath("data", "asic", name)))
 
 
+def _keeps_hierarchy(value: object) -> bool:
+    """Return whether the attribute `keep_hierarchy` with `value` keeps a module.
+
+    The script gives yosys the value as text, and yosys keeps the module for a true attribute.
+    A number or a text that reads as a number is true when it is not zero. A boolean is itself.
+    Any other text is a string, which is true unless it is empty.
+    """
+    if isinstance(value, (bool, int, float)):
+        return bool(value)
+    text = str(value).strip()
+    try:
+        return float(text) != 0
+    except ValueError:
+        return bool(text)
+
+
 def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:
     """Return the dotted names of the group leaves of `settings` that differ from their defaults,
     and `techmap_files` when it is not empty. These settings act on a mapping to a liberty
@@ -517,7 +533,14 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             or settings.hierarchy.keep_instances
         ):
             return []
-        kept = [*settings.keep_hierarchy, *settings.set_mod_attribute.get("keep_hierarchy", {})]
+        kept = [
+            *settings.keep_hierarchy,
+            *(
+                name
+                for name, value in settings.set_mod_attribute.get("keep_hierarchy", {}).items()
+                if _keeps_hierarchy(value)
+            ),
+        ]
         return [
             (
                 "sequential.retime_modules",
