@@ -41,6 +41,7 @@ from xml.etree import ElementTree
 from varname import argname  # type: ignore
 
 from .dataclass import AtomicName, BaseModel, XedaBaseModel
+from .units import Quantity
 
 __all__ = [
     "SDF",
@@ -1410,6 +1411,10 @@ def semantic_hash(data: Any) -> str:
             return str(data)
         if isinstance(data, type):
             return f"{data.__module__}.{data.__qualname__}"
+        if isinstance(data, Quantity):
+            # What the float that the quantity replaces hashed as, whatever unit it was
+            # written in: a run keeps its identity when a clock period gains a unit.
+            return str(data.magnitude)
         if hasattr(data, "__dict__"):
             return _sorted_dict_str(model_state(data))
         return str(data)

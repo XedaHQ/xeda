@@ -69,6 +69,7 @@ from ..dataclass import (
 )
 from ..design import LANGUAGE_TYPES, Design, DesignSource, SourceType
 from ..run_dir import OutputSnapshot, RunDirectory, record_output_state, resolved_inside
+from ..units import finalize_template_value, to_filter
 from ..utils import (
     LOCATION_FORMS,
     PATH_VARIABLES,
@@ -1490,7 +1491,10 @@ class Flow(metaclass=ABCMeta):
             undefined=StrictUndefined,
             trim_blocks=trim_blocks,
             lstrip_blocks=lstrip_blocks,
+            finalize=finalize_template_value,
         )
+        # A quantity reaches a script through `to`, which names the unit: `{{ period | to("ns") }}`.
+        env.filters["to"] = to_filter
         # A path that a user named goes into a TCL script as a literal word, inside quotes, or as
         # a list.
         env.filters.update(tcl_word=tcl_word, tcl_quote=tcl_quote, tcl_list=tcl_list)
