@@ -1219,7 +1219,7 @@ REVIEWED_PY_DELETIONS = {
     ("platforms/providers.py", "path.unlink(missing_ok=True)"): (
         1,
         "the install command writes the PDK store, outside a run: the receipt that this install "
-        "wrote, removed when the move of the platform directory failed",
+        "wrote where there was none, removed when the move of the platform directory failed",
     ),
     ("platforms/providers.py", "directory.rmdir()"): (
         1,

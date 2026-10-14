@@ -653,12 +653,14 @@ def _remove_tree(path: Path) -> None:
         log.warning("cannot remove %s: %s; remove it", path, error)
 
 
-def _make_parents(directory: Path) -> list[Path]:
-    """Create `directory` and its parents, and return the ones that did not exist, the topmost
-    first."""
-    missing = [path for path in (*reversed(directory.parents), directory) if not path.exists()]
-    directory.mkdir(parents=True, exist_ok=True)
-    return missing
+def _make_parents(directory: Path, made: list[Path]) -> None:
+    """Create `directory` and its parents one level at a time, topmost first. Each directory
+    that this call creates goes into `made` as soon as it exists, so that the caller can remove
+    exactly these directories, also after a failure part way."""
+    for path in (*reversed(directory.parents), directory):
+        if not path.exists():
+            path.mkdir()
+            made.append(path)
 
 
 def _remove_empty(directories: list[Path]) -> None:
@@ -670,11 +672,25 @@ def _remove_empty(directories: list[Path]) -> None:
             break
 
 
-def _remove_receipt(path: Path) -> None:
+def _read_receipt(path: Path) -> Optional[bytes]:
+    """The bytes of a receipt that an earlier install wrote, or `None` if there is none."""
     try:
-        path.unlink(missing_ok=True)
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _restore_receipt(path: Path, earlier: Optional[bytes]) -> None:
+    """Put the receipt back as it was before this attempt: the bytes of the earlier receipt, or
+    no file if there was none."""
+    try:
+        if earlier is None:
+            path.unlink(missing_ok=True)
+        else:
+            with replacing_file(path, "wb") as out:
+                out.write(earlier)
     except OSError as error:
-        log.warning("cannot remove %s: %s; remove it", path, error)
+        log.warning("cannot restore %s: %s; check it", path, error)
 
 
 def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
@@ -684,7 +700,8 @@ def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
     holds a directory of the platform only after an install that finished. Several platforms of
     one commit share `<root>/xeda/orfs/<commit>/`, and each install adds only its own directory.
     The partial directory, with its `.git`, is removed at the end. Whatever goes wrong, the store
-    keeps neither the partial directory, nor the receipt, nor the directory of the platform.
+    keeps neither the partial directory, nor a new receipt (an earlier receipt is put back), nor
+    the directory of the platform.
     Return the receipt."""
     entry = residue.providers.orfs
     assert entry is not None
@@ -706,13 +723,15 @@ def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
                     f"cannot install platform '{plan.platform}': commit {plan.version} lacks "
                     f"{', '.join(missing)} in {entry.directory}. Nothing is installed."
                 )
-        receipt = _write_receipt(plan, plan.directory)
+        receipt = _receipt_path(plan.root, plan.platform, plan.version)
+        earlier = _read_receipt(receipt)
         made: list[Path] = []
         try:
-            made = _make_parents(plan.directory.parent)
+            _write_receipt(plan, plan.directory)
+            _make_parents(plan.directory.parent, made)
             (work / entry.directory).rename(plan.directory)
         except BaseException:
-            _remove_receipt(receipt)
+            _restore_receipt(receipt, earlier)
             _remove_empty(made)
             raise
         return receipt

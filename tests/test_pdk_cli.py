@@ -1513,3 +1513,41 @@ def test_a_platform_file_that_fails_when_merged_is_refused_by_the_option(
     assert "missing" in message
     assert "--platform-file" in message
     assert not (tmp_path / "store").exists()
+
+
+def test_a_failed_rename_keeps_the_receipt_that_was_there(tmp_path, upstream, monkeypatch):
+    """An earlier install left a receipt. A new attempt that fails restores its bytes."""
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    receipt = root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
+    receipt.parent.mkdir(parents=True)
+    receipt.write_bytes(b'{"from": "an earlier install"}\n')
+
+    def refuse(self, target):
+        raise OSError(28, "No space left on device", str(target))
+
+    monkeypatch.setattr(Path, "rename", refuse)
+    with pytest.raises(PdkInstallFailed):
+        install_orfs(root, upstream)
+    assert receipt.read_bytes() == b'{"from": "an earlier install"}\n'
+    assert not (root / "xeda" / "orfs").exists()
+
+
+def test_a_failed_directory_creation_removes_the_parents_it_made(tmp_path, upstream, monkeypatch):
+    """A mkdir that fails after others succeeded: the directories this install made go."""
+    from xeda.platforms.providers import PdkInstallFailed
+
+    real_mkdir = Path.mkdir
+
+    def mkdir(self, *arguments, **keywords):
+        if self.name == "flow":
+            raise OSError(28, "No space left on device", str(self))
+        return real_mkdir(self, *arguments, **keywords)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    root = tmp_path / "store"
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert "No space left" in str(raised.value)
+    assert tree(root) == ["xeda", "xeda/.lock", "xeda/receipts"]
