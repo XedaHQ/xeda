@@ -97,8 +97,29 @@ proc __file_argument {name words} {
     error "$name: no file name given"
 }
 
+# The path with every symbolic link resolved, the last one too (`file normalize` leaves it).
+proc __resolve {path} {
+    set resolved [file normalize $path]
+    for {set depth 0} {$depth < 40} {incr depth} {
+        if {[catch {file readlink $resolved} target]} { return $resolved }
+        set resolved [file normalize [file join [file dirname $resolved] $target]]
+    }
+    error "too many levels of symbolic links: $path"
+}
+
+# A command writes only inside the working directory, whatever the path it is given says:
+# absolute, with `..`, or through a symbolic link that leads out.
+proc __inside {path} {
+    set root [__resolve [pwd]]
+    set resolved [__resolve $path]
+    expr {$resolved eq $root || [string first "$root/" $resolved] == 0}
+}
+
 proc __write {name args} {
     set path [__file_argument $name $args]
+    if {![__inside $path]} {
+        error "$name: $path is outside the working directory; the fake OpenROAD does not write it"
+    }
     set text [list $name {*}$args]
     foreach root $::__roots { set text [string map [list $root .] $text] }
     set f [open $path w]
@@ -106,9 +127,19 @@ proc __write {name args} {
     close $f
 }
 
+# The commands that read a file, and what OpenROAD does when it is missing: an error that names
+# the file. The file is the last word of the command; its options are not checked.
+set __readers {read_db read_sdc read_lef read_liberty read_verilog read_def read_spef}
+
+proc __read {name args} {
+    set path [lindex $args end]
+    if {![file isfile $path]} { error "$name: cannot read $path: no such file" }
+}
+
 proc __command {name args} {
     __record $name {*}$args
     if {$name in $::__fail} { error "$name failed" }
+    if {$name in $::__readers} { __read $name {*}$args }
     if {[dict exists $::__writers $name]} { __write $name {*}$args }
     __returned [list $name {*}$args] [expr {[dict exists $::__defaults $name] ? [dict get $::__defaults $name] : ""}]
 }

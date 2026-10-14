@@ -87,6 +87,8 @@ def test_the_prelude_defines_every_command(tmp_path):
 def test_a_typo_is_a_tcl_error(tmp_path):
     require_tclsh()
     run = tmp_path / "run"
+    run.mkdir()
+    (run / "a.odb").write_text("")
     result = run_fake(run, "read_db a.odb\nglobal_placment -density 0.5\nwrite_db late.odb\n")
     assert result.returncode != 0
     assert 'invalid command name "global_placment"' in result.stderr
@@ -352,3 +354,117 @@ def test_the_recorded_metrics_hold_the_values_of_the_real_run():
     assert shared and all(key.startswith("run__") for key in shared)
     assert sum(len(k) for k in keys) - len(shared) * (len(keys) - 1) == len(set().union(*keys))
     assert os.path.isfile(PRELUDE)
+
+
+WRITERS = (
+    "write_db",
+    "write_sdc -no_timestamp",
+    "write_def",
+    "write_verilog",
+    "write_spef",
+    "write_guides",
+    "write_cdl -masters masters.cdl",
+    "write_sdf",
+    "write_abstract_lef",
+    "write_timing_model",
+    "save_image -resolution 1.5",
+)
+
+
+@pytest.mark.parametrize("writer", WRITERS)
+def test_a_writer_stays_inside_the_working_directory(tmp_path, writer):
+    require_tclsh()
+    run, outside = tmp_path / "run", tmp_path / "outside"
+    outside.mkdir()
+    (run / "sub").mkdir(parents=True)
+    (run / "to_outside").symlink_to(outside, target_is_directory=True)
+    (run / "inside_link").symlink_to(run / "sub", target_is_directory=True)
+    (outside / "inner").mkdir()
+    (run / "deep").symlink_to(outside / "inner", target_is_directory=True)
+    (outside / "victim.txt").write_text("unchanged\n")
+    (run / "link.txt").symlink_to(outside / "victim.txt")
+    (run / "dangling.txt").symlink_to(outside / "new.txt")
+    escapes = (
+        f"{outside}/a.out",  # an absolute path elsewhere
+        "../outside/b.out",  # `..`
+        "sub/../../outside/c.out",
+        "to_outside/d.out",  # through a link to a directory outside
+        "inside_link/../../outside/e.out",  # `..` after a link
+        "deep/../f.out",  # `..` after a link is the parent of the link's target
+        "link.txt",  # a link to a file outside
+        "dangling.txt",  # a link to a file outside that does not exist
+    )
+    script = (
+        f"set f [open {tmp_path}/outcomes.txt w]\n"
+        f"foreach target {{{' '.join(escapes)}}} {{\n"
+        f"  set failed [catch {{{writer} $target}} message]\n"
+        '  puts $f "$failed|$target|$message"\n'
+        "}\nclose $f\n"
+    )
+    assert run_fake(run, script).returncode == 0
+    outcomes = (tmp_path / "outcomes.txt").read_text().splitlines()
+    assert len(outcomes) == len(escapes)
+    for outcome, target in zip(outcomes, escapes):
+        failed, _, message = outcome.partition("|")
+        assert failed == "1" and "outside the working directory" in message, outcome
+        assert target in message, outcome
+    # the same, as the failure of the fake OpenROAD run
+    result = run_fake(run, f"{writer} {escapes[0]}\n")
+    assert result.returncode != 0 and "outside the working directory" in result.stderr
+    assert sorted(path.name for path in outside.iterdir()) == ["inner", "victim.txt"]
+    assert list((outside / "inner").iterdir()) == []
+    assert (outside / "victim.txt").read_text() == "unchanged\n"
+    # a target inside the directory still works: relative, absolute, and through a link inside
+    for target in ("a.out", f"{run}/b.out", "sub/../c.out", "inside_link/d.out"):
+        assert run_fake(run, f"{writer} {target}\n").returncode == 0, target
+    assert all((run / "sub" / name).is_file() for name in ("d.out",))
+    assert all((run / name).is_file() for name in ("a.out", "b.out", "c.out"))
+
+
+def test_the_metrics_file_stays_inside_the_working_directory(tmp_path):
+    require_tclsh()
+    run, outside = tmp_path / "run", tmp_path / "outside"
+    outside.mkdir()
+    run.mkdir()
+    (run / "link.json").symlink_to(outside / "new.json")
+    for target in (f"{outside}/m.json", "../outside/m.json", "link.json"):
+        result = run_fake(run, "write_db a.odb\n", metrics=target)
+        assert result.returncode != 0, target
+        assert "outside the working directory" in result.stderr, result.stderr
+    assert list(outside.iterdir()) == []
+    assert run_fake(run, "write_db a.odb\n", metrics=f"{run}/m.json").returncode == 0
+    assert (run / "m.json").is_file()
+
+
+READERS = (
+    "read_db",
+    "read_sdc",
+    "read_lef",
+    "read_liberty",
+    "read_verilog",
+    "read_def",
+    "read_spef",
+)
+
+
+@pytest.mark.parametrize("reader", READERS)
+def test_a_reader_needs_its_file(tmp_path, reader):
+    require_tclsh()
+    run = tmp_path / "run"
+    result = run_fake(run, f"{reader} no_such_file.x\nwrite_db late.odb\n")
+    assert result.returncode != 0
+    assert "no_such_file.x" in result.stderr and "no such file" in result.stderr
+    assert not (run / "late.odb").exists()
+    assert re.search(
+        r"^TCL-ERROR .*no_such_file\.x", (run / "fake_openroad.calls").read_text(), re.M
+    )
+    # the file is the last word, after the options and their values, and a directory is no file
+    (run / "present.x").write_text("")
+    options = {
+        "read_liberty": "-corner typical",
+        "read_spef": "-name n -reduce",
+        "read_db": "-hier",
+    }
+    assert run_fake(run, f"{reader} {options.get(reader, '')} present.x\n").returncode == 0
+    (run / "dir.x").mkdir()
+    assert run_fake(run, f"{reader} dir.x\n").returncode != 0

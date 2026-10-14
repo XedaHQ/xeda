@@ -47,7 +47,9 @@ def write_file(path, data):
 
 
 # The commands of the tool a script runs are recorded, not run: `unknown` catches every command
-# tclsh does not know. The recording goes to `fake_<tool>.calls` in the working directory (the
+# tclsh does not know. (The fake OpenROAD is the exception: it defines exactly the commands of
+# `OPENROAD_COMMANDS`, has no `unknown`, and runs `fake_openroad_prelude.tcl` instead of this
+# recorder. See `run_openroad`.) The recording goes to `fake_<tool>.calls` in the working directory (the
 # run directory), one `CALL <n>` line per command followed by its `ARG` lines -- and `ELEM` lines
 # for the files of an argument that is a TCL list (`[list "a b.v"]`). The commands named in
 # `XEDA_FAKE_TOOL_FAIL` (a TCL list) raise a TCL error after being recorded, and
@@ -842,10 +844,14 @@ def run_openroad(*, script: str | None = None, metrics: str | None = None, **_op
             key=len,
             reverse=True,
         )
+        calls = Path(here) / "fake_openroad.calls"
+        if not calls.resolve().is_relative_to(Path(here).resolve()):
+            print(f"fake openroad: {calls} leads outside the working directory", file=sys.stderr)
+            return 1
         command = [
             tclsh,
             str(OPENROAD_PRELUDE),
-            str(Path(here) / "fake_openroad.calls"),
+            str(calls),
             str(Path(script).absolute()),
             _tcl_list(roots),
             _tcl_list(openroad_commands()),
@@ -857,7 +863,15 @@ def run_openroad(*, script: str | None = None, metrics: str | None = None, **_op
             Path(directory) if directory else OPENROAD_METRICS_DIR
         ) / f"{Path(script or '').stem}.json"
         if script and recorded.is_file():
-            shutil.copyfile(recorded, metrics)
+            target = Path(metrics).resolve()
+            if not target.is_relative_to(Path.cwd().resolve()):
+                print(
+                    f"fake openroad: the metrics file {metrics} is outside the working "
+                    "directory; the fake OpenROAD does not write it",
+                    file=sys.stderr,
+                )
+                return 1
+            shutil.copyfile(recorded, target)
     return status
 
 
