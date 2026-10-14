@@ -44,14 +44,16 @@ The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `
 | `flow`, `design`, `design_file`, `target` | requested flow; the design's name; the design file you named (absolute, or `null`); the selected target (or `null`) |
 | `success`, `results` | verdict; the flow's `results.json` content (keys: `xeda list-results`) |
 | `run_path`, `results_json`, `settings_json` | the run directory and two of its files |
-| `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `not run`), `reason`, `deliveries`, `inputs` |
+| `request`, `nodes` | the flows asked for; every run directory touched, with `state` (`fresh`, `ran`, `failed`, `rejected again`, `blocked`, `not run`), `reason`, `deliveries`, `inputs` |
 | `error` | on failure only: `{type, message}`; see "When a run fails" |
 
 A dry run adds `dry_run: true` and `plan` (`requested`, `target`, `nodes`). A plan node has `name`,
 `flow`, `run_path`, `flowrun_hash`, `settings_hash`, `inputs` (`origin`: `producer`, `source` or
 `none`; `binding_origin`), `switched_on`, `state`, `reason`, `action_reason`, `input_types` and
-`output_types`. `state` is `fresh` (reused), `stale` (runs; `reason` is the one the log gives) or
-`unknown` (`reason` says why, for example `depends on yosys_fpga`).
+`output_types`. `state` is `fresh` (reused), `stale` (runs; `reason` is the one the log gives),
+`unknown` (`reason` says why, for example `depends on yosys_fpga`), `rejected again` (the
+checks rejected the last run and nothing it consumes changed; `reason` is the recorded message, and
+the flow does not run) or `blocked` (a producer was rejected or is blocked; `reason` names it).
 
 ## Plan before you run
 
@@ -261,13 +263,13 @@ the flow writes them, and:
 | File | Content |
 | --- | --- |
 | `settings.json` | `flow_settings` (the merged input) and `effective_flow_settings` (what the flow made of it; read it first when a run surprises you) |
-| `results.json` | the parsed results; a failed run writes `success: false` and `error.type`/`error.message` |
-| `trace.json` | what the run consumed and produced; present only after a success |
+| `results.json` | the parsed results; a failed run writes `success: false` and `error.type`/`error.message`; a run that its checks rejected keeps `trace.json`; an unchanged launch reports it again (state `rejected again`); `--rebuild-all` runs it |
+| `trace.json` | what the run consumed and produced; present after a run that passed or that its checks rejected |
 
 ## Rebuilds
 
 A run is make-like: a flow runs only when its settings, sources, tools, Xeda code or outputs
-changed since its last success; otherwise its recorded results are reused. Inputs outside the
+changed since its last success or rejection; otherwise its recorded results are reused. Inputs outside the
 trace (indirect programs, environment variables, files a tool finds on its own) are not tracked.
 
 | Need | Option |

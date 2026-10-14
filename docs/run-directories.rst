@@ -284,9 +284,10 @@ first. A launch has one run per flow and enters each run directory once.
 ``trace.json``
 ---------------
 
-Xeda writes the trace last and atomically, only after a run succeeds. It removes the trace before
-the next run in that directory executes. The presence of the trace alone therefore means that the
-last run here completed and succeeded. The trace records:
+Xeda writes the trace last and atomically, only after a run passed or its checks rejected it. It
+removes the trace before the next run in that directory executes. The presence of the trace alone
+therefore means that the last run here completed. Its ``verdict`` is ``passed`` or ``rejected``.
+The trace records:
 
 - The identity of the run: ``flowrun_hash`` (the settings and where the declared inputs come from),
   ``settings_hash`` (the settings alone) and the design hash.
@@ -449,6 +450,21 @@ A generation happens while Xeda loads the design, before any flow or run directo
 why the record lives in the run root and not beside the design. It is also why a design that is
 loaded with no run root generates every time. ``--rebuild-all`` and ``--clean`` regenerate, as they
 run every flow again. See :ref:`generators`.
+
+A run that its checks rejected
+------------------------------
+
+A run can complete and still fail its checks: timing is not met with ``fail_timing``, or a test
+of a simulation fails. Xeda keeps the trace of such a run. A launch with the same settings, inputs
+and tools reports the same failure again and does not run the tools. The log says so, and
+``xeda run --json`` gives the node the state ``rejected again``. A flow that reads this run's
+outputs does not run either: its state is ``blocked``. To run the flow again, change what it
+consumes, or run with ``--rebuild-all``. A file that the run reads but that no setting or source
+names is no input: declare it as a source of the design, or its edits go unnoticed. A failure
+before the checks (a tool error, a crash, a kill, a timeout, a missing report) keeps no record, and
+the next launch runs the flow again. A tool that stops with an error when timing is not met fails
+before the checks: ``nextpnr`` does so unless ``timing_allow_fail`` is set, so its timing failure
+runs again at every launch.
 
 What is not tracked
 ---------------------

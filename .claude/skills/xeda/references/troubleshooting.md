@@ -8,6 +8,10 @@
    `FlowDependencyFailure`: open the failed producer's `results.json` (the message names it) and
    start there. `nodes` lists every run directory; a node planned but never entered shows
    `"state": "not run"`.
+   A run that its checks rejected (timing not met with `fail_timing`, a failed test) is reported
+   again, unchanged, on the next launch with the same inputs and settings: its node state is
+   `rejected again`. `--rebuild-all` runs it again. A consumer of a failed or rejected producer is
+   `blocked`.
 3. `settings.json` in `run_path`: `flow_settings` is what you asked for, `effective_flow_settings`
    is what the flow made of it.
 4. The tool log and the generated scripts in `run_path`. Add `--debug` for verbose logs and a
@@ -77,7 +81,9 @@ A malformed chain is `BadParameter` (exit 2) before anything runs.
 - `ReportedFailure`: a node's `results.json` says so when its reports or checks failed with no
   exception and no tool exit status, for example a tool that exited 0 and wrote no netlist. The
   top-level document says `FlowFailed`; consumers quote the message
-  (`producer yosys_fpga failed: ...`).
+  (`producer yosys_fpga failed: ...`). A rejected run (timing not met with `fail_timing`, a failed
+  test) is reported again on an unchanged launch (node state `rejected again`); `--rebuild-all`
+  runs it again.
 - `MissingOutput`: a declared output is absent, unreadable, outside the run directory or not
   written by this run. `nextpnr` reports its own missing configuration as `FlowFatalError`, naming
   the setting and path.
@@ -207,5 +213,7 @@ PULLUP`.
 A run reuses `xeda_run/<design>/<flow>/` (`<design>/<target>/<flow>/` with a target), which keeps
 incremental tool state. A flow that runs logs `Running <flow>: <reason>`; an up-to-date flow logs
 that and shows its recorded results. If a result looks stale or wrong, run `xeda run ... --dry-run
---json` to see each node as `fresh`, `stale` (with the reason) or `unknown`, then use `--rebuild-all`
-or `--clean` (see "Rebuilds" in `SKILL.md`).
+--json` to see each node as `fresh`, `stale` (with the reason), `unknown`, `rejected again` or
+`blocked`, then use `--rebuild-all` or `--clean` (see "Rebuilds" in `SKILL.md`). A failure that is
+reported again although you changed a data file the testbench reads means that the file is not
+declared: declare it as a source, or use `--rebuild-all`.
