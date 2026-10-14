@@ -22,7 +22,7 @@ proc xeda_floorplan {} {
 {% if fp.sizing == "utilization" %}
     # The utilization is that of the netlist as it is now. The repairs below and the tap cells add
     # area, so the utilization after the placement is higher than this value.
-{% set size = ["-utilization " ~ (fp.core_utilization|tcl_number), "-aspect_ratio " ~ (fp.aspect_ratio|tcl_number), "-core_space " ~ ((fp.core_margin|tcl_number) if fp.core_margin is number else (fp.core_margin|tcl_numbers))] %}
+{% set size = ["-utilization " ~ (fp.core_utilization_percent|tcl_number), "-aspect_ratio " ~ (fp.aspect_ratio|tcl_number), "-core_space " ~ ((fp.core_margin|tcl_number) if fp.core_margin is number else (fp.core_margin|tcl_numbers))] %}
 {% else %}
 {% set size = ["-die_area " ~ (fp.die_area|tcl_numbers), "-core_area " ~ (fp.core_area|tcl_numbers)] %}
 {% endif %}

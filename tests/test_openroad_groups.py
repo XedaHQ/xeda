@@ -422,8 +422,8 @@ FLOORPLAN_REFUSALS = [
     ),
     (("floorplan.def_file=a.def",), "`floorplan.def_file` is a leaf of `floorplan.sizing: def`"),
     (
-        ("floorplan.sizing=area", "floorplan.core_utilization=40"),
-        "`floorplan.core_utilization` is a leaf of `floorplan.sizing: utilization`",
+        ("floorplan.sizing=area", "floorplan.core_utilization_percent=40"),
+        "`floorplan.core_utilization_percent` is a leaf of `floorplan.sizing: utilization`",
     ),
     (
         ("floorplan.sizing=area", {"floorplan.die_area": [0, 0, 100, 100]}),
@@ -482,8 +482,8 @@ def test_the_floorplan_accepts_each_way_of_sizing():
 @pytest.mark.parametrize(
     "item",
     [
-        "floorplan.core_utilization=0",
-        "floorplan.core_utilization=101",
+        "floorplan.core_utilization_percent=0",
+        "floorplan.core_utilization_percent=101",
         "floorplan.aspect_ratio=0",
         "floorplan.core_margin=-1",
         "floorplan.sizing=file",
@@ -496,7 +496,7 @@ def test_the_floorplan_refuses_a_value_out_of_range(item):
 
 def test_the_defaults_of_the_floorplan_are_the_stage_defaults():
     floorplan = OpenroadPlace.Settings().floorplan
-    assert (floorplan.sizing, floorplan.core_utilization) == ("utilization", 50.0)
+    assert (floorplan.sizing, floorplan.core_utilization_percent) == ("utilization", 50.0)
     assert (floorplan.aspect_ratio, floorplan.core_margin) == (1.0, 1.0)
     assert (floorplan.die_area, floorplan.core_area, floorplan.def_file) == (None, None, None)
 

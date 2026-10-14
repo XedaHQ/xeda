@@ -2158,7 +2158,7 @@ def test_the_prepared_inputs_are_the_files_that_the_dry_run_locates(tmp_path):
 
 
 def test_a_valid_set_of_settings_plans(tmp_path):
-    planned = plan(tmp_path, "floorplan.core_utilization=40")
+    planned = plan(tmp_path, "floorplan.core_utilization_percent=40")
     assert [node.name for node in planned.nodes] == ["openroad_place"]
 
 
@@ -2174,9 +2174,9 @@ def test_arith_swap_needs_the_hierarchy(tmp_path):
         (["floorplan.sizing=area"], None, r"die_area.*core_area"),
         (["floorplan.sizing=def"], None, r"floorplan\.def_file"),
         (
-            ["floorplan.core_utilization=40", "floorplan.sizing=area"],
+            ["floorplan.core_utilization_percent=40", "floorplan.sizing=area"],
             {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 9, 9]},
-            r"core_utilization.*sizing: utilization",
+            r"core_utilization_percent.*sizing: utilization",
         ),
         (
             [],
@@ -2618,5 +2618,5 @@ def test_a_synthesized_netlist_chains_into_the_placement(tmp_path, monkeypatch):
 
 
 def test_a_netlist_source_of_the_design_displaces_the_synthesis(tmp_path):
-    planned = plan(tmp_path, "floorplan.core_utilization=40")
+    planned = plan(tmp_path, "floorplan.core_utilization_percent=40")
     assert [node.name for node in planned.nodes] == ["openroad_place"]

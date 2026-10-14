@@ -206,12 +206,12 @@ class FloorplanGroup(SettingsGroup):
     sizing: Literal["utilization", "area", "def"] = Field(
         "utilization",
         description="How the floorplan gets its size. `utilization` computes the core from the "
-        "area of the netlist, with `core_utilization`, `aspect_ratio` and `core_margin`. `area` "
+        "area of the netlist, with `core_utilization_percent`, `aspect_ratio` and `core_margin`. `area` "
         "takes the die and the core from `die_area` and `core_area`. `def` takes the die, the "
         "core, the rows and the tracks from the file `def_file`.",
         json_schema_extra=tier("common"),
     )
-    core_utilization: float = Field(
+    core_utilization_percent: float = Field(
         50.0,
         gt=0,
         le=100,
@@ -326,7 +326,7 @@ class FloorplanGroup(SettingsGroup):
 
     #: The leaves that one way of sizing owns, with the ways. A leaf of another way has no effect.
     OWNERS: ClassVar[dict[str, tuple[str, ...]]] = {
-        "core_utilization": ("utilization",),
+        "core_utilization_percent": ("utilization",),
         "aspect_ratio": ("utilization",),
         "core_margin": ("utilization",),
         "die_area": ("area",),
