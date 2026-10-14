@@ -61,7 +61,9 @@ def test_the_abc_measures_default_to_unset_and_auto_is_a_delay_target():
         ("delay_target", -1, "needs a unit"),
         ("delay_target", "-1 ps", "must be at least 0 ns"),
         ("delay_target", "5 MHz", "is a frequency, not a time"),
-        ("delay_target", "Auto", "cannot read `Auto` as a time"),
+        ("delay_target", "Auto", "cannot read `Auto` as a time: did you mean `auto`"),
+        ("delay_target", " AUTO ", "did you mean `auto`"),
+        ("delay_target", "fast", "such as `10 ns`; or write `auto`"),
         ("max_slew", 100, "needs a unit"),
         ("max_slew", "100.5 ps", "got 100.5 ps: ABC's `buffer -S` takes an integer"),
         ("max_slew", "0 ps", "at least 1 ps and a whole number of picoseconds"),
@@ -93,6 +95,14 @@ def test_the_check_of_the_slew_reads_only_the_value_of_the_field():
     assert settings.abc.max_slew == Time("150 ps")
     with pytest.raises(REFUSED, match="whole number of picoseconds"):
         settings.abc.max_slew = "1.5 ps"  # type: ignore[assignment]
+
+
+@pytest.mark.parametrize("value", [500, "500", "-1 ps", "5 MHz"])
+def test_only_text_that_is_no_time_at_all_suggests_auto(value):
+    with pytest.raises(REFUSED) as raised:
+        _abc(delay_target=value)
+
+    assert "auto" not in str(raised.value)
 
 
 def test_a_bad_delay_target_names_the_quantity_problem():

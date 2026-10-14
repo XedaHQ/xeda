@@ -677,9 +677,14 @@ class AbcGroup(SettingsGroup):
             times = [e for e in error.errors() if e["type"] != "literal_error"]
             if not times:
                 raise
-            raise PydanticCustomError(
-                "quantity", "{message}", {"message": times[0]["msg"]}
-            ) from None
+            message = times[0]["msg"]
+            if isinstance(value, str) and "cannot read" in message:
+                # The text is no time. A user who wrote `Auto` or `AUTO` meant the other branch.
+                if value.strip().casefold() == "auto":
+                    message = f"cannot read `{value}` as a time: did you mean `auto`?"
+                else:
+                    message += "; or write `auto`"
+            raise PydanticCustomError("quantity", "{message}", {"message": message}) from None
 
     clock_derating: float = Field(
         0.0,
