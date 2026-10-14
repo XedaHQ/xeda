@@ -90,7 +90,8 @@ class Terminal:
 
     def close(self) -> None:
         self.stream.close()  # the reader reads the end of the output and returns
-        self.reader.join()  # a later terminal must not get the number of a descriptor still read
+        self.reader.join(30)  # a later terminal must not get the number of a descriptor still read
+        assert not self.reader.is_alive(), "the output of the terminal did not end"
         os.close(self.master)
 
 
@@ -264,6 +265,7 @@ def test_the_last_output_of_a_child_that_ended_is_not_lost(tmp_path):
     of the output holds a slave end until the child has ended and its output is read. Only
     macOS tells the held slave end from a closed one; on Linux the output is kept either way."""
     master, slave = pty.openpty()
+    held = [slave]  # the slave end the copy releases
     shown = tmp_path / "shown.txt"
     log = tmp_path / "tool.log"
     try:
@@ -275,10 +277,11 @@ def test_the_last_output_of_a_child_that_ended_is_not_lost(tmp_path):
             shown.open("w", encoding="utf-8", newline="") as stream,
         ):
             proc_utils._copy_from_terminal(
-                master, log_file, stream, lambda: True, lambda: os.close(slave)
+                master, log_file, stream, lambda: True, lambda: os.close(held.pop())
             )
     finally:
-        os.close(master)
+        for fd in (master, *held):
+            os.close(fd)
     assert log_lines(log) == ["first\ufffd"]
     assert shown.read_text(encoding="utf-8") == "first\ufffd"
 
