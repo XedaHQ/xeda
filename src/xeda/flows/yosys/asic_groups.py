@@ -626,7 +626,10 @@ class AbcGroup(SettingsGroup):
     mapper: Literal["abc", "abc_new"] = Field(
         "abc",
         description="The yosys command that runs ABC. `abc_new` is experimental in yosys. It maps "
-        "with its own script, so it refuses `abc.strategy` other than `area` and `abc_script`.",
+        "with a script that works on a GIA and ends in a mapped one (`&nf`). Unless `abc_script` "
+        "gives one, it maps with the script `abc_speed_gia_only.script` of "
+        "OpenROAD-flow-scripts. It refuses `abc.strategy` other than `area`: those scripts end in "
+        "a network.",
         json_schema_extra=tier("advanced"),
     )
     driver_cell: Optional[str] = Field(

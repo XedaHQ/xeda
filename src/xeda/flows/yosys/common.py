@@ -696,7 +696,9 @@ class YosysSynthesisBase(YosysBase):
         abc_script: Optional[str] = Field(
             None,
             description="Custom abc script, replacing the default mapping script: a script file, "
-            'or the script itself written inline after a "+" ("+strash;map"). Advanced: a '
+            'or the script itself written inline after a "+" ("+strash;map"). With '
+            "`abc.mapper: abc_new` in `yosys`, the script works on a GIA and must end in a mapped "
+            "one (`&nf`), and it replaces the scripts of wrapped operators. Advanced: a "
             "wrong script silently produces a poor or invalid netlist.",
         )
 

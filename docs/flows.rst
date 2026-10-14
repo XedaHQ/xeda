@@ -1369,9 +1369,13 @@ settings of one stage, and its common settings are these:
     instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
     (berkeley-abc/abc#445).
     ``abc.mapper: abc_new`` maps with the ``abc_new`` command of yosys instead, in a ``ys`` or a
-    ``tcl`` script. The command is experimental in yosys. It maps with a script of its own, so
-    Xeda refuses ``abc.strategy`` other than ``area``, ``abc_script``, ``abc_dff: true``,
-    ``abc.liberty_args`` and ``abc.dress: true``.
+    ``tcl`` script. The command is experimental in yosys. It maps with a script that works on a GIA
+    and ends in a mapped one (``&nf``): ``abc_script``, or else the script
+    ``abc_speed_gia_only.script`` of OpenROAD-flow-scripts that Xeda writes into the run directory.
+    With ``arithmetic.wrap_operators``, each wrapped operator maps with its own script unless
+    ``abc_script`` replaces it. Xeda refuses ``abc.strategy`` other than ``area``, because those
+    scripts end in a network, and ``abc.liberty_args`` and ``abc.dress: true``, which ``abc_new`` has
+    no option for.
 
 ``finish``
     The commands after the mapping: the undefined values, the tie and buffer cells, the formal

@@ -675,24 +675,63 @@ def test_the_script_strips_only_the_attributes_that_the_settings_name(tmp_path, 
     assert not set(OPERATOR_ATTRIBUTES) & {word for call in calls for word in call[:-1]}
 
 
-def test_abc_new_refuses_a_strategy_and_an_abc_script_naming_both():
-    problems = _refused(
-        platform="nangate45",
-        script_format="tcl",
-        abc_script="+strash",
-        abc={"mapper": "abc_new", "strategy": "speed"},
-    )
-    for key, setting in (("abc.strategy", "abc.strategy"), ("abc_script", "abc_script")):
-        message = problems[key]
-        assert f"`{setting}`" in message and "`abc.mapper: abc_new`" in message, message
-    # the default strategy is no choice, and the strategy `yosys` is one
+def test_abc_new_refuses_a_strategy_saying_that_its_script_does_not_end_in_a_mapped_gia():
+    for strategy in ("speed", "yosys", "area_0"):
+        problems = _refused(
+            platform="nangate45",
+            script_format="tcl",
+            abc={"mapper": "abc_new", "strategy": strategy},
+        )
+        assert list(problems) == ["abc.strategy"]
+        message = problems["abc.strategy"]
+        for word in (
+            f"`abc.strategy` (`{strategy}`)",
+            "`abc.mapper: abc_new`",
+            "`&nf`",
+            "abc_script",
+        ):
+            assert word in message, message
+    # the default strategy is no choice
     Yosys.check_settings_supported(
         Yosys.Settings(platform="nangate45", script_format="tcl", **ABC_NEW)
     )
-    problems = _refused(
-        platform="nangate45", script_format="tcl", abc={"mapper": "abc_new", "strategy": "yosys"}
-    )
-    assert list(problems) == ["abc.strategy"]
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_abc_new_takes_an_inline_abc_script_with_script_and_writes_no_script_file(
+    tmp_path, monkeypatch, script_format
+):
+    inline = "+&st;&dch;&nf"
+    settings = _tiny(tmp_path, script_format=script_format, abc_script=inline, **ABC_NEW)
+    Yosys.check_settings_supported(Yosys.Settings.from_input(settings))
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    commands = _commands(run_dir, script_format, tmp_path)
+    (abc_new,) = _words(commands, "abc_new")
+    assert abc_new[:3] == ["abc_new", "-script", inline]
+    assert not _words(commands, "abc") and not _words(commands, "scratchpad")
+    assert not (run_dir / ABC_NEW_SCRIPT).exists()
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_abc_new_takes_the_file_of_an_abc_script_as_the_flow_resolves_it(
+    tmp_path, monkeypatch, script_format
+):
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "map.script").write_text("&st\n&nf\n")
+    settings = _tiny(tmp_path, script_format=script_format, abc_script="map.script", **ABC_NEW)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    (abc_new,) = _words(_commands(run_dir, script_format, tmp_path), "abc_new")
+    assert abc_new[:3] == ["abc_new", "-script", str(tmp_path / "design" / "map.script")]
+    assert not (run_dir / ABC_NEW_SCRIPT).exists()
+
+
+def test_wrapped_operators_take_an_abc_script_of_the_user_which_replaces_theirs(
+    tmp_path, monkeypatch
+):
+    """The user asks for it by name, so it goes to `abc_new` even with wrapping."""
+    _, calls = _render(tmp_path, monkeypatch, abc_script="+&st;&nf", **WRAPPED)
+    (abc_new,) = _words(calls, "abc_new")
+    assert abc_new[:3] == ["abc_new", "-script", "+&st;&nf"]
 
 
 def test_the_tcl_modes_arrive_at_planning_before_any_run_directory(tmp_path):
@@ -836,6 +875,26 @@ def test_real_yosys_maps_with_abc_new_in_a_ys_script(tmp_path):
     assert re.search(r"ABC: \+ source \S*abc_speed_gia_only\.script", log)
     assert re.search(r"^\s*(INV|NAND2|NOR2|BUF)_X\d\b", netlist, re.M)
     assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_real_yosys_maps_with_abc_new_and_a_script_of_the_user(tmp_path, script_format):
+    """A script for `abc_new` works on a GIA and ends in a mapped one: here a short one."""
+    if script_format == "ys":
+        require_yosys()
+    else:
+        require_yosys_tcl()
+    flow, netlist = _launch(
+        tmp_path,
+        ADDER,
+        "adder",
+        script_format=script_format,
+        abc_script="+&st;&dch;&nf",
+        abc={"mapper": "abc_new"},
+    )
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "ABC: + &dch" in log and "ABC: + &syn2" not in log
+    assert re.search(r"^\s*(INV|NAND2|NOR2|BUF)_X\d\b", netlist, re.M)
 
 
 def test_real_yosys_maps_with_abc_new_alone_by_the_script_file(tmp_path):

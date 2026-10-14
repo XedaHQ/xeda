@@ -219,8 +219,9 @@ class AsicValues:
     * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints.
     * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
     * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
-    * `abc_new_script`: the name of the script file that `abc_new` maps with, when
-      `abc.mapper` is `abc_new` and no operator is wrapped.
+    * `abc_new_script`: the `-script` of `abc_new`, when `abc.mapper` is `abc_new`: `abc_script`,
+      or else the name of the script file that the flow writes (`ABC_NEW_SCRIPT`), but none when
+      operators are wrapped.
     * `wrap_script`, `booth_map`: the names of the files of the package that wrap the operators,
       when `arithmetic.wrap_operators` is on. `run` copies each into the run directory, and the
       script names the copy, since a container does not mount the package.
@@ -629,24 +630,16 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         "true",
                     )
                 )
-        if abc_new:
-            if settings.abc.strategy != "area":
-                problems.append(
-                    (
-                        "abc.strategy",
-                        f"`abc.strategy` (`{settings.abc.strategy}`) has no effect with "
-                        "`abc.mapper: abc_new`, which maps with its own script: delete "
-                        "`abc.strategy`",
-                    )
+        if abc_new and settings.abc.strategy != "area":
+            problems.append(
+                (
+                    "abc.strategy",
+                    f"`abc.strategy` (`{settings.abc.strategy}`) cannot run with "
+                    "`abc.mapper: abc_new`: the script of a strategy ends in a network, and "
+                    "`abc_new` needs a script that ends in a mapped GIA (`&nf`). Delete "
+                    "`abc.strategy`, or give such a script in `abc_script`",
                 )
-            if settings.abc_script is not None:
-                problems.append(
-                    (
-                        "abc_script",
-                        "`abc_script` has no effect with `abc.mapper: abc_new`, which maps with "
-                        "its own script: delete `abc_script`",
-                    )
-                )
+            )
         return problems
 
     def add_template_helpers(self) -> None:
@@ -708,6 +701,20 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             ss.splitnets = mapping
         if mapping and ss.flatten is None:
             ss.flatten = True
+
+    def _abc_new_script(self) -> Optional[str]:
+        """Return the `-script` of `abc_new`, or None when it gets none.
+
+        The script of the user replaces everything, the scripts of wrapped operators too. Without
+        it, `abc_new` maps with the file that the flow writes, unless operators are wrapped:
+        each wrapped operator carries its own script, which a `-script` would replace."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.abc.mapper != "abc_new":
+            return None
+        if ss.abc_script is not None:
+            return ss.abc_script
+        return None if ss.arithmetic.wrap_operators else ABC_NEW_SCRIPT
 
     def asic_values(self) -> AsicValues:
         """Return the values of a mapping to a liberty library, with the platform's defaults.
@@ -812,11 +819,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     ),
                 )
             ),
-            abc_new_script=(
-                ABC_NEW_SCRIPT
-                if ss.abc.mapper == "abc_new" and not ss.arithmetic.wrap_operators
-                else None
-            ),
+            abc_new_script=self._abc_new_script(),
             wrap_script=WRAP_SCRIPT if ss.arithmetic.wrap_operators else None,
             booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
             wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
@@ -877,7 +880,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             if name:
                 replacing_copy(_asic_data(name), self.run_directory.writable(name))
 
-        if asic.abc_new_script:
+        if asic.abc_new_script == ABC_NEW_SCRIPT:
             with replacing_file(self.run_directory.writable(asic.abc_new_script)) as f:
                 f.write(ABC_SPEED_GIA_ONLY)
 
