@@ -13,6 +13,9 @@
 # other command is a Tcl error ("invalid command name"), as it is in OpenROAD. A command records
 # itself, raises an error if `XEDA_FAKE_TOOL_FAIL` (a Tcl list of command names) names it, and
 # returns what `XEDA_FAKE_TOOL_RETURNS` (a Tcl dictionary) says, or else its value below.
+# `extract_parasitics` also writes `<top>.totCap` in the working directory when the environment
+# variable `XEDA_FAKE_OPENROAD_TOP` names the top module: the files of OpenRCX that some versions
+# leave there. The fake has no design, so it cannot know the name by itself.
 
 lassign $argv __calls_file __script __roots __commands
 
@@ -136,11 +139,25 @@ proc __read {name args} {
     if {![file isfile $path]} { error "$name: cannot read $path: no such file" }
 }
 
+# The file that OpenRCX leaves in the working directory while it extracts. It holds a line of
+# text, and it lies inside the working directory like every file that the fake writes.
+proc __write_totcap {} {
+    if {![info exists ::env(XEDA_FAKE_OPENROAD_TOP)]} { return }
+    set path "$::env(XEDA_FAKE_OPENROAD_TOP).totCap"
+    if {![__inside $path]} {
+        error "extract_parasitics: $path is outside the working directory; the fake OpenROAD does not write it"
+    }
+    set f [open $path w]
+    puts $f "totCap"
+    close $f
+}
+
 proc __command {name args} {
     __record $name {*}$args
     if {$name in $::__fail} { error "$name failed" }
     if {$name in $::__readers} { __read $name {*}$args }
     if {[dict exists $::__writers $name]} { __write $name {*}$args }
+    if {$name eq "extract_parasitics"} { __write_totcap }
     __returned [list $name {*}$args] [expr {[dict exists $::__defaults $name] ? [dict get $::__defaults $name] : ""}]
 }
 

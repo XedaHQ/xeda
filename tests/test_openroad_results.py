@@ -14,6 +14,7 @@ import pytest
 from xeda.flows.openroad.metrics import (
     MetricsError,
     count,
+    final_results,
     load_metrics,
     number,
     stage_results,
@@ -190,3 +191,63 @@ def test_read_metrics_is_none_for_a_file_that_is_missing_or_no_object(tmp_path):
         for name, text in (("list.json", "[1]"), ("broken.json", "{"), ("number.json", "3")):
             (flow.run_path / name).write_text(text)
             assert flow.read_metrics(name) is None, name
+
+
+# ------------------------------------------------------------------------------ the last flow
+
+
+def last_flow() -> dict:
+    """The results of the recorded run of the last flow."""
+    return final_results(
+        recorded("openroad_route"),
+        recorded("openroad_final"),
+        time_unit="1ns",
+        route_file=METRICS / "openroad_route.json",
+        final_file=METRICS / "openroad_final.json",
+    )
+
+
+def test_the_last_flow_takes_the_slack_from_the_final_file_and_the_counts_from_the_route_file():
+    results = last_flow()
+    assert results["worst_slack"] == pytest.approx(-0.158984)
+    assert results["whs"] == pytest.approx(0.0812396)
+    assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
+    assert results["wirelength"] == 4229 and results["vias"] == 3747
+    assert results["area"] == pytest.approx(907.592)
+    assert results["Fmax"] == pytest.approx(2445.08)
+
+
+def test_a_verdict_key_that_is_missing_is_named_with_its_file():
+    route, final = recorded("openroad_route"), recorded("openroad_final")
+    del route["detailedroute__route__drc_errors"]
+    with pytest.raises(
+        MetricsError, match=r"route\.json.*'detailedroute__route__drc_errors'.*missing"
+    ):
+        final_results(
+            route, final, time_unit="1ns", route_file=Path("route.json"), final_file=Path("f.json")
+        )
+    route, final = recorded("openroad_route"), recorded("openroad_final")
+    del final["finish__timing__hold__ws"]
+    with pytest.raises(MetricsError, match=r"f\.json.*'finish__timing__hold__ws'.*missing"):
+        final_results(
+            route, final, time_unit="1ns", route_file=Path("route.json"), final_file=Path("f.json")
+        )
+
+
+def test_the_diodes_of_a_route_that_did_not_repair_are_left_out():
+    route, final = recorded("openroad_route"), recorded("openroad_final")
+    del route["detailedroute__antenna_diodes_count"]
+    results = final_results(
+        route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
+    )
+    assert "antenna_diodes" not in results and results["antenna_violating_pins"] == 0
+
+
+def test_a_key_of_the_wrong_file_is_not_the_value():
+    route, final = recorded("openroad_route"), recorded("openroad_final")
+    final["detailedroute__route__drc_errors"] = 7
+    route["finish__timing__setup__ws"] = -7.0
+    results = final_results(
+        route, final, time_unit="1ns", route_file=Path("r.json"), final_file=Path("f.json")
+    )
+    assert results["drc_errors"] == 0 and results["worst_slack"] == pytest.approx(-0.158984)

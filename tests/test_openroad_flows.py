@@ -5,14 +5,20 @@ that the flow before it wrote. Both come from one producer, or both from the des
 (a restart pair), and a plan never mixes the two.
 """
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
+from click.testing import CliRunner
 
+from xeda import Design
+from xeda.cli import cli
 from xeda.design import SourceType
-from xeda.flow import FlowSettingsException
+from xeda.flow import FlowSettingsException, registered_flows
 from xeda.flow.io import declared_inputs, declared_outputs
 from xeda.flow_runner import DefaultRunner
 
@@ -22,7 +28,9 @@ from .openroad_utils import (
     openroad_settings,
     register_openroad_flows,
 )
+from .test_openroad_final import RCX_RULES, SUPPLY, runnable_openroad, variant_residue
 from .tiny_platform import TINY_RESIDUE, tiny_store
+from .tool_utils import require_tclsh, use_fake_openroad
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -352,3 +360,347 @@ def test_a_platform_without_lef_files_is_refused_at_planning(tmp_path):
     )
     message = refusal(tmp_path, "openroad_cts", f"platform_file={residue}")
     assert "no tech_lef and no cell_lef" in message and "openroad_cts" in message
+
+
+# ============================================================================== the whole chain
+#
+# The four flows run one after the other under the fake OpenROAD. The last flow, `openroad`, has
+# no `run()` yet, so it is not registered; the tests register a class of it that runs both of its
+# processes (`runnable_openroad`).
+
+RECORDED = Path(__file__).parent / "resources" / "openroad" / "metrics"
+CLOCK = {"flows.openroad_place.clocks.clk.period": "5"}
+SLACK = "finish__timing__setup__ws"
+HOLD = "finish__timing__hold__ws"
+DRC = "detailedroute__route__drc_errors"
+ANTENNA = "detailedroute__antenna__violating__nets"
+NAMES = ("openroad_place", "openroad_cts", "openroad_grt", "openroad")
+
+
+@pytest.fixture
+def chain(monkeypatch):
+    """The four flows, the last one runnable, and the fake OpenROAD on the path."""
+    require_tclsh()
+    use_fake_openroad(monkeypatch)
+    cls = runnable_openroad()
+    registered_flows[cls.name] = (cls.__module__, cls)
+
+
+def chain_settings(tmp_path: Path, *given: str, rcx: bool = False, **named) -> list[str]:
+    """The settings of a launch on the `tiny` platform. With `rcx`, the platform has the rules of
+    OpenRCX and the voltages of its supply nets."""
+    store = tmp_path / "store"
+    if not store.exists():
+        tiny_store(tmp_path)
+    if rcx:
+        residue = variant_residue(tmp_path, rules=True, supply=SUPPLY)
+        (store / "tiny" / RCX_RULES).write_text("rules\n")
+        named = {"platform_file": str(residue), **named}
+    return [*openroad_settings(store, **{**CLOCK, **named}), *given]
+
+
+def metrics_dir(tmp_path: Path, **edits: dict) -> Path:
+    """A directory with the five recorded metrics files, `edits` applied to the contents of the
+    file of the driver they name (`openroad_final={key: value}`). A value `None` is a JSON null,
+    and the marker `REMOVE` takes the key out."""
+    target = tmp_path / "metrics"
+    target.mkdir()
+    for source in RECORDED.glob("*.json"):
+        data = json.loads(source.read_text())
+        for key, value in edits.get(source.stem, {}).items():
+            if value is REMOVE:
+                del data[key]
+            else:
+                data[key] = value
+        (target / source.name).write_text(json.dumps(data))
+    return target
+
+
+REMOVE = object()
+
+
+def launch(tmp_path: Path, monkeypatch, *settings: str, request: str = "openroad", **kwargs):
+    """Launch `request` with the fake OpenROAD; return the runner, the design file, the settings
+    and the flow that the launch returned (`None` when the launch failed)."""
+    given = chain_settings(tmp_path, *settings, **kwargs)
+    design = openroad_design(tmp_path / "design")
+    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
+    flow = runner.run(request, design, flow_settings=given)
+    return runner, design, given, flow
+
+
+def run_dir(tmp_path: Path, name: str = "openroad") -> Path:
+    return tmp_path / "xeda_run" / "counter" / name
+
+
+def xeda_run(tmp_path: Path, *settings: str) -> tuple[Any, dict]:
+    """Run `xeda run openroad --json` and return the result and its document."""
+    result = CliRunner().invoke(
+        cli,
+        [
+            "run",
+            "openroad",
+            str(openroad_design(tmp_path / "design")),
+            "--run-root",
+            str(tmp_path / "xeda_run"),
+            "-s",
+            *chain_settings(tmp_path, *settings),
+            "--json",
+        ],
+    )
+    return result, json.loads(result.stdout)
+
+
+def states(document: dict) -> list[tuple[str, str]]:
+    return [(node["flow"], node["state"]) for node in document["nodes"]]
+
+
+# ------------------------------------------------------------------------------ a failed stage
+
+
+def test_a_failed_stage_reruns_alone(tmp_path, monkeypatch, chain):
+    """A stage that fails in the middle of the chain leaves the database of that moment and no
+    trace. The stages after it are blocked, and the stage before it stays fresh. The next launch,
+    without the failure, runs the failed stage and the two after it again and not the first."""
+    settings = ["flows.openroad.fail_timing=false"]
+    with monkeypatch.context() as failing:
+        failing.setenv("XEDA_FAKE_TOOL_FAIL", "clock_tree_synthesis")
+        result, document = xeda_run(tmp_path, *settings)
+    assert result.exit_code != 0 and document["success"] is False
+    assert states(document) == [
+        ("openroad_place", "ran"),
+        ("openroad_cts", "failed"),
+        ("openroad_grt", "blocked"),
+        ("openroad", "blocked"),
+    ]
+    cts = run_dir(tmp_path, "openroad_cts")
+    assert (cts / "openroad_cts-failed.odb").is_file()
+    assert not (cts / "trace.json").exists() and not (cts / "cts.odb").exists()
+    assert (run_dir(tmp_path, "openroad_place") / "trace.json").is_file()
+    for blocked in ("openroad_grt", "openroad"):  # they never started
+        assert not (run_dir(tmp_path, blocked) / "trace.json").exists()
+        assert not (run_dir(tmp_path, blocked) / f"{blocked}.tcl").exists()
+
+    result, document = xeda_run(tmp_path, *settings)
+    assert result.exit_code == 0 and document["success"] is True, document.get("error")
+    assert states(document) == [
+        ("openroad_place", "fresh"),
+        ("openroad_cts", "ran"),
+        ("openroad_grt", "ran"),
+        ("openroad", "ran"),
+    ]
+    assert not (cts / "openroad_cts-failed.odb").exists()
+    assert (cts / "trace.json").is_file() and (cts / "cts.odb").is_file()
+    assert (run_dir(tmp_path) / "final.odb").is_file()
+
+
+@pytest.mark.parametrize("failing", ["detailed_route", "extract_parasitics"])
+def test_a_failed_process_of_the_last_flow_leaves_its_database_and_no_trace(
+    tmp_path, monkeypatch, chain, failing
+):
+    with monkeypatch.context() as patch:
+        patch.setenv("XEDA_FAKE_TOOL_FAIL", failing)
+        _, _, _, flow = launch(tmp_path, monkeypatch, rcx=True)
+    assert flow is None or not flow.succeeded
+    last = run_dir(tmp_path)
+    assert (last / "openroad-failed.odb").is_file()
+    assert not (last / "trace.json").exists()
+    assert (run_dir(tmp_path, "openroad_grt") / "trace.json").is_file()
+
+
+# ------------------------------------------------------------------------------ the results
+
+
+def test_the_results_of_the_chain_are_the_recorded_metrics(tmp_path, monkeypatch, chain):
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
+    assert flow is not None and flow.succeeded
+    results = flow.results
+    assert results["worst_slack"] == pytest.approx(-0.158984)
+    assert results["wns"] == pytest.approx(-0.158984)
+    assert results["tns"] == pytest.approx(-6.83992)
+    assert results["whs"] == pytest.approx(0.0812396)
+    assert results["Fmax"] == pytest.approx(2445.08)
+    assert results["area"] == pytest.approx(907.592)
+    assert results["utilization"] == pytest.approx(0.838123)
+    assert results["power"] == pytest.approx(0.00685844)
+    assert results["drc_errors"] == 0 and results["antenna_violating_nets"] == 0
+    assert results["instances"] == 716 and results["fill_cells"] == 286
+    assert results["parasitics"] == "estimate" and results["platform"]["name"] == "tiny"
+    persisted = json.loads((run_dir(tmp_path) / "results.json").read_text())
+    assert persisted["worst_slack"] == results["worst_slack"]
+    assert persisted["success"] is True
+
+
+def test_the_outputs_of_the_chain_are_the_files_of_the_last_flow(tmp_path, monkeypatch, chain):
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false", rcx=True)
+    assert flow is not None and flow.succeeded
+    last = run_dir(tmp_path)
+    assert flow.outputs.odb == last / "final.odb"
+    assert flow.outputs.sdc == last / "final.sdc"
+    assert flow.outputs.def_file == last / "final.def"
+    assert flow.outputs.netlist == last / "final.v"
+    assert flow.outputs.spef == last / "final.spef"
+    assert flow.inputs.odb == run_dir(tmp_path, "openroad_grt") / "grt.odb"
+    for name in ("final.odb", "final.sdc", "final.def", "final.v", "final.spef", "route.odb"):
+        assert (last / name).is_file(), name
+    assert flow.results["parasitics"] == "rcx"
+
+
+def test_the_file_of_the_extraction_does_not_stay_in_the_run_directory(
+    tmp_path, monkeypatch, chain
+):
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_TOP", "counter")
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false", rcx=True)
+    assert flow is not None and flow.succeeded
+    last = run_dir(tmp_path)
+    assert (last / "final.spef").is_file()
+    assert not os.path.lexists(last / "counter.totCap")
+    assert sorted(path.name for path in last.glob("*.totCap")) == []
+
+
+def test_a_second_launch_is_fresh_and_a_dry_run_agrees(tmp_path, monkeypatch, chain):
+    """The files that the flow opens are the same for a run and for the dry run, so the dry run
+    after a run finds the flow up to date, with and without the rules of OpenRCX."""
+    for rcx in (False, True):
+        work = tmp_path / str(rcx)
+        runner, design, settings, first = launch(work, monkeypatch, "fail_timing=false", rcx=rcx)
+        assert first is not None and first.succeeded and not first.reused
+        again = runner.run("openroad", design, flow_settings=settings)
+        assert again is not None and again.succeeded and again.reused
+        given = dict(text.split("=", 1) for text in settings)
+        _, states = runner.plan_with_freshness(
+            "openroad", Design.from_file(design), flow_settings=given
+        )
+        assert {name: state.state for name, state in states.items()} == dict.fromkeys(
+            NAMES, "fresh"
+        )
+
+
+# ------------------------------------------------------------------------------ a rejection
+
+
+def test_a_timing_miss_rejects_the_run_and_the_next_launch_reports_it_again(
+    tmp_path, monkeypatch, chain
+):
+    runner, design, settings, first = launch(tmp_path, monkeypatch)
+    assert first is not None and first.outcome == "rejected" and not first.succeeded
+    assert "timing not met" in first.rejection and "-0.158984" in first.rejection
+    last = run_dir(tmp_path)
+    assert (last / "trace.json").is_file(), "a rejection keeps its trace"
+    persisted = json.loads((last / "results.json").read_text())
+    assert persisted["success"] is False and persisted["error"]["type"] == "ReportedFailure"
+    written = (last / "openroad_final.log").stat().st_mtime_ns
+    calls = (last / "fake_openroad.calls").read_text()
+
+    again = runner.run("openroad", design, flow_settings=settings)
+    assert again is not None and again.outcome == "rejected" and again.rejected_again
+    assert first.rejection in again.rejection
+    assert (last / "openroad_final.log").stat().st_mtime_ns == written
+    assert (last / "fake_openroad.calls").read_text() == calls, "OpenROAD did not run again"
+
+
+def test_the_rejection_is_reported_again_by_the_command_line(tmp_path, monkeypatch, chain):
+    result, document = xeda_run(tmp_path)
+    assert result.exit_code != 0 and document["error"]["type"] == "FlowFailed"
+    assert states(document)[-1] == ("openroad", "failed")
+    result, document = xeda_run(tmp_path)
+    assert result.exit_code != 0 and document["error"]["type"] == "FlowFailed"
+    assert states(document) == [
+        ("openroad_place", "fresh"),
+        ("openroad_cts", "fresh"),
+        ("openroad_grt", "fresh"),
+        ("openroad", "rejected again"),
+    ]
+    assert "timing not met" in document["nodes"][-1]["reason"]
+
+
+def test_a_timing_miss_passes_when_the_check_is_off(tmp_path, monkeypatch, chain):
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
+    assert flow is not None and flow.outcome == "passed" and flow.succeeded
+
+
+def test_design_rule_violations_reject_the_run_unless_the_check_is_off(
+    tmp_path, monkeypatch, chain
+):
+    monkeypatch.setenv(
+        "XEDA_FAKE_OPENROAD_METRICS", str(metrics_dir(tmp_path, openroad_route={DRC: 4}))
+    )
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
+    assert flow is not None and flow.outcome == "rejected" and "design rule" in flow.rejection
+    _, _, _, flow = launch(tmp_path / "off", monkeypatch, "fail_timing=false", "fail_drc=false")
+    assert flow is not None and flow.outcome == "passed"
+    assert flow.results["drc_errors"] == 4
+
+
+def test_antenna_violations_reject_the_run_unless_the_check_is_off(tmp_path, monkeypatch, chain):
+    monkeypatch.setenv(
+        "XEDA_FAKE_OPENROAD_METRICS", str(metrics_dir(tmp_path, openroad_route={ANTENNA: 2}))
+    )
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
+    assert flow is not None and flow.outcome == "rejected" and "antenna" in flow.rejection
+    _, _, _, flow = launch(tmp_path / "off", monkeypatch, "fail_timing=false", "fail_antenna=false")
+    assert flow is not None and flow.outcome == "passed"
+
+
+# ------------------------------------------------------------------------------ a parse failure
+
+
+def failed_without_trace(tmp_path: Path, flow) -> None:
+    assert flow is None or (not flow.succeeded and flow.outcome == "failed")
+    assert not (run_dir(tmp_path) / "trace.json").exists()
+    results = json.loads((run_dir(tmp_path) / "results.json").read_text())
+    assert results["success"] is False
+
+
+@pytest.mark.parametrize(
+    "key, file",
+    [
+        (DRC, "openroad_route"),
+        (ANTENNA, "openroad_route"),
+        (SLACK, "openroad_final"),
+        (HOLD, "openroad_final"),
+    ],
+)
+@pytest.mark.parametrize("checks", [True, False], ids=["checks on", "checks off"])
+def test_a_metrics_file_without_a_verdict_key_fails_the_run_with_no_trace(
+    tmp_path, monkeypatch, chain, key, file, checks
+):
+    monkeypatch.setenv(
+        "XEDA_FAKE_OPENROAD_METRICS", str(metrics_dir(tmp_path, **{file: {key: REMOVE}}))
+    )
+    switches = [f"fail_{kind}={str(checks).lower()}" for kind in ("timing", "drc", "antenna")]
+    _, _, _, flow = launch(tmp_path, monkeypatch, *switches)
+    failed_without_trace(tmp_path, flow)
+
+
+@pytest.mark.parametrize("checks", [True, False], ids=["checks on", "checks off"])
+@pytest.mark.parametrize(
+    "key, file, value",
+    [
+        *[
+            (key, "openroad_final", value)
+            for key in (SLACK, HOLD)
+            for value in (None, "0", True, float("nan"), float("inf"), float("-inf"))
+        ],
+        *[(key, "openroad_route", value) for key in (DRC, ANTENNA) for value in (1.5, -1, True)],
+    ],
+    ids=lambda value: repr(value),
+)
+def test_an_invalid_verdict_value_fails_the_run_with_no_trace(
+    tmp_path, monkeypatch, chain, key, file, value, checks
+):
+    monkeypatch.setenv(
+        "XEDA_FAKE_OPENROAD_METRICS", str(metrics_dir(tmp_path, **{file: {key: value}}))
+    )
+    switches = [f"fail_{kind}={str(checks).lower()}" for kind in ("timing", "drc", "antenna")]
+    _, _, _, flow = launch(tmp_path, monkeypatch, *switches)
+    failed_without_trace(tmp_path, flow)
+
+
+@pytest.mark.parametrize("which", ["openroad_route", "openroad_final"])
+def test_a_missing_metrics_file_fails_the_run_with_no_trace(tmp_path, monkeypatch, chain, which):
+    directory = metrics_dir(tmp_path)
+    (directory / f"{which}.json").unlink()
+    monkeypatch.setenv("XEDA_FAKE_OPENROAD_METRICS", str(directory))
+    _, _, _, flow = launch(tmp_path, monkeypatch, "fail_timing=false")
+    failed_without_trace(tmp_path, flow)

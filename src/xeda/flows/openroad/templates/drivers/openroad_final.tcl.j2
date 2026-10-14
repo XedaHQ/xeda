@@ -1,0 +1,18 @@
+{# The driver of the second process of openroad: it reads the routed database and its SDC file,
+   which the first process wrote in the run directory, writes the final outputs, extracts or
+   estimates the parasitics, and reports the metrics. A stage that fails leaves the database of
+   that moment in the failed database, and the error ends the process. #}
+{% set restart = "database" %}
+{% set database_file = working_files.odb %}
+{% set sdc_files = [working_files.sdc] %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+{% include "stages/final_outputs.tcl.j2" %}
+{% include "stages/final_report.tcl.j2" %}
+if {[catch {
+    xeda_final_outputs
+    xeda_final_report
+} message options]} {
+    catch { write_db {{ failed_odb|tcl_word }} }
+    return -options $options $message
+}

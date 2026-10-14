@@ -1,0 +1,27 @@
+{# The final outputs, in the order of the final stage of OpenROAD-flow-scripts. The clocks are
+   propagated and the cells that the repair added are connected to the power grid before anything
+   is written. The database and the SDC file go first. Then the routing obstructions go, so that
+   the DEF file holds none, and the DEF file and the netlist follow. The netlist leaves out the
+   masters that only occupy the layout (fill, tap and end cap cells), so that a simulation or an
+   equivalence check sees none of them. The parasitics come last: OpenRCX extracts them with the
+   rules of the platform and the file is read back, or else OpenROAD estimates them from the
+   route. Only the final stage of the process may set the stage of the metrics here. #}
+proc xeda_final_outputs {} {
+    xeda_stage finish
+    set_propagated_clock [all_clocks]
+    global_connect
+    write_db {{ outputs.odb|tcl_word }}
+    write_sdc -no_timestamp {{ outputs.sdc|tcl_word }}
+    foreach o [[ord::get_db_block] getObstructions] { odb::dbObstruction_destroy $o }
+    write_def {{ outputs.def_file|tcl_word }}
+    write_verilog {{ outputs.netlist|tcl_word }} -remove_cells [xeda_physical_only_masters]
+{% if P.extraction == "rcx" %}
+    define_process_corner -ext_model_index 0 X
+    set_extraction_rules_file {{ P.rcx_rules|tcl_word }}
+    extract_parasitics
+    write_spef {{ outputs.spef|tcl_word }}
+    read_spef {{ outputs.spef|tcl_word }}
+{% else %}
+    estimate_parasitics -global_routing
+{% endif %}
+}

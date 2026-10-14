@@ -22,7 +22,9 @@ from xeda.flow import FlowSettingsError
 from xeda.flow_runner import DefaultRunner
 
 from . import tool_utils
+from .openroad_utils import openroad_settings, register_openroad_flows
 from .settings_samples import flow_classes
+from .tiny_platform import tiny_store
 
 ECP5 = "LFE5U-25F-6BG381C"
 
@@ -155,6 +157,7 @@ def test_the_default_netlists_are_refused_with_the_settings_to_write(flow, tmp_p
 #: needs besides, and the settings that turn the stopped flow's netlists off.
 CONSUMERS = {
     "yosys_fpga+nextpnr": ["flows.nextpnr.fpga=" + ECP5, "flows.yosys_fpga.netlist_json="],
+    "yosys+openroad_place": ["flows.yosys.netlist_json="],
 }
 
 
@@ -166,16 +169,20 @@ def test_a_flow_that_takes_the_netlist_cannot_follow_a_stopped_synthesis(
     is advice in a circle. The message says what is so, naming the flow that takes the netlist."""
     monkeypatch.chdir(tmp_path)
     stopped, consumer = chain.split("+")
-    result, document = _xeda(
-        "run",
-        chain,
-        _design(tmp_path),
-        "--dry-run",
-        "-s",
-        *CONSUMERS[chain],
-        f"flows.{stopped}.stop_after=rtl",
-        f"flows.{stopped}.netlist_verilog=",
-    )
+    needs = list(CONSUMERS[chain])
+    if consumer.startswith("openroad"):  # an ASIC consumer works on a platform
+        needs += openroad_settings(tiny_store(tmp_path))
+    with register_openroad_flows():
+        result, document = _xeda(
+            "run",
+            chain,
+            _design(tmp_path),
+            "--dry-run",
+            "-s",
+            *needs,
+            f"flows.{stopped}.stop_after=rtl",
+            f"flows.{stopped}.netlist_verilog=",
+        )
     assert result.exit_code != 0 and document["success"] is False
     message = document["error"]["message"]
     assert f"{stopped}.netlist is required by {consumer}" in message

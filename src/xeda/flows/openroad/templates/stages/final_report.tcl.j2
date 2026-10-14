@@ -1,0 +1,16 @@
+{# The report of the final stage. The analysis of the IR drop comes first: for each supply net
+   that has a voltage, it sets the voltage, then analyzes the grid of that net and writes a report
+   with a fixed, numbered name. The analysis only reports. The count of the cells by type follows,
+   so that the metrics of the design area, which come last, are the ones that stay in the file. #}
+proc xeda_final_report {} {
+{% if P.ir_drop %}
+{% for net, volts in P.supply_voltages %}
+    set_pdnsim_net_voltage -net {{ net|tcl_word }} -voltage {{ volts|tcl_number }}
+    analyze_power_grid -net {{ net|tcl_word }} -error_file {{ P.ir_drop_reports[loop.index0]|tcl_word }}
+{% else %}
+    puts "xeda: no supply net has a voltage; IR drop analysis skipped"
+{% endfor %}
+{% endif %}
+    report_cell_usage
+    xeda_metrics 1 1
+}

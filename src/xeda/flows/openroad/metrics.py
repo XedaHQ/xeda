@@ -12,11 +12,11 @@ Times in the file are in the time unit of the Liberty files. The results are in 
 import json
 import math
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from ...units import convert_unit
 
-__all__ = ["MetricsError", "count", "load_metrics", "number", "stage_results"]
+__all__ = ["MetricsError", "count", "final_results", "load_metrics", "number", "stage_results"]
 
 
 class MetricsError(ValueError):
@@ -120,4 +120,78 @@ def stage_results(
         results[name] = value
         if name == "worst_slack":
             results["wns"] = min(0.0, value)
+    return results
+
+
+#: A reader of one metric: `number` or `count`.
+Reader = Callable[..., Any]
+
+#: The results of the last stage (`finish`) that `stage_results` does not cover: the result, the
+#: metric after the stage prefix, and the reader of its value.
+FINISH_TABLE: tuple[tuple[str, str, Reader], ...] = (
+    ("setup_violations", "timing__drv__setup_violation_count", count),
+    ("hold_violations", "timing__drv__hold_violation_count", count),
+    ("max_slew_violations", "timing__drv__max_slew", count),
+    ("max_cap_violations", "timing__drv__max_cap", count),
+    ("max_fanout_violations", "timing__drv__max_fanout", count),
+    ("core_area", "design__core__area", number),
+    ("die_area", "design__die__area", number),
+    ("power_internal", "power__internal__total", number),
+    ("power_switching", "power__switching__total", number),
+    ("power_leakage", "power__leakage__total", number),
+    ("instances", "design__instance__count__stdcell", count),
+    ("fill_cells", "design__instance__count__class:fill_cell", count),
+    ("tap_cells", "design__instance__count__class:tap_cell", count),
+    ("warnings", "flow__warnings__count", count),
+    ("errors", "flow__errors__count", count),
+)
+
+#: The results of the detailed route that a verdict reads: the result, the metric after the stage
+#: prefix, and the reader of its value. Each must be there and valid.
+ROUTE_VERDICTS: tuple[tuple[str, str, Reader], ...] = (
+    ("drc_errors", "route__drc_errors", count),
+    ("antenna_violating_nets", "antenna__violating__nets", count),
+)
+#: The other results of the detailed route, in the same form.
+ROUTE_TABLE: tuple[tuple[str, str, Reader], ...] = (
+    ("antenna_violating_pins", "antenna__violating__pins", count),
+    ("antenna_diodes", "antenna_diodes_count", count),
+    ("wirelength", "route__wirelength", number),
+    ("vias", "route__vias", count),
+)
+
+
+def final_results(
+    route: Mapping[str, Any],
+    final: Mapping[str, Any],
+    *,
+    time_unit: str,
+    route_file: str | Path,
+    final_file: str | Path,
+) -> dict[str, Any]:
+    """Return the results of the last flow from the metrics of its two processes, by result name.
+
+    `route` holds the metrics of the detailed route (`detailedroute__*`, from `route_file`) and
+    `final` those of the final report (`finish__*`, from `final_file`). The times are in
+    nanoseconds (`time_unit` is the unit of the Liberty files), `Fmax` is in MHz, the areas are
+    in um^2, `power` is in watts, `wirelength` is in um, and the rest are counts and ratios.
+
+    The four values that the verdicts read must be there and valid: the worst setup slack and
+    hold slack, the design rule violations and the nets with an antenna violation. A missing or
+    invalid one raises `MetricsError`, whatever the checks of the flow are. Any other result is
+    left out when its metric is absent, and a metric that is present and invalid raises
+    `MetricsError`."""
+    for metric in ("timing__setup__ws", "timing__hold__ws"):
+        number(final, f"finish__{metric}", file=final_file)
+    results: dict[str, Any] = stage_results(final, "finish", time_unit=time_unit, file=final_file)
+    for result, metric, reader in ROUTE_VERDICTS:
+        results[result] = reader(route, f"detailedroute__{metric}", file=route_file)
+    for table, metrics, stage, file in (
+        (FINISH_TABLE, final, "finish", final_file),
+        (ROUTE_TABLE, route, "detailedroute", route_file),
+    ):
+        for result, metric, reader in table:
+            key = f"{stage}__{metric}"
+            if key in metrics:
+                results[result] = reader(metrics, key, file=file)
     return results
