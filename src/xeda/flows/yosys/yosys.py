@@ -735,9 +735,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Complete the netlist settings that the user left unset.
 
         For a liberty mapping: flattening, splitting the nets, and a gate-level netlist (without
-        attributes and hexadecimal constants; wrapped operators keep their attributes). Without a liberty mapping, the netlist keeps
-        attributes and hexadecimal constants. Post-synthesis optimization is off unless the user
-        turns it on for another mapping. A setting that the user gave is never replaced. Only an
+        attributes and hexadecimal constants; wrapped operators keep their attributes). Without
+        a liberty mapping, the netlist keeps attributes and hexadecimal constants.
+        Post-synthesis optimization is off unless the user turns it on for another mapping. A setting that the user gave is never replaced. Only an
         unset (`None`) setting is derived. The settings of the groups are never derived: see
         `asic_values`.
         """
