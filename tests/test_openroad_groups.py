@@ -1268,7 +1268,6 @@ HATCHES = {
             "-snapshot_batched_width",
         },
     ),
-    "pin_access": (OpenroadGrt, "pin_access", {"-via_access_layer", "-min_access_points"}),
     "detailed_route": (
         None,
         "detailed_route",
@@ -1616,13 +1615,6 @@ def test_the_clock_tree_has_no_hatch():
         assert not hasattr(group, "extra_args")
 
 
-def test_a_hatch_of_a_disabled_group_is_refused():
-    found = problems(
-        OpenroadGrt, "pin_access.enabled=false", "pin_access.extra_args=-via_access_layer,m2"
-    )
-    assert [key for key, _ in found] == ["pin_access.extra_args"]
-
-
 @pytest.mark.parametrize(
     "command, flags",
     [
@@ -1689,6 +1681,8 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
     for name in ("annealing", "pin_length", "pin_extension", "pin_thickness"):
         group = place["io"].annotation.model_fields[name].annotation
         assert {f.flag for f in group.FLAGS} <= INSTALLED_HELP[HELP_OF_IO_GROUP[name]], name
+    pin_access = OpenroadGrt.Settings.model_fields["pin_access"].annotation
+    assert {f.flag for f in pin_access.FLAGS} <= INSTALLED_HELP["pin_access"]
     assert {
         f.flag
         for f in place["detailed_placement"].annotation.model_fields["improve"].annotation.FLAGS

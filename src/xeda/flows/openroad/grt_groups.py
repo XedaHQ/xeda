@@ -1,14 +1,14 @@
 """The settings groups of the global routing flow.
 
 The groups follow the commands of the flow: the pin access, `global_route`, the repair after the
-route, and the repair of the antenna violations. `pin_access.extra_args` and `router.extra_args`
-take the flags of the commands that no setting covers yet.
+route, and the repair of the antenna violations.
 """
 
 from typing import ClassVar, Literal, Optional, Tuple
 
 from ...dataclass import Field, tier
 from ...flow.settings_group import Flag, SettingsGroup
+from .final_groups import ViaInPin
 from .groups import RepairDesign, RepairTiming, differing_leaves
 
 __all__ = [
@@ -29,11 +29,17 @@ class GrtRepairTiming(RepairTiming):
 
 
 class PinAccessGroup(SettingsGroup):
-    """The `pin_access` command, which finds the access points of the pins before the route."""
+    """The `pin_access` command, which finds the access points of the pins before the route.
 
-    #: The flags of `pin_access` that no setting covers. The via range of the pins is a setting
-    #: of the platform, and the layers of the route are the ones of the database.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset({"-via_access_layer", "-min_access_points"})
+    The layers of the route are the ones of the database, so the command gets none. Its
+    `-distributed` mode needs an external service and has no setting."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("process_node", "-db_process_node", "value"),
+        Flag("via_access_layer", "-via_access_layer", "value"),
+        Flag("min_access_points", "-min_access_points", "value"),
+        Flag("verbose", "-verbose", "value"),
+    )
 
     enabled: bool = Field(
         True,
@@ -41,10 +47,42 @@ class PinAccessGroup(SettingsGroup):
         "`detailed_route` finds the access points again if it does not get them from here.",
         json_schema_extra=tier("advanced"),
     )
-    extra_args: list[str] = Field(
-        [],
-        description="More flags for `pin_access`. Each flag must be one of `-via_access_layer` "
-        "and `-min_access_points`, each followed by its value.",
+    process_node: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The name of a process node that selects via rules of that node "
+        "(`-db_process_node`). In OpenROAD v2.0-26132 only `GF14_13M_3Mx_2Cx_4Kx_2Hx_2Gx_LB` has "
+        "an effect. OpenROAD-flow-scripts takes the name from the platform variable "
+        "`dbProcessNode`. Unset: the flow does not pass the flag.",
+        json_schema_extra=tier("expert"),
+    )
+    via_access_layer: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The routing layer up to which the router reaches a pin only through vias "
+        "(`-via_access_layer`). Unset: the flow does not pass the flag.",
+        json_schema_extra=tier("expert"),
+    )
+    via_in_pin: Optional[ViaInPin] = Field(
+        None,
+        description="The range of layers where a via may sit inside a pin "
+        "(`-via_in_pin_bottom_layer`, `-via_in_pin_top_layer`). Give `detailed_route` the same "
+        "range. OpenROAD-flow-scripts takes the range from its platform; no platform of the "
+        "model gives one. Unset: the flow does not pass the flags.",
+        json_schema_extra=tier("advanced"),
+    )
+    min_access_points: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The fewest access points to find for each pin (`-min_access_points`). "
+        "Unset: the default of the tool.",
+        json_schema_extra=tier("expert"),
+    )
+    verbose: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The level of the log of the command (`-verbose`). Unset: the default of "
+        "the tool, 1.",
         json_schema_extra=tier("expert"),
     )
 

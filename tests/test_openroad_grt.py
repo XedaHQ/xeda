@@ -20,6 +20,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadGrt, base
 from xeda.flows.openroad.grt import EffectiveGrt, effective
+from xeda.flows.openroad.grt_groups import PinAccessGroup
 from xeda.platforms.model import CellPort
 
 from .openroad_utils import (
@@ -366,9 +367,48 @@ def test_the_pin_access_runs_before_the_route_unless_switched_off(tmp_path):
     assert not words(off, "pin_access")
 
 
-def test_the_pin_access_takes_the_flags_of_its_hatch(tmp_path):
-    found = body(tmp_path, {"pin_access": {"extra_args": ["-min_access_points", "3"]}})
-    assert words(found, "pin_access") == ['pin_access "-min_access_points" "3"']
+def test_the_pin_access_takes_its_options(tmp_path):
+    found = body(
+        tmp_path,
+        {
+            "pin_access": {
+                "process_node": "GF14_13M_3Mx_2Cx_4Kx_2Hx_2Gx_LB",
+                "via_access_layer": "m2",
+                "min_access_points": 3,
+                "verbose": 0,
+                "via_in_pin": {"bottom": "m1", "top": "m2"},
+            }
+        },
+    )
+    assert words(found, "pin_access") == [
+        'pin_access -db_process_node "GF14_13M_3Mx_2Cx_4Kx_2Hx_2Gx_LB" -via_access_layer "m2" '
+        '-min_access_points "3" -verbose "0" -via_in_pin_bottom_layer "m1" '
+        '-via_in_pin_top_layer "m2"'
+    ]
+
+
+@pytest.mark.parametrize(
+    "option, text",
+    [
+        ({"via_access_layer": "m2"}, '-via_access_layer "m2"'),
+        ({"min_access_points": 2}, '-min_access_points "2"'),
+        ({"process_node": "node"}, '-db_process_node "node"'),
+        ({"verbose": 2}, '-verbose "2"'),
+        ({"via_in_pin": {"bottom": "m1", "top": "m3"}}, '-via_in_pin_top_layer "m3"'),
+    ],
+)
+def test_each_option_of_the_pin_access_passes_its_flag_only_when_set(tmp_path, option, text):
+    (line,) = words(body(tmp_path, {"pin_access": option}), "pin_access")
+    assert text in line
+    assert words(body(tmp_path / "none"), "pin_access") == ["pin_access"]
+
+
+def test_the_pin_access_has_no_list_of_extra_flags(tmp_path):
+    """Every flag of the command has a setting, or belongs to the flow, or is not in the tool:
+    the layers of the route are the ones of the database, and the distributed mode needs an
+    external service."""
+    assert "extra_args" not in PinAccessGroup.model_fields
+    assert not PinAccessGroup.EXTRA_FLAGS
 
 
 def test_the_seed_is_set_before_the_first_route_and_not_by_default(tmp_path):
@@ -621,7 +661,9 @@ def test_the_iterations_of_the_antenna_repair_follow_the_settings(tmp_path):
     "settings",
     [
         {"pin_access": {"enabled": False}},
-        {"pin_access": {"extra_args": ["-via_access_layer", "m2"]}},
+        {"pin_access": {"via_access_layer": "m2", "min_access_points": 2}},
+        {"pin_access": {"via_in_pin": {"bottom": "m1", "top": "m2"}, "verbose": 0}},
+        {"pin_access": {"process_node": "node"}},
         {"congestion": {"iterations": 10}},
         {"congestion": {"allow": True}},
         {"router": {"seed": 3}},
@@ -817,7 +859,7 @@ def test_a_valid_set_of_settings_plans_the_three_flows(tmp_path):
             "`antenna.iterations` has no effect with `antenna.repair: false`",
         ),
         (
-            ["pin_access.enabled=false", "pin_access.extra_args=-min_access_points,2"],
+            ["pin_access.enabled=false", "pin_access.min_access_points=2"],
             "has no effect while `pin_access.enabled` is false",
         ),
         (

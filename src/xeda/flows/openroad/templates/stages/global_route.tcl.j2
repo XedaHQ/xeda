@@ -22,7 +22,7 @@
 proc xeda_global_route {} {
     xeda_stage globalroute
 {% if pin.enabled %}
-    {{ ["pin_access", render_flags(pin)]|select|join(" ") }}
+    {{ ["pin_access", render_flags(pin), ("-via_in_pin_bottom_layer " ~ (pin.via_in_pin.bottom|tcl_word) ~ " -via_in_pin_top_layer " ~ (pin.via_in_pin.top|tcl_word)) if pin.via_in_pin else ""]|select|join(" ") }}
 {% endif %}
 {% if router.seed is not none %}
     set_global_routing_random -seed {{ router.seed|tcl_number }}
