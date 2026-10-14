@@ -628,8 +628,10 @@ class AbcGroup(SettingsGroup):
         description="The yosys command that runs ABC. `abc_new` is experimental in yosys. It maps "
         "with a script that works on a GIA and ends in a mapped one (`&nf`). Unless `abc_script` "
         "gives one, it maps with the script `abc_speed_gia_only.script` of "
-        "OpenROAD-flow-scripts. It refuses `abc.strategy` other than `area`: those scripts end in "
-        "a network.",
+        "OpenROAD-flow-scripts. With `arithmetic.wrap_operators` and no `abc_script`, it gets no "
+        "script: each wrapped operator maps with the script it carries, and the rest of the "
+        "design with the default script of `abc_new`. It refuses `abc.strategy` other than "
+        "`area`: those scripts end in a network.",
         json_schema_extra=tier("advanced"),
     )
     driver_cell: Optional[str] = Field(
