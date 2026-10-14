@@ -1,4 +1,7 @@
 logger -notime
+{% if settings.maps_to_liberty() -%}
+{% include 'yosys_liberty_synth.ys' %}
+{%- else -%}
 {% include 'read_files.ys' %}
 
 {% if settings.prep is not none %}
@@ -28,20 +31,9 @@ opt -full -purge -sat
 opt -purge
 {%- endif %}
 
-{%- if settings.adder_map %}
-extract_fa
-techmap -map {{settings.adder_map|read_path}}
-techmap
-opt -purge
-{%- endif %}
-
-{%- for map in settings.other_maps or [] %}
-techmap -map {{map|read_path}}
-{%- endfor %}
-
 {%- if settings.liberty %}
 log -stdout Prepare mapping FFs to technology
-dfflibmap -prepare -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|read_path}} {%- else -%} {{settings.liberty[0]|read_path}} {%- endif %}
+dfflibmap -prepare -liberty {{settings.liberty[0]|read_path}}
 opt -purge
 {%- endif %}
 
@@ -57,7 +49,7 @@ opt -purge
 
 {%- if settings.liberty %}
 log -stdout Mapping FFs to technology
-dfflibmap -liberty {% if settings.dff_liberty -%} {{settings.dff_liberty|read_path}} {%- else -%} {{settings.liberty[0]|read_path}} {%- endif %}
+dfflibmap -liberty {{settings.liberty[0]|read_path}}
 opt -purge
 {%- endif %}
 
@@ -71,12 +63,6 @@ splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settin
 
 opt_clean -purge
 
-{%- if settings.hilomap %}
-hilomap {% if settings.hilomap.singleton %} -singleton {% endif %} -hicell {{settings.hilomap.hi|join(" ")}} -locell {{settings.hilomap.lo|join(" ")}}
-{%- endif %}
-{% if settings.insbuf %}
-insbuf -buf {{settings.insbuf|join(" ")}}
-{%- endif %}
 
 opt -full -purge
 clean -purge
@@ -98,4 +84,5 @@ blackbox =A:whitebox
 {% include "write_netlist.ys" %}
 
 log -stdout ***** Synthesis Completed *****
+{%- endif %}
 {%- endif %}

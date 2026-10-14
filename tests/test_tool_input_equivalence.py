@@ -262,7 +262,9 @@ REQUESTS: dict[str, Request] = {
     ),
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS),
     "yosys_asic": Request(
-        "yosys", ("platform_file=tiny.yaml", "clock.period=2.0", "optimize=speed"), kind="yosys"
+        "yosys",
+        ("platform_file=tiny.yaml", "clock.period=2.0", "abc.strategy=speed_roundtrip"),
+        kind="yosys",
     ),
 }
 

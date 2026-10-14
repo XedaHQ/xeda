@@ -19,6 +19,7 @@ from typing import (
     ClassVar,
     Dict,
     List,
+    Literal,
     Optional,
     Tuple,
     Type,
@@ -50,6 +51,7 @@ __all__ = [
     "ConfigDict",
     "DELIVERABLE_ROLE",
     "LOCATOR",
+    "TierName",
     "WORKING",
     "WORKING_ROLE",
     "ErrorDetails",
@@ -83,12 +85,15 @@ __all__ = [
     "shape_problems",
     "single_item_fields_of",
     "table_entries",
+    "tier",
+    "tier_of",
     "unspecified",
     "conventional_output",
     "LIST_TEXT_MESSAGE",
     "ListLiteralText",
     "comma_separated_items",
     "deliverable",
+    "extras",
     "field_validator",
     "input_names",
     "model_validator",
@@ -725,6 +730,43 @@ def is_locator(model: type[BaseModel], field: str) -> bool:
     info = model.model_fields.get(field)
     extra = info.json_schema_extra if info is not None else None
     return isinstance(extra, dict) and extra.get("x-xeda-locator") is True
+
+
+#: The tier of a setting: how often a user needs it. It is metadata for documentation and
+#: listings (`xeda list-settings`) and never changes what a setting accepts.
+TierName = Literal["common", "advanced", "expert"]
+TIER_KEY = "x-xeda-tier"
+TIERS: Tuple[str, ...] = get_args(TierName)
+
+
+def tier(name: TierName) -> Dict[str, Any]:
+    """Return the `json_schema_extra` marker of a setting with the tier `name`."""
+    if name not in TIERS:
+        raise ValueError(f"unknown tier {name!r}: use one of {', '.join(TIERS)}")
+    return {TIER_KEY: name}
+
+
+def tier_of(model: type[BaseModel], field: str) -> Optional[TierName]:
+    """Return the tier of the `field` of `model`, or None when it has none."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    name = extra.get(TIER_KEY) if isinstance(extra, dict) else None
+    return name if name in TIERS else None  # type: ignore[return-value]
+
+
+def extras(*markers: Mapping[str, Any]) -> Dict[str, Any]:
+    """Return one `json_schema_extra` dictionary with the keys of all `markers` (`tier(...)`,
+    `WORKING`, `deliverable(...)`). Two markers that give one key different values are an
+    error."""
+    merged: Dict[str, Any] = {}
+    for marker in markers:
+        for key, value in marker.items():
+            if key in merged and merged[key] != value:
+                raise ValueError(
+                    f"two markers give `{key}` different values: {merged[key]!r} and {value!r}"
+                )
+            merged[key] = value
+    return merged
 
 
 def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:

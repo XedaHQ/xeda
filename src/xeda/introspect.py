@@ -30,6 +30,7 @@ from .dataclass import (
     input_names,
     opaque_key_fields_of,
     single_item_fields_of,
+    tier_of,
     written_role,
 )
 from .design import (
@@ -453,6 +454,71 @@ def _enum_of(field_schema: Any, definitions: Dict[str, Any]) -> Optional[List[An
     return None
 
 
+def _declaring_class(model: type[BaseModel], name: str) -> Optional[str]:
+    """Return the qualified name of the class in the MRO of `model` that declares the field
+    `name`."""
+    return next(
+        (
+            f"{b.__module__}.{b.__qualname__}"
+            for b in reversed(model.__mro__)
+            if name in getattr(b, "__annotations__", {})
+        ),
+        None,
+    )
+
+
+def _group_class(annotation: Any) -> Optional[type]:
+    """Return the settings group class that `annotation` is, or None."""
+    from .flow.settings_group import SettingsGroup
+
+    if isinstance(annotation, type) and issubclass(annotation, SettingsGroup):
+        return annotation
+    return None
+
+
+def _group_entries(
+    group_class: type[BaseModel], prefix: str, top: str, common: bool
+) -> List[Dict[str, Any]]:
+    """Return the entries of the fields of a settings group, depth first in declaration order.
+
+    `prefix` is the dotted name of the group, and `top` the name of the top-level field that
+    holds it. `common` is whether that field is accepted by every flow, and so are all the
+    fields of the group. A field that is a group has an entry of its own, then the entries of its
+    fields."""
+    schema = group_class.model_json_schema(by_alias=True)
+    properties = schema.get("properties", {})
+    definitions = schema.get("$defs", {})
+    entries: List[Dict[str, Any]] = []
+    for name, info in group_class.model_fields.items():
+        extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
+        if extra.get("hidden_from_schema") or name.endswith("_"):
+            continue
+        prop = properties.get(info.alias or name, properties.get(name, {}))
+        alias = f"{prefix}.{info.alias}" if info.alias and info.alias != name else None
+        entries.append(
+            {
+                "name": f"{prefix}.{name}",
+                "alias": alias,
+                "type": type_str(prop, definitions),
+                "required": False,
+                "default": _default_of(info),
+                "description": info.description or None,
+                "enum": _enum_of(prop, definitions),
+                "common": common,
+                "declared_by": _declaring_class(group_class, name),
+                "writes": written_role(group_class, name),
+                "opaque_keys": False,
+                "json_schema": json_safe(prop),
+                "tier": tier_of(group_class, name) or "common",
+                "group": top,
+            }
+        )
+        sub_group = _group_class(info.annotation)
+        if sub_group is not None:
+            entries += _group_entries(sub_group, f"{prefix}.{name}", top, common)
+    return entries
+
+
 def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
     schema = cls.Settings.model_json_schema(by_alias=True)
     properties = schema.get("properties", {})
@@ -471,14 +537,6 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
         represented_names.add(name)
         represented_names.add(model_field.alias or name)
         prop = properties.get(model_field.alias or name, properties.get(name, {}))
-        declared_by = next(
-            (
-                f"{b.__module__}.{b.__qualname__}"
-                for b in reversed(cls.Settings.__mro__)
-                if name in getattr(b, "__annotations__", {})
-            ),
-            None,
-        )
         entries.append(
             {
                 "name": name,
@@ -491,14 +549,19 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
                 "common": name in base_field_names,
-                "declared_by": declared_by,
+                "declared_by": _declaring_class(cls.Settings, name),
                 # "working" or "deliverable": a path the flow writes; None: it is read
                 "writes": written_role(cls.Settings, name),
                 # true: the keys are the tool's names, and a dot in one is part of the name
                 "opaque_keys": name in opaque_key_fields_of(cls.Settings),
                 "json_schema": json_safe(prop),
+                "tier": tier_of(cls.Settings, name) or "common",
+                "group": None,
             }
         )
+        group_class = _group_class(model_field.annotation)
+        if group_class is not None:
+            entries += _group_entries(group_class, name, name, name in base_field_names)
     for name, prop in properties.items():
         if name in represented_names or not prop.get("x-xeda-input-only"):
             continue
@@ -516,6 +579,8 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
                 "writes": None,
                 "opaque_keys": False,
                 "json_schema": json_safe(prop),
+                "tier": "common",
+                "group": None,
             }
         )
     return entries
@@ -525,7 +590,13 @@ def settings_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     """Return the settings of a flow, plus the raw JSON Schema.
 
     `fields` has one entry for each top-level setting, including the settings that every flow
-    shares (`ncpus`, `dockerized`, ...). `definitions` describes the nested models.
+    shares (`ncpus`, `dockerized`, ...). After a settings group, it has one entry for each field
+    of the group, depth first in declaration order. Its `name` is the dotted path that `-s` and a
+    design file accept, and its `group` is the top-level setting that holds the group.
+
+    `tier` is how often a user needs the setting (`common`, `advanced` or `expert`). A setting
+    that declares none is `common`. `group` is None outside a group. `definitions` describes the
+    nested models.
     """
     cls = _resolve(flow)
     schema = cls.Settings.model_json_schema(by_alias=True)

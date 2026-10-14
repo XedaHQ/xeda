@@ -49,6 +49,7 @@ __all__ = [
     "require_yosys",
     "require_yosys_config",
     "require_yosys_ghdl_plugin",
+    "require_yosys_tcl",
     "use_fake_asic_tools",
     "use_fake_tools",
     "yosys_json_attribute_holders",
@@ -835,6 +836,8 @@ def fake_calls(run_dir: Path, elements: bool = False) -> List[List[str]]:
 #   XEDA_TESTS_EXTERNAL=1  bsc flows on external repositories (tests/test_bsc_external.py), with
 #     XEDA_TESTS_EXTERNAL_SLOW=1 for its slowest test too
 #   XEDA_TESTS_OPENXC7=1  FPGA builds by the real openXC7 1.0 toolchain (tests/test_openxc7_real.py)
+#   XEDA_TESTS_YOSYS_TCL=1  Tcl scripts run by a real `yosys` with Tcl support: the one on PATH
+#     (tests/test_yosys_asic_tcl.py). Most builds of OSS CAD Suite have none.
 #   XEDA_TESTS_PDK_ROOT=<directory>  each bundled platform against its real PDK files, in a PDK
 #     store; XEDA_TESTS_PLATFORMS=<names> lists the bundled platforms that store holds
 #     (tests/test_platform_conformance.py)
@@ -892,6 +895,30 @@ def require_openxc7() -> Path:
         if probe is not None and not _command_succeeds(probe):
             pytest.fail(f"XEDA_TESTS_OPENXC7 is set, but `{' '.join(probe)}` fails")
     return prefix
+
+
+@lru_cache(maxsize=None)
+def _probe_yosys_tcl(path_variable: str) -> bool:
+    """Run a one-line Tcl script with `yosys -c`, in a temporary directory. The cache key is the
+    value of `PATH`, so a different `PATH` finds a different `yosys`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "probe.tcl"
+        script.write_text("puts xeda_probe\n")
+        return _command_succeeds(["yosys", "-q", "-c", str(script)], cwd=tmp)
+
+
+def require_yosys_tcl() -> None:
+    """Run a Tcl script with yosys only when asked (`XEDA_TESTS_YOSYS_TCL=1`), and then insist on
+    a `yosys` on `PATH` that runs one with `yosys -c`. Its own variable, not
+    `XEDA_TESTS_REQUIRE_TOOLS`: the OSS CAD Suite of the general tox legs has no Tcl in its
+    yosys."""
+    if not _opted_in("XEDA_TESTS_YOSYS_TCL"):
+        pytest.skip("set XEDA_TESTS_YOSYS_TCL=1 to run the tests that run a yosys with Tcl")
+    if not _probe_yosys_tcl(os.environ.get("PATH", "")):
+        pytest.fail(
+            "XEDA_TESTS_YOSYS_TCL is set, but the `yosys` on PATH does not run a Tcl script "
+            "with `yosys -c`"
+        )
 
 
 def require_pdk_store() -> Path:

@@ -88,51 +88,42 @@ def test_the_script_maps_to_the_liberty_files_and_cells_of_the_platform(fake_yos
     flow, store = _launch(fake_yosys)
     assert flow.succeeded
     effective, script = _effective(flow), _script(flow)
-    (liberty,) = effective["liberty"]
-    assert (flow.run_path / liberty).parent == flow.run_path, "merged in the run directory"
-    assert "library (tiny_merged)" in (flow.run_path / liberty).read_text()
-    assert f"-liberty {flow.run_path / liberty}" in script or f"-liberty {liberty}" in script
+    pdk = store / "tiny"
+    assert effective["liberty"] == [str(pdk / "tiny.lib")], "the file of the platform, as it is"
+    assert not list(flow.run_path.glob("*.lib")), "the run writes no library"
+    assert f"-lib {pdk / 'tiny.lib'}\n" in script
+    assert f"dfflibmap -liberty {pdk / 'tiny.lib'}" in script
+    assert f"-liberty {pdk / 'tiny.lib'} -dont_use" in script
     assert "-hicell TIEHI_SMALL Z -locell TIELO_X1 Z" in script
     assert "insbuf -buf BUF_X1 A Z" in script
     assert (flow.run_path / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
-    pdk = store / "tiny"
-    assert effective["adder_map"] == str(pdk / "cells_adders.v")
-    assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
-    assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
-    assert effective["dff_liberty"] is None, "the platform has no flip-flop library of its own"
+    assert f"techmap -map {pdk / 'cells_adders.v'}\n" in script
+    assert f"read_verilog -defer {pdk / 'cells_clkgate.v'}\n" in script
+    assert f"techmap -map {pdk / 'cells_latch.v'}\n" in script
+    assert effective["sequential"]["dff_liberty"] is None, "no flip-flop library of its own"
+    assert effective["sequential"]["latch_map"] == "platform"
+    assert effective["sequential"]["latch_map_file"] is None, "the platform's map is not a setting"
 
 
-def _marks(library: Path) -> dict[str, int]:
-    """How many times each cell of a Liberty file carries `dont_use : true`."""
-    marks: dict[str, int] = {}
-    cell = None
-    for line in library.read_text().splitlines():
-        found = re.match(r"\s*cell\s*\(\s*(\w+)\s*\)", line)
-        if found:
-            cell = found.group(1)
-            marks[cell] = 0
-        elif cell and re.match(r"\s*dont_use\s*:\s*true", line):
-            marks[cell] += 1
-    return marks
+def _dont_use(flow) -> dict[str, list[str]]:
+    """The cells that `-dont_use` words name, on each command of the script that has them."""
+    words: dict[str, list[str]] = {}
+    for line in _script(flow).splitlines():
+        tokens = line.split()
+        if tokens and tokens[0] in ("dfflibmap", "abc"):
+            words[tokens[0]] = [tokens[i + 1] for i, t in enumerate(tokens) if t == "-dont_use"]
+    return words
 
 
-def test_the_dont_use_cells_of_the_model_and_of_the_user_are_marked(fake_yosys):
-    """The model lists the cells that the Liberty file marks itself (`INV_X4`, `NAND2_X4`); each
-    gets one more mark in the merged library, as does a cell of the `dont_use_cells` setting."""
+def test_the_dont_use_cells_of_the_model_and_of_the_user_are_words_of_dfflibmap_and_abc(
+    fake_yosys,
+):
+    """The model lists the cells that the Liberty file marks itself (`INV_X4`, `NAND2_X4`); they
+    come first, then a cell of the `dont_use_cells` setting. Each is one `-dont_use` word on
+    `dfflibmap` and on `abc`."""
     flow, _ = _launch(fake_yosys, dont_use_cells=["NOR2_X1"])
-    (liberty,) = _effective(flow)["liberty"]
-    assert _marks(flow.run_path / liberty) == {
-        "INV_X1": 0,
-        "INV_X4": 2,
-        "BUF_X1": 0,
-        "NAND2_X1": 0,
-        "NAND2_X4": 2,
-        "NOR2_X1": 1,
-        "DFF_X1": 0,
-        "TIEHI_BIG": 0,
-        "TIEHI_SMALL": 0,
-        "TIELO_X1": 0,
-    }
+    cells = ["INV_X4", "NAND2_X4", "NOR2_X1"]
+    assert _dont_use(flow) == {"dfflibmap": cells, "abc": cells}
 
 
 def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file(
@@ -145,34 +136,32 @@ def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file
         + "  dont_use_cells: {value: [BUF_X1], reason: the test chooses another cell}\n"
     )
     flow, _ = _launch(fake_yosys, platform_file=str(mine))
-    (liberty,) = _effective(flow)["liberty"]
-    marks = _marks(flow.run_path / liberty)
-    assert marks["BUF_X1"] == 1 and marks["INV_X4"] == 1 and marks["NAND2_X4"] == 1
+    assert _dont_use(flow) == {"dfflibmap": ["BUF_X1"], "abc": ["BUF_X1"]}
 
 
 def test_a_setting_the_user_gave_wins_over_the_model(fake_yosys):
     flow, _ = _launch(
         fake_yosys,
-        abc_driver_cell="INV_X1",
-        abc_load_in_ff=1.5,
-        hilomap={"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Z"]},
-        insbuf=["INV_X1", "A", "ZN"],
-        other_maps=[],
+        abc={"driver_cell": "INV_X1", "load": 1.5},
+        finish={
+            "tie_cells": {"hi": ["TIEHI_BIG", "Z"], "lo": ["TIELO_X1", "Z"]},
+            "buffer_cell": ["INV_X1", "A", "ZN"],
+        },
     )
     script = _script(flow)
     assert (flow.run_path / "abc.constr").read_text() == "set_driving_cell INV_X1\nset_load 1.5\n"
     assert "-hicell TIEHI_BIG Z" in script and "insbuf -buf INV_X1 A ZN" in script
-    assert _effective(flow)["other_maps"] == []
 
 
 def test_a_liberty_file_the_user_gave_replaces_the_one_of_the_platform(fake_yosys):
     own = fake_yosys / "own.lib"
     own.write_text("library (own) {\n  cell (OWN_CELL) {\n    area : 1;\n  }\n}\n")
     flow, _ = _launch(fake_yosys, liberty=[str(own)])
-    (liberty,) = _effective(flow)["liberty"]
-    text = (flow.run_path / liberty).read_text()
-    assert "OWN_CELL" in text and "INV_X1" not in text
-    assert "-hicell TIEHI_SMALL Z" in _script(flow), "the cells still come from the platform"
+    assert _effective(flow)["liberty"] == [str(own)]
+    script = _script(flow)
+    assert f"-lib {own}\n" in script and "tiny.lib" not in script
+    assert f"dfflibmap -liberty {own}" in script and "abc -script" in script
+    assert "-hicell TIEHI_SMALL Z" in script, "the cells still come from the platform"
 
 
 @pytest.mark.parametrize("corner", [None, "typical", "tt", "fast", "ff"])
@@ -193,7 +182,8 @@ def test_the_corner_selects_the_liberty_files_of_that_corner(fake_yosys, corner)
     flow, _ = _launch(fake_yosys, store=store, platform_file=str(residue), **given)
     (liberty,) = _effective(flow)["liberty"]
     fast = corner in ("fast", "ff")
-    assert ("cell (FAST_X1)" in (flow.run_path / liberty).read_text()) is fast
+    assert Path(liberty).name == ("tiny_fast.lib" if fast else "tiny.lib")
+    assert ("cell (FAST_X1)" in Path(liberty).read_text()) is fast
     results = json.loads((flow.run_path / "results.json").read_text())
     assert results["platform"]["corner"] == ("fast" if fast else "typical")
     recorded = json.loads((flow.run_path / "trace.json").read_text())["inputs"]
@@ -221,6 +211,30 @@ def test_a_platform_together_with_generic_cells_is_refused(platform, generic):
             "value_error",
         )
     ]
+
+
+@pytest.mark.parametrize("generic", [{"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}])
+def test_excluded_cells_together_with_generic_cells_are_refused(generic):
+    """Generic cells are no library cells, so there is nothing to exclude. The refusal names both
+    settings."""
+    (cells,) = generic
+    settings = Yosys.Settings.from_input({**generic, "dont_use_cells": ["BUF_X1"]})
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(settings)
+    assert refused.value.errors == [
+        (
+            "dont_use_cells",
+            f"`dont_use_cells` and `{cells}` cannot both be set: `{cells}` maps to generic cells, "
+            "which have no library cells to exclude. Set only one of them",
+            None,
+            "value_error",
+        )
+    ]
+
+
+@pytest.mark.parametrize("generic", [{"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}])
+def test_no_excluded_cells_with_generic_cells_is_accepted(generic):
+    Yosys.check_settings_supported(Yosys.Settings.from_input({**generic, "dont_use_cells": []}))
 
 
 def test_generic_cells_without_a_platform_read_no_platform(fake_yosys):
@@ -466,11 +480,11 @@ def test_a_corner_that_the_platform_lacks_is_refused_at_planning(fake_yosys):
         )
 
 
-@pytest.mark.parametrize("name", ["abc_driver_cell", "abc_load_in_ff"])
+@pytest.mark.parametrize("name", ["driver_cell", "load"])
 def test_an_abc_cell_setting_without_a_liberty_mapping_names_the_ways_to_map(name):
-    value = "BUF_X1" if name == "abc_driver_cell" else 1.5
+    value = "BUF_X1" if name == "driver_cell" else 1.5
     with pytest.raises(FlowSettingsError) as refused:
-        Yosys.check_settings_supported(Yosys.Settings.from_input({name: value}))
+        Yosys.check_settings_supported(Yosys.Settings.from_input({"abc": {name: value}}))
     for text in ("`platform`", "`platform_file`", "`liberty`"):
         assert text in str(refused.value)
 
@@ -480,7 +494,7 @@ def test_an_abc_cell_setting_without_a_liberty_mapping_names_the_ways_to_map(nam
     [{"platform": "nangate45"}, {"platform_file": str(TINY_RESIDUE)}, {"liberty": ["a.lib"]}],
 )
 def test_the_abc_cell_settings_are_accepted_with_a_liberty_mapping(given):
-    settings = Yosys.Settings.from_input({"abc_driver_cell": "BUF_X1", **given})
+    settings = Yosys.Settings.from_input({"abc": {"driver_cell": "BUF_X1"}, **given})
     Yosys.check_settings_supported(settings)
 
 
@@ -498,6 +512,6 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(tmp_path):
     netlist = (flow.run_path / "netlist.v").read_text()
     cells = set(re.findall(r"^\s*(\w+)\s+\S+\s*\(", netlist, re.M)) - {"module"}
     assert cells and cells <= {"INV_X1", "NAND2_X1", "NOR2_X1", "DFF_X1", "BUF_X1"}, cells
-    assert "$_" not in netlist, "an unmapped generic cell is left in the netlist"
+    assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
     assert not cells & {"INV_X4", "NAND2_X4"}, "a dont-use cell was used"
     assert results["platform"]["name"] == "tiny"

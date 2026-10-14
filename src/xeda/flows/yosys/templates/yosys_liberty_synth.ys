@@ -1,0 +1,212 @@
+{#- The mapping to a standard cell library, in the order of OpenROAD-flow-scripts: the Liberty
+    files are read first, as library cells that carry the `liberty_cell` attribute. `synth` runs
+    in two parts without `abc`, then the adders, the latches and the flip-flops are mapped, and
+    `abc` maps the logic. The cells that the flow must not use (`dont_use`) are `-dont_use` words
+    on `dfflibmap` and `abc`. `dfflibmap` and `abc` read their Liberty files themselves; the
+    expanding commands (`read_liberty`, `dfflibmap`) name them with `read_path`.
+    The options of the coarse part of `synth` (`coarse_words`) go on the first `synth` command
+    only. `-hieropt` goes on both parts. `-latches` is an option of the `proc` that this script
+    runs, since the `proc` inside `synth` finds no process left.
+    The maps of the user (`techmap_files`) run at the point that each `when` names: before the
+    first part of `synth`, after the coarse part (and the memory mapping and the retiming), before
+    the flip-flop mapping, and after it. The finishing options of the group `finish` switch the
+    removal of formal cells, the renaming, the single-bit vectors, the extra checks, and the tie
+    and buffer cells.
+    `prep` runs in place of `proc` and `flatten`: it covers the elaboration of the design.
+    `abc.mapper: abc_new` maps with `abc_new`, which gets its script file by `-script`. It and
+    the Liberty files that it reads again as whiteboxes (for their functions) need no Tcl.
+    The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
+{%- set liberty_read = true -%}
+{%- set clockgate_map = asic.clockgate_map -%}
+{%- set abc_new = settings.abc.mapper == "abc_new" -%}
+{%- set extra_map -%}
+{%- set architecture = {"kogge_stone": "kogge-stone", "han_carlson": "han-carlson", "sklansky": "sklansky"}.get(settings.arithmetic.adder_architecture) -%}
+{%- if architecture %} -extra-map +/choices/{{architecture}}.v{% endif -%}
+{%- endset -%}
+{%- set dont_use_words -%}
+{%- for cell in dont_use %} -dont_use {{cell|path}}{% endfor -%}
+{%- endset -%}
+{%- set coarse_words -%}
+{%- if not settings.coarse.fsm %} -nofsm{% endif -%}
+{%- if not settings.coarse.share %} -noshare{% endif -%}
+{%- if not settings.arithmetic.alumacc %} -noalumacc{% endif -%}
+{%- if settings.arithmetic.multiplier == "booth" %} -booth{% endif -%}
+{%- if settings.arithmetic.arith_tree %} -arith_tree{% endif -%}
+{%- if not settings.memory.merge_ff %} -nordff{% endif -%}
+{%- if not settings.memory.rw_check %} -no-rw-check{% endif -%}
+{%- endset -%}
+{%- set hieropt = " -hieropt" if settings.hierarchy.cross_boundary_opt else "" -%}
+{#- `dfflegalize` takes the limits of the sequential group (`-mince`, `-minsrst`) as flags. -#}
+{%- set legalize_limits = render_flags(settings.sequential) -%}
+{#- the flags of `abc` that the group `abc` owns (`-liberty_args`) -#}
+{%- set abc_options = render_flags(settings.abc) -%}
+{%- set fa = settings.arithmetic.extract_fa -%}
+{#- `extract_fa` refuses a limit (`-d`, `-b`) as its last word, so the kinds of adders come after
+    the limits, and a run with limits names both kinds when it extracts both. -#}
+{%- set extract_fa_words -%}
+{%- set fa_flags = render_flags(fa) -%}
+{%- if fa_flags %} {{fa_flags}}{% endif -%}
+{%- if fa.full and fa.half %}{% if fa_flags %} -fa -ha{% endif %}
+{%- elif fa.full %} -fa
+{%- else %} -ha
+{%- endif -%}
+{%- endset -%}
+{% for lib in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
+{% endfor -%}
+{% if asic.dff_liberty and asic.dff_liberty not in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}
+{% endif -%}
+{% if abc_new -%}
+{% for lib in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func -ignore_buses {{lib|read_path}}
+{% endfor -%}
+{% if asic.dff_liberty and asic.dff_liberty not in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func -ignore_buses {{asic.dff_liberty|read_path}}
+{% endif -%}
+{% endif -%}
+{% include 'read_files.ys' %}
+{%- if settings.prep is none %}
+proc{% if settings.coarse.latches %} -latches {{settings.coarse.latches}}{% endif %}
+{%- endif %}
+{%- for instance in settings.hierarchy.keep_instances %}
+setattr -set keep_hierarchy 1 {{instance|path}}
+{%- endfor %}
+{%- if settings.hierarchy.separator %}
+scratchpad -set flatten.separator {{settings.hierarchy.separator|path}}
+{%- endif %}
+{%- if settings.prep is not none %}
+prep{% if settings.flatten %} -flatten{% endif %}{% if design.rtl.top %} -top {{design.rtl.top}}{% else %} -auto-top{% endif %}{% for flag in settings.prep %} {{flag}}{% endfor %}
+{%- elif settings.flatten %}
+flatten
+{%- endif %}
+
+{% include "post_rtl.ys" %}
+{#- yosys scripts have no `exit`, so `stop_after == "rtl"` omits the rest #}
+{%- if settings.stop_after != "rtl" %}
+{%- if settings.finish.check_pre %}
+check
+{%- endif %}
+{%- for map in asic.techmaps("pre_synth") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
+synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{coarse_words}}{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+{%- if settings.sequential.tristate == "logic" %}
+tribuf -logic
+opt_clean
+{%- endif %}
+{%- if asic.memory_libmap %}
+memory_libmap{% for lib in asic.memory_libmap %} -lib {{lib|path}}{% endfor %}
+{%- endif %}
+{%- if asic.memory_techmap %}
+techmap -map {{asic.memory_techmap|read_path}}
+{%- endif %}
+{%- if settings.sequential.retime_modules %}
+{%- for name in settings.sequential.retime_modules %}
+select -assert-any {{name|path}}
+{%- endfor %}
+select{% for name in settings.sequential.retime_modules %} {{name|path}}{% endfor %}
+opt -fast -full
+memory_map
+opt -full
+techmap
+abc -dff{% if settings.abc.keep_ff %} -keepff{% endif %} -script {{asic.retime_script|path}}
+select -clear
+{%- endif %}
+{%- for map in asic.techmaps("post_coarse") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
+synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+{%- if settings.finish.drop_formal %}
+chformal -remove
+delete t:$print
+{%- endif %}
+{%- if settings.finish.names == "rename_wire" %}
+rename -wire
+{%- endif %}
+opt -purge{% if settings.coarse.opt_dff_sat %} -sat{% endif %}
+{%- if asic.adder_map %}
+extract_fa{{extract_fa_words}}
+techmap -map {{asic.adder_map|read_path}}
+{%- endif %}
+techmap
+opt -fast -purge
+{%- if asic.latch_map %}
+dfflegalize -cell $_DLATCH_P_ x -cell $_DLATCH_N_ x t:$_DLATCH_*
+techmap -map {{asic.latch_map|read_path}}
+{%- endif %}
+{%- for map in asic.techmaps("pre_dff") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
+{%- if settings.sequential.clock_gating.enabled %}
+{%- set gating = settings.sequential.clock_gating %}
+clockgate
+{%- if gating.pos_icg or gating.neg_icg -%}
+{%- if gating.pos_icg %} -pos {{gating.pos_icg[0]|path}} {{(gating.pos_icg[1] ~ ":" ~ gating.pos_icg[2] ~ ":" ~ gating.pos_icg[3])|path}}{% endif -%}
+{%- if gating.neg_icg %} -neg {{gating.neg_icg[0]|path}} {{(gating.neg_icg[1] ~ ":" ~ gating.neg_icg[2] ~ ":" ~ gating.neg_icg[3])|path}}{% endif -%}
+{%- else -%}
+{%- for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- endif -%}
+{%- set gating_flags = render_flags(gating) -%}
+{%- if gating_flags %} {{gating_flags}}{% endif %}
+{%- endif %}
+{%- if asic.dff_map %}
+dfflegalize{% for cell in asic.dff_map_cells %} -cell {{cell|path}} x{% endfor %}{% if legalize_limits %} {{legalize_limits}}{% endif %}
+techmap -map {{asic.dff_map|read_path}}
+{%- else %}
+{%- if legalize_limits %}
+dfflegalize{% for cell in asic.legalize_any %} -cell {{cell|path}} x{% endfor %} {{legalize_limits}}
+{%- endif %}
+dfflibmap{% for lib in ([asic.dff_liberty] if asic.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
+{%- endif %}
+{%- for map in asic.techmaps("post_dff") %}
+techmap -map {{map|read_path}}
+{%- endfor %}
+opt
+{%- if settings.finish.tie_undefined == "zero" %}
+setundef -zero
+{%- elif settings.finish.tie_undefined == "one" %}
+setundef -one
+{%- endif %}
+{%- if abc_new %}
+abc_new{% if asic.abc_new_script %} -script {{asic.abc_new_script|path}}{% endif %}
+{%- else %}
+abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}
+{%- endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- if abc_constr_file %} -constr {{abc_constr_file|path}}{% endif %}
+{%- if asic.delay_target_ps is not none %} -D {{"%.3f"|format(asic.delay_target_ps)}}{% endif %}
+{%- if abc_options %} {{abc_options}}{% endif %}
+{%- for flag in settings.abc_flags %} {{flag}}{% endfor %}
+{%- if abc_new %}
+delete t:$specify*
+{%- endif %}
+{%- if settings.splitnets %}
+splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
+{%- endif %}
+opt_clean -purge
+{%- if asic.tie_cells %}
+hilomap{% if asic.tie_cells.singleton %} -singleton{% endif %} -hicell {{asic.tie_cells.hi|join(" ")}} -locell {{asic.tie_cells.lo|join(" ")}}
+{%- endif %}
+{%- if asic.buffer_cell %}
+insbuf -buf {{asic.buffer_cell|join(" ")}}
+{%- endif %}
+{%- if settings.rmports %}
+rmports
+{%- endif %}
+{%- if settings.finish.names == "autoname" %}
+autoname
+{%- endif %}
+{%- if settings.finish.normalize_single_bit %}
+attrmap -remove single_bit_vector
+{%- endif %}
+check {% if settings.check_assert -%} -assert {% endif -%} -mapped{% if settings.finish.allow_tristate %} -allow-tbuf{% endif %}
+
+{#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
+    which `write_json` refuses to write. A liberty library holds blackboxes only. #}
+{%- if settings.verilog_lib %}
+blackbox =A:whitebox
+{%- endif %}
+{% include "write_netlist.ys" %}
+
+log -stdout ***** Synthesis Completed *****
+{%- endif %}

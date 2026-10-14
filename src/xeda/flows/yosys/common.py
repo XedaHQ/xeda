@@ -10,10 +10,11 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, SourceType
-from ...flow import Flow, FlowException, FlowSettingsException
+from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import ToolException, hierarchical_merge, tcl_word, unique
+from .flag_hatches import SLANG_HATCHES, WRITE_VERILOG_SWITCHES, flag_problems
 
 log = logging.getLogger(__name__)
 YOSYS_DOCKER_IMAGE = "hdlc/impl"
@@ -92,6 +93,23 @@ def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
                 )
             )
     return problems
+
+
+def refuse_output_after_rtl(flow: type[Flow], settings: Flow.Settings, name: str) -> None:
+    """Refuse the request of a consumer for an output of a flow that `stop_after` stops.
+
+    A flow stopped after the RTL (`stop_after: rtl`) writes no netlist, so the request has no
+    answer. The advice of `stop_after_conflicts`, to turn the netlist settings off, would be
+    circular here: this request turns them on. So the message says that no consumer can follow
+    the stopped flow. `flow` is the class that gets the request: `yosys` and `yosys_fpga` call
+    this function from their `enable_output`, since each declares `stop_after`.
+    """
+    if getattr(settings, "stop_after", None) == "rtl":
+        raise ValueError(
+            f"a flow that takes the {name} cannot follow a stopped {flow.name}: "
+            f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
+            "out the flow that takes it"
+        )
 
 
 def yosys_release(yosys: Tool) -> YosysRelease:
@@ -202,6 +220,12 @@ _NOT_A_YS_TOKEN = re.compile(r'[\s"]+')
 quote."""
 
 
+#: The directory in the run directory that holds the temporary files of yosys. It is a relative
+#: name without a space: yosys runs in the run directory, and yosys and ABC split a command line at
+#: spaces.
+YOSYS_TEMPORARY_DIRECTORY = "yosys_tmp"
+
+
 class YosysBase(Flow):
     """The base of the flows that read a design with Yosys."""
 
@@ -237,11 +261,16 @@ class YosysBase(Flow):
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
-            description="Flags passed to yosys' `read_verilog` for each Verilog source.",
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. When "
+            "`yosys` maps to a liberty library, it refuses a flag that the script or a setting "
+            "gives (`-defer`, `-D`, `-I`).",
         )
         read_systemverilog_flags: List[str] = Field(
             [],
-            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`.",
+            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`. "
+            "With `slang`, a flag that the script gives to `read_slang` itself (`--top`, `-D`, "
+            "`-I`, `-G`, `--blackboxed-module`, `--extern-modules`, "
+            "`--best-effort-hierarchy`) is refused.",
         )
         check_assert: bool = Field(
             True,
@@ -442,6 +471,21 @@ class YosysBase(Flow):
         )
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse what no yosys flow can honor, before anything runs.
+
+        With the slang front end, `read_systemverilog_flags` must not repeat a flag that the
+        script gives to `read_slang` itself. Every flow that reads SystemVerilog does it with the
+        same command, so the rule is the same for all of them.
+        """
+        super().check_settings_supported(settings)
+        problems = flag_problems(settings, SLANG_HATCHES)
+        if problems:
+            raise FlowSettingsError(
+                [(key, message, None, "value_error") for key, message in problems], cls.Settings
+            )
+
     def init(self):
         """Prepare the template helpers and the settings that every yosys flow shares."""
         assert isinstance(self.settings, self.Settings)
@@ -567,6 +611,22 @@ class YosysBase(Flow):
             default_args=default_args,
         )
 
+    def run_yosys(self, *args: Any) -> None:
+        """Run yosys with `args`, and keep its temporary files in the run directory.
+
+        Yosys and the programs it starts make their temporary directories and files where the
+        environment variable `TMPDIR` points, and `abc_new` leaves its directory there. The
+        process gets `TMPDIR` set to `YOSYS_TEMPORARY_DIRECTORY`, a new empty directory in the
+        run directory, which is removed when yosys ends, however it ends. The environment of Xeda
+        itself does not change, and no other tool gets the variable."""
+        run_directory = self.run_directory
+        run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
+        run_directory.writable(YOSYS_TEMPORARY_DIRECTORY).mkdir()
+        try:
+            self.yosys.run(*args, env={"TMPDIR": YOSYS_TEMPORARY_DIRECTORY})
+        finally:
+            run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
+
     def get_utilization(self) -> Optional[dict]:
         """Return the utilization report that this run wrote (`Flow.report_file`), if any."""
         report = self.report_file(self.artifacts.utilization_report)
@@ -607,7 +667,11 @@ class YosysSynthesisBase(YosysBase):
         rmports: bool = Field(False, description="Remove unused or undriven ports.")
 
         synth_flags: List[str] = Field(
-            [], description="Extra flags passed to yosys' `synth` command."
+            [],
+            description="Extra flags passed to yosys' `synth` command. When `yosys` maps to a "
+            "liberty library, it refuses a flag that a setting or the script gives, and the "
+            "error names the setting. With `arithmetic.wrap_operators`, the flags go to the "
+            "coarse part of `synth` only, since wrapping replaces the fine part.",
         )
 
         noabc: bool = Field(
@@ -616,7 +680,12 @@ class YosysSynthesisBase(YosysBase):
 
         abc_dff: bool = Field(True, description="Run abc and abc9 with `-dff`.")
 
-        abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
+        abc_flags: List[str] = Field(
+            [],
+            description="Extra flags passed to yosys' `abc`/`abc9`. When `yosys` maps to a "
+            "liberty library, it refuses a flag that a setting gives, and the error names the "
+            "setting.",
+        )
 
         abc_constr: List[str] = Field(
             [],
@@ -627,7 +696,9 @@ class YosysSynthesisBase(YosysBase):
         abc_script: Optional[str] = Field(
             None,
             description="Custom abc script, replacing the default mapping script: a script file, "
-            'or the script itself written inline after a "+" ("+strash;map"). Advanced: a '
+            'or the script itself written inline after a "+" ("+strash;map"). With '
+            "`abc.mapper: abc_new` in `yosys`, the script works on a GIA and must end in a mapped "
+            "one (`&nf`), and it replaces the scripts of wrapped operators. Advanced: a "
             "wrong script silently produces a poor or invalid netlist.",
         )
 
@@ -674,7 +745,8 @@ class YosysSynthesisBase(YosysBase):
         netlist_verilog_flags: List[str] = Field(
             [],
             description="Extra flags for `write_verilog`, in addition to those the `netlist_*` "
-            "switches above imply.",
+            "switches above imply. When `yosys` maps to a liberty library, it refuses a flag "
+            "that a `netlist_*` switch gives.",
         )
 
         netlist_src_attrs: bool = Field(
@@ -732,14 +804,16 @@ class YosysSynthesisBase(YosysBase):
             switch set after construction takes effect (`Yosys.run` sets `netlist_expr` so).
             """
             flags = list(self.netlist_verilog_flags)
-            for switch, flag, flag_when in (
-                (self.netlist_dec, "-nodec", False),
-                (self.netlist_hex, "-nohex", False),
-                (self.netlist_expr, "-noexpr", False),
-                (self.netlist_attrs, "-noattr", False),
-                (self.netlist_blackboxes, "-blackboxes", True),
-                (self.netlist_simple_lhs, "-simple-lhs", True),
-            ):
+            switches = {
+                "netlist_dec": self.netlist_dec,
+                "netlist_hex": self.netlist_hex,
+                "netlist_expr": self.netlist_expr,
+                "netlist_attrs": self.netlist_attrs,
+                "netlist_blackboxes": self.netlist_blackboxes,
+                "netlist_simple_lhs": self.netlist_simple_lhs,
+            }
+            for field, flag, flag_when in WRITE_VERILOG_SWITCHES:
+                switch = switches[field]
                 if switch is flag_when:
                     flags.append(flag)
                 elif switch is (not flag_when) and flag in flags:
@@ -770,22 +844,6 @@ class YosysSynthesisBase(YosysBase):
             if isinstance(value, str) and value:
                 return value
             return value
-
-    @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """Switch on the output that a consumer asks for.
-
-        A flow stopped after the RTL (`stop_after`) writes no netlist, so the request is refused
-        with the message that no consumer can follow it. The advice of `stop_after_conflicts`, to
-        turn the netlist settings off, would be circular here: this request turns them on.
-        """
-        if getattr(settings, "stop_after", None) == "rtl":
-            raise ValueError(
-                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
-                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
-                "out the flow that takes it"
-            )
-        super().enable_output(settings, name, design_name=design_name)
 
     def _abc_script_file(self) -> Optional[Path]:
         """Return the ABC script file that `abc_script` names, or None.
@@ -832,13 +890,6 @@ class YosysSynthesisBase(YosysBase):
         if abc_script:
             ss.abc_script = str(abc_script)
             self.implicit_inputs.append(abc_script)
-        for name in ("adder_map", "clockgate_map"):
-            value = getattr(ss, name, None)
-            if value:
-                setattr(ss, name, self.normalize_path_to_design_root(value))
-        other_maps = getattr(ss, "other_maps", None)
-        if other_maps is not None:
-            setattr(ss, "other_maps", [self.normalize_path_to_design_root(p) for p in other_maps])
         if ss.sta or ss.ltp:
             ss.flatten = True
         if ss.abc_dff:

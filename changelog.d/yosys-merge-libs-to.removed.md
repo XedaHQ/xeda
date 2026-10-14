@@ -1,0 +1,1 @@
+- `merge_libs_to` of `yosys` was removed: Xeda no longer merges Liberty files; delete it.

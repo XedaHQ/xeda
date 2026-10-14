@@ -215,6 +215,16 @@ CASES: dict[str, Case] = {
         r"`lut` and `platform_file` cannot both be set",
         {"platform_file": str(TINY_RESIDUE), "lut": "4"},
     ),
+    "yosys-dont-use-cells-with-gates": Case(
+        Yosys,
+        r"`dont_use_cells` and `gates` cannot both be set",
+        {"dont_use_cells": ["BUF_X1"], "gates": ["AND"]},
+    ),
+    "yosys-dont-use-cells-with-lut": Case(
+        Yosys,
+        r"`dont_use_cells` and `lut` cannot both be set",
+        {"dont_use_cells": ["BUF_X1"], "lut": "4"},
+    ),
     "ghdl-run-flag-against-severity": Case(
         GhdlSim, "conflicts with fail_severity", {"run_flags": ["--assert-level=note"]}, _vhdl
     ),
@@ -375,6 +385,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
     "xeda.flow.flow:Flow.add_template_global_func": (
         1,
         "a template helper name used twice: a bug in the flow, no user input",
+    ),
+    "xeda.flow.settings_group:render_flags": (
+        1,
+        "a flag of an unknown kind: a bug in the declaration of a group, which class creation "
+        "refuses; no user input",
     ),
     "xeda.flows.fpga_pack:FpgaPack.init": (
         1,

@@ -39,6 +39,7 @@ from .cli_types import (
     FlowChoice as FlowChoice,
     OptionEatAll as OptionEatAll,
     OUTPUT_FORMATS as OUTPUT_FORMATS,
+    TIER_NAMES,
     output_format_option as output_format_option,
 )
 from .console import console, console_target, redirect_console, restore_console
@@ -431,12 +432,20 @@ def print_flow_settings(
     options: Optional[XedaOptions] = None,
     output_format: str = "table",
     include_common: bool = True,
+    tier: Optional[str] = None,
 ) -> None:
-    """Render the settings of a flow, as tables or as a machine-readable document."""
+    """Render the settings of a flow, as tables or as a machine-readable document.
+
+    With `tier`, only the settings up to that tier are shown (`advanced` shows `common` and
+    `advanced`). A table lists the `common` settings of the flow first, then a table for each
+    further tier that has settings, then the settings that every flow accepts."""
     flow_class = discover_flow_class(flow) if isinstance(flow, str) else flow
     info = settings_info(flow_class)
+    shown = TIER_NAMES if tier is None else TIER_NAMES[: TIER_NAMES.index(tier) + 1]
     fields: List[Dict[str, Any]] = [
-        f for f in info["fields"] if include_common or not f.get("common")
+        f
+        for f in info["fields"]
+        if (include_common or not f.get("common")) and f.get("tier", "common") in shown
     ]
     if output_format != "table":
         document = {**info, "fields": fields}
@@ -448,7 +457,15 @@ def print_flow_settings(
         return
     specific = [f for f in fields if not f.get("common")]
     common = [f for f in fields if f.get("common")]
-    console.print(_settings_table(f"{info['flow']} settings", specific))
+    console.print(
+        _settings_table(
+            f"{info['flow']} settings", [f for f in specific if f["tier"] == TIER_NAMES[0]]
+        )
+    )
+    for name in TIER_NAMES[1:]:
+        in_tier = [f for f in specific if f["tier"] == name]
+        if in_tier:
+            console.print(_settings_table(f"{info['flow']} settings: {name}", in_tier))
     if common:
         console.print(_settings_table("Common settings (accepted by every flow)", common))
     _definitions_tables(info.get("definitions", {}), debug=bool(options and options.debug))

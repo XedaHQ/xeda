@@ -214,6 +214,106 @@ nothing with it.
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
 
+.. _settings-groups:
+
+Settings groups and tiers
+-------------------------
+
+A flow with many tool options groups its settings by the command or pass of the tool that they
+control. A group is a table of settings, and a group can hold another group. ``xeda list-settings
+<flow>`` lists every setting of a group under its dotted name, for example
+``<group>.<subgroup>.<setting>``. That name is the key that you give on the command line and in a
+file. The ``yosys`` flow groups its standard-cell settings, such as ``abc.strategy``,
+``arithmetic.adder_map`` and ``finish.tie_cells`` (see :ref:`yosys-standard-cell-mapping`).
+
+On the command line, give a dotted key to ``-s``. In a design file, a target or a project file, give
+the same setting as nested tables or as a dotted key. The two spellings mean the same setting, and
+the usual rules for layers and dotted keys hold (see :ref:`the rules for dotted keys
+<dotted-keys>`)::
+
+    xeda run yosys design.yaml -s abc.strategy=speed -s sequential.clock_gating.enabled=true
+
+.. code-block:: yaml
+
+    flows:
+      yosys:
+        sequential:
+          clock_gating:
+            enabled: true
+        # or, with the same meaning:
+        sequential.clock_gating.enabled: true
+
+A group takes the same values and gives the same errors as a setting that is not in a group. An
+unknown name is an error. When only the case of a name is wrong, the error names the spelling that
+exists.
+
+Tiers
+~~~~~
+
+Every setting in a group has a tier that says how often a user needs it:
+
+``common``
+    The settings that most users set. They come first in a listing.
+
+``advanced``
+    Settings for a user who tunes a result.
+
+``expert``
+    Settings that follow an option of the tool closely. Most users never set them.
+
+A tier is documentation. It decides where a setting appears in a listing and never what Xeda
+accepts: a setting of any tier takes the same values, and a setting of any tier can be set. A
+setting outside a group has no tier of its own, and a listing treats it as ``common``.
+
+The tier ``common`` is not the key ``common`` of a listing, which marks the settings that every flow
+accepts. The tier says how often a user needs a setting. The key says which flows accept it.
+
+``xeda list-settings <flow> --tier advanced`` shows the settings up to that tier: ``common`` and
+``advanced``. ``--tier expert`` shows all of them, which is also the default. The table lists the
+``common`` settings first, including the settings outside a group, then a table for each other
+tier, and then the settings that every flow accepts. ``--json`` and ``--format`` show the same
+settings, and each entry has ``tier`` and ``group`` keys (see :ref:`machine-readable-settings`).
+
+Switchable groups
+~~~~~~~~~~~~~~~~~
+
+A group that the tool can skip has the setting ``enabled`` as its first setting. When ``enabled``
+is true and you set nothing else in the group, the tool runs the step with its own defaults. When
+``enabled`` is false, the tool does not use that option or step. Xeda renders only the flag of
+``enabled``, if the group has one, so no other value of the group reaches the tool. Xeda refuses
+such a value when it plans the run. The error names each setting that has a value and
+``<group>.enabled``. To switch the option or step on again, set ``enabled`` to true or take the
+other values out. Xeda compares a setting with the default of the group, so a value that equals the
+default is not an error.
+
+Defaults from the platform
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A setting whose default depends on the platform has the default ``null``. ``null`` means that the
+value of the platform applies. The listing shows ``null``, and the flow takes the value from the
+platform when it runs. A value that you set replaces the value of the platform. Some settings name
+the platform's value with a word instead of ``null``. In ``yosys``, ``arithmetic.adder_map``,
+``sequential.latch_map`` and ``sequential.clockgate_map`` take ``platform``. The
+:ref:`yosys-standard-cell-mapping` section lists these settings.
+
+Extra arguments
+~~~~~~~~~~~~~~~
+
+A group that wraps a command of a tool can have the setting ``extra_args``. It is a list of
+arguments for flags that have no setting of their own. The list is not free text:
+
+* Each flag in the list must be on the list of flags that the group allows. A flag that is not on
+  the list is an error, and the error shows the flags that the group allows.
+* A flag that a setting of the group controls is an error. The error names that setting, and you
+  set it there.
+* A value follows its flag in the list. The first item must be a flag.
+* An item is a flag when it starts with ``-`` and a letter or an underscore. Any other item is a
+  value. ``-0.5`` is a negative number, not a flag.
+
+Xeda checks all of this when it plans the run, before any tool starts. Each item reaches the tool
+as one word, with the quoting that the tool needs. ``-s <group>.extra_args=-flag,value`` gives the
+list ``-flag``, ``value``, because a list takes comma-separated text.
+
 Producers and consumers
 =======================
 
@@ -1170,6 +1270,260 @@ It cannot tell a black box from a primitive, and it cannot see a bus written wit
 Vivado reads such a bus with its bits reversed, and says nothing about it. A Verilog netlist is not
 an input. When Vivado reads a Verilog netlist, it drops the contents of a block RAM that has
 undefined bits, and it warns only with a critical warning (``[Netlist 29-72]``).
+
+.. _yosys-standard-cell-mapping:
+
+Yosys standard-cell mapping
+===========================
+
+``yosys`` maps a design to a standard-cell library when the flow has ``liberty`` files or a
+``platform``, and it has no ``gates`` or ``lut`` setting. The platform supplies the Liberty files,
+the mapping files, the tie and buffer cells, and the defaults that this section describes. Set
+``platform`` to a bundled platform name, or ``platform_file`` to a platform of your own (see
+:doc:`platforms`).
+
+The mapping script
+------------------
+
+Xeda writes the mapping as a Yosys script (``script_format: ys``) or as a Tcl script
+(``script_format: tcl``). The list below is the default mapping, in the order of
+OpenROAD-flow-scripts, and both formats hold these commands. The options that need Tcl add or
+replace commands: operator wrapping replaces the fine part of ``synth`` with ``wrap_operators``,
+and hierarchical synthesis adds ``keep_hierarchy -min_cost``. In both formats,
+``abc.mapper: abc_new`` replaces ``abc``. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``, has every
+command. The main steps are these:
+
+.. code-block:: text
+
+    read_liberty -overwrite -setattr liberty_cell -lib <file>  # each Liberty file, as cells
+    read the design; proc; flatten                    # flatten, unless flatten: false
+    techmap -map <map>                                # techmap_files at pre_synth
+    synth -run :fine                                  # the coarse part of synth
+    memory_libmap; techmap -map <map>                 # memory.libmap, memory.techmap
+    abc -dff -script <retiming script>                # sequential.retime_modules only
+    techmap -map <map>                                # techmap_files at post_coarse
+    synth -run fine: -noabc                           # the fine part of synth
+    chformal -remove; rename -wire; opt -purge
+    extract_fa; techmap -map <adder map>              # arithmetic.adder_map
+    techmap; opt -fast -purge
+    dfflegalize; techmap -map <latch map>             # sequential.latch_map
+    techmap -map <map>                                # techmap_files at pre_dff
+    clockgate                                         # sequential.clock_gating.enabled only
+    dfflegalize; dfflibmap -liberty <file>            # or the flip-flop map, sequential.dff_map
+    techmap -map <map>                                # techmap_files at post_dff
+    opt; setundef -zero                               # finish.tie_undefined
+    abc -liberty <file>                               # the logic mapping; -D <ps> with abc.delay_target
+    splitnets; opt_clean -purge; hilomap; insbuf
+    rmports; autoname; attrmap; check -assert -mapped
+    write_verilog                                     # the netlist
+
+Some steps run only when a setting asks for them. The comments name those settings.
+
+With ``prep``, the script runs ``prep`` with its flags in place of ``proc`` and ``flatten``. Xeda
+adds ``-flatten`` unless ``flatten`` is false, and ``-top`` with the top module. ``coarse.latches``
+is an option of the ``proc`` that ``prep`` replaces, so Xeda refuses it with ``prep``.
+
+Xeda reads each Liberty file as it is. It does not patch, merge or write a Liberty file. Each file
+goes to ``dfflibmap`` and to ``abc``. ``sequential.dff_liberty`` names a flip-flop file that
+replaces the Liberty files on ``dfflibmap``. ``abc`` still reads all of them.
+
+The cells that the flow must not use reach ``dfflibmap`` and ``abc`` as ``-dont_use`` words, one
+word for each cell. The cells of the platform come first, then the cells of ``dont_use_cells``, and
+each name appears once. A name is a glob pattern: ``*`` matches any number of characters, ``?``
+matches one character, and ``[...]`` matches one character of a set. Xeda passes each name as it
+is.
+
+Xeda refuses ``dont_use_cells`` together with ``gates`` or ``lut``. Those settings map to generic
+cells, which have no library cells to exclude.
+
+Settings groups
+---------------
+
+The other settings of the mapping are in seven groups, one for each stage. A group holds the
+settings of one stage, and its common settings are these:
+
+``hierarchy``
+    The modules that stay separate after the flattening, the separator of flattened names, and
+    the optimization across module boundaries. Common setting: ``hierarchy.keep_min_cost`` (Tcl
+    only).
+
+``coarse``
+    The coarse passes of ``synth``: finite state machines, resource sharing, the report of
+    latches, and the removal of flip-flops with a SAT solver. No common setting.
+
+``arithmetic``
+    The mapping of adders and other operators: the carry architecture, the full-adder map, the
+    Booth multipliers and the operator wrapping. Common settings: ``arithmetic.adder_architecture``,
+    ``arithmetic.adder_map`` and ``arithmetic.extract_fa``.
+
+``memory``
+    The mapping of memories to library cells, and the memory size limit. No common setting.
+
+``sequential``
+    The latches, clock gates, flip-flops and retiming, and the conversion of tri-state buffers.
+    Common setting: ``sequential.clock_gating``.
+
+``abc``
+    The logic mapping with ABC: the strategy, the driving cell and the load of the ports, and the
+    delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
+    mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
+    OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
+    clock; ``abc.delay_target: auto`` does that again. ``abc.dress`` passes ``-dress`` to ``abc``.
+    It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
+    instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
+    (berkeley-abc/abc#445).
+    ``abc.mapper: abc_new`` maps with the ``abc_new`` command of yosys instead, in a ``ys`` or a
+    ``tcl`` script. The command is experimental in yosys. It maps with a script that works on a GIA
+    and ends in a mapped one (``&nf``): ``abc_script``, or else the script
+    ``abc_speed_gia_only.script`` of OpenROAD-flow-scripts that Xeda writes into the run directory.
+    With ``arithmetic.wrap_operators``, each wrapped operator maps with its own script unless
+    ``abc_script`` replaces it. Xeda refuses ``abc.strategy`` other than ``area``, because those
+    scripts end in a network, and ``abc.liberty_args`` and ``abc.dress: true``, which ``abc_new`` has
+    no option for.
+
+``finish``
+    The commands after the mapping: the undefined values, the tie and buffer cells, the formal
+    cells, the names of the objects, and the checks. Common settings: ``finish.tie_undefined``,
+    ``finish.tie_cells`` and ``finish.buffer_cell``.
+
+The setting ``techmap_files`` is not a group. It lists Verilog maps that ``techmap`` applies at the
+point that each entry names in ``when``: ``pre_synth``, ``post_coarse``, ``pre_dff`` or
+``post_dff``. A bare path is a map at ``pre_dff``. Maps at one point run in the order of the list.
+
+``xeda list-settings yosys --tier common`` lists the common settings. ``xeda list-settings yosys
+--tier expert`` lists every setting, which is also the default.
+
+Options that need Tcl
+---------------------
+
+Some options need ``script_format: tcl``, and a yosys build with Tcl support. Xeda refuses them
+with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl`` script.
+
+``hierarchy.keep_min_cost``
+    Keeps each module whose cost is above this number of NAND2 gate equivalents as a module of its
+    own. The other modules are flattened. It is refused with ``flatten: false``.
+
+``arithmetic.wrap_operators``
+    Wraps each wide ``$alu`` and ``$macc`` cell in a module for each architecture, so that the
+    place and route tool can swap them. The first architecture in ``arithmetic.wrapped_adders``
+    or ``arithmetic.wrapped_multipliers`` builds the module that the design instantiates. The
+    netlist keeps the attributes that the swap reads (``arithmetic_operator``,
+    ``implements_operator``, ``architecture`` and ``source_cell``). With ``abc.mapper: abc_new``,
+    ABC maps each wrapped operator with the script that the operator carries, as
+    OpenROAD-flow-scripts does. With ``abc``, ABC maps every module with the script of
+    ``abc.strategy``.
+    Xeda refuses ``netlist_attrs: false`` and a ``netlist_unset_attributes`` entry that names one
+    of these attributes.
+
+``memory.max_bits``
+    Stops the run when a memory is larger than this many bits. The error suggests raising
+    ``memory.max_bits`` or setting ``memory.mock_large``. ``memory.mock_large`` shrinks each such
+    memory to one row, as OpenROAD-flow-scripts does. The netlist is then not a correct
+    implementation of the design. ``memory.keep_mocked`` (true by default) gives the module of a
+    shrunk memory the ``keep_hierarchy`` attribute. That attribute keeps the module separate only
+    when nothing flattened it before.
+
+Settings that a liberty mapping refuses
+---------------------------------------
+
+A liberty mapping runs its own elaboration and mapping, and it ends with the tail of
+OpenROAD-flow-scripts. Xeda refuses these settings with such a mapping, and each message names the
+setting:
+
+* ``abc_dff: true``. The mapping maps the flip-flops with ``dfflibmap`` before ``abc`` runs, so
+  ``-dff`` has no effect. Use ``sequential.retime_modules`` to retime. Set it to false or delete
+  it.
+* ``post_synth_opt: true``. The mapping runs no extra ``opt`` after ``synth``, so the setting has
+  no effect. Use ``coarse.opt_dff_sat`` to add ``-sat`` to the ``opt`` that follows ``synth``. Set
+  it to false or delete it.
+* ``nosynth: true``. Mapping to library cells needs ``synth`` to reduce the design to gates
+  first. Set it to false or delete it.
+* ``noabc: true``. The mapping always maps with ``abc``. Set it to false or delete it.
+
+A group setting that acts on a liberty mapping, such as ``abc.load``, is refused without a
+``platform``, ``platform_file`` or ``liberty``.
+
+Defaults from the platform
+--------------------------
+
+A leaf whose value is ``null`` takes the value of the platform when the platform has one. These are
+``abc.driver_cell`` (the driving cell), ``abc.load`` (the load on the outputs), ``finish.tie_cells``
+and ``finish.buffer_cell``. Three leaves take the word ``platform``, which uses the map of the
+platform: ``arithmetic.adder_map``, ``sequential.latch_map`` and ``sequential.clockgate_map``. Each
+of them uses its ``*_file`` setting first, when that is set, and ``none`` turns the map off.
+A value that you set replaces the value of the platform. The Liberty files you list in ``liberty``
+replace the Liberty files of the platform. ``dont_use_cells`` adds to the cells of the platform.
+
+Removed settings
+----------------
+
+These settings were removed from ``yosys``. Each one fails and names its replacement.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Removed setting
+     - Use instead
+   * - ``optimize``
+     - ``abc.strategy``. ``speed`` became ``speed_roundtrip``, and ``null`` became ``yosys``.
+   * - ``abc_driver_cell``
+     - ``abc.driver_cell``
+   * - ``abc_load_in_ff``
+     - ``abc.load``
+   * - ``adder_map``
+     - ``arithmetic.adder_map_file`` for a file, or ``arithmetic.adder_map: none``
+   * - ``clockgate_map``
+     - ``sequential.clockgate_map_file`` for a file, or ``sequential.clockgate_map: none``
+   * - ``dff_liberty`` and ``dff_library``
+     - ``sequential.dff_liberty``
+   * - ``other_maps``
+     - ``sequential.latch_map_file`` for the latch map, ``sequential.latch_map: none`` for no
+       latch map, and ``techmap_files`` for the other maps
+   * - ``hilomap``
+     - ``finish.tie_cells``
+   * - ``insbuf``
+     - ``finish.buffer_cell``
+   * - ``merge_libs_to``
+     - None. Xeda no longer merges Liberty files. Delete the setting, since ``dont_use_cells``
+       reaches ``dfflibmap`` and ``abc`` as ``-dont_use``.
+   * - ``retime``
+     - ``abc_dff``, which passes ``-dff`` to ``abc`` (not with a liberty mapping), and
+       ``abc_flags`` for more options of ``abc``. To retime the modules of a liberty mapping, use
+       ``sequential.retime_modules``.
+   * - ``netlist_verilog_extmem``
+     - ``netlist_verilog_flags: [-extmem]``
+
+Example
+-------
+
+The file below sets several of these settings. It is a design file whose ``yosys`` section uses
+nested tables and dotted keys.
+
+.. code-block:: yaml
+
+    # settings-groups.yaml
+    name: settings_groups
+    rtl:
+      top: top
+      sources:
+        - top.v
+    flows:
+      yosys:
+        clock.period: 2.0
+        liberty:
+          - cells.lib
+        abc:
+          strategy: speed
+          load: 0.5
+        arithmetic.adder_map: none
+        finish.tie_undefined: none
+        sequential:
+          clock_gating:
+            enabled: true
+            min_width: 4
+        techmap_files:
+          - path: maps/cells.v
+            when: pre_dff
 
 Bluespec
 ========

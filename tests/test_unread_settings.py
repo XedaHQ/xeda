@@ -32,11 +32,28 @@ A read of the setting `x` is:
   code assigns or compares;
 * in a template, `settings.x` or `settings["x"]` outside a comment.
 
-Known limit: only the top-level fields of a flow's `Settings` are checked. The leaves of a nested
-model belong to the code that owns the model (`fpga`, `clocks`, `platform`, `cocotb`), and the
-settings of a nested flow (`ghdl` under the yosys flows) are checked on that flow. A field that a
-read only derives another value from (`abc_dff` adds a flag to a list that no template renders)
-counts as read.
+A field that holds a settings group is not a setting. Its leaves are, each by its dotted path
+(`global_placement.timing_driven.enabled`), and `unread_settings` reports the leaves that nothing
+reads. A leaf `p.q.leaf` is read when:
+
+* the leaf has a `Flag` in the `FLAGS` of its group (or is `extra_args`), and the code or a
+  template calls `render_flags` on exactly that group (`render_flags(settings.p.q, ...)`: the first
+  argument is an expression that holds the settings, with the path of the group). `render_flags`
+  does not go into sub-groups, so a call on `p` does not read the leaves of `p.q`; or
+* the chain `settings.p.q.leaf` appears in the code (as a chain of attributes) or in a template,
+  outside a comment. A chain that goes on past the leaf (`settings.p.q.leaf.x`) reads it too; or
+* a template alias stands for the start of the chain. `{% set gp = settings.p %}` in any template
+  of the flow makes `gp.q.leaf` and `render_flags(gp.q, ...)` count as `settings.p.q.leaf` and
+  `render_flags(settings.p.q, ...)` in every template of the flow. The rule is simple and
+  conservative: it ignores where the name is set and which names are set again.
+
+Code does not follow an alias: `gp = ss.global_placement` followed by `gp.leaf` is no read. Code
+reads the leaf of a group by its whole chain, or has `render_flags` print the group.
+
+The leaves of other nested models (`fpga`, `clocks`, `cocotb`, the platform) still belong to the
+code that owns the model, and the settings of a nested flow (`ghdl` under the yosys flows) are
+checked on that flow. A field that a read only derives another value from (`abc_dff` adds a flag
+to a list that no template renders) counts as read.
 """
 
 import ast
@@ -47,11 +64,13 @@ import re
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import ClassVar, Optional
 
 import pytest
 
-from xeda.dataclass import waveform_fields
+from xeda.dataclass import Field, XedaBaseModel, waveform_fields
 from xeda.flow import Flow, FlowSettingsError, FlowSettingsException
+from xeda.flow.settings_group import Flag, SettingsGroup
 from xeda.flow_runner.resolver import SHARED_SETTINGS
 
 from .flow_registry import preserved_flow_registry
@@ -84,9 +103,24 @@ class Reads:
 
     attributes: frozenset[str]
     template_names: frozenset[str]
+    #: the dotted paths below the settings that a chain of attributes names, in the code and in
+    #: the templates: `settings.p.q.leaf` gives `p`, `p.q` and `p.q.leaf`
+    chains: frozenset[str] = frozenset()
+    #: the dotted paths of the groups that a `render_flags` call renders
+    rendered: frozenset[str] = frozenset()
 
     def reads(self, name: str) -> bool:
         return name in self.attributes or name in self.template_names
+
+    def reads_leaf(self, group: str, model: type[XedaBaseModel], name: str) -> bool:
+        """Whether the field `name` of the group `model` at the dotted path `group` is read: a
+        chain names it, or a call renders the group and the group prints the field."""
+        if f"{group}.{name}" in self.chains:
+            return True
+        if group not in self.rendered:
+            return False
+        flags = getattr(model, "FLAGS", ())
+        return name in {flag.field for flag in flags} or name == "extra_args"
 
 
 def _is_validator(node: ast.AST) -> bool:
@@ -216,6 +250,9 @@ class _Collector(ast.NodeVisitor):
     def __init__(self, *, settings_code: bool = False, env: Env | None = None) -> None:
         self.settings_code = settings_code
         self.attributes: set[str] = set()
+        #: the chains below the settings (`Reads.chains`) and the groups that code renders
+        self.chains: set[str] = set()
+        self.rendered: set[str] = set()
         #: the text that each variable can hold (`Held`), from the literals assigned to it, that it
         #: loops over or that a dictionary lookup gives it: a read, when `getattr` takes it
         self.env: Env = dict(env or {})
@@ -241,6 +278,10 @@ class _Collector(ast.NodeVisitor):
         name = function.id if isinstance(function, ast.Name) else getattr(function, "attr", "")
         if name in ("Field", "deliverable"):
             return  # a description and an alias are no use of a setting
+        if name == "render_flags" and node.args:
+            chain = self._chain(node.args[0])
+            if chain:
+                self.rendered.add(chain)
         # `getattr` reads a setting. `hasattr` only asks whether there is one, and `setattr` and
         # `delattr` replace or drop it.
         if name == "getattr" and len(node.args) > 1 and self._holds_settings(node.args[0]):
@@ -288,7 +329,21 @@ class _Collector(ast.NodeVisitor):
             base = ast.unparse(node.value)
             if base in SETTINGS_EXPRESSIONS or (self.settings_code and base in SETTINGS_SELF):
                 self.attributes.add(node.attr)
+            chain = self._chain(node)
+            if chain:
+                self.chains.add(chain)
         self.generic_visit(node)
+
+    def _chain(self, node: ast.AST) -> str:
+        """The dotted path below the settings that `node` names (`ss.p.q` gives `p.q`), or the
+        empty text when `node` is no chain of attributes on an expression that holds them."""
+        text = ast.unparse(node)
+        roots = SETTINGS_EXPRESSIONS | SETTINGS_SELF if self.settings_code else SETTINGS_EXPRESSIONS
+        for root in sorted(roots, key=len, reverse=True):
+            rest = text.removeprefix(root + ".")
+            if rest != text and re.fullmatch(r"\w+(\.\w+)*", rest):
+                return rest
+        return ""
 
     def visit_Name(self, node: ast.Name) -> None:
         self.names.add(node.id)
@@ -349,12 +404,74 @@ class _Collector(ast.NodeVisitor):
     visit_ListComp = visit_SetComp = visit_GeneratorExp = visit_DictComp = _comprehension
 
 
-def template_reads(name: str, text: str) -> set[str]:
-    """The settings a template reads: `settings.x` and `settings["x"]`, outside a Jinja comment
-    and, in a template of a language that has them, a line comment."""
+def _uncommented(name: str, text: str) -> str:
+    """The text of a template without its Jinja comments and, in a template of a language that
+    has them, its line comments."""
     text = re.sub(r"{#.*?#}", "", text, flags=re.DOTALL)
     if any(name.endswith(suffix) for suffix in HASH_COMMENT_SUFFIXES):
         text = "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+    return text
+
+
+def template_group_reads(templates: Iterable[tuple[str, str]]) -> tuple[set[str], set[str]]:
+    """What the templates of one flow read below a settings group: the dotted paths of the chains
+    (`settings.p.q.leaf` gives `p`, `p.q` and `p.q.leaf`) and of the groups that a `render_flags`
+    call renders (`render_flags(settings.p.q, ...)` gives `p.q`).
+
+    A `{% set name = settings.path %}` in a template makes `name.rest` and `render_flags(name`
+    stand for `settings.path.rest` in every template of the flow. A name that stands for another
+    name resolves too. That is a simple and conservative rule: it does not look at where a
+    template sets the name or at which names it sets again."""
+    texts = [_uncommented(name, text) for name, text in templates]
+    #: the settings path that each name stands for: the empty path for the settings themselves
+    roots: dict[str, str] = {expression: "" for expression in SETTINGS_EXPRESSIONS}
+    dotted = r"\w+(?:\s*\.\s*\w+)*"
+    assignment = re.compile(rf"{{%-?\s*set\s+(\w+)\s*=\s*({dotted})\s*-?%}}")
+
+    def path_of(text: str) -> list[str]:
+        return [part.strip() for part in text.split(".")]
+
+    def resolve(root: str, rest: list[str]) -> str:
+        return ".".join([*filter(None, [roots[root]]), *rest])
+
+    changed = True
+    while changed:
+        changed = False
+        for text in texts:
+            for alias, value in assignment.findall(text):
+                if alias in SETTINGS_EXPRESSIONS:
+                    continue
+                first, *rest = path_of(value)
+                # `self.settings` is two words: the longest root that starts the value wins
+                for root in sorted(roots, key=len, reverse=True):
+                    words = root.split(".")
+                    if [first, *rest][: len(words)] == words:
+                        resolved = resolve(root, [*rest][len(words) - 1 :])
+                        if roots.get(alias) != resolved:
+                            roots[alias] = resolved
+                            changed = True
+                        break
+    names = "|".join(re.escape(root) for root in sorted(roots, key=len, reverse=True))
+    tail = r"(?:\s*\.\s*\w+)*"
+    chain = re.compile(rf"(?<![\w.])({names})({tail})(?!\w)")
+    render = re.compile(rf"\brender_flags\s*\(\s*({names})({tail})(?!\w)")
+    chains: set[str] = set()
+    rendered: set[str] = set()
+    for text in texts:
+        for root, rest in chain.findall(text):
+            full = resolve(root, path_of(rest.strip(". ")) if rest.strip() else []).split(".")
+            chains |= {".".join(full[: n + 1]) for n in range(len(full)) if full[0]}
+        for root, rest in render.findall(text):
+            group = resolve(root, path_of(rest.strip(". ")) if rest.strip() else [])
+            if group:
+                rendered.add(group)
+    return chains, rendered
+
+
+def template_reads(name: str, text: str) -> set[str]:
+    """The settings a template reads: `settings.x` and `settings["x"]`, outside a Jinja comment
+    and, in a template of a language that has them, a line comment."""
+    text = _uncommented(name, text)
     return set(re.findall(r"\bsettings\s*\.\s*(\w+)", text)) | set(
         re.findall(r"""\bsettings\s*\[\s*['"](\w+)['"]""", text)
     )
@@ -423,11 +540,15 @@ def settings_reads(
                 queue.append((key[0], member, False))
 
     attributes: set[str] = set()
+    chains: set[str] = set()
+    rendered: set[str] = set()
     names: set[str] = set(entries)
     code: list[ast.AST] = []
     functions: set[tuple[str, str]] = set()
     taken: set[tuple[str, str]] = set()
+    templates = list(templates)
     used = frozenset().union(*(template_reads(name, text) for name, text in templates))
+    chains, rendered = template_group_reads(templates)
     names |= used  # a template calls a settings method as it reads a setting
 
     envs: dict[str, Env] = {}
@@ -462,6 +583,8 @@ def settings_reads(
             collector = _Collector(settings_code=settings_code, env=module_env(owner))
             collector.visit(node)
             attributes |= collector.attributes
+            chains |= collector.chains
+            rendered |= collector.rendered
             names |= collector.names
             for qualifier, name in _uses(node):
                 function_called(owner, qualifier, name)
@@ -476,7 +599,7 @@ def settings_reads(
                     if kind == "flow" and not _calls_super(member.node):
                         break
         if not queue:
-            return Reads(frozenset(attributes), used), code
+            return Reads(frozenset(attributes), used, frozenset(chains), frozenset(rendered)), code
 
 
 def _settings_methods(cls: type[Flow]) -> dict[str, list[Member]]:
@@ -521,10 +644,36 @@ def flow_reads(cls: type[Flow]) -> Reads:
     return reads
 
 
+def _group_class(annotation: object) -> type[SettingsGroup] | None:
+    if isinstance(annotation, type) and issubclass(annotation, SettingsGroup):
+        return annotation
+    return None
+
+
+def unread_in(settings: type[XedaBaseModel], reads: Reads) -> list[str]:
+    """The settings in the model `settings` that `reads` does not cover, in declaration order. A
+    setting is a field of the model that holds no group, or a field of a group at any depth, by
+    its dotted path (`global_placement.timing_driven.enabled`). A field that holds a group is not
+    a setting: it is read when every setting in it is."""
+    unread: list[str] = []
+
+    def walk(model: type[XedaBaseModel], prefix: str) -> None:
+        for name, info in model.model_fields.items():
+            group = _group_class(info.annotation)
+            if group is not None:
+                walk(group, f"{prefix}{name}.")
+            elif not prefix and not reads.reads(name):
+                unread.append(name)
+            elif prefix and not reads.reads_leaf(prefix[:-1], model, name):
+                unread.append(f"{prefix}{name}")
+
+    walk(settings, "")
+    return unread
+
+
 def unread_settings(cls: type[Flow]) -> list[str]:
     """The settings of `cls` that nothing reads, in declaration order."""
-    reads = flow_reads(cls)
-    return [name for name in cls.Settings.model_fields if not reads.reads(name)]
+    return unread_in(cls.Settings, flow_reads(cls))
 
 
 PRODUCT_FLOWS = [(cls, name) for cls, name in flow_classes() if cls.__module__.startswith("xeda.")]
@@ -898,3 +1047,262 @@ def test_a_setting_added_to_a_real_flow_is_found() -> None:
 
         assert "never_read" in unread_settings(_Extended)
     assert "never_read" not in unread_settings(Yosys)
+
+
+# ------------------------------------------------------------------------- settings groups
+
+
+class _Q(SettingsGroup):
+    """The group `p.q` of the toy settings. Its template calls `render_flags` on it."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("rendered", "-rendered", "value"),)
+    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset({"-free"})
+
+    rendered: Optional[int] = None
+    unflagged: Optional[int] = None
+    by_chain_template: Optional[int] = None
+    by_chain_code: Optional[int] = None
+    past_leaf: list[str] = []
+    by_alias: Optional[int] = None
+    in_docstring: Optional[int] = None
+    in_field: Optional[int] = None
+    in_validator: Optional[int] = None
+    in_jinja_comment: Optional[int] = None
+    in_tcl_comment: Optional[int] = None
+    extra_args: list[str] = []
+
+
+class _U(SettingsGroup):
+    """The group `p.u`, which a template renders through an alias of `p`."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("u_flag", "-u_flag", "value"),)
+
+    u_flag: Optional[int] = None
+
+
+class _P(SettingsGroup):
+    """A group of the toy settings that holds two groups."""
+
+    q: _Q = Field(default_factory=_Q)
+    u: _U = Field(default_factory=_U)
+
+
+class _T(SettingsGroup):
+    """The group `s.t`. A call on `s` does not render it."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("t_flag", "-t_flag", "value"),)
+
+    t_flag: Optional[int] = None
+
+
+class _S(SettingsGroup):
+    """A group with a flag and a sub-group; the template renders `s` only."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("s_flag", "-s_flag", "value"),)
+
+    s_flag: Optional[int] = None
+    t: _T = Field(default_factory=_T)
+
+
+class _N(SettingsGroup):
+    """A group that no template renders."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("n_flag", "-n_flag", "value"),)
+
+    n_flag: Optional[int] = None
+
+
+class _C(SettingsGroup):
+    """A group that the code renders."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("c_flag", "-c_flag", "value"),)
+
+    c_flag: Optional[int] = None
+
+
+class _A(SettingsGroup):
+    """A group that a template renders through an alias."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("a_flag", "-a_flag", "value"),)
+
+    a_flag: Optional[int] = None
+
+
+class _O(SettingsGroup):
+    """A group that a call renders, but not a group of the settings."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("o_flag", "-o_flag", "value"),)
+
+    o_flag: Optional[int] = None
+
+
+class _GroupSettings(XedaBaseModel):
+    """The settings of the toy flow: a plain setting and groups."""
+
+    plain: int = 0
+    p: _P = Field(default_factory=_P)
+    s: _S = Field(default_factory=_S)
+    norender: _N = Field(default_factory=_N)
+    code_rendered: _C = Field(default_factory=_C)
+    alias_rendered: _A = Field(default_factory=_A)
+    other: _O = Field(default_factory=_O)
+
+
+GROUP_FIXTURE = '''
+class ToyGroups(Flow):
+    """Mentions settings.p.q.in_docstring."""
+
+    declared = Field(0, default=settings.p.q.in_field)
+
+    @field_validator("declared")
+    @classmethod
+    def check(cls, value):
+        return settings.p.q.in_validator
+
+    def run(self):
+        ss = self.settings
+        ss.plain
+        self.settings.p.q.by_chain_code
+        ss.p.q.past_leaf.append("x")
+        render_flags(self.settings.code_rendered, quote)
+        render_flags(self.tool.other, quote)
+'''
+
+GROUP_TEMPLATES = [
+    (
+        "script.tcl",
+        """{% set gp = settings.p %}
+{{ render_flags(settings.p.q, tcl_word) }}
+{{ settings.p.q.by_chain_template }}
+{{ gp.q.by_alias }}
+{{ render_flags(gp.u, tcl_word) }}
+{{ render_flags(settings.s, tcl_word) }}
+{# settings.p.q.in_jinja_comment #}
+# settings.p.q.in_tcl_comment
+""",
+    ),
+    ("defs.tcl", "{% set ar = settings.alias_rendered %}"),
+    ("use.tcl", "{{ render_flags(ar, tcl_word) }}"),
+]
+
+
+def _group_reads(source: str = GROUP_FIXTURE, templates=GROUP_TEMPLATES) -> Reads:
+    reads, _ = settings_reads(
+        {"fixture": source},
+        {"fixture": {"ToyGroups"}},
+        {},
+        templates,
+        frozenset({"run"}),
+    )
+    return reads
+
+
+GROUP_READ = [
+    "plain",
+    "p.q.rendered",
+    "p.q.extra_args",
+    "p.q.by_chain_template",
+    "p.q.by_chain_code",
+    "p.q.past_leaf",
+    "p.q.by_alias",
+    "p.u.u_flag",
+    "s.s_flag",
+    "code_rendered.c_flag",
+    "alias_rendered.a_flag",
+]
+GROUP_NOT_READ = [
+    "p.q.unflagged",
+    "p.q.in_docstring",
+    "p.q.in_field",
+    "p.q.in_validator",
+    "p.q.in_jinja_comment",
+    "p.q.in_tcl_comment",
+    "s.t.t_flag",
+    "norender.n_flag",
+    "other.o_flag",
+]
+
+
+def test_the_leaves_of_a_group_are_reported_by_dotted_path_and_the_group_is_not() -> None:
+    unread = unread_in(_GroupSettings, _group_reads())
+    assert unread == [
+        "p.q.unflagged",
+        "p.q.in_docstring",
+        "p.q.in_field",
+        "p.q.in_validator",
+        "p.q.in_jinja_comment",
+        "p.q.in_tcl_comment",
+        "s.t.t_flag",
+        "norender.n_flag",
+        "other.o_flag",
+    ]
+    assert not {"p", "p.q", "s", "s.t", "norender", "code_rendered", "alias_rendered"} & set(unread)
+
+
+@pytest.mark.parametrize("leaf", GROUP_READ)
+def test_the_scan_sees_each_way_of_reading_a_leaf_of_a_group(leaf: str) -> None:
+    """A leaf is read when a template or the code calls `render_flags` on exactly its group and
+    the leaf is in `FLAGS` (or is `extra_args`), when a chain of attributes names it in the code
+    or a template, or when a template alias stands for the start of the chain."""
+    assert leaf in unread_in(_GroupSettings, Reads(frozenset(), frozenset())) + ["plain"]
+    assert leaf not in unread_in(_GroupSettings, _group_reads())
+
+
+@pytest.mark.parametrize("leaf", GROUP_NOT_READ)
+def test_the_scan_does_not_count_what_is_no_read_of_a_leaf_of_a_group(leaf: str) -> None:
+    assert leaf in unread_in(_GroupSettings, _group_reads())
+
+
+class _G(SettingsGroup):
+    """A group with a flag and a field that has none."""
+
+    FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("x", "-x", "value"),)
+
+    x: Optional[int] = None
+    y: Optional[int] = None
+
+
+class _OneGroup(XedaBaseModel):
+    g: _G = Field(default_factory=_G)
+
+
+@pytest.mark.parametrize("expression", sorted(SETTINGS_EXPRESSIONS))
+def test_a_render_call_on_any_expression_that_holds_the_settings_reads_the_flags(
+    expression: str,
+) -> None:
+    source = (
+        f"class ToyGroups(Flow):\n    def run(self):\n        render_flags({expression}.g, q)\n"
+    )
+    template = [("t.tcl", f"{{{{ render_flags({expression}.g, tcl_word) }}}}")]
+    for reads in (_group_reads(source, ()), _group_reads("class ToyGroups(Flow): pass", template)):
+        assert unread_in(_OneGroup, reads) == ["g.y"]
+
+
+def test_a_chain_that_goes_past_a_leaf_in_a_template_reads_it() -> None:
+    reads = _group_reads(
+        "class ToyGroups(Flow): pass", [("t.tcl", "{{ settings.g.y.bit_length }}")]
+    )
+    assert unread_in(_OneGroup, reads) == ["g.x"]
+
+
+def test_a_template_alias_of_an_alias_stands_for_the_whole_path() -> None:
+    templates = [("t.tcl", "{% set a = settings.g %}{% set b = a %}{{ b.y }}")]
+    reads = _group_reads("class ToyGroups(Flow): pass", templates)
+    assert unread_in(_OneGroup, reads) == ["g.x"]
+
+
+def test_a_group_added_to_a_real_flow_is_reported_by_its_leaves() -> None:
+    from xeda.flows import Yosys
+
+    with preserved_flow_registry():
+
+        class _Extended(Yosys):
+            """A flow with a group that nothing reads."""
+
+            class Settings(Yosys.Settings):
+                grouped: _G = Field(default_factory=_G, description="A group.")
+
+        assert [name for name in unread_settings(_Extended) if "grouped" in name] == [
+            "grouped.x",
+            "grouped.y",
+        ]

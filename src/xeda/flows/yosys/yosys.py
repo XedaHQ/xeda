@@ -1,218 +1,306 @@
-import contextlib
-import gzip
-import hashlib
 import logging
 import re
-import tempfile
+from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
-from typing import ClassVar, Dict, List, Literal, Optional, Tuple, Union
+from typing import Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
-from ...dataclass import WORKING, Field, XedaBaseModel
+from ...dataclass import Field
 from ...design import SourceType
-from ...flow import Flow, FlowSettingsError, Out, SynthFlow, describe_results
+from ...flow import (
+    Flow,
+    FlowException,
+    FlowSettingsError,
+    NoReplacement,
+    Out,
+    SynthFlow,
+    describe_results,
+)
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
-from ...run_dir import RunDirectory
-from ...utils import replacing_file, unique
+from ...flow.settings_group import SettingsGroup, render_flags
+from ...utils import replacing_copy, replacing_file, tcl_word
 from ..ghdl import GhdlSynth
+from .abc_strategies import Composition, composed_abc_script
+from .asic_groups import (
+    COMPOSED_STRATEGIES,
+    AbcGroup,
+    ArithmeticGroup,
+    CoarseGroup,
+    FinishGroup,
+    HiLoMap,
+    HierarchyGroup,
+    MemoryGroup,
+    SequentialGroup,
+    TechmapFile,
+)
+from .flag_hatches import LIBERTY_HATCHES, flag_problems
 from .common import (
     STOP_AFTER_DESCRIPTION,
     YosysSynthesisBase,
     append_flag,
     process_parameters,
+    refuse_output_after_rtl,
     stop_after_conflicts,
+    ys_path,
 )
 
 log = logging.getLogger(__name__)
 
-
-ORIGINAL_PIN_PATTERN = re.compile(r"(.*original_pin.*)")
-EXCLAIM_PATTERN = re.compile(r":\s+(!.*)\s+;")
-
-
-def merge_files(in_files, out_file, add_newline=False):
-    with replacing_file(out_file) as out_f:
-        for in_file in in_files:
-            with open(in_file) as in_f:
-                out_f.write(in_f.read())
-            if add_newline:
-                out_f.write("\n")
+# The tail of the ABC mapping scripts: buffer, time and size the netlist.
+_ABC_TAIL = ["buffer -c", "topo", "stime -c", "upsize -c", "dnsize -c"]
+# One round of the speed scripts after the first mapping.
+_ABC_SPEED_ROUND = ["&st", "&syn2", "&if -g -K 6", "&synch2", "&nf"]
 
 
-def clean_ascii(s: str) -> str:
-    return s.encode("ascii", "ignore").decode("ascii")
+def abc_strategy_script(strategy: str, options: Optional[Composition] = None) -> Optional[str]:
+    """Return the abc mapping script of `abc.strategy`, in the form `abc -script` takes.
 
-
-def dont_use_pattern(name: str) -> str:
-    """Return the regular expression that matches the cells `name` names. A `*` stands for any
-    characters of a cell name, a `?` for one, and every other character for itself."""
-    wildcards = {"*": r"[^\s\"()]*", "?": r"[^\s\"()]"}
-    return "".join(wildcards.get(char) or re.escape(char) for char in name)
-
-
-def preproc_lib_content(content: str, dont_use_cells: List[str]) -> str:
-    # mark the cells that abc must not use
-    if dont_use_cells:
-        names = "|".join(dont_use_pattern(name) for name in dont_use_cells)
-        pattern1 = r"(^\s*cell\s*\(\s*[\"]*(?:" + names + r")[\"]*\s*\)\s*\{)"
-        content, count = re.subn(pattern1, r"\1\n    dont_use : true;", content, flags=re.MULTILINE)
-        if count:
-            log.info("Marked %d cells as dont_use", count)
-
-    # Yosys-abc fails on `original_pin` in a liberty file. The substitution below is very slow,
-    # so it is disabled. Its regex may be wrong.
-    # content, count = re.subn(ORIGINAL_PIN_PATTERN, r"/* \1 */;", content)
-    # if count:
-    #     log.info("Commented %d lines containing 'original_pin", count)
-
-    # Yosys rejects an unquoted function that starts with `!`, so quote it.
-    content, count = re.subn(EXCLAIM_PATTERN, r': "\1" ;', content)
-    if count:
-        log.info("Replaced %d malformed functions", count)
-    return content
-
-
-_CELL_PATTERN = re.compile(r"^\s*cell\s*\(\s*(\w+)\s*\)")
-_LIBRARY_PATTERN = re.compile(r"^\s*library\s*\(\s*(\S+)\s*\)")
-
-
-def merge_libs(in_files, out_file, new_lib_name=None):
-    log.info(
-        "Merging libraries %s into library %s (%s)",
-        ", ".join(str(f) for f in in_files),
-        new_lib_name,
-        out_file,
-    )
-
-    all_cell_names = set()
-    skip_this_cell = False
-
-    with replacing_file(out_file) as out:
-        with open(in_files[0]) as hf:
-            for line in hf.readlines():
-                match_library = _LIBRARY_PATTERN.match(line)
-                if match_library:
-                    if not new_lib_name:
-                        new_lib_name = match_library.group(1)
-                    out.write(f"library ({new_lib_name}) {{\n")
-                elif re.search(_CELL_PATTERN, line):
-                    break
-                else:
-                    out.write(line)
-        for f in in_files:
-            with open(f) as f:
-                flag = 0
-                for line in f.readlines():
-                    cell_match = _CELL_PATTERN.match(line)
-                    if cell_match:
-                        if flag != 0:
-                            raise Exception("Error! new cell before finishing previous one.")
-                        flag = 1
-                        cell_name = cell_match.group(1)
-                        if cell_name in all_cell_names:
-                            log.warning("Skipping duplicate cell %s", cell_name)
-                            skip_this_cell = True
-                        else:
-                            all_cell_names.add(cell_name)
-                            out.write("\n" + line)
-                            skip_this_cell = False
-                    elif flag > 0:
-                        flag += len(re.findall(r"\{", line))
-                        flag -= len(re.findall(r"\}", line))
-                        if not skip_this_cell:
-                            out.write(line)
-        out.write("\n}\n")
-
-
-def preproc_libs(
-    in_files,
-    merged_file,
-    dont_use_cells: List[str],
-    new_lib_name=None,
-    use_temp_folder=True,
-    run_directory: Optional[RunDirectory] = None,
-):
-    """Mark selected Liberty cells as `dont_use`, then merge the libraries.
-
-    With a `run_directory`, each file written in a flow's run directory goes through
-    `RunDirectory.writable`.
+    The text starts with `+`. It holds the commands separated by `;`, and each command has its
+    words separated by `,`. `area` and `speed` are `abc_area.script` and `abc_speed.script` of
+    OpenROAD-flow-scripts (`flow/scripts`). `speed_roundtrip` is the speed script that Xeda
+    used before: it moves the network back to yosys and into ABC again in each round
+    (`&put`, `&get -n`). `area_0` to `area_2` and `delay_0` to `delay_3` are composed from the
+    steps of ABC (`abc_strategies.py`) with the `options`. `None` selects the default mapping
+    script of yosys.
     """
-    if run_directory is not None:
-        run_directory.writable(merged_file)
-    in_files = unique(in_files)
-    proc_files: list[Path] = []
-    if len(in_files) > 1:
-        log.info(f"Processing {len(in_files)} libraries")
-    tmp_context: Union[tempfile.TemporaryDirectory[str], contextlib.ExitStack]
-    if use_temp_folder:
-        tmp_context = tempfile.TemporaryDirectory(prefix="xeda.yosys.processed_libs")
-    else:
-        tmp_context = contextlib.ExitStack()  # no-op
-    with tmp_context as tmp:
-        if use_temp_folder:
-            assert isinstance(tmp, str)
-            temp_path = Path(tmp)
-        else:
-            temp_path = Path("processed_libs")
-            temp_path.mkdir(parents=True, exist_ok=True)
-        for in_file in in_files:
-            in_file = Path(in_file)
-            log.info("Pre-processing liberty file: %s", in_file)
-            suffix = in_file.suffix
-            if suffix and suffix[1:] in ["gz", "gzip"]:
-                ctx = gzip.open(in_file, "rt")
-                suffix = ".".join(in_file.suffixes[:-1]) if len(in_file.suffixes) > 1 else ".lib"
-            else:
-                ctx = open(in_file, encoding="utf-8")
-            with ctx as f:
-                content = clean_ascii(f.read())
-            # Name the file after the library's stem. When another library already has that name,
-            # add a digest of the path: `a/cells.lib` and `b/cells.lib` are two libraries.
-            out_file = temp_path / f"{in_file.stem}-mod{suffix}"
-            if out_file in proc_files:
-                digest = hashlib.sha256(str(in_file.absolute()).encode()).hexdigest()[:8]
-                out_file = temp_path / f"{in_file.stem}-{digest}-mod{suffix}"
-            log.info("Writing pre-processed file: %s", out_file)
-            if run_directory is not None and not use_temp_folder:
-                run_directory.writable(out_file)
-            with replacing_file(out_file) as f:
-                f.write(preproc_lib_content(content, dont_use_cells))
-            proc_files.append(out_file)
-        merge_libs(proc_files, merged_file, new_lib_name)
-    log.info("Merged lib: %s", str(Path(merged_file).absolute()))
-
-
-def abc_opt_script(opt: Optional[str]) -> Optional[str]:
-    """Return the abc mapping script for `optimize`, in the form of the `abc_script` setting.
-
-    The scripts are the `abc_area.script` and `abc_speed.script` of OpenROAD-flow-scripts. They are
-    written inline as `+cmd;cmd;...`, and `Yosys.Settings` adapts that text for `abc -script`.
-    `None` selects yosys's own default mapping script.
-    """
-    if opt is None:
+    if strategy == "yosys":
         return None
-    if opt == "area":
-        scr = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
+    if strategy in COMPOSED_STRATEGIES:
+        return composed_abc_script(strategy, options if options is not None else Composition())
+    if strategy == "area":
+        commands = ["strash", "dch", "map -B 0.9", "topo", "stime -c", "buffer -c"]
+        commands += ["upsize -c", "dnsize -c"]
+    elif strategy == "speed":
+        commands = ["&get -n", "&st", "&dch", "&nf", *_ABC_SPEED_ROUND * 5, "&put", *_ABC_TAIL]
+    elif strategy == "speed_roundtrip":
+        commands = ["&get -n", "&st", "&dch", "&nf", "&put"]
+        commands += ["&get -n", *_ABC_SPEED_ROUND, "&put"] * 5
+        commands += _ABC_TAIL
     else:
-        scr = [
-            # fmt: off
-            "&get -n", "&st", "&dch", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
-            "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2",
-            "&if -g -K 6", "&synch2", "&nf", "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf",
-            "&put", "&get -n", "&st", "&syn2", "&if -g -K 6", "&synch2", "&nf", "&put", "buffer -c", "topo", "stime -c",
-            # fmt: on
-        ]
-    return "+" + ";".join([*scr, "upsize -c", "dnsize -c"])
+        raise ValueError(f"unknown abc strategy {strategy!r}")
+    return "+" + ";".join(commands).replace(" ", ",")
 
 
-class HiLoMap(XedaBaseModel):
-    hi: Tuple[str, str]
-    lo: Tuple[str, str]
-    singleton: bool = True
+#: The name, in the run directory, of the script that `abc_new` maps with. The flow gives it to
+#: `abc_new` with `-script`, so a change of the default script of yosys cannot change the mapping.
+#: The name is relative and holds no text `-script`, which an old yosys took for an option.
+#: Operator wrapping gives `abc_new` no script: each wrapped operator carries its own in the
+#: attribute `abc9_script`, and a `-script` would replace it.
+ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
 
+#: The files of the package (`data/asic`) that operator wrapping reads, by their names in the
+#: package and in the run directory.
+WRAP_SCRIPT = "synth_wrap_operators.tcl"
+BOOTH_MAP = "synth_wrap_operators-booth.v"
+
+#: The text of `ABC_NEW_SCRIPT`: `abc_speed_gia_only.script` of OpenROAD-flow-scripts
+#: (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`). It only builds and maps the
+#: network. `abc_new` maps each wrapped operator with the script that the operator carries.
+ABC_SPEED_GIA_ONLY = "&st\n&dch -r\n&nf\n" + "&st\n&syn2\n&if -g -K 6\n&synch2 -r\n&nf\n" * 5
+
+#: The retiming script of the modules in `sequential.retime_modules`: `abc_retime.script` of
+#: OpenROAD-flow-scripts (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`), in the form
+#: `abc -script` takes. It reads no Liberty file: ABC maps with its own gates and moves the
+#: flip-flops over them. The later mapping reads the Liberty files.
+ABC_RETIME_SCRIPT = "+" + ";".join(
+    ["st", "retime -v -o", *["retime -M 5 -v -o"] * 3, "map"]
+).replace(" ", ",")
+
+#: The flip-flop and latch types that `dfflegalize` ingests, each with every polarity and reset
+#: value (`?`). A `dfflegalize` that allows all of them changes no cell; the limits
+#: `-mince` and `-minsrst` then unmap the enables and resets that few cells share.
+LEGALIZE_ANY_FLIP_FLOP = (
+    "$_DFF_?_",
+    "$_DFFE_??_",
+    "$_DFF_???_",
+    "$_DFFE_????_",
+    "$_ALDFF_??_",
+    "$_ALDFFE_???_",
+    "$_DFFSR_???_",
+    "$_DFFSRE_????_",
+    "$_SDFF_???_",
+    "$_SDFFE_????_",
+    "$_SDFFCE_????_",
+    "$_SR_??_",
+    "$_DLATCH_?_",
+    "$_DLATCH_???_",
+    "$_DLATCHSR_???_",
+)
+
+_MODULE_DECLARATION = re.compile(r"^[ \t]*module[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)", re.MULTILINE)
+
+
+def dff_map_cells(path: Path) -> Tuple[str, ...]:
+    """Return the names of the modules in the flip-flop map `path`, in order.
+
+    Each module of a flip-flop map names a flip-flop type that the netlist may keep. The reader
+    is the one of `get_module_names` in `flow/scripts/synth.tcl` of OpenROAD-flow-scripts
+    (BSD-3-Clause, see `data/asic/NOTICE.md`): a line that starts with `module` and a name.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"The flip-flop map {path} does not exist.")
+    names = tuple(_MODULE_DECLARATION.findall(path.read_text()))
+    if not names:
+        raise FlowException(
+            f"`sequential.dff_map` ({path}) names no module: the map needs one module for each "
+            "flip-flop type that the netlist may keep, such as `module $_DFF_P_`"
+        )
+    return names
+
+
+#: The attributes that the wrapped operators carry in the netlist. The place and route tool finds
+#: them with these, and swaps their architectures.
+WRAPPED_OPERATOR_ATTRIBUTES = (
+    "arithmetic_operator",
+    "implements_operator",
+    "architecture",
+    "source_cell",
+)
 
 #: The roles of the platform files that `yosys` opens: the Liberty files, and the mapping files.
 #: The derivation of the platform model adds the LEF files.
 PLATFORM_ROLES = ("liberty", "latch_map", "clkgate_map", "adder_map")
+
+
+#: The settings that a liberty mapping refuses, each as `(setting, whether a value asks for what
+#: the mapping cannot do, the message)`. The liberty mapping runs its own elaboration, synthesis
+#: and mapping with `abc`, and it ends with the tail of OpenROAD-flow-scripts.
+LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
+    (
+        "abc_dff",
+        lambda value: value is True,
+        "`abc_dff` has no effect with a liberty mapping: the mapping maps the flip-flops with "
+        "`dfflibmap` before `abc` runs. Delete `abc_dff` or set it to false",
+    ),
+    (
+        "post_synth_opt",
+        lambda value: value is True,
+        "`post_synth_opt: true` has no effect with a liberty mapping: the mapping runs no extra "
+        "`opt` after `synth`. Delete the setting or set it to false. `coarse.opt_dff_sat` adds "
+        "`-sat` to the `opt` that follows `synth`",
+    ),
+    (
+        "nosynth",
+        lambda value: value is True,
+        "`nosynth` cannot map to a liberty library: mapping to library cells needs `synth` to "
+        "reduce the design to gates first. Delete `nosynth` or set it to false",
+    ),
+    (
+        "noabc",
+        lambda value: value is True,
+        "`noabc` cannot map to a liberty library: the mapping always maps with `abc`. Delete the "
+        "setting or set it to false",
+    ),
+)
+
+
+@dataclass(frozen=True)
+class AsicValues:
+    """The values of the mapping to a liberty library that `Yosys.asic_values` resolves.
+
+    A value the user gave wins. A value left unset (`None`) is the one of the platform, when the
+    platform has one. Without a liberty mapping, every value is empty. Paths are absolute.
+
+    * `latch_map`: the map applied after `dfflegalize` for latches.
+    * `clockgate_map`: the file with the clock-gating cells.
+    * `dff_map`, `dff_map_cells`: the map of flip-flops, and the names of its modules.
+    * `legalize_any`: the cell types of a `dfflegalize` that changes no flip-flop.
+    * `retime_script`: the script of the retiming run.
+    * `adder_map`: the map of full adders that follows `extract_fa`.
+    * `techmap_files`: the user's maps for `techmap -map`, each as `(position, path)`, in order.
+      `techmaps(position)` gives the paths at one position.
+    * `dff_liberty`: the Liberty file for `dfflibmap` instead of the Liberty files.
+    * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints.
+    * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
+    * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
+    * `abc_new_script`: the `-script` of `abc_new`, when `abc.mapper` is `abc_new`: `abc_script`,
+      or else the name of the script file that the flow writes (`ABC_NEW_SCRIPT`), but none when
+      operators are wrapped.
+    * `wrap_script`, `booth_map`: the names of the files of the package that wrap the operators,
+      when `arithmetic.wrap_operators` is on. `run` copies each into the run directory, and the
+      script names the copy, since a container does not mount the package.
+    * `wrapped_adders`, `wrapped_multipliers`: the architectures to wrap, in the order and the
+      spelling that the wrapping script takes (`KOGGE_STONE`, `BOOTH`).
+    * `memory_libmap`, `memory_techmap`: the memory library files and the map of their cells.
+    * `delay_target_ps`: the `-D` of abc, in picoseconds.
+    * `constraints`: the lines of the abc constraints from the driver cell and the load.
+    """
+
+    latch_map: Optional[Path] = None
+    clockgate_map: Optional[Path] = None
+    adder_map: Optional[Path] = None
+    techmap_files: Tuple[Tuple[str, Path], ...] = ()
+    dff_liberty: Optional[Path] = None
+    dff_map: Optional[Path] = None
+    dff_map_cells: Tuple[str, ...] = ()
+    legalize_any: Tuple[str, ...] = ()
+    retime_script: Optional[str] = None
+    driver_cell: Optional[str] = None
+    load: Optional[float] = None
+    tie_cells: Optional[HiLoMap] = None
+    buffer_cell: Optional[Tuple[str, str, str]] = None
+    abc_script: Optional[str] = None
+    abc_new_script: Optional[str] = None
+    wrap_script: Optional[str] = None
+    booth_map: Optional[str] = None
+    wrapped_adders: Tuple[str, ...] = ()
+    wrapped_multipliers: Tuple[str, ...] = ()
+    memory_libmap: Tuple[Path, ...] = ()
+    memory_techmap: Optional[Path] = None
+    delay_target_ps: Optional[float] = None
+    constraints: Tuple[str, ...] = ()
+
+    def techmaps(self, position: str) -> Tuple[Path, ...]:
+        """Return the user's maps at `position`, in the order of the setting."""
+        return tuple(path for where, path in self.techmap_files if where == position)
+
+
+def _asic_data(name: str) -> Path:
+    """Return the path of the file `name` in the `data/asic` directory of the package."""
+    return Path(str(resources.files("xeda.flows.yosys").joinpath("data", "asic", name)))
+
+
+def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:
+    """Return the dotted names of the group leaves of `settings` that differ from their defaults,
+    and `techmap_files` when it is not empty. These settings act on a mapping to a liberty
+    library only."""
+
+    def changed(group: SettingsGroup, key: str) -> List[str]:
+        default = type(group)()
+        found: List[str] = []
+        for name in type(group).model_fields:
+            value = getattr(group, name)
+            if isinstance(value, SettingsGroup):
+                found += changed(value, f"{key}.{name}")
+            elif value != getattr(default, name):
+                found.append(f"{key}.{name}")
+        return found
+
+    found: List[str] = []
+    for name in type(settings).model_fields:
+        value = getattr(settings, name)
+        if isinstance(value, SettingsGroup):
+            found += changed(value, name)
+    if settings.techmap_files:
+        found.append("techmap_files")
+    return found
+
+
+def _no_liberty_message(settings: "Yosys.Settings", key: str) -> str:
+    """Return what to tell the user about the group setting `key` when no liberty mapping runs.
+
+    With `gates` or `lut`, the reason is that the run maps to generic cells or LUTs instead, even
+    when a platform is given. Otherwise nothing names a liberty library."""
+    for name, instead in (("gates", "generic cells"), ("lut", "LUTs")):
+        if getattr(settings, name):
+            return (
+                f"`{key}` acts on mapping to a liberty library, and `{name}` maps to {instead} "
+                f"instead: delete `{key}` or `{name}`"
+            )
+    return (
+        f"`{key}` acts on mapping to a liberty library: give `platform`, `platform_file` or "
+        "`liberty` too"
+    )
 
 
 class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
@@ -231,48 +319,59 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     class Settings(AsicPlatformSettings, YosysSynthesisBase.Settings, SynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **YosysSynthesisBase.Settings.removed_settings,
-            "retime": "`abc_dff` (on by default), which passes `-dff` to `abc`, and `abc_flags` "
-            "for more options of `abc`; yosys's `synth` has no retime option",
+            "retime": "`abc_dff`, which passes `-dff` to `abc` (not with a liberty mapping), and "
+            "`abc_flags` for more options of `abc`; yosys's `synth` has no retime option",
             "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
+            "merge_libs_to": NoReplacement(
+                "Xeda no longer merges Liberty files; `dont_use_cells` reach `dfflibmap` and `abc` "
+                "as `-dont_use`"
+            ),
+            "optimize": "`abc.strategy` (`speed` became `speed_roundtrip`, and `null` became "
+            "`yosys`)",
+            "abc_driver_cell": "`abc.driver_cell`",
+            "abc_load_in_ff": "`abc.load`",
+            "adder_map": "`arithmetic.adder_map_file` for a file, or `arithmetic.adder_map: none`",
+            "clockgate_map": "`sequential.clockgate_map_file` for a file, or "
+            "`sequential.clockgate_map: none`",
+            "dff_liberty": "`sequential.dff_liberty`",
+            "dff_library": "`sequential.dff_liberty`",
+            "other_maps": "`sequential.latch_map_file` for the latch map, "
+            "`sequential.latch_map: none` for no latch map, and `techmap_files` for other maps",
+            "hilomap": "`finish.tie_cells`",
+            "insbuf": "`finish.buffer_cell`",
         }
         nosynth: bool = Field(False, description="Do not run `synth`.")
         liberty: List[Path] = Field(
             [],
             alias="library",
-            description="Standard cell (liberty) libraries to map to. Without them, the Liberty "
-            "files of the platform are merged into one library and used.",
-        )
-        dff_liberty: Optional[Path] = Field(
-            None, alias="dff_library", description="Additional liberty file for mapping flip-flops."
-        )
-        optimize: Optional[Literal["speed", "area"]] = Field(
-            "area",
-            description="Optimization target when mapping to a liberty library. It selects the "
-            "abc mapping script of OpenROAD-flow-scripts for that target and turns on "
-            "post-synthesis optimization unless `post_synth_opt` says otherwise. `null` keeps "
-            "yosys's default mapping script. An explicit `abc_script` replaces the selected "
-            "script.",
-        )
-        abc_driver_cell: Optional[str] = Field(
-            None,
-            description="Cell abc assumes drives the primary inputs when mapping to a liberty "
-            "library. Defaults to the cell of the platform model.",
-        )
-        abc_load_in_ff: Optional[float] = Field(
-            None,
-            description="Wire load abc assumes when mapping to a liberty library, in units of "
-            "flip-flop input capacitance. Defaults to the load of the platform model.",
+            description="Standard cell (liberty) libraries to map to. Xeda reads each file as it "
+            "is and gives each to `dfflibmap` and to `abc`. Without them, the Liberty files of "
+            "the platform are used.",
         )
         netlist_attrs: Optional[bool] = Field(
             None,
             description="Include cell and wire attributes in the written Verilog netlist. Unset: "
             "included, except when mapping to a liberty library (that netlist is written for "
-            "place and route).",
+            "place and route). A netlist with wrapped operators (`arithmetic.wrap_operators`) "
+            "keeps its attributes, and `false` is refused.",
         )
         post_synth_opt: Optional[bool] = Field(
             None,
-            description="Run additional optimization after synthesis. Unset: on when mapping to "
-            "a liberty library with an `optimize` target, off otherwise.",
+            description="Run additional optimization after synthesis (gates and LUTs only). "
+            "Unset: off. A liberty mapping runs no such step and refuses `true`. Use "
+            "`coarse.opt_dff_sat` there.",
+        )
+        # The base classes declare a plain `bool`, which the FPGA flows keep. `Yosys` adds "unset".
+        abc_dff: Optional[bool] = Field(  # type: ignore[assignment]
+            None,
+            description="Run abc with `-dff`. Unset: off when mapping to a liberty library, on "
+            "otherwise. A liberty mapping refuses `true`: it maps the flip-flops with "
+            "`dfflibmap` before `abc` runs, so `-dff` has no effect there.",
+        )
+        splitnets: Optional[bool] = Field(  # type: ignore[assignment]
+            None,
+            description="Run `splitnets`, splitting multi-bit nets into individual bits. Unset: "
+            "on when mapping to a liberty library, off otherwise.",
         )
         netlist_hex: Optional[bool] = Field(
             None,
@@ -291,33 +390,42 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             '"<width>:<cost>" pair. Refused together with `platform` or `platform_file`.',
         )
         stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
-        adder_map: Optional[Path] = Field(
-            None, description="Verilog file with technology-specific adder cell mappings."
+        hierarchy: HierarchyGroup = Field(
+            default_factory=HierarchyGroup,
+            description="The hierarchy of the design during a mapping to a liberty library.",
         )
-        clockgate_map: Optional[Path] = Field(
-            None, description="Verilog file with technology-specific clock-gating cell mappings."
+        coarse: CoarseGroup = Field(
+            default_factory=CoarseGroup,
+            description="The coarse-grain passes of a mapping to a liberty library.",
         )
-        other_maps: Optional[List[Path]] = Field(
-            None,
-            description="Additional Verilog files with technology-specific cell mappings. Unset: "
-            "the latch mapping of the platform when mapping to a liberty library, none otherwise; "
-            "an empty list means none.",
+        arithmetic: ArithmeticGroup = Field(
+            default_factory=ArithmeticGroup,
+            description="The mapping of adders and other operators to a liberty library.",
         )
-        hilomap: Optional[HiLoMap] = Field(
-            None,
-            description="Tie-high/tie-low cells used to drive constant nets, for technologies "
-            "that forbid connecting logic directly to the rails.",
+        memory: MemoryGroup = Field(
+            default_factory=MemoryGroup,
+            description="The mapping of memories to a liberty library.",
         )
-        insbuf: Union[None, Tuple[str, str, str], List[str]] = Field(
-            None,
-            description="Buffer cell inserted on otherwise undriven or directly connected wires, "
-            "as (cell_name, input_port, output_port).",
+        sequential: SequentialGroup = Field(
+            default_factory=SequentialGroup,
+            description="The mapping of latches, clock gates and flip-flops to a liberty library.",
         )
-        merge_libs_to: Optional[Path] = Field(
-            None,
-            description="Merge all liberty libraries into this single file before synthesis, "
-            "which some yosys versions require when several corners are given.",
-            json_schema_extra=WORKING,
+        abc: AbcGroup = Field(
+            default_factory=AbcGroup,
+            description="The mapping of the logic with ABC to a liberty library.",
+        )
+        finish: FinishGroup = Field(
+            default_factory=FinishGroup,
+            description="The last commands of a mapping to a liberty library, before the netlist "
+            "is written.",
+        )
+        techmap_files: List[TechmapFile] = Field(
+            [],
+            description="Verilog techmap files of a mapping to a liberty library. Each one is "
+            "applied with `techmap -map` at its `when` position: `pre_synth`, `post_coarse`, "
+            "`pre_dff` or `post_dff`. A bare path is a map at `pre_dff`, after the latch map and "
+            "before clock gating and the flip-flop mapping. Maps at one position run in the "
+            "order of the list.",
         )
 
         def uses_platform(self) -> bool:
@@ -335,20 +443,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             """
             return not self.gates and not self.lut and (bool(self.liberty) or self.uses_platform())
 
-        def abc_constraints(self) -> List[str]:
-            """Return the abc constraint lines.
-
-            With a liberty library, the first lines are the driver cell and the load
-            (`abc_driver_cell` and `abc_load_in_ff`). `abc_constr` follows.
-            """
-            lines = []
-            if self.maps_to_liberty():
-                if self.abc_driver_cell:
-                    lines.append(f"set_driving_cell {self.abc_driver_cell}")
-                if self.abc_load_in_ff is not None:
-                    lines.append(f"set_load {self.abc_load_in_ff}")
-            return [*lines, *self.abc_constr]
-
     class Outputs(SynthFlow.Outputs):
         netlist: Path | None = Out(
             SourceType.VerilogNetlist,
@@ -358,12 +452,20 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         )
 
     @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """Switch on the output that a consumer asks for, unless `stop_after` stops the flow."""
+        refuse_output_after_rtl(cls, settings, name)
+        super().enable_output(settings, name, design_name=design_name)
+
+    @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse settings the run cannot honor, before anything runs.
 
         These are a result that a run stopped by `stop_after` does not write
-        (`stop_after_conflicts`), a platform together with `gates` or `lut`, and the abc cell
-        settings when abc maps to no cells.
+        (`stop_after_conflicts`), a platform or `dont_use_cells` together with `gates` or `lut`,
+        the settings of the groups when no liberty mapping runs, the settings that the liberty
+        mapping cannot honor (`LIBERTY_REFUSALS`), and the rules that join several groups. All
+        problems come back in one error.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
@@ -380,29 +482,177 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                             "cells. Set only one of them",
                         )
                     )
-        if not settings.maps_to_liberty():
-            for name in ("abc_driver_cell", "abc_load_in_ff"):
-                if getattr(settings, name) is not None:
+        if settings.dont_use_cells:
+            for name in ("gates", "lut"):
+                if getattr(settings, name):
                     problems.append(
                         (
-                            name,
-                            f"`{name}` acts on mapping to a liberty library: give `platform`, "
-                            "`platform_file` or `liberty` too",
+                            "dont_use_cells",
+                            f"`dont_use_cells` and `{name}` cannot both be set: `{name}` maps to "
+                            "generic cells, which have no library cells to exclude. Set only one "
+                            "of them",
                         )
                     )
+        if settings.maps_to_liberty():
+            for name, asks, message in LIBERTY_REFUSALS:
+                if asks(getattr(settings, name)):
+                    problems.append((name, message))
+            problems += cls._liberty_mapping_problems(settings)
+        else:
+            problems += [
+                (key, _no_liberty_message(settings, key)) for key in _changed_group_leaves(settings)
+            ]
         if problems:
             raise FlowSettingsError(
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
 
+    @classmethod
+    def _liberty_mapping_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return what is wrong with the group settings of a liberty mapping, beyond the rules
+        of each group: the values that only a Tcl script renders, the script that two settings
+        choose, and a delay target that needs a clock."""
+        problems: List[Tuple[str, str]] = []
+        tcl_only = (
+            ("hierarchy.keep_min_cost", settings.hierarchy.keep_min_cost is not None),
+            ("arithmetic.wrap_operators", settings.arithmetic.wrap_operators),
+            ("memory.max_bits", settings.memory.max_bits is not None),
+            ("memory.mock_large", settings.memory.mock_large),
+        )
+        for key, asked in tcl_only:
+            if asked and settings.script_format == "ys":
+                problems.append(
+                    (key, f"`{key}` needs `script_format: tcl`: the script runs Tcl procedures")
+                )
+        problems += cls._tcl_mode_problems(settings)
+        problems += cls._hierarchy_problems(settings)
+        problems += flag_problems(settings, LIBERTY_HATCHES)
+        if settings.prep is not None and settings.coarse.latches is not None:
+            problems.append(
+                (
+                    "coarse.latches",
+                    "`coarse.latches` is an option of the `proc` that the script runs, and `prep` "
+                    "runs its own `proc` without it: delete one of them",
+                )
+            )
+        if settings.abc.keep_ff and not settings.sequential.retime_modules:
+            problems.append(
+                (
+                    "abc.keep_ff",
+                    "`abc.keep_ff` keeps the flip-flops that the retiming run of ABC moves, and "
+                    "`sequential.retime_modules` names no module: name a module, or delete "
+                    "`abc.keep_ff`",
+                )
+            )
+        if settings.abc_script is not None and settings.abc.strategy != "area":
+            problems.append(
+                (
+                    "abc_script",
+                    "`abc_script` replaces the script of `abc.strategy` "
+                    f"(`{settings.abc.strategy}`): give only one of them",
+                )
+            )
+        clock = settings.main_clock
+        if settings.abc.delay_target == "auto" and not (clock and clock.period_ps):
+            problems.append(
+                (
+                    "abc.delay_target",
+                    "`abc.delay_target: auto` takes the period of the main clock: give `clock`",
+                )
+            )
+        return problems
+
+    @classmethod
+    def _hierarchy_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return the hierarchy settings that `flatten: false` leaves with nothing to do. The
+        design is not flattened then, so no instance needs a mark and no separator is used."""
+        if settings.flatten is not False:
+            return []
+        asked = (
+            ("hierarchy.keep_instances", bool(settings.hierarchy.keep_instances)),
+            ("hierarchy.separator", settings.hierarchy.separator is not None),
+        )
+        return [
+            (
+                key,
+                f"`{key}` has no effect with `flatten: false`, which flattens nothing: delete "
+                "one of them",
+            )
+            for key, given in asked
+            if given
+        ]
+
+    @classmethod
+    def _tcl_mode_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return what is wrong with hierarchical synthesis, operator wrapping and `abc_new`
+        together with the other settings."""
+        problems: List[Tuple[str, str]] = []
+        abc_new = settings.abc.mapper == "abc_new"
+        if settings.hierarchy.keep_min_cost is not None and settings.flatten is False:
+            problems.append(
+                (
+                    "hierarchy.keep_min_cost",
+                    "`hierarchy.keep_min_cost` flattens every module that costs less, so it "
+                    "cannot run with `flatten: false`: delete one of them",
+                )
+            )
+        if settings.arithmetic.wrap_operators:
+            stripped = [
+                name
+                for name in WRAPPED_OPERATOR_ATTRIBUTES
+                if any(given.lstrip("\\") == name for given in settings.netlist_unset_attributes)
+            ]
+            for name in stripped:
+                problems.append(
+                    (
+                        "netlist_unset_attributes",
+                        f"`netlist_unset_attributes` names `{name}`, which the place and route "
+                        "tool needs to find and swap the wrapped operators "
+                        f"(`arithmetic.wrap_operators`): delete `{name}` from the list",
+                    )
+                )
+            if settings.netlist_attrs is False:
+                problems.append(
+                    (
+                        "netlist_attrs",
+                        "`netlist_attrs: false` removes the attributes `arithmetic_operator`, "
+                        "`implements_operator`, `architecture` and `source_cell`, which the "
+                        "place and route tool needs to swap the wrapped operators "
+                        "(`arithmetic.wrap_operators`): delete `netlist_attrs` or set it to "
+                        "true",
+                    )
+                )
+        if abc_new and settings.abc.strategy != "area":
+            problems.append(
+                (
+                    "abc.strategy",
+                    f"`abc.strategy` (`{settings.abc.strategy}`) cannot run with "
+                    "`abc.mapper: abc_new`: the script of a strategy ends in a network, and "
+                    "`abc_new` needs a script that ends in a mapped GIA (`&nf`). Delete "
+                    "`abc.strategy`, or give such a script in `abc_script`",
+                )
+            )
+        return problems
+
+    def add_template_helpers(self) -> None:
+        """Add the helpers of every yosys template, and `render_flags` for the groups of settings
+        whose flags a template prints. It quotes a value for the script language."""
+        super().add_template_helpers()
+        assert isinstance(self.settings, self.Settings)
+        quote = tcl_word if self.settings.script_format == "tcl" else ys_path
+        self.jinja_env.globals["render_flags"] = lambda group: render_flags(group, quote)
+
     def init(self):
-        """Resolve the Liberty files that the user gave against the design root."""
-        super().init()
+        """Resolve the Liberty files that the user gave against the design root.
+
+        `abc_dff` is resolved first, since the shared `init()` adds `-dff` to the flags of `abc`
+        when it is on."""
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        if ss.abc_dff is None:
+            ss.abc_dff = not ss.maps_to_liberty()
+        super().init()
         ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
-        if ss.dff_liberty:
-            ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
 
     def prepare_inputs(self) -> None:
         """Build the platform model, when abc maps to the liberty library of a platform."""
@@ -420,54 +670,157 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         return located
 
     def _derive_from_platform(self) -> None:
-        """Complete the settings that mapping to a liberty library needs and the user left unset.
+        """Complete the netlist settings that the user left unset.
 
-        From the platform model: its maps and cells, and the driver cell and the load of abc. For
-        a liberty mapping: flattening, the abc script that `optimize` selects, post-synthesis
-        optimization, and a gate-level netlist (without attributes and hexadecimal constants).
-        Without a liberty mapping, the netlist keeps attributes and hexadecimal constants. A
-        setting that the user gave is never replaced. Only an unset (`None`) setting is derived,
-        so `post_synth_opt: false` stays beside the default `optimize: area`.
+        For a liberty mapping: flattening, splitting the nets, and a gate-level netlist (without
+        attributes and hexadecimal constants; wrapped operators keep their attributes). Without
+        a liberty mapping, the netlist keeps attributes and hexadecimal constants.
+        Post-synthesis optimization is off unless the user turns it on for another mapping. A setting that the user gave is never replaced. Only an
+        unset (`None`) setting is derived. The settings of the groups are never derived: see
+        `asic_values`.
         """
         ss = self.settings
         assert isinstance(ss, self.Settings)
         mapping = ss.maps_to_liberty()
         if ss.netlist_attrs is None:
-            ss.netlist_attrs = not mapping
+            # the place and route tool reads the attributes of the wrapped operators
+            ss.netlist_attrs = not mapping or ss.arithmetic.wrap_operators
         if ss.netlist_hex is None:
             ss.netlist_hex = not mapping
         if ss.post_synth_opt is None:
-            ss.post_synth_opt = mapping and ss.optimize is not None
-        model = self.platform_model
-        if ss.other_maps is None:
-            latch_map = model.files.get("latch_map") if mapping and model else None
-            ss.other_maps = latch_map[:1] if latch_map else []
-        if not mapping:
-            return
-        if model:
-            for name, role in (
-                ("adder_map", "adder_map"),
-                ("clockgate_map", "clkgate_map"),
-            ):
-                if getattr(ss, name) is None and model.files.get(role):
-                    setattr(ss, name, model.files[role][0])
-            if ss.hilomap is None and model.tie_high and model.tie_low:
-                ss.hilomap = HiLoMap(
-                    hi=(model.tie_high.cell, model.tie_high.port),
-                    lo=(model.tie_low.cell, model.tie_low.port),
-                )
-            if ss.insbuf is None and model.min_buffer:
-                buffer = model.min_buffer
-                ss.insbuf = (buffer.cell, buffer.input, buffer.output)
-            if ss.abc_driver_cell is None:
-                ss.abc_driver_cell = model.abc_driver_cell
-            if ss.abc_load_in_ff is None:
-                ss.abc_load_in_ff = model.abc_load_in_ff
-        if ss.flatten is None:
+            ss.post_synth_opt = False
+        if ss.splitnets is None:
+            ss.splitnets = mapping
+        if mapping and ss.flatten is None:
             ss.flatten = True
-        if ss.optimize is not None and ss.abc_script is None:
-            ss.abc_script = abc_opt_script(ss.optimize)
-        ss.abc_constr = ss.abc_constraints()
+
+    def _abc_new_script(self) -> Optional[str]:
+        """Return the `-script` of `abc_new`, or None when it gets none.
+
+        The script of the user replaces everything, the scripts of wrapped operators too. Without
+        it, `abc_new` maps with the file that the flow writes, unless operators are wrapped:
+        each wrapped operator carries its own script, which a `-script` would replace."""
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if ss.abc.mapper != "abc_new":
+            return None
+        if ss.abc_script is not None:
+            return ss.abc_script
+        return None if ss.arithmetic.wrap_operators else ABC_NEW_SCRIPT
+
+    def asic_values(self) -> AsicValues:
+        """Return the values of a mapping to a liberty library, with the platform's defaults.
+
+        A value that the user set wins, and a leaf left unset (`None`) takes the value of the
+        platform model, when the model has one. A relative path resolves against the design
+        root. The method changes no setting. Without a liberty mapping, it returns empty values.
+        """
+        ss = self.settings
+        assert isinstance(ss, self.Settings)
+        if not ss.maps_to_liberty():
+            return AsicValues()
+        model = self.platform_model
+        files = model.files if model else {}
+
+        def given(path: Optional[Path]) -> Optional[Path]:
+            return None if path is None else self.normalize_path_to_design_root(path)
+
+        def platform_file(role: str) -> Optional[Path]:
+            return files[role][0] if files.get(role) else None
+
+        latch_map = None
+        if ss.sequential.latch_map == "platform":
+            latch_map = given(ss.sequential.latch_map_file)
+            if latch_map is None:
+                latch_map = platform_file("latch_map")
+        clockgate_map = None
+        if ss.sequential.clockgate_map == "platform":
+            clockgate_map = given(ss.sequential.clockgate_map_file)
+            if clockgate_map is None:
+                clockgate_map = platform_file("clkgate_map")
+        dff_map = given(ss.sequential.dff_map)
+        adder_map = None
+        if ss.arithmetic.adder_map == "platform":
+            adder_map = given(ss.arithmetic.adder_map_file)
+            if adder_map is None:
+                adder_map = platform_file("adder_map")
+        tie_cells = ss.finish.tie_cells
+        if not ss.finish.insert_tie_cells:
+            tie_cells = None
+        elif tie_cells is None and model and model.tie_high and model.tie_low:
+            tie_cells = HiLoMap(
+                hi=(model.tie_high.cell, model.tie_high.port),
+                lo=(model.tie_low.cell, model.tie_low.port),
+            )
+        buffer_cell = ss.finish.buffer_cell
+        if not ss.finish.insert_buffers:
+            buffer_cell = None
+        elif buffer_cell is None and model and model.min_buffer:
+            buffer = model.min_buffer
+            buffer_cell = (buffer.cell, buffer.input, buffer.output)
+        driver_cell = ss.abc.driver_cell
+        if driver_cell is None and model:
+            driver_cell = model.abc_driver_cell
+        load = ss.abc.load
+        if load is None and model and model.abc_load_in_ff is not None:
+            load = float(model.abc_load_in_ff)
+        target = ss.abc.delay_target
+        delay_target_ps = None
+        if target == "auto":
+            clock = ss.main_clock
+            if clock and clock.period_ps:
+                delay_target_ps = clock.period_ps * (1 - ss.abc.clock_derating)
+        elif target is not None:
+            delay_target_ps = float(target)
+        constraints = []
+        if driver_cell:
+            constraints.append(f"set_driving_cell {driver_cell}")
+        if load is not None:
+            constraints.append(f"set_load {load}")
+        return AsicValues(
+            latch_map=latch_map,
+            clockgate_map=clockgate_map,
+            adder_map=adder_map,
+            techmap_files=tuple(
+                (item.when, self.normalize_path_to_design_root(item.path))
+                for item in ss.techmap_files
+            ),
+            dff_liberty=given(ss.sequential.dff_liberty),
+            dff_map=dff_map,
+            dff_map_cells=dff_map_cells(dff_map) if dff_map is not None else (),
+            legalize_any=LEGALIZE_ANY_FLIP_FLOP,
+            retime_script=ABC_RETIME_SCRIPT if ss.sequential.retime_modules else None,
+            driver_cell=driver_cell,
+            load=load,
+            tie_cells=tie_cells,
+            buffer_cell=buffer_cell,
+            abc_script=(
+                ss.abc_script
+                if ss.abc_script is not None
+                else abc_strategy_script(
+                    ss.abc.strategy,
+                    Composition(
+                        buffering=ss.abc.buffering,
+                        sizing=ss.abc.sizing,
+                        max_fanout=ss.abc.max_fanout,
+                        max_slew=ss.abc.max_slew,
+                        mfs3=ss.abc.mfs3,
+                        area_mapper=ss.abc.area_mapper,
+                        legacy_refactor=ss.abc.legacy_refactor,
+                        legacy_rewrite=ss.abc.legacy_rewrite,
+                    ),
+                )
+            ),
+            abc_new_script=self._abc_new_script(),
+            wrap_script=WRAP_SCRIPT if ss.arithmetic.wrap_operators else None,
+            booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
+            wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
+            wrapped_multipliers=tuple(name.upper() for name in ss.arithmetic.wrapped_multipliers),
+            memory_libmap=tuple(self.normalize_path_to_design_root(f) for f in ss.memory.libmap),
+            memory_techmap=given(ss.memory.techmap),
+            delay_target_ps=delay_target_ps,
+            constraints=tuple(constraints),
+        )
 
     def run(self) -> None:
         assert isinstance(self.settings, self.Settings)
@@ -479,12 +832,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         if ss.netlist_verilog:
             declared.netlist = self.run_path / ss.netlist_verilog
 
-        # Merge the platform's liberty set into one library, as the place and route that reads
-        # the netlist does. Then abc and `dfflibmap` get one file.
+        # The Liberty files of the platform, when the user gave none: the script reads each as it is.
         model = self.platform_model
         assert model is not None or not ss.uses_platform(), "prepare_inputs() builds the model"
-        liberty_from_platform = model is not None and not ss.liberty
-        if model is not None and liberty_from_platform:
+        if model is not None and not ss.liberty:
             ss.liberty = list(model.files.get("liberty", []))
         self._derive_from_platform()
         # List a timing report only when `sta` writes one, as `yosys_fpga` does. A remote run is
@@ -502,36 +853,28 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             append_flag(ss.abc_flags, f"-lut {ss.lut}")
         elif ss.liberty and ss.netlist_expr is None:
             ss.netlist_expr = False
-        if ss.flatten:
+        if ss.flatten and not ss.maps_to_liberty():  # the liberty mapping's script renders it
             append_flag(ss.synth_flags, "-flatten")
 
         for lib in ss.liberty:
             if not lib.exists():
                 raise FileNotFoundError(f"Liberty file {lib} does not exist.")
 
-        dont_use = self.dont_use_cells()
-        if ss.liberty and (liberty_from_platform or dont_use or ss.merge_libs_to):
-            merge_libs_to = ss.merge_libs_to or Path("merged_lib")
-            merged_lib_file = Path(f"{merge_libs_to}.lib")
-            preproc_libs(
-                ss.liberty,
-                merged_lib_file,
-                dont_use,
-                (
-                    f"{model.name}_merged"
-                    if liberty_from_platform and model is not None
-                    else ss.merge_libs_to
-                ),
-                run_directory=self.run_directory,
-            )
-            ss.merge_libs_to = merge_libs_to
-            ss.liberty = [merged_lib_file]
-
+        asic = self.asic_values()
         abc_constr_file = None
-        if ss.abc_constr:
+        constraints = [*asic.constraints, *ss.abc_constr]
+        if constraints:
             abc_constr_file = "abc.constr"
             with replacing_file(self.run_directory.writable(abc_constr_file)) as f:
-                f.write("\n".join(ss.abc_constr) + "\n")
+                f.write("\n".join(constraints) + "\n")
+
+        for name in (asic.wrap_script, asic.booth_map):
+            if name:
+                replacing_copy(_asic_data(name), self.run_directory.writable(name))
+
+        if asic.abc_new_script == ABC_NEW_SCRIPT:
+            with replacing_file(self.run_directory.writable(asic.abc_new_script)) as f:
+                f.write(ABC_SPEED_GIA_ONLY)
 
         script_path = self.copy_from_template(
             f"yosys_synth{self.script_ext}",
@@ -541,6 +884,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             parameters=process_parameters(self.design.rtl.parameters),
             defines=[f"-D{k}" if v is None else f"-D{k}={v}" for k, v in ss.defines.items()],
             abc_constr_file=abc_constr_file,
+            asic=asic,
+            dont_use=self.dont_use_cells(),
         )
         log.info("Yosys script: %s", script_path.absolute())
         args = [self.script_flag, script_path]
@@ -550,7 +895,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         depfile = self.run_path / "yosys.d"
         args += ["-E", depfile]
         self.depfiles.append(depfile)
-        self.yosys.run(*args)
+        self.run_yosys(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

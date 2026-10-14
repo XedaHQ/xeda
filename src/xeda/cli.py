@@ -18,6 +18,7 @@ from .cli_types import (
     DOCUMENT_FORMATS,
     FlowChoice,
     OptionEatAll,
+    TIER_NAMES,
     output_format_option,
 )
 from .flow_catalog import flow_names
@@ -207,14 +208,28 @@ def list_flows(output_format: str, json_flag: bool):
     show_default=True,
     help="Include the settings accepted by every flow (ncpus, dockerized, lib_paths, ...).",
 )
+@click.option(
+    "--tier",
+    type=click.Choice(TIER_NAMES),
+    default=None,
+    help=(
+        "Show the settings up to this tier: `advanced` shows `common` and `advanced`. "
+        "The default is every tier."
+    ),
+)
 @click.pass_context
-def list_settings(ctx: click.Context, flow, output_format: str, json_flag: bool, common: bool):
-    """Show every setting of FLOW_NAME that can be given as `-s KEY=VALUE` or in a design file."""
+def list_settings(
+    ctx: click.Context, flow, output_format: str, json_flag: bool, common: bool, tier: str | None
+):
+    """Show every setting of FLOW_NAME that can be given as `-s KEY=VALUE` or in a design file.
+
+    A setting of a group has a dotted name (`global_placement.timing_driven.enabled`)."""
     print_flow_settings(
         flow,
         options=ctx.obj,
         output_format=resolve_format(output_format, json_flag),
         include_common=common,
+        tier=tier,
     )
 
 

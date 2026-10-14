@@ -1,3 +1,5 @@
+import ast
+import inspect
 import json
 import re
 import shutil
@@ -10,10 +12,11 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsException
+from xeda.flow.settings_group import SettingsGroup
 from xeda.flow_runner import DefaultRunner
 from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
-from xeda.flows.yosys.yosys import preproc_libs
+from xeda.flows.yosys.common import YosysBase, YosysSynthesisBase
 
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_store
 from .tool_utils import (
@@ -69,27 +72,39 @@ SPACED_OUTPUTS = {
 }
 SPACED_INPUTS = (
     "liberty",
-    "dff_liberty",
+    "sequential.dff_liberty",
     "verilog_lib",
-    "adder_map",
-    "clockgate_map",
-    "other_maps",
+    "arithmetic.adder_map_file",
+    "sequential.clockgate_map_file",
+    "sequential.latch_map_file",
+    "techmap_files",
+    "memory.libmap",
+    "memory.techmap",
     "abc_script",
     "platform_file",
     "pdk_root",
 )
 # Path settings the sweep does not set: the reports and the flow's other working locations
-# (its log, the merged liberty) are names in the run directory, whose path has a space; yosys
-# reads no `lib_paths` of its own -- the ghdl plugin's are `ghdl.lib_paths`, which
+# (its log) are names in the run directory, whose path has a space; yosys reads no `lib_paths` of
+# its own -- the ghdl plugin's are `ghdl.lib_paths`, which
 # `test_yosys_reads_vhdl_from_a_path_with_spaces` sets.
 NOT_SWEPT = {
+    # refused together with `sequential.dff_liberty`, which the sweep sets;
+    # `tests/test_yosys_asic_sequential.py` reads it from a path with a space
+    "sequential.dff_map",
     "reports_dir",
     "outputs_dir",
     "checkpoints_dir",
     "log_file",
-    "merge_libs_to",
     "lib_paths",
 }
+
+
+#: A memory library that yosys reads and that no design memory matches.
+MEMORY_LIBRARY = (
+    "ram distributed $__UNUSED_RAM {\n  abits 4;\n  width 8;\n  cost 3;\n"
+    '  port arsw "RW" {\n    clock posedge;\n  }\n}\n'
+)
 
 
 def _write(path: Path, text: str) -> Path:
@@ -104,14 +119,37 @@ def _is_path_field(annotation) -> bool:
     return annotation is Path or any(_is_path_field(a) for a in get_args(annotation))
 
 
+def _path_settings() -> set[str]:
+    """The names of the path settings of `Yosys`, a leaf of a group by its dotted name."""
+    names = set()
+    for name, field in Yosys.Settings.model_fields.items():
+        annotation = field.annotation
+        if isinstance(annotation, type) and issubclass(annotation, SettingsGroup):
+            names |= {
+                f"{name}.{leaf}"
+                for leaf, info in annotation.model_fields.items()
+                if _is_path_field(info.annotation)
+            }
+        elif _is_path_field(annotation):
+            names.add(name)
+    return names
+
+
+def _nested(settings: dict) -> dict:
+    """Return `settings` with the dotted keys written as nested tables."""
+    nested: dict = {}
+    for key, value in settings.items():
+        table = nested
+        *groups, leaf = key.split(".")
+        for group in groups:
+            table = table.setdefault(group, {})
+        table[leaf] = value
+    return nested
+
+
 def test_the_spaced_path_sweep_covers_every_path_setting():
     """A new path setting has to join the sweep below, so the class stays covered."""
-    path_fields = {
-        name
-        for name, field in Yosys.Settings.model_fields.items()
-        if _is_path_field(field.annotation)
-    }
-    assert path_fields - NOT_SWEPT <= set(SPACED_OUTPUTS) | set(SPACED_INPUTS)
+    assert _path_settings() - NOT_SWEPT <= set(SPACED_OUTPUTS) | set(SPACED_INPUTS)
 
 
 @cache
@@ -152,13 +190,22 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
     maps = root / "map dir"
     settings = {
         "liberty": [str(lib)],
-        "dff_liberty": str(lib),
+        "sequential.dff_liberty": str(lib),
         "platform_file": str(platform_file),
         "pdk_root": str(store),
         "verilog_lib": [str(black_box)],
-        "adder_map": str(_write(maps / "adder map.v", "module _unused_fa(); endmodule\n")),
-        "clockgate_map": str(_write(maps / "clock gate.v", "module cg(); endmodule\n")),
-        "other_maps": [str(_write(maps / "other map.v", "module _unused(); endmodule\n"))],
+        "arithmetic.adder_map_file": str(
+            _write(maps / "adder map.v", "module _unused_fa(); endmodule\n")
+        ),
+        "sequential.clockgate_map_file": str(
+            _write(maps / "clock gate.v", "module cg(); endmodule\n")
+        ),
+        "sequential.latch_map_file": str(
+            _write(maps / "latch map.v", "module _unused(); endmodule\n")
+        ),
+        "techmap_files": [str(_write(maps / "other map.v", "module _unused2(); endmodule\n"))],
+        "memory.libmap": [str(_write(maps / "mem lib.txt", MEMORY_LIBRARY))],
+        "memory.techmap": str(_write(maps / "mem map.v", "module _unused3(); endmodule\n")),
         # ABC runs the script with its own `source`, which splits a path at spaces whatever the
         # quoting: the one input that must live at a path without one
         "abc_script": str(_write(tmp_path / "abc" / "map.abc", "strash\nmap\n")),
@@ -166,6 +213,7 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
         "script_format": script_format,
     }
     assert set(SPACED_INPUTS) <= set(settings)
+    settings = _nested(settings)
     design = Design(
         name="spaced",
         design_root=root,
@@ -564,18 +612,32 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
     bb = "module bb(input a, output y); endmodule\n"
     settings = {
         "liberty": [str(lib)],
-        "dff_liberty": str(lib),
+        "sequential.dff_liberty": str(lib),
         "platform_file": str(platform_file),
         "pdk_root": str(store),
         "verilog_lib": [str(with_decoy(root / "lib" / "bb[1].v", bb))],
-        "adder_map": str(with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")),
-        "clockgate_map": str(with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")),
-        "other_maps": [str(with_decoy(root / "map" / "o[1].v", "module _unused(); endmodule\n"))],
+        "arithmetic.adder_map_file": str(
+            with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")
+        ),
+        "sequential.clockgate_map_file": str(
+            with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")
+        ),
+        "sequential.latch_map_file": str(
+            with_decoy(root / "map" / "latch[1].v", "module _unused(); endmodule\n")
+        ),
+        "techmap_files": [
+            str(with_decoy(root / "map" / "o[1].v", "module _unused2(); endmodule\n"))
+        ],
+        "memory.libmap": [str(with_decoy(root / "map" / "mem[1].txt", MEMORY_LIBRARY))],
+        "memory.techmap": str(
+            with_decoy(root / "map" / "mem[1].v", "module _unused3(); endmodule\n")
+        ),
         "abc_script": str(with_decoy(root / "map" / "abc[1].abc", "strash\nmap\n")),
         "netlist_verilog": "net[1].v",
         "script_format": script_format,
     }
     assert set(SPACED_INPUTS) <= set(settings)
+    settings = _nested(settings)
     with_decoy(
         root / "rtl" / "top[1].v",
         "module top(input clk, input [3:0] a, b, output reg [4:0] q, output y);\n"
@@ -697,35 +759,6 @@ def test_yosys_elaborates_a_vhdl_top_with_a_constraint_file_listed_after_it(tmp_
     assert len(netlist["modules"]["inv"]["ports"]["y"]["bits"]) == 5
 
 
-def _liberty(cell: str) -> str:
-    """Return Liberty source text for a cell used in Yosys tests."""
-    return (
-        "library (cells) {\n"
-        '  time_unit : "1ns" ;\n'
-        f"  cell ({cell}) {{\n"
-        "    area : 1 ;\n"
-        "  }\n"
-        "}\n"
-    )
-
-
-def test_preprocessed_libraries_sharing_a_stem_do_not_overwrite_each_other(tmp_path, monkeypatch):
-    """Each library is pre-processed into its own file named after its stem, so `a/cells.lib`
-    and `b/cells.lib` both became `cells-mod.lib`, the second replacing the first. Each file
-    also received every library processed before it, which is what hid that: the survivor
-    happened to hold both."""
-    libs = [_write(tmp_path / d / "cells.lib", _liberty(f"{d.upper()}_X1")) for d in ("a", "b")]
-    monkeypatch.chdir(tmp_path)
-    preproc_libs(libs, tmp_path / "merged.lib", ["B_X1"], use_temp_folder=False)
-    processed = sorted((tmp_path / "processed_libs").iterdir())
-    assert len(processed) == 2
-    cells = [set(re.findall(r"cell\s*\((\w+)\)", p.read_text())) for p in processed]
-    assert sorted(cells, key=sorted) == [{"A_X1"}, {"B_X1"}]
-    merged = (tmp_path / "merged.lib").read_text()
-    assert set(re.findall(r"cell\s*\((\w+)\)", merged)) == {"A_X1", "B_X1"}
-    assert re.search(r"cell \(B_X1\) \{\n\s*dont_use : true;", merged)
-
-
 if __name__ == "__main__":
     test_yosys_synth_py()
 
@@ -807,3 +840,90 @@ def test_a_design_of_the_types_the_flow_reads_is_planned_whatever_else_it_lists(
     design = Design(name="d", design_root=tmp_path, rtl={"sources": names, "top": "a"})
     planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert [node.name for node in planned.nodes] == [flow]
+
+
+# ---------------------------------------------------------- what the shared bases may read
+
+
+def _names_used_by(cls: type) -> dict[str, set[str]]:
+    """Return each name that the code of `cls` (and of the classes nested in it) uses.
+
+    A name is an attribute (`settings.name`) or a string literal that equals it, which covers
+    `getattr(settings, "name")`, `setattr(...)` and a tuple of names that a loop reads by name.
+    The value is the set of functions that use the name.
+    """
+    used: dict[str, set[str]] = {}
+
+    def visit(node: ast.AST, function: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(child, f"{function}.{child.name}" if function else child.name)
+                continue
+            if isinstance(child, ast.Attribute):
+                used.setdefault(child.attr, set()).add(function)
+            elif isinstance(child, ast.Constant) and isinstance(child.value, str):
+                used.setdefault(child.value, set()).add(function)
+            visit(child, function)
+
+    visit(ast.parse(inspect.getsource(cls)), "")
+    return used
+
+
+def test_the_shared_bases_read_no_setting_that_only_yosys_declares():
+    """`YosysBase` and `YosysSynthesisBase` serve `yosys_fpga` and `yosys_sim` too. A method of
+    theirs that reads a field of `Yosys.Settings` breaks the flows without it, and breaks when
+    `Yosys` moves or removes that field. Each flow reads and prepares the settings it declares.
+    """
+    shared = set(YosysSynthesisBase.Settings.model_fields)
+    assert shared >= set(YosysBase.Settings.model_fields)
+    yosys_only = set(Yosys.Settings.model_fields) - shared
+    assert {"arithmetic", "sequential", "abc", "techmap_files", "liberty", "gates"} <= yosys_only
+    for base in (YosysBase, YosysSynthesisBase):
+        reads = {
+            name: sorted(functions)
+            for name, functions in _names_used_by(base).items()
+            if name in yosys_only
+        }
+        assert not reads, f"{base.__name__} uses a field that only Yosys.Settings declares: {reads}"
+
+
+def test_the_map_files_resolve_against_the_design_root(tmp_path):
+    """A relative map file of `yosys` (`arithmetic.adder_map_file`, `sequential.clockgate_map_file`,
+    `sequential.latch_map_file` and `techmap_files`) names a file in the design root, and so does the
+    `clockgate_map` of `yosys_fpga`. The settings of `yosys` keep the path as the user wrote it:
+    `asic_values` gives the resolved path."""
+    design = Design.from_file(TESTS_DIR / "resources" / "design0" / "design0.toml")
+    root = design.design_root
+    flow = Yosys(
+        Yosys.Settings(
+            liberty=["lib/cells.lib"],
+            clock={"period": 5.0},
+            arithmetic={"adder_map_file": "maps/add.v"},
+            sequential={"clockgate_map_file": "maps/cg.v", "latch_map_file": "maps/latch.v"},
+            techmap_files=["maps/a.v", "maps/b.v"],
+        ),
+        design,
+        tmp_path / "yosys",
+    )
+    flow.init()
+    assert isinstance(flow.settings, Yosys.Settings)
+    values = flow.asic_values()
+    assert values.adder_map == root / "maps/add.v"
+    assert values.clockgate_map == root / "maps/cg.v"
+    assert values.latch_map == root / "maps/latch.v"
+    assert values.techmap_files == (("pre_dff", root / "maps/a.v"), ("pre_dff", root / "maps/b.v"))
+    assert flow.settings.sequential.clockgate_map_file == Path("maps/cg.v")
+    assert [item.path for item in flow.settings.techmap_files] == [
+        Path("maps/a.v"),
+        Path("maps/b.v"),
+    ]
+    fpga = YosysFpga(
+        YosysFpga.Settings(
+            fpga={"part": "xc7a12tcsg325-1"}, clock={"period": 5.0}, clockgate_map="maps/cg.v"
+        ),
+        design,
+        tmp_path / "yosys_fpga",
+    )
+    fpga.init()
+    assert isinstance(fpga.settings, YosysFpga.Settings)
+    assert fpga.settings.clockgate_map == root / "maps/cg.v"

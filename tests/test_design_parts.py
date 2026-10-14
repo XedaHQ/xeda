@@ -39,6 +39,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import design_files
 from xeda.utils import semantic_hash
 
+from .flow_registry import preserved_flow_registry
 from .settings_samples import flow_classes
 from .tool_utils import launch_until_fresh, require_ghdl, require_yosys, use_fake_tools
 
@@ -600,7 +601,8 @@ def reachable_templates(cls: type[Flow], nodes: Iterable[ast.AST] | None = None)
     (`Flow._create_jinja_env`, the one the flow renders with: its module and its bases', so a
     subclass inherits its parent's) that the code of its MRO names -- a string, or an f-string as
     a pattern (`f"constraints.{ext}"`) -- and every template those include, an include of a
-    computed name (`{% include step + '.tcl' %}`) being any template that matches its tail.
+    name computed with `+` (`{% include step + '.tcl' %}`) being any template that matches its tail.
+    A name computed with `~` (`{% include "stages/" ~ name %}`) is not followed.
     `nodes` are the AST nodes to look for the names in: the default is the code of the class and of
     its MRO, and a caller that also follows the helpers the code reaches passes that code."""
     env = cls._create_jinja_env(extra_modules=[cls.__module__])
@@ -633,8 +635,11 @@ def reachable_templates(cls: type[Flow], nodes: Iterable[ast.AST] | None = None)
         if name in reached:
             continue
         reached[name] = available[name]
+        # a name that a template computes (`"stages/" ~ name`) is no template name: it is not
+        # followed
         for target in re.findall(
-            r"""{%-?\s*(?:include|from|import|extends)\s+['"]([^'"]+)['"]""", available[name]
+            r"""{%-?\s*(?:include|from|import|extends)\s+['"]([^'"]+)['"](?!\s*[~+])""",
+            available[name],
         ):
             pending.append(target)
         for tail in re.findall(
@@ -642,6 +647,75 @@ def reachable_templates(cls: type[Flow], nodes: Iterable[ast.AST] | None = None)
         ):
             pending += [n for n in available if n.endswith(tail)]
     return reached
+
+
+def _reached_in_toy_package(tmp_path, monkeypatch, name: str, templates: dict[str, str]):
+    """`reachable_templates` of a toy flow whose package holds `templates` (by name) and whose
+    code names the template `main.tcl`."""
+    package = tmp_path / name
+    (package / "templates").mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    for template, text in templates.items():
+        (package / "templates" / template).parent.mkdir(parents=True, exist_ok=True)
+        (package / "templates" / template).write_text(text)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    with preserved_flow_registry():
+
+        class ToyIncludes(Flow):
+            """A flow that exists to own a template directory."""
+
+            results_description: dict[str, str] = {}
+
+            def run(self) -> None:
+                pass
+
+        ToyIncludes.__module__ = name
+        try:
+            return reachable_templates(ToyIncludes, ast.walk(ast.parse('TEMPLATE = "main.tcl"')))
+        finally:
+            sys.modules.pop(name, None)
+
+
+# New templates name their includes literally: a template that includes another by a name that the
+# template computes (`{% include "stages/" ~ name ~ ".tcl.j2" %}`) is not followed, so what the
+# included template reads goes unseen.
+def test_a_template_included_by_a_literal_name_is_reachable_and_its_group_leaf_reads_count(
+    tmp_path, monkeypatch
+) -> None:
+    from .test_unread_settings import template_group_reads
+
+    reached = _reached_in_toy_package(
+        tmp_path,
+        monkeypatch,
+        "toy_literal_includes",
+        {
+            "main.tcl": '{% include "stages/x.tcl.j2" %}\n',
+            "stages/x.tcl.j2": "{{ settings.g.y }}\n",
+            "stages/other.tcl.j2": "{{ settings.g.z }}\n",
+        },
+    )
+    assert "stages/x.tcl.j2" in reached
+    assert "stages/other.tcl.j2" not in reached
+    chains, _ = template_group_reads(reached.items())
+    assert "g.y" in chains and "g.z" not in chains
+
+
+def test_a_template_included_by_a_computed_name_is_not_followed(tmp_path, monkeypatch) -> None:
+    from .test_unread_settings import template_group_reads
+
+    reached = _reached_in_toy_package(
+        tmp_path,
+        monkeypatch,
+        "toy_computed_includes",
+        {
+            "main.tcl": '{% set name = "x" %}{% include "stages/" ~ name ~ ".tcl.j2" %}\n',
+            "stages/x.tcl.j2": "{{ settings.g.y }}\n",
+        },
+    )
+    assert set(reached) == {"main.tcl"}
+    chains, _ = template_group_reads(reached.items())
+    assert "g.y" not in chains
 
 
 def tb_reads(cls: type[Flow]) -> list[str]:

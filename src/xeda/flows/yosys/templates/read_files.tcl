@@ -39,7 +39,7 @@ yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|jo
     {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
         {%- if slang_plugin %}
-yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
+yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
@@ -56,7 +56,9 @@ yosys plugin -i ghdl
 yosys ghdl {{ghdl_args|map("ghdl_arg")|join(" ")}} {{vhdl_files|map("verbatim_path")|join(" ")}} -e {% if vhdl_top -%} {{vhdl_top}} {%- endif %}
 {% endif -%}
 
-{% if settings.liberty is defined -%}
+{#- The mapping to a standard cell library sets `liberty_read`: it has read its Liberty files
+    before the sources, with the attribute that marks library cells. -#}
+{% if settings.liberty is defined and not liberty_read|default(false) -%}
 {% for lib in settings.liberty -%}
 yosys read_liberty -lib {{lib|read_path}}
 {% endfor -%}
@@ -77,8 +79,8 @@ yosys chparam -set {{key}} {{value|esc}} {% if design.rtl.top -%} {{design.rtl.t
 {% endfor -%}
 {% endif -%}
 
-{% if settings.clockgate_map is defined and settings.clockgate_map -%}
-yosys read_verilog -defer {{settings.clockgate_map|read_path}}
+{% if clockgate_map is defined and clockgate_map -%}
+yosys read_verilog -defer {{clockgate_map|read_path}}
 {% endif -%}
 
 {% if uhdm_plugin -%}
