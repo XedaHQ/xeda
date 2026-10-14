@@ -340,7 +340,7 @@ for naming the stages yourself: to pick an alternative producer, to override a s
 to see in one line what a request will run. ``xeda run fpga_pack+openfpgaloader design.yaml``
 builds the bitstream and then programs it.
 
-A link ``a+b`` may skip the flows between them: when the inputs of ``b`` come, through their
+A link ``a+b`` may pass through the flows between them: when the inputs of ``b`` come, through their
 default producers, from ``a``, Xeda plans those flows as it would for ``b`` alone.
 ``yosys_fpga+fpga_pack`` runs ``nextpnr`` in between:
 
@@ -348,11 +348,11 @@ default producers, from ``a``, Xeda plans those flows as it would for ``b`` alon
 
     xeda run yosys_fpga+fpga_pack design.yaml
 
-The link binds the inputs that ``a`` feeds: here the ``netlist`` of ``nextpnr``. With
-``a.output``, each of those inputs must take that output. A flow that a link skips cannot appear
+The link binds the inputs that ``a`` feeds: here the ``netlist`` of ``nextpnr``. With ``a.output``,
+each of those inputs must take that output. A flow that a link passes through cannot appear
 elsewhere in the chain, so ``yosys_fpga+fpga_pack+nextpnr`` is refused. A source or a binding that
-takes a skipped flow out of the plan is refused too, because the plan would no longer be that of
-``b`` alone.
+takes a flow that a link passes through out of the plan is refused too, because the plan would no
+longer be that of ``b`` alone.
 
 Rules for chains
 ----------------
@@ -360,13 +360,13 @@ Rules for chains
 * ``+`` is the only separator, and each flow may appear once. Name a flow as anywhere else
   (canonical name, alias or dashes). ``FLOW.OUTPUT`` names one output of a producer that has
   several: ``nextpnr.config+fpga_pack``.
-* A flow supplies every compatible required input of the next one, or the inputs that it feeds
-  in the plan of the next one when the link skips flows. Optional inputs are not bound. An output
-  that fits no such input, or two outputs that fit, is an error that names the choices. When
+* A flow supplies every compatible required input of the next one, or the inputs that it feeds in
+  the plan of the next one when the link passes through flows. Optional inputs are not bound. An
+  output that fits no such input, or two outputs that fit, is an error that names the choices. When
   another output of the producer fixes the pair, the error suggests it:
   ``yosys_fpga.netlist_edif+fpga_pack`` suggests ``yosys_fpga+fpga_pack`` and
-  ``yosys_fpga.netlist+fpga_pack``. Nothing searches all flows, so a refusal with no such output
-  has no suggestion.
+  ``yosys_fpga.netlist+fpga_pack``. Nothing searches all flows, so a refusal with no such output has
+  no suggestion.
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs can be chained: those with a nonempty
   ``inputs`` or ``outputs`` in ``xeda list-flows --json``. Today these are ``yosys_fpga``,
@@ -408,14 +408,14 @@ neither node. Write the device for a flow of the chain (``flows.vivado_synth.fpg
 ``fpga`` names each section that gives it without reaching the flow.
 
 ``flow``, ``results``, ``--help-settings`` and the exit status are those of the last flow.
-``--json`` adds ``request`` (the chain, element by element, each with the flows its link skips in
-``through``) and, for every flow of the plan, its ``node`` name and its resolved ``inputs``. A flow
-that Xeda planned but never started after a failure is listed as ``"state": "not run"`` (see
-:doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and only after the
-whole chain succeeded. A chain that ends at ``openfpgaloader`` has no outputs to deliver, so
-``--outputs-to`` is refused before anything runs. The error names the setting that delivers the
-bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the graph and runs
-no tool.
+``--json`` adds ``request`` (the chain, element by element, each with the flows its link passes
+through in ``through``) and, for every flow of the plan, its ``node`` name and its resolved
+``inputs``. A flow that Xeda planned but never started after a failure is listed as ``"state": "not
+run"`` (see :doc:`machine-readable`). ``--outputs-to`` delivers the outputs of the last flow, and
+only after the whole chain succeeded. A chain that ends at ``openfpgaloader`` has no outputs to
+deliver, so ``--outputs-to`` is refused before anything runs. The error names the setting that
+delivers the bitstream (``-s flows.vivado_synth.bitstream=$PWD/<file>``). ``--dry-run`` shows the
+graph and runs no tool.
 
 Input sources and saved bindings
 --------------------------------

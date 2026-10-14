@@ -460,7 +460,7 @@ FLOW names one flow (ghdl_sim, GhdlSim and ghdl-sim name the same flow). The pro
 flow run first. A chain such as `yosys_fpga+nextpnr+fpga_pack` runs its last flow, binding each
 preceding flow's declared output to the compatible required inputs of the next flow.
 `FLOW.OUTPUT` names the output when several fit. Unbound inputs come from the sources of the
-design or from their default producers. Write the + inside one argument. A link may skip the
+design or from their default producers. Write the + inside one argument. A link may pass through the
 flows between its two flows: `yosys_fpga+fpga_pack` runs `nextpnr` in between.
 
 -s KEY=VALUE sets a setting of the last flow. -s flows.NAME.KEY=VALUE sets a setting of another

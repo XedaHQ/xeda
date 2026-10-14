@@ -55,7 +55,7 @@ def skill_source_dir() -> Iterator[Path]:
 
 def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
     """Return one chain relation as text: the other flow, qualified when the request must name an
-    output, followed by the flows its link skips, and marked when the target decides the
+    output, followed by the flows its link passes through, and marked when the target decides the
     relation."""
     other = str(edge["flow"])
     text = f"`{other}`"
@@ -141,8 +141,8 @@ def generate_flows_reference() -> str:
         "design.yaml` binds each flow's declared outputs to the next flow's required inputs. "
         '"can follow" and "can be followed by" below are the declared relations; '
         "`(depends on the target)` marks one the target's family decides, and `flow.output+flow` "
-        "one that needs the output named. `(through a, b)` marks a relation whose link skips "
-        "the flows `a` and `b` between the two: Xeda runs them as it does for the second flow "
+        "one that needs the output named. `(through a, b)` marks a relation whose link passes "
+        "through the flows `a` and `b` between the two: Xeda runs them as it does for the second flow "
         "alone. A refused chain says which chain would be valid, if any. The relations are "
         "declarations only: planning can still refuse a chain that "
         "passes (related inputs). For example, `yosys_fpga+vivado_impl+vivado_power` also needs "

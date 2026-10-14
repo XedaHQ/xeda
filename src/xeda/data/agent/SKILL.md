@@ -173,12 +173,13 @@ xeda run yosys_fpga+fpga_pack design.yaml   # same plan: nextpnr runs between th
 
 - `+` is the only separator; a flow appears once; `FLOW.OUTPUT` picks an output. A flow that
   programs a device (`openfpgaloader`) can only end a chain.
-- A link `a+b` may skip flows: when the default producers of `b` reach `a`, they are planned as for
-  `b` alone. It binds the inputs `a` feeds (`a.output` must fit each). A skipped flow cannot appear
-  elsewhere in the chain; a source or binding that takes it out of the plan is refused.
+- A link `a+b` may pass through flows: when the default producers of `b` reach `a`, they are planned
+  as for `b` alone. It binds the inputs `a` feeds (`a.output` must fit each). A flow it passes
+  through cannot appear elsewhere in the chain; a source or binding that takes it out of the plan is
+  refused.
 - Only flows with declared I/O chain (`can_follow`, `can_precede` in `xeda list-flows --json`; an
-  entry with `through` skips those flows). `bsc`, `bsc_sim`, `vivado_project` and `vivado_sim` run
-  alone.
+  entry with `through` lists the flows its link passes through). `bsc`, `bsc_sim`,
+  `vivado_project` and `vivado_sim` run alone.
 - `--remote` and `xeda dse` refuse chains and bindings.
 - A refused chain ends with `Did you mean ...?` when one valid request is near. Planning can still
   refuse a request the chain check passed (related inputs, below).

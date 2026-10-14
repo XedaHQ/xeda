@@ -268,7 +268,7 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
     flows that can follow this flow in a chain (`this+other`), and `can_follow` lists the flows
     that this flow can follow (`other+this`). The direct relations come first. A relation whose
-    link skips the flows between the two has them in `through`. The chain validator judges both
+    link passes through the flows between the two has them in `through`. The chain validator judges both
     on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
     cannot disagree. A relation is `target_dependent` when a union of types decides it and the
     target settings narrow that union. The resolved plan is authoritative.
