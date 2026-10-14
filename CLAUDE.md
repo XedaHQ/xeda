@@ -119,6 +119,8 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   given location after the launch) or `waveform(<ext>)`; add it to `ROLES` in
   `tests/test_written_paths.py`. The identity counts the name the run writes, never the
   destination (`tests/test_deliverable_identity.py`).
+- A setting that names where installed data lives (`pdk_root`) carries `LOCATOR`: no part of the
+  identity, never traversed; the flow registers the exact files (`tests/test_locator_settings.py`).
 
 ### Settings and pydantic
 

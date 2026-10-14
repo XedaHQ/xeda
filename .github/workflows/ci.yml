@@ -111,6 +111,8 @@ jobs:
   #   links, FIFOs, permissions and resolved paths (a macOS temporary directory is behind a
   #     link): test_trace_directories, test_run_directory, test_run_directory_rule,
   #     test_run_dir_safety, test_run_root, test_isolation
+  #   store paths behind links (a macOS temporary directory is behind a link), so that a run
+  #     registers and compares the files of a store by their resolved paths: test_locator_settings
   macos:
     # Pinned, not macos-latest, like the Linux jobs: a new image changes the system under the
     # tests when this line does, and not on the day GitHub moves the label.
@@ -153,6 +155,7 @@ jobs:
           tests/test_run_dir_safety.py
           tests/test_run_root.py
           tests/test_isolation.py
+          tests/test_locator_settings.py
 
   # The documentation must build without a Sphinx warning (tox -e docs: -W, nitpicky), so broken
   # markup or a dead cross-reference fails the pull request. One Python is enough here: it only

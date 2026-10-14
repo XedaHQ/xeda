@@ -68,7 +68,7 @@ from ..digest import (
 )
 from ..flow import Flow
 from ..flow.io import declared_inputs
-from ..dataclass import written_role
+from ..dataclass import is_locator, written_role
 from ..deliver import ReadInputs
 from ..flow.flow import _annotation_contains_path, map_keyed_path_leaves
 from ..listing import VCS_METADATA, directory_files
@@ -179,7 +179,8 @@ def setting_path_leaves(
     container is read by its declared shape and not by value alone. In `lib_paths`, only the
     path half of each tuple is ever visited, never the library name. With `written`, only the
     leaves of fields that the flow writes (True: a role, `xeda.dataclass.written_role`) or reads
-    (False) count.
+    (False) count. A locator (`LOCATOR`) is never listed or walked: the flow registers the files
+    it opens under it.
     """
     leaves: list[tuple[str, Any]] = []
 
@@ -190,6 +191,8 @@ def setting_path_leaves(
 
     def walk(model: BaseModel, prefix: str) -> None:
         for name, field in type(model).model_fields.items():
+            if is_locator(type(model), name):
+                continue
             value = getattr(model, name)
             role = written_role(type(model), name)
             if _annotation_contains_path(field.annotation) and (

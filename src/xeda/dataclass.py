@@ -49,6 +49,7 @@ __all__ = [
     "Code",
     "ConfigDict",
     "DELIVERABLE_ROLE",
+    "LOCATOR",
     "WORKING",
     "WORKING_ROLE",
     "ErrorDetails",
@@ -70,6 +71,7 @@ __all__ = [
     "annotation_mistake",
     "expand_forms",
     "field_shorthands_of",
+    "is_locator",
     "is_mistake",
     "mapping_form",
     "nested_model",
@@ -708,6 +710,21 @@ def _entry_problems(
 WORKING_ROLE = "working"
 DELIVERABLE_ROLE = "deliverable"
 WORKING: Dict[str, Any] = {"x-xeda-writes": WORKING_ROLE}
+
+
+#: The marker of a setting that names where installed data lives on this machine (a PDK store),
+#: as a `json_schema_extra` marker. Such a place is no part of the identity of a run, a launch
+#: never lists or traverses what lies under it, and a remote run never receives it: the remote
+#: host uses its own. The flow registers the exact files it opens (`Flow.implicit_inputs`), and
+#: the trace records their content. Mark an `Optional` field only.
+LOCATOR: Dict[str, Any] = {"x-xeda-locator": True}
+
+
+def is_locator(model: type[BaseModel], field: str) -> bool:
+    """Return whether the `field` of `model` is marked `LOCATOR`."""
+    info = model.model_fields.get(field)
+    extra = info.json_schema_extra if info is not None else None
+    return isinstance(extra, dict) and extra.get("x-xeda-locator") is True
 
 
 def deliverable(conventional: Optional[str] = None, *, always: bool = False) -> Dict[str, Any]:

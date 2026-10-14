@@ -56,6 +56,7 @@ from ..dataclass import (
     field_validator,
     fold_dotted_keys,
     input_names,
+    is_locator,
     model_validator,
     opaque_key_fields_of,
     table_entries,
@@ -538,7 +539,8 @@ def identity_settings(
     In the copy, every deliverable has the name that the run writes it under in its run
     directory (`output_name`). That holds for a deliverable given as a location, and for one that
     the flow always writes (`deliverable(always=True)`) and that is unset. Where an output is
-    delivered, and what it is called there, is no part of the run. Without `design_name`,
+    delivered, and what it is called there, is no part of the run. A locator (`LOCATOR`) is None
+    in the copy: where installed data lives is no part of the run either. Without `design_name`,
     `{design}` stays as written."""
     copy = settings.model_copy(deep=True)
     design = design_name if design_name is not None else "{design}"
@@ -554,7 +556,21 @@ def identity_settings(
 
     map_written_leaves(copy, conventional)
     _name_unset_outputs(copy, design)
+    _clear_locators(copy)
     return copy
+
+
+def _clear_locators(model: BaseModel) -> None:
+    """Set, in place, each locator setting (`LOCATOR`) of `model` and of the models nested in it
+    to None. A place on this machine is no part of the identity of a run."""
+    for name in type(model).model_fields:
+        value = getattr(model, name)
+        if is_locator(type(model), name):
+            if value is not None:
+                setattr(model, name, None)
+            continue
+        for _key, nested in _nested_models(value, name):
+            _clear_locators(nested)
 
 
 def _name_unset_outputs(model: BaseModel, design: str, prefix: str = "") -> None:
