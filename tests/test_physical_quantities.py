@@ -15,7 +15,9 @@ marker has to leave `NOT_MIGRATED_YET`. The first table may only shrink.
 import json
 import typing
 from collections.abc import Iterable, Mapping
+from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union
@@ -51,7 +53,16 @@ from xeda.units import (
 from xeda.utils import dump_json, semantic_hash
 
 from .flow_registry import preserved_flow_registry
-from .settings_fields import FieldKey, fields_of, reachable_models, shape_of
+from .settings_fields import (
+    FieldKey,
+    assign,
+    fields_of,
+    follow,
+    nest,
+    quantity_paths,
+    reachable_models,
+    shape_of,
+)
 from .settings_samples import (
     QUANTITY_FIELD_IDS,
     QUANTITY_FIELDS,
@@ -63,9 +74,14 @@ from .test_cli_json_contract import json_stdout, run_xeda
 
 pytestmark = pytest.mark.python_compat
 
-#: Settings that a later change converts to quantities, or marks: the physical ones, and every
-#: number of dc and of the design-space search. A field leaves this table when it becomes a
-#: quantity or gets a marker; the table never grows. Every entry says what the setting measures.
+FMAX = "FmaxOptimizer.Settings"
+DC_UNCHANGED = "dc is not changed in this branch"
+SEARCH_UNCHANGED = "the design-space search is not changed in this branch"
+
+#: Settings that a later change converts to quantities or marks: the physical ones, and every
+#: number of dc and of the design-space search, which this branch does not change. A field leaves
+#: this table when it becomes a quantity or gets a marker; the table never grows. Every entry says
+#: why the setting is here.
 NOT_MIGRATED_YET: dict[FieldKey, str] = {
     # simulation
     ("SimFlow.Settings", "stop_time"): "a time in nanoseconds, or text with a unit",
@@ -82,25 +98,24 @@ NOT_MIGRATED_YET: dict[FieldKey, str] = {
     ("Nextpnr.Settings", "hold_detour_max"): "a time in nanoseconds",
     # programming
     ("Openfpgaloader.Settings", "freq"): "a frequency in hertz",
-    # dc is not converted
-    ("Dc.Settings", "default_max_input_delay"): "a time in nanoseconds",
-    ("Dc.Settings", "default_max_output_delay"): "a time in nanoseconds",
-    ("Dc.Settings", "max_routing_layer"): "a layer index",
-    ("Dc.Settings", "min_routing_layer"): "a layer index",
-    # design-space search
-    ("Dse.Settings", "max_failed_iters"): "a count of iterations",
-    ("Dse.Settings", "max_failed_iters_with_best"): "a count of iterations",
-    ("Dse.Settings", "max_runtime_minutes"): "a time in minutes",
-    ("Dse.Settings", "max_workers"): "a count of processes",
-    ("Dse.Settings", "timeout"): "a time in seconds",
-    ("FmaxOptimizer.Settings", "init_freq_low"): "a frequency in megahertz",
-    ("FmaxOptimizer.Settings", "init_freq_high"): "a frequency in megahertz",
-    ("FmaxOptimizer.Settings", "resolution"): "a frequency in megahertz",
-    ("FmaxOptimizer.Settings", "delta"): "a frequency in megahertz",
-    ("FmaxOptimizer.Settings", "min_improve_inc_variations"): "a frequency in megahertz",
-    ("FmaxOptimizer.Settings", "max_luts"): "a count of LUTs",
-    ("FmaxOptimizer.Settings", "init_num_variations"): "a count of variations",
-    ("FmaxOptimizer.Settings", "stop_after_no_improves"): "a count of iterations",
+    # dc and the design-space search are not changed in this branch
+    ("Dc.Settings", "default_max_input_delay"): DC_UNCHANGED,
+    ("Dc.Settings", "default_max_output_delay"): DC_UNCHANGED,
+    ("Dc.Settings", "max_routing_layer"): DC_UNCHANGED,
+    ("Dc.Settings", "min_routing_layer"): DC_UNCHANGED,
+    ("Dse.Settings", "max_failed_iters"): SEARCH_UNCHANGED,
+    ("Dse.Settings", "max_failed_iters_with_best"): SEARCH_UNCHANGED,
+    ("Dse.Settings", "max_runtime_minutes"): SEARCH_UNCHANGED,
+    ("Dse.Settings", "max_workers"): SEARCH_UNCHANGED,
+    ("Dse.Settings", "timeout"): SEARCH_UNCHANGED,
+    (FMAX, "init_freq_low"): SEARCH_UNCHANGED,
+    (FMAX, "init_freq_high"): SEARCH_UNCHANGED,
+    (FMAX, "resolution"): SEARCH_UNCHANGED,
+    (FMAX, "delta"): SEARCH_UNCHANGED,
+    (FMAX, "min_improve_inc_variations"): SEARCH_UNCHANGED,
+    (FMAX, "max_luts"): SEARCH_UNCHANGED,
+    (FMAX, "init_num_variations"): SEARCH_UNCHANGED,
+    (FMAX, "stop_after_no_improves"): SEARCH_UNCHANGED,
 }
 
 #: Maps of tool options. The flow hands each value to the tool in the tool's own words, so xeda
@@ -290,6 +305,30 @@ def test_a_registered_flow_is_in_the_sweep(toy_flow):
     assert flow.Settings in settings_models()
 
 
+def test_a_quantity_in_any_slot_of_a_fixed_tuple_is_probed(toy_flow):
+    """Each position of `tuple[A, B]` has its own type: the path to a quantity names its index,
+    and the other slots get valid values."""
+    second = toy_flow(tuple[str, Time], ("x", Time("1 ns")))
+    (path,) = quantity_paths(second.Settings)
+    assert [step.key for step in path] == ["knob", 1]
+    assert nest(path, "10 ns") == {"knob": ["x", "10 ns"]}
+    settings = second.Settings(**nest(path, "10 ns"))
+    assert follow(settings, path) == Time("10 ns")
+    assign(settings, path, "20 ns")
+    assert follow(settings, path) == Time("20 ns")
+    assert settings.knob == ("x", Time("20 ns"))
+
+    both = toy_flow(tuple[Time, Time], (Time("1 ns"), Time("2 ns")))
+    paths = quantity_paths(both.Settings)
+    assert [[step.key for step in path] for path in paths] == [["knob", 0], ["knob", 1]]
+    assert both.Settings(**nest(paths[0], "30 ns")).knob == (Time("30 ns"), Time("10 ns"))
+    assert both.Settings(**nest(paths[1], "30 ns")).knob == (Time("10 ns"), Time("30 ns"))
+
+    repeated = toy_flow(tuple[Time, ...], (Time("1 ns"),))
+    (path,) = quantity_paths(repeated.Settings)
+    assert [step.key for step in path] == ["knob", 0]
+
+
 def test_an_unmarked_float_fails(toy_flow):
     (problem,) = toy_problems(toy_flow(float, 1.0))
     assert problem.startswith("ToyFlow.Settings.knob is a number with no unit and no marker")
@@ -313,6 +352,11 @@ def test_an_unmarked_float_fails(toy_flow):
         (Literal["auto"] | int, "auto"),
         (Union[int, Time], 1),
         (Optional[Union[Literal["auto"], int, Time]], None),
+        (Decimal, Decimal(1)),
+        (Optional[Decimal], None),
+        (list[Decimal], []),
+        (Fraction, Fraction(1, 2)),
+        (Literal[Decimal(1)], Decimal(1)),
     ],
     ids=str,
 )
@@ -364,6 +408,7 @@ def test_an_int_enum_is_a_choice_and_passes(toy_flow):
         (Union[Literal["random"], int], "random", count()),
         (Optional[list[float]], None, ratio()),
         (Optional[int], None, data_size()),
+        (Decimal, Decimal(1), ratio()),
     ],
 )
 def test_a_marked_number_passes(toy_flow, annotation, default, marker):
