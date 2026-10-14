@@ -730,6 +730,8 @@ def test_the_failing_fixture_flow_leaves_the_registry_as_it_was():
     """The guard on the guard: a leaked registration would reach every later sweep."""
     from xeda.flow import registered_flows
 
+    from . import io_flows  # noqa: F401  # its import registers flows: import before the snapshot
+
     before = dict(registered_flows)
     with _a_flow_whose_run_raises() as failing:
         assert registered_flows.get(failing.name) is not None, "it was never registered"
