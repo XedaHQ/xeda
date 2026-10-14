@@ -90,7 +90,7 @@ proc xeda_floorplan {} {
     repair_tie_fanout {{ render_flags(settings.tie) }} [xeda_tie_pin {{ P.tie_high.cell|tcl_word }} {{ P.tie_high.port|tcl_word }}]
 {% endif %}
 {% if settings.arith_swap.enabled %}
-    replace_arith_modules
+    {{ ["replace_arith_modules", render_flags(settings.arith_swap), ("-slack_threshold " ~ (settings.arith_swap.slack_threshold|lib_time)) if settings.arith_swap.slack_threshold is not none else ""]|select|join(" ") }}
 {% endif %}
 {# The planning refuses `mode: repair_timing` with the repair switched off, so `enabled` is true here. #}
 {% if fp.netlist_cleanup.mode == "repair_timing" and repair.enabled %}

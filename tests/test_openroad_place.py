@@ -20,7 +20,7 @@ from xeda.platforms import PdkNotInstalled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
 from xeda.flows.openroad.base import to_lib_time, to_seconds
-from xeda.flows.openroad.place_groups import PresizeMode
+from xeda.flows.openroad.place_groups import PresizeMode, SwapTarget
 from xeda.flows.openroad.place import EffectivePlace, effective
 from xeda.flows.openroad.place_pdn import PdnStripe
 from xeda.platforms.model import CellPort, Pdn, Track
@@ -948,6 +948,61 @@ def test_the_floorplan_arith_swap_runs_before_the_netlist_cleanup(tmp_path):
         "replace_arith_modules",
         "repair_timing",
     ]
+
+
+def test_the_swap_of_arithmetic_modules_runs_with_the_defaults_of_the_tool(tmp_path):
+    flow = place_flow(tmp_path, {"hierarchical": True, "arith_swap": {"enabled": True}})
+    script = render(flow)
+    for name in ("xeda_floorplan", "xeda_resize"):
+        assert "replace_arith_modules" in stage(script, name), name
+
+
+def test_the_options_of_the_swap_reach_both_calls_of_the_command(tmp_path):
+    swap = {"enabled": True, "path_count": 200, "target": "area", "slack_threshold": 0.05}
+    flow = place_flow(tmp_path, {"hierarchical": True, "arith_swap": swap})
+    script = render(flow)
+    expected = 'replace_arith_modules -path_count "200" -target "area" -slack_threshold 0.05'
+    for name in ("xeda_floorplan", "xeda_resize"):
+        assert expected in stage(script, name), name
+    calls = run_script(flow, script)
+    assert [call for call in calls if call[0] == "replace_arith_modules"] == [
+        [
+            "replace_arith_modules",
+            "-path_count",
+            "200",
+            "-target",
+            "area",
+            "-slack_threshold",
+            "0.05",
+        ]
+    ] * 2
+
+
+@pytest.mark.parametrize("unit, text", [("1ns", "0.05"), ("1ps", "50.0"), ("10ps", "5.0")])
+def test_the_slack_threshold_of_the_swap_is_in_the_time_unit_of_the_library(tmp_path, unit, text):
+    swap = {"enabled": True, "slack_threshold": 0.05}
+    flow = place_flow(
+        tmp_path, {"hierarchical": True, "arith_swap": swap}, model={"time_unit": unit}
+    )
+    assert f"replace_arith_modules -slack_threshold {text}" in stage(render(flow), "xeda_floorplan")
+
+
+@pytest.mark.parametrize("target", get_args(SwapTarget))
+def test_every_target_of_the_swap_renders_and_runs(tmp_path, target):
+    swap = {"enabled": True, "target": target}
+    flow = place_flow(tmp_path, {"hierarchical": True, "arith_swap": swap})
+    assert f'replace_arith_modules -target "{target}"' in stage(render(flow), "xeda_floorplan")
+    run_script(flow)
+
+
+def test_a_target_that_the_tool_does_not_swap_for_yet_is_not_refused_at_planning(tmp_path):
+    plan(tmp_path, "arith_swap.enabled=true", "arith_swap.target=hold", "hierarchical=true")
+    description = " ".join(
+        OpenroadPlace.Settings.model_fields["arith_swap"]
+        .annotation.model_fields["target"]
+        .description.split()
+    )
+    assert "RSZ-0155" in description and "`setup`" in description
 
 
 def test_the_hierarchy_reaches_the_link_of_the_netlist(tmp_path):

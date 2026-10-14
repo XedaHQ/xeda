@@ -269,7 +269,7 @@ Group `global_placement`: `global_placement.density.mode`, `global_placement.den
 
 Group `resize`: `resize.buffer_ports.enabled`, `resize.buffer_ports.inputs`, `resize.buffer_ports.outputs`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 46 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `arith_swap`: no common settings; 1 more: `xeda list-settings openroad_place --tier expert --json`
+Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 4 more: `xeda list-settings openroad_place --tier expert --json`
 

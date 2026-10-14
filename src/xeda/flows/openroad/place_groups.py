@@ -49,6 +49,7 @@ __all__ = [
     "ResizeGroup",
     "RoutabilityDrivenGroup",
     "RoutingGroup",
+    "SwapTarget",
     "TapcellGroup",
     "TieGroup",
     "TimingDrivenGroup",
@@ -2094,13 +2095,49 @@ class ResizeGroup(SettingsGroup):
         ]
 
 
+#: The goals of `replace_arith_modules -target`.
+SwapTarget = Literal["setup", "hold", "power", "area"]
+
+
 class ArithSwapGroup(SettingsGroup):
-    """The swap of the arithmetic modules for faster or smaller variants."""
+    """The swap of the arithmetic modules for faster or smaller variants (`replace_arith_modules`).
+
+    The flow runs the command at the floorplan and again before the repairs after the global
+    placement, with the same options. The flow prints `slack_threshold` itself: it is a time, and
+    the command takes the time unit of the Liberty files."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("path_count", "-path_count", "value"),
+        Flag("target", "-target", "value"),
+    )
 
     enabled: bool = Field(
         False,
         description="Replace the wrapped arithmetic modules of the netlist (`replace_arith_modules`). "
         "It needs `hierarchical` and a netlist with wrapped operators.",
+        json_schema_extra=tier("advanced"),
+    )
+    path_count: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The number of critical paths that the command analyzes to find the modules "
+        "to swap (`-path_count`). Unset: the default of the tool, 1000.",
+        json_schema_extra=tier("advanced"),
+    )
+    target: Optional[SwapTarget] = Field(
+        None,
+        description="The goal of the swap (`-target`). `setup` swaps for the fastest variants. "
+        "The other goals are in the command, but the tool does not support them yet: it stops "
+        "with RSZ-0155 as soon as it finds a module to swap, and the documentation of the tool "
+        "lists them as not available yet. Unset: `setup`.",
+        json_schema_extra=tier("advanced"),
+    )
+    slack_threshold: Optional[Finite] = Field(
+        None,
+        description="The paths with a slack up to this value count as critical, as a time in "
+        "nanoseconds (`-slack_threshold`). The flow converts it to the time unit of the Liberty "
+        "files. A positive value adds paths with a little positive slack. Unset: the default "
+        "of the tool, 0.",
         json_schema_extra=tier("advanced"),
     )
 

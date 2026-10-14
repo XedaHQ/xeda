@@ -694,6 +694,11 @@ PLACE_REFUSALS = [
         "`resize.remove_buffers_instances` has no effect with `resize.remove_buffers: false`",
     ),
     (
+        "arith_swap.path_count=100",
+        "arith_swap.target=setup",
+        "`arith_swap.path_count` has no effect while `arith_swap.enabled` is false",
+    ),
+    (
         "resize.repair_design.enabled=false",
         "resize.repair_design.pre_placement=true",
         "`resize.repair_design.pre_placement` has no effect while "
@@ -757,6 +762,10 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         "resize.global_sizing.timing_bias=0",
         "resize.global_sizing.budget_safety_factor=1.5",
         "resize.global_sizing.budget_safety_factor=0",
+        "arith_swap.path_count=0",
+        "arith_swap.target=Setup",
+        "arith_swap.target=speed",
+        {"arith_swap.slack_threshold": float("nan")},
         {"detailed_placement.improve.max_displacement": [5]},
         {"detailed_placement.improve.max_displacement": [5, -1]},
         "detailed_placement.check=warn",
@@ -862,6 +871,22 @@ def test_the_resize_options_that_take_a_value_of_their_own_are_no_flags():
         (resize.global_sizing, {"include_clock_network", "setup_slack_margin"}),
     ):
         assert not {flag.field for flag in type(group).FLAGS} & names
+
+
+def test_the_flags_of_the_swap_of_arithmetic_modules():
+    swap = OpenroadPlace.Settings().arith_swap
+    assert render(swap) == ""
+    settings = settings_of(
+        OpenroadPlace,
+        "arith_swap.enabled=true",
+        "arith_swap.path_count=50",
+        "arith_swap.target=area",
+        "arith_swap.slack_threshold=0.1",
+    ).arith_swap
+    # the flow prints the slack threshold itself: it is a time, and the tool takes the unit of
+    # the Liberty files
+    assert render(settings) == '-path_count "50" -target "area"'
+    assert "slack_threshold" not in {flag.field for flag in type(settings).FLAGS}
 
 
 def test_the_flags_of_the_pin_placement_and_the_tie_cells():
@@ -1419,6 +1444,7 @@ INSTALLED_HELP = {
         "-timing_bias",
         "-budget_safety_factor",
     },
+    "replace_arith_modules": {"-path_count", "-slack_threshold", "-target"},
     "repair_antennas": {
         "-iterations",
         "-ratio_margin",
@@ -1584,6 +1610,11 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
     assert {f.flag for f in resize.FLAGS} <= shared & INSTALLED_HELP["repair_timing"]
     ports = resize.model_fields["buffer_ports"].annotation
     assert {f.flag for f in ports.FLAGS} | {"-inputs", "-outputs"} <= INSTALLED_HELP["buffer_ports"]
+    swap = place["arith_swap"].annotation
+    # the flow prints the slack threshold itself
+    assert {f.flag for f in swap.FLAGS} | {"-slack_threshold"} == INSTALLED_HELP[
+        "replace_arith_modules"
+    ]
     sizing = resize.model_fields["opt_config"].annotation
     # the flow prints the three booleans itself
     by_hand = {"-keep_sizing_site", "-keep_sizing_vt", "-disable_buffer_pruning"}

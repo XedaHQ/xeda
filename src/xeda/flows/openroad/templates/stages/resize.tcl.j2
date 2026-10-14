@@ -12,7 +12,7 @@ proc xeda_resize {} {
     xeda_stage placeopt
     estimate_parasitics -placement
 {% if settings.arith_swap.enabled %}
-    replace_arith_modules
+    {{ ["replace_arith_modules", render_flags(settings.arith_swap), ("-slack_threshold " ~ (settings.arith_swap.slack_threshold|lib_time)) if settings.arith_swap.slack_threshold is not none else ""]|select|join(" ") }}
     global_placement -incremental -density [xeda_density] -pad_left {{ gp.cell_padding|tcl_number }} -pad_right {{ gp.cell_padding|tcl_number }}
     estimate_parasitics -placement
 {% endif %}
