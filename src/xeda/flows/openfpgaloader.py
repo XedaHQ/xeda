@@ -10,6 +10,7 @@ from ..dataclass import Field, model_validator
 from ..design import SourceType
 from ..flow import FPGA, Flow, FpgaSynthFlow, In
 from ..tool import Tool
+from ..units import count, data_size
 
 __all__ = ["Openfpgaloader"]
 
@@ -503,15 +504,22 @@ class Openfpgaloader(FpgaSynthFlow):
             False, description="Verify the SPI flash after programming. Needs `write_flash`."
         )
         freq: Optional[int] = Field(None, gt=0, description="JTAG clock frequency in Hz.")
-        offset: Optional[int] = Field(None, ge=0, description="Flash start address in bytes.")
-        cable_index: Optional[int] = Field(None, ge=0, description="Probe index.")
+        offset: Optional[int] = Field(
+            None, ge=0, description="Flash start address in bytes.", json_schema_extra=data_size()
+        )
+        cable_index: Optional[int] = Field(
+            None, ge=0, description="Probe index.", json_schema_extra=count()
+        )
         usb_serial_num: Optional[str] = Field(
             None,
             description="Serial number of the FTDI probe to use (`--ftdi-serial`). Selects one "
             "of several probes of the same kind.",
         )
         index_chain: Optional[int] = Field(
-            None, ge=0, description="Index of the device in the JTAG chain."
+            None,
+            ge=0,
+            description="Index of the device in the JTAG chain.",
+            json_schema_extra=count(),
         )
         file_type: Optional[str] = Field(
             None, description="Bitstream type when extension detection is insufficient."
@@ -524,7 +532,11 @@ class Openfpgaloader(FpgaSynthFlow):
             False, description="Skip loading the SPI bridge during flash programming."
         )
         verbose_level: Optional[int] = Field(
-            None, ge=-1, le=2, description="Loader verbosity (-1 to 2)."
+            None,
+            ge=-1,
+            le=2,
+            description="Loader verbosity (-1 to 2).",
+            json_schema_extra=count(),
         )
         extra_args: List[str] = Field(
             [], description="Extra openFPGALoader command-line arguments."

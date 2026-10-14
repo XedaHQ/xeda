@@ -18,6 +18,7 @@ from ...flow import (
     Out,
     describe_results,
 )
+from ...units import count
 from ...utils import HierDict, parse_xml, replacing_file, try_convert
 
 #: A Vivado run property value: text, a number or a boolean (`MAX_BRAM 0`, `... IS_ENABLED true`).
@@ -471,6 +472,7 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             100,
             ge=1,
             description="The number of timing paths to write to the critical path reports.",
+            json_schema_extra=count(),
         )  # pyright: ignore
         default_max_input_delay: Optional[float] = Field(
             None, description="Default max delay to set on all non-clock input ports."

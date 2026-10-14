@@ -21,6 +21,7 @@ from ...flow import (
 )
 from ...flow.sim import SimEvent, SimEvidence
 from ...tool import Docker, NonZeroExitCode, Tool
+from ...units import count
 from ...utils import replacing_copy, unique
 
 log = logging.getLogger(__name__)
@@ -211,6 +212,7 @@ class Verilator(SimFlow):
             description="Optimization level for the generated model. `true` passes `-O3`, "
             "`false` passes no `-O` option, and a level of 0, 1, 2 or 3 passes `-O` with that "
             "level. Write the level only: `2`, not `-O2`.",
+            json_schema_extra=count(),
         )
 
         @field_validator("optimize")
@@ -289,6 +291,7 @@ class Verilator(SimFlow):
             description="Seed of the random initialization (`+verilator+seed+`): the same seed "
             'gives the same run. "random" draws a new seed on every run, so the flow then always '
             "runs and is never reused.",
+            json_schema_extra=count(),
         )
         x_initial: str = Field(
             "0",
@@ -335,6 +338,7 @@ class Verilator(SimFlow):
             description="Number of threads of the model. 0 builds a model that is not "
             "thread-safe, 1 a thread-safe single-threaded model, and 2 or more a multithreaded "
             "model.",
+            json_schema_extra=count(),
         )
         trace_underscore: bool = Field(
             False,
@@ -350,16 +354,19 @@ class Verilator(SimFlow):
             None,
             description="Number of threads used to write the waveform. Null leaves Verilator's "
             "default.",
+            json_schema_extra=count(),
         )
         trace_max_width: Optional[int] = Field(
             None,
             description="Do not trace signals wider than this many bits. Null leaves "
             "Verilator's default.",
+            json_schema_extra=count(),
         )
         trace_max_array: Optional[int] = Field(
             None,
             description="Do not trace arrays with more than this many elements. Null leaves "
             "Verilator's default.",
+            json_schema_extra=count(),
         )
 
         removed_settings: ClassVar[Dict[str, str]] = {
