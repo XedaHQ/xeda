@@ -1,6 +1,6 @@
 """Pure graph resolution, with agreement of shared settings that keeps their origins.
 
-An input is supplied, in this order of precedence, by an explicit binding (a chain adjacency,
+An input is supplied, in this order of precedence, by an explicit binding (a chain link,
 or `flows.<consumer>.inputs.<input>` in a file, on the command line or through the API), by
 the typed sources of the design, or by its declared default producer. Nodes are told apart by
 `NodeKey` and each is resolved once, so every demand on the outputs of a producer is known
@@ -882,7 +882,7 @@ def resolve(
                 f"{cls.name}.{declaration.name}"
             )
         made = ", ".join(f"{out.name} ({kinds(out.types)})" for out in outputs.values())
-        # The one edge predicate, shared with chain adjacency (`chains.fitting_outputs`).
+        # The one edge predicate, shared with chain links (`chains.fitting_outputs`).
         fitting, many = fitting_outputs(producer, declaration, output=wanted)
         if wanted is not None:
             if wanted in many:

@@ -450,8 +450,8 @@ def binding_points(
 class ChainEdge:
     """One way `producer` can precede `consumer`, directly or through the flows between them.
 
-    It is exactly what the chain validator accepts for that adjacency, with the input and
-    output pairs it binds."""
+    It is exactly what the chain validator accepts for that pair, with the input and output
+    pairs it binds."""
 
     producer: type[Flow]
     consumer: type[Flow]
@@ -597,7 +597,7 @@ def fitting_outputs(
 ) -> tuple[list[str], list[str]]:
     """Return the outputs of `producer` that can supply the input `declaration`.
 
-    This is the one edge predicate, for chain adjacency and explicit bindings alike. The result
+    This is the one edge predicate, for chain links and explicit bindings alike. The result
     is a pair of lists. The second holds the outputs of a fitting kind that cannot supply the
     input, because they are many-valued and the input takes one file.
 
@@ -640,7 +640,7 @@ def match_required_inputs(
 
     A produced type set must be nonempty and a subset of the accepted input types. A many-valued
     output can feed only a many-valued input. Optional inputs are excluded on purpose, because
-    adjacency is not an opt-in for them.
+    a chain link is not an opt-in for them.
     """
     inputs = declared_inputs(consumer)
     outputs = declared_outputs(producer)

@@ -422,7 +422,7 @@ Input sources and saved bindings
 
 Every declared input has one origin, chosen in this order:
 
-1. an explicit binding: a chain adjacency or a saved ``inputs`` entry (below)
+1. an explicit binding: a chain link or a saved ``inputs`` entry (below)
 2. otherwise a typed source in ``rtl.sources``, in source order. A ``JsonNetlist`` supplies the
    ``netlist`` of ``nextpnr``, and no synthesis runs.
 3. otherwise the default producer of the input (``yosys_fpga`` for the ``netlist`` of
