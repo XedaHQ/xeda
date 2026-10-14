@@ -200,13 +200,33 @@ def test_the_corner_selects_the_liberty_files_of_that_corner(fake_yosys, corner)
     assert any(Path(path).name == "tiny_fast.lib" for path in recorded) is fast
 
 
-def test_a_run_that_maps_to_no_library_reads_no_platform(fake_yosys):
-    """`gates` maps to generic gates: the platform is not used, so its files are no input."""
-    store = tiny_store(fake_yosys)
-    flow = _flow(fake_yosys, store, gates=["AND", "OR", "NOT"])
-    with WorkingDirectory(fake_yosys / "run"):
-        flow.init()
-        flow.prepare_inputs()
+@pytest.mark.parametrize("generic", [{"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}])
+@pytest.mark.parametrize(
+    "platform", [{"platform": "nangate45"}, {"platform_file": str(TINY_RESIDUE)}]
+)
+def test_a_platform_together_with_generic_cells_is_refused(platform, generic):
+    """`platform` maps to the standard cells of the platform and `gates` or `lut` map to generic
+    cells, so the run cannot honor both. The refusal names both settings."""
+    (cells,) = generic
+    (selector,) = [name for name in ("platform", "platform_file") if name in platform]
+    settings = Yosys.Settings.from_input({**platform, **generic})
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(settings)
+    assert refused.value.errors == [
+        (
+            cells,
+            f"`{cells}` and `{selector}` cannot both be set: `{selector}` maps to the standard "
+            f"cells of the platform and `{cells}` maps to generic cells. Set only one of them",
+            None,
+            "value_error",
+        )
+    ]
+
+
+def test_generic_cells_without_a_platform_read_no_platform(fake_yosys):
+    flow = _runner(fake_yosys).launch_flow(
+        Yosys, _design(fake_yosys / "design"), {"gates": ["AND", "OR", "NOT"], **CLOCK}
+    )
     assert flow.platform_model is None and flow.implicit_inputs == []
     assert flow.locate_prepared_inputs() == []
 

@@ -282,12 +282,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         gates: Optional[List[str]] = Field(
             None,
             description="Map to this generic gate set instead of a liberty library, e.g. "
-            '["AND", "OR", "NOT"]. Accepts a comma-separated string.',
+            '["AND", "OR", "NOT"]. Accepts a comma-separated string. Refused together with '
+            "`platform` or `platform_file`.",
         )
         lut: Optional[str] = Field(
             None,
             description='Map to LUTs of this size instead of standard cells, e.g. "4" or a '
-            '"<width>:<cost>" pair.',
+            '"<width>:<cost>" pair. Refused together with `platform` or `platform_file`.',
         )
         stop_after: Optional[Literal["rtl"]] = Field(None, description=STOP_AFTER_DESCRIPTION)
         adder_map: Optional[Path] = Field(
@@ -322,13 +323,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         def uses_platform(self) -> bool:
             """Return whether abc maps to the liberty library of a platform.
 
-            That is the case with `platform` or `platform_file`, unless `gates` or `lut` is set.
-            The platform then supplies the mapping inputs that no setting gives."""
-            return (
-                not self.gates
-                and not self.lut
-                and (self.platform is not None or self.platform_file is not None)
-            )
+            That is the case with `platform` or `platform_file`. The platform then supplies the
+            mapping inputs that no setting gives."""
+            return self.platform is not None or self.platform_file is not None
 
         def maps_to_liberty(self) -> bool:
             """Return whether abc maps to a liberty library, from `liberty` or the platform.
@@ -365,11 +362,24 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Refuse settings the run cannot honor, before anything runs.
 
         These are a result that a run stopped by `stop_after` does not write
-        (`stop_after_conflicts`), and the abc cell settings when abc maps to no cells.
+        (`stop_after_conflicts`), a platform together with `gates` or `lut`, and the abc cell
+        settings when abc maps to no cells.
         """
         super().check_settings_supported(settings)
         assert isinstance(settings, cls.Settings)
         problems = stop_after_conflicts(settings)
+        if settings.uses_platform():
+            selector = "platform" if settings.platform is not None else "platform_file"
+            for name in ("gates", "lut"):
+                if getattr(settings, name):
+                    problems.append(
+                        (
+                            name,
+                            f"`{name}` and `{selector}` cannot both be set: `{selector}` maps to "
+                            f"the standard cells of the platform and `{name}` maps to generic "
+                            "cells. Set only one of them",
+                        )
+                    )
         if not settings.maps_to_liberty():
             for name in ("abc_driver_cell", "abc_load_in_ff"):
                 if getattr(settings, name) is not None:

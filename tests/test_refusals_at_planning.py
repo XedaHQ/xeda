@@ -30,6 +30,7 @@ from xeda import Design
 from xeda.flow import Flow, FlowSettingsException
 from xeda.flow.flow import registered_flows
 
+from .tiny_platform import TINY_RESIDUE
 from .test_tool_input_equivalence import VIVADO_SETTINGS, write_vivado_design
 from .tool_utils import use_fake_tools
 from xeda.flow_runner import DefaultRunner
@@ -196,6 +197,24 @@ CASES: dict[str, Case] = {
         {"sta": True, "flatten": False, "fpga": "ice40"},
     ),
     "yosys-sim-stop-time": Case(YosysSim, "cannot enforce stop_time", {"stop_time": "1us"}),
+    "yosys-platform-with-gates": Case(
+        Yosys,
+        r"`gates` and `platform` cannot both be set",
+        {"platform": "nangate45", "gates": ["AND"]},
+    ),
+    "yosys-platform-with-lut": Case(
+        Yosys, r"`lut` and `platform` cannot both be set", {"platform": "nangate45", "lut": "4"}
+    ),
+    "yosys-platform-file-with-gates": Case(
+        Yosys,
+        r"`gates` and `platform_file` cannot both be set",
+        {"platform_file": str(TINY_RESIDUE), "gates": ["AND"]},
+    ),
+    "yosys-platform-file-with-lut": Case(
+        Yosys,
+        r"`lut` and `platform_file` cannot both be set",
+        {"platform_file": str(TINY_RESIDUE), "lut": "4"},
+    ),
     "ghdl-run-flag-against-severity": Case(
         GhdlSim, "conflicts with fail_severity", {"run_flags": ["--assert-level=note"]}, _vhdl
     ),
