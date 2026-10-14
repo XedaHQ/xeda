@@ -618,6 +618,24 @@ def _declaration_cases() -> dict[str, Any]:
             FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("a", "-skip_a", "skip"),)
             a: str = ""
 
+    @declare("a flag of an unknown kind")
+    def _():
+        class Bad(SettingsGroup):
+            FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("items", "-items", "word"),)  # type: ignore[arg-type]
+            items: list[str] = []
+
+    @declare("a words flag on a field that is not a list")
+    def _():
+        class Bad(SettingsGroup):
+            FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("text", "-text", "words"),)
+            text: str = ""
+
+    @declare("a list flag on a field that is not a list")
+    def _():
+        class Bad(SettingsGroup):
+            FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("n", "-n", "list"),)
+            n: Optional[int] = None
+
     @declare("a removed setting that is a field")
     def _():
         class Bad(SettingsGroup):
@@ -790,3 +808,22 @@ def test_a_hint_for_another_case_wins_over_the_hint_for_a_producer():
     )
     suggest_dependency_node(Nextpnr, hinted)
     assert hinted.errors[0][1] == hinted_message
+
+
+def test_a_flag_kind_added_without_a_renderer_fails_loudly(monkeypatch):
+    later = Flag("value", "-value", "later")  # type: ignore[arg-type]
+    monkeypatch.setattr(_Toy, "FLAGS", (later,))
+    with pytest.raises(ValueError, match="unknown kind 'later'"):
+        render_flags(_Toy(value=0.5), tcl_word)
+
+
+def test_list_and_optional_list_fields_may_carry_list_and_words_flags():
+    class Fine(SettingsGroup):
+        FLAGS: ClassVar[tuple[Flag, ...]] = (
+            Flag("a", "-a", "list"),
+            Flag("b", "-b", "words"),
+        )
+        a: Optional[list[str]] = None
+        b: list[str] | None = None
+
+    assert render_flags(Fine(a=["x"], b=["y"]), tcl_word) == '-a [list "x"] -b "y"'

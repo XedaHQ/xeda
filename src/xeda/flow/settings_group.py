@@ -16,7 +16,19 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Callable, ClassVar, Dict, Literal, Optional, Sequence, get_args
+from types import UnionType
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    Literal,
+    Optional,
+    Sequence,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from pydantic import BaseModel
 from pydantic_core import InitErrorDetails
@@ -38,6 +50,11 @@ __all__ = ["Flag", "SettingsGroup", "group_problems", "render_flags"]
 FLAG_WORD = re.compile(r"^-[A-Za-z_]")
 
 
+FlagKind = Literal["switch", "skip", "value", "list", "words"]
+#: The kinds a flag may have, from the one declaration of `FlagKind`.
+FLAG_KINDS: tuple[str, ...] = get_args(FlagKind)
+
+
 @dataclass(frozen=True)
 class Flag:
     """One flag that a group prints for one of its fields.
@@ -55,7 +72,7 @@ class Flag:
 
     field: str
     flag: str
-    kind: Literal["switch", "skip", "value", "list", "words"]
+    kind: FlagKind
 
 
 class SettingsGroup(XedaBaseModel):
@@ -162,6 +179,14 @@ def _is_bool(annotation: Any) -> bool:
     return annotation is bool or set(get_args(annotation)) == {bool, type(None)}
 
 
+def _is_list(annotation: Any) -> bool:
+    """Return whether `annotation` is a `list[...]` or an `Optional[list[...]]`."""
+    members = [a for a in get_args(annotation) if a is not type(None)]
+    if get_origin(annotation) in (Union, UnionType) and len(members) == 1:
+        annotation = members[0]
+    return get_origin(annotation) is list
+
+
 def _declaration_problems(cls: type[SettingsGroup]) -> list[str]:
     """Return what is wrong with the declaration of the group `cls`."""
     problems: list[str] = []
@@ -179,8 +204,15 @@ def _declaration_problems(cls: type[SettingsGroup]) -> list[str]:
             problems.append(f"the flag `{flag.flag}` of `{flag.field}` does not start with `-`")
         if flag.flag in cls.EXTRA_FLAGS:
             problems.append(f"`{flag.flag}` is in `FLAGS` and in `EXTRA_FLAGS`")
-        if flag.kind in ("switch", "skip") and not _is_bool(field_annotation(cls, flag.field)):
+        annotation = field_annotation(cls, flag.field)
+        if flag.kind not in FLAG_KINDS:
+            problems.append(
+                f"the flag `{flag.flag}` has the kind {flag.kind!r}: use one of {', '.join(FLAG_KINDS)}"
+            )
+        elif flag.kind in ("switch", "skip") and not _is_bool(annotation):
             problems.append(f"the {flag.kind} flag `{flag.flag}` needs `{flag.field}` to be a bool")
+        elif flag.kind in ("list", "words") and not _is_list(annotation):
+            problems.append(f"the {flag.kind} flag `{flag.flag}` needs `{flag.field}` to be a list")
         seen_fields.add(flag.field)
         seen_flags.add(flag.flag)
     for flag_text in sorted(cls.EXTRA_FLAGS):
@@ -243,10 +275,14 @@ def render_flags(
                 words.append(flag.flag)
         elif flag.kind == "value":
             words.append(f"{flag.flag} {quote(value)}")
-        elif value:
-            items = list(value)
-            rendered = list_word(items) if flag.kind == "list" else " ".join(map(quote, items))
-            words.append(f"{flag.flag} {rendered}")
+        elif flag.kind == "list":
+            if value:
+                words.append(f"{flag.flag} {list_word(list(value))}")
+        elif flag.kind == "words":
+            if value:
+                words.append(f"{flag.flag} " + " ".join(quote(item) for item in value))
+        else:
+            raise ValueError(f"the flag `{flag.flag}` has the unknown kind {flag.kind!r}")
     if not disabled:
         words.extend(quote(item) for item in getattr(group, "extra_args", ()))
     return " ".join(words)
