@@ -81,9 +81,11 @@ def abc_strategy_script(strategy: str, options: Optional[Composition] = None) ->
     return "+" + ";".join(commands).replace(" ", ",")
 
 
-#: The name, in the run directory, of the script that `abc_new` maps with. `abc_new` takes the
-#: script from the scratchpad variable `abc9.script`, and it drops its default script when the
-#: path in `-script` holds the text `-script`. So the flow writes the file under a relative name.
+#: The name, in the run directory, of the script that `abc_new` maps with. The flow gives it to
+#: `abc_new` with `-script`, so a change of the default script of yosys cannot change the mapping.
+#: The name is relative and holds no text `-script`, which an old yosys took for an option.
+#: Operator wrapping gives `abc_new` no script: each wrapped operator carries its own in the
+#: attribute `abc9_script`, and a `-script` would replace it.
 ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
 
 #: The files of the package (`data/asic`) that operator wrapping reads, by their names in the
@@ -218,7 +220,7 @@ class AsicValues:
     * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
     * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
     * `abc_new_script`: the name of the script file that `abc_new` maps with, when
-      `abc.mapper` is `abc_new`.
+      `abc.mapper` is `abc_new` and no operator is wrapped.
     * `wrap_script`, `booth_map`: the names of the files of the package that wrap the operators,
       when `arithmetic.wrap_operators` is on. `run` copies each into the run directory, and the
       script names the copy, since a container does not mount the package.
@@ -809,7 +811,11 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     ),
                 )
             ),
-            abc_new_script=ABC_NEW_SCRIPT if ss.abc.mapper == "abc_new" else None,
+            abc_new_script=(
+                ABC_NEW_SCRIPT
+                if ss.abc.mapper == "abc_new" and not ss.arithmetic.wrap_operators
+                else None
+            ),
             wrap_script=WRAP_SCRIPT if ss.arithmetic.wrap_operators else None,
             booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
             wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),

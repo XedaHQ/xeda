@@ -245,23 +245,40 @@ def test_hierarchical_synthesis_with_rtl_output_writes_the_processed_design(tmp_
 # ------------------------------------------------------------------- abc_new and wrapping
 
 
-def test_abc_new_maps_with_its_own_script_and_the_script_file_written_for_it(tmp_path, monkeypatch):
-    """`abc_new` is not given `-script`: it would drop its default script for a path that holds
-    that text. The file is a relative name in the run directory."""
+def test_abc_new_maps_with_the_script_file_written_for_it_given_with_script(tmp_path, monkeypatch):
+    """`abc_new` gets the script file by `-script`, so a change of the default script of yosys
+    cannot change the mapping. The file is a relative name in the run directory."""
     settings = _tiny(tmp_path, script_format="tcl", **ABC_NEW)
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
     calls = _calls(run_dir, tmp_path)
     lib = _liberty(settings)
     unusable = [word for cell in TINY_DONT_USE for word in ("-dont_use", cell)]
-    assert _segment(
-        calls, ["scratchpad", "-set", "abc9.script", "abc_speed_gia_only.script"], 3
-    ) == [
-        ["scratchpad", "-set", "abc9.script", "abc_speed_gia_only.script"],
-        ["abc_new", "-liberty", lib, *unusable, "-constr", "abc.constr"],
-        ["delete", "t:$specify*"],
+    abc_new = [
+        "abc_new",
+        "-script",
+        "abc_speed_gia_only.script",
+        "-liberty",
+        lib,
+        *unusable,
+        "-constr",
+        "abc.constr",
     ]
+    assert _segment(calls, abc_new, 2) == [abc_new, ["delete", "t:$specify*"]]
     assert "abc" not in [call[0] for call in calls]
+    assert not _words(calls, "scratchpad")
+    assert "abc9.script" not in (run_dir / "yosys_synth.tcl").read_text()
     assert (run_dir / "abc_speed_gia_only.script").is_file()
+
+
+def test_wrapped_operators_keep_the_script_they_carry_so_abc_new_gets_no_script_option(
+    tmp_path, monkeypatch
+):
+    """A `-script` replaces the script that each wrapped operator carries in its `abc9_script`
+    attribute, so wrapping gives `abc_new` none, and writes no script file."""
+    run_dir, calls = _render(tmp_path, monkeypatch, **WRAPPED)
+    (abc_new,) = _words(calls, "abc_new")
+    assert "-script" not in abc_new and not _words(calls, "scratchpad")
+    assert not (run_dir / ABC_NEW_SCRIPT).exists()
 
 
 def test_abc_new_alone_keeps_the_rest_of_the_mapping(tmp_path, monkeypatch):
@@ -754,6 +771,22 @@ def test_real_yosys_keeps_a_module_above_the_cost_and_flattens_one_below(tmp_pat
     assert "big" in modules and "top" in modules, list(modules)
     assert "small" not in modules, list(modules)
     assert re.search(r"^\s*big\s", modules["top"], re.M)
+
+
+def test_real_yosys_maps_each_wrapped_operator_with_the_script_it_carries(tmp_path):
+    require_yosys_tcl()
+    flow, _ = _launch(
+        tmp_path, ADDER, "adder", arithmetic={"wrap_operators": True}, abc={"mapper": "abc_new"}
+    )
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "ABC: + &nf -R 5" in log
+
+
+def test_real_yosys_maps_with_abc_new_alone_by_the_script_file(tmp_path):
+    require_yosys_tcl()
+    flow, _ = _launch(tmp_path, ADDER, "adder", abc={"mapper": "abc_new"})
+    log = (flow.run_path / "yosys.log").read_text()
+    assert re.search(r"ABC: \+ source \S*abc_speed_gia_only\.script", log)
 
 
 def test_real_yosys_maps_with_abc_new_alone(tmp_path):

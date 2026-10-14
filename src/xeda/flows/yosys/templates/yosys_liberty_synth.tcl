@@ -13,7 +13,9 @@
       runs only if no cell implements an operator yet, as in OpenROAD-flow-scripts.
     The memory limit (`memory.max_bits`, with `memory.mock_large`) is a Tcl-only mode too: the
     procedure `check_memory_sizes` reads the size of each memory from the design.
-    `abc.mapper: abc_new` maps with `abc_new`, which takes its script from a scratchpad variable.
+    `abc.mapper: abc_new` maps with `abc_new`, which gets its script file by `-script`. Operator
+    wrapping gives it none: each wrapped operator carries its own script in an attribute, which
+    a `-script` would replace.
     The hierarchical mode and `abc_new` read the Liberty files again with their models
     (whiteboxes): `convert_liberty_areas` takes the areas from them and `abc_new` the functions.
     The maps of the user (`techmap_files`) run at the point that each `when` names: before the
@@ -271,8 +273,7 @@ setundef -zero
 setundef -one
 {%- endif %}
 {%- if abc_new %}
-scratchpad -set abc9.script {{asic.abc_new_script|tcl_word}}
-abc_new
+abc_new{% if asic.abc_new_script %} -script {{asic.abc_new_script|tcl_word}}{% endif %}
 {%- else %}
 abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}
 {%- endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
