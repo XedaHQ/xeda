@@ -86,7 +86,10 @@ OWNED_FLAGS: Dict[str, Dict[str, Owner]] = {
         "-constr": _setting("abc_constr"),
         "-liberty": _setting("liberty"),
         "-dont_use": _setting("dont_use_cells"),
-        "-dff": _setting("abc_dff"),
+        "-dff": _fixed(
+            "a liberty mapping maps the flip-flops with `dfflibmap` before `abc` runs, so `-dff` "
+            "has no effect"
+        ),
         "-g": _setting("gates"),
         "-lut": _setting("lut"),
         "-luts": _setting("lut"),
