@@ -160,14 +160,16 @@ WRAPPED_OPERATOR_ATTRIBUTES = (
 PLATFORM_ROLES = ("liberty", "latch_map", "clkgate_map", "adder_map")
 
 
-#: The pull requests of berkeley-abc/abc that fix the failures of `abc -dff` with a liberty
-#: mapping. The description of `abc_dff` names them.
-ABC_DFF_FIX_LINKS = ("<ABC_DFF_FIX_LINK_1>", "<ABC_DFF_FIX_LINK_2>")
-
 #: The settings that a liberty mapping refuses, each as `(setting, whether a value asks for what
 #: the mapping cannot do, the message)`. The liberty mapping runs its own elaboration, synthesis
 #: and mapping with `abc`, and it ends with the tail of OpenROAD-flow-scripts.
 LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
+    (
+        "abc_dff",
+        lambda value: value is True,
+        "`abc_dff` has no effect with a liberty mapping: the mapping maps the flip-flops with "
+        "`dfflibmap` before `abc` runs. Delete `abc_dff` or set it to false",
+    ),
     (
         "post_synth_opt",
         lambda value: value is True,
@@ -320,7 +322,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     class Settings(AsicPlatformSettings, YosysSynthesisBase.Settings, SynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **YosysSynthesisBase.Settings.removed_settings,
-            "retime": "`abc_dff`, which passes `-dff` to `abc`, and "
+            "retime": "`abc_dff`, which passes `-dff` to `abc` (not with a liberty mapping), and "
             "`abc_flags` for more options of `abc`; yosys's `synth` has no retime option",
             "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
             "merge_libs_to": NoReplacement(
@@ -366,13 +368,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         abc_dff: Optional[bool] = Field(  # type: ignore[assignment]
             None,
             description="Run abc with `-dff`. Unset: off when mapping to a liberty library, on "
-            "otherwise. Warning: with a liberty library, `true` can stop ABC. With a driving "
-            'cell (`-constr`), `buffer -c` can stop with "A CI/CO pair share the name ... but do '
-            'not link directly". With some scripts, including the speed script of '
-            "OpenROAD-flow-scripts, `&put` stops on an assertion in `Abc_NtkRedirectCiCo` "
-            "(`abcNames.c`). These pull requests of berkeley-abc/abc fix the failures: "
-            f"{', '.join(ABC_DFF_FIX_LINKS)}. Not with `abc.mapper: abc_new`, which has no "
-            "`-dff` option.",
+            "otherwise. A liberty mapping refuses `true`: it maps the flip-flops with "
+            "`dfflibmap` before `abc` runs, so `-dff` has no effect there.",
         )
         splitnets: Optional[bool] = Field(  # type: ignore[assignment]
             None,
@@ -627,15 +624,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     )
                 )
         if abc_new:
-            if settings.abc_dff:
-                problems.append(
-                    (
-                        "abc_dff",
-                        "`abc_dff: true` passes `-dff` to `abc`, and `abc.mapper: abc_new` runs "
-                        "`abc_new`, which has no such option: delete `abc_dff` or set it to "
-                        "false",
-                    )
-                )
             if settings.abc.strategy != "area":
                 problems.append(
                     (

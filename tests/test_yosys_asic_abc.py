@@ -584,10 +584,10 @@ def test_abc_new_takes_no_liberty_args():
 
 
 def test_abc_new_takes_no_dff():
-    """`abc_new` has no `-dff` option, so `abc_dff: true` cannot go with it."""
+    """`abc_new` has no `-dff` option, and the liberty mapping that it belongs to maps the
+    flip-flops before it runs, so `abc_dff: true` is refused with it and `false` is accepted."""
     problems = _keys(script_format="tcl", abc_dff=True, abc={"mapper": "abc_new"})
-    message = problems["abc_dff"]
-    assert "`abc_dff`" in message and "`abc.mapper: abc_new`" in message
+    assert "`abc_dff`" in problems["abc_dff"]
     Yosys.check_settings_supported(
         Yosys.Settings(
             platform="nangate45", script_format="tcl", abc_dff=False, abc={"mapper": "abc_new"}
