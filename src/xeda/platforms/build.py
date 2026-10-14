@@ -46,6 +46,22 @@ def _check_bases(residue: Optional[Residue], user: Optional[Residue]) -> None:
         )
 
 
+def _user_selected(
+    corner: str, structure: Residue, residue: Optional[Residue], user: Optional[Residue]
+) -> bool:
+    """Whether the user file gave the corner `corner`: it is the only source of the platform, it
+    names the corner, an alias of the user file points to it, or the default corner of the user
+    file selects it."""
+    if user is None:
+        return False
+    if residue is None or corner in user.files.liberty:
+        return True
+    if corner in user.corners.aliases.values():
+        return True
+    default = user.corners.default
+    return default is not None and structure.corners.aliases.get(default, default) == corner
+
+
 def build_platform(
     located: Located,
     residue: Optional[Residue],
@@ -87,12 +103,7 @@ def build_platform(
         own = user is not None and (residue is None or role in own_roles)
         sources[f"files.{role}"] = "user" if own else "residue"
     sources["name"] = "user" if user is not None else "residue"
-    sources["corner"] = (
-        "user"
-        if user is not None
-        and (residue is None or user.corners.default is not None or user.corners.aliases)
-        else "residue"
-    )
+    sources["corner"] = "user" if _user_selected(corner, structure, residue, user) else "residue"
 
     return PlatformModel.model_validate(
         {

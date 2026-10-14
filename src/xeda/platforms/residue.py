@@ -423,7 +423,8 @@ def effective_residue(residue: Optional[Residue], user: Optional[Residue]) -> Re
     """Return the residue that finds the files of a platform: `residue` (the bundled platform)
     with the structure that the user file gives on top. A key that the user file gives wins
     (a provider entry, the upstream files, a file role, the default corner), and
-    `files.liberty` and the aliases merge per key. The result has no `values` and no `overrides`,
+    `files.liberty` and the aliases merge per key. A key that the user file writes as `null`
+    clears what the platform gives. The result has no `values` and no `overrides`,
     since those stay in their own layers."""
     if residue is None and user is None:
         raise ValueError("a platform needs a bundled residue, a user file, or both")
@@ -436,11 +437,15 @@ def effective_residue(residue: Optional[Residue], user: Optional[Residue]) -> Re
     files["liberty"] = {**residue.files.liberty, **user.files.liberty}
     corners = {**_dumped(residue.corners), **_dumped(user.corners)}
     corners["aliases"] = {**residue.corners.aliases, **user.corners.aliases}
-    upstream = user.upstream if user.upstream is not None else residue.upstream
+    # A key the user file writes wins, even `upstream: null`, which clears the inherited one.
+    upstream = user.upstream if "upstream" in user.model_fields_set else residue.upstream
+    description = (
+        user.description if "description" in user.model_fields_set else residue.description
+    )
     return Residue.model_validate(
         {
             "name": user.name,
-            "description": user.description or residue.description,
+            "description": description,
             "providers": {**_dumped(residue.providers), **_dumped(user.providers)},
             "upstream": None if upstream is None else _dumped(upstream),
             "corners": corners,

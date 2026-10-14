@@ -457,6 +457,34 @@ def test_a_user_file_without_extends_is_a_complete_platform(tmp_path: Path) -> N
     assert set(model.sources.values()) <= {"derived", "user"}
 
 
+@pytest.mark.parametrize(
+    "corners, requested, layer",
+    [
+        ({}, "typical", "residue"),
+        ({"aliases": {"slow": "fast"}}, "typical", "residue"),  # an unrelated alias
+        ({"aliases": {"nominal": "typical"}}, "typical", "user"),  # an alias of the corner
+        ({"default": "fast"}, "fast", "user"),  # the default of the user file selects it
+        ({"default": "fast"}, "typical", "residue"),  # another corner was asked for
+        ({"default": "tt"}, "typical", "user"),  # the default is an alias of the platform
+    ],
+)
+def test_the_corner_comes_from_the_layer_that_selected_it(
+    tmp_path: Path, corners: dict, requested: str, layer: str
+) -> None:
+    user = Residue.model_validate({"name": "mine", "extends": "tiny", "corners": corners})
+    files = {"liberty": [tmp_path / "tiny" / f"lib/{requested}.lib"]}
+    model = build_platform(
+        located(tmp_path, corner=requested, files=files), make_residue(), user, {}, {}
+    )
+    assert model.corner == requested
+    assert model.sources["corner"] == layer
+
+
+def test_the_corner_of_a_complete_user_file_comes_from_the_user(tmp_path: Path) -> None:
+    model = build_platform(located(tmp_path), None, make_residue(), {}, {})
+    assert model.sources["corner"] == "user"
+
+
 @pytest.mark.parametrize("case", ["nothing", "extends_without_residue", "wrong_base"])
 def test_the_residue_and_the_user_file_must_agree_on_the_base(tmp_path: Path, case: str) -> None:
     extending = Residue.model_validate({"name": "mine", "extends": "tiny"})
@@ -692,6 +720,22 @@ def test_effective_residue_takes_the_users_entry_where_it_gives_one() -> None:
     assert effective.resolve_corner(None) == "fast"
     assert effective.resolve_corner("tt") == "typical"  # the alias of the platform stays
     assert effective.values.model_fields_set == set()  # values stay per layer
+
+
+def test_an_explicit_null_upstream_clears_the_inherited_one_and_an_omitted_one_keeps_it() -> None:
+    bundled = make_residue(upstream={"adapter": "orfs_config_mk", "files": ["config.mk"]})
+    cleared = Residue.model_validate({"name": "mine", "extends": "tiny", "upstream": None})
+    kept = Residue.model_validate({"name": "mine", "extends": "tiny"})
+    assert effective_residue(bundled, cleared).upstream is None
+    assert effective_residue(bundled, kept).upstream == bundled.upstream
+
+
+def test_an_explicit_null_description_clears_the_inherited_one() -> None:
+    bundled = make_residue(description="the bundled one")
+    cleared = Residue.model_validate({"name": "mine", "extends": "tiny", "description": None})
+    kept = Residue.model_validate({"name": "mine", "extends": "tiny"})
+    assert effective_residue(bundled, cleared).description is None
+    assert effective_residue(bundled, kept).description == "the bundled one"
 
 
 def test_effective_residue_of_one_residue_is_that_residue() -> None:
