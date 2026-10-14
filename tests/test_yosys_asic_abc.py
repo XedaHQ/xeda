@@ -619,7 +619,6 @@ def test_keep_ff_acts_on_the_retiming_run_only():
         ("-constr", "abc_constr"),
         ("-liberty", "liberty"),
         ("-dont_use", "dont_use_cells"),
-        ("-dff", "abc_dff"),
         ("-g", "gates"),
         ("-lut", "lut"),
         ("-luts", "lut"),
@@ -628,6 +627,12 @@ def test_keep_ff_acts_on_the_retiming_run_only():
 def test_an_abc_flag_that_a_setting_owns_is_refused_naming_the_setting(flag, key):
     problems = _keys(abc_flags=[f"{flag} x"])
     assert f"`{key}`" in problems["abc_flags"] and f"`{flag}`" in problems["abc_flags"]
+
+
+def test_dff_in_abc_flags_is_refused_saying_that_it_has_no_effect_with_a_liberty_mapping():
+    message = _keys(abc_flags=["-dff"])["abc_flags"]
+    assert "`-dff`" in message and "no effect" in message and "dfflibmap" in message
+    assert "abc_dff" not in message
 
 
 def test_other_abc_flags_are_accepted():
