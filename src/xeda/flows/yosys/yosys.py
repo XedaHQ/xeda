@@ -74,6 +74,15 @@ ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
 #: network. `abc_new` maps each wrapped operator with the script that the operator carries.
 ABC_SPEED_GIA_ONLY = "&st\n&dch -r\n&nf\n" + "&st\n&syn2\n&if -g -K 6\n&synch2 -r\n&nf\n" * 5
 
+#: The attributes that the wrapped operators carry in the netlist. The place and route tool finds
+#: them with these, and swaps their architectures.
+WRAPPED_OPERATOR_ATTRIBUTES = (
+    "arithmetic_operator",
+    "implements_operator",
+    "architecture",
+    "source_cell",
+)
+
 #: The roles of the platform files that `yosys` opens: the Liberty files, and the mapping files.
 #: The derivation of the platform model adds the LEF files.
 PLATFORM_ROLES = ("liberty", "latch_map", "clkgate_map", "adder_map")
@@ -499,6 +508,20 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         "arithmetic.wrap_operators",
                         "`arithmetic.wrap_operators` is on, and operator wrapping maps with "
                         "`abc_new`: set `abc.mapper: abc_new`",
+                    )
+                )
+            stripped = [
+                name
+                for name in WRAPPED_OPERATOR_ATTRIBUTES
+                if any(given.lstrip("\\") == name for given in settings.netlist_unset_attributes)
+            ]
+            for name in stripped:
+                problems.append(
+                    (
+                        "netlist_unset_attributes",
+                        f"`netlist_unset_attributes` names `{name}`, which the place and route "
+                        "tool needs to find and swap the wrapped operators "
+                        f"(`arithmetic.wrap_operators`): delete `{name}` from the list",
                     )
                 )
             if settings.netlist_attrs is False:

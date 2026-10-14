@@ -561,6 +561,50 @@ def test_wrapping_refuses_a_netlist_without_attributes():
     )
 
 
+OPERATOR_ATTRIBUTES = ("arithmetic_operator", "implements_operator", "architecture", "source_cell")
+
+
+@pytest.mark.parametrize("attribute", OPERATOR_ATTRIBUTES)
+def test_wrapping_refuses_to_strip_an_attribute_that_the_place_and_route_tool_reads(attribute):
+    """`netlist_unset_attributes` removes attributes before any netlist is written. The wrapped
+    operators are found and swapped by these four."""
+    for spelled in (attribute, "\\" + attribute):
+        problems = _refused(
+            platform="nangate45",
+            script_format="tcl",
+            netlist_unset_attributes=["keep", spelled],
+            **WRAPPED,
+        )
+        message = problems["netlist_unset_attributes"]
+        assert f"`{attribute}`" in message and "arithmetic.wrap_operators" in message, message
+    # without wrapping the attribute is the user's to strip, and other attributes are fine
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45",
+            script_format="tcl",
+            netlist_unset_attributes=[attribute],
+            **ABC_NEW,
+        )
+    )
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45",
+            script_format="tcl",
+            netlist_unset_attributes=["keep", "abc9_box"],
+            **WRAPPED,
+        )
+    )
+
+
+def test_the_script_strips_only_the_attributes_that_the_settings_name(tmp_path, monkeypatch):
+    """With wrapping the four attributes are never in a `setattr -unset`, so no other setting
+    removes them before the netlist is written."""
+    _, calls = _render(tmp_path, monkeypatch, netlist_unset_attributes=["keep"], **WRAPPED)
+    unset = [call[-2] for call in calls if call[:2] == ["setattr", "-unset"]]
+    assert sorted(unset) == ["keep", "src"]
+    assert not set(OPERATOR_ATTRIBUTES) & {word for call in calls for word in call[:-1]}
+
+
 def test_abc_new_refuses_a_strategy_and_an_abc_script_naming_both():
     problems = _refused(
         platform="nangate45",
