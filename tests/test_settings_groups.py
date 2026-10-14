@@ -7,7 +7,7 @@ groups on a toy flow, because no product flow has to carry one for the machinery
 import copy
 import json
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Optional
+from typing import Annotated, Any, ClassVar, Literal, Optional, Union
 
 import pytest
 
@@ -24,6 +24,7 @@ from xeda.flow import Flow, FlowSettingsError, flowrun_hash
 from xeda.flow.settings_group import Flag, SettingsGroup, group_problems, render_flags
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.settings_layers import compose_flow_settings
+from xeda.units import Bounds, Capacitance, Time
 from xeda.utils import dump_json, tcl_word
 
 from .flow_registry import preserved_flow_registry
@@ -666,6 +667,12 @@ def _declaration_cases() -> dict[str, Any]:
             FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("n", "-n", "list"),)
             n: Optional[int] = None
 
+    @declare("a quantity in FLAGS")
+    def _():
+        class Bad(SettingsGroup):
+            FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("period", "-period", "value"),)
+            period: Optional[Time] = "10 ns"  # type: ignore[assignment]
+
     @declare("a removed setting that is a field")
     def _():
         class Bad(SettingsGroup):
@@ -687,6 +694,46 @@ DECLARATION_CASES = _declaration_cases()
 def test_a_bad_declaration_is_a_type_error_when_the_class_is_created(name):
     with pytest.raises(TypeError, match="Bad"):
         DECLARATION_CASES[name]()
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        Time,
+        Optional[Time],
+        Annotated[Time, Bounds(gt="0 ns")],
+        Optional[Annotated[Time, Bounds(ge="0 ns")]],
+        Union[Literal["auto"], Annotated[Time, Bounds(ge="0 ns")], None],
+        Optional[Capacitance],
+    ],
+)
+def test_a_quantity_in_flags_is_refused_with_what_to_write_instead(annotation):
+    """`render_flags` formats a value with `quote()`, so a quantity would reach the tool as
+    `10 ns`. The template renders it in the unit that the tool takes."""
+    with pytest.raises(TypeError) as raised:
+
+        class Bad(SettingsGroup):
+            FLAGS: ClassVar[tuple[Flag, ...]] = (Flag("period", "-period", "value"),)
+            period: annotation = "10 ns"  # type: ignore[valid-type]
+
+    message = str(raised.value)
+    assert "`period`" in message
+    assert "| to(unit)" in message
+
+
+def test_other_fields_may_stay_in_flags():
+    class Fine(SettingsGroup):
+        FLAGS: ClassVar[tuple[Flag, ...]] = (
+            Flag("name", "-name", "value"),
+            Flag("n", "-n", "value"),
+            Flag("mode", "-mode", "value"),
+        )
+        name: Optional[str] = None
+        n: Annotated[int, Field(ge=0)] = 0
+        mode: Union[Literal["auto"], int, None] = None
+        period: Optional[Time] = None  # a quantity is fine outside FLAGS
+
+    assert Fine().period is None
 
 
 def test_optional_booleans_may_carry_a_switch_and_a_skip():
