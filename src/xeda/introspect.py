@@ -1014,23 +1014,29 @@ def provider_status(residue: Any, provider: str, root: Path) -> Dict[str, Any]:
 
     The result has the `provider`, its `version` (the pin of the residue, or `unpinned` for a
     `directory`), `installed` and `directory`, the directory of the platform in the store. The
-    files are not installed if one is missing, or if the version marker of the store names
-    another version than the pin. In the second case, `problem` says so. The function only looks
-    at the files: it starts no process, uses no network and writes nothing."""
+    platform is installed by the rule of `pdk install` (`providers.installed`): every file is
+    there, the version marker names the pin, and a `ciel` store has its receipt. If the marker
+    names another version than the pin, `problem` says so. The function only looks at the files:
+    it starts no process, uses no network and writes nothing."""
     from .platforms import PdkNotInstalled, locate
-    from .platforms.providers import UNPINNED, PdkVersionMismatch, platform_directory, verify_pin
+    from .platforms.providers import (
+        UNPINNED,
+        PdkVersionMismatch,
+        installed,
+        platform_directory,
+        verify_pin,
+    )
 
     version = UNPINNED if provider == "directory" else residue.providers.entry(provider).version
     status: Dict[str, Any] = {"provider": provider, "version": version}
-    try:
-        verify_pin(locate(residue, provider, None, root, None), residue)
-    except PdkNotInstalled:
-        status["installed"] = False
-    except PdkVersionMismatch as error:
-        status["installed"] = False
-        status["problem"] = str(error)
-    else:
-        status["installed"] = True
+    status["installed"] = installed(residue, provider, None, root) is not None
+    if not status["installed"]:
+        try:
+            verify_pin(locate(residue, provider, None, root, None), residue)
+        except PdkNotInstalled:
+            pass
+        except PdkVersionMismatch as error:
+            status["problem"] = str(error)
     status["directory"] = str(platform_directory(residue, provider, None, root))
     return status
 

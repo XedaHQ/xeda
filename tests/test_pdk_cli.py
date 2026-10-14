@@ -491,10 +491,29 @@ def test_pdk_path_refuses_files_whose_marker_names_another_version(home, tmp_pat
     assert error["error"]["message"] + "\n" == text.stderr
 
 
+def _receipt(store) -> Path:
+    """Where `pdk install` leaves the receipt of the ciel platform in `store`."""
+    return store.root / "xeda" / "receipts" / f"{store.residue.name}-{store.version}.json"
+
+
+def test_the_listing_does_not_count_a_ciel_store_without_a_receipt(tmp_path):
+    """The listings and `pdk install` use one rule: `ciel` unpacks straight into the store, so a
+    store whose install did not finish has the files and no receipt."""
+    from .test_pdk_providers import make_store, write
+
+    store = make_store(tmp_path, "ciel")
+    status = provider_status(store.residue, "ciel", store.root)
+    assert status["installed"] is False and "problem" not in status
+    assert status["directory"] == str(store.directory)
+    write(_receipt(store), "{}\n")
+    assert provider_status(store.residue, "ciel", store.root)["installed"] is True
+
+
 def test_a_store_whose_marker_names_another_version_is_not_installed(tmp_path):
     from .test_pdk_providers import CIEL_HASH, OTHER_HASH, make_store, write
 
     store = make_store(tmp_path, "ciel")
+    write(_receipt(store), "{}\n")
     status = provider_status(store.residue, "ciel", store.root)
     assert status["installed"] is True and "problem" not in status
     write(store.directory / "SOURCES", f"open_pdks {OTHER_HASH}\n")
