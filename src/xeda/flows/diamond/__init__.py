@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import List, Literal
+from typing import Any, List, Literal
 
 from ...dataclass import WORKING, Field
 from ...design import SourceType
@@ -169,30 +169,46 @@ class DiamondSynth(FpgaSynthFlow):
         # FIXME: count the other kinds of ALUs and DSPs too.
         self.results["dsp"] = self.results["_dsp_MULT18X18D"] + self.results["_dsp_MULT9X9D"]
 
-        failed = False
+        status = str(self.results["_status"])
+        if status.lower() != "completed":
+            log.error("Diamond's place and route status is %s, not completed.", status)
+            return False
+        return True
 
+    def check_results(self) -> bool:
+        """Reject the run if the map report shows a resource that the settings forbid, or the
+        reports show negative slack, an unrouted net or a timing error."""
+        ok = super().check_results()
         ss = self.settings
         assert isinstance(ss, self.Settings)
-        forbidden_resources = [
-            res
-            for res, allowed in (("dsp", ss.allow_dsps), ("bram", ss.allow_brams))
-            if not allowed
-        ]
-        for res in forbidden_resources:
-            if res in self.results and self.results[res] != 0:
+        results = self.results
+        causes: List[str] = []
+        for resource, setting, allowed in (
+            ("dsp", "allow_dsps", ss.allow_dsps),
+            ("bram", "allow_brams", ss.allow_brams),
+        ):
+            used = results.get(resource)
+            if not allowed and _nonzero(used):
                 log.critical(
                     "Map report shows %s use(s) of forbidden resource %s.",
-                    self.results[res],
-                    res,
+                    used,
+                    resource,
                 )
-                failed = True
+                causes.append(f"{used} {resource} used although `{setting}` is false")
+        for key, name in (("wns", "WNS"), ("whs", "WHS")):
+            slack = results.get(key)
+            if isinstance(slack, (int, float)) and slack < 0:
+                causes.append(f"{name} {slack} ns is negative")
+        if _nonzero(results.get("_num_unrouted")):
+            causes.append(f"{results['_num_unrouted']} unrouted nets")
+        if _nonzero(results.get("_timing_errors")):
+            causes.append(f"{results['_timing_errors']} timing errors")
+        if not causes:
+            return ok
+        self.reject("; ".join(causes))
+        return False
 
-        failed = (
-            failed
-            or (self.results["wns"] < 0)
-            or (self.results["whs"] < 0)
-            or (self.results["_num_unrouted"] != 0)
-            or (self.results["_status"].lower() != "completed")
-            or (self.results["_timing_errors"] != 0)
-        )
-        return not failed
+
+def _nonzero(value: Any) -> bool:
+    """Whether a stored count is a number other than zero."""
+    return isinstance(value, (int, float)) and value != 0

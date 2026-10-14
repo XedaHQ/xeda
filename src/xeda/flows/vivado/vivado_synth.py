@@ -602,22 +602,10 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
             required=False,
         )
         wns = self.results.get("wns")
-        su_fail = self.results.get("setup_violations")
-        if su_fail:
-            log.error("%s setup violations. WNS: %s", su_fail, wns)
-            if self.settings.fail_timing:
-                failed = True
-        hld_fail = self.results.get("hold_violations")
-        if hld_fail:
-            log.error("%s hold violations. WHS: %s", hld_fail, self.results.get("whs"))
-            if self.settings.fail_timing:
-                failed = True
         if wns is not None:
             if not isinstance(wns, (float, int)):
                 log.critical("Parsed value for `WNS` is %s (%s)", wns, type(wns))
             else:
-                if wns < 0 and self.settings.fail_timing:
-                    failed = True
                 # See https://support.xilinx.com/s/article/57304?language=en_US
                 # Fmax is in MHz. It is "the maximum frequency a design can run on Hardware in a
                 # given implementation", Fmax = 1/(T-WNS), "with WNS positive or negative, where T
@@ -739,16 +727,52 @@ class VivadoImplementation(Vivado, FpgaSynthFlow, metaclass=ABCMeta):
                         if r:
                             self.results[k] = r
             self.results["_utilization"] = utilization
-        wns = self.results.get("wns")
-        if wns is not None and isinstance(wns, (float, int, str)):
-            failed |= float(wns) < 0.0 and self.settings.fail_timing
-        whs = self.results.get("whs")
-        if whs is not None and isinstance(whs, (float, int, str)):
-            failed |= float(whs) < 0.0 and self.settings.fail_timing
-        if "_failing_endpoints" in self.results:
-            failed |= self.results["_failing_endpoints"] != 0 and self.settings.fail_timing
         failed |= not power_report_written(self)
         return not failed
+
+    def check_results(self) -> bool:
+        """Reject the run if the timing reports show a violation and `fail_timing` is set.
+
+        The numbers stay in the results either way. Only values that `parse_reports()` stored
+        count."""
+        ok = super().check_results()
+        assert isinstance(self.settings, self.Settings)
+        results = self.results
+        causes: List[str] = []
+        wns, whs = _number(results.get("wns")), _number(results.get("whs"))
+        setup_violations = results.get("setup_violations")
+        hold_violations = results.get("hold_violations")
+        if setup_violations:
+            log.error("%s setup violations. WNS: %s", setup_violations, results.get("wns"))
+        if hold_violations:
+            log.error("%s hold violations. WHS: %s", hold_violations, results.get("whs"))
+        if not self.settings.fail_timing:
+            return ok
+        if wns is not None and wns < 0:
+            causes.append(f"WNS {wns} ns")
+        if whs is not None and whs < 0:
+            causes.append(f"WHS {whs} ns")
+        if setup_violations:
+            causes.append(f"{setup_violations} setup violations")
+        if hold_violations:
+            causes.append(f"{hold_violations} hold violations")
+        failing_endpoints = results.get("_failing_endpoints")
+        if failing_endpoints:
+            causes.append(f"{failing_endpoints} failing endpoints")
+        if not causes:
+            return ok
+        self.reject("timing not met: " + "; ".join(causes))
+        return False
+
+
+def _number(value: Any) -> Optional[float]:
+    """Return a stored result as a number, or None if it is absent or no number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 class _VivadoSynthOutputs(VivadoImplementation.Outputs):

@@ -299,6 +299,10 @@ class Nextpnr(FpgaSynthFlow):
 
     required_settings = {"fpga": FPGA_OR_BOARD_REQUIRED}
 
+    #: Whether every constrained clock domain met its constraint, as the last
+    #: `parse_reports()` found it. None if no report was parsed.
+    _timing_met: Optional[bool] = None
+
     #: The design sources that this flow is judged on: a JSON netlist, the pin files and the SDC
     #: files. The HDL that `yosys_fpga` reads is an input of that flow only.
     design_source_types = frozenset(
@@ -1230,6 +1234,7 @@ class Nextpnr(FpgaSynthFlow):
         """
         assert isinstance(self.settings, self.Settings)
         ss = self.settings
+        self._timing_met = None
         if not ss.report:
             log.warning(
                 "The setting `report` is empty, so nextpnr wrote no report and Xeda parsed no "
@@ -1249,7 +1254,7 @@ class Nextpnr(FpgaSynthFlow):
             return False
         self.artifacts["report"] = str(report_path)
 
-        timing_met = self._parse_fmax(report.get("fmax") or {})
+        self._timing_met = self._parse_fmax(report.get("fmax") or {})
         self._parse_utilization(report.get("utilization") or {})
         if self.io_family(ss) == "xilinx":
             selection = getattr(self, "_xilinx_selection", None)
@@ -1261,10 +1266,26 @@ class Nextpnr(FpgaSynthFlow):
         if detailed is not None:
             self.results["_detailed_net_timings"] = detailed
 
-        # nextpnr exits non-zero when timing fails, unless `timing_allow_fail` is set. This check
-        # is mostly a backstop. It also covers a backend that reports a missed constraint and
-        # still exits with 0.
-        return timing_met or ss.timing_allow_fail
+        return True
+
+    def check_results(self) -> bool:
+        """Reject the run if a constrained clock domain missed its constraint, unless
+        `timing_allow_fail` is set.
+
+        nextpnr exits non-zero when timing fails, unless `timing_allow_fail` is set. This check
+        is mostly a backstop. It also covers a backend that reports a missed constraint and still
+        exits with 0."""
+        ok = super().check_results()
+        assert isinstance(self.settings, self.Settings)
+        if self._timing_met is not False or self.settings.timing_allow_fail:
+            return ok
+        target = self.results.get("clock_frequency")
+        self.reject(
+            f"timing not met: Fmax {self.results.get('Fmax')} MHz"
+            + (f" is below the target {target} MHz" if target is not None else "")
+            + f" (worst slack {self.results.get('wns')} ns)"
+        )
+        return False
 
     def _parse_fmax(self, fmax: Dict[str, Any]) -> bool:
         """Record achieved frequency and derived slack per clock domain.

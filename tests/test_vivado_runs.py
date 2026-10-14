@@ -166,9 +166,8 @@ def test_fail_timing_governs_only_the_timing_violation_decision(
     metrics, which it does either way. A route hook's own live `SLACK` check
     (`test_a_route_hook_that_fails_on_timing_fails_the_flow`) is a separate mechanism; here the
     run itself succeeds on the fake's own (clean) canned reports, and the route report is then
-    overwritten with a violated one and re-parsed through the whole `parse_reports()` path -- not
-    just `parse_timing_report` in isolation, which missed the second, unconditional WNS/WHS/
-    failing-endpoints check at the end of `parse_reports` itself."""
+    overwritten with a violated one, re-parsed through the whole `parse_reports()` path and judged
+    by `check_results()`."""
     flow = _run(tmp_path, monkeypatch, bitstream=BITSTREAM, fail_timing=fail_timing)
     assert flow.succeeded  # the run completed; only the (about to be swapped) report is violated
 
@@ -176,9 +175,9 @@ def test_fail_timing_governs_only_the_timing_violation_decision(
     (reports_dir / "timing_summary.rpt").write_text(_violated_timing_summary())
 
     monkeypatch.chdir(flow.run_path)  # `parse_reports` globs `settings.reports_dir` relative to it
-    ok = flow.parse_reports()
-
-    assert ok != fail_timing
+    assert flow.parse_reports() is True
+    assert flow.check_results() != fail_timing
+    assert (flow.rejection is not None) == fail_timing
     assert flow.results["wns"] == -0.123
     assert flow.results["whs"] == -0.045
     assert flow.results["setup_violations"] == 3

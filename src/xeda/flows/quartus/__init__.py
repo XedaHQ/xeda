@@ -266,7 +266,6 @@ class Quartus(FpgaSynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
-        failed = False
         reports = {
             "summary": self.settings.reports_dir / "Flow_Summary.csv",
             "utilization": self.settings.reports_dir
@@ -342,13 +341,9 @@ class Quartus(FpgaSynthFlow):
             if wns is not None:
                 wns = try_convert_to_primitives(wns)
                 self.results["wns"] = wns
-                if isinstance(wns, (int, float)):
-                    failed |= wns < 0
             if whs is not None:
                 whs = try_convert_to_primitives(whs)
                 self.results["whs"] = whs
-                if isinstance(whs, (int, float)):
-                    failed |= whs < 0
 
         timing_reports_folder = Path(reports["timing_dir"])
         max_fmax = 0.0
@@ -379,4 +374,18 @@ class Quartus(FpgaSynthFlow):
         if max_fmax:
             self.results["Fmax"] = max_fmax
 
-        return not failed
+        return True
+
+    def check_results(self) -> bool:
+        """Reject the run if the worst setup or hold slack that the timing report shows is
+        negative."""
+        ok = super().check_results()
+        causes = []
+        for label, key, name in (("setup", "wns", "WNS"), ("hold", "whs", "WHS")):
+            slack = self.results.get(key)
+            if isinstance(slack, (int, float)) and not isinstance(slack, bool) and slack < 0:
+                causes.append(f"negative {label} slack ({name} {slack} ns)")
+        if not causes:
+            return ok
+        self.reject("timing not met: " + "; ".join(causes))
+        return False
