@@ -358,19 +358,11 @@ def test_each_composed_strategy_reaches_the_abc_command_in_both_script_formats(
     assert abc[abc.index("-script") + 2 :][0] == "-liberty"
 
 
-#: The strategies with knobs that planning accepts: it refuses `mfs3` with a delay strategy.
-RENDERED = [
-    case
-    for case in COMPOSED_WITH_KNOBS
-    if not (case[0].startswith("delay_") and case[1].get("mfs3"))
-]
-
-
 @SCRIPT_FORMATS
 @pytest.mark.parametrize(
     "strategy,knobs,script",
-    RENDERED,
-    ids=[f"{strategy}-{'-'.join(knobs)}" for strategy, knobs, _ in RENDERED],
+    COMPOSED_WITH_KNOBS,
+    ids=[f"{strategy}-{'-'.join(knobs)}" for strategy, knobs, _ in COMPOSED_WITH_KNOBS],
 )
 def test_the_knobs_reach_the_abc_command_in_both_script_formats(
     tmp_path, monkeypatch, script_format, strategy, knobs, script
@@ -489,8 +481,7 @@ def test_a_knob_is_refused_with_an_abc_script(knob):
 @pytest.mark.parametrize("strategy", COMPOSED_NAMES)
 def test_a_knob_is_accepted_with_a_strategy_that_reads_it(strategy):
     given = {"buffering": True, "max_fanout": 8, "legacy_refactor": True}
-    if strategy in AREA_FAMILY:
-        given["mfs3"] = True
+    given["mfs3"] = True
     if strategy in AREA_FAMILY or strategy == "delay_3":
         given["area_mapper"] = "nf"
     Yosys.check_settings_supported(
@@ -498,12 +489,15 @@ def test_a_knob_is_accepted_with_a_strategy_that_reads_it(strategy):
     )
 
 
-@pytest.mark.parametrize("strategy", ["delay_0", "delay_1", "delay_2", "delay_3"])
-def test_mfs3_is_refused_with_the_delay_strategies_naming_the_assertion_of_abc(strategy):
-    problems = _keys(abc={"strategy": strategy, "mfs3": True})
-    message = problems["abc.mfs3"]
-    assert "`abc.mfs3`" in message and "`Abc_TtExpand`" in message
-    assert f"`abc.strategy: {strategy}`" in message and "`area_0`" in message
+@SCRIPT_FORMATS
+@pytest.mark.parametrize("strategy", COMPOSED_NAMES)
+def test_mfs3_is_accepted_with_every_composed_strategy_and_reaches_the_script(
+    tmp_path, monkeypatch, script_format, strategy
+):
+    settings = Yosys.Settings(platform="nangate45", abc={"strategy": strategy, "mfs3": True})
+    Yosys.check_settings_supported(settings)
+    commands = _run(tmp_path, monkeypatch, script_format, abc={"strategy": strategy, "mfs3": True})
+    assert ";mfs3," in _abc_script(commands)
 
 
 def test_the_limits_of_buffering_need_buffering():
@@ -665,8 +659,8 @@ def test_real_yosys_sizes_the_cells_of_a_composed_strategy(tmp_path, script_form
 def test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(
     tmp_path, script_format
 ):
-    """`mfs3` can stop ABC on an assertion failure for other strategies and designs (the
-    multiplier of the default design with `area_2`, and every delay strategy)."""
+    """`mfs3` can stop ABC on an assertion failure with other strategies and designs (the
+    multiplier of the default design with `area_2`, and the delay strategies)."""
     _real(script_format)
     run = _run_real(tmp_path, script_format, enables=True, abc={"strategy": "area_0", "mfs3": True})
     assert "ABC: + mfs3 -aemvz -I 4 -O 2" in (run / "yosys.log").read_text()

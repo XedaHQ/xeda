@@ -684,10 +684,11 @@ class AbcGroup(SettingsGroup):
     )
     mfs3: bool = Field(
         False,
-        description="Warning: this step is experimental in ABC, and ABC can stop on an assertion "
-        "failure in it, depending on the design. Add a SAT-based remapping (`mfs3`) after the "
-        "mapping of an area strategy. The delay strategies refuse it: ABC stops in it on every "
-        "design that was tried.",
+        description="Warning: this step is experimental in ABC. In the tests of xeda, ABC stopped "
+        "on an assertion in `Abc_TtExpand` (`src/misc/util/utilTruth.h`) with some strategies, "
+        "both `delay_*` and some `area_*`. This happened with OSS CAD yosys 0.69+286 and "
+        "Homebrew yosys 0.69+post, on a small test library. Add a SAT-based remapping (`mfs3`) "
+        "after the mapping.",
         json_schema_extra=tier("expert"),
     )
     area_mapper: Literal["amap", "nf"] = Field(
@@ -761,16 +762,6 @@ class AbcGroup(SettingsGroup):
                             f"false: set `{key}.buffering: true` or delete `{key}.{name}`",
                         )
                     )
-            if self.mfs3 and self.strategy.startswith("delay_"):
-                found.append(
-                    (
-                        f"{key}.mfs3",
-                        f"`{key}.mfs3` stops ABC with an assertion failure (`Abc_TtExpand`, "
-                        f"`utilTruth.h`) in the delay strategies, including `{key}.strategy: "
-                        f"{self.strategy}`: use an area strategy (`area_0` to `area_2`), or "
-                        f"delete `{key}.mfs3`",
-                    )
-                )
             if self.buffering and self.sizing:
                 found.append(
                     (
