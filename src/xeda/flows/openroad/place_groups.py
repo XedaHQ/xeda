@@ -28,6 +28,7 @@ __all__ = [
     "FixedPin",
     "FloorplanGroup",
     "FloorplanRepairTiming",
+    "FlopClusteringGroup",
     "GlobalPlacementGroup",
     "ImproveGroup",
     "InitialPlaceGroup",
@@ -1308,9 +1309,20 @@ class DensityGroup(SettingsGroup):
 
 
 class TimingDrivenGroup(SettingsGroup):
-    """The timing-driven mode of the global placement."""
+    """The timing-driven mode of the global placement. The leaves other than `enabled` tune the
+    mode, and each passes its flag only when you set it."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("enabled", "-timing_driven", "switch"),)
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("enabled", "-timing_driven", "switch"),
+        Flag("reweight_overflow_percent", "-timing_driven_net_reweight_overflow", "list"),
+        Flag("net_weight_max", "-timing_driven_net_weight_max", "value"),
+        Flag("nets_percent", "-timing_driven_nets_percentage", "value"),
+        Flag("keep_resize_below_overflow", "-keep_resize_below_overflow", "value"),
+        Flag("repair_timing", "-timing_driven_repair_timing", "switch"),
+        Flag("repair_tns_end_percent", "-timing_driven_repair_tns_end_percent", "value"),
+        Flag("virtual_cts", "-virtual_cts", "switch"),
+        Flag("virtual_cts_max_skew_fraction", "-virtual_cts_max_skew_fraction", "value"),
+    )
 
     enabled: bool = Field(
         True,
@@ -1319,18 +1331,196 @@ class TimingDrivenGroup(SettingsGroup):
         "one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
     )
+    reweight_overflow_percent: Optional[list[Annotated[int, Field(ge=1, le=100)]]] = Field(
+        None,
+        min_length=1,
+        description="The overflows, in percent, at which the placement computes the net weights "
+        "again (`-timing_driven_net_reweight_overflow`). Fewer values save run time. Unset: the "
+        "default of the tool, 64 and 20.",
+        json_schema_extra=tier("expert"),
+    )
+    net_weight_max: Optional[Positive] = Field(
+        None,
+        description="The weight of the most critical nets, as a multiple "
+        "(`-timing_driven_net_weight_max`). Unset: the default of the tool, 5.",
+        json_schema_extra=tier("advanced"),
+    )
+    nets_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the nets that get a new weight, in percent "
+        "(`-timing_driven_nets_percentage`). Unset: the default of the tool, 10.",
+        json_schema_extra=tier("advanced"),
+    )
+    keep_resize_below_overflow: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="Below this overflow, from 0 to 1, the changes that the resizer makes inside "
+        "the placement stay. Above it, the placement reverts them (`-keep_resize_below_overflow`). "
+        "Unset: the default of the tool, 1, which keeps them all. OpenROAD-flow-scripts passes "
+        "the value only when you set a variable for it.",
+        json_schema_extra=tier("advanced"),
+    )
+    repair_timing: bool = Field(
+        False,
+        description="Repair the setup of the worst paths in the last timing-driven iteration, "
+        "with a few moves that keep the topology (`-timing_driven_repair_timing`). The "
+        "documentation of OpenROAD calls it experimental and not ready for production use.",
+        json_schema_extra=tier("expert"),
+    )
+    repair_tns_end_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the violating endpoints that this repair targets, in percent "
+        "(`-timing_driven_repair_tns_end_percent`). Needs `repair_timing`. Unset: the default of "
+        "the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+    virtual_cts: bool = Field(
+        False,
+        description="Build a light clock tree before each timing-driven iteration, to model the "
+        "clock latency of each sink (`-virtual_cts`).",
+        json_schema_extra=tier("expert"),
+    )
+    virtual_cts_max_skew_fraction: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="The largest insertion delay of the virtual clock tree, as a fraction of "
+        "the clock period (`-virtual_cts_max_skew_fraction`). Needs `virtual_cts`. Unset: the "
+        "default of the tool, 0.1.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a leaf of an experiment that is off."""
+        return [
+            (
+                f"{key}.{leaf}",
+                f"`{key}.{leaf}` has no effect without `{key}.{needs}: true`: set "
+                f"`{key}.{needs}: true` or delete `{key}.{leaf}`",
+            )
+            for leaf, needs in (
+                ("repair_tns_end_percent", "repair_timing"),
+                ("virtual_cts_max_skew_fraction", "virtual_cts"),
+            )
+            if getattr(self, leaf) is not None and not getattr(self, needs)
+        ]
 
 
 class RoutabilityDrivenGroup(SettingsGroup):
-    """The routability-driven mode of the global placement."""
+    """The routability-driven mode of the global placement. The leaves other than `enabled` tune
+    the mode, and each passes its flag only when you set it."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("enabled", "-routability_driven", "switch"),)
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("enabled", "-routability_driven", "switch"),
+        Flag("target_rc_metric", "-routability_target_rc_metric", "value"),
+        Flag("check_overflow", "-routability_check_overflow", "value"),
+        Flag("snapshot_overflow", "-routability_snapshot_overflow", "value"),
+        Flag("max_density", "-routability_max_density", "value"),
+        Flag("inflation_ratio_coef", "-routability_inflation_ratio_coef", "value"),
+        Flag("max_inflation_ratio", "-routability_max_inflation_ratio", "value"),
+        Flag("min_congestion_for_inflation", "-routability_min_congestion_for_inflation", "value"),
+        Flag("max_inflation_total", "-routability_max_inflation_total", "value"),
+        Flag("net_weight_max", "-routability_net_weight_max", "value"),
+        Flag("congested_nets_percent", "-routability_congested_nets_percentage", "value"),
+        Flag("rc_coefficients", "-routability_rc_coefficients", "list"),
+    )
 
     enabled: bool = Field(
         True,
         description="Inflate the cells in congested regions during the placement "
         "(`-routability_driven`). The default is the one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
+    )
+    estimator: Literal["rudy", "grt"] = Field(
+        "rudy",
+        description="How the mode estimates the congestion. `rudy` is a fast estimate from the "
+        "nets. `grt` runs the global router, which is more exact and costs much more run time "
+        "(`-routability_use_grt`). The default is the one of the tool.",
+        json_schema_extra=tier("expert"),
+    )
+    target_rc_metric: Optional[Positive] = Field(
+        None,
+        description="The congestion that the mode tries to reach (`-routability_target_rc_metric`). "
+        "Raise it if the mode runs too long. Unset: the default of the tool, 1.01.",
+        json_schema_extra=tier("advanced"),
+    )
+    check_overflow: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="The overflow, from 0 to 1, at which the mode starts to check the congestion "
+        "(`-routability_check_overflow`). Unset: the default of the tool, 0.3.",
+        json_schema_extra=tier("advanced"),
+    )
+    snapshot_overflow: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="The overflow, from 0 to 1, at which the mode saves a snapshot to revert to "
+        "(`-routability_snapshot_overflow`). Unset: the default of the tool, 0.6.",
+        json_schema_extra=tier("expert"),
+    )
+    max_density: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1,
+        description="The cap on the density in this mode, from 0 to 1 "
+        "(`-routability_max_density`). Unset: the default of the tool, 0.99.",
+        json_schema_extra=tier("expert"),
+    )
+    inflation_ratio_coef: Optional[Positive] = Field(
+        None,
+        description="The strength of the inflation (`-routability_inflation_ratio_coef`). Unset: "
+        "the default of the tool, 2.",
+        json_schema_extra=tier("expert"),
+    )
+    max_inflation_ratio: Optional[Positive] = Field(
+        None,
+        description="The largest inflation of one cell, as a ratio "
+        "(`-routability_max_inflation_ratio`). Unset: the default of the tool, 3.",
+        json_schema_extra=tier("expert"),
+    )
+    min_congestion_for_inflation: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="A tile with less congestion than this, from 0 to 1, does not inflate "
+        "(`-routability_min_congestion_for_inflation`). Unset: the default of the tool, 0.95.",
+        json_schema_extra=tier("expert"),
+    )
+    max_inflation_total: Optional[Positive] = Field(
+        None,
+        description="The most area that the inflation may add, as a fraction of the movable area "
+        "(`-routability_max_inflation_total`). Unset: the default of the tool, 0.3.",
+        json_schema_extra=tier("expert"),
+    )
+    net_weight_max: Optional[Positive] = Field(
+        None,
+        description="The extra wirelength weight of the nets in congested tiles "
+        "(`-routability_net_weight_max`). 1 adds none. Unset: the default of the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+    congested_nets_percent: Optional[float] = Field(
+        None,
+        ge=0,
+        le=100,
+        description="The share of the nets that get that weight, in percent "
+        "(`-routability_congested_nets_percentage`). Unset: the default of the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+    rc_coefficients: Optional[list[NonNegative]] = Field(
+        None,
+        min_length=4,
+        max_length=4,
+        description="The weights of the 0.5%, 1%, 2% and 5% most congested tiles in the "
+        "average congestion, four numbers (`-routability_rc_coefficients`). Unset: the default "
+        "of the tool, 1, 1, 0 and 0.",
+        json_schema_extra=tier("expert"),
     )
 
 
@@ -1339,6 +1529,8 @@ class InitialPlaceGroup(SettingsGroup):
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("from_center", "-force_center_initial_place", "switch"),
+        Flag("max_iter", "-initial_place_max_iter", "value"),
+        Flag("max_fanout", "-initial_place_max_fanout", "value"),
     )
 
     from_center: bool = Field(
@@ -1348,16 +1540,44 @@ class InitialPlaceGroup(SettingsGroup):
         "main pass of the placement.",
         json_schema_extra=tier("expert"),
     )
+    max_iter: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The most iterations of the initial placement (`-initial_place_max_iter`). 0 "
+        "skips the initial placement, which `-skip_initial_place` also does. Unset: the default "
+        "of the tool, 20.",
+        json_schema_extra=tier("expert"),
+    )
+    max_fanout: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The initial placement ignores the nets with at least this many pins "
+        "(`-initial_place_max_fanout`). Unset: the default of the tool, 200.",
+        json_schema_extra=tier("expert"),
+    )
 
 
 class NesterovGroup(SettingsGroup):
     """The solver of the global placement."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("skip", "-skip_nesterov_place", "switch"),
         Flag("min_phi_coef", "-min_phi_coef", "value"),
         Flag("max_phi_coef", "-max_phi_coef", "value"),
+        Flag("init_density_penalty", "-init_density_penalty", "value"),
+        Flag("init_wirelength_coef", "-init_wirelength_coef", "value"),
+        Flag("reference_hpwl", "-reference_hpwl", "value"),
+        Flag("overflow", "-overflow", "value"),
+        Flag("revert_on_divergence", "-disable_revert_if_diverge", "skip"),
+        Flag("pin_density_adjust", "-disable_pin_density_adjust", "skip"),
     )
 
+    skip: bool = Field(
+        False,
+        description="Stop after the initial placement and run no solver (`-skip_nesterov_place`). "
+        "The tool refuses it with `io.flow: concurrent` (GPL-0182).",
+        json_schema_extra=tier("expert"),
+    )
     min_phi_coef: Optional[float] = Field(
         None,
         gt=0,
@@ -1371,6 +1591,48 @@ class NesterovGroup(SettingsGroup):
         description="The largest factor of the step size of the solver (`-max_phi_coef`). "
         "Unset: the default of the tool, 1.05.",
         json_schema_extra=tier("advanced"),
+    )
+    init_density_penalty: Optional[float] = Field(
+        None,
+        ge=1e-6,
+        le=1e6,
+        description="The first weight of the density penalty (`-init_density_penalty`). Tune it "
+        "when you start from placed cells. Unset: the default of the tool, 8e-5.",
+        json_schema_extra=tier("expert"),
+    )
+    init_wirelength_coef: Optional[Positive] = Field(
+        None,
+        description="The first coefficient of the wirelength term (`-init_wirelength_coef`). "
+        "Unset: the default of the tool, 0.25.",
+        json_schema_extra=tier("expert"),
+    )
+    reference_hpwl: Optional[NonNegative] = Field(
+        None,
+        description="The wirelength change that the controller of the density penalty measures "
+        "against, in database units, not micrometers (`-reference_hpwl`). 0 takes it from the "
+        "wirelength of the design. Unset: the default of the tool, 0. The README of OpenROAD "
+        "names 466e6, which is not the value in the source.",
+        json_schema_extra=tier("expert"),
+    )
+    overflow: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        description="The overflow, from 0 to 1, at which the solver stops (`-overflow`). A larger "
+        "value runs faster and spreads the cells less. Unset: the default of the tool, 0.1.",
+        json_schema_extra=tier("advanced"),
+    )
+    revert_on_divergence: bool = Field(
+        True,
+        description="Save the state along the iterations, and go back to it if the solver "
+        "diverges. False passes `-disable_revert_if_diverge`. The default is the one of the tool.",
+        json_schema_extra=tier("expert"),
+    )
+    pin_density_adjust: bool = Field(
+        True,
+        description="Adjust the area of each cell by the density of its pins. False passes "
+        "`-disable_pin_density_adjust`. The default is the one of the tool.",
+        json_schema_extra=tier("expert"),
     )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
@@ -1387,19 +1649,75 @@ class NesterovGroup(SettingsGroup):
         return []
 
 
-class GlobalPlacementGroup(SettingsGroup):
-    """The global placement of the cells (`global_placement`)."""
+class FlopClusteringGroup(SettingsGroup):
+    """The merge of flip-flops into multibit cells after the global placement (`cluster_flops`).
+    The library needs multibit flip-flops. Without them the tool warns that it found no flop to
+    cluster (GPL-0138) and changes nothing."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("random_seed", "-random_seed", "value"),)
-    #: The flags of `global_placement` that no setting covers: the one that skips the initial
-    #: placement, and the options of the routability mode that the tool added late.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "-skip_initial_place",
-            "-routability_max_inflation_total",
-            "-routability_net_weight_max",
-            "-routability_congested_nets_percentage",
-        }
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("tray_weight", "-tray_weight", "value"),
+        Flag("timing_weight", "-timing_weight", "value"),
+        Flag("max_split_size", "-max_split_size", "value"),
+        Flag("num_paths", "-num_paths", "value"),
+        Flag("clock_power_weight", "-clock_power_weight", "value"),
+    )
+
+    enabled: bool = Field(
+        False,
+        description="Cluster the flip-flops (`cluster_flops`). The command runs after the global "
+        "placement, and the flow estimates the parasitics again after it. A library with "
+        "multibit cells often needs their sites in `floorplan.additional_sites`. "
+        "OpenROAD-flow-scripts runs it only when a variable asks for it.",
+        json_schema_extra=tier("advanced"),
+    )
+    tray_weight: Optional[NonNegative] = Field(
+        None,
+        description="The weight of the tray (`-tray_weight`). Unset: the default of the tool, 32.",
+        json_schema_extra=tier("expert"),
+    )
+    timing_weight: Optional[NonNegative] = Field(
+        None,
+        description="The weight of the timing (`-timing_weight`). Unset: the default of the "
+        "tool, 0.1.",
+        json_schema_extra=tier("expert"),
+    )
+    max_split_size: Optional[int] = Field(
+        None,
+        ge=-1,
+        description="The largest set of flops that the clustering handles at once "
+        "(`-max_split_size`). -1 splits nothing. Unset: the default of the tool, 500.",
+        json_schema_extra=tier("expert"),
+    )
+    num_paths: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The number of timing paths that the clustering considers (`-num_paths`). "
+        "Unset: the default of the tool, 0.",
+        json_schema_extra=tier("expert"),
+    )
+    clock_power_weight: Optional[NonNegative] = Field(
+        None,
+        description="The credit for the clock tree power that banking saves (`-clock_power_weight`). "
+        "A larger value gives a higher banking ratio. Unset: the default of the tool, 0, which "
+        "gives no credit.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class GlobalPlacementGroup(SettingsGroup):
+    """The global placement of the cells (`global_placement`).
+
+    The placement of the cells without the pins takes the density, the padding, the seed and the
+    perturbation. The other leaves act on the main placement, as in OpenROAD-flow-scripts.
+
+    Three flags are no leaves. `-skip_io` and `-place_ios` belong to the flow (`io.flow`).
+    `-skip_initial_place` is `initial_place.max_iter: 0`."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("random_seed", "-random_seed", "value"),
+        Flag("bin_grid_count", "-bin_grid_count", "value"),
+        Flag("incremental", "-incremental", "switch"),
+        Flag("congestion_heatmap", "-enable_routing_congestion", "switch"),
     )
 
     density: DensityGroup = Field(
@@ -1430,20 +1748,69 @@ class GlobalPlacementGroup(SettingsGroup):
         default_factory=NesterovGroup,
         description="The solver of the placement.",
     )
+    bin_grid_count: Optional[int] = Field(
+        None,
+        ge=2,
+        description="The number of bins of the density grid, in each direction "
+        "(`-bin_grid_count`). It must be a power of two, such as 64 or 128, because the solver "
+        "uses a Fourier transform. A grid much finer than the tool would choose can make the "
+        "solver diverge (GPL-0305): 64 bins in each direction does so for a design of 400 cells "
+        "on nangate45. The log of the placement shows the ideal count (GPL-0026). Unset: the "
+        "tool chooses the number from the design.",
+        json_schema_extra=tier("expert"),
+    )
+    incremental: bool = Field(
+        False,
+        description="Place only the cells that have no location yet, and keep the others where "
+        "they are (`-incremental`). OpenROAD-flow-scripts uses it after the swap of arithmetic "
+        "modules. The tool refuses it with `io.flow: concurrent` (GPL-0170).",
+        json_schema_extra=tier("expert"),
+    )
+    congestion_heatmap: bool = Field(
+        False,
+        description="Run the global router after the placement for the congestion heatmap of "
+        "the graphical interface (`-enable_routing_congestion`). It costs run time.",
+        json_schema_extra=tier("expert"),
+    )
     random_seed: Optional[int] = Field(
         None,
         description="The seed that perturbs the cells at the start (`-random_seed`). Different "
         "seeds give different placements. Unset: the default of the tool, 1.",
         json_schema_extra=tier("advanced"),
     )
-    extra_args: list[str] = Field(
-        [],
-        description="More flags for `global_placement`. Each flag must be one of "
-        "`-skip_initial_place`, `-routability_max_inflation_total`, "
-        "`-routability_net_weight_max` and `-routability_congested_nets_percentage`, each "
-        "followed by its value where it takes one.",
+    perturb_distance: Optional[NonNegative] = Field(
+        None,
+        description="The radius of the perturbation at the start, in micrometers; 99.5% of the "
+        "offsets fall inside it (`-perturb_dist`, which takes nanometers: the flow converts). 0 "
+        "switches the perturbation off. Unset: the smaller of 0.5 micrometers and one row "
+        "height.",
         json_schema_extra=tier("expert"),
     )
+    flop_clustering: FlopClusteringGroup = Field(
+        default_factory=FlopClusteringGroup,
+        description="The clustering of flip-flops into multibit cells.",
+    )
+    clusters: list[Annotated[list[PinName], Field(min_length=1)]] = Field(
+        [],
+        description="Sets of instances that the placement keeps together as one cluster "
+        "(`placement_cluster`), each a list of instance names or patterns. The documentation of "
+        "OpenROAD advises it for small groups of gates. The cluster stands for the instances "
+        "that exist when the main placement starts, so name no buffer that the flow removes.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a bin grid that is no power of two."""
+        count = self.bin_grid_count
+        if count is not None and count & (count - 1):
+            return [
+                (
+                    f"{key}.bin_grid_count",
+                    f"`{key}.bin_grid_count` is {count}, and it must be a power of two (the "
+                    "solver uses a Fourier transform): use 64, 128, 256 and so on",
+                )
+            ]
+        return []
 
 
 class BufferPortsGroup(SettingsGroup):

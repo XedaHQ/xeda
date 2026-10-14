@@ -907,16 +907,6 @@ def test_the_last_flow_prints_the_flags_of_the_detailed_route():
 
 #: The hatch of each command: the flow, the key of the group, and the flags that it accepts.
 HATCHES = {
-    "global_placement": (
-        OpenroadPlace,
-        "global_placement",
-        {
-            "-skip_initial_place",
-            "-routability_max_inflation_total",
-            "-routability_net_weight_max",
-            "-routability_congested_nets_percentage",
-        },
-    ),
     "detailed_placement": (
         OpenroadPlace,
         "detailed_placement",
@@ -961,6 +951,13 @@ INSTALLED_HELP = {
         "-group_pins",
         "-annealing",
         "-write_pin_placement",
+    },
+    "cluster_flops": {
+        "-tray_weight",
+        "-timing_weight",
+        "-max_split_size",
+        "-num_paths",
+        "-clock_power_weight",
     },
     "set_simulated_annealing": {"-temperature", "-max_iterations", "-perturb_per_iter", "-alpha"},
     "set_pin_length": {"-hor_length", "-ver_length"},
@@ -1220,23 +1217,24 @@ def test_an_unknown_flag_in_a_hatch_is_refused_with_the_allowed_flags(command):
     assert ", ".join(sorted(flags)) in message
 
 
-@pytest.mark.parametrize(
-    "key, flag, field",
-    [("global_placement", "-random_seed", "global_placement.random_seed")],
-)
-def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting(key, flag, field):
-    message = refused(OpenroadPlace, f"{key}.extra_args={flag},3")
-    assert f"`{flag}` in `{key}.extra_args` is the setting `{field}`: set that instead" in message
+def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting():
+    from xeda.flows.openroad import Openroad
+
+    message = refused(Openroad, "detailed_route.extra_args=-droute_end_iter,3")
+    assert (
+        "`-droute_end_iter` in `detailed_route.extra_args` is the setting "
+        "`detailed_route.end_iteration`: set that instead"
+    ) in message
 
 
 def test_the_flag_of_a_leaf_in_a_sub_group_is_refused_as_not_allowed():
-    message = refused(OpenroadPlace, "global_placement.extra_args=-timing_driven")
-    assert "`-timing_driven` in `global_placement.extra_args` is not allowed" in message
+    message = refused(OpenroadPlace, "detailed_placement.extra_args=-max_displacement,3")
+    assert "`-max_displacement` in `detailed_placement.extra_args` is not allowed" in message
 
 
 def test_a_hatch_must_start_with_a_flag():
-    message = refused(OpenroadPlace, "global_placement.extra_args=5,-skip_initial_place")
-    assert "`global_placement.extra_args` must start with a flag, not `5`" in message
+    message = refused(OpenroadPlace, "detailed_placement.extra_args=5,-use_diamond_legalizer")
+    assert "`detailed_placement.extra_args` must start with a flag, not `5`" in message
 
 
 def test_the_clock_tree_has_no_hatch():
@@ -1265,7 +1263,13 @@ def test_a_hatch_of_a_disabled_group_is_refused():
             "place_pins",
             [flag.flag for flag in OpenroadPlace.Settings.model_fields["io"].annotation.FLAGS],
         ),
-        ("global_placement", [flag.flag for flag in hatch_group("global_placement").FLAGS]),
+        (
+            "global_placement",
+            [
+                flag.flag
+                for flag in OpenroadPlace.Settings.model_fields["global_placement"].annotation.FLAGS
+            ],
+        ),
         (
             "clock_tree_synthesis",
             [
@@ -1303,10 +1307,12 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
     from xeda.flows.openroad import Openroad
 
     place = OpenroadPlace.Settings.model_fields
-    assert {
-        f.flag
-        for f in place["global_placement"].annotation.model_fields["timing_driven"].annotation.FLAGS
-    } <= INSTALLED_HELP["global_placement"]
+    placement = place["global_placement"].annotation.model_fields
+    for name in ("timing_driven", "routability_driven", "initial_place", "nesterov"):
+        flags = {f.flag for f in placement[name].annotation.FLAGS}
+        assert flags and flags <= INSTALLED_HELP["global_placement"], name
+    flop = placement["flop_clustering"].annotation
+    assert {f.flag for f in flop.FLAGS} <= INSTALLED_HELP["cluster_flops"]
     for name in ("annealing", "pin_length", "pin_extension", "pin_thickness"):
         group = place["io"].annotation.model_fields[name].annotation
         assert {f.flag for f in group.FLAGS} <= INSTALLED_HELP[HELP_OF_IO_GROUP[name]], name

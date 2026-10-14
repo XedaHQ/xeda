@@ -1799,13 +1799,12 @@ def test_the_placement_modes_follow_their_settings(tmp_path):
             "routability_driven": {"enabled": False},
             "initial_place": {"from_center": False},
             "nesterov": {"min_phi_coef": 0.9, "max_phi_coef": 1.1},
-            "extra_args": ["-skip_initial_place"],
         }
     }
     body = stage(render(place_flow(tmp_path, settings)), "xeda_global_place")
     assert (
         "global_placement -density [xeda_density] -pad_left 1 -pad_right 1 "
-        '-min_phi_coef "0.9" -max_phi_coef "1.1" "-skip_initial_place"'
+        '-min_phi_coef "0.9" -max_phi_coef "1.1"'
     ) in body
 
 
@@ -1816,6 +1815,359 @@ def test_the_parasitics_of_the_placement_are_estimated_after_each_change(tmp_pat
         body = stage(script, name)
         assert "estimate_parasitics -placement" in body, name
     assert "-global_routing" not in script
+
+
+# ------------------------------------------------------------------------------ the global placement: options
+
+
+def main_placement(flow: OpenroadPlace) -> str:
+    """The command of the main global placement in the rendered script."""
+    (line,) = [
+        line for line in stage(render(flow), "xeda_global_place") if line.startswith("global_pl")
+    ]
+    return line
+
+
+def gp_flow(tmp_path: Path, **leaves: Any) -> OpenroadPlace:
+    return place_flow(tmp_path, {"global_placement": leaves})
+
+
+def test_the_timing_driven_options_follow_the_mode_flag(tmp_path):
+    flow = gp_flow(
+        tmp_path,
+        timing_driven={
+            "reweight_overflow_percent": [60, 30],
+            "net_weight_max": 4.0,
+            "nets_percent": 12.5,
+            "keep_resize_below_overflow": 0.3,
+            "repair_timing": True,
+            "repair_tns_end_percent": 2.0,
+            "virtual_cts": True,
+            "virtual_cts_max_skew_fraction": 0.2,
+        },
+    )
+    assert main_placement(flow) == (
+        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -routability_driven "
+        '-timing_driven -timing_driven_net_reweight_overflow [list "60" "30"] '
+        '-timing_driven_net_weight_max "4.0" -timing_driven_nets_percentage "12.5" '
+        '-keep_resize_below_overflow "0.3" -timing_driven_repair_timing '
+        '-timing_driven_repair_tns_end_percent "2.0" -virtual_cts '
+        '-virtual_cts_max_skew_fraction "0.2" -force_center_initial_place'
+    )
+    run_script(flow)
+
+
+def test_the_placement_without_pins_takes_only_the_density_the_padding_and_the_seeds(tmp_path):
+    flow = gp_flow(
+        tmp_path,
+        cell_padding=1,
+        random_seed=3,
+        perturb_distance=0.4,
+        bin_grid_count=128,
+        incremental=True,
+        congestion_heatmap=True,
+        timing_driven={"net_weight_max": 4.0},
+        nesterov={"overflow": 0.2},
+    )
+    assert stage(render(flow), "xeda_global_place_skip_io")[2] == (
+        "global_placement -skip_io -density [xeda_density] -pad_left 1 -pad_right 1 "
+        '-random_seed "3" -perturb_dist 400.0'
+    )
+
+
+@pytest.mark.parametrize(
+    "leaves, expected",
+    [
+        ({"net_weight_max": 4.0}, "has no effect while `global_placement.timing_driven.enabled`"),
+    ],
+)
+def test_a_timing_driven_option_has_no_effect_without_the_mode(tmp_path, leaves, expected):
+    off = {"enabled": False, **leaves}
+    message = refusal(tmp_path, typed={"global_placement.timing_driven": off})
+    assert expected in message
+
+
+@pytest.mark.parametrize(
+    "leaf, value, needs",
+    [
+        ("repair_tns_end_percent", 2.0, "repair_timing"),
+        ("virtual_cts_max_skew_fraction", 0.2, "virtual_cts"),
+    ],
+)
+def test_a_timing_driven_option_needs_the_experiment_it_belongs_to(tmp_path, leaf, value, needs):
+    key = f"global_placement.timing_driven.{leaf}"
+    message = refusal(tmp_path, f"{key}={value}")
+    assert f"`{key}`" in message and f"timing_driven.{needs}: true" in message
+    plan(tmp_path / "ok", f"{key}={value}", f"global_placement.timing_driven.{needs}=true")
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("timing_driven.reweight_overflow_percent", [0]),
+        ("timing_driven.reweight_overflow_percent", [101]),
+        ("timing_driven.reweight_overflow_percent", []),
+        ("timing_driven.reweight_overflow_percent", [1.5]),
+        ("timing_driven.net_weight_max", 0),
+        ("timing_driven.nets_percent", 101),
+        ("timing_driven.nets_percent", -1),
+        ("timing_driven.keep_resize_below_overflow", 1.1),
+        ("timing_driven.repair_tns_end_percent", 100.5),
+        ("timing_driven.virtual_cts_max_skew_fraction", 1.5),
+        ("routability_driven.target_rc_metric", 0),
+        ("routability_driven.check_overflow", 1.5),
+        ("routability_driven.snapshot_overflow", -0.1),
+        ("routability_driven.max_density", 0),
+        ("routability_driven.max_density", 1.5),
+        ("routability_driven.inflation_ratio_coef", 0),
+        ("routability_driven.max_inflation_ratio", -1),
+        ("routability_driven.min_congestion_for_inflation", 2),
+        ("routability_driven.max_inflation_total", 0),
+        ("routability_driven.net_weight_max", 0),
+        ("routability_driven.congested_nets_percent", 101),
+        ("routability_driven.rc_coefficients", [1, 1, 0]),
+        ("routability_driven.rc_coefficients", [1, 1, 0, -1]),
+        ("routability_driven.estimator", "Grt"),
+        ("initial_place.max_iter", -1),
+        ("initial_place.max_fanout", 0),
+        ("nesterov.init_density_penalty", 1e-7),
+        ("nesterov.init_density_penalty", 1e7),
+        ("nesterov.init_wirelength_coef", 0),
+        ("nesterov.reference_hpwl", -1),
+        ("nesterov.overflow", 1.1),
+        ("bin_grid_count", 1),
+        ("perturb_distance", -1),
+        ("flop_clustering.tray_weight", -1),
+        ("flop_clustering.timing_weight", -0.5),
+        ("flop_clustering.max_split_size", -2),
+        ("flop_clustering.num_paths", -1),
+        ("flop_clustering.clock_power_weight", -1),
+    ],
+)
+def test_the_options_of_the_global_placement_keep_their_ranges(tmp_path, key, value):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={f"global_placement.{key}": value})
+
+
+@pytest.mark.parametrize("estimator, flag", [("rudy", ""), ("grt", " -routability_use_grt")])
+def test_every_congestion_estimator_renders_and_runs(tmp_path, estimator, flag):
+    flow = gp_flow(tmp_path, routability_driven={"estimator": estimator})
+    assert main_placement(flow) == (
+        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 "
+        f"-routability_driven{flag} -timing_driven -force_center_initial_place"
+    )
+    run_script(flow)
+
+
+def test_the_routability_driven_options_follow_the_mode_flag(tmp_path):
+    flow = gp_flow(
+        tmp_path,
+        routability_driven={
+            "target_rc_metric": 1.02,
+            "check_overflow": 0.4,
+            "snapshot_overflow": 0.7,
+            "max_density": 0.9,
+            "inflation_ratio_coef": 2.5,
+            "max_inflation_ratio": 3.5,
+            "min_congestion_for_inflation": 0.9,
+            "max_inflation_total": 0.2,
+            "net_weight_max": 1.5,
+            "congested_nets_percent": 2.0,
+            "rc_coefficients": [1, 1, 0.5, 0],
+        },
+    )
+    assert main_placement(flow) == (
+        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -routability_driven "
+        '-routability_target_rc_metric "1.02" -routability_check_overflow "0.4" '
+        '-routability_snapshot_overflow "0.7" -routability_max_density "0.9" '
+        '-routability_inflation_ratio_coef "2.5" -routability_max_inflation_ratio "3.5" '
+        '-routability_min_congestion_for_inflation "0.9" -routability_max_inflation_total "0.2" '
+        '-routability_net_weight_max "1.5" -routability_congested_nets_percentage "2.0" '
+        '-routability_rc_coefficients [list "1.0" "1.0" "0.5" "0.0"] -timing_driven '
+        "-force_center_initial_place"
+    )
+    run_script(flow)
+
+
+def test_a_routability_option_has_no_effect_without_the_mode(tmp_path):
+    off = {"enabled": False, "estimator": "grt"}
+    message = refusal(tmp_path, typed={"global_placement.routability_driven": off})
+    assert "global_placement.routability_driven.estimator" in message
+    assert "global_placement.routability_driven.enabled" in message
+
+
+def test_the_initial_placement_and_the_solver_follow_their_settings(tmp_path):
+    flow = gp_flow(
+        tmp_path,
+        initial_place={"from_center": False, "max_iter": 0, "max_fanout": 100},
+        nesterov={
+            "skip": True,
+            "min_phi_coef": 0.9,
+            "max_phi_coef": 1.1,
+            "init_density_penalty": 1e-4,
+            "init_wirelength_coef": 0.3,
+            "reference_hpwl": 1000,
+            "overflow": 0.07,
+            "revert_on_divergence": False,
+            "pin_density_adjust": False,
+        },
+    )
+    assert main_placement(flow) == (
+        "global_placement -density [xeda_density] -pad_left 0 -pad_right 0 -routability_driven "
+        '-timing_driven -initial_place_max_iter "0" -initial_place_max_fanout "100" '
+        '-skip_nesterov_place -min_phi_coef "0.9" -max_phi_coef "1.1" '
+        '-init_density_penalty "0.0001" -init_wirelength_coef "0.3" -reference_hpwl "1000.0" '
+        '-overflow "0.07" -disable_revert_if_diverge -disable_pin_density_adjust'
+    )
+    run_script(flow)
+
+
+def test_the_solver_keeps_its_snapshots_and_the_pin_density_by_default(tmp_path):
+    line = main_placement(gp_flow(tmp_path))
+    assert "-disable_revert_if_diverge" not in line and "-disable_pin_density_adjust" not in line
+
+
+def test_the_options_of_the_whole_placement_come_after_the_modes(tmp_path):
+    flow = gp_flow(
+        tmp_path,
+        bin_grid_count=128,
+        incremental=True,
+        congestion_heatmap=True,
+        random_seed=7,
+        perturb_distance=0.25,
+    )
+    assert main_placement(flow).endswith(
+        '-force_center_initial_place -random_seed "7" -bin_grid_count "128" -incremental '
+        "-enable_routing_congestion -perturb_dist 250.0"
+    )
+    run_script(flow)
+
+
+@pytest.mark.parametrize(
+    "micrometers, nanometers", [(0.4, "400.0"), (0, "0.0"), (0.0005, "0.5"), (2, "2000.0")]
+)
+def test_a_length_in_micrometers_is_written_in_nanometers(micrometers, nanometers):
+    from xeda.flows.openroad.base import to_nanometers
+
+    assert to_nanometers(micrometers) == nanometers
+
+
+@pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
+def test_text_is_never_converted_as_a_length(value):
+    from xeda.flows.openroad.base import to_nanometers
+
+    with pytest.raises(TypeError):
+        to_nanometers(value)
+
+
+@pytest.mark.parametrize(
+    "micrometers, nanometers", [(0.4, "400.0"), (0, "0.0"), (0.0005, "0.5"), (2, "2000.0")]
+)
+def test_the_perturbation_is_given_in_micrometers_and_passed_in_nanometers(
+    tmp_path, micrometers, nanometers
+):
+    flow = gp_flow(tmp_path, perturb_distance=micrometers)
+    assert main_placement(flow).endswith(f"-perturb_dist {nanometers}")
+    flow.bind_template_values()
+    assert flow.jinja_env.from_string("{{ 0.4|nanometers }}").render() == "400.0"
+    unset = gp_flow(tmp_path / "unset")
+    assert "-perturb_dist" not in render(unset)
+
+
+@pytest.mark.parametrize("count", [2, 64, 128, 1024])
+def test_a_bin_grid_is_a_power_of_two(tmp_path, count):
+    flow = gp_flow(tmp_path, bin_grid_count=count)
+    assert f'-bin_grid_count "{count}"' in main_placement(flow)
+    run_script(flow)
+
+
+@pytest.mark.parametrize("count", [3, 100, 129])
+def test_a_bin_grid_that_is_no_power_of_two_is_refused(tmp_path, count):
+    message = refusal(tmp_path, f"global_placement.bin_grid_count={count}")
+    assert "bin_grid_count" in message and "power of two" in message
+
+
+def test_the_flops_are_clustered_after_the_placement_and_the_parasitics_are_estimated_again(
+    tmp_path,
+):
+    flow = gp_flow(
+        tmp_path,
+        flop_clustering={
+            "enabled": True,
+            "tray_weight": 30.0,
+            "timing_weight": 0.2,
+            "max_split_size": -1,
+            "num_paths": 5,
+            "clock_power_weight": 1.5,
+        },
+    )
+    body = stage(render(flow), "xeda_global_place")
+    clustering = body.index(
+        'cluster_flops -tray_weight "30.0" -timing_weight "0.2" -max_split_size "-1" '
+        '-num_paths "5" -clock_power_weight "1.5"'
+    )
+    assert body[clustering - 1] == "estimate_parasitics -placement"
+    assert body[clustering + 1 : clustering + 3] == [
+        "estimate_parasitics -placement",
+        "xeda_metrics 0 0",
+    ]
+    commands = [call[0] for call in run_script(flow)]
+    last = len(commands) - 1 - commands[::-1].index("global_placement")
+    assert commands[last : last + 4] == [
+        "global_placement",
+        "estimate_parasitics",
+        "cluster_flops",
+        "estimate_parasitics",
+    ]
+
+
+def test_the_flops_are_clustered_with_the_defaults_of_the_tool(tmp_path):
+    flow = gp_flow(tmp_path, flop_clustering={"enabled": True})
+    assert "cluster_flops" in stage(render(flow), "xeda_global_place")
+    calls = run_script(flow)
+    assert names(calls, "cluster_flops") == ["cluster_flops"]
+
+
+def test_no_flops_are_clustered_by_default(tmp_path):
+    assert "cluster_flops" not in render(place_flow(tmp_path))
+
+
+def test_a_clustering_option_has_no_effect_when_no_flops_are_clustered(tmp_path):
+    message = refusal(tmp_path, "global_placement.flop_clustering.tray_weight=30")
+    assert "flop_clustering.tray_weight" in message and "flop_clustering.enabled" in message
+
+
+def test_clusters_of_instances_are_set_before_the_main_placement(tmp_path):
+    flow = gp_flow(tmp_path, clusters=[["u1", "u2"], ["ff*"]])
+    body = stage(render(flow), "xeda_global_place")
+    clusters = body.index('placement_cluster [list "u1" "u2"]')
+    assert body[clusters + 1] == 'placement_cluster [list "ff*"]'
+    assert body[clusters + 2].startswith("global_placement")
+    assert not [
+        line for line in stage(render(flow), "xeda_global_place_skip_io") if "cluster" in line
+    ]
+    assert names(run_script(flow), "placement_cluster", "global_placement") == [
+        "global_placement",
+        "placement_cluster",
+        "placement_cluster",
+        "global_placement",
+    ]
+
+
+@pytest.mark.parametrize("clusters", [[[]], [[""]], [["a"], []], "a", [["a", 1]]])
+def test_a_malformed_cluster_is_refused(tmp_path, clusters):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"global_placement.clusters": clusters})
+
+
+def test_the_placement_has_no_free_text_flags(tmp_path):
+    """Every flag of `global_placement` that the flow does not own is a typed setting."""
+    from xeda.flows.openroad.place_groups import GlobalPlacementGroup
+
+    assert "extra_args" not in GlobalPlacementGroup.model_fields
+    assert not GlobalPlacementGroup.EXTRA_FLAGS
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, "global_placement.extra_args=-skip_initial_place")
 
 
 def test_the_resize_stage_repairs_the_design_after_the_placement_and_not_before(tmp_path):

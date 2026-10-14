@@ -781,6 +781,8 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_pin_length_extension",
     "set_pin_thick_multiplier",
     "set_simulated_annealing",
+    "placement_cluster",
+    "cluster_flops",
     "buffer_ports",
     "estimate_parasitics",
     # resizing and detailed placement

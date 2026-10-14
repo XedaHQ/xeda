@@ -1,6 +1,9 @@
 {# The main global placement. OpenROAD-flow-scripts removes the buffers of the synthesis only with
    the timing-driven placement, then buffers the ports of the design. The cells use the wire RC
-   of the platform through the estimates from the placement. #}
+   of the platform through the estimates from the placement. The clusters of instances come after
+   the removal of buffers, because the placer keeps the instances that exist at that moment.
+   Of the leaves of the global placement, the placement without pins takes only the density, the
+   padding, the seed and the perturbation (see `global_place_skip_io.tcl.j2`). #}
 {% set gp = settings.global_placement %}
 {% set concurrent = settings.io.flow == "concurrent" %}
 proc xeda_global_place {} {
@@ -11,10 +14,17 @@ proc xeda_global_place {} {
 {% if settings.resize.buffer_ports.enabled %}
     buffer_ports
 {% endif %}
-    {{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp)]|select|join(" ") }}
+{% for cluster in gp.clusters %}
+    placement_cluster {{ cluster|tcl_list }}
+{% endfor %}
+    {{ ["global_placement -density [xeda_density]", "-pad_left " ~ (gp.cell_padding|tcl_number), "-pad_right " ~ (gp.cell_padding|tcl_number), "-place_ios" if concurrent else "", render_flags(gp.routability_driven), "-routability_use_grt" if gp.routability_driven.estimator == "grt" else "", render_flags(gp.timing_driven), render_flags(gp.initial_place), render_flags(gp.nesterov), render_flags(gp), ("-perturb_dist " ~ (gp.perturb_distance|nanometers)) if gp.perturb_distance is not none else ""]|select|join(" ") }}
 {% if concurrent %}
     xeda_place_pins
 {% endif %}
     estimate_parasitics -placement
+{% if gp.flop_clustering.enabled %}
+    cluster_flops {{ render_flags(gp.flop_clustering) }}
+    estimate_parasitics -placement
+{% endif %}
     xeda_metrics 0 0
 }

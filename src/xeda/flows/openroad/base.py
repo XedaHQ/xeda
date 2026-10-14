@@ -52,6 +52,7 @@ __all__ = [
     "tcl_number",
     "tcl_numbers",
     "to_lib_time",
+    "to_nanometers",
 ]
 
 log = logging.getLogger(__name__)
@@ -114,6 +115,24 @@ def to_lib_time(nanoseconds: Any, unit: str) -> str:
             f"expected a finite number of nanoseconds for a Tcl script, got {nanoseconds!r}"
         )
     converted = convert_unit(nanoseconds, to_unit=unit, from_unit="nanosecond")
+    return tcl_number(round(converted, 9))
+
+
+def to_nanometers(micrometers: Any) -> str:
+    """Return a length given in micrometers as a Tcl number of nanometers. A setting for a
+    distance is in micrometers, and a few commands of OpenROAD take nanometers
+    (`global_placement -perturb_dist`).
+
+    The result has nine decimals at most, so the noise of the conversion does not show."""
+    if (
+        isinstance(micrometers, bool)
+        or not isinstance(micrometers, (int, float))
+        or not math.isfinite(micrometers)
+    ):
+        raise TypeError(
+            f"expected a finite number of micrometers for a Tcl script, got {micrometers!r}"
+        )
+    converted = convert_unit(micrometers, to_unit="nanometer", from_unit="micrometer")
     return tcl_number(round(converted, 9))
 
 
@@ -327,11 +346,12 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
         quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
         `comma_word`), `comma_word`, `space_word`, `fix_flags`, the filters `tcl_number`,
-        `tcl_numbers` and `lib_time`, `reports` and `failed_odb`. `init()` calls it. Code that
-        renders a template without `init()`, such as a test, can call it."""
+        `tcl_numbers`, `lib_time` and `nanometers`, `reports` and `failed_odb`. `init()` calls it.
+        Code that renders a template without `init()`, such as a test, can call it."""
         self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
         self.add_template_filter("tcl_numbers", tcl_numbers, replace_existing=True)
         self.add_template_filter("lib_time", self._lib_time, replace_existing=True)
+        self.add_template_filter("nanometers", to_nanometers, replace_existing=True)
         # one line for each command in a script, with no blank lines from the control statements
         self.jinja_env.trim_blocks = True
         self.jinja_env.lstrip_blocks = True

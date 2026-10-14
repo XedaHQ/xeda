@@ -265,7 +265,7 @@ Group `pdn`: `pdn.mode`, `pdn.grid`; 5 more: `xeda list-settings openroad_place 
 
 Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 19 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 6 more: `xeda list-settings openroad_place --tier expert --json`
+Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 45 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `resize`: `resize.buffer_ports.enabled`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 16 more: `xeda list-settings openroad_place --tier expert --json`
 
