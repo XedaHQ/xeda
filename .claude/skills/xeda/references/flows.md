@@ -265,7 +265,7 @@ Group `arithmetic`: `arithmetic.adder_architecture`, `arithmetic.adder_map`; 11 
 
 Group `memory`: no common settings; 7 more: `xeda list-settings yosys --tier expert --json`
 
-Group `sequential`: no common settings; 3 more: `xeda list-settings yosys --tier expert --json`
+Group `sequential`: no common settings; 15 more: `xeda list-settings yosys --tier expert --json`
 
 Group `abc`: `abc.strategy`, `abc.driver_cell`, `abc.load`; 2 more: `xeda list-settings yosys --tier expert --json`
 

@@ -269,7 +269,18 @@
      "adder_architecture": "yosys",
      "adder_map": "platform",
      "adder_map_file": null,
-     "wrap_operators": false
+     "alumacc": true,
+     "arith_tree": false,
+     "extract_fa": {
+      "full": true,
+      "half": true,
+      "max_breadth": null,
+      "max_depth": null
+     },
+     "multiplier": "default",
+     "wrap_operators": false,
+     "wrapped_adders": [],
+     "wrapped_multipliers": []
     },
     "black_box": [],
     "check_assert": true,
@@ -285,7 +296,12 @@
       "uncertainty": null
      }
     },
-    "coarse": {},
+    "coarse": {
+     "fsm": true,
+     "latches": null,
+     "opt_dff_sat": false,
+     "share": true
+    },
     "console_colors": true,
     "corner": null,
     "debug": false,
@@ -353,7 +369,10 @@
      "work": null
     },
     "hierarchy": {
-     "keep_min_cost": null
+     "cross_boundary_opt": false,
+     "keep_instances": [],
+     "keep_min_cost": null,
+     "separator": null
     },
     "keep_hierarchy": [],
     "lib_paths": [],
@@ -363,7 +382,15 @@
     "log_file": "yosys.log",
     "ltp": false,
     "lut": null,
-    "memory": {},
+    "memory": {
+     "keep_mocked": true,
+     "libmap": [],
+     "max_bits": null,
+     "merge_ff": true,
+     "mock_large": false,
+     "rw_check": true,
+     "techmap": null
+    },
     "netlist_attrs": false,
     "netlist_blackboxes": false,
     "netlist_dec": false,
@@ -419,9 +446,23 @@
     "rtl_verilog": null,
     "script_format": "ys",
     "sequential": {
-     "clockgate_map": null,
+     "clock_gating": {
+      "enabled": false,
+      "min_width": null,
+      "neg_icg": null,
+      "pos_icg": null,
+      "tie_lo": null
+     },
+     "clockgate_map": "platform",
+     "clockgate_map_file": null,
      "dff_liberty": null,
-     "latch_map": null
+     "dff_map": null,
+     "latch_map": "platform",
+     "latch_map_file": null,
+     "min_enable_fanout": null,
+     "min_sync_reset_fanout": null,
+     "retime_modules": [],
+     "tristate": "off"
     },
     "set_attribute": {},
     "set_mod_attribute": {},

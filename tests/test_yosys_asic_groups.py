@@ -69,8 +69,20 @@ LEAF_TIERS = {
     "memory.merge_ff": "expert",
     "memory.rw_check": "expert",
     "sequential.latch_map": "advanced",
+    "sequential.latch_map_file": "advanced",
     "sequential.clockgate_map": "advanced",
+    "sequential.clockgate_map_file": "advanced",
     "sequential.dff_liberty": "advanced",
+    "sequential.dff_map": "advanced",
+    "sequential.clock_gating.enabled": "advanced",
+    "sequential.clock_gating.pos_icg": "advanced",
+    "sequential.clock_gating.neg_icg": "advanced",
+    "sequential.clock_gating.min_width": "advanced",
+    "sequential.clock_gating.tie_lo": "expert",
+    "sequential.retime_modules": "advanced",
+    "sequential.tristate": "advanced",
+    "sequential.min_enable_fanout": "expert",
+    "sequential.min_sync_reset_fanout": "expert",
     "abc.strategy": "common",
     "abc.mapper": "advanced",
     "abc.driver_cell": "common",
@@ -133,8 +145,10 @@ def test_the_defaults_of_the_first_leaves():
     assert settings.arithmetic.adder_map == "platform"
     assert settings.arithmetic.adder_map_file is None
     assert settings.arithmetic.wrap_operators is False
-    assert settings.sequential.latch_map is None
-    assert settings.sequential.clockgate_map is None
+    assert settings.sequential.latch_map == "platform"
+    assert settings.sequential.latch_map_file is None
+    assert settings.sequential.clockgate_map == "platform"
+    assert settings.sequential.clockgate_map_file is None
     assert settings.sequential.dff_liberty is None
     assert settings.abc.strategy == "area"
     assert settings.abc.mapper == "abc"
@@ -210,7 +224,7 @@ def test_the_defaults_survive_a_round_trip_through_settings_json():
                 "tie_cells": {"hi": ["H", "Z"], "lo": ["L", "Z"]},
                 "buffer_cell": ["B", "A", "Z"],
             },
-            "sequential": {"latch_map": "x.v"},
+            "sequential": {"latch_map_file": "x.v"},
             "techmap_files": "a.v,b.v",
         }
     )
@@ -294,13 +308,18 @@ REMOVED = [
         "adders.v",
         "`arithmetic.adder_map_file` for a file, or `arithmetic.adder_map: none`",
     ),
-    ("clockgate_map", "gate.v", "`sequential.clockgate_map`"),
+    (
+        "clockgate_map",
+        "gate.v",
+        "`sequential.clockgate_map_file` for a file, or `sequential.clockgate_map: none`",
+    ),
     ("dff_liberty", "dff.lib", "`sequential.dff_liberty`"),
     ("dff_library", "dff.lib", "`sequential.dff_liberty`"),
     (
         "other_maps",
         ["latch.v"],
-        "`sequential.latch_map` for the latch map, and `techmap_files` for other maps",
+        "`sequential.latch_map_file` for the latch map, `sequential.latch_map: none` for no latch "
+        "map, and `techmap_files` for other maps",
     ),
     ("hilomap", {"hi": ["H", "Z"], "lo": ["L", "Z"]}, "`finish.tie_cells`"),
     ("insbuf", ["BUF", "A", "Z"], "`finish.buffer_cell`"),
@@ -467,7 +486,9 @@ def test_delay_target_is_the_d_flag_of_abc(tmp_path, monkeypatch, script_format,
 def test_a_user_latch_map_wins_over_the_platform_s(tmp_path, monkeypatch, script_format):
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "my_latch.v").write_text("module _unused(); endmodule\n")
-    commands = _run(tmp_path, monkeypatch, script_format, sequential={"latch_map": "my_latch.v"})
+    commands = _run(
+        tmp_path, monkeypatch, script_format, sequential={"latch_map_file": "my_latch.v"}
+    )
     assert ["techmap", "-map", str(tmp_path / "design" / "my_latch.v")] in commands
     assert ["techmap", "-map", str(_pdk(tmp_path) / "cells_latch.v")] not in commands
     assert len(_words(commands, "dfflegalize")) == 1
@@ -477,7 +498,9 @@ def test_a_user_latch_map_wins_over_the_platform_s(tmp_path, monkeypatch, script
 def test_a_user_clockgate_map_wins_over_the_platform_s(tmp_path, monkeypatch, script_format):
     (tmp_path / "design").mkdir()
     (tmp_path / "design" / "my_gate.v").write_text("module cg(); endmodule\n")
-    commands = _run(tmp_path, monkeypatch, script_format, sequential={"clockgate_map": "my_gate.v"})
+    commands = _run(
+        tmp_path, monkeypatch, script_format, sequential={"clockgate_map_file": "my_gate.v"}
+    )
     assert ["read_verilog", "-defer", str(tmp_path / "design" / "my_gate.v")] in commands
     assert ["read_verilog", "-defer", str(_pdk(tmp_path) / "cells_clkgate.v")] not in commands
 
@@ -623,8 +646,10 @@ NO_MAPPING_CASES = [
     ("arithmetic.adder_map", {"arithmetic": {"adder_map": "none"}}),
     ("arithmetic.adder_map_file", {"arithmetic": {"adder_map_file": "a.v"}}),
     ("arithmetic.wrap_operators", {"arithmetic": {"wrap_operators": True}}),
-    ("sequential.latch_map", {"sequential": {"latch_map": "l.v"}}),
-    ("sequential.clockgate_map", {"sequential": {"clockgate_map": "c.v"}}),
+    ("sequential.latch_map", {"sequential": {"latch_map": "none"}}),
+    ("sequential.latch_map_file", {"sequential": {"latch_map_file": "l.v"}}),
+    ("sequential.clockgate_map", {"sequential": {"clockgate_map": "none"}}),
+    ("sequential.clockgate_map_file", {"sequential": {"clockgate_map_file": "c.v"}}),
     ("sequential.dff_liberty", {"sequential": {"dff_liberty": "d.lib"}}),
     ("abc.strategy", {"abc": {"strategy": "speed"}}),
     ("abc.mapper", {"abc": {"mapper": "abc_new"}}),
@@ -760,7 +785,11 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
     settings = Yosys.Settings.from_input(
         tiny_settings(
             store,
-            sequential={"latch_map": "latch.v", "clockgate_map": "cg.v", "dff_liberty": "dff.lib"},
+            sequential={
+                "latch_map_file": "latch.v",
+                "clockgate_map_file": "cg.v",
+                "dff_liberty": "dff.lib",
+            },
             arithmetic={"adder_map_file": "fa.v"},
             techmap_files=["extra.v"],
             memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
@@ -791,7 +820,7 @@ def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):
     latch = design.design_root / "my_latch.v"
     latch.write_text("module _unused(); endmodule\n")
     store = tiny_store(fake_yosys)
-    given = _given(store, sequential={"latch_map": "my_latch.v"})
+    given = _given(store, sequential={"latch_map_file": "my_latch.v"})
     runner = _runner(fake_yosys)
     first = runner.launch_flow(Yosys, design, given)
     assert first.succeeded
@@ -806,7 +835,8 @@ def test_editing_a_user_latch_map_makes_the_next_launch_stale(fake_yosys):
 def test_the_other_group_files_are_inputs_too(fake_yosys):
     design = _design(fake_yosys / "design")
     files = {
-        "cg.v": {"sequential": {"clockgate_map": "cg.v"}},
+        "cg.v": {"sequential": {"clockgate_map_file": "cg.v"}},
+        "dffs.v": {"sequential": {"dff_map": "dffs.v"}},
         "fa.v": {"arithmetic": {"adder_map_file": "fa.v"}},
         "extra.v": {"techmap_files": ["extra.v"]},
         "mem.txt": {"memory": {"libmap": ["mem.txt"]}},
@@ -833,12 +863,13 @@ def test_moving_the_design_keeps_the_identity_of_the_run(tmp_path):
         design = _design(root)
         (root / "my_latch.v").write_text("module _unused(); endmodule\n")
         settings = Yosys.Settings.from_input(
-            _given(store, sequential={"latch_map": "my_latch.v"}), design_root=root
+            _given(store, sequential={"latch_map_file": "my_latch.v"}), design_root=root
         )
         hashes.append(flowrun_hash("yosys", settings, design.name))
     assert hashes[0] == hashes[1]
     other = Yosys.Settings.from_input(
-        _given(store, sequential={"latch_map": "other.v"}), design_root=tmp_path / "one" / "design"
+        _given(store, sequential={"latch_map_file": "other.v"}),
+        design_root=tmp_path / "one" / "design",
     )
     assert flowrun_hash("yosys", other, "mac") != hashes[0]
 

@@ -75,8 +75,8 @@ SPACED_INPUTS = (
     "sequential.dff_liberty",
     "verilog_lib",
     "arithmetic.adder_map_file",
-    "sequential.clockgate_map",
-    "sequential.latch_map",
+    "sequential.clockgate_map_file",
+    "sequential.latch_map_file",
     "techmap_files",
     "memory.libmap",
     "memory.techmap",
@@ -89,6 +89,9 @@ SPACED_INPUTS = (
 # its own -- the ghdl plugin's are `ghdl.lib_paths`, which
 # `test_yosys_reads_vhdl_from_a_path_with_spaces` sets.
 NOT_SWEPT = {
+    # refused together with `sequential.dff_liberty`, which the sweep sets;
+    # `tests/test_yosys_asic_sequential.py` reads it from a path with a space
+    "sequential.dff_map",
     "reports_dir",
     "outputs_dir",
     "checkpoints_dir",
@@ -194,8 +197,12 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
         "arithmetic.adder_map_file": str(
             _write(maps / "adder map.v", "module _unused_fa(); endmodule\n")
         ),
-        "sequential.clockgate_map": str(_write(maps / "clock gate.v", "module cg(); endmodule\n")),
-        "sequential.latch_map": str(_write(maps / "latch map.v", "module _unused(); endmodule\n")),
+        "sequential.clockgate_map_file": str(
+            _write(maps / "clock gate.v", "module cg(); endmodule\n")
+        ),
+        "sequential.latch_map_file": str(
+            _write(maps / "latch map.v", "module _unused(); endmodule\n")
+        ),
         "techmap_files": [str(_write(maps / "other map.v", "module _unused2(); endmodule\n"))],
         "memory.libmap": [str(_write(maps / "mem lib.txt", MEMORY_LIBRARY))],
         "memory.techmap": str(_write(maps / "mem map.v", "module _unused3(); endmodule\n")),
@@ -612,10 +619,10 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         "arithmetic.adder_map_file": str(
             with_decoy(root / "map" / "fa[1].v", "module _unused_fa(); endmodule\n")
         ),
-        "sequential.clockgate_map": str(
+        "sequential.clockgate_map_file": str(
             with_decoy(root / "map" / "cg[1].v", "module cg(); endmodule\n")
         ),
-        "sequential.latch_map": str(
+        "sequential.latch_map_file": str(
             with_decoy(root / "map" / "latch[1].v", "module _unused(); endmodule\n")
         ),
         "techmap_files": [
@@ -881,8 +888,8 @@ def test_the_shared_bases_read_no_setting_that_only_yosys_declares():
 
 
 def test_the_map_files_resolve_against_the_design_root(tmp_path):
-    """A relative map file of `yosys` (`arithmetic.adder_map_file`, `sequential.clockgate_map`,
-    `sequential.latch_map` and `techmap_files`) names a file in the design root, and so does the
+    """A relative map file of `yosys` (`arithmetic.adder_map_file`, `sequential.clockgate_map_file`,
+    `sequential.latch_map_file` and `techmap_files`) names a file in the design root, and so does the
     `clockgate_map` of `yosys_fpga`. The settings of `yosys` keep the path as the user wrote it:
     `asic_values` gives the resolved path."""
     design = Design.from_file(TESTS_DIR / "resources" / "design0" / "design0.toml")
@@ -892,7 +899,7 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
             liberty=["lib/cells.lib"],
             clock={"period": 5.0},
             arithmetic={"adder_map_file": "maps/add.v"},
-            sequential={"clockgate_map": "maps/cg.v", "latch_map": "maps/latch.v"},
+            sequential={"clockgate_map_file": "maps/cg.v", "latch_map_file": "maps/latch.v"},
             techmap_files=["maps/a.v", "maps/b.v"],
         ),
         design,
@@ -905,7 +912,7 @@ def test_the_map_files_resolve_against_the_design_root(tmp_path):
     assert values.clockgate_map == root / "maps/cg.v"
     assert values.latch_map == root / "maps/latch.v"
     assert values.techmap_files == (root / "maps/a.v", root / "maps/b.v")
-    assert flow.settings.sequential.clockgate_map == Path("maps/cg.v")
+    assert flow.settings.sequential.clockgate_map_file == Path("maps/cg.v")
     assert flow.settings.techmap_files == [Path("maps/a.v"), Path("maps/b.v")]
     fpga = YosysFpga(
         YosysFpga.Settings(

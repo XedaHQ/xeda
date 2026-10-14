@@ -1,12 +1,22 @@
 import logging
+import re
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from importlib import resources
 from pathlib import Path
 from typing import Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import Field
-from ...design import SourceType
-from ...flow import Flow, FlowSettingsError, NoReplacement, Out, SynthFlow, describe_results
+from ...design import Design, SourceType
+from ...flow import (
+    Flow,
+    FlowException,
+    FlowSettingsError,
+    NoReplacement,
+    Out,
+    SynthFlow,
+    describe_results,
+)
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.settings_group import SettingsGroup, render_flags
 from ...utils import replacing_file, tcl_word
@@ -73,6 +83,56 @@ ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
 #: (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`). It only builds and maps the
 #: network. `abc_new` maps each wrapped operator with the script that the operator carries.
 ABC_SPEED_GIA_ONLY = "&st\n&dch -r\n&nf\n" + "&st\n&syn2\n&if -g -K 6\n&synch2 -r\n&nf\n" * 5
+
+#: The retiming script of the modules in `sequential.retime_modules`: `abc_retime.script` of
+#: OpenROAD-flow-scripts (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`), in the form
+#: `abc -script` takes. It reads no Liberty file: ABC maps with its own gates and moves the
+#: flip-flops over them. The later mapping reads the Liberty files.
+ABC_RETIME_SCRIPT = "+" + ";".join(
+    ["st", "retime -v -o", *["retime -M 5 -v -o"] * 3, "map"]
+).replace(" ", ",")
+
+#: The flip-flop and latch types that `dfflegalize` ingests, each with every polarity and reset
+#: value (`?`). A `dfflegalize` that allows all of them changes no cell; the limits
+#: `-mince` and `-minsrst` then unmap the enables and resets that few cells share.
+LEGALIZE_ANY_FLIP_FLOP = (
+    "$_DFF_?_",
+    "$_DFFE_??_",
+    "$_DFF_???_",
+    "$_DFFE_????_",
+    "$_ALDFF_??_",
+    "$_ALDFFE_???_",
+    "$_DFFSR_???_",
+    "$_DFFSRE_????_",
+    "$_SDFF_???_",
+    "$_SDFFE_????_",
+    "$_SDFFCE_????_",
+    "$_SR_??_",
+    "$_DLATCH_?_",
+    "$_DLATCH_???_",
+    "$_DLATCHSR_???_",
+)
+
+_MODULE_DECLARATION = re.compile(r"^[ \t]*module[ \t]+([A-Za-z_$][A-Za-z0-9_$]*)", re.MULTILINE)
+
+
+def dff_map_cells(path: Path) -> Tuple[str, ...]:
+    """Return the names of the modules in the flip-flop map `path`, in order.
+
+    Each module of a flip-flop map names a flip-flop type that the netlist may keep. The reader
+    is the one of `get_module_names` in `flow/scripts/synth.tcl` of OpenROAD-flow-scripts
+    (BSD-3-Clause, see `data/asic/NOTICE.md`): a line that starts with `module` and a name.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(f"The flip-flop map {path} does not exist.")
+    names = tuple(_MODULE_DECLARATION.findall(path.read_text()))
+    if not names:
+        raise FlowException(
+            f"`sequential.dff_map` ({path}) names no module: the map needs one module for each "
+            "flip-flop type that the netlist may keep, such as `module $_DFF_P_`"
+        )
+    return names
+
 
 #: The attributes that the wrapped operators carry in the netlist. The place and route tool finds
 #: them with these, and swaps their architectures.
@@ -150,6 +210,9 @@ class AsicValues:
 
     * `latch_map`: the map applied after `dfflegalize` for latches.
     * `clockgate_map`: the file with the clock-gating cells.
+    * `dff_map`, `dff_map_cells`: the map of flip-flops, and the names of its modules.
+    * `legalize_any`: the cell types of a `dfflegalize` that changes no flip-flop.
+    * `retime_script`: the script of the retiming run.
     * `adder_map`: the map of full adders that follows `extract_fa`.
     * `techmap_files`: the user's maps for `techmap -map`, in order.
     * `dff_liberty`: the Liberty file for `dfflibmap` instead of the Liberty files.
@@ -172,6 +235,10 @@ class AsicValues:
     adder_map: Optional[Path] = None
     techmap_files: Tuple[Path, ...] = ()
     dff_liberty: Optional[Path] = None
+    dff_map: Optional[Path] = None
+    dff_map_cells: Tuple[str, ...] = ()
+    legalize_any: Tuple[str, ...] = ()
+    retime_script: Optional[str] = None
     driver_cell: Optional[str] = None
     load: Optional[float] = None
     tie_cells: Optional[HiLoMap] = None
@@ -247,11 +314,12 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             "abc_driver_cell": "`abc.driver_cell`",
             "abc_load_in_ff": "`abc.load`",
             "adder_map": "`arithmetic.adder_map_file` for a file, or `arithmetic.adder_map: none`",
-            "clockgate_map": "`sequential.clockgate_map`",
+            "clockgate_map": "`sequential.clockgate_map_file` for a file, or "
+            "`sequential.clockgate_map: none`",
             "dff_liberty": "`sequential.dff_liberty`",
             "dff_library": "`sequential.dff_liberty`",
-            "other_maps": "`sequential.latch_map` for the latch map, and `techmap_files` for "
-            "other maps",
+            "other_maps": "`sequential.latch_map_file` for the latch map, "
+            "`sequential.latch_map: none` for no latch map, and `techmap_files` for other maps",
             "hilomap": "`finish.tie_cells`",
             "insbuf": "`finish.buffer_cell`",
         }
@@ -412,6 +480,47 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             raise FlowSettingsError(
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
+
+    @classmethod
+    def check_design_supported(cls, design: Design, settings: Flow.Settings | None = None) -> None:
+        """Refuse a retimed module that the flattening dissolves, which the design tells.
+
+        Retiming runs on a module that is still a module: the top, a module that
+        `keep_hierarchy` marks, or any module of a design that is not flattened. All problems
+        come back in one error.
+        """
+        super().check_design_supported(design, settings)
+        if not isinstance(settings, cls.Settings) or not settings.maps_to_liberty():
+            return
+        problems = cls._retime_module_problems(settings, design)
+        if problems:
+            raise FlowSettingsError(
+                [(key, message, None, "value_error") for key, message in problems], cls.Settings
+            )
+
+    @classmethod
+    def _retime_module_problems(
+        cls, settings: "Yosys.Settings", design: Design
+    ) -> List[Tuple[str, str]]:
+        """Return the retimed modules that flattening dissolves before the retiming runs.
+
+        The check needs the top module. A cost limit (`hierarchy.keep_min_cost`) keeps modules by
+        their size, which only the synthesis knows, so it judges no module.
+        """
+        top = design.rtl.top
+        if top is None or settings.flatten is False or settings.hierarchy.keep_min_cost is not None:
+            return []
+        kept = [*settings.keep_hierarchy, *settings.set_mod_attribute.get("keep_hierarchy", {})]
+        return [
+            (
+                "sequential.retime_modules",
+                f"`sequential.retime_modules` names `{name}`, and the flattening dissolves that "
+                f"module before the retiming runs: name the top module `{top}`, add `{name}` to "
+                "`keep_hierarchy`, or set `flatten: false`",
+            )
+            for name in settings.sequential.retime_modules
+            if name != top and not any(fnmatchcase(name, pattern) for pattern in kept)
+        ]
 
     @classmethod
     def _liberty_mapping_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
@@ -635,8 +744,17 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         def platform_file(role: str) -> Optional[Path]:
             return files[role][0] if files.get(role) else None
 
-        latch_map = given(ss.sequential.latch_map)
-        clockgate_map = given(ss.sequential.clockgate_map)
+        latch_map = None
+        if ss.sequential.latch_map == "platform":
+            latch_map = given(ss.sequential.latch_map_file)
+            if latch_map is None:
+                latch_map = platform_file("latch_map")
+        clockgate_map = None
+        if ss.sequential.clockgate_map == "platform":
+            clockgate_map = given(ss.sequential.clockgate_map_file)
+            if clockgate_map is None:
+                clockgate_map = platform_file("clkgate_map")
+        dff_map = given(ss.sequential.dff_map)
         adder_map = None
         if ss.arithmetic.adder_map == "platform":
             adder_map = given(ss.arithmetic.adder_map_file)
@@ -671,13 +789,15 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         if load is not None:
             constraints.append(f"set_load {load}")
         return AsicValues(
-            latch_map=latch_map if latch_map is not None else platform_file("latch_map"),
-            clockgate_map=(
-                clockgate_map if clockgate_map is not None else platform_file("clkgate_map")
-            ),
+            latch_map=latch_map,
+            clockgate_map=clockgate_map,
             adder_map=adder_map,
             techmap_files=tuple(self.normalize_path_to_design_root(f) for f in ss.techmap_files),
             dff_liberty=given(ss.sequential.dff_liberty),
+            dff_map=dff_map,
+            dff_map_cells=dff_map_cells(dff_map) if dff_map is not None else (),
+            legalize_any=LEGALIZE_ANY_FLIP_FLOP,
+            retime_script=ABC_RETIME_SCRIPT if ss.sequential.retime_modules else None,
             driver_cell=driver_cell,
             load=load,
             tie_cells=tie_cells,

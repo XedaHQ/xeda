@@ -38,6 +38,8 @@
 {%- if not settings.memory.rw_check %} -no-rw-check{% endif -%}
 {%- endset -%}
 {%- set hieropt = " -hieropt" if settings.hierarchy.cross_boundary_opt else "" -%}
+{#- `dfflegalize` takes the limits of the sequential group (`-mince`, `-minsrst`) as flags. -#}
+{%- set legalize_limits = render_flags(settings.sequential) -%}
 {%- set fa = settings.arithmetic.extract_fa -%}
 {#- `extract_fa` refuses a limit (`-d`, `-b`) as its last word, so the kinds of adders come after
     the limits, and a run with limits names both kinds when it extracts both. -#}
@@ -164,6 +166,10 @@ synth -flatten -run coarse:fine{{coarse_words}}{{hieropt}}{{extra_map}}{% for fl
 {%- else %}
 synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{coarse_words}}{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
 {%- endif %}
+{%- if settings.sequential.tristate == "logic" %}
+tribuf -logic
+opt_clean
+{%- endif %}
 {%- if asic.memory_libmap %}
 memory_libmap{% for lib in asic.memory_libmap %} -lib {{lib|path}}{% endfor %}
 {%- endif %}
@@ -172,6 +178,15 @@ techmap -map {{asic.memory_techmap|read_path}}
 {%- endif %}
 {%- if max_bits is not none %}
 check_memory_sizes {{max_bits}} {{1 if settings.memory.mock_large else 0}} {{1 if settings.memory.keep_mocked else 0}}
+{%- endif %}
+{%- if settings.sequential.retime_modules %}
+select{% for name in settings.sequential.retime_modules %} {{name|path}}{% endfor %}
+opt -fast -full
+memory_map
+opt -full
+techmap
+abc -dff -script {{asic.retime_script|path}}
+select -clear
 {%- endif %}
 {%- if wrap_operators %}
 source {{asic.wrap_script|tcl_word}}
@@ -201,7 +216,27 @@ techmap -map {{asic.latch_map|read_path}}
 {%- for map in asic.techmap_files %}
 techmap -map {{map|read_path}}
 {%- endfor %}
+{%- if settings.sequential.clock_gating.enabled %}
+{%- set gating = settings.sequential.clock_gating %}
+clockgate
+{%- if gating.pos_icg or gating.neg_icg -%}
+{%- if gating.pos_icg %} -pos {{gating.pos_icg[0]|path}} {{(gating.pos_icg[1] ~ ":" ~ gating.pos_icg[2] ~ ":" ~ gating.pos_icg[3])|path}}{% endif -%}
+{%- if gating.neg_icg %} -neg {{gating.neg_icg[0]|path}} {{(gating.neg_icg[1] ~ ":" ~ gating.neg_icg[2] ~ ":" ~ gating.neg_icg[3])|path}}{% endif -%}
+{%- else -%}
+{%- for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- endif -%}
+{%- set gating_flags = render_flags(gating) -%}
+{%- if gating_flags %} {{gating_flags}}{% endif %}
+{%- endif %}
+{%- if asic.dff_map %}
+dfflegalize{% for cell in asic.dff_map_cells %} -cell {{cell|path}} x{% endfor %}{% if legalize_limits %} {{legalize_limits}}{% endif %}
+techmap -map {{asic.dff_map|read_path}}
+{%- else %}
+{%- if legalize_limits %}
+dfflegalize{% for cell in asic.legalize_any %} -cell {{cell|path}} x{% endfor %} {{legalize_limits}}
+{%- endif %}
 dfflibmap{% for lib in ([asic.dff_liberty] if asic.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
+{%- endif %}
 opt
 {%- if settings.finish.tie_undefined == "zero" %}
 setundef -zero

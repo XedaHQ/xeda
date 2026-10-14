@@ -19,6 +19,7 @@ from ...flow.settings_group import Flag, SettingsGroup
 __all__ = [
     "AbcGroup",
     "ArithmeticGroup",
+    "ClockGatingGroup",
     "CoarseGroup",
     "ExtractFaGroup",
     "FinishGroup",
@@ -359,27 +360,184 @@ class MemoryGroup(SettingsGroup):
         return found
 
 
-class SequentialGroup(SettingsGroup):
-    """The mapping of latches, clock gates and flip-flops."""
+class ClockGatingGroup(SettingsGroup):
+    """The inference of clock gates (`clockgate`). It finds flip-flops that share a clock and an
+    enable signal, and replaces their enable logic by one clock-gating cell."""
 
-    latch_map: Optional[Path] = Field(
-        None,
-        description="Verilog map of latches, applied with `techmap -map` after `dfflegalize`. "
-        "Unset: the map of the platform.",
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("min_width", "-min_net_size", "value"),
+        Flag("tie_lo", "-tie_lo", "value"),
+    )
+
+    enabled: bool = Field(
+        False,
+        description="Infer clock gates after the latches are mapped and before the flip-flops "
+        "are mapped. A design that wants a gate for an enable instantiates a clock-gating cell "
+        "itself, with the map of `sequential.clockgate_map`.",
         json_schema_extra=tier("advanced"),
     )
-    clockgate_map: Optional[Path] = Field(
+    pos_icg: Optional[Tuple[str, str, str, str]] = Field(
         None,
-        description="Verilog file with the clock-gating cells (`read_verilog -defer`). Unset: "
-        "the file of the platform.",
+        description="The clock-gating cell for flip-flops on the rising edge: the cell, its "
+        "enable port, its clock port and its gated clock port (`clockgate -pos`). The enable "
+        "must be active high. Unset: yosys picks a cell from the Liberty files when neither this "
+        "nor `neg_icg` is set, and gates no rising-edge flip-flop otherwise.",
+        json_schema_extra=tier("advanced"),
+    )
+    neg_icg: Optional[Tuple[str, str, str, str]] = Field(
+        None,
+        description="The clock-gating cell for flip-flops on the falling edge, in the form of "
+        "`pos_icg` (`clockgate -neg`). Unset: see `pos_icg`.",
+        json_schema_extra=tier("advanced"),
+    )
+    min_width: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Gate only the sets of at least this many flip-flops that share an enable "
+        "(`clockgate -min_net_size`). Unset: the default of yosys.",
+        json_schema_extra=tier("advanced"),
+    )
+    tie_lo: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="Warning: a port that is tied low for good can disable the cell. A port of "
+        "the clock-gating cell that the script ties to zero, such as a scan enable "
+        "(`clockgate -tie_lo`). Needs `pos_icg` or `neg_icg`: a cell that yosys picks from the "
+        "Liberty files lists its own tie-low ports.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> List[Tuple[str, str]]:
+        """Refuse a tie-low port when no cell is named: yosys finds the port in the Liberty file."""
+        if self.tie_lo is not None and self.pos_icg is None and self.neg_icg is None:
+            return [
+                (
+                    f"{key}.tie_lo",
+                    f"`{key}.tie_lo` names a port of a clock-gating cell that you name, and "
+                    f"`{key}.pos_icg` and `{key}.neg_icg` are not set: give a cell, or delete "
+                    f"`{key}.tie_lo`",
+                )
+            ]
+        return []
+
+
+#: A module that a retiming run selects: a name, not a pattern.
+ModuleName = Annotated[str, Field(min_length=1, pattern=r"^[^\s\"*?\[\]]+$")]
+
+
+class SequentialGroup(SettingsGroup):
+    """The mapping of latches, clock gates, flip-flops and tri-states."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("min_enable_fanout", "-mince", "value"),
+        Flag("min_sync_reset_fanout", "-minsrst", "value"),
+    )
+
+    latch_map: Literal["platform", "none"] = Field(
+        "platform",
+        description="`platform` maps latches with the latch map of the platform (or "
+        "`latch_map_file`) when there is one. `none` maps no latches.",
+        json_schema_extra=tier("advanced"),
+    )
+    latch_map_file: Optional[Path] = Field(
+        None,
+        description="Verilog map of latches, applied with `techmap -map` after `dfflegalize`, "
+        "instead of the map of the platform. Not with `latch_map: none`.",
+        json_schema_extra=tier("advanced"),
+    )
+    clockgate_map: Literal["platform", "none"] = Field(
+        "platform",
+        description="`platform` reads the file with the clock-gating cells of the platform (or "
+        "`clockgate_map_file`) when there is one. `none` reads no such file.",
+        json_schema_extra=tier("advanced"),
+    )
+    clockgate_map_file: Optional[Path] = Field(
+        None,
+        description="Verilog file with the clock-gating cells (`read_verilog -defer`), instead of "
+        "the file of the platform. Not with `clockgate_map: none`.",
         json_schema_extra=tier("advanced"),
     )
     dff_liberty: Optional[Path] = Field(
         None,
         description="Liberty file for mapping flip-flops. It replaces the Liberty files on "
-        "`dfflibmap`; `abc` still gets the Liberty files.",
+        "`dfflibmap`; `abc` still gets the Liberty files. Not with `dff_map`.",
         json_schema_extra=tier("advanced"),
     )
+    dff_map: Optional[Path] = Field(
+        None,
+        description="Verilog map of flip-flops. Every module in the file names a flip-flop type "
+        "that the netlist may keep, such as `$_DFF_P_`. The script legalizes the flip-flops to "
+        "these types and applies the map with `techmap -map`, instead of running `dfflibmap`. "
+        "Not with `dff_liberty`.",
+        json_schema_extra=tier("advanced"),
+    )
+    clock_gating: ClockGatingGroup = Field(
+        default_factory=ClockGatingGroup,
+        description="The inference of clock gates (`clockgate`).",
+    )
+    retime_modules: List[ModuleName] = Field(
+        [],
+        description="Modules to retime: the flip-flops move over the logic to shorten the "
+        "longest path (`abc -dff` with a retiming script). Each module must stay a module until "
+        "the retiming: it is the top module, a `keep_hierarchy` module, or the design is not "
+        "flattened. Retiming moves flip-flops, so the netlist does not match the names or the "
+        "states of the RTL, and the run checks no equivalence.",
+        json_schema_extra=tier("advanced"),
+    )
+    tristate: Literal["off", "logic"] = Field(
+        "off",
+        description="`logic` converts the tri-state buffers that drive no output port to plain "
+        "logic (`tribuf -logic`) after the coarse part of `synth`. `off` runs no such pass.",
+        json_schema_extra=tier("advanced"),
+    )
+    min_enable_fanout: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Warning: this changes the netlist from the flip-flops on. Unmap a clock "
+        "enable that fewer flip-flops share than this number into logic (`dfflegalize -mince`). "
+        "Unset: keep every enable.",
+        json_schema_extra=tier("expert"),
+    )
+    min_sync_reset_fanout: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Warning: this changes the netlist from the flip-flops on. Unmap a "
+        "synchronous set or reset that fewer flip-flops share than this number into logic "
+        "(`dfflegalize -minsrst`). Unset: keep every set and reset.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> List[Tuple[str, str]]:
+        """Refuse the settings of the sequential group that cannot work together."""
+        found: List[Tuple[str, str]] = []
+        for name in ("latch_map", "clockgate_map"):
+            if getattr(self, name) == "none" and getattr(self, f"{name}_file") is not None:
+                found.append(
+                    (
+                        f"{key}.{name}_file",
+                        f"`{key}.{name}_file` has no effect with `{key}.{name}: none`: delete "
+                        "one of them",
+                    )
+                )
+        if self.dff_map is not None and self.dff_liberty is not None:
+            found.append(
+                (
+                    f"{key}.dff_map",
+                    f"`{key}.dff_map` and `{key}.dff_liberty` both map the flip-flops, and "
+                    "only one way works: delete one of them",
+                )
+            )
+        for repeated in sorted(
+            {item for item in self.retime_modules if self.retime_modules.count(item) > 1}
+        ):
+            found.append(
+                (
+                    f"{key}.retime_modules",
+                    f"`{key}.retime_modules` names `{repeated}` more than once: name each "
+                    "module once",
+                )
+            )
+        return found
 
 
 class AbcGroup(SettingsGroup):

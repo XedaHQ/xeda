@@ -101,7 +101,8 @@ def test_the_script_maps_to_the_liberty_files_and_cells_of_the_platform(fake_yos
     assert f"read_verilog -defer {pdk / 'cells_clkgate.v'}\n" in script
     assert f"techmap -map {pdk / 'cells_latch.v'}\n" in script
     assert effective["sequential"]["dff_liberty"] is None, "no flip-flop library of its own"
-    assert effective["sequential"]["latch_map"] is None, "the platform's map is not a setting"
+    assert effective["sequential"]["latch_map"] == "platform"
+    assert effective["sequential"]["latch_map_file"] is None, "the platform's map is not a setting"
 
 
 def _dont_use(flow) -> dict[str, list[str]]:
