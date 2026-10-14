@@ -339,3 +339,98 @@ def test_the_tier_option_offers_the_tiers_of_a_setting():
     option = next(p for p in command.params if p.name == "tier")
     assert option.opts == ["--tier"] and not option.is_flag
     assert option.default is None
+
+
+# ------------------------------------------------------------- aliases and shared groups
+
+
+class _Aliased(SettingsGroup):
+    """A group with a field that has a second name."""
+
+    knob: Optional[int] = Field(
+        None, alias="knob_alias", description="A number.", json_schema_extra=tier("common")
+    )
+    plain: Optional[int] = Field(None, description="No second name.")
+
+
+@pytest.fixture
+def aliased_flow():
+    with preserved_flow_registry():
+
+        class AliasedToy(Flow):
+            """A flow whose group has a field with an alias."""
+
+            results_description: ClassVar[dict[str, str]] = {}
+
+            class Settings(Flow.Settings):
+                aliased: _Aliased = Field(default_factory=_Aliased, description="The group.")
+
+            def run(self) -> None:
+                pass
+
+        yield AliasedToy
+
+
+def test_a_field_of_a_group_reports_its_alias_as_a_dotted_path(aliased_flow):
+    by_name = {f["name"]: f for f in settings_info(aliased_flow)["fields"]}
+    assert by_name["aliased.knob"]["alias"] == "aliased.knob_alias"
+    assert by_name["aliased.plain"]["alias"] is None
+    assert by_name["aliased"]["alias"] is None
+
+
+def test_the_dotted_alias_of_a_group_field_is_accepted_as_a_setting(aliased_flow):
+    from xeda.flow_runner.settings_layers import compose_flow_settings
+
+    settings = aliased_flow.Settings.from_input(
+        compose_flow_settings(aliased_flow, [], ["aliased.knob_alias=3"])
+    )
+    assert settings.aliased.knob == 3
+    by_name = {f["name"]: f for f in settings_info(aliased_flow)["fields"]}
+    assert by_name["aliased.knob"]["alias"] == "aliased.knob_alias"
+
+
+@pytest.fixture
+def shared_group_flow(monkeypatch):
+    """A flow with a group that every flow accepts: the group is one of the fields of
+    `Flow.Settings` for the length of the test (the real model is restored afterwards)."""
+    with preserved_flow_registry():
+
+        class SharedGroupToy(Flow):
+            """A flow with a group that every flow accepts, and one of its own."""
+
+            results_description: ClassVar[dict[str, str]] = {}
+
+            class Settings(Flow.Settings):
+                shared: _Outer = Field(default_factory=_Outer, description="Shared group.")
+                own: _Inner = Field(default_factory=_Inner, description="Own group.")
+
+            def run(self) -> None:
+                pass
+
+        monkeypatch.setitem(
+            Flow.Settings.model_fields, "shared", SharedGroupToy.Settings.model_fields["shared"]
+        )
+        yield SharedGroupToy
+
+
+def test_the_entries_of_a_group_that_every_flow_accepts_are_common(shared_group_flow):
+    by_name = {f["name"]: f for f in settings_info(shared_group_flow)["fields"]}
+    shared = [f for name, f in by_name.items() if name.split(".")[0] == "shared"]
+    assert len(shared) == 8 and all(f["common"] for f in shared)
+    own = [f for name, f in by_name.items() if name.split(".")[0] == "own"]
+    assert len(own) == 3 and not any(f["common"] for f in own)
+
+
+def test_no_common_hides_a_group_that_every_flow_accepts(shared_group_flow):
+    result = CliRunner().invoke(cli, ["list-settings", "shared_group_toy", "--json", "--no-common"])
+    assert result.exit_code == 0, result.output
+    names = [f["name"] for f in json.loads(result.stdout)["fields"]]
+    assert "own.enabled" in names
+    assert not [n for n in names if n.split(".")[0] == "shared"]
+
+
+def test_the_agent_reference_does_not_count_a_group_that_every_flow_accepts(shared_group_flow):
+    section = _flow_section(flow_info(shared_group_flow))
+    assert "1 flow-specific settings" in section
+    assert "Group `own`" in section
+    assert "Group `shared`" not in section

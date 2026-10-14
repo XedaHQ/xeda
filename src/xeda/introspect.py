@@ -477,12 +477,14 @@ def _group_class(annotation: Any) -> Optional[type]:
 
 
 def _group_entries(
-    group_class: type[BaseModel], prefix: str, top: str, instance: Optional[BaseModel] = None
+    group_class: type[BaseModel], prefix: str, top: str, common: bool
 ) -> List[Dict[str, Any]]:
     """Return the entries of the fields of a settings group, depth first in declaration order.
 
     `prefix` is the dotted name of the group, and `top` the name of the top-level field that
-    holds it. A field that is a group has an entry of its own, then the entries of its fields."""
+    holds it. `common` is whether that field is accepted by every flow, and so are all the
+    fields of the group. A field that is a group has an entry of its own, then the entries of its
+    fields."""
     schema = group_class.model_json_schema(by_alias=True)
     properties = schema.get("properties", {})
     definitions = schema.get("$defs", {})
@@ -492,16 +494,17 @@ def _group_entries(
         if extra.get("hidden_from_schema") or name.endswith("_"):
             continue
         prop = properties.get(info.alias or name, properties.get(name, {}))
+        alias = f"{prefix}.{info.alias}" if info.alias and info.alias != name else None
         entries.append(
             {
                 "name": f"{prefix}.{name}",
-                "alias": None,
+                "alias": alias,
                 "type": type_str(prop, definitions),
                 "required": False,
                 "default": _default_of(info),
                 "description": info.description or None,
                 "enum": _enum_of(prop, definitions),
-                "common": False,
+                "common": common,
                 "declared_by": _declaring_class(group_class, name),
                 "writes": written_role(group_class, name),
                 "opaque_keys": False,
@@ -512,7 +515,7 @@ def _group_entries(
         )
         sub_group = _group_class(info.annotation)
         if sub_group is not None:
-            entries += _group_entries(sub_group, f"{prefix}.{name}", top)
+            entries += _group_entries(sub_group, f"{prefix}.{name}", top, common)
     return entries
 
 
@@ -558,7 +561,7 @@ def _field_entries(cls: Type[Flow]) -> List[Dict[str, Any]]:
         )
         group_class = _group_class(model_field.annotation)
         if group_class is not None:
-            entries += _group_entries(group_class, name, name)
+            entries += _group_entries(group_class, name, name, name in base_field_names)
     for name, prop in properties.items():
         if name in represented_names or not prop.get("x-xeda-input-only"):
             continue
