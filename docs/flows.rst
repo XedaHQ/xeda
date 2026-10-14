@@ -1286,9 +1286,12 @@ The mapping script
 ------------------
 
 Xeda writes the mapping as a Yosys script (``script_format: ys``) or as a Tcl script
-(``script_format: tcl``). Both hold the same commands in the same order, which follows
-OpenROAD-flow-scripts. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``,
-has every command. The main steps are these:
+(``script_format: tcl``). The list below is the default mapping, in the order of
+OpenROAD-flow-scripts, and both formats hold these commands. The options that need Tcl add or
+replace commands: operator wrapping replaces the fine part of ``synth`` with ``wrap_operators``,
+hierarchical synthesis adds ``keep_hierarchy -min_cost``, and ``abc.mapper: abc_new`` replaces
+``abc``. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``, has every
+command. The main steps are these:
 
 .. code-block:: text
 
@@ -1309,7 +1312,7 @@ has every command. The main steps are these:
     dfflegalize; dfflibmap -liberty <file>            # or the flip-flop map, sequential.dff_map
     techmap -map <map>                                # techmap_files at post_dff
     opt; setundef -zero                               # finish.tie_undefined
-    abc -liberty <file> -D <ps>                       # the logic mapping
+    abc -liberty <file>                               # the logic mapping; -D <ps> with abc.delay_target
     splitnets; opt_clean -purge; hilomap; insbuf
     rmports; autoname; attrmap; check -assert -mapped
     write_verilog                                     # the netlist
@@ -1355,7 +1358,10 @@ settings of one stage, and its common settings are these:
 
 ``abc``
     The logic mapping with ABC: the strategy, the driving cell and the load of the ports, and the
-    delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``.
+    delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
+    mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
+    OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
+    clock; ``abc.delay_target: auto`` does that again.
 
 ``finish``
     The commands after the mapping: the undefined values, the tie and buffer cells, the formal
