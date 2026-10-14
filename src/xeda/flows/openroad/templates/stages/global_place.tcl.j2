@@ -9,10 +9,21 @@
 proc xeda_global_place {} {
     xeda_stage globalplace
 {% if gp.timing_driven.enabled and settings.resize.remove_buffers %}
-    remove_buffers
+{% set patterns = settings.resize.remove_buffers_instances %}
+{% if patterns %}
+    # A pattern that matches no instance leaves the command with no instance, and then it removes
+    # every buffer.
+    foreach pattern {{ patterns|tcl_list }} {
+        if {![llength [get_cells $pattern]]} {
+            error "xeda: resize.remove_buffers_instances names \"$pattern\", which matches no instance, so remove_buffers would remove every buffer"
+        }
+    }
+{% endif %}
+    {{ ["remove_buffers", patterns|map("tcl_word")|join(" ")]|select|join(" ") }}
 {% endif %}
 {% if settings.resize.buffer_ports.enabled %}
-    buffer_ports
+{% set ports = settings.resize.buffer_ports %}
+    {{ ["buffer_ports", "-inputs" if ports.inputs and not ports.outputs else "", "-outputs" if ports.outputs and not ports.inputs else "", render_flags(ports), render_flags(settings.resize)]|select|join(" ") }}
 {% endif %}
 {% for cluster in gp.clusters %}
     placement_cluster {{ cluster|tcl_list }}

@@ -734,6 +734,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "report_design_area_metrics",
     "report_units_metric",
     "get_lib_cell",
+    "get_cells",
     "get_property",
     "get_name",
     "ord::get_db",

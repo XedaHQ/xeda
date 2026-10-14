@@ -30,10 +30,12 @@ __all__ = [
     "FloorplanRepairTiming",
     "FlopClusteringGroup",
     "GlobalPlacementGroup",
+    "GlobalSizingGroup",
     "ImproveGroup",
     "InitialPlaceGroup",
     "IoGroup",
     "NesterovGroup",
+    "OptConfigGroup",
     "PdnCheckGroup",
     "NetlistCleanupGroup",
     "PdnGroup",
@@ -43,6 +45,7 @@ __all__ = [
     "PinLengthGroup",
     "PinThicknessGroup",
     "PlaceRepairTiming",
+    "PresizeMode",
     "ResizeGroup",
     "RoutabilityDrivenGroup",
     "RoutingGroup",
@@ -1813,8 +1816,14 @@ class GlobalPlacementGroup(SettingsGroup):
         return []
 
 
+#: How the global sizing starts (`set_global_sizing_config -presize_mode`).
+PresizeMode = Literal["disabled", "min_size_max_vt", "max_size_min_vt"]
+
+
 class BufferPortsGroup(SettingsGroup):
-    """The buffers between the ports of the design and its logic."""
+    """The buffers between the ports of the design and its logic (`buffer_ports`)."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("cell", "-buffer_cell", "value"),)
 
     enabled: bool = Field(
         True,
@@ -1822,10 +1831,204 @@ class BufferPortsGroup(SettingsGroup):
         "drive it (`buffer_ports`). OpenROAD-flow-scripts runs it.",
         json_schema_extra=tier("common"),
     )
+    inputs: bool = Field(
+        True,
+        description="Buffer the input ports. The command gets neither `-inputs` nor `-outputs` "
+        "when both are true, and it buffers both then. The flow gives `-inputs` when only this "
+        "one is true.",
+        json_schema_extra=tier("common"),
+    )
+    outputs: bool = Field(
+        True,
+        description="Buffer the output ports. The flow gives `-outputs` when only this one is "
+        "true.",
+        json_schema_extra=tier("common"),
+    )
+    cell: Optional[str] = Field(
+        None,
+        min_length=1,
+        description="The buffer that the command puts at the ports (`-buffer_cell`). The cell "
+        "must be a buffer, or the tool stops with RSZ-0211. Unset: the tool chooses the buffer.",
+        json_schema_extra=tier("advanced"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse a group that is on and buffers neither the inputs nor the outputs."""
+        if self.inputs or self.outputs:
+            return []
+        return [
+            (
+                f"{key}.outputs",
+                f"`{key}` buffers neither the inputs nor the outputs: set "
+                f"`{key}.enabled: false` to buffer no port, or set `{key}.inputs` or "
+                f"`{key}.outputs` to true",
+            )
+        ]
+
+
+class OptConfigGroup(SettingsGroup):
+    """The options of the resizer that limit the sizing (`set_opt_config`).
+
+    The database stores them, so `openroad_cts` and `openroad_grt` size under the same limits. This
+    flow is the only one that sets them. The flow sets them at the start, before the first
+    command that sizes.
+
+    The flow prints the booleans itself, since the command takes `true` or `false` as their
+    value, and `render_flags` prints no such value."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("limit_sizing_area", "-limit_sizing_area", "value"),
+        Flag("limit_sizing_leakage", "-limit_sizing_leakage", "value"),
+        Flag("early_sizing_cap_ratio", "-set_early_sizing_cap_ratio", "value"),
+        Flag("early_buffer_sizing_cap_ratio", "-set_early_buffer_sizing_cap_ratio", "value"),
+    )
+
+    limit_sizing_area: Optional[Positive] = Field(
+        None,
+        description="Leave a cell out of the sizing when its area is above this multiple of the "
+        "area of the cell it would replace (`-limit_sizing_area`). The area comes from the LEF "
+        "files. Unset: no limit.",
+        json_schema_extra=tier("advanced"),
+    )
+    limit_sizing_leakage: Optional[Positive] = Field(
+        None,
+        description="Leave a cell out of the sizing when its leakage power is above this "
+        "multiple of the leakage of the cell it would replace (`-limit_sizing_leakage`). The "
+        "leakage is that of the corner of the flow. Unset: no limit.",
+        json_schema_extra=tier("advanced"),
+    )
+    keep_sizing_site: bool = Field(
+        False,
+        description="Keep the site type of a cell when the resizer sizes it, so that a short "
+        "cell never becomes a tall cell and the other way round (`-keep_sizing_site`). It "
+        "matters for designs with rows of different heights.",
+        json_schema_extra=tier("advanced"),
+    )
+    keep_sizing_vt: bool = Field(
+        False,
+        description="Keep the threshold voltage class of a cell when the resizer sizes it "
+        "(`-keep_sizing_vt`). The tool tells the classes apart only where the LEF files define "
+        "the layers of the classes in their obstructions.",
+        json_schema_extra=tier("advanced"),
+    )
+    early_sizing_cap_ratio: Optional[Positive] = Field(
+        None,
+        description="The ratio of the input pin capacitance to the output load that the first "
+        "sizing of the gates keeps (`-set_early_sizing_cap_ratio`). OpenROAD-flow-scripts sets it "
+        "from `EARLY_SIZING_CAP_RATIO`. Unset: the default of the tool.",
+        json_schema_extra=tier("advanced"),
+    )
+    early_buffer_sizing_cap_ratio: Optional[Positive] = Field(
+        None,
+        description="The same ratio for the first sizing of the buffers "
+        "(`-set_early_buffer_sizing_cap_ratio`). Unset: the default of the tool.",
+        json_schema_extra=tier("advanced"),
+    )
+    disable_buffer_pruning: bool = Field(
+        False,
+        description="Keep all buffers as candidates, delay cells and slow buffers too, which "
+        "helps the hold repair (`-disable_buffer_pruning`). Then every setup repair that may "
+        "use the `vt_swap` move stops OpenROAD with a segmentation fault, also with a library "
+        "that has no such cells. It was seen with the image `openroad/orfs:26Q4-132-g6b305a712` "
+        "and with a local build. That includes the cleanup of the netlist at the floorplan. To "
+        "avoid it, set "
+        "`floorplan.netlist_cleanup.mode: none`, and `moves.vt_swap: false` in each other "
+        "`repair_timing` call that repairs setup. The hold repair and `repair_design` are not "
+        "affected.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class GlobalSizingGroup(SettingsGroup):
+    """The options of the global sizing (`set_global_sizing_config`), a repair that sizes all
+    gates together with Lagrangian relaxation.
+
+    They act on a `repair_timing` with the phase `GLOBAL_SIZING`, in this flow and in the flows
+    after it, since the database stores them. This flow is the only one that sets them. The tool
+    advises to leave all but the first two at their defaults.
+
+    The flow prints `include_clock_network` and `setup_slack_margin` itself. The first takes
+    `true` or `false` as its value. The second is a time that the command takes in seconds."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("presize_mode", "-presize_mode", "value"),
+        Flag("max_iterations", "-max_iterations", "value"),
+        Flag("beta", "-beta", "value"),
+        Flag("mu_exponent", "-mu_exponent", "value"),
+        Flag("lambda_floor", "-lambda_floor", "value"),
+        Flag("timing_bias", "-timing_bias", "value"),
+        Flag("budget_safety_factor", "-budget_safety_factor", "value"),
+    )
+
+    presize_mode: Optional[PresizeMode] = Field(
+        None,
+        description="How the global sizing starts (`-presize_mode`): `disabled` keeps the cells, "
+        "`min_size_max_vt` replaces every cell with its equivalent of the smallest leakage, and "
+        "`max_size_min_vt` with its equivalent of the largest leakage. Unset: `disabled`.",
+        json_schema_extra=tier("expert"),
+    )
+    include_clock_network: bool = Field(
+        False,
+        description="Let the global sizing size the instances of the clock network "
+        "(`-include_clock_network`). Off, it leaves them alone.",
+        json_schema_extra=tier("expert"),
+    )
+    setup_slack_margin: Optional[Finite] = Field(
+        None,
+        description="The worst setup slack at which the global sizing stops, as a time in "
+        "nanoseconds (`-setup_slack_margin`). The command takes seconds, and not the time unit "
+        "of the Liberty files as the margins of `repair_timing` do, so the flow converts the "
+        "value. Unset: 0.",
+        json_schema_extra=tier("expert"),
+    )
+    max_iterations: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most outer iterations of the Lagrangian relaxation "
+        "(`-max_iterations`). Unset: the default of the tool, 20.",
+        json_schema_extra=tier("expert"),
+    )
+    beta: Optional[Positive] = Field(
+        None,
+        description="The step size of the update of the multipliers (`-beta`). Unset: the "
+        "default of the tool, 0.6.",
+        json_schema_extra=tier("expert"),
+    )
+    mu_exponent: Optional[Positive] = Field(
+        None,
+        description="The exponent that seeds the multipliers of the endpoints "
+        "(`-mu_exponent`). Unset: the default of the tool, 2.0.",
+        json_schema_extra=tier("expert"),
+    )
+    lambda_floor: Optional[Positive] = Field(
+        None,
+        description="The lowest value of a multiplier, so that an arc that no path uses can "
+        "come back (`-lambda_floor`). Unset: the default of the tool, 1e-12.",
+        json_schema_extra=tier("expert"),
+    )
+    timing_bias: Optional[Positive] = Field(
+        None,
+        description="The balance between the pressure of the timing and the cost of the "
+        "leakage, without a unit (`-timing_bias`). Unset: the default of the tool, 64.0.",
+        json_schema_extra=tier("expert"),
+    )
+    budget_safety_factor: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1,
+        allow_inf_nan=False,
+        description="A factor of at most 1 on the budget that each gate gets for sizing down "
+        "(`-budget_safety_factor`). Unset: the default of the tool, 1.0.",
+        json_schema_extra=tier("expert"),
+    )
 
 
 class ResizeGroup(SettingsGroup):
     """The optimization of the design after the global placement."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("max_utilization_percent", "-max_utilization", "value"),
+    )
 
     remove_buffers: bool = Field(
         True,
@@ -1833,6 +2036,15 @@ class ResizeGroup(SettingsGroup):
         "(`remove_buffers`), so that the repair chooses the buffering. Needs "
         "`global_placement.timing_driven.enabled`: OpenROAD-flow-scripts removes the buffers "
         "only with the timing-driven placement, and so does this flow.",
+        json_schema_extra=tier("advanced"),
+    )
+    remove_buffers_instances: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="Remove only the buffers that these instances name (`remove_buffers`), each "
+        "a name or a glob pattern. The command then removes them even when they are fixed or "
+        "marked not to touch, and it never removes a buffer between an input port and an output "
+        "port. A pattern that matches no instance stops the flow, since the command would "
+        "remove every buffer. Empty: remove every buffer that is not fixed and not marked.",
         json_schema_extra=tier("advanced"),
     )
     buffer_ports: BufferPortsGroup = Field(
@@ -1848,6 +2060,38 @@ class ResizeGroup(SettingsGroup):
         description="The call of `repair_timing` after the placement. It repairs setup and "
         "hold.",
     )
+    max_utilization_percent: Optional[float] = Field(
+        None,
+        gt=0,
+        le=100,
+        allow_inf_nan=False,
+        description="Stop the resizer when the cells fill this share of the core area, in "
+        "percent (`-max_utilization`). It acts on `buffer_ports`, `repair_design` and "
+        "`repair_timing` of this stage. Unset: no limit.",
+        json_schema_extra=tier("advanced"),
+    )
+    opt_config: OptConfigGroup = Field(
+        default_factory=OptConfigGroup,
+        description="The limits of the sizing. The database keeps them for the later flows.",
+    )
+    global_sizing: GlobalSizingGroup = Field(
+        default_factory=GlobalSizingGroup,
+        description="The options of the global sizing. The database keeps them for the later "
+        "flows.",
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse buffers to remove while the stage removes none."""
+        if self.remove_buffers or not self.remove_buffers_instances:
+            return []
+        return [
+            (
+                f"{key}.remove_buffers_instances",
+                f"`{key}.remove_buffers_instances` has no effect with `{key}.remove_buffers: "
+                f"false`: set `{key}.remove_buffers: true` or delete "
+                f"`{key}.remove_buffers_instances`",
+            )
+        ]
 
 
 class ArithSwapGroup(SettingsGroup):

@@ -1,12 +1,25 @@
 {# The floorplan: the size of the die, the tracks, the routing layers, the tie cells and the cleanup
    of the netlist. The routing layers and the capacity of each layer stay in the database, so no
-   later flow sets them again. #}
+   later flow sets them again. The limits of the sizing and the options of the global sizing stay
+   there too. They come first, so that every command that sizes sees them, and the netlist
+   cleanup is the first one. The commands take the booleans as `true` or `false`, and the margin
+   of the global sizing in seconds. #}
 {% set dsn = settings.design %}
 {% set fp = settings.floorplan %}
+{% set oc = settings.resize.opt_config %}
+{% set gs = settings.resize.global_sizing %}
+{% set opt_words = [render_flags(oc), "-keep_sizing_site true" if oc.keep_sizing_site else "", "-keep_sizing_vt true" if oc.keep_sizing_vt else "", "-disable_buffer_pruning true" if oc.disable_buffer_pruning else ""]|select|list %}
+{% set sizing_words = [render_flags(gs), "-include_clock_network true" if gs.include_clock_network else "", ("-setup_slack_margin " ~ (gs.setup_slack_margin|seconds)) if gs.setup_slack_margin is not none else ""]|select|list %}
 {% set repair = settings.floorplan.netlist_cleanup.repair %}
 {% set footprint = P.match_cell_footprint if repair.match_cell_footprint is none else repair.match_cell_footprint %}
 proc xeda_floorplan {} {
     xeda_stage synth
+{% if opt_words %}
+    set_opt_config {{ opt_words|join(" ") }}
+{% endif %}
+{% if sizing_words %}
+    set_global_sizing_config {{ sizing_words|join(" ") }}
+{% endif %}
 {% if dsn.eliminate_dead_logic %}
     eliminate_dead_logic
 {% endif %}

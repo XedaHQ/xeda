@@ -466,7 +466,8 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse what the groups cannot judge alone. The swap of arithmetic modules needs the
-        hierarchy of the design. A floorplan from a DEF file keeps the pins of the file, so a
+        hierarchy of the design. The buffers to remove need the timing-driven placement, and the
+        limit of the utilization needs a command of the resize stage that reads it. A floorplan from a DEF file keeps the pins of the file, so a
         setting for the placement of the pins has no effect. Pins that stay need a DEF file or
         pins placed by hand. A platform that gives no density or
         no pin layer, and cannot get one, needs the setting. This reads the settings and the
@@ -485,6 +486,27 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
                 "`arith_swap.enabled` swaps the arithmetic modules of a hierarchical netlist, "
                 "and `hierarchical` is false: set `hierarchical: true` or delete "
                 "`arith_swap.enabled`",
+            )
+        resize = settings.resize
+        if resize.remove_buffers_instances and not settings.global_placement.timing_driven.enabled:
+            refuse(
+                "resize.remove_buffers_instances",
+                "`resize.remove_buffers_instances` names buffers to remove before the "
+                "timing-driven placement, and `global_placement.timing_driven.enabled` is "
+                "false, so the flow removes none: set "
+                "`global_placement.timing_driven.enabled: true` or delete "
+                "`resize.remove_buffers_instances`",
+            )
+        if resize.max_utilization_percent is not None and not (
+            resize.buffer_ports.enabled
+            or resize.repair_design.enabled
+            or resize.repair_timing.enabled
+        ):
+            refuse(
+                "resize.max_utilization_percent",
+                "`resize.max_utilization_percent` has no effect: it limits `buffer_ports`, "
+                "`repair_design` and `repair_timing`, and the resize stage runs none of them. "
+                "Enable one of them or delete `resize.max_utilization_percent`",
             )
         if settings.floorplan.sizing == "def" and settings.io.flow == "skip_io_pass":
             for leaf in differing_leaves(settings.io, "io"):

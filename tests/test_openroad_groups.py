@@ -110,7 +110,10 @@ def test_every_fix_stands_for_the_checks_it_repairs(fix):
     [
         ("pin_swap", "-skip_pin_swap"),
         ("gate_cloning", "-skip_gate_cloning"),
+        ("size_down_fanout", "-skip_size_down"),
+        ("buffering", "-skip_buffering"),
         ("buffer_removal", "-skip_buffer_removal"),
+        ("buffer_to_inverters", "-skip_buffer_to_inverters"),
         ("vt_swap", "-skip_vt_swap"),
         ("crit_vt_swap", "-skip_crit_vt_swap"),
     ],
@@ -132,6 +135,42 @@ def test_the_values_of_repair_timing_print_with_their_flags():
     )
     words = render(timing)
     assert '-repair_tns "40.0"' in words and '-max_buffer_percent "30.0"' in words
+
+
+def test_the_limits_and_the_switches_of_repair_timing_print_with_their_flags():
+    timing = groups.RepairTiming(
+        allow_setup_violations=True,
+        crpr=False,
+        max_iterations=5,
+        max_passes=20,
+        max_repairs_per_pass=3,
+    )
+    assert render(timing) == (
+        '-allow_setup_violations -repair_tns "100.0" -skip_crpr -max_iterations "5" '
+        '-max_passes "20" -max_repairs_per_pass "3"'
+    )
+    assert render(groups.RepairTiming(recover_power_percent=25)) == (
+        '-repair_tns "100.0" -recover_power "25.0"'
+    )
+    default = render(groups.RepairTiming())
+    for flag in ("-allow_setup_violations", "-skip_crpr", "-max_", "-recover_power"):
+        assert flag not in default
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("recover_power_percent", 0),
+        ("recover_power_percent", 100.5),
+        ("max_iterations", 0),
+        ("max_iterations", -1),
+        ("max_passes", 0),
+        ("max_repairs_per_pass", 0),
+    ],
+)
+def test_repair_timing_refuses_a_limit_out_of_range(name, value):
+    with pytest.raises(Exception, match=name):
+        groups.RepairTiming(**{name: value})
 
 
 def test_the_margins_are_in_nanoseconds_and_the_template_renders_them():
@@ -202,6 +241,15 @@ def test_repair_design_prints_its_margins_and_its_wire_length():
     assert render(design) == ('-max_wire_length "300.0" -slew_margin "20.0" -cap_margin "10.0"')
 
 
+def test_repair_design_prints_its_switches():
+    assert render(groups.RepairDesign(pre_placement=True)) == (
+        '-slew_margin "0.0" -cap_margin "0.0" -pre_placement'
+    )
+    assert render(groups.RepairDesign(reroute=True)) == (
+        '-slew_margin "0.0" -cap_margin "0.0" -reroute'
+    )
+
+
 @pytest.mark.parametrize("name, value", [("slew_margin_percent", 100), ("cap_margin_percent", -1)])
 def test_repair_design_refuses_a_margin_out_of_range(name, value):
     with pytest.raises(Exception, match=name):
@@ -237,6 +285,82 @@ def refusal_cases() -> Sequence[tuple[str, tuple[str, ...], str]]:
             "vt_swap and the VT swap",
             ("repair.sequence=vt_swap", "repair.moves.vt_swap=false"),
             "`repair.moves.vt_swap` is false",
+        ),
+        (
+            "buffer and the buffering",
+            ("repair.sequence=buffer", "repair.moves.buffering=false"),
+            "`repair.sequence` names `buffer`, and `repair.moves.buffering` is false",
+        ),
+        (
+            "split and the buffering",
+            ("repair.sequence=split", "repair.moves.buffering=false"),
+            "`repair.sequence` names `split`, and `repair.moves.buffering` is false",
+        ),
+        (
+            "size_down_fanout and its switch",
+            ("repair.sequence=size_down_fanout", "repair.moves.size_down_fanout=false"),
+            "`repair.sequence` names `size_down_fanout`, and `repair.moves.size_down_fanout` is",
+        ),
+        (
+            "size, which holds the size down",
+            ("repair.sequence=size", "repair.moves.size_down_fanout=false"),
+            "`repair.sequence` names `size`, and `repair.moves.size_down_fanout` is false",
+        ),
+        (
+            "buffer_to_inverters and its switch",
+            ("repair.sequence=buffer_to_inverters", "repair.moves.buffer_to_inverters=false"),
+            "`repair.moves.buffer_to_inverters` is false",
+        ),
+        (
+            "the last gasp phase and the last gasp switch",
+            ("repair.phases=LEGACY,LAST_GASP", "repair.last_gasp=false"),
+            "`repair.phases` names `LAST_GASP`, and `repair.last_gasp` is false",
+        ),
+        (
+            "the critical swap phase and its switch",
+            ("repair.phases=CRIT_VT_SWAP", "repair.moves.crit_vt_swap=false"),
+            "`repair.phases` names `CRIT_VT_SWAP`, and `repair.moves.crit_vt_swap` is false",
+        ),
+        (
+            "the critical swap phase and the VT swap switch",
+            ("repair.phases=CRIT_VT_SWAP", "repair.moves.vt_swap=false"),
+            "`repair.phases` names `CRIT_VT_SWAP`, and `repair.moves.vt_swap` is false",
+        ),
+        (
+            "repairs per pass with fix: hold",
+            ("repair.fix=hold", "repair.max_repairs_per_pass=2"),
+            "`repair.max_repairs_per_pass` repairs setup, and `repair.fix` is `hold`",
+        ),
+        (
+            "setup violations allowed with fix: setup",
+            ("repair.fix=setup", "repair.allow_setup_violations=true"),
+            "`repair.allow_setup_violations` repairs hold, and `repair.fix` is `setup`",
+        ),
+        (
+            "a power recovery with a fix",
+            ("repair.recover_power_percent=20", "repair.fix=setup"),
+            "`repair.recover_power_percent` recovers power instead of repairing setup and hold, "
+            "so `repair.fix` has no effect",
+        ),
+        (
+            "a power recovery with a margin",
+            ("repair.recover_power_percent=20", "repair.setup_margin=0.1"),
+            "so `repair.setup_margin` has no effect",
+        ),
+        (
+            "a power recovery with a sequence",
+            ("repair.recover_power_percent=20", "repair.sequence=sizeup"),
+            "so `repair.sequence` has no effect",
+        ),
+        (
+            "a power recovery with a move switch",
+            ("repair.recover_power_percent=20", "repair.moves.pin_swap=false"),
+            "so `repair.moves.pin_swap` has no effect",
+        ),
+        (
+            "a power recovery with the limit of the hold buffers",
+            ("repair.recover_power_percent=20", "repair.max_buffer_percent=30"),
+            "so `repair.max_buffer_percent` has no effect",
         ),
         (
             "a sequence that no phase reads",
@@ -301,6 +425,23 @@ def refusal_cases() -> Sequence[tuple[str, tuple[str, ...], str]]:
 )
 def test_repair_timing_refuses_a_combination_that_cannot_work(items, text):
     assert text in refused(OpenroadCts, *items)
+
+
+def test_a_power_recovery_keeps_the_footprint_and_the_defaults_of_everything_else():
+    assert problems(OpenroadCts, "repair.recover_power_percent=20") == []
+    assert (
+        problems(OpenroadCts, "repair.recover_power_percent=20", "repair.match_cell_footprint=true")
+        == []
+    )
+
+
+def test_repair_design_may_not_reroute_before_the_global_route():
+    key = "resize.repair_design"
+    message = refused(OpenroadPlace, f"{key}.reroute=true")
+    assert (
+        f"`{key}.reroute` needs the parasitics of a global route, and this call runs "
+        f"before global routing: delete `{key}.reroute`"
+    ) in message
 
 
 def test_the_setup_margin_stays_allowed_with_fix_hold():
@@ -536,6 +677,28 @@ PLACE_REFUSALS = [
         "global_placement.nesterov.max_phi_coef=1.0",
         "`global_placement.nesterov.min_phi_coef` is 1.2, above",
     ),
+    (
+        "resize.buffer_ports.inputs=false",
+        "resize.buffer_ports.outputs=false",
+        "`resize.buffer_ports` buffers neither the inputs nor the outputs: set "
+        "`resize.buffer_ports.enabled: false` to buffer no port",
+    ),
+    (
+        "resize.buffer_ports.enabled=false",
+        "resize.buffer_ports.cell=BUF_X2",
+        "`resize.buffer_ports.cell` has no effect while `resize.buffer_ports.enabled` is false",
+    ),
+    (
+        "resize.remove_buffers=false",
+        "resize.remove_buffers_instances=u1",
+        "`resize.remove_buffers_instances` has no effect with `resize.remove_buffers: false`",
+    ),
+    (
+        "resize.repair_design.enabled=false",
+        "resize.repair_design.pre_placement=true",
+        "`resize.repair_design.pre_placement` has no effect while "
+        "`resize.repair_design.enabled` is false",
+    ),
 ]
 
 
@@ -579,6 +742,21 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         "global_placement.density.value=1.5",
         "global_placement.density.headroom=1",
         "global_placement.cell_padding=-1",
+        "resize.max_utilization_percent=0",
+        "resize.max_utilization_percent=100.5",
+        "resize.opt_config.limit_sizing_area=0",
+        "resize.opt_config.limit_sizing_leakage=-1",
+        "resize.opt_config.early_sizing_cap_ratio=0",
+        "resize.opt_config.early_buffer_sizing_cap_ratio=-2",
+        "resize.opt_config.keep_sizing_site=maybe",
+        "resize.global_sizing.presize_mode=Disabled",
+        "resize.global_sizing.max_iterations=0",
+        "resize.global_sizing.beta=0",
+        "resize.global_sizing.mu_exponent=-1",
+        "resize.global_sizing.lambda_floor=0",
+        "resize.global_sizing.timing_bias=0",
+        "resize.global_sizing.budget_safety_factor=1.5",
+        "resize.global_sizing.budget_safety_factor=0",
         {"detailed_placement.improve.max_displacement": [5]},
         {"detailed_placement.improve.max_displacement": [5, -1]},
         "detailed_placement.check=warn",
@@ -640,6 +818,52 @@ def test_the_flags_of_the_global_placement_groups():
     assert render(settings) == '-random_seed "7"'
 
 
+def test_the_flags_of_the_resize_groups():
+    resize = OpenroadPlace.Settings().resize
+    assert render(resize) == ""
+    assert render(resize.buffer_ports) == ""
+    assert render(resize.opt_config) == ""
+    assert render(resize.global_sizing) == ""
+    settings = settings_of(
+        OpenroadPlace,
+        "resize.max_utilization_percent=80",
+        "resize.buffer_ports.cell=BUF_X2",
+        "resize.opt_config.limit_sizing_area=2",
+        "resize.opt_config.limit_sizing_leakage=3",
+        "resize.opt_config.early_sizing_cap_ratio=2.5",
+        "resize.opt_config.early_buffer_sizing_cap_ratio=3.5",
+        "resize.global_sizing.presize_mode=min_size_max_vt",
+        "resize.global_sizing.max_iterations=7",
+        "resize.global_sizing.beta=0.5",
+        "resize.global_sizing.mu_exponent=1.5",
+        "resize.global_sizing.lambda_floor=1e-10",
+        "resize.global_sizing.timing_bias=10",
+        "resize.global_sizing.budget_safety_factor=0.9",
+    ).resize
+    assert render(settings) == '-max_utilization "80.0"'
+    assert render(settings.buffer_ports) == '-buffer_cell "BUF_X2"'
+    assert render(settings.opt_config) == (
+        '-limit_sizing_area "2.0" -limit_sizing_leakage "3.0" '
+        '-set_early_sizing_cap_ratio "2.5" -set_early_buffer_sizing_cap_ratio "3.5"'
+    )
+    assert render(settings.global_sizing) == (
+        '-presize_mode "min_size_max_vt" -max_iterations "7" -beta "0.5" -mu_exponent "1.5" '
+        '-lambda_floor "1e-10" -timing_bias "10.0" -budget_safety_factor "0.9"'
+    )
+
+
+def test_the_resize_options_that_take_a_value_of_their_own_are_no_flags():
+    """The booleans of `set_opt_config` and `set_global_sizing_config` take `true` or `false` as a
+    value, and the global sizing margin is in seconds. `render_flags` prints neither, so the
+    template does."""
+    resize = OpenroadPlace.Settings().resize
+    for group, names in (
+        (resize.opt_config, {"keep_sizing_site", "keep_sizing_vt", "disable_buffer_pruning"}),
+        (resize.global_sizing, {"include_clock_network", "setup_slack_margin"}),
+    ):
+        assert not {flag.field for flag in type(group).FLAGS} & names
+
+
 def test_the_flags_of_the_pin_placement_and_the_tie_cells():
     io = settings_of(OpenroadPlace, "io.min_distance=4", "io.corner_avoidance=2.5").io
     assert render(io) == '-corner_avoidance "2.5"'  # the flow prints `min_distance` itself
@@ -666,6 +890,18 @@ def test_the_defaults_of_the_placement_are_the_stage_defaults():
     assert place.global_placement.timing_driven.enabled is True
     assert place.global_placement.routability_driven.enabled is True
     assert place.resize.remove_buffers is True and place.resize.buffer_ports.enabled is True
+    assert (place.resize.remove_buffers_instances, place.resize.max_utilization_percent) == (
+        [],
+        None,
+    )
+    assert (place.resize.buffer_ports.inputs, place.resize.buffer_ports.outputs) == (True, True)
+    assert place.resize.buffer_ports.cell is None
+    assert not [
+        leaf
+        for group in (place.resize.opt_config, place.resize.global_sizing)
+        for leaf, value in dict(group).items()
+        if value not in (None, False)
+    ]
     assert place.arith_swap.enabled is False
     detail = place.detailed_placement
     assert (detail.cell_padding, detail.mirroring, detail.check) == (0, True, "fail")
@@ -1160,6 +1396,29 @@ INSTALLED_HELP = {
         "-reroute",
         "-verbose",
     },
+    "buffer_ports": {"-inputs", "-outputs", "-max_utilization", "-buffer_cell", "-verbose"},
+    "set_opt_config": {
+        "-limit_sizing_area",
+        "-limit_sizing_leakage",
+        "-keep_sizing_site",
+        "-keep_sizing_vt",
+        "-sizing_area_limit",
+        "-sizing_leakage_limit",
+        "-set_early_sizing_cap_ratio",
+        "-set_early_buffer_sizing_cap_ratio",
+        "-disable_buffer_pruning",
+    },
+    "set_global_sizing_config": {
+        "-presize_mode",
+        "-include_clock_network",
+        "-setup_slack_margin",
+        "-max_iterations",
+        "-beta",
+        "-mu_exponent",
+        "-lambda_floor",
+        "-timing_bias",
+        "-budget_safety_factor",
+    },
     "repair_antennas": {
         "-iterations",
         "-ratio_margin",
@@ -1320,5 +1579,19 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
         f.flag
         for f in place["detailed_placement"].annotation.model_fields["improve"].annotation.FLAGS
     } <= INSTALLED_HELP["improve_placement"]
+    resize = place["resize"].annotation
+    shared = INSTALLED_HELP["buffer_ports"] & INSTALLED_HELP["repair_design"]
+    assert {f.flag for f in resize.FLAGS} <= shared & INSTALLED_HELP["repair_timing"]
+    ports = resize.model_fields["buffer_ports"].annotation
+    assert {f.flag for f in ports.FLAGS} | {"-inputs", "-outputs"} <= INSTALLED_HELP["buffer_ports"]
+    sizing = resize.model_fields["opt_config"].annotation
+    # the flow prints the three booleans itself
+    by_hand = {"-keep_sizing_site", "-keep_sizing_vt", "-disable_buffer_pruning"}
+    assert {f.flag for f in sizing.FLAGS} | by_hand <= INSTALLED_HELP["set_opt_config"]
+    global_sizing = resize.model_fields["global_sizing"].annotation
+    by_hand = {"-include_clock_network", "-setup_slack_margin"}
+    assert {f.flag for f in global_sizing.FLAGS} | by_hand <= INSTALLED_HELP[
+        "set_global_sizing_config"
+    ]
     route = Openroad.Settings.model_fields["detailed_route"].annotation
     assert {f.flag for f in route.FLAGS} <= INSTALLED_HELP["detailed_route"]

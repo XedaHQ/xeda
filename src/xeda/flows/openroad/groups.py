@@ -74,13 +74,30 @@ SEQUENCE_PHASES = frozenset(
 )
 
 #: The moves of a sequence that a `-skip_*` flag removes, by the leaf of `RepairMoves` that
-#: keeps the move. The other moves have no such flag.
+#: keeps the move. The other moves (`sizeup`, `sizeup_match` and `reroute`) have no such flag.
+#: `size` stands for `sizeup` and `size_down_fanout`, so its switch drops half of it.
 _MOVE_SWITCHES = {
+    "buffer": "buffering",
     "unbuffer": "buffer_removal",
     "swap": "pin_swap",
+    "size_down_fanout": "size_down_fanout",
+    "size": "size_down_fanout",
     "clone": "gate_cloning",
+    "split": "buffering",
     "vt_swap": "vt_swap",
+    "buffer_to_inverters": "buffer_to_inverters",
 }
+
+#: The phases that a switch of `RepairTiming` drops from `-phases`, by the dotted names of the
+#: leaves that keep the phase. The critical swap of the threshold voltage needs the swap too.
+_PHASE_SWITCHES = {
+    "LAST_GASP": ("last_gasp",),
+    "CRIT_VT_SWAP": ("moves.crit_vt_swap", "moves.vt_swap"),
+}
+
+#: The leaves of `RepairTiming` that a power recovery reads. The tool ignores every other leaf of
+#: the call when `recover_power_percent` is set.
+_RECOVERY_LEAVES = frozenset({"enabled", "match_cell_footprint", "recover_power_percent"})
 
 
 def comma_word(items: Sequence[Any]) -> str:
@@ -116,7 +133,10 @@ class RepairMoves(SettingsGroup):
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("pin_swap", "-skip_pin_swap", "skip"),
         Flag("gate_cloning", "-skip_gate_cloning", "skip"),
+        Flag("size_down_fanout", "-skip_size_down", "skip"),
+        Flag("buffering", "-skip_buffering", "skip"),
         Flag("buffer_removal", "-skip_buffer_removal", "skip"),
+        Flag("buffer_to_inverters", "-skip_buffer_to_inverters", "skip"),
         Flag("vt_swap", "-skip_vt_swap", "skip"),
         Flag("crit_vt_swap", "-skip_crit_vt_swap", "skip"),
     )
@@ -133,11 +153,32 @@ class RepairMoves(SettingsGroup):
         "`-skip_gate_cloning`, since cloning adds cells.",
         json_schema_extra=tier("advanced"),
     )
+    size_down_fanout: bool = Field(
+        True,
+        description="Allow the move that sizes down the gates on a net with many loads, off the "
+        "critical path. False adds `-skip_size_down`. The default sequence of the tool does not "
+        "use this move, so the switch matters only when `sequence` names `size_down_fanout` or "
+        "`size`.",
+        json_schema_extra=tier("advanced"),
+    )
+    buffering: bool = Field(
+        True,
+        description="Allow the moves that buffer a net again (`buffer`) and that split off the "
+        "loads behind a buffer (`split`). False adds `-skip_buffering`.",
+        json_schema_extra=tier("advanced"),
+    )
     buffer_removal: bool = Field(
         True,
         description="Allow the move that removes a buffer from a critical path. False adds "
         "`-skip_buffer_removal`.",
         json_schema_extra=tier("advanced"),
+    )
+    buffer_to_inverters: bool = Field(
+        True,
+        description="Allow the move that replaces a buffer with two inverters. False adds "
+        "`-skip_buffer_to_inverters`. The default sequence of the tool does not use this move, "
+        "so the switch matters only when `sequence` names `buffer_to_inverters`.",
+        json_schema_extra=tier("expert"),
     )
     vt_swap: bool = Field(
         True,
@@ -168,14 +209,21 @@ class RepairTiming(SettingsGroup):
 
     `ALLOWS_REROUTE` says whether the instance may use the `reroute` move and the `REROUTE`
     phase. Both need the parasitics of a global route, so only the call after global routing sets
-    it."""
+    it. A call with `recover_power_percent` recovers power and does nothing else, so its other
+    leaves keep their defaults."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("allow_setup_violations", "-allow_setup_violations", "switch"),
         Flag("sequence", "-sequence", "list"),
         Flag("phases", "-phases", "list"),
         Flag("tns_end_percent", "-repair_tns", "value"),
         Flag("last_gasp", "-skip_last_gasp", "skip"),
+        Flag("crpr", "-skip_crpr", "skip"),
         Flag("max_buffer_percent", "-max_buffer_percent", "value"),
+        Flag("max_iterations", "-max_iterations", "value"),
+        Flag("max_passes", "-max_passes", "value"),
+        Flag("max_repairs_per_pass", "-max_repairs_per_pass", "value"),
+        Flag("recover_power_percent", "-recover_power", "value"),
     )
     ALLOWS_REROUTE: ClassVar[bool] = False
 
@@ -207,6 +255,13 @@ class RepairTiming(SettingsGroup):
         "the one of the tool and of OpenROAD-flow-scripts. Not with `fix: setup`.",
         json_schema_extra=tier("common"),
     )
+    allow_setup_violations: bool = Field(
+        False,
+        description="Let the hold repair insert buffers that cause setup violations "
+        "(`-allow_setup_violations`). Without it, the repair inserts none of them. Not with "
+        "`fix: setup`.",
+        json_schema_extra=tier("advanced"),
+    )
     tns_end_percent: float = Field(
         100.0,
         ge=0,
@@ -226,8 +281,9 @@ class RepairTiming(SettingsGroup):
     phases: list[RepairPhase] = Field(
         [],
         description="The phases of the setup repair, in order (`-phases`). Empty: the default "
-        "phases of the tool. `REROUTE` needs the parasitics of a global route. Not with `fix: "
-        "hold`.",
+        "phases of the tool. A phase that its switch turns off (`last_gasp` for `LAST_GASP`, "
+        "`moves.crit_vt_swap` and `moves.vt_swap` for `CRIT_VT_SWAP`) must not appear. "
+        "`REROUTE` needs the parasitics of a global route. Not with `fix: hold`.",
         json_schema_extra=tier("expert"),
     )
     moves: RepairMoves = Field(
@@ -239,6 +295,13 @@ class RepairTiming(SettingsGroup):
         description="Run the last pass of the setup repair, a greedy sizing of the cells. False "
         "adds `-skip_last_gasp`, which saves run time and area. Not with `fix: hold`.",
         json_schema_extra=tier("advanced"),
+    )
+    crpr: bool = Field(
+        True,
+        description="Remove the clock reconvergence pessimism from the paths during the repair. "
+        "False adds `-skip_crpr`, which saves run time at the cost of area and power. The "
+        "timing that the repair sees then keeps the pessimism.",
+        json_schema_extra=tier("expert"),
     )
     match_cell_footprint: Optional[bool] = Field(
         None,
@@ -255,6 +318,39 @@ class RepairTiming(SettingsGroup):
         "with `fix: setup`.",
         json_schema_extra=tier("advanced"),
     )
+    max_iterations: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most iterations of the setup repair and of the hold repair "
+        "(`-max_iterations`). Unset: no limit, which is the `-1` of the tool.",
+        json_schema_extra=tier("expert"),
+    )
+    max_passes: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most passes of one run of the repair (`-max_passes`). The tool calls "
+        "it an option for debugging. Unset: the default of the tool, 10000.",
+        json_schema_extra=tier("expert"),
+    )
+    max_repairs_per_pass: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most repairs in one pass on the worst paths (`-max_repairs_per_pass`). "
+        "The number goes down to 1 for the last violations. Unset: the default of the tool, 1. "
+        "Not with `fix: hold`.",
+        json_schema_extra=tier("expert"),
+    )
+    recover_power_percent: Optional[float] = Field(
+        None,
+        gt=0,
+        le=100,
+        description="Trade positive slack for power on this share of the paths, in percent "
+        "(`-recover_power`). The command then recovers power and repairs neither setup nor "
+        "hold, so every other leaf of this call must keep its default, except "
+        "`match_cell_footprint`. The documentation of OpenROAD advises the parasitics of a "
+        "global route for it. Unset: no power recovery.",
+        json_schema_extra=tier("advanced"),
+    )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
         """Refuse the leaves that cannot work together: a setup leaf with `fix: hold`, a hold leaf
@@ -264,7 +360,13 @@ class RepairTiming(SettingsGroup):
         if self.fix == "hold":
             setup_leaves = [
                 f"{key}.{name}"
-                for name in ("tns_end_percent", "sequence", "phases", "last_gasp")
+                for name in (
+                    "tns_end_percent",
+                    "sequence",
+                    "phases",
+                    "last_gasp",
+                    "max_repairs_per_pass",
+                )
                 if getattr(self, name) != getattr(default, name)
             ]
             setup_leaves += differing_leaves(self.moves, f"{key}.moves")
@@ -285,24 +387,39 @@ class RepairTiming(SettingsGroup):
                         f"`{key}.fix: setup_and_hold` or delete `{key}.hold_margin`",
                     )
                 )
-            if self.max_buffer_percent is not None:
-                found.append(
-                    (
-                        f"{key}.max_buffer_percent",
-                        f"`{key}.max_buffer_percent` repairs hold, and `{key}.fix` is `setup`: "
-                        f"set `{key}.fix: setup_and_hold` or delete `{key}.max_buffer_percent`",
+            for name in ("max_buffer_percent", "allow_setup_violations"):
+                if getattr(self, name) != getattr(default, name):
+                    found.append(
+                        (
+                            f"{key}.{name}",
+                            f"`{key}.{name}` repairs hold, and `{key}.fix` is `setup`: "
+                            f"set `{key}.fix: setup_and_hold` or delete `{key}.{name}`",
+                        )
                     )
-                )
         for move in self.sequence:
             switch = _MOVE_SWITCHES.get(move)
             if switch is not None and not getattr(self.moves, switch):
+                dropped = "the sizing down that it includes" if move == "size" else "the move"
                 found.append(
                     (
                         f"{key}.sequence",
                         f"`{key}.sequence` names `{move}`, and `{key}.moves.{switch}` is "
-                        f"false, so the tool drops the move: delete one of them",
+                        f"false, so the tool drops {dropped}: delete one of them",
                     )
                 )
+        for phase in self.phases:
+            for leaf in _PHASE_SWITCHES.get(phase, ()):
+                holder: Any = self
+                for part in leaf.split("."):
+                    holder = getattr(holder, part)
+                if not holder:
+                    found.append(
+                        (
+                            f"{key}.phases",
+                            f"`{key}.phases` names `{phase}`, and `{key}.{leaf}` is false, so "
+                            f"the tool drops the phase: delete one of them",
+                        )
+                    )
         if self.sequence and self.phases and not SEQUENCE_PHASES.intersection(self.phases):
             readers = ", ".join(sorted(SEQUENCE_PHASES))
             found.append(
@@ -313,6 +430,18 @@ class RepairTiming(SettingsGroup):
                     f"or delete `{key}.sequence`",
                 )
             )
+        if self.recover_power_percent is not None:
+            for leaf in differing_leaves(self, key):
+                if leaf.removeprefix(f"{key}.") in _RECOVERY_LEAVES:
+                    continue
+                found.append(
+                    (
+                        leaf,
+                        f"`{key}.recover_power_percent` recovers power instead of repairing "
+                        f"setup and hold, so `{leaf}` has no effect: delete `{leaf}` or delete "
+                        f"`{key}.recover_power_percent`",
+                    )
+                )
         if not self.ALLOWS_REROUTE:
             if "reroute" in self.sequence:
                 found.append(
@@ -337,13 +466,19 @@ class RepairDesign(SettingsGroup):
     """One call of `repair_design`: it fixes the slew, capacitance and fanout violations and
     long wires by buffering and sizing. Each flow that calls it holds its own instance.
 
-    The flow prints `match_cell_footprint`: the platform decides it when it is unset."""
+    The flow prints `match_cell_footprint`: the platform decides it when it is unset.
+
+    `ALLOWS_REROUTE` says whether the instance may use `reroute`, which needs the parasitics of a
+    global route. Only the call after global routing sets it."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("max_wire_length", "-max_wire_length", "value"),
         Flag("slew_margin_percent", "-slew_margin", "value"),
         Flag("cap_margin_percent", "-cap_margin", "value"),
+        Flag("pre_placement", "-pre_placement", "switch"),
+        Flag("reroute", "-reroute", "switch"),
     )
+    ALLOWS_REROUTE: ClassVar[bool] = False
 
     enabled: bool = Field(
         True,
@@ -379,6 +514,34 @@ class RepairDesign(SettingsGroup):
         "(`-match_cell_footprint`). Unset: the value of the platform.",
         json_schema_extra=tier("advanced"),
     )
+    pre_placement: bool = Field(
+        False,
+        description="Run an initial round of sizing and buffering that does not need a placement "
+        "(`-pre_placement`). A flow calls the repair after the placement, with the parasitics "
+        "that it estimates from the placement, and then the tool stops with EST-0104 "
+        "`inconsistent parasitics state`. It was seen with the image "
+        "`openroad/orfs:26Q4-132-g6b305a712` and with a local build, on a small design.",
+        json_schema_extra=tier("expert"),
+    )
+    reroute: bool = Field(
+        False,
+        description="Reroute wires with resistance-aware routing to fix slew violations "
+        "(`-reroute`). The tool calls it experimental. It needs the parasitics of a global "
+        "route, so only the call after global routing accepts it.",
+        json_schema_extra=tier("expert"),
+    )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse the rerouting where no global route exists yet."""
+        if self.reroute and not self.ALLOWS_REROUTE:
+            return [
+                (
+                    f"{key}.reroute",
+                    f"`{key}.reroute` needs the parasitics of a global route, and this call runs "
+                    f"before global routing: delete `{key}.reroute`",
+                )
+            ]
+        return []
 
 
 class Legalize(SettingsGroup):

@@ -253,7 +253,7 @@ Required settings: `platform`
 
 Group `design`: no common settings; 2 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `floorplan`: `floorplan.sizing`, `floorplan.core_utilization_percent`, `floorplan.aspect_ratio`, `floorplan.core_margin`, `floorplan.die_area`, `floorplan.core_area`, `floorplan.netlist_cleanup.repair.enabled`, `floorplan.netlist_cleanup.repair.fix`, `floorplan.netlist_cleanup.repair.setup_margin`, `floorplan.netlist_cleanup.repair.hold_margin`; 22 more: `xeda list-settings openroad_place --tier expert --json`
+Group `floorplan`: `floorplan.sizing`, `floorplan.core_utilization_percent`, `floorplan.aspect_ratio`, `floorplan.core_margin`, `floorplan.die_area`, `floorplan.core_area`, `floorplan.netlist_cleanup.repair.enabled`, `floorplan.netlist_cleanup.repair.fix`, `floorplan.netlist_cleanup.repair.setup_margin`, `floorplan.netlist_cleanup.repair.hold_margin`; 31 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `routing`: `routing.signal_layers`, `routing.clock_layers`; 1 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -267,7 +267,7 @@ Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 19 more: `x
 
 Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 45 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `resize`: `resize.buffer_ports.enabled`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 16 more: `xeda list-settings openroad_place --tier expert --json`
+Group `resize`: `resize.buffer_ports.enabled`, `resize.buffer_ports.inputs`, `resize.buffer_ports.outputs`, `resize.repair_design.enabled`, `resize.repair_timing.enabled`, `resize.repair_timing.fix`, `resize.repair_timing.setup_margin`, `resize.repair_timing.hold_margin`; 46 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `arith_swap`: no common settings; 1 more: `xeda list-settings openroad_place --tier expert --json`
 
@@ -339,7 +339,7 @@ Group `repair_clock_nets`: `repair_clock_nets.when`
 
 Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_cts --tier expert --json`
 
-Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 11 more: `xeda list-settings openroad_cts --tier expert --json`
+Group `repair`: `repair.enabled`, `repair.fix`, `repair.setup_margin`, `repair.hold_margin`; 20 more: `xeda list-settings openroad_cts --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `clock_skew_setup`, `clock_skew_hold`, `platform`
 
@@ -361,7 +361,7 @@ Group `router`: no common settings; 2 more: `xeda list-settings openroad_grt --t
 
 Group `legalize`: no common settings; 1 more: `xeda list-settings openroad_grt --tier expert --json`
 
-Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabled`, `repair.timing.fix`, `repair.timing.setup_margin`, `repair.timing.hold_margin`; 17 more: `xeda list-settings openroad_grt --tier expert --json`
+Group `repair`: `repair.strategy`, `repair.design.enabled`, `repair.timing.enabled`, `repair.timing.fix`, `repair.timing.setup_margin`, `repair.timing.hold_margin`; 28 more: `xeda list-settings openroad_grt --tier expert --json`
 
 Group `antenna`: `antenna.repair`; 2 more: `xeda list-settings openroad_grt --tier expert --json`
 

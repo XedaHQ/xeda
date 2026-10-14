@@ -10,7 +10,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
@@ -19,7 +19,8 @@ from xeda.flow import FlowSettingsException
 from xeda.platforms import PdkNotInstalled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
-from xeda.flows.openroad.base import to_lib_time
+from xeda.flows.openroad.base import to_lib_time, to_seconds
+from xeda.flows.openroad.place_groups import PresizeMode
 from xeda.flows.openroad.place import EffectivePlace, effective
 from xeda.flows.openroad.place_pdn import PdnStripe
 from xeda.platforms.model import CellPort, Pdn, Track
@@ -170,6 +171,22 @@ def test_a_time_in_nanoseconds_is_written_in_the_unit_of_the_library(unit, value
 def test_text_is_never_converted_as_a_time(value):
     with pytest.raises(TypeError):
         to_lib_time(value, "1ns")
+
+
+@pytest.mark.parametrize(
+    "nanoseconds, text",
+    [(0.25, "2.5e-10"), (0.1, "1e-10"), (5, "5e-09"), (0.0, "0.0"), (-0.3, "-3e-10")],
+)
+def test_a_time_in_nanoseconds_is_written_in_seconds_where_the_command_takes_seconds(
+    nanoseconds, text
+):
+    assert to_seconds(nanoseconds) == text
+
+
+@pytest.mark.parametrize("value", ["1.0", None, True, float("nan"), float("inf")])
+def test_text_is_never_converted_as_a_time_in_seconds(value):
+    with pytest.raises(TypeError):
+        to_seconds(value)
 
 
 @pytest.mark.parametrize("unit, text", [("1ns", "0.25"), ("1ps", "250.0")])
@@ -2230,6 +2247,218 @@ def test_the_repair_of_the_timing_after_the_placement_is_off_by_default_and_esti
     design = next(i for i, line in enumerate(body) if line.startswith("repair_design"))
     assert design < repair < body.index("report_floating_nets")
     run_script(flow)
+
+
+def test_the_ports_are_buffered_on_the_inputs_the_outputs_or_both(tmp_path):
+    for ports, expected in (
+        ({}, "buffer_ports"),
+        ({"inputs": False}, "buffer_ports -outputs"),
+        ({"outputs": False}, "buffer_ports -inputs"),
+    ):
+        flow = place_flow(
+            tmp_path / expected.replace(" ", "_"), {"resize": {"buffer_ports": ports}}
+        )
+        body = stage(render(flow), "xeda_global_place")
+        assert [line for line in body if line.startswith("buffer_ports")] == [expected]
+        run_script(flow)
+
+
+def test_the_buffer_of_the_ports_and_the_utilization_limit_go_to_the_command(tmp_path):
+    settings = {"resize": {"max_utilization_percent": 85, "buffer_ports": {"cell": "BUF_X2"}}}
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_global_place")
+    assert 'buffer_ports -buffer_cell "BUF_X2" -max_utilization "85.0"' in body
+
+
+def test_the_utilization_limit_reaches_every_command_of_the_resizer_in_the_resize_stage(tmp_path):
+    settings = {
+        "resize": {"max_utilization_percent": 85, "repair_timing": {"enabled": True}},
+    }
+    flow = place_flow(tmp_path, settings)
+    script = render(flow)
+    (design,) = [l for l in stage(script, "xeda_resize") if l.startswith("repair_design")]
+    (timing,) = [l for l in stage(script, "xeda_resize") if l.startswith("repair_timing")]
+    assert (
+        design
+        == 'repair_design -slew_margin "0.0" -cap_margin "0.0" -max_utilization "85.0" -verbose'
+    )
+    assert timing.endswith('-max_utilization "85.0" -verbose')
+    assert not [l for l in stage(script, "xeda_floorplan") if "max_utilization" in l]
+    run_script(flow, script)
+
+
+def test_the_repair_of_the_design_gets_its_switches(tmp_path):
+    settings = {"resize": {"repair_design": {"pre_placement": True}}}
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_resize")
+    assert 'repair_design -slew_margin "0.0" -cap_margin "0.0" -pre_placement -verbose' in body
+
+
+def test_the_repair_of_the_timing_gets_its_limits_and_switches(tmp_path):
+    repair = {
+        "enabled": True,
+        "fix": "setup_and_hold",
+        "allow_setup_violations": True,
+        "crpr": False,
+        "max_iterations": 4,
+        "max_passes": 50,
+        "max_repairs_per_pass": 2,
+        "moves": {"size_down_fanout": False, "buffering": False, "buffer_to_inverters": False},
+    }
+    flow = place_flow(tmp_path, {"resize": {"repair_timing": repair}})
+    body = stage(render(flow), "xeda_resize")
+    (line,) = [l for l in body if l.startswith("repair_timing")]
+    assert line == (
+        "repair_timing -setup_margin 0.0 -hold_margin 0.0 -allow_setup_violations "
+        '-repair_tns "100.0" -skip_crpr -max_iterations "4" -max_passes "50" '
+        '-max_repairs_per_pass "2" -skip_size_down -skip_buffering -skip_buffer_to_inverters '
+        "-verbose"
+    )
+    run_script(flow)
+
+
+def test_a_power_recovery_replaces_the_repair_of_the_timing(tmp_path):
+    repair = {"enabled": True, "recover_power_percent": 25}
+    flow = place_flow(tmp_path, {"resize": {"repair_timing": repair}})
+    (line,) = [l for l in stage(render(flow), "xeda_resize") if l.startswith("repair_timing")]
+    assert line == (
+        'repair_timing -setup_margin 0.0 -hold_margin 0.0 -repair_tns "100.0" '
+        '-recover_power "25.0" -verbose'
+    )
+    run_script(flow)
+
+
+def test_the_buffers_of_chosen_instances_are_removed_as_separate_arguments(tmp_path, monkeypatch):
+    """`remove_buffers` takes the patterns as separate arguments: a list in one argument names an
+    instance `u1 u2`, which does not exist."""
+    fake_returns(monkeypatch, {("get_cells",): "u1"})
+    flow = place_flow(tmp_path, {"resize": {"remove_buffers_instances": ["u1", "buf_*"]}})
+    body = stage(render(flow), "xeda_global_place")
+    assert 'remove_buffers "u1" "buf_*"' in body
+    assert 'foreach pattern [list "u1" "buf_*"] {' in body
+    calls = run_script(flow)
+    assert [call for call in calls if call[0] == "remove_buffers"] == [
+        ["remove_buffers", "u1", "buf_*"]
+    ]
+    assert names(calls, "get_cells") == ["get_cells", "get_cells"]
+    plain = stage(render(place_flow(tmp_path / "all")), "xeda_global_place")
+    assert "remove_buffers" in plain and not [line for line in plain if "get_cells" in line]
+
+
+def test_a_pattern_that_matches_no_instance_stops_the_flow_before_the_buffers_go(tmp_path):
+    """With no instance left, `remove_buffers` removes every buffer, so a typo would do that."""
+    require_tclsh()
+    flow = place_flow(tmp_path, {"resize": {"remove_buffers_instances": ["typo"]}})
+    flow.bind_template_values()
+    flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
+    done = run_fake_openroad(flow.run_path, render(flow), driver="openroad_place")
+    assert done.returncode != 0
+    output = done.stderr + done.stdout
+    assert 'resize.remove_buffers_instances names "typo", which matches no instance' in output
+    recorded = "".join(log.read_text() for log in flow.run_path.rglob("fake_*.calls"))
+    assert "ARG remove_buffers\n" not in recorded
+
+
+def test_the_instances_of_the_buffers_to_remove_need_the_timing_driven_placement(tmp_path):
+    message = refusal(
+        tmp_path,
+        "global_placement.timing_driven.enabled=false",
+        typed={"resize.remove_buffers_instances": ["u1"]},
+    )
+    assert "`resize.remove_buffers_instances`" in message
+    assert "`global_placement.timing_driven.enabled` is false" in message
+    plan(tmp_path / "ok", typed={"resize.remove_buffers_instances": ["u1"]})
+
+
+def test_the_utilization_limit_needs_a_command_that_reads_it(tmp_path):
+    off = [
+        "resize.buffer_ports.enabled=false",
+        "resize.repair_design.enabled=false",
+        "resize.max_utilization_percent=80",
+    ]
+    message = refusal(tmp_path, *off)
+    assert "`resize.max_utilization_percent` has no effect" in message
+    assert "`buffer_ports`, `repair_design` and `repair_timing`" in message
+    plan(tmp_path / "ok", *off[:2], "resize.repair_timing.enabled=true", off[2])
+
+
+def test_the_sizing_options_are_set_before_any_command_that_sizes(tmp_path):
+    settings = {
+        "resize": {
+            "opt_config": {
+                "limit_sizing_area": 2,
+                "limit_sizing_leakage": 3,
+                "keep_sizing_site": True,
+                "keep_sizing_vt": True,
+                "early_sizing_cap_ratio": 2.5,
+                "early_buffer_sizing_cap_ratio": 3.5,
+                "disable_buffer_pruning": False,
+            },
+            "global_sizing": {
+                "presize_mode": "max_size_min_vt",
+                "include_clock_network": True,
+                "setup_slack_margin": 0.25,
+                "max_iterations": 9,
+                "beta": 0.5,
+            },
+        }
+    }
+    flow = place_flow(tmp_path, settings)
+    body = stage(render(flow), "xeda_floorplan")
+    assert body[:3] == [
+        "xeda_stage synth",
+        'set_opt_config -limit_sizing_area "2.0" -limit_sizing_leakage "3.0" '
+        '-set_early_sizing_cap_ratio "2.5" -set_early_buffer_sizing_cap_ratio "3.5" '
+        "-keep_sizing_site true -keep_sizing_vt true",
+        'set_global_sizing_config -presize_mode "max_size_min_vt" -max_iterations "9" '
+        '-beta "0.5" -include_clock_network true -setup_slack_margin 2.5e-10',
+    ]
+    calls = names(
+        run_script(flow),
+        "link_design",
+        "set_opt_config",
+        "set_global_sizing_config",
+        "eliminate_dead_logic",
+        "repair_timing",
+        "global_placement",
+    )
+    assert calls[:5] == [
+        "link_design",
+        "set_opt_config",
+        "set_global_sizing_config",
+        "eliminate_dead_logic",
+        "repair_timing",
+    ]
+
+
+@pytest.mark.parametrize("unit", ["1ns", "1ps", "10ps"])
+def test_the_margin_of_the_global_sizing_is_in_seconds_whatever_the_unit_of_the_library(
+    tmp_path, unit
+):
+    settings = {"resize": {"global_sizing": {"setup_slack_margin": 0.1}}}
+    flow = place_flow(tmp_path, settings, model={"time_unit": unit})
+    body = stage(render(flow), "xeda_floorplan")
+    assert "set_global_sizing_config -setup_slack_margin 1e-10" in body
+
+
+def test_a_boolean_of_the_sizing_options_that_is_off_sets_nothing(tmp_path):
+    settings = {
+        "resize": {"opt_config": {"keep_sizing_site": False, "disable_buffer_pruning": False}}
+    }
+    flow = place_flow(tmp_path, settings)
+    assert not [l for l in stage(render(flow), "xeda_floorplan") if "set_opt_config" in l]
+
+
+@pytest.mark.parametrize("mode", get_args(PresizeMode))
+def test_every_presize_mode_renders_and_runs(tmp_path, mode):
+    flow = place_flow(tmp_path, {"resize": {"global_sizing": {"presize_mode": mode}}})
+    assert f'set_global_sizing_config -presize_mode "{mode}"' in stage(
+        render(flow), "xeda_floorplan"
+    )
+    run_script(flow)
+
+
+def test_no_sizing_option_is_set_by_default(tmp_path):
+    calls = run_script(place_flow(tmp_path))
+    assert names(calls, "set_opt_config", "set_global_sizing_config") == []
 
 
 def test_swapped_arithmetic_modules_are_placed_again_before_the_repair(tmp_path):
