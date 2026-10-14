@@ -875,8 +875,8 @@ def test_a_rejected_remote_run_is_a_failed_flow_in_the_json_document(
     for _launch in range(2):
         result = CliRunner().invoke(cli, arguments)
         assert result.exit_code != 0, result.output
-        # The listing of the shipped archive comes first on stdout; the document starts a line.
-        document = json.loads(result.stdout[result.stdout.index("\n{") + 1 :])
+        # The listing of the shipped archive currently precedes the document on stdout.
+        document = json.loads(result.stdout[result.stdout.index("{") :])
         assert document["success"] is False
         assert document["error"]["type"] == "FlowFailed"
         assert document["results"]["error"]["type"] == "ReportedFailure"
