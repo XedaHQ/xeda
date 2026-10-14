@@ -633,3 +633,81 @@ def _design_from(root: Path, top: str) -> Design:
         design_root=root,
         rtl={"sources": ["ram.v"], "top": top, "clock": {"port": "clk"}},
     )
+
+
+def test_both_extract_kinds_off_with_the_adder_map_off_gives_one_message_per_leaf():
+    """Both kinds false while the map is off: each leaf is told that it has no effect, and none
+    is told to set what is already set."""
+    messages = [
+        message
+        for key, message in _refused(
+            platform="nangate45",
+            arithmetic={"adder_map": "none", "extract_fa": {"full": False, "half": False}},
+        )
+        if key.startswith("arithmetic.extract_fa.")
+    ]
+    assert len(messages) == 2
+    assert all("has no effect with `arithmetic.adder_map: none`" in m for m in messages)
+    assert not any("set `arithmetic.adder_map: none`" in m for m in messages)
+
+
+def test_both_extract_kinds_off_with_the_adder_map_on_gives_one_message():
+    messages = [
+        message
+        for key, message in _refused(
+            platform="nangate45",
+            arithmetic={"extract_fa": {"full": False, "half": False}},
+        )
+        if key.startswith("arithmetic.")
+    ]
+    assert len(messages) == 1
+    for word in ("extract_fa.full", "extract_fa.half", "set `arithmetic.adder_map: none`"):
+        assert word in messages[0], messages[0]
+
+
+def test_the_extract_fa_descriptions_say_when_the_adder_map_runs():
+    from xeda.flows.yosys.asic_groups import ArithmeticGroup, ExtractFaGroup
+
+    for description in (
+        ArithmeticGroup.model_fields["extract_fa"].description,
+        ExtractFaGroup.__doc__,
+    ):
+        assert description and "operator wrapping" in description and "no adder map" in description
+    assert "operator wrapping" in ArithmeticGroup.model_fields["adder_map_file"].description
+
+
+@pytest.mark.parametrize("architecture", ["kogge_stone", "han_carlson", "sklansky"])
+def test_an_adder_architecture_is_refused_with_operator_wrapping(architecture):
+    """Wrapping replaces the fine part of `synth`, where `-extra-map` acts, so the
+    architecture would do nothing. The wrapped adders choose it."""
+    messages = [
+        message
+        for key, message in _keys_all(
+            script_format="tcl",
+            arithmetic={"adder_architecture": architecture, "wrap_operators": True},
+            abc={"mapper": "abc_new"},
+        )
+        if key == "arithmetic.adder_architecture"
+    ]
+    assert len(messages) == 1
+    for word in ("`arithmetic.adder_architecture", "`arithmetic.wrapped_adders`"):
+        assert word in messages[0], messages[0]
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45",
+            script_format="tcl",
+            arithmetic={"wrap_operators": True, "wrapped_adders": [architecture]},
+            abc={"mapper": "abc_new"},
+        )
+    )
+
+
+def _keys_all(**given: Any) -> list[tuple[str, str]]:
+    return _refused(platform="nangate45", **given)
+
+
+def test_the_descriptions_name_the_synth_options_that_wrapping_leaves_out():
+    from xeda.flows.yosys.asic_groups import HierarchyGroup
+
+    assert "wrap_operators" in HierarchyGroup.model_fields["cross_boundary_opt"].description
+    assert "wrap_operators" in Yosys.Settings.model_fields["synth_flags"].description

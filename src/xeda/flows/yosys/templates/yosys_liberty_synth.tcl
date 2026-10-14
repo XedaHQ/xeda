@@ -26,9 +26,10 @@
 {%- set wrap_operators = settings.arithmetic.wrap_operators -%}
 {%- set abc_new = settings.abc.mapper == "abc_new" -%}
 {%- set clockgate_map = asic.clockgate_map -%}
+{#- `-extra-map` acts in the fine part of `synth`, which operator wrapping replaces -#}
 {%- set extra_map -%}
 {%- set architecture = {"kogge_stone": "kogge-stone", "han_carlson": "han-carlson", "sklansky": "sklansky"}.get(settings.arithmetic.adder_architecture) -%}
-{%- if architecture %} -extra-map +/choices/{{architecture}}.v{% endif -%}
+{%- if architecture and not wrap_operators %} -extra-map +/choices/{{architecture}}.v{% endif -%}
 {%- endset -%}
 {%- set dont_use_words -%}
 {%- for cell in dont_use %} -dont_use {{cell|tcl_word}}{% endfor -%}

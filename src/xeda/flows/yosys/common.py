@@ -670,7 +670,8 @@ class YosysSynthesisBase(YosysBase):
             [],
             description="Extra flags passed to yosys' `synth` command. When `yosys` maps to a "
             "liberty library, it refuses a flag that a setting or the script gives, and the "
-            "error names the setting.",
+            "error names the setting. With `arithmetic.wrap_operators`, the flags go to the "
+            "coarse part of `synth` only, since wrapping replaces the fine part.",
         )
 
         noabc: bool = Field(

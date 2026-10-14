@@ -103,7 +103,8 @@ class HierarchyGroup(SettingsGroup):
         "(`synth -hieropt`): constants and unused ports pass through them. It acts only on "
         "modules that stay, such as `keep_hierarchy`, `hierarchy.keep_instances`, "
         "`hierarchy.keep_min_cost`, a `keep_hierarchy` attribute in the sources, or all modules "
-        "with `flatten: false`.",
+        "with `flatten: false`. With `arithmetic.wrap_operators`, it acts in the coarse part "
+        "only, since wrapping replaces the fine part of `synth`.",
         json_schema_extra=tier("advanced"),
     )
 
@@ -142,7 +143,9 @@ class CoarseGroup(SettingsGroup):
 
 class ExtractFaGroup(SettingsGroup):
     """The options of `extract_fa`, which finds adders in the gate-level design. It runs only
-    when an adder map is in use (`arithmetic.adder_map`)."""
+    when the full-adder map runs: that is, when `arithmetic.adder_map` is `platform` and a map
+    exists. It is skipped when operator wrapping has already extracted an operator, as in
+    OpenROAD-flow-scripts, and when the platform has no adder map."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("max_depth", "-d", "value"),
@@ -172,19 +175,6 @@ class ExtractFaGroup(SettingsGroup):
         json_schema_extra=tier("advanced"),
     )
 
-    def problems(self, key: str) -> List[Tuple[str, str]]:
-        """Refuse a run that extracts no kind of adder."""
-        if not (self.full or self.half):
-            return [
-                (
-                    f"{key}.full",
-                    f"`{key}.full` and `{key}.half` are both false, so `extract_fa` has "
-                    f"nothing to extract: set one of them to true, or set "
-                    "`arithmetic.adder_map: none`",
-                )
-            ]
-        return []
-
 
 class ArithmeticGroup(SettingsGroup):
     """The mapping of adders and other arithmetic operators."""
@@ -192,7 +182,9 @@ class ArithmeticGroup(SettingsGroup):
     adder_architecture: Literal["yosys", "kogge_stone", "han_carlson", "sklansky"] = Field(
         "yosys",
         description="Carry-lookahead architecture of the adders. `yosys` keeps the architecture "
-        "of yosys (Brent-Kung); the other values add `-extra-map +/choices/<name>.v` to `synth`.",
+        "of yosys (Brent-Kung); the other values add `-extra-map +/choices/<name>.v` to `synth`. "
+        "Not with `wrap_operators`, which replaces that part of `synth`: choose the "
+        "architectures in `wrapped_adders`.",
         json_schema_extra=tier("common"),
     )
     adder_map: Literal["platform", "none"] = Field(
@@ -205,7 +197,8 @@ class ArithmeticGroup(SettingsGroup):
     adder_map_file: Optional[Path] = Field(
         None,
         description="Verilog map of full adders, used with `extract_fa` instead of the map of "
-        "the platform. Not with `adder_map: none`.",
+        "the platform. Not with `adder_map: none`. The map runs only when the design has no "
+        "operator wrapped yet (operator wrapping skips it, as OpenROAD-flow-scripts does).",
         json_schema_extra=tier("advanced"),
     )
     wrap_operators: bool = Field(
@@ -252,7 +245,9 @@ class ArithmeticGroup(SettingsGroup):
     )
     extract_fa: ExtractFaGroup = Field(
         default_factory=ExtractFaGroup,
-        description="The options of `extract_fa`. It runs when an adder map is in use.",
+        description="The options of `extract_fa`. They act only when the full-adder map runs: "
+        "operator wrapping skips it when it extracts an operator, and a platform with no adder "
+        "map has none to run.",
     )
 
     def problems(self, key: str) -> List[Tuple[str, str]]:
@@ -278,6 +273,24 @@ class ArithmeticGroup(SettingsGroup):
                             "of them",
                         )
                     )
+        if self.adder_map == "platform" and not (self.extract_fa.full or self.extract_fa.half):
+            found.append(
+                (
+                    f"{key}.extract_fa.full",
+                    f"`{key}.extract_fa.full` and `{key}.extract_fa.half` are both false, so "
+                    "`extract_fa` has nothing to extract: set one of them to true, or set "
+                    f"`{key}.adder_map: none`",
+                )
+            )
+        if self.adder_architecture != "yosys" and self.wrap_operators:
+            found.append(
+                (
+                    f"{key}.adder_architecture",
+                    f"`{key}.adder_architecture: {self.adder_architecture}` has no effect with "
+                    f"`{key}.wrap_operators`, which replaces the part of `synth` that maps the "
+                    f"adders: choose the architectures in `{key}.wrapped_adders`",
+                )
+            )
         if self.adder_architecture != "yosys" and not self.alumacc:
             found.append(
                 (
