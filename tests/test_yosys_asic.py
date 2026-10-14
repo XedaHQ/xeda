@@ -925,14 +925,14 @@ def test_the_fpga_flows_see_plain_booleans_for_abc_dff_and_splitnets():
 def test_no_synth_flag_is_added_twice(tmp_path, monkeypatch):
     """The script gives the liberty mapping's `synth -flatten` itself: the setting `flatten` does
     not also add `-flatten` to `synth_flags`, and a flag that the user gives goes on both lines."""
-    given = _tiny(tmp_path, synth_flags=["-noshare"])
+    given = _tiny(tmp_path, synth_flags=["-relativeshare"])
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     synths = [line.split() for line in _script(run_dir).splitlines() if line.startswith("synth")]
     assert synths == [
-        ["synth", "-flatten", "-run", ":fine", "-noshare"],
-        ["synth", "-top", "mac", "-run", "fine:", "-noabc", "-noshare"],
+        ["synth", "-flatten", "-run", ":fine", "-relativeshare"],
+        ["synth", "-top", "mac", "-run", "fine:", "-noabc", "-relativeshare"],
     ]
-    assert _effective(run_dir)["synth_flags"] == ["-noshare"]
+    assert _effective(run_dir)["synth_flags"] == ["-relativeshare"]
 
 
 # ----------------------------------------------------------------- the other settings keep a place

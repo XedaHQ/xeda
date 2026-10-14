@@ -257,8 +257,8 @@ def test_a_nested_model_takes_text_for_a_list_by_the_one_rule_or_not_at_all(mode
     taken = built("a,b")
     if taken is REFUSED or isinstance(taken, str) or [str(item) for item in taken] == ["a,b"]:
         return  # no convenience: text is refused, or it is one item of the field's own
-    assert taken == ["a", "b"], taken
-    assert built(" a , b ,,") == ["a", "b"]
+    assert [str(item) for item in taken] == ["a", "b"], taken
+    assert [str(item) for item in built(" a , b ,,")] == ["a", "b"]
     assert built("") == []
     assert built("[]") is REFUSED
     assert built("[x, y]") is REFUSED

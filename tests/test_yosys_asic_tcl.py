@@ -36,9 +36,9 @@ WRAP_SCRIPT = str(DATA.joinpath("synth_wrap_operators.tcl"))
 BOOTH_MAP = str(DATA.joinpath("synth_wrap_operators-booth.v"))
 
 #: The harness of the other Tcl tests, with the commands that the script defines or sources
-#: replaced by stubs: `source` records itself and defines nothing, `convert_liberty_areas` records
-#: itself instead of querying a design, and `design_has_extracted_operators` records itself and
-#: answers `EXTRACTED`. `wrap_operators` is not defined, so it is recorded as any yosys command.
+#: replaced by stubs: `source` records itself and defines nothing, `convert_liberty_areas` and
+#: `check_memory_sizes` record themselves instead of querying a design, and
+#: `design_has_extracted_operators` records itself and answers `EXTRACTED`. `wrap_operators` is not defined, so it is recorded as any yosys command.
 STUBS = """\
 rename proc _real_proc
 rename source _real_source
@@ -46,6 +46,9 @@ set ::extracted EXTRACTED
 _real_proc proc {name arglist body} {
   if {$name eq "convert_liberty_areas"} {
     set body {lappend ::calls [list convert_liberty_areas]}
+  } elseif {$name eq "check_memory_sizes"} {
+    set arglist args
+    set body {lappend ::calls [list check_memory_sizes {*}$args]}
   }
   _real_proc $name $arglist $body
 }
@@ -183,11 +186,11 @@ def test_hierarchical_synthesis_gives_the_extra_map_and_the_flags_to_both_coarse
     _, calls = _render(
         tmp_path,
         monkeypatch,
-        synth_flags=["-noshare"],
+        synth_flags=["-relativeshare"],
         arithmetic={"adder_architecture": "sklansky"},
         **HIERARCHICAL,
     )
-    extra = ["-extra-map", "+/choices/sklansky.v", "-noshare"]
+    extra = ["-extra-map", "+/choices/sklansky.v", "-relativeshare"]
     assert _segment(calls, ["proc"], 6) == [
         ["proc"],
         ["synth", "-run", ":fine", *extra],
@@ -195,6 +198,27 @@ def test_hierarchical_synthesis_gives_the_extra_map_and_the_flags_to_both_coarse
         ["keep_hierarchy", "-min_cost", "5"],
         ["synth", "-flatten", "-run", "coarse:fine", *extra],
         ["synth", "-top", "mac", "-run", "fine:", "-noabc", *extra],
+    ]
+
+
+def test_hierarchical_synthesis_gives_the_coarse_options_to_both_coarse_runs_and_hieropt_to_two(
+    tmp_path, monkeypatch
+):
+    """The first run only decides what to keep. The run that flattens and the fine run optimize
+    across the boundaries of what stays."""
+    _, calls = _render(
+        tmp_path,
+        monkeypatch,
+        coarse={"fsm": False},
+        hierarchy={"keep_min_cost": 5, "cross_boundary_opt": True},
+    )
+    assert _segment(calls, ["proc"], 6) == [
+        ["proc"],
+        ["synth", "-run", ":fine", "-nofsm"],
+        ["convert_liberty_areas"],
+        ["keep_hierarchy", "-min_cost", "5"],
+        ["synth", "-flatten", "-run", "coarse:fine", "-nofsm", "-hieropt"],
+        ["synth", "-top", "mac", "-run", "fine:", "-noabc", "-hieropt"],
     ]
 
 
@@ -334,6 +358,92 @@ def test_both_modes_together(tmp_path, monkeypatch):
     assert len(_words(calls, "read_liberty")) == 2
 
 
+def test_wrapping_hands_the_architectures_to_the_wrapping_script_in_its_spelling(
+    tmp_path, monkeypatch
+):
+    _, calls = _render(
+        tmp_path,
+        monkeypatch,
+        arithmetic={
+            "wrap_operators": True,
+            "wrapped_adders": ["sklansky", "brent_kung", "han_carlson"],
+            "wrapped_multipliers": ["base"],
+        },
+        abc={"mapper": "abc_new"},
+    )
+    assert _words(calls, "wrap_operators") == [
+        ["wrap_operators", BOOTH_MAP, "SKLANSKY BRENT_KUNG HAN_CARLSON", "BASE"]
+    ]
+
+
+def test_wrapping_with_the_options_of_extract_fa_keeps_them_for_the_adder_map(
+    tmp_path, monkeypatch
+):
+    _, calls = _render(
+        tmp_path,
+        monkeypatch,
+        arithmetic={"wrap_operators": True, "extract_fa": {"max_depth": 9}},
+        abc={"mapper": "abc_new"},
+    )
+    assert _words(calls, "extract_fa") == [["extract_fa", "-d", "9", "-fa", "-ha"]]
+
+
+# ------------------------------------------------------------------------- the memory limit
+
+
+def test_a_memory_limit_runs_the_check_after_the_coarse_part_and_before_the_fine_part(
+    tmp_path, monkeypatch
+):
+    run_dir, calls = _render(tmp_path, monkeypatch, memory={"max_bits": 1024, "mock_large": True})
+    assert _segment(calls, ["synth", "-flatten", "-run", ":fine"], 3) == [
+        ["synth", "-flatten", "-run", ":fine"],
+        ["check_memory_sizes", "1024", "1", "1"],
+        ["synth", "-top", "mac", "-run", "fine:", "-noabc"],
+    ]
+    script = (run_dir / "yosys_synth.tcl").read_text()
+    assert re.search(r"^proc check_memory_sizes \{ max_bits mock keep \} \{$", script, re.M)
+    assert "6b305a712966be72d8908695c04398acdbe273ca" in script and "BSD-3-Clause" in script
+
+
+@pytest.mark.parametrize(
+    "memory,arguments",
+    [
+        ({"max_bits": 64}, ["64", "0", "1"]),
+        ({"max_bits": 64, "mock_large": True, "keep_mocked": False}, ["64", "1", "0"]),
+    ],
+)
+def test_the_memory_check_gets_the_limit_and_whether_to_mock_and_to_keep(
+    tmp_path, monkeypatch, memory, arguments
+):
+    _, calls = _render(tmp_path, monkeypatch, memory=memory)
+    assert _words(calls, "check_memory_sizes") == [["check_memory_sizes", *arguments]]
+
+
+def test_the_memory_libraries_come_before_the_memory_check(tmp_path, monkeypatch):
+    design = tmp_path / "design"
+    design.mkdir()
+    (design / "mem.txt").write_text("\n")
+    (design / "mem_map.v").write_text("\n")
+    _, calls = _render(
+        tmp_path,
+        monkeypatch,
+        memory={"libmap": ["mem.txt"], "techmap": "mem_map.v", "max_bits": 64},
+    )
+    start = calls.index(["synth", "-flatten", "-run", ":fine"])
+    assert [call[0] for call in calls[start : start + 4]] == [
+        "synth",
+        "memory_libmap",
+        "techmap",
+        "check_memory_sizes",
+    ]
+
+
+def test_without_a_memory_limit_the_script_has_no_memory_check(tmp_path, monkeypatch):
+    run_dir, calls = _render(tmp_path, monkeypatch)
+    assert _words(calls, "check_memory_sizes") == []
+    assert "check_memory_sizes" not in (run_dir / "yosys_synth.tcl").read_text()
+
+
 # ----------------------------------------------------------------------- the script file
 
 
@@ -411,6 +521,11 @@ def test_the_hierarchical_mode_flattens_all_the_other_modules_and_refuses_flatte
     Yosys.check_settings_supported(
         Yosys.Settings(platform="nangate45", script_format="tcl", flatten=True, **HIERARCHICAL)
     )
+
+
+def test_the_memory_size_checks_are_tcl_only_values(tmp_path):
+    problems = _refused(platform="nangate45", script_format="ys", memory={"max_bits": 64})
+    assert "needs `script_format: tcl`" in problems["memory.max_bits"]
 
 
 def test_wrapping_refuses_the_abc_mapper():
@@ -597,6 +712,75 @@ def test_real_yosys_runs_both_modes_together(tmp_path):
     modules = _modules(netlist)
     assert "big" in modules and "small" not in modules
     assert any(name.startswith("ALU_") for name in modules)
+
+
+RAM = (
+    "module top(input clk, input we, input [7:0] addr, input [7:0] din, output reg [7:0] dout);\n"
+    "  reg [7:0] mem [0:255];\n"
+    "  always @(posedge clk) begin\n"
+    "    if (we) mem[addr] <= din;\n"
+    "    dout <= mem[addr];\n"
+    "  end\n"
+    "endmodule\n"
+)
+
+
+def _launch_ram(tmp_path: Path, **given: Any):
+    root = tmp_path / "design"
+    root.mkdir(parents=True)
+    (root / "top.v").write_text(RAM)
+    design = Design(
+        name="top",
+        design_root=root,
+        rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
+    )
+    return DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+        Yosys, design, _tiny(tmp_path, script_format="tcl", **given)
+    )
+
+
+def test_real_yosys_accepts_a_memory_within_the_limit(tmp_path):
+    require_yosys_tcl()
+    flow = _launch_ram(tmp_path, memory={"max_bits": 2048})
+    assert flow.succeeded
+    assert (
+        "Memory top/mem has dimensions 256 x 8 = 2048" in (flow.run_path / "yosys.log").read_text()
+    )
+
+
+def test_real_yosys_stops_at_a_memory_above_the_limit_and_names_the_setting(tmp_path):
+    require_yosys_tcl()
+    flow = _launch_ram(tmp_path, memory={"max_bits": 2047})
+    assert not flow.succeeded
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "memory above memory.max_bits (2047 bits): top/mem (2048 bits)" in log
+
+
+def test_real_yosys_shrinks_a_memory_above_the_limit_to_one_row(tmp_path):
+    require_yosys_tcl()
+    flow = _launch_ram(tmp_path, memory={"max_bits": 1024, "mock_large": True})
+    assert flow.succeeded
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "Shrunk memory top/mem from 256 rows to 1" in log
+    full = _launch_ram(tmp_path / "full")
+    assert full.succeeded
+    assert flow.results["cells"] < full.results["cells"] // 4
+
+
+def test_real_yosys_wraps_with_the_architectures_of_the_settings(tmp_path):
+    require_yosys_tcl()
+    _, netlist = _launch(
+        tmp_path,
+        ADDER,
+        "adder",
+        arithmetic={
+            "wrap_operators": True,
+            "wrapped_adders": ["sklansky", "kogge_stone"],
+        },
+        abc={"mapper": "abc_new"},
+    )
+    assert re.search(r'architecture = "SKLANSKY"|architecture = "sklansky"', netlist, re.I)
+    assert not re.search(r'architecture = "BRENT_KUNG"', netlist, re.I), netlist
 
 
 def test_the_bundled_assets_are_where_the_script_sources_them():

@@ -8,8 +8,8 @@ from ...dataclass import Field
 from ...design import SourceType
 from ...flow import Flow, FlowSettingsError, NoReplacement, Out, SynthFlow, describe_results
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
-from ...flow.settings_group import SettingsGroup
-from ...utils import replacing_file
+from ...flow.settings_group import SettingsGroup, render_flags
+from ...utils import replacing_file, tcl_word
 from ..ghdl import GhdlSynth
 from .asic_groups import (
     AbcGroup,
@@ -28,6 +28,7 @@ from .common import (
     process_parameters,
     refuse_output_after_rtl,
     stop_after_conflicts,
+    ys_path,
 )
 
 log = logging.getLogger(__name__)
@@ -116,6 +117,21 @@ LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
 )
 
 
+#: The options of `synth` that a setting of the liberty mapping owns, each with that setting. The
+#: setting renders the option, so `synth_flags` does not repeat it.
+SYNTH_OPTIONS_OF_SETTINGS: Dict[str, str] = {
+    "-nofsm": "coarse.fsm",
+    "-noshare": "coarse.share",
+    "-noalumacc": "arithmetic.alumacc",
+    "-booth": "arithmetic.multiplier",
+    "-arith_tree": "arithmetic.arith_tree",
+    "-nordff": "memory.merge_ff",
+    "-no-rw-check": "memory.rw_check",
+    "-hieropt": "hierarchy.cross_boundary_opt",
+    "-latches": "coarse.latches",
+}
+
+
 @dataclass(frozen=True)
 class AsicValues:
     """The values of the mapping to a liberty library that `Yosys.asic_values` resolves.
@@ -135,6 +151,9 @@ class AsicValues:
       `abc.mapper` is `abc_new`.
     * `wrap_script`, `booth_map`: the files of the package that wrap the operators, when
       `arithmetic.wrap_operators` is on.
+    * `wrapped_adders`, `wrapped_multipliers`: the architectures to wrap, in the order and the
+      spelling that the wrapping script takes (`KOGGE_STONE`, `BOOTH`).
+    * `memory_libmap`, `memory_techmap`: the memory library files and the map of their cells.
     * `delay_target_ps`: the `-D` of abc, in picoseconds.
     * `constraints`: the lines of the abc constraints from the driver cell and the load.
     """
@@ -152,6 +171,10 @@ class AsicValues:
     abc_new_script: Optional[str] = None
     wrap_script: Optional[Path] = None
     booth_map: Optional[Path] = None
+    wrapped_adders: Tuple[str, ...] = ()
+    wrapped_multipliers: Tuple[str, ...] = ()
+    memory_libmap: Tuple[Path, ...] = ()
+    memory_techmap: Optional[Path] = None
     delay_target_ps: Optional[float] = None
     constraints: Tuple[str, ...] = ()
 
@@ -391,11 +414,15 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             ("hierarchy.keep_min_cost", settings.hierarchy.keep_min_cost is not None),
             ("arithmetic.wrap_operators", settings.arithmetic.wrap_operators),
             ("abc.mapper", settings.abc.mapper != "abc"),
+            ("memory.max_bits", settings.memory.max_bits is not None),
+            ("memory.mock_large", settings.memory.mock_large),
         )
         for key, asked in tcl_only:
             if asked and settings.script_format == "ys":
                 problems.append((key, f"`{key}` needs `script_format: tcl`"))
         problems += cls._tcl_mode_problems(settings)
+        problems += cls._hierarchy_problems(settings)
+        problems += cls._synth_flag_problems(settings)
         if settings.abc_script is not None and settings.abc.strategy != "area":
             problems.append(
                 (
@@ -412,6 +439,43 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     "`abc.delay_target: auto` takes the period of the main clock: give `clock`",
                 )
             )
+        return problems
+
+    @classmethod
+    def _hierarchy_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return the hierarchy settings that `flatten: false` leaves with nothing to do. The
+        design is not flattened then, so no instance needs a mark and no separator is used."""
+        if settings.flatten is not False:
+            return []
+        asked = (
+            ("hierarchy.keep_instances", bool(settings.hierarchy.keep_instances)),
+            ("hierarchy.separator", settings.hierarchy.separator is not None),
+        )
+        return [
+            (
+                key,
+                f"`{key}` has no effect with `flatten: false`, which flattens nothing: delete "
+                "one of them",
+            )
+            for key, given in asked
+            if given
+        ]
+
+    @classmethod
+    def _synth_flag_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return the `synth_flags` that repeat an option which a setting owns."""
+        problems: List[Tuple[str, str]] = []
+        for item in settings.synth_flags:
+            words = item.split()
+            owner = SYNTH_OPTIONS_OF_SETTINGS.get(words[0]) if words else None
+            if owner is not None:
+                problems.append(
+                    (
+                        "synth_flags",
+                        f"`{words[0]}` in `synth_flags` is the setting `{owner}`: set that "
+                        "instead",
+                    )
+                )
         return problems
 
     @classmethod
@@ -467,6 +531,14 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     )
                 )
         return problems
+
+    def add_template_helpers(self) -> None:
+        """Add the helpers of every yosys template, and `render_flags` for the groups of settings
+        whose flags a template prints. It quotes a value for the script language."""
+        super().add_template_helpers()
+        assert isinstance(self.settings, self.Settings)
+        quote = tcl_word if self.settings.script_format == "tcl" else ys_path
+        self.jinja_env.globals["render_flags"] = lambda group: render_flags(group, quote)
 
     def init(self):
         """Resolve the Liberty files that the user gave against the design root.
@@ -597,6 +669,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             booth_map=(
                 _asic_data("synth_wrap_operators-booth.v") if ss.arithmetic.wrap_operators else None
             ),
+            wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
+            wrapped_multipliers=tuple(name.upper() for name in ss.arithmetic.wrapped_multipliers),
+            memory_libmap=tuple(self.normalize_path_to_design_root(f) for f in ss.memory.libmap),
+            memory_techmap=given(ss.memory.techmap),
             delay_target_ps=delay_target_ps,
             constraints=tuple(constraints),
         )

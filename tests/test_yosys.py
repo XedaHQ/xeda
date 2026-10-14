@@ -78,6 +78,8 @@ SPACED_INPUTS = (
     "sequential.clockgate_map",
     "sequential.latch_map",
     "techmap_files",
+    "memory.libmap",
+    "memory.techmap",
     "abc_script",
     "platform_file",
     "pdk_root",
@@ -93,6 +95,13 @@ NOT_SWEPT = {
     "log_file",
     "lib_paths",
 }
+
+
+#: A memory library that yosys reads and that no design memory matches.
+MEMORY_LIBRARY = (
+    "ram distributed $__UNUSED_RAM {\n  abits 4;\n  width 8;\n  cost 3;\n"
+    '  port arsw "RW" {\n    clock posedge;\n  }\n}\n'
+)
 
 
 def _write(path: Path, text: str) -> Path:
@@ -188,6 +197,8 @@ def test_yosys_synthesizes_with_spaces_in_every_path(script_format, tmp_path):
         "sequential.clockgate_map": str(_write(maps / "clock gate.v", "module cg(); endmodule\n")),
         "sequential.latch_map": str(_write(maps / "latch map.v", "module _unused(); endmodule\n")),
         "techmap_files": [str(_write(maps / "other map.v", "module _unused2(); endmodule\n"))],
+        "memory.libmap": [str(_write(maps / "mem lib.txt", MEMORY_LIBRARY))],
+        "memory.techmap": str(_write(maps / "mem map.v", "module _unused3(); endmodule\n")),
         # ABC runs the script with its own `source`, which splits a path at spaces whatever the
         # quoting: the one input that must live at a path without one
         "abc_script": str(_write(tmp_path / "abc" / "map.abc", "strash\nmap\n")),
@@ -610,6 +621,10 @@ def test_yosys_reads_every_input_by_its_own_name(script_format, tmp_path):
         "techmap_files": [
             str(with_decoy(root / "map" / "o[1].v", "module _unused2(); endmodule\n"))
         ],
+        "memory.libmap": [str(with_decoy(root / "map" / "mem[1].txt", MEMORY_LIBRARY))],
+        "memory.techmap": str(
+            with_decoy(root / "map" / "mem[1].v", "module _unused3(); endmodule\n")
+        ),
         "abc_script": str(with_decoy(root / "map" / "abc[1].abc", "strash\nmap\n")),
         "netlist_verilog": "net[1].v",
         "script_format": script_format,

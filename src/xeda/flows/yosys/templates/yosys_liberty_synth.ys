@@ -4,6 +4,9 @@
     `abc` maps the logic. The cells that the flow must not use (`dont_use`) are `-dont_use` words
     on `dfflibmap` and `abc`. `dfflibmap` and `abc` read their Liberty files themselves; the
     expanding commands (`read_liberty`, `dfflibmap`) name them with `read_path`.
+    The options of the coarse part of `synth` (`coarse_words`) go on the first `synth` command
+    only. `-hieropt` goes on both parts. `-latches` is an option of the `proc` that this script
+    runs, since the `proc` inside `synth` finds no process left.
     The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
 {%- set liberty_read = true -%}
 {%- set clockgate_map = asic.clockgate_map -%}
@@ -14,6 +17,27 @@
 {%- set dont_use_words -%}
 {%- for cell in dont_use %} -dont_use {{cell|path}}{% endfor -%}
 {%- endset -%}
+{%- set coarse_words -%}
+{%- if not settings.coarse.fsm %} -nofsm{% endif -%}
+{%- if not settings.coarse.share %} -noshare{% endif -%}
+{%- if not settings.arithmetic.alumacc %} -noalumacc{% endif -%}
+{%- if settings.arithmetic.multiplier == "booth" %} -booth{% endif -%}
+{%- if settings.arithmetic.arith_tree %} -arith_tree{% endif -%}
+{%- if not settings.memory.merge_ff %} -nordff{% endif -%}
+{%- if not settings.memory.rw_check %} -no-rw-check{% endif -%}
+{%- endset -%}
+{%- set hieropt = " -hieropt" if settings.hierarchy.cross_boundary_opt else "" -%}
+{%- set fa = settings.arithmetic.extract_fa -%}
+{#- `extract_fa` refuses a limit (`-d`, `-b`) as its last word, so the kinds of adders come after
+    the limits, and a run with limits names both kinds when it extracts both. -#}
+{%- set extract_fa_words -%}
+{%- set fa_flags = render_flags(fa) -%}
+{%- if fa_flags %} {{fa_flags}}{% endif -%}
+{%- if fa.full and fa.half %}{% if fa_flags %} -fa -ha{% endif %}
+{%- elif fa.full %} -fa
+{%- else %} -ha
+{%- endif -%}
+{%- endset -%}
 {% for lib in settings.liberty -%}
 read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
 {% endfor -%}
@@ -21,7 +45,13 @@ read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
 read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}
 {% endif -%}
 {% include 'read_files.ys' %}
-proc
+proc{% if settings.coarse.latches %} -latches {{settings.coarse.latches}}{% endif %}
+{%- for instance in settings.hierarchy.keep_instances %}
+setattr -set keep_hierarchy 1 {{instance|path}}
+{%- endfor %}
+{%- if settings.hierarchy.separator %}
+scratchpad -set flatten.separator {{settings.hierarchy.separator|path}}
+{%- endif %}
 {%- if settings.flatten %}
 flatten
 {%- endif %}
@@ -29,14 +59,20 @@ flatten
 {% include "post_rtl.ys" %}
 {#- yosys scripts have no `exit`, so `stop_after == "rtl"` omits the rest #}
 {%- if settings.stop_after != "rtl" %}
-synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
-synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+synth{% if settings.flatten %} -flatten{% endif %} -run :fine{{coarse_words}}{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+{%- if asic.memory_libmap %}
+memory_libmap{% for lib in asic.memory_libmap %} -lib {{lib|path}}{% endfor %}
+{%- endif %}
+{%- if asic.memory_techmap %}
+techmap -map {{asic.memory_techmap|read_path}}
+{%- endif %}
+synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{{hieropt}}{{extra_map}}{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
 chformal -remove
 delete t:$print
 rename -wire
-opt -purge
+opt -purge{% if settings.coarse.opt_dff_sat %} -sat{% endif %}
 {%- if asic.adder_map %}
-extract_fa
+extract_fa{{extract_fa_words}}
 techmap -map {{asic.adder_map|read_path}}
 {%- endif %}
 techmap

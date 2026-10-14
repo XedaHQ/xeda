@@ -376,6 +376,11 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         1,
         "a template helper name used twice: a bug in the flow, no user input",
     ),
+    "xeda.flow.settings_group:render_flags": (
+        1,
+        "a flag of an unknown kind: a bug in the declaration of a group, which class creation "
+        "refuses; no user input",
+    ),
     "xeda.flows.fpga_pack:FpgaPack.init": (
         1,
         "needs `fpga-as` on PATH and the Project X-Ray data of the installation",

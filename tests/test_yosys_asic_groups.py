@@ -41,10 +41,33 @@ GROUPS = ("hierarchy", "coarse", "arithmetic", "memory", "sequential", "abc", "f
 #: Every leaf of the groups with its tier.
 LEAF_TIERS = {
     "hierarchy.keep_min_cost": "common",
+    "hierarchy.keep_instances": "advanced",
+    "hierarchy.separator": "advanced",
+    "hierarchy.cross_boundary_opt": "advanced",
+    "coarse.fsm": "advanced",
+    "coarse.share": "advanced",
+    "coarse.latches": "advanced",
+    "coarse.opt_dff_sat": "advanced",
     "arithmetic.adder_architecture": "common",
     "arithmetic.adder_map": "common",
     "arithmetic.adder_map_file": "advanced",
     "arithmetic.wrap_operators": "advanced",
+    "arithmetic.wrapped_adders": "advanced",
+    "arithmetic.wrapped_multipliers": "advanced",
+    "arithmetic.alumacc": "expert",
+    "arithmetic.multiplier": "advanced",
+    "arithmetic.arith_tree": "expert",
+    "arithmetic.extract_fa.full": "advanced",
+    "arithmetic.extract_fa.half": "advanced",
+    "arithmetic.extract_fa.max_depth": "advanced",
+    "arithmetic.extract_fa.max_breadth": "advanced",
+    "memory.libmap": "advanced",
+    "memory.techmap": "advanced",
+    "memory.max_bits": "advanced",
+    "memory.mock_large": "advanced",
+    "memory.keep_mocked": "advanced",
+    "memory.merge_ff": "expert",
+    "memory.rw_check": "expert",
     "sequential.latch_map": "advanced",
     "sequential.clockgate_map": "advanced",
     "sequential.dff_liberty": "advanced",
@@ -103,12 +126,7 @@ def test_yosys_has_the_seven_groups_in_order_and_a_flat_list_of_techmap_files():
     assert Yosys.Settings.model_fields["techmap_files"].annotation == List[Path]
 
 
-def test_coarse_and_memory_have_no_leaves_yet():
-    assert not asic_groups.CoarseGroup.model_fields
-    assert not asic_groups.MemoryGroup.model_fields
-
-
-def test_the_defaults_of_the_seed_leaves():
+def test_the_defaults_of_the_first_leaves():
     settings = Yosys.Settings()
     assert settings.hierarchy.keep_min_cost is None
     assert settings.arithmetic.adder_architecture == "yosys"
@@ -226,15 +244,38 @@ def test_the_cli_lists_the_leaves_as_json():
     assert set(LEAF_TIERS) <= names
 
 
+def _leaves(group: type[SettingsGroup], key: str) -> dict[str, Any]:
+    """The leaves of `group` by dotted key, with their field. A sub-group is no leaf: its own
+    leaves are."""
+    found: dict[str, Any] = {}
+    for name, info in group.model_fields.items():
+        inner = info.annotation
+        if isinstance(inner, type) and issubclass(inner, SettingsGroup):
+            assert info.description, f"{key}.{name}"
+            found.update(_leaves(inner, f"{key}.{name}"))
+        else:
+            assert tier_of(group, name) is not None, f"{key}.{name}"
+            found[f"{key}.{name}"] = info
+    return found
+
+
 def test_every_leaf_has_a_tier_a_description_and_no_leaf_is_missing_from_the_table():
-    leaves = set()
+    leaves: set[str] = set()
     for name in GROUPS:
         group = Yosys.Settings.model_fields[name].annotation
-        for leaf, info in group.model_fields.items():
-            leaves.add(f"{name}.{leaf}")
-            assert info.description, f"{name}.{leaf}"
-            assert tier_of(group, leaf) is not None, f"{name}.{leaf}"
+        for key, info in _leaves(group, name).items():
+            leaves.add(key)
+            assert info.description, key
     assert leaves == set(LEAF_TIERS)
+
+
+def test_the_tier_table_holds_the_tier_of_each_leaf():
+    for key, expected in LEAF_TIERS.items():
+        *path, leaf = key.split(".")
+        group = Yosys.Settings.model_fields[path[0]].annotation
+        for name in path[1:]:
+            group = group.model_fields[name].annotation
+        assert tier_of(group, leaf) == expected, key
 
 
 # ------------------------------------------------------------------------------ the removed names
@@ -525,6 +566,7 @@ def test_the_pure_method_resolves_the_values_and_changes_no_setting(tmp_path):
             clock={"period": 2.0},
             abc={"load": 1.5, "delay_target": "auto"},
             techmap_files=["extra.v"],
+            memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
         ),
         design_root=design.design_root,
     )
@@ -593,6 +635,22 @@ NO_MAPPING_CASES = [
     ("finish.tie_cells", {"finish": {"tie_cells": {"hi": ["H", "Z"], "lo": ["L", "Z"]}}}),
     ("finish.buffer_cell", {"finish": {"buffer_cell": ["B", "A", "Z"]}}),
     ("techmap_files", {"techmap_files": ["t.v"]}),
+    ("hierarchy.keep_instances", {"hierarchy": {"keep_instances": ["a/b"]}}),
+    ("hierarchy.separator", {"hierarchy": {"separator": "/"}}),
+    ("hierarchy.cross_boundary_opt", {"hierarchy": {"cross_boundary_opt": True}}),
+    ("coarse.fsm", {"coarse": {"fsm": False}}),
+    ("coarse.share", {"coarse": {"share": False}}),
+    ("coarse.latches", {"coarse": {"latches": "warn"}}),
+    ("coarse.opt_dff_sat", {"coarse": {"opt_dff_sat": True}}),
+    ("arithmetic.alumacc", {"arithmetic": {"alumacc": False}}),
+    ("arithmetic.multiplier", {"arithmetic": {"multiplier": "booth"}}),
+    ("arithmetic.arith_tree", {"arithmetic": {"arith_tree": True}}),
+    ("arithmetic.extract_fa.max_depth", {"arithmetic": {"extract_fa": {"max_depth": 5}}}),
+    ("memory.libmap", {"memory": {"libmap": ["m.txt"]}}),
+    ("memory.techmap", {"memory": {"techmap": "m.v"}}),
+    ("memory.max_bits", {"memory": {"max_bits": 8}}),
+    ("memory.merge_ff", {"memory": {"merge_ff": False}}),
+    ("memory.rw_check", {"memory": {"rw_check": False}}),
 ]
 
 
@@ -696,7 +754,7 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
     """The design root is not the working directory, and yosys runs in the run directory."""
     design = _design(tmp_path / "design")
     store = tiny_store(tmp_path)
-    for name in ("latch.v", "cg.v", "fa.v", "extra.v"):
+    for name in ("latch.v", "cg.v", "fa.v", "extra.v", "mem.txt", "mem_map.v"):
         (design.design_root / name).write_text("module _unused(); endmodule\n")
     shutil.copy(TINY / "tiny.lib", design.design_root / "dff.lib")
     settings = Yosys.Settings.from_input(
@@ -705,6 +763,7 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
             sequential={"latch_map": "latch.v", "clockgate_map": "cg.v", "dff_liberty": "dff.lib"},
             arithmetic={"adder_map_file": "fa.v"},
             techmap_files=["extra.v"],
+            memory={"libmap": ["mem.txt"], "techmap": "mem_map.v"},
         ),
         design_root=design.design_root,
     )
@@ -719,6 +778,8 @@ def test_a_relative_group_path_resolves_against_the_design_root_and_not_the_work
     assert values.dff_liberty == root / "dff.lib"
     assert values.adder_map == root / "fa.v"
     assert values.techmap_files == (root / "extra.v",)
+    assert values.memory_libmap == (root / "mem.txt",)
+    assert values.memory_techmap == root / "mem_map.v"
 
 
 def _given(store: Path, **extra: Any) -> dict[str, Any]:
@@ -748,6 +809,8 @@ def test_the_other_group_files_are_inputs_too(fake_yosys):
         "cg.v": {"sequential": {"clockgate_map": "cg.v"}},
         "fa.v": {"arithmetic": {"adder_map_file": "fa.v"}},
         "extra.v": {"techmap_files": ["extra.v"]},
+        "mem.txt": {"memory": {"libmap": ["mem.txt"]}},
+        "mem_map.v": {"memory": {"techmap": "mem_map.v"}},
     }
     store = tiny_store(fake_yosys)
     for name, given in files.items():

@@ -257,9 +257,13 @@ Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
 72 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
-Group `hierarchy`: `hierarchy.keep_min_cost`
+Group `hierarchy`: `hierarchy.keep_min_cost`; 3 more: `xeda list-settings yosys --tier expert --json`
 
-Group `arithmetic`: `arithmetic.adder_architecture`, `arithmetic.adder_map`; 2 more: `xeda list-settings yosys --tier expert --json`
+Group `coarse`: no common settings; 4 more: `xeda list-settings yosys --tier expert --json`
+
+Group `arithmetic`: `arithmetic.adder_architecture`, `arithmetic.adder_map`; 11 more: `xeda list-settings yosys --tier expert --json`
+
+Group `memory`: no common settings; 7 more: `xeda list-settings yosys --tier expert --json`
 
 Group `sequential`: no common settings; 3 more: `xeda list-settings yosys --tier expert --json`
 
