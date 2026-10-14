@@ -198,11 +198,11 @@ def test_repair_timing_refuses_a_value_out_of_range(name, value):
 
 def test_repair_design_prints_its_margins_and_its_wire_length():
     assert render(groups.RepairDesign()) == '-slew_margin "0.0" -cap_margin "0.0"'
-    design = groups.RepairDesign(slew_margin=20, cap_margin=10, max_wire_length=300)
+    design = groups.RepairDesign(slew_margin_percent=20, cap_margin_percent=10, max_wire_length=300)
     assert render(design) == ('-max_wire_length "300.0" -slew_margin "20.0" -cap_margin "10.0"')
 
 
-@pytest.mark.parametrize("name, value", [("slew_margin", 100), ("cap_margin", -1)])
+@pytest.mark.parametrize("name, value", [("slew_margin_percent", 100), ("cap_margin_percent", -1)])
 def test_repair_design_refuses_a_margin_out_of_range(name, value):
     with pytest.raises(Exception, match=name):
         groups.RepairDesign(**{name: value})
@@ -788,8 +788,8 @@ GRT_REFUSALS = [
         "`repair.recover_power_percent` has no effect with `repair.strategy: none`",
     ),
     (
-        ("repair.strategy=none", "repair.design.cap_margin=5"),
-        "`repair.design.cap_margin` has no effect with `repair.strategy: none`",
+        ("repair.strategy=none", "repair.design.cap_margin_percent=5"),
+        "`repair.design.cap_margin_percent` has no effect with `repair.strategy: none`",
     ),
     (
         ("repair.strategy=none", "repair.timing.enabled=false"),

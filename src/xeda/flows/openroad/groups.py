@@ -340,8 +340,8 @@ class RepairDesign(SettingsGroup):
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
         Flag("max_wire_length", "-max_wire_length", "value"),
-        Flag("slew_margin", "-slew_margin", "value"),
-        Flag("cap_margin", "-cap_margin", "value"),
+        Flag("slew_margin_percent", "-slew_margin", "value"),
+        Flag("cap_margin_percent", "-cap_margin", "value"),
     )
 
     enabled: bool = Field(
@@ -349,7 +349,7 @@ class RepairDesign(SettingsGroup):
         description="Run `repair_design` at this point of the flow.",
         json_schema_extra=tier("common"),
     )
-    slew_margin: float = Field(
+    slew_margin_percent: float = Field(
         0.0,
         ge=0,
         lt=100,
@@ -357,7 +357,7 @@ class RepairDesign(SettingsGroup):
         "(`-slew_margin`). The default is the one of the tool and of OpenROAD-flow-scripts.",
         json_schema_extra=tier("advanced"),
     )
-    cap_margin: float = Field(
+    cap_margin_percent: float = Field(
         0.0,
         ge=0,
         lt=100,

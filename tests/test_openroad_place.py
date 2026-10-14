@@ -1812,8 +1812,8 @@ def test_the_resize_stage_repairs_the_design_after_the_placement_and_not_before(
 def test_the_repair_of_the_design_follows_its_settings(tmp_path):
     repair = {
         "max_wire_length": 500,
-        "slew_margin": 10,
-        "cap_margin": 5,
+        "slew_margin_percent": 10,
+        "cap_margin_percent": 5,
         "match_cell_footprint": True,
     }
     flow = place_flow(tmp_path, {"resize": {"repair_design": repair}})
