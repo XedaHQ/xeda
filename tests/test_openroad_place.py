@@ -15,6 +15,7 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsException
+from xeda.platforms import PdkNotInstalled
 from xeda.flow_runner import DefaultRunner
 from xeda.flows.openroad import OpenroadPlace, base
 from xeda.flows.openroad.base import to_lib_time
@@ -1868,7 +1869,9 @@ def test_a_dry_run_judges_the_platform_files_and_the_netlist(tmp_path, monkeypat
     assert states["openroad_place"].reason == f"input changed: {netlist.resolve()}"
 
 
-def test_a_dry_run_shows_a_missing_store_as_unknown(tmp_path, monkeypatch):
+def test_a_dry_run_shows_a_missing_store_as_unknown_with_the_message_of_the_launch(
+    tmp_path, monkeypatch
+):
     require_tclsh()
     use_fake_openroad(monkeypatch)
     empty = tmp_path / "empty"
@@ -1878,7 +1881,11 @@ def test_a_dry_run_shows_a_missing_store_as_unknown(tmp_path, monkeypatch):
     given = dict(s.split("=", 1) for s in openroad_settings(empty, **{"clock.period": "5"}))
     _, states = runner.plan_with_freshness(OpenroadPlace, design, flow_settings=given)
     assert states["openroad_place"].state == "unknown"
-    assert "tiny" in states["openroad_place"].reason
+    with pytest.raises(PdkNotInstalled) as refused:
+        runner.launch_flow(OpenroadPlace, design, given)
+    assert str(refused.value) in states["openroad_place"].reason
+    assert "tiny" in str(refused.value)
+    assert not list((tmp_path / "xeda_run").rglob("fake_*.calls"))
 
 
 # ------------------------------------------------------------------------------ chains
