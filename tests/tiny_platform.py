@@ -13,6 +13,8 @@ from typing import Any
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 TINY_RESIDUE = Path(__file__).parent / "resources" / "platforms" / "tiny.yaml"
+#: The same platform with the values that the OpenROAD flows read (the power grid, the wire RC).
+TINY_OPENROAD_RESIDUE = Path(__file__).parent / "resources" / "platforms" / "tiny_openroad.yaml"
 
 
 def tiny_store(root: Path, name: str = "store") -> Path:
@@ -22,6 +24,9 @@ def tiny_store(root: Path, name: str = "store") -> Path:
     return store
 
 
-def tiny_settings(store: Path, **given: Any) -> dict[str, Any]:
-    """Return the settings that select the `tiny` platform in `store`, with `given` added."""
-    return {"platform_file": str(TINY_RESIDUE), "pdk_root": str(store), **given}
+def tiny_settings(store: Path, *, residue: Path = TINY_RESIDUE, **given: Any) -> dict[str, Any]:
+    """Return the settings that select the `tiny` platform in `store`, with `given` added.
+
+    `residue` is the residue file of the platform: `TINY_OPENROAD_RESIDUE` for a flow that reads
+    the values of OpenROAD."""
+    return {"platform_file": str(residue), "pdk_root": str(store), **given}

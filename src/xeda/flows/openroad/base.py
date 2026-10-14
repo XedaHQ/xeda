@@ -1,9 +1,118 @@
-"""The base of the OpenROAD flows."""
+"""The base of the OpenROAD flows.
 
+Each flow runs OpenROAD once or twice. A process starts from a netlist (`openroad_place`) or from
+the database (`.odb`) of the flow before it, and writes its own database and its SDC file. The
+database stores the design and the routing and optimization options that the placement flow set
+(`openroad_place` owns them, and no later flow sets them again). It does not store the
+Liberty files, the SDC constraints, the wire parasitics or the cells that must not be used. So
+every process starts with the same restart header (`templates/restart.tcl.j2`) that applies them.
+
+`OpenroadStage` holds what the four flows share: the settings `hierarchical` and `wire_rc`, the
+platform files, the values that the templates read (`effective_base`), the way a driver script
+runs (`run_openroad`) and the metrics file that OpenROAD writes (`read_metrics`).
+"""
+
+import logging
+import math
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, ClassVar, Dict, List, Optional, Sequence
+
+from ...dataclass import Field
+from ...design import Design
 from ...flow import Flow
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
+from ...flow.flow import FlowSettingsException
+from ...flow.settings_group import render_flags
+from ...platforms.model import PlatformModel, WireRc
+from ...tool import Tool
+from ...utils import tcl_word, unique
+from .metrics import MetricsError, load_metrics
 
-__all__ = ["OpenroadStage"]
+__all__ = [
+    "EffectiveBase",
+    "OpenroadStage",
+    "effective_base",
+    "base_values",
+    "merge_wire_rc",
+    "tcl_number",
+]
+
+log = logging.getLogger(__name__)
+
+#: The roles of the platform files that every OpenROAD process opens: the Liberty files of the
+#: corner and, to read a netlist or a database, the LEF files.
+PLATFORM_ROLES = ("liberty", "tech_lef", "cell_lef")
+
+
+def tcl_number(value: Any) -> str:
+    """Return the number `value` as a Tcl word. Anything that is no finite number is a bug of the
+    caller: a script never gets text for a number."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise TypeError(f"expected a finite number for a Tcl script, got {value!r}")
+    return repr(value)
+
+
+def merge_wire_rc(platform: WireRc, given: Optional[WireRc]) -> WireRc:
+    """Return the wire RC of the platform with the leaves of `given` over it.
+
+    Each leaf that `given` sets replaces the leaf of the platform. The tables `layers` and `vias`
+    merge key by key. Without `given`, the result is the RC of the platform."""
+    if given is None:
+        return platform
+    return platform.model_copy(
+        update={
+            "signal_layer": (
+                platform.signal_layer if given.signal_layer is None else given.signal_layer
+            ),
+            "clock_layer": platform.clock_layer if given.clock_layer is None else given.clock_layer,
+            "layers": {**platform.layers, **given.layers},
+            "vias": {**platform.vias, **given.vias},
+        }
+    )
+
+
+@dataclass(frozen=True)
+class EffectiveBase:
+    """The values of the platform and the settings that the restart header of every OpenROAD
+    process reads. The values of each flow (`P` in its templates) inherit this class."""
+
+    #: The Liberty files of the corner.
+    liberty: tuple[Path, ...]
+    #: The technology LEF file, or `None` if the platform has none.
+    tech_lef: Optional[Path]
+    #: The LEF files of the cells.
+    cell_lefs: tuple[Path, ...]
+    #: The wire RC of the platform, with the setting `wire_rc` over it.
+    wire_rc: WireRc
+    #: The cells that must not be used: those of the platform, then those of the setting
+    #: `dont_use_cells`, without repeats.
+    dont_use: tuple[str, ...]
+    #: The time unit of the Liberty files, written as `1ns`.
+    time_unit: str
+
+
+def base_values(settings: "OpenroadStage.Settings", model: PlatformModel) -> Dict[str, Any]:
+    """Return the fields of `EffectiveBase` for `settings` and the platform `model`, by name.
+
+    A flow builds its own `Effective<Flow>` with these and its own fields. The function reads
+    only its arguments."""
+    tech = model.files.get("tech_lef", [])
+    return dict(
+        liberty=tuple(model.files.get("liberty", [])),
+        tech_lef=tech[0] if tech else None,
+        cell_lefs=tuple(model.files.get("cell_lef", [])),
+        wire_rc=merge_wire_rc(model.wire_rc, settings.wire_rc),
+        dont_use=tuple(unique([*model.dont_use_cells, *settings.dont_use_cells])),
+        # a Liberty file that gives no unit has the default of the format
+        time_unit=model.time_unit or "1ns",
+    )
+
+
+def effective_base(settings: "OpenroadStage.Settings", model: PlatformModel) -> EffectiveBase:
+    """Return the values of `EffectiveBase` for `settings` and the platform `model`."""
+    return EffectiveBase(**base_values(settings, model))
 
 
 class OpenroadStage(AsicPlatformFlow, Flow):
@@ -18,5 +127,217 @@ class OpenroadStage(AsicPlatformFlow, Flow):
         "file, give it as `flows.{flow}.platform`",
     }
 
+    #: The roles of the platform files that the flow opens. `prepare_inputs()` registers these
+    #: files and `locate_prepared_inputs()` returns them, in this order.
+    platform_roles: ClassVar[tuple[str, ...]] = PLATFORM_ROLES
+    #: The names of the metrics files that the flow's processes write, in the run directory.
+    metrics_files: ClassVar[tuple[str, ...]] = ()
+    #: The report files that the flow's scripts write, by key: a fixed name under `reports/`.
+    reports: ClassVar[Dict[str, str]] = {}
+
     class Settings(AsicPlatformSettings):
         """The settings that every OpenROAD flow shares."""
+
+        hierarchical: bool = Field(
+            False,
+            description="Keep the hierarchy of the design: OpenROAD links the netlist with "
+            "`link_design -hier` and reads each database with `read_db -hier`. The database does "
+            "not tell how it was read, so every OpenROAD flow of a chain must agree on this "
+            "setting. It is separate from the hierarchy that `yosys` keeps.",
+        )
+        wire_rc: Optional[WireRc] = Field(
+            None,
+            description="Resistance and capacitance of the wires, which replace the values of "
+            "the platform leaf by leaf: the layers and vias that you list replace the ones of "
+            "the platform with the same name, and the others stay. The default is the wire RC "
+            "of the platform. The database stores no wire RC, so every OpenROAD flow of a chain "
+            "must agree on this setting.",
+        )
+
+    # --- planning -----------------------------------------------------------------------------
+
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse a platform that has no LEF files, since OpenROAD cannot read a design without
+        them. This reads the residue files only."""
+        super().check_settings_supported(settings)
+        if not isinstance(settings, AsicPlatformSettings):
+            return
+        if settings.platform is None and settings.platform_file is None:
+            return  # the missing platform is reported with the other required settings
+        files = settings.residue().files
+        missing = [role for role in ("tech_lef", "cell_lef") if not getattr(files, role)]
+        if missing:
+            raise FlowSettingsException(
+                f"the platform {settings.residue().name!r} gives no {' and no '.join(missing)}, "
+                f"which {cls.name} reads: add them to `files` in its residue file"
+            )
+
+    @classmethod
+    def check_design_supported(
+        cls, design: Design, settings: Optional[Flow.Settings] = None
+    ) -> None:
+        """Refuse a top module whose name would put a file of OpenROAD outside the run directory.
+
+        OpenRCX writes `<top>.totCap` in the working directory. A name with a `/` (an escaped
+        Verilog name can have one) would name a file in another directory."""
+        super().check_design_supported(design, settings)
+        top = design.rtl.top
+        if top is not None and ("/" in top or os.sep in top):
+            raise FlowSettingsException(
+                f"the top module {top!r} has a `/` in its name, so OpenRCX would write "
+                f"{top}.totCap outside the run directory: rename the top module"
+            )
+
+    # --- the files of the platform ------------------------------------------------------------
+
+    def prepare_inputs(self) -> None:
+        """Find the files of the platform and build the platform model."""
+        super().prepare_inputs()
+        self.prepare_platform(self.platform_roles)
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """Return the files that `prepare_inputs()` registers, in the same order."""
+        located = super().locate_prepared_inputs()
+        if located is None:
+            return None
+        return [*located, *self.locate_platform_inputs(self.platform_roles)]
+
+    # --- the values of the templates ----------------------------------------------------------
+
+    def effective(self) -> EffectiveBase:
+        """Return the values that the templates read as `P`. A flow that needs more than the
+        restart header reads overrides this method. It runs after `prepare_inputs()`."""
+        model = self.platform_model
+        assert model is not None, "prepare_inputs() builds the platform model"
+        settings = self.settings
+        assert isinstance(settings, self.Settings)
+        return effective_base(settings, model)
+
+    @property
+    def failed_odb(self) -> str:
+        """The name of the database that a failed process writes, in the run directory."""
+        return f"{self.name}-failed.odb"
+
+    def add_template_helpers(self) -> None:
+        """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
+        quotes for Tcl), `tcl_number`, `reports` and `failed_odb`. `init()` calls it. Code that
+        renders a template without `init()`, such as a test, can call it."""
+        self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
+        # one line for each command in a script, with no blank lines from the control statements
+        self.jinja_env.trim_blocks = True
+        self.jinja_env.lstrip_blocks = True
+        # the last line of an included file ends, so the next command starts on its own line
+        self.jinja_env.keep_trailing_newline = True
+        self.jinja_env.globals.update(
+            render_flags=lambda group: render_flags(group, tcl_word),
+            reports=dict(self.reports),
+            failed_odb=self.failed_odb,
+        )
+
+    def bind_template_values(self) -> None:
+        """Add the values that exist only after `prepare_inputs()`: `P` (the values of the
+        platform and the settings), `inputs`, `outputs` and `dont_use`. `run_openroad()` calls it
+        before it renders a driver."""
+        values = self.effective()
+        self.jinja_env.globals.update(
+            P=values,
+            inputs=self.inputs,
+            outputs=self.outputs,
+            dont_use=list(values.dont_use),
+        )
+
+    def init(self) -> None:
+        """Add the template helpers. This reads no input and writes no file."""
+        super().init()
+        self.add_template_helpers()
+
+    # --- running OpenROAD ---------------------------------------------------------------------
+
+    def openroad(self) -> Tool:
+        """Return the `openroad` tool of this flow."""
+        tool = getattr(self, "_openroad_tool", None)
+        if tool is None:
+            tool = self._openroad_tool = Tool("openroad", self, version_flag="-version")
+        return tool
+
+    def remove_failed_odb(self) -> None:
+        """Remove the database that a failed process of an earlier run left."""
+        self.run_directory.remove(self.failed_odb)
+
+    def _relative_to_run(self, path: str | os.PathLike) -> Path:
+        """Return `path` relative to the run directory. Raise `RunDirectoryError` if it leads
+        outside."""
+        given = Path(os.path.abspath(Path(self.run_path) / path))
+        for root in (Path(os.path.abspath(self.run_path)), self.run_directory.path):
+            if given.is_relative_to(root):
+                return given.relative_to(root)
+        self.run_directory.inside(path)  # raises the error that names what leads outside
+        raise AssertionError(f"{path} is outside the run directory")
+
+    def _guard_write(self, path: str | os.PathLike) -> Path:
+        """Make ready the file that OpenROAD will write at `path`, and return its place.
+
+        A symbolic link that a tool left at the name of the file, or at the name of a directory
+        above it, is removed as itself. A missing directory is made. So the write makes a
+        regular file in the run directory and never goes through a link."""
+        relative = self._relative_to_run(path)
+        for parent in reversed(relative.parents):
+            if parent != Path("."):
+                self.run_directory.writable(parent).mkdir(exist_ok=True)
+        return self.run_directory.writable(relative)
+
+    def run_openroad(
+        self,
+        driver: str,
+        metrics: str,
+        writes: Sequence[str | os.PathLike] = (),
+        *,
+        env: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Render the script `drivers/<driver>.tcl.j2` and run OpenROAD on it, once.
+
+        `metrics` is the file that OpenROAD writes its metrics to, and `writes` lists the other
+        files that the script writes (databases, SDC files, reports, the failed database). Xeda
+        makes each of them ready before OpenROAD starts (`_guard_write`), since the tool follows
+        a link that it finds at one of those names. The script is `<driver>.tcl` and the log is
+        `<driver>.log`, both in the run directory. The log goes through `utils.live_log`, so
+        OpenROAD's own `-log` is not used."""
+        self.remove_failed_odb()
+        self.bind_template_values()
+        for path in (metrics, *writes):
+            self._guard_write(path)
+        script = self.copy_from_template(
+            f"drivers/{driver}.tcl.j2",
+            script_filename=f"{driver}.tcl",
+            trim_blocks=True,
+            lstrip_blocks=True,
+        )
+        log_file = self.run_directory.writable(f"{driver}.log")
+        threads = self.settings.nthreads or "max"
+        self.openroad().run(
+            "-no_init",
+            "-no_splash",
+            "-threads",
+            str(threads),
+            "-exit",
+            "-metrics",
+            metrics,
+            script,
+            env=env,
+            tee=log_file,
+            merge_stderr=True,
+        )
+
+    def read_metrics(self, name: str) -> Optional[Dict[str, Any]]:
+        """Return the metrics file `name` of the run directory, or `None`.
+
+        The file must exist, be written by this run (`report_file`) and hold a JSON object."""
+        path = self.report_file(Path(self.run_path) / name)
+        if path is None:
+            return None
+        try:
+            return load_metrics(path)
+        except MetricsError as error:
+            log.warning("%s", error)
+            return None

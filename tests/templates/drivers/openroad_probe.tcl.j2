@@ -1,0 +1,11 @@
+{# A driver for the tests of the shared base: a netlist in, a database out. #}
+{% set restart = "netlist" %}
+{% set sdc_files = [] %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+xeda_stage probe
+if {[catch { xeda_metrics 0 0 } message options]} {
+    catch { write_db {{ failed_odb|tcl_word }} }
+    return -options $options $message
+}
+write_db {{ outputs.odb|tcl_word }}

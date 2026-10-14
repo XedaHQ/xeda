@@ -1,0 +1,53 @@
+# tiny_openroad.yaml: the platform `tiny` with the values that the OpenROAD flows read. It names
+# the same library files as tiny.yaml. A separate file keeps the goldens that record the values
+# of tiny.yaml as they are.
+name: tiny
+description: A small library for tests, written for xeda
+providers:
+  default: directory
+  directory: {layout: orfs}
+corners: {default: typical, aliases: {tt: typical}}
+files:
+  liberty: {typical: [tiny.lib]}
+  tech_lef: tiny.tlef
+  cell_lef: [tiny.lef]
+  latch_map: cells_latch.v
+  clkgate_map: cells_clkgate.v
+  adder_map: cells_adders.v
+values:
+  min_buffer: {cell: BUF_X1, input: A, output: Z}
+  abc_driver_cell: BUF_X1
+  abc_load_in_ff: 3.5
+  # The values that the OpenROAD flows read. TAP_X1 and ENDCAP_X1 are no cells of the library:
+  # no test reads their LEF.
+  fill_cells: [FILL_X1]
+  tap_cell: TAP_X1
+  endcap_cell: ENDCAP_X1
+  tapcell: {distance: 12}
+  routing:
+    min_layer: m2
+    max_layer: m4
+    clock_min_layer: m3
+    layer_adjustments: {m2-m3: 0.5, m4: 0.25}
+  io_layers: {horizontal: m3, vertical: m4}
+  wire_rc:
+    signal_layer: m2
+    clock_layer: m3
+    layers:
+      m1: [0.0085, 0.00015]
+      m2: [0.0025, 0.00014]
+      m3: [0.0015, 0.00012]
+      m4: [0.0003, 0.0001]
+    vias: {v1: 0.002, v2: 0.0004, v3: 0.0002}
+  pdn:
+    power_net: VDD
+    ground_net: VSS
+    global_connects:
+      - {net: VDD, pin_pattern: ^VDD$, kind: power}
+      - {net: VSS, pin_pattern: ^VSS$, kind: ground}
+    rails: [{layer: m1, width: 0.12, pitch: 1.4, offset: 0}]
+    straps:
+      - {layer: m3, width: 0.24, pitch: 8, offset: 1}
+      - {layer: m4, width: 0.48, pitch: 12, offset: 1}
+    connects: [[m1, m3], [m3, m4]]
+    pin_layers: [m4]

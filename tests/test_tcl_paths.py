@@ -8,6 +8,7 @@ Vivado's `unknown`. The templates write such a path with `tcl_word` (a whole arg
 `tcl_quote` (inside a message). PDK files and xeda's own run-directory paths are out of scope.
 """
 
+import dataclasses
 import importlib.util
 import re
 import typing
@@ -23,6 +24,7 @@ from xeda import Design
 from xeda.design import DesignValidationError
 from xeda.flow.flow import FlowSettingsError, registered_flows
 from xeda.flows import dc
+from xeda.flows.openroad.base import EffectiveBase
 from xeda.flow_runner import DefaultRunner
 
 from .tool_utils import FAKE_TOOLS_DIR, fake_calls, fake_returns, use_fake_tools
@@ -321,14 +323,19 @@ def _text_typed(annotation) -> bool:
 
 
 def _model_classes(annotation) -> list:
-    """The pydantic models an annotation holds (`Optional[FPGA]` -> [FPGA])."""
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+    """The pydantic models and dataclasses an annotation holds (`Optional[FPGA]` -> [FPGA])."""
+    if isinstance(annotation, type) and (
+        issubclass(annotation, BaseModel) or dataclasses.is_dataclass(annotation)
+    ):
         return [annotation]
     return [cls for arg in typing.get_args(annotation) for cls in _model_classes(arg)]
 
 
 def _attribute_type(owner, name: str):
-    """The type of `owner.name`: a model field's annotation, or a property's return type."""
+    """The type of `owner.name`: a model field's annotation, a property's return type, or the
+    annotation of a field of a dataclass."""
+    if dataclasses.is_dataclass(owner):
+        return typing.get_type_hints(owner).get(name)
     if name in owner.model_fields:
         return owner.model_fields[name].annotation
     prop = getattr(owner, name, None)
@@ -369,12 +376,16 @@ def _roots_by_package() -> dict[str, list]:
         if module[:2] != ["xeda", "flows"]:
             continue
         by_package.setdefault(module[2], []).append(cls.Settings)
+    # The OpenROAD flows register once each can run; their templates are read all the same.
+    from .openroad_utils import OPENROAD_FLOWS
+
+    by_package["openroad"] = [flow.Settings for flow in OPENROAD_FLOWS]
     return by_package
 
 
 #: Where a template expression reads the design or the settings: `design.rtl.top`,
 #: `settings.fpga.part`, `design.tb.top[0]`.
-USER_TEXT_PATH = re.compile(r"\b(design|settings)((?:\.\w+(?:\[\d+\])?)+)")
+USER_TEXT_PATH = re.compile(r"\b(design|settings|inputs|outputs|P)((?:\.\w+(?:\[\d+\])?)+)")
 #: A Tcl filter, applied to the value or mapped over its items -- or one of the Vivado filters
 #: that render each `-generic`/`-define` assignment through `tcl_word`.
 QUOTED = re.compile(
@@ -395,9 +406,10 @@ def test_every_user_given_setting_in_a_tcl_template_is_a_literal_word() -> None:
     template with such a design (`test_every_design_text_reaches_the_tool_as_a_literal_word`)."""
     by_package = _roots_by_package()
     raw = []
-    for template in sorted(FLOWS_DIR.glob("*/templates/*")):
-        package = template.parts[-3]
-        if template.suffix not in TCL_SUFFIXES or package in NOT_TCL:
+    for template in sorted(FLOWS_DIR.glob("*/templates/**/*")):
+        package = template.relative_to(FLOWS_DIR).parts[0]
+        is_tcl = template.suffix in TCL_SUFFIXES or template.name.endswith(".tcl.j2")
+        if not is_tcl or package in NOT_TCL:
             continue
         name = template.relative_to(FLOWS_DIR).as_posix()
         for n, line in enumerate(template.read_text().splitlines(), 1):
@@ -407,7 +419,12 @@ def test_every_user_given_setting_in_a_tcl_template_is_a_literal_word() -> None:
                 if QUOTED.search(expression) or (name, expression) in REVIEWED_RAW:
                     continue
                 for root, dotted in USER_TEXT_PATH.findall(expression):
-                    roots = [Design] if root == "design" else by_package.get(package, [])
+                    if root in ("inputs", "outputs"):  # the files of the flow's declared I/O
+                        raw.append(f"{name}:{n}: {expression}")
+                        break
+                    roots = {"design": [Design], "P": [EffectiveBase]}.get(
+                        root, by_package.get(package, [])
+                    )
                     if _path_text_typed(roots, dotted.lstrip(".").split(".")):
                         raw.append(f"{name}:{n}: {expression}")
                         break
@@ -612,3 +629,58 @@ def test_a_valid_design_name_reaches_the_tool_whole(tmp_path, monkeypatch):
         pass
     assert canary.read_text() == "the user's own file\n"
     assert any("my-design_1" in arg for call in fake_calls(run_dir) for arg in call)
+
+
+# ---------------------------------------------------------------------------------------------
+# The OpenROAD flows: the restart header
+# ---------------------------------------------------------------------------------------------
+
+
+@needs_tclsh
+@pytest.mark.parametrize("database", [False, True])
+def test_every_text_of_the_openroad_header_reaches_the_tool_as_a_literal_word(
+    database, tmp_path, monkeypatch
+):
+    """The header is rendered for a design root, a PDK store, a top module, a wire RC and
+    cells that carry Tcl metacharacters, and run under the fake OpenROAD: Tcl substitutes, splits
+    and runs none of it, and each name arrives as one argument."""
+    from .openroad_utils import openroad_design, probe_flows, render_driver, run_fake_openroad
+
+    odd_root = tmp_path / "design root $v [xeda_injected]"
+    design = Design.from_file(openroad_design(odd_root, top=f"counter {EVIL}"))
+    settings = {
+        "dont_use_cells": [f"CELL {EVIL}", "PLAIN"],
+        "wire_rc": {
+            "signal_layer": f"m2 {EVIL}",
+            "clock_layer": f"m3 {EVIL}",
+            "layers": {f"layer {EVIL}": [1.0, 2.0]},
+            "vias": {f"via {EVIL}": 3.0},
+        },
+    }
+    with probe_flows() as probes:
+        flow = probes.flow(
+            tmp_path,
+            database=database,
+            design=design,
+            settings=settings,
+            store_name="store $s [xeda_injected]",
+        )
+        flow.outputs.odb = Path("probe.odb")  # the fake writes only in its working directory
+        script = render_driver(flow, "openroad_probe_db" if database else "openroad_probe")
+        files = flow.platform_model.files
+        roles = ("liberty",) if database else ("liberty", "tech_lef", "cell_lef")
+        model_files = [str(path) for role in roles for path in files[role]]
+        entry = (
+            [str(flow.inputs.odb), str(flow.inputs.sdc)] if database else [str(flow.inputs.netlist)]
+        )
+    done = run_fake_openroad(tmp_path / "work", script)
+    assert done.returncode == 0, done.stderr
+    calls = fake_calls(tmp_path / "work")  # a Tcl error fails the test
+    items = fake_calls(tmp_path / "work", elements=True)  # also the items of a list
+    arguments = [argument for call in calls for argument in call]
+    assert not [call for call in calls if call[0] == "xeda_injected"]
+    for text in (*model_files, *entry, f"m2 {EVIL}", f"m3 {EVIL}", f"layer {EVIL}", f"via {EVIL}"):
+        assert text in arguments, text
+    assert f"CELL {EVIL}" in [argument for call in items for argument in call]
+    if not database:
+        assert ["link_design", "-omit_filename_prop", f"counter {EVIL}"] in calls
