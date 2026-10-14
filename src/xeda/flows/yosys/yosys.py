@@ -591,14 +591,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 )
             )
         if settings.arithmetic.wrap_operators:
-            if not abc_new:
-                problems.append(
-                    (
-                        "arithmetic.wrap_operators",
-                        "`arithmetic.wrap_operators` is on, and operator wrapping maps with "
-                        "`abc_new`: set `abc.mapper: abc_new`",
-                    )
-                )
             stripped = [
                 name
                 for name in WRAPPED_OPERATOR_ATTRIBUTES

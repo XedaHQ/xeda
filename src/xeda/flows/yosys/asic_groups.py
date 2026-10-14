@@ -204,8 +204,10 @@ class ArithmeticGroup(SettingsGroup):
     wrap_operators: bool = Field(
         False,
         description="Wrap wide operators in modules with alternative architectures, for the "
-        "place and route tool to choose from. Needs a yosys with Tcl, `script_format: tcl` and "
-        "`abc.mapper: abc_new`. The netlist keeps its attributes.",
+        "place and route tool to choose from. Needs a yosys with Tcl and `script_format: tcl`. "
+        "The netlist keeps its attributes. With `abc.mapper: abc_new`, ABC maps each wrapped "
+        "operator with the script that the operator carries, as OpenROAD-flow-scripts does. With "
+        "`abc`, ABC maps every module with the script of `abc.strategy`.",
         json_schema_extra=tier("advanced"),
     )
     wrapped_adders: List[Literal["brent_kung", "han_carlson", "kogge_stone", "sklansky"]] = Field(

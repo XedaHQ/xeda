@@ -1394,9 +1394,12 @@ with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl
 ``arithmetic.wrap_operators``
     Wraps each wide ``$alu`` and ``$macc`` cell in a module for each architecture, so that the
     place and route tool can swap them. The first architecture in ``arithmetic.wrapped_adders``
-    or ``arithmetic.wrapped_multipliers`` builds the module that the design instantiates. It needs
-    ``abc.mapper: abc_new``. The netlist keeps the attributes that the swap reads
-    (``arithmetic_operator``, ``implements_operator``, ``architecture`` and ``source_cell``).
+    or ``arithmetic.wrapped_multipliers`` builds the module that the design instantiates. The
+    netlist keeps the attributes that the swap reads (``arithmetic_operator``,
+    ``implements_operator``, ``architecture`` and ``source_cell``). With ``abc.mapper: abc_new``,
+    ABC maps each wrapped operator with the script that the operator carries, as
+    OpenROAD-flow-scripts does. With ``abc``, ABC maps every module with the script of
+    ``abc.strategy``.
     Xeda refuses ``netlist_attrs: false``, a ``netlist_unset_attributes`` entry that names one of
     these attributes, and ``finish.allow_tristate``.
 

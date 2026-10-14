@@ -520,9 +520,8 @@ def _refused(**given: Any) -> dict[str, str]:
 def test_the_tcl_only_values_are_refused_with_the_ys_script_and_accepted_with_tcl(key, given):
     problems = _refused(platform="nangate45", script_format="ys", **given)
     assert problems[key].startswith(f"`{key}` ") and "needs `script_format: tcl`" in problems[key]
-    accepted = {**given, **ABC_NEW} if key == "arithmetic.wrap_operators" else given
     Yosys.check_settings_supported(
-        Yosys.Settings(platform="nangate45", script_format="tcl", **accepted)
+        Yosys.Settings(platform="nangate45", script_format="tcl", **given)
     )
 
 
@@ -540,14 +539,20 @@ def test_the_memory_size_checks_are_tcl_only_values(tmp_path):
     assert "needs `script_format: tcl`" in problems["memory.max_bits"]
 
 
-def test_wrapping_refuses_the_abc_mapper():
-    problems = _refused(
-        platform="nangate45", script_format="tcl", arithmetic={"wrap_operators": True}
+def test_wrapping_is_accepted_with_the_abc_mapper_and_maps_with_abc(tmp_path, monkeypatch):
+    """Wrapping makes the same modules whatever maps them. `abc_new` maps each wrapped operator
+    with the script that the operator carries, and `abc` ignores that script and maps every module
+    with the script of `abc.strategy`."""
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45", script_format="tcl", arithmetic={"wrap_operators": True}
+        )
     )
-    assert (
-        "operator wrapping maps with `abc_new`: set `abc.mapper: abc_new`"
-        in problems["arithmetic.wrap_operators"]
-    )
+    _, calls = _render(tmp_path, monkeypatch, arithmetic={"wrap_operators": True})
+    assert _words(calls, "wrap_operators") == [["wrap_operators", BOOTH_MAP, "", ""]]
+    (abc,) = _words(calls, "abc")
+    assert abc[1] == "-script" and abc[2].startswith("+strash;")
+    assert not _words(calls, "abc_new") and not _words(calls, "scratchpad")
 
 
 def test_wrapping_refuses_a_netlist_without_attributes():
@@ -716,10 +721,13 @@ def _modules(netlist: str) -> dict[str, str]:
     return found
 
 
-def test_real_yosys_wraps_a_wide_adder_in_modules_with_the_attributes_for_the_swap(tmp_path):
+@pytest.mark.parametrize("mapper", ["abc", "abc_new"])
+def test_real_yosys_wraps_a_wide_adder_in_modules_with_the_attributes_for_the_swap(
+    tmp_path, mapper
+):
     require_yosys_tcl()
     _, netlist = _launch(
-        tmp_path, ADDER, "adder", arithmetic={"wrap_operators": True}, abc={"mapper": "abc_new"}
+        tmp_path, ADDER, "adder", arithmetic={"wrap_operators": True}, abc={"mapper": mapper}
     )
     modules = _modules(netlist)
     wrapped = [name for name in modules if name.startswith("ALU_")]
