@@ -11,6 +11,9 @@ from typing import Any, Dict, List, Tuple, Type
 from xeda.flow import Flow
 from xeda.flow.flow import registered_flows
 from xeda.flows import __builtin_flows__
+from xeda.units import Time
+
+from .settings_fields import FieldPath, dotted, merged, nest, quantity_paths
 
 assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_flows`"
 
@@ -57,7 +60,8 @@ Pair = namedtuple("Pair", "first second")
 
 #: One value of every structural kind: absent, empty containers, scalars of each type, text that
 #: looks like a number or a list, homogeneous and mixed containers, namedtuples (which break
-#: `type(value)(items)`), and mappings. Paired with each setting of each flow by the sweeps.
+#: `type(value)(items)`), mappings, and a quantity of each kind. Paired with each setting of each
+#: flow by the sweeps.
 PROBES: List[Any] = [
     None,
     [],
@@ -83,4 +87,26 @@ PROBES: List[Any] = [
     {"k": 1},
     [{"name": "A", "value": 1}],
     [[1], {"a": None}],
+    # a quantity of each kind, as text with a unit, and one as an object
+    "10 ns",
+    "100 MHz",
+    "2 fF",
+    "3 um",
+    "1.2 V",
+    "5 ohm",
+    Time("10 ns"),
 ]
+
+
+#: Every field that holds a quantity, as `(flow class, path)`. A quantity is nested in a group
+#: (`abc.delay_target`) or in a clock (`clocks.<key>.period`), never at the top of a flow's
+#: settings, so the sweeps that give a probe to each top-level setting do not reach it.
+QUANTITY_FIELDS: List[Tuple[Type[Flow], FieldPath]] = [
+    (cls, path) for cls, _ in flow_classes() for path in quantity_paths(cls.Settings)
+]
+QUANTITY_FIELD_IDS: List[str] = [f"{cls.name}:{dotted(path)}" for cls, path in QUANTITY_FIELDS]
+
+
+def with_quantity(cls: Type[Flow], path: FieldPath, value: Any) -> Flow.Settings:
+    """The minimal settings of `cls` with `value` at the quantity field `path`."""
+    return cls.Settings(**merged(minimal_settings(cls, clock=False), nest(path, value)))

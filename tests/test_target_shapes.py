@@ -29,7 +29,7 @@ from xeda.design import DesignValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flow_runner.settings_layers import compose_flow_settings
 from xeda.flows import GhdlSim, VivadoSynth, Yosys
-from xeda.utils import settings_to_dict
+from xeda.utils import json_encodable, settings_to_dict
 from xeda.xedaproject import XedaProject
 
 from .settings_samples import PROBES
@@ -374,8 +374,8 @@ def test_a_bool_is_no_language_standard(tmp_path, standard):
 
 
 def plain(value: Any) -> Any:
-    """`value` as a file holds it: tuples and named tuples are lists."""
-    return json.loads(json.dumps(value))
+    """`value` as a file holds it: tuples and named tuples are lists, a quantity is its text."""
+    return json.loads(json.dumps(value, default=json_encodable))
 
 
 def _distinct(values: list) -> list:
