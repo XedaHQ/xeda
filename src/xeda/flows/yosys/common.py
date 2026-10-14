@@ -219,6 +219,12 @@ _NOT_A_YS_TOKEN = re.compile(r'[\s"]+')
 quote."""
 
 
+#: The directory in the run directory that holds the temporary files of yosys. It is a relative
+#: name without a space: yosys runs in the run directory, and yosys and ABC split a command line at
+#: spaces.
+YOSYS_TEMPORARY_DIRECTORY = "yosys_tmp"
+
+
 class YosysBase(Flow):
     """The base of the flows that read a design with Yosys."""
 
@@ -583,6 +589,22 @@ class YosysBase(Flow):
             minimum_version=self.minimum_yosys,
             default_args=default_args,
         )
+
+    def run_yosys(self, *args: Any) -> None:
+        """Run yosys with `args`, and keep its temporary files in the run directory.
+
+        Yosys and the programs it starts make their temporary directories and files where the
+        environment variable `TMPDIR` points, and `abc_new` leaves its directory there. The
+        process gets `TMPDIR` set to `YOSYS_TEMPORARY_DIRECTORY`, a new empty directory in the
+        run directory, which is removed when yosys ends, however it ends. The environment of Xeda
+        itself does not change, and no other tool gets the variable."""
+        run_directory = self.run_directory
+        run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
+        run_directory.writable(YOSYS_TEMPORARY_DIRECTORY).mkdir()
+        try:
+            self.yosys.run(*args, env={"TMPDIR": YOSYS_TEMPORARY_DIRECTORY})
+        finally:
+            run_directory.remove(YOSYS_TEMPORARY_DIRECTORY)
 
     def get_utilization(self) -> Optional[dict]:
         """Return the utilization report that this run wrote (`Flow.report_file`), if any."""

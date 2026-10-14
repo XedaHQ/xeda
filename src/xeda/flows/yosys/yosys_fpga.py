@@ -1035,7 +1035,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         depfile = self.run_path / "yosys.d"
         args += ["-E", depfile]
         self.depfiles.append(depfile)
-        self.yosys.run(*args)
+        self.run_yosys(*args)
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)

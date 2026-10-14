@@ -172,7 +172,7 @@ class YosysSim(YosysBase, SimFlow):
         args += ["-E", depfile]
         self.depfiles.append(depfile)
         self.results["_tool"] = yosys.info  # TODO where should this go?
-        yosys.run(*args)
+        self.run_yosys(*args)
 
         yosys_config = yosys.derive(
             "yosys-config", sibling=True, source_name="yosys", redirect_stdout=None
