@@ -630,3 +630,27 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
         flow.init()
     assert flow.settings.abc_script == str(script)
     assert flow.implicit_inputs == [script]
+
+
+def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch):
+    """The design root is not the working directory, and yosys runs in the run directory: a
+    relative `liberty` or `dff_liberty` names a file under the design root."""
+    from .tool_utils import use_fake_asic_tools
+
+    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
+    design = _design(tmp_path / "design")
+    (tmp_path / "design" / "lib").mkdir()
+    shutil.copy(TINY / "tiny.lib", tmp_path / "design" / "lib" / "x.lib")
+    shutil.copy(TINY / "tiny.lib", tmp_path / "design" / "lib" / "dff.lib")
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+        Yosys,
+        design,
+        {"liberty": ["lib/x.lib"], "dff_liberty": "lib/dff.lib", "clock": {"period": 2.0}},
+    )
+    assert flow.succeeded
+    script = _script(flow.run_path)
+    assert str(tmp_path / "design" / "lib" / "dff.lib") in script
+    effective = _effective(flow.run_path)
+    assert effective["dff_liberty"] == str(tmp_path / "design" / "lib" / "dff.lib")
+    assert effective["liberty"] == [str(tmp_path / "design" / "lib" / "x.lib")]
+    assert f"-liberty {tmp_path / 'design' / 'lib' / 'x.lib'}" in script

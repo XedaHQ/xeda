@@ -376,6 +376,15 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
 
+    def init(self):
+        """Resolve the Liberty files that the user gave against the design root."""
+        super().init()
+        assert isinstance(self.settings, self.Settings)
+        ss = self.settings
+        ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
+        if ss.dff_liberty:
+            ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
+
     def prepare_inputs(self) -> None:
         """Build the platform model, when abc maps to the liberty library of a platform."""
         super().prepare_inputs()
