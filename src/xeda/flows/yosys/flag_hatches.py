@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tu
 from .asic_groups import AbcGroup
 
 __all__ = [
+    "ABC_NEW_LACKS",
     "HATCHES",
     "LIBERTY_HATCHES",
     "OWNED_FLAGS",
@@ -90,9 +91,9 @@ OWNED_FLAGS: Dict[str, Dict[str, Owner]] = {
             "a liberty mapping maps the flip-flops with `dfflibmap` before `abc` runs, so `-dff` "
             "has no effect"
         ),
-        "-g": _setting("gates"),
-        "-lut": _setting("lut"),
-        "-luts": _setting("lut"),
+        "-g": _fixed("a mapping to a liberty library maps to cells, not to generic gates"),
+        "-lut": _fixed("a mapping to a liberty library maps to cells, not to LUTs"),
+        "-luts": _fixed("a mapping to a liberty library maps to cells, not to LUTs"),
     },
     "read_verilog": {
         "-defer": _fixed("the script reads each Verilog source with `-defer`"),
@@ -112,6 +113,10 @@ OWNED_FLAGS: Dict[str, Dict[str, Owner]] = {
         "--best-effort-hierarchy": _fixed("the script gives it to every `read_slang` command"),
     },
 }
+
+
+#: The flags of the table of `abc` that `abc_new` has no option for. `abc_new` takes the others.
+ABC_NEW_LACKS = frozenset({"-dff", "-keepff", "-dress", "-liberty_args", "-g", "-lut", "-luts"})
 
 
 class Hatch(NamedTuple):
@@ -170,16 +175,26 @@ def owned_words(command: str, items: Sequence[str]) -> List[Tuple[str, str, Owne
     return found
 
 
+def _runs_abc_new(settings: Any) -> bool:
+    return getattr(getattr(settings, "abc", None), "mapper", None) == "abc_new"
+
+
 def flag_problems(settings: Any, hatches: Sequence[Hatch]) -> List[Tuple[str, str]]:
     """Return the refused flags in the hatches of `settings`, as `(setting, message)` pairs.
 
-    Each message names the setting that owns the flag, or says that the script fixes it."""
+    Each message names the setting that owns the flag, says that the script fixes it, or says that
+    `abc_new`, which gets the flags of `abc_flags` with that mapper, has no such option."""
     problems: List[Tuple[str, str]] = []
     for hatch in hatches:
         if not hatch.applies(settings):
             continue
-        for word, _, owner in owned_words(hatch.command, getattr(settings, hatch.setting)):
-            if owner.setting is not None:
+        for word, flag, owner in owned_words(hatch.command, getattr(settings, hatch.setting)):
+            if hatch.command == "abc" and flag in ABC_NEW_LACKS and _runs_abc_new(settings):
+                message = (
+                    f"`{word}` in `{hatch.setting}` is an option of `abc`, and `abc.mapper: "
+                    "abc_new` runs `abc_new`, which has no such option. Delete it"
+                )
+            elif owner.setting is not None:
                 message = (
                     f"`{word}` in `{hatch.setting}` is the setting `{owner.setting}`: set that "
                     "instead"

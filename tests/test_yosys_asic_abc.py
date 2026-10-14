@@ -619,14 +619,18 @@ def test_keep_ff_acts_on_the_retiming_run_only():
         ("-constr", "abc_constr"),
         ("-liberty", "liberty"),
         ("-dont_use", "dont_use_cells"),
-        ("-g", "gates"),
-        ("-lut", "lut"),
-        ("-luts", "lut"),
     ],
 )
 def test_an_abc_flag_that_a_setting_owns_is_refused_naming_the_setting(flag, key):
     problems = _keys(abc_flags=[f"{flag} x"])
     assert f"`{key}`" in problems["abc_flags"] and f"`{flag}`" in problems["abc_flags"]
+
+
+@pytest.mark.parametrize("flag", ["-g", "-lut", "-luts"])
+def test_a_generic_mapping_flag_in_abc_flags_is_refused_saying_that_the_mapping_maps_to_cells(flag):
+    message = _keys(abc_flags=[f"{flag} x"])["abc_flags"]
+    assert f"`{flag}`" in message and "maps to cells" in message
+    assert "`gates`" not in message and "`lut`" not in message
 
 
 def test_dff_in_abc_flags_is_refused_saying_that_it_has_no_effect_with_a_liberty_mapping():

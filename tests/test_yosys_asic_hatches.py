@@ -64,9 +64,6 @@ SETTING_OWNED = [
     ("abc_flags", "-constr x", "abc_constr"),
     ("abc_flags", "-liberty x", "liberty"),
     ("abc_flags", "-dont_use x", "dont_use_cells"),
-    ("abc_flags", "-g AND", "gates"),
-    ("abc_flags", "-lut 4", "lut"),
-    ("abc_flags", "-luts 4", "lut"),
     ("read_verilog_flags", "-DNAME=1", "defines"),
     ("read_verilog_flags", "-D NAME", "defines"),
     ("netlist_verilog_flags", "-nodec", "netlist_dec"),
@@ -84,6 +81,9 @@ SCRIPT_FIXED = [
     ("synth_flags", "-run :fine", "two parts"),
     ("synth_flags", "-lut 4", "LUT"),
     ("abc_flags", "-dff", "dfflibmap"),
+    ("abc_flags", "-g AND", "generic gates"),
+    ("abc_flags", "-lut 4", "LUT"),
+    ("abc_flags", "-luts 4", "LUT"),
     ("read_verilog_flags", "-defer", "-defer"),
     ("read_verilog_flags", "-Iinclude", "header"),
     ("read_verilog_flags", "-I include", "header"),
@@ -383,3 +383,27 @@ def test_real_slang_takes_the_flags_of_the_hatch(tmp_path):
     )
     assert flow is not None and flow.succeeded
     assert "--ignore-timing" in (flow.run_path / "yosys_synth.ys").read_text()
+
+
+#: The flags of `abc` that `abc_new` has no option for, each with the flag as written.
+ABC_ONLY_FLAGS = ["-dff", "-keepff", "-dress", "-liberty_args x", "-g AND", "-lut 4", "-luts 4"]
+
+
+@pytest.mark.parametrize("item", ABC_ONLY_FLAGS)
+def test_a_flag_that_abc_new_has_no_option_for_is_refused_saying_so(item):
+    word = item.split()[0]
+    settings = Yosys.Settings(platform="nangate45", abc={"mapper": "abc_new"}, abc_flags=[item])
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(settings)
+    (message,) = [m for key, m, *_ in refused.value.errors if key == "abc_flags"]
+    assert message == (
+        f"`{word}` in `abc_flags` is an option of `abc`, and `abc.mapper: abc_new` runs "
+        "`abc_new`, which has no such option. Delete it"
+    )
+
+
+def test_the_reason_for_a_flag_follows_the_mapper_that_gets_it():
+    """`-keepff` is the setting `abc.keep_ff` for `abc`, and an option that `abc_new` lacks."""
+    assert _owned("abc_flags", "-keepff") == [
+        "`-keepff` in `abc_flags` is the setting `abc.keep_ff`: set that instead"
+    ]
