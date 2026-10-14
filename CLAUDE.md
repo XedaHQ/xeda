@@ -134,8 +134,11 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   creation). A setting the flow cannot run without goes in `Flow.required_settings`, never on the
   model or in `run()` (`tests/test_required_settings.py`). No custom `__init__`; user input goes
   through `from_input`.
-- A flow's code or templates read every setting its model has, or the model refuses it; a setting
-  no flow reads is removed, not kept (`tests/test_unread_settings.py`).
+- A flow's code or templates read every setting its model has, group leaves included, or the model
+  refuses it; a setting no flow reads is removed, not kept (`tests/test_unread_settings.py`).
+- Many tool options go in `SettingsGroup` models (one per command or pass): each leaf has a
+  `tier(...)` and a description, flags render from `FLAGS` by `render_flags` (one call per group),
+  and `extra_args` is checked at planning against `EXTRA_FLAGS` (`tests/test_settings_groups.py`).
 - A removed setting fails with "`<name>` was removed:" and either the setting to use or, for
   `NoReplacement`, why there is none ("...; delete it"). The entry is in `removed_settings` of the
   class that had the field (`tests/test_settings_a_flow_does_not_use.py`).

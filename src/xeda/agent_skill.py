@@ -71,6 +71,27 @@ def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
     return text + (" (depends on the target)" if edge.get("target_dependent") else "")
 
 
+def _group_lines(flow: str, fields: List[Dict[str, object]]) -> List[str]:
+    """Return the lines about the settings groups of a flow: for each top-level group, its
+    `common` settings by dotted name and the number of the other settings it has. `fields` are
+    the entries of `settings_info` that are specific to the flow."""
+    lines: List[str] = []
+    for group in dict.fromkeys(str(f["group"]) for f in fields if f.get("group")):
+        members = [f for f in fields if f.get("group") == group]
+        names = {str(f["name"]) for f in members}
+        # an entry that has entries below it is a sub-group and holds no setting of its own
+        leaves = [
+            f for f in members if not any(other.startswith(f"{f['name']}.") for other in names)
+        ]
+        common = [f"`{f['name']}`" for f in leaves if f.get("tier") == "common"]
+        more = len(leaves) - len(common)
+        line = f"Group `{group}`: " + (", ".join(common) if common else "no common settings")
+        if more:
+            line += f"; {more} more: `xeda list-settings {flow} --tier expert --json`"
+        lines += [line, ""]
+    return lines
+
+
 def _flow_section(flow: Dict[str, object]) -> str:
     name = str(flow["name"])
     lines = [f"### `{name}`", ""]
@@ -99,7 +120,9 @@ def _flow_section(flow: Dict[str, object]) -> str:
         lines += [" ".join(str(description).split()), ""]
 
     settings = settings_info(name)
-    specific = [f for f in settings["fields"] if not f.get("common")]
+    flow_specific = [f for f in settings["fields"] if not f.get("common")]
+    # the fields of a settings group are listed by `xeda list-settings` and do not count here
+    specific = [f for f in flow_specific if f.get("group") is None]
     required = [f["name"] for f in specific if f.get("required")]
     # Add what the flow cannot run without although its model leaves it optional (`fpga` of
     # `nextpnr`, `target_libraries` of `dc`). The launch checks these settings and the model
@@ -112,6 +135,7 @@ def _flow_section(flow: Dict[str, object]) -> str:
         f"(plus the common ones): `xeda list-settings {name} --json`",
         "",
     ]
+    lines += _group_lines(name, flow_specific)
 
     results = results_info(name)
     keys = [k["name"] for k in results["keys"] if not k["common"]]

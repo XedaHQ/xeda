@@ -12,6 +12,9 @@ from .flow_catalog import flow_names
 # Query commands can render documents. Execution commands take a plain `--json` option.
 OUTPUT_FORMATS = ("table", "json", "jsonl", "yaml")
 DOCUMENT_FORMATS = ("json", "yaml")
+#: The tiers of a setting, from the one a user needs most often (`xeda.dataclass.TIERS`, which a
+#: test keeps equal: this module stays free of the settings models, so that completion is fast).
+TIER_NAMES = ("common", "advanced", "expert")
 _SETTING_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_.\[\]-]*")
 #: The start of a key that continues with a name of the tool (`set_synth_properties.`), written
 #: from the table of the setting or from a `flows.<flow>` section. What follows may hold spaces

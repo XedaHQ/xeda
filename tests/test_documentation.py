@@ -11,16 +11,19 @@ import re
 import subprocess
 import textwrap
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Set, Tuple, get_args, get_origin
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Set, Tuple, get_args, get_origin
 
 import pytest
 
-from xeda.dataclass import annotation_args
+from xeda.dataclass import Field, annotation_args, tier, tier_of
 from xeda.design import SOURCE_SUFFIXES
 from xeda.flow import Flow, describe_results
+from xeda.flow.settings_group import SettingsGroup
 from xeda.flow.sim import SimFlow
 from xeda.flow_runner import FlowNotFoundError, get_flow_class
 from xeda.introspect import all_flow_classes, flow_info, results_info, settings_info
+
+from .flow_registry import preserved_flow_registry
 
 #: (flow, setting) pairs that are allowed to have no description. Empty on purpose: every
 #: setting is documented today. A new setting must be documented rather than added here.
@@ -56,6 +59,100 @@ def test_every_setting_is_documented(flow_class):
         f"{flow_class.name} has settings with no description: {undocumented}. Add a "
         "`description=` to each Field; agents and `xeda list-settings` have nothing else to go on."
     )
+
+
+def undocumented_group_settings(flow_class) -> List[str]:
+    """The entries of `xeda list-settings` for the fields of a settings group that lack a
+    description or, for a field that is no group, a tier. An entry says what is missing."""
+    problems: List[str] = []
+    for field in settings_info(flow_class)["fields"]:
+        if field["group"] is None:
+            continue
+        *parents, leaf = field["name"].split(".")
+        owner: Any = flow_class.Settings
+        for part in parents:
+            owner = owner.model_fields[part].annotation
+        annotation = owner.model_fields[leaf].annotation
+        is_group = isinstance(annotation, type) and issubclass(annotation, SettingsGroup)
+        if not field["description"]:
+            problems.append(f"{field['name']}: no description")
+        if not is_group and tier_of(owner, leaf) is None:
+            problems.append(f"{field['name']}: no tier")
+    return problems
+
+
+@pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
+def test_every_field_of_a_settings_group_has_a_description_and_a_tier(flow_class):
+    """`xeda list-settings` lists each field of a settings group by its dotted name. A field of a
+    group needs a description and a tier (`xeda.dataclass.tier`), and a sub-group field needs a
+    description."""
+    problems = undocumented_group_settings(flow_class)
+    assert not problems, (
+        f"{flow_class.name}: {problems}. Give each field of a group a `description=` and "
+        "`json_schema_extra=tier(...)`."
+    )
+
+
+class _DocumentedGroup(SettingsGroup):
+    """A group whose fields all have a description and a tier."""
+
+    knob: Optional[int] = Field(None, description="A number.", json_schema_extra=tier("common"))
+
+
+class _UndocumentedGroup(SettingsGroup):
+    """A group with a field that has no tier and a sub-group that has no description."""
+
+    no_tier: int = Field(0, description="A number.")
+    no_description: int = Field(0, json_schema_extra=tier("expert"))
+    sub: _DocumentedGroup = Field(default_factory=_DocumentedGroup)
+
+
+@pytest.fixture
+def group_flows():
+    """Two toy flows, one with a documented group and one with an undocumented group."""
+    with preserved_flow_registry():
+
+        class DocumentedGroupFlow(Flow):
+            """A flow with a group that is documented."""
+
+            results_description: ClassVar[Dict[str, str]] = {}
+
+            class Settings(Flow.Settings):
+                group: _DocumentedGroup = Field(
+                    default_factory=_DocumentedGroup, description="A group."
+                )
+
+            def run(self) -> None:
+                pass
+
+        class UndocumentedGroupFlow(Flow):
+            """A flow with a group that is not documented."""
+
+            results_description: ClassVar[Dict[str, str]] = {}
+
+            class Settings(Flow.Settings):
+                group: _UndocumentedGroup = Field(
+                    default_factory=_UndocumentedGroup, description="A group."
+                )
+
+            def run(self) -> None:
+                pass
+
+        yield DocumentedGroupFlow, UndocumentedGroupFlow
+
+
+def test_the_group_check_passes_a_complete_group(group_flows):
+    documented, _ = group_flows
+    assert undocumented_group_settings(documented) == []
+
+
+def test_the_group_check_finds_what_a_group_lacks(group_flows):
+    _, undocumented = group_flows
+    assert undocumented_group_settings(undocumented) == [
+        "group.no_tier: no tier",
+        "group.no_description: no description",
+        "group.sub: no description",
+    ]
 
 
 def _declared_choices(annotation: Any) -> list[Any] | None:

@@ -137,6 +137,8 @@ Each entry of these two lists has these keys:
 A flow that declares no I/O has no relations. ``action_reason`` is static and ``null`` for most
 flows. It says why a flow, such as a programmer, can only end a chain.
 
+.. _machine-readable-settings:
+
 Discovering what to set
 =======================
 
@@ -161,6 +163,8 @@ under the name that you can type as ``-s <name>=<value>``:
           "opaque_keys": false,
           "common": true,
           "declared_by": "xeda.flow.flow.Flow.Settings",
+          "tier": "common",
+          "group": null,
           "json_schema": {
             "anyOf": [{"type": "integer"}, {"type": "null"}],
             "default": null,
@@ -187,12 +191,26 @@ under the name that you can type as ``-s <name>=<value>``:
   the one property ``STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM``. For any other setting, a dotted key is a
   path into nested tables.
 * ``enum`` lists the permitted values when the setting is limited to a set.
+* ``tier`` is ``"common"``, ``"advanced"`` or ``"expert"``: how often a user needs the setting. It
+  is for listings and documentation only, and it never changes what Xeda accepts. A setting that
+  declares no tier is ``"common"``.
+* ``group`` is the name of the top-level setting that holds a settings group, for each entry of a
+  group and of its sub-groups. It is ``null`` for any other entry, and for the entry of the
+  top-level group setting itself.
 * ``definitions`` describes the nested setting types (``FPGA``, ``PhysicalClock``, ``RunOptions``
   and others). This key belongs to Xeda's own envelope, and inside ``json_schema`` the same types
   appear under the ``$defs`` key of JSON Schema.
 * ``type`` is a short rendering for people and agents, and it is not JSON Schema. An optional
   setting reads as its underlying type (``integer``), while ``json_schema`` carries the literal
   ``anyOf: [..., {"type": "null"}]`` that pydantic emits.
+
+``fields`` has one entry for each top-level setting. After the entry of a settings group, it has
+one entry for each field of the group, depth first in the order of declaration. A sub-group has an
+entry of its own, then the entries of its fields. The ``name`` of such an entry is the dotted path
+that ``-s`` and YAML accept, such as ``<group>.<subgroup>.<setting>`` (see :ref:`settings groups
+<settings-groups>`). ``--tier {common,advanced,expert}`` keeps the entries up to that tier, in
+every format. The default keeps all of them. The settings that every flow accepts have the tier
+``"common"``, so ``--tier`` never removes them.
 
 ``--format jsonl`` prints one field per line. Each line carries its ``flow``, which is convenient
 for streaming or grepping.

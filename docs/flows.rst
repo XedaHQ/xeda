@@ -214,6 +214,98 @@ nothing with it.
 ``xeda list-settings <flow>`` lists these settings under *Common settings*. Pass ``--no-common``
 to see only the settings of the flow itself.
 
+.. _settings-groups:
+
+Settings groups and tiers
+-------------------------
+
+A flow with many tool options groups its settings by the command or pass of the tool that they
+control. A group is a table of settings, and a group can hold another group. ``xeda list-settings
+<flow>`` lists every setting of a group under its dotted name, for example
+``<group>.<subgroup>.<setting>``. That name is the key that you give on the command line and in a
+file.
+
+On the command line, give a dotted key to ``-s``. In a design file, a target or a project file, give
+the same setting as nested tables or as a dotted key. The two spellings mean the same setting, and
+the usual rules for layers and dotted keys hold (see :ref:`the rules for dotted keys
+<dotted-keys>`)::
+
+    xeda run <flow> design.yaml -s <group>.<subgroup>.<setting>=3
+
+.. code-block:: yaml
+
+    flows:
+      <flow>:
+        <group>:
+          <subgroup>:
+            <setting>: 3
+        # or, with the same meaning:
+        <group>.<subgroup>.<setting>: 3
+
+A group takes the same values and gives the same errors as a setting that is not in a group. An
+unknown name is an error. When only the case of a name is wrong, the error names the spelling that
+exists.
+
+Tiers
+~~~~~
+
+Every setting in a group has a tier that says how often a user needs it:
+
+``common``
+    The settings that most users set. They come first in a listing.
+
+``advanced``
+    Settings for a user who tunes a result.
+
+``expert``
+    Settings that follow an option of the tool closely. Most users never set them.
+
+A tier is documentation. It decides where a setting appears in a listing and never what Xeda
+accepts: a setting of any tier takes the same values, and a setting of any tier can be set. A
+setting outside a group has no tier of its own, and a listing treats it as ``common``.
+
+``xeda list-settings <flow> --tier advanced`` shows the settings up to that tier: ``common`` and
+``advanced``. ``--tier expert`` shows all of them, which is also the default. The table lists the
+``common`` settings first, including the settings outside a group, then a table for each other
+tier, and then the settings that every flow accepts. ``--json`` and ``--format`` show the same
+settings, and each entry has ``tier`` and ``group`` keys (see :ref:`machine-readable-settings`).
+
+Switchable groups
+~~~~~~~~~~~~~~~~~
+
+A group that the tool can skip has the setting ``enabled`` as its first setting. When ``enabled``
+is true and you set nothing else in the group, the tool runs the step with its own defaults. When
+``enabled`` is false, the step does not run, so any other value in the group has no effect. Xeda
+refuses such a value when it plans the run. The error names each setting that has a value and
+``<group>.enabled``. To switch the step on again, set ``enabled`` to true or take the other values
+out. Xeda compares a setting with the default of the group, so a value that equals the default is
+not an error.
+
+Defaults from the platform
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A setting whose default depends on the platform has the default ``null``. ``null`` means that the
+value of the platform applies. The listing shows ``null``, and the flow takes the value from the
+platform when it runs. A value that you set replaces the value of the platform.
+
+Extra arguments
+~~~~~~~~~~~~~~~
+
+A group that wraps a command of a tool can have the setting ``extra_args``. It is a list of
+arguments for flags that have no setting of their own. The list is not free text:
+
+* Each flag in the list must be on the list of flags that the group allows. A flag that is not on
+  the list is an error, and the error shows the flags that the group allows.
+* A flag that a setting of the group controls is an error. The error names that setting, and you
+  set it there.
+* A value follows its flag in the list. The first item must be a flag.
+* An item is a flag when it starts with ``-`` and a letter or an underscore. Any other item is a
+  value. ``-0.5`` is a negative number, not a flag.
+
+Xeda checks all of this when it plans the run, before any tool starts. Each item reaches the tool
+as one word, with the quoting that the tool needs. ``-s <group>.extra_args=-flag,value`` gives the
+list ``-flag``, ``value``, because a list takes comma-separated text.
+
 Producers and consumers
 =======================
 
