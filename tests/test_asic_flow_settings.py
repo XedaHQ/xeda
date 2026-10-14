@@ -1,11 +1,9 @@
-"""Settings of the OpenROAD and Design Compiler flows that their scripts must honor.
+"""Settings of the Design Compiler flow that its script must honor.
 
-OpenROAD is not runnable on every machine and Design Compiler is commercial, so these tests
-check the scripts the flows render (OpenROAD: under the fake ASIC tools; Design Compiler: under
-the fake `dc_shell`, which runs the script with `tclsh` and records the tool's commands).
+Design Compiler is commercial, so these tests check the script the flow renders, under the fake
+`dc_shell`, which runs the script with `tclsh` and records the tool's commands.
 """
 
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -14,149 +12,12 @@ import pytest
 
 from xeda import Design
 from xeda.flow import FlowSettingsError
-from xeda.flow_runner import DefaultRunner
-from xeda.flows import Dc, Openroad
+from xeda.flows import Dc
 from xeda.utils import WorkingDirectory
 
-from .tool_utils import fake_calls, use_fake_asic_tools, use_fake_tools
+from .tool_utils import fake_calls, use_fake_tools
 
 needs_tclsh = pytest.mark.skipif(not shutil.which("tclsh"), reason="tclsh runs the TCL script")
-
-
-# ------------------------------------------------------------------------------------ openroad
-
-
-def _mac_design(root: Path) -> Design:
-    (root / "mac.v").write_text(
-        "module mac(input clk, input [7:0] a, output reg [7:0] q);\n"
-        "  always @(posedge clk) q <= a;\nendmodule\n"
-    )
-    return Design(
-        name="mac",
-        design_root=root,
-        rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
-    )
-
-
-def _launch_openroad(tmp_path: Path, monkeypatch, **settings):
-    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.launch_flow(
-        Openroad,
-        _mac_design(tmp_path),
-        {"platform": "nangate45", "clock": {"period": 2.0}, **settings},
-    )
-    assert flow.succeeded
-    return flow
-
-
-def test_post_pdn_tcl_is_sourced_after_the_power_grid_is_built(tmp_path, monkeypatch) -> None:
-    """The script sourced `$::env(POST_PDN_TCL)`, which nothing set: OpenROAD would stop on an
-    unknown variable, or the user's script never ran."""
-    hook = tmp_path / "post pdn.tcl"
-    hook.write_text("puts hello\n")
-    flow = _launch_openroad(tmp_path, monkeypatch, post_pdn_tcl=str(hook))
-    script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert "POST_PDN_TCL" not in script
-    after_pdn = script.split("pdngen", 1)[1]
-    assert f'source "{hook}"' in after_pdn
-    assert after_pdn.index(f'source "{hook}"') < after_pdn.index("Check supply")
-
-
-def test_no_post_pdn_script_is_sourced_unless_one_is_given(tmp_path, monkeypatch) -> None:
-    flow = _launch_openroad(tmp_path, monkeypatch)
-    script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert "POST_PDN_TCL" not in script
-    assert re.search(r"pdngen\s+# Check all supply nets", script)
-
-
-def test_explicit_core_and_die_areas_replace_the_core_utilization(tmp_path, monkeypatch) -> None:
-    """With the default `core_utilization` the areas were ignored without a word."""
-    areas = {"core_area": [10, 10, 100, 100], "die_area": [0, 0, 110, 110]}
-    flow = _launch_openroad(tmp_path, monkeypatch, **areas)
-    script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert "initialize_floorplan -die_area {0 0 110 110}" in script
-    assert "-core_area {10 10 100 100}" in script
-    assert "-utilization" not in script
-
-
-def test_core_utilization_sizes_the_floorplan_when_no_areas_are_given(
-    tmp_path, monkeypatch
-) -> None:
-    flow = _launch_openroad(tmp_path, monkeypatch, core_utilization=55)
-    script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert "initialize_floorplan -utilization 55.0" in script
-    assert "-die_area" not in script
-
-
-@pytest.mark.parametrize(
-    "given, missing",
-    [
-        ({"core_area": [10, 10, 100, 100]}, "die_area"),
-        ({"die_area": [0, 0, 110, 110]}, "core_area"),
-    ],
-)
-def test_one_area_without_the_other_is_refused_at_planning(given, missing) -> None:
-    settings = Openroad.Settings(platform="nangate45", **given)
-    with pytest.raises(FlowSettingsError, match=f"`{missing}`"):
-        Openroad.check_settings_supported(settings)
-
-
-def test_both_areas_or_neither_are_accepted() -> None:
-    both = {"core_area": [10, 10, 100, 100], "die_area": [0, 0, 110, 110]}
-    for given in (both, {}):
-        Openroad.check_settings_supported(Openroad.Settings(platform="nangate45", **given))
-
-
-def test_clock_period_and_delays_keep_sub_picosecond_values(tmp_path, monkeypatch) -> None:
-    """Three decimals of a nanosecond turned a delay of 0.4 ps into 0 and rounded the period."""
-    flow = _launch_openroad(
-        tmp_path, monkeypatch, clock={"period": 2.0005}, input_delay=0.4, output_delay=1.25
-    )
-    sdc = (flow.run_path / "clocks.sdc").read_text()
-    assert "create_clock -period 2.000500 " in sdc
-    assert _sdc_delays(flow) == {"set_input_delay": "0.000400", "set_output_delay": "0.001250"}
-
-
-def test_relative_delays_use_the_period_with_the_same_digits(tmp_path, monkeypatch) -> None:
-    flow = _launch_openroad(tmp_path, monkeypatch, clock={"period": 2.0005})
-    sdc = (flow.run_path / "clocks.sdc").read_text()
-    assert "[expr 0.200 * 2.000500]" in sdc
-
-
-def _sdc_delays(flow) -> dict[str, str]:
-    """The delay value that `clocks.sdc` gives to `set_input_delay` and `set_output_delay`."""
-    delays = {}
-    for line in (flow.run_path / "clocks.sdc").read_text().splitlines():
-        words = line.split()
-        if words and words[0] in ("set_input_delay", "set_output_delay"):
-            delays[words[0]] = words[1]
-    return delays
-
-
-def test_delays_in_picoseconds_are_converted_to_the_time_unit_of_the_platform(
-    tmp_path, monkeypatch
-) -> None:
-    """`input_delay` and `output_delay` are in picoseconds. nangate45's time unit is 1ns, and the
-    constraints wrote the number as it was: 100 ps became 100 ns."""
-    flow = _launch_openroad(tmp_path, monkeypatch, input_delay=100, output_delay="0.25ns")
-    assert flow.settings.platform.time_unit == "1ns"
-    assert _sdc_delays(flow) == {"set_input_delay": "0.100000", "set_output_delay": "0.250000"}
-
-
-@pytest.mark.parametrize(
-    "platform, unit, per_picosecond",
-    [("asap7", "1ps", 1.0), ("nangate45", "1ns", 0.001), ("sky130hd", "1ns", 0.001)],
-)
-def test_the_conversion_follows_the_time_unit_of_each_bundled_platform(
-    platform, unit, per_picosecond
-) -> None:
-    settings = Openroad.Settings(platform=platform)
-    assert settings.platform is not None and settings.platform.time_unit == unit
-    assert settings.delay_in_platform_unit(200) == pytest.approx(200 * per_picosecond)
-
-
-# ------------------------------------------------------------------------- design compiler
 
 
 def _dc_design(root: Path) -> Design:

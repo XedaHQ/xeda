@@ -780,16 +780,15 @@ def use_fake_fpga_tools(monkeypatch: pytest.MonkeyPatch, prefix: Path) -> Path:
 
 
 def use_fake_asic_tools(monkeypatch: pytest.MonkeyPatch, binary: Path) -> Path:
-    """Put fake `yosys`, `openroad` and `klayout` (`fake_tools/fake_asic_tool.py`) first on
-    `PATH`, in `binary`, a directory of the test's own. They are not among `FAKE_TOOLS_DIR`'s:
-    the tests that run the real yosys must keep finding it there. What they write follows from
-    the contents of the files they are handed, so a flow that hands them another library or
-    another netlist gets another result, and the same request in another directory the same
-    bytes."""
+    """Put a fake `yosys` (`fake_tools/fake_asic_tool.py`) first on `PATH`, in `binary`, a
+    directory of the test's own. It is not among `FAKE_TOOLS_DIR`'s: the tests that run the real
+    yosys must keep finding it there. What it writes follows from the contents of the files it is
+    handed, so a flow that hands it another library or another netlist gets another result, and
+    the same request in another directory the same bytes."""
     use_fake_tools(monkeypatch)
     dispatcher = FAKE_TOOLS_DIR / "fake_asic_tool.py"
     binary.mkdir(parents=True, exist_ok=True)
-    for name in ("yosys", "openroad", "klayout"):
+    for name in ("yosys",):
         link = binary / name
         if not link.exists():
             link.symlink_to(dispatcher)

@@ -50,8 +50,7 @@ def _tcl_templates():
 
 
 def test_every_user_named_path_in_a_tcl_template_is_quoted() -> None:
-    """Every template, including those of flows no test can run here (OpenROAD, and flows whose
-    templates do not render at all yet)."""
+    """Every template, including those of flows no test can run here."""
     unquoted = []
     for template in _tcl_templates():
         for n, line in enumerate(template.read_text().splitlines(), 1):
@@ -310,10 +309,6 @@ REVIEWED_RAW = {
     ("vivado/templates/vivado_sim.tcl", "settings.prerun_time"): "a time, as words (`100 ns`)",
     ("vivado/templates/vivado_sim.tcl", "settings.stop_time"): "a time, as words (`100 ns`)",
     ("modelsim/templates/run.tcl", "settings.stop_time"): "a time, as words (`100 ns`)",
-    ("openroad/templates/global_place.tcl", 'settings.global_placement_args|join(" ")'): "flags",
-    ("openroad/templates/io_place.tcl", 'settings.global_placement_args|join(" ")'): "flags",
-    ("openroad/templates/io_place.tcl", 'settings.place_pins_args|join(" ")'): "tool flags",
-    ("openroad/templates/pre_place.tcl", 'settings.place_pins_args|join(" ")'): "tool flags",
 }
 
 

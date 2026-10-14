@@ -47,11 +47,11 @@ def test_bundled_asic_platform_keeps_fractional_values(name):
 
 @pytest.mark.parametrize("name", ASIC_PLATFORMS)
 def test_asic_flow_settings_accept_every_bundled_platform(name):
-    """The path a real `xeda run openroad` takes."""
-    from xeda.flows.openroad import Openroad
+    """The path a real `xeda run yosys` takes."""
+    from xeda.flows import Yosys
 
     try:
-        settings = Openroad.Settings(platform=name, clock={"period": 5.0})
+        settings = Yosys.Settings(platform=name)
     except (FileNotFoundError, ModuleNotFoundError) as e:
         pytest.skip(f"platform {name} not available: {e}")
     assert settings.platform is not None
@@ -69,8 +69,8 @@ def test_every_bundled_board_is_usable_as_a_flow_setting():
 
 @pytest.mark.parametrize("time_unit", ["1pF", "ps * 2", "0ps", "nS", "furlong"])
 def test_a_platform_time_unit_is_checked_when_it_loads(time_unit):
-    """A PDK's `time_unit` scales every delay OpenROAD reports; a bad one is an error at load, not
-    once a run renders its SDC or parses its reports."""
+    """A PDK's `time_unit` scales every delay a flow writes or reports; a bad one is an error at
+    load, not once a run renders its constraints or parses its reports."""
     from xeda.platforms.asics import AsicsPlatform
 
     platform = AsicsPlatform.from_resource("nangate45")

@@ -169,14 +169,14 @@ Netlists and checkpoints are typed by stage:
 
 | Type | Is |
 | --- | --- |
-| `VerilogNetlist` | a standard-cell netlist; `openroad` reads it. Give a gate-level `.v` this type, or it is `Verilog`. |
+| `VerilogNetlist` | a standard-cell gate-level netlist. Give a gate-level `.v` this type, or it is `Verilog`. |
 | `FpgaNetlist` | a Verilog netlist of FPGA primitives as Vivado writes it; `vivado_postsynth_sim` simulates it |
 | `FpgaTimingNetlist` | its timing netlist, simulated with an SDF; Verilog has no suffix for it, so give `type` |
 | `SynthCheckpoint`, `RoutedCheckpoint` | a Vivado checkpoint after synthesis, after routing (`vivado_power` takes only the routed one) |
 | `Checkpoint` | no stage; no flow takes it |
 
-A source of the wrong one of these types is not taken in its place: a Vivado netlist typed
-`VerilogNetlist` feeds `openroad` and no Vivado flow.
+A source of the wrong one of these types is not taken in its place: a `JsonNetlist` source does
+not replace the `Edif` netlist that `vivado_impl` reads.
 
 A source of a later stage replaces the flows that would build it: a `JsonNetlist` skips synthesis
 for `nextpnr`, an `Edif` netlist skips it for `vivado_impl`, a `Fasm`, `EcpConfig` or `IceAsc`
@@ -188,7 +188,7 @@ Vivado design). At planning it refuses a source in a language it cannot read (Bl
 `vivado_synth`, VHDL for `verilator`, SystemVerilog for `ghdl_sim`) and a design with no source
 it reads; the error lists the sources with their types and the types the flow reads. One source of
 a type the flow reads is enough, a constraint file included. Simulators, `bsc` and
-`vivado_project` check `tb.sources` too. C and C++ files are never refused. `nextpnr`, `openroad`,
+`vivado_project` check `tb.sources` too. C and C++ files are never refused. `nextpnr`,
 `fpga_pack`, `openfpgaloader`, `vivado_impl` and `vivado_power` read only their declared inputs.
 `bsc` compiles Bluespec Classic only from `.bs` files and refuses a `.bh` source.
 
@@ -212,7 +212,7 @@ flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
     clock.period: 5.0
-  openroad:
+  yosys:
     platform: sky130hd
     clock.period: 10.0
   ghdl_sim:

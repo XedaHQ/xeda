@@ -2091,12 +2091,12 @@ def _remote_runner_installed_elsewhere(channel, **kwargs):
 
 
 @pytest.mark.parametrize("remote", ["same install", "another install", "symlinked remote home"])
-@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+@pytest.mark.parametrize("flow_name", ["yosys"])
 @pytest.mark.real_tool
 def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     tmp_path, remote_host, monkeypatch, remote, flow_name
 ):
-    """`yosys` and declared openroad with a bundled platform are accepted by a remote whose
+    """`yosys` with a bundled platform is accepted by a remote whose
     xeda is installed under another prefix, as every remote on another machine is: the remote's
     `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
     even from the same installation: the platform's per-corner liberty files reached the remote
@@ -2106,16 +2106,6 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     design root to the physical path, which the identities of the shipped files must still
     find."""
     require_yosys()
-    if flow_name == "openroad":
-        from .tool_utils import use_fake_asic_tools
-
-        binary = use_fake_asic_tools(monkeypatch, tmp_path / "asic_tools")
-        (binary / "yosys").unlink()  # real synthesis; OpenROAD and KLayout stand in
-        monkeypatch.setattr(
-            remote_module,
-            "get_login_env",
-            lambda conn: {"PATH": os.environ["PATH"], "HOME": str(remote_host)},
-        )
     if remote == "another install":
         monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_installed_elsewhere)
     if remote == "symlinked remote home":
@@ -2140,10 +2130,6 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
     settings = ["platform=nangate45", "clock.period=2.0"]
     plan = runner.plan(flow_name, design, flow_settings=settings)
     expected = plan.node(flow_name).flowrun_hash
-    if flow_name == "openroad":
-        netlist, sdc = plan.node("openroad").inputs
-        assert netlist.name == "netlist" and netlist.producer == "yosys"
-        assert sdc.name == "sdc" and sdc.origin == "none"
     results = runner.run_remote(design, flow_name, "fake", flow_settings=settings)
     assert results and results["success"], results
     assert results["flow_hash"] == expected
@@ -2157,13 +2143,7 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
         .resolve()
         .is_relative_to(remote_host.resolve())
     )
-    if flow_name == "openroad":
-        producer = _remote_run_dir(remote_host, "yosys") / "netlist.v"
-        consumed = _remote_run_dir(remote_host, "openroad") / "results" / "1_synth.v"
-        assert consumed.read_bytes() == producer.read_bytes()
-        netlist = consumed.read_text()
-    else:
-        netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
+    netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
     assert "_X1 " in netlist or "_X2 " in netlist
 
 

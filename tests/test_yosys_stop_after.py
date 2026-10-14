@@ -155,7 +155,6 @@ def test_the_default_netlists_are_refused_with_the_settings_to_write(flow, tmp_p
 #: needs besides, and the settings that turn the stopped flow's netlists off.
 CONSUMERS = {
     "yosys_fpga+nextpnr": ["flows.nextpnr.fpga=" + ECP5, "flows.yosys_fpga.netlist_json="],
-    "yosys+openroad": ["flows.openroad.platform=nangate45", "flows.yosys.netlist_json="],
 }
 
 

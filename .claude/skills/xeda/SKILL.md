@@ -1,6 +1,6 @@
 ---
 name: xeda
-description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis (OpenROAD, Design Compiler) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
+description: Use when running, configuring, or debugging Xeda EDA flows - simulation (GHDL, NVC, Verilator, ModelSim, VCS, xsim, Bluesim), Bluespec (bsc), FPGA synthesis and implementation (Vivado, Quartus, Diamond, ISE, yosys+nextpnr, openXC7), ASIC synthesis (yosys, Design Compiler) - and when writing or fixing a Xeda design file (`*.yaml`; TOML and JSON also load) or project file (`xedaproject.yaml`). Also use for reading a run's `results.json`, interpreting Fmax/timing/utilization numbers, and fixing a failed run (`FlowSettingsError`, `DesignValidationError`, `ExecutableNotFound`, `NonZeroExitCode`, `FlowFailed`).
 ---
 
 # Driving Xeda
@@ -157,7 +157,6 @@ Run the flow you want. Its default producers run first:
 | `vivado_impl` | `yosys_fpga` (`netlist_edif`) |
 | `vivado_power` | `vivado_postsynth_sim`, `vivado_synth` |
 | `vivado_postsynth_sim` | `vivado_synth` |
-| `openroad` | `yosys` (`netlist`) |
 
 A source of the input's type replaces the producer: a `JsonNetlist` source skips `yosys_fpga` for
 `nextpnr`. Set a producer's settings under `flows.<producer>`.

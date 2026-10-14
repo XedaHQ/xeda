@@ -11,8 +11,3 @@ tb:
     - "pipelined_adder_tb.vhdl"
   top: pipelined_adder_tb
   uut: uut
-flows:
-  openroad:
-    platform: sky130hd
-    clocks.main_clock.freq: 200MHz
-    core_utilization: 45

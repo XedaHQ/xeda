@@ -1,11 +1,10 @@
-"""Goldens for what `vivado_postsynth_sim`, `vivado_power` and `openroad` hand their tools, recorded
+"""Goldens for what `vivado_postsynth_sim` and `vivado_power` hand their tools, recorded
 from the flows as they were before they took their producers' files through declared inputs and
 outputs.
 
 `vivado_postsynth_sim` runs `vivado_synth` and simulates its netlist; `vivado_power` runs
-`vivado_postsynth_sim` and reports power from its activity file against the routed checkpoint;
-`openroad` builds the whole configuration of its `yosys` producer from its own settings. Moving
-them to declared inputs and outputs had to change none of what the tools are handed. The goldens
+`vivado_postsynth_sim` and reports power from its activity file against the routed checkpoint.
+Moving them to declared inputs and outputs had to change none of what the tools are handed. The goldens
 record what the earlier code did, and the flows are held to them: a later change that moves
 anything recorded must either be a bug, or go on `REVIEWED_DELTAS` below, with the reason.
 
@@ -38,41 +37,17 @@ What the fakes carry (checked here, `test_the_fake_vivado_writes_the_seven_outpu
   follows what was simulated (the sources analyzed, the SDF files annotated), and the power
   estimate's XML follows the checkpoint opened and the activity read, so what a flow gives its
   producer's files to shows in its own results. Nothing here falls back to the call record alone.
-* No yosys, OpenROAD or KLayout can be relied on, and a real yosys's netlist changes with its
-  release. `tests/fake_tools/fake_asic_tool.py` stands in for the three (not on `PATH` unless a
-  test puts them there): everything it writes carries the digest of the contents of the files it
-  was handed, never their names. Its reports are what `openroad` parses.
-
-What the three nondefault `openroad` configurations capture (each changes what `yosys` is handed,
-and none can be derived from `platform` alone), checked in `test_each_openroad_variant_...`:
-
-* `dont_use_cells`: the merged library differs from the default's, since the cells are marked
-  `dont_use` in it.
-* `corner`: the library differs from the same platform's default corner, which is the comparison
-  that attributes the difference to `corner`. `asap7` ships no liberty files, so the request names
-  a copy of its shipped description under the design's directory, with a tiny liberty file per
-  corner written there (`stage_asap7`, deterministic: the compressed ones carry no time stamp).
-  `-s platform=asap7` itself cannot run on a checkout.
-* `black_box` (the golden `openroad_blocks`, from `openroad`'s removed `blocks`): **the liberty
-  and the merged library are identical to the default's.** It only becomes the `black_box` of
-  `yosys`, which renders it as a `blackbox <module>` command in the script; nothing about a
-  library follows from it. The variant is distinct through the script `yosys` is handed (and the
-  netlist that follows from it), and that is what is recorded and asserted. A conversion that
-  dropped it would still hand yosys the same libraries.
-
 The goldens are `tests/resources/tool_input_equivalence/*.json`. Setting `XEDA_TESTS_CAPTURE_GOLDENS=1`
 writes a golden that does not exist yet and never replaces one: a golden is not regenerated, a
 difference is a bug or a reviewed delta.
 """
 
-import gzip
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
-import tomllib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
@@ -86,7 +61,6 @@ import xeda
 from .tool_utils import (
     REQUIRE_TOOLS,
     fake_calls,
-    use_fake_asic_tools,
     use_fake_tools,
 )
 
@@ -214,94 +188,6 @@ REVIEWED_RENAMES: dict[str, dict[str, str]] = {
     for name in ("vivado_postsynth_sim_timing", "vivado_power")
 }
 
-# `yosys` is configured by its own `platform`, which
-# `openroad` now hands it with the settings the two share, instead of by `openroad` building its
-# whole configuration. What yosys is handed is otherwise unchanged -- the merged library, the
-# maps, the abc script and constraints, the netlist -- and is compared as before.
-_YOSYS = "mac/yosys"
-_OPENROAD = "mac/openroad"
-_YOSYS_ASIC_DELTAS: dict[tuple[str, ...] | str, str] = {
-    **{
-        ("nodes", _OPENROAD, "effective_flow_settings", key): (
-            "A setting of the flow that acts on it, `yosys`; `openroad` has it no more"
-        )
-        for key in ("optimize", "abc_driver_cell", "abc_load_in_ff")
-    },
-    **{
-        ("nodes", _YOSYS, "effective_flow_settings", key): (
-            "yosys's own setting now: `optimize` and the abc cell settings moved "
-            "to it; `platform` and `corner` are what `openroad` hands it, the shared leaves it "
-            "derives the rest from"
-        )
-        for key in ("optimize", "abc_driver_cell", "abc_load_in_ff", "platform", "corner")
-    },
-    ("nodes", _YOSYS, "effective_flow_settings", "merge_libs_to"): (
-        "yosys merges the platform's liberty set in its own run directory, under its own "
-        "default name; the merged library's content is compared, after REVIEWED_RENAMES"
-    ),
-    ("nodes", _YOSYS, "files", "<RUN>/mac/yosys/yosys_synth.ys"): (
-        "the script names the merged library at its new place; its text is compared, after "
-        "REVIEWED_RENAMES, under `scripts`"
-    ),
-    ("nodes", _YOSYS, "results", "artifacts", "timing_report"): (
-        "yosys lists its timing report only where `sta` writes one, as `yosys_fpga` does; none of "
-        "these runs writes it, and a remote run was asked for the file it never wrote"
-    ),
-    ("nodes", _YOSYS, "results", "outputs"): (
-        "yosys declares its netlist: the declared output's record is new"
-    ),
-    **{
-        ("nodes", _YOSYS, "effective_flow_settings", key): "no flow of the settings read it"
-        for key in ("retime", "netlist_verilog_extmem")
-    },
-}
-_YOSYS_ASIC_RENAMES = {
-    # longest first: the merged library, by its path and as the script names it
-    "<RUN>/mac/yosys/merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
-    "merged_lib.lib": "<RUN>/mac/openroad/merged.lib",
-}
-for _name in (
-    "openroad",
-    "openroad_blocks",
-    "openroad_dont_use_cells",
-    "openroad_asap7_ss",
-    "openroad_asap7_tt",
-):
-    REVIEWED_DELTAS[_name] = dict(_YOSYS_ASIC_DELTAS)
-    REVIEWED_RENAMES[_name] = dict(_YOSYS_ASIC_RENAMES)
-REVIEWED_DELTAS["openroad_dont_use_cells"][
-    ("nodes", _YOSYS, "effective_flow_settings", "dont_use_cells")
-] = (
-    "a shared leaf: `openroad` hands yosys its own `dont_use_cells`, which yosys marks "
-    "in its merge beside the platform's, instead of handing it a library already merged"
-)
-
-# The platform-plus-setting union is a template global rather than a
-# stored setting. All four set_dont_use commands and merged-lib bytes still compare.
-for _name in REVIEWED_RENAMES:
-    REVIEWED_DELTAS[_name][
-        ("nodes", _OPENROAD, "effective_flow_settings", "dont_use_cells")
-    ] = "keep the user's setting; compute the platform union where the merge and Tcl use it"
-
-# Refuse the removed setting; the flat setting still hands
-# yosys the identical blackbox command. The golden's original request remains unchanged.
-for _name in REVIEWED_RENAMES:
-    REVIEWED_DELTAS[_name][
-        ("nodes", _OPENROAD, "effective_flow_settings", "blocks")
-    ] = "blocks was removed; configure flows.yosys.black_box instead"
-REVIEWED_RENAMES["openroad_blocks"]["flows.yosys.black_box=mul8"] = "blocks=mul8"
-
-# `clocks.sdc` writes the clock period and the relative delays with six decimals instead of three,
-# so that a delay of less than a picosecond stays on a platform in nanoseconds. Its other lines
-# are the same.
-for _name in REVIEWED_RENAMES:
-    REVIEWED_DELTAS[_name][
-        ("nodes", _OPENROAD, "files", "<RUN>/mac/openroad/clocks.sdc")
-    ] = "the clock period and the relative delays have six decimals instead of three"
-    REVIEWED_DELTAS[_name][
-        ("nodes", _OPENROAD, "files", "<RUN>/mac/openroad/openroad_0_11.log")
-    ] = "the fake OpenROAD's log follows the digests of the files it reads, `clocks.sdc` among them"
-
 for _deltas in REVIEWED_DELTAS.values():
     _deltas.update(_REMOVED_EVERYWHERE)
 
@@ -353,42 +239,20 @@ VIVADO_SETTINGS = (
     "flows.vivado_synth.fpga=xc7a12tcsg325-1",
     "flows.vivado_synth.clock.period=5.0",
 )
-OPENROAD_SETTINGS = ("platform=nangate45", "clock.period=2.0")
-PLATFORM_PLACEHOLDER = "{asap7}"
 
 
 @dataclass(frozen=True)
 class Request:
     flow: str
     settings: tuple[str, ...]
-    design: str  # "vivado" or "asic"
-    #: the request needs the copy of the asap7 description with liberty files (`stage_asap7`)
-    asap7: bool = False
 
 
 REQUESTS: dict[str, Request] = {
-    "vivado_postsynth_sim_functional": Request("vivado_postsynth_sim", VIVADO_SETTINGS, "vivado"),
+    "vivado_postsynth_sim_functional": Request("vivado_postsynth_sim", VIVADO_SETTINGS),
     "vivado_postsynth_sim_timing": Request(
-        "vivado_postsynth_sim", (*VIVADO_SETTINGS, "timing_sim=true"), "vivado"
+        "vivado_postsynth_sim", (*VIVADO_SETTINGS, "timing_sim=true")
     ),
-    "vivado_power": Request("vivado_power", VIVADO_SETTINGS, "vivado"),
-    "openroad": Request("openroad", OPENROAD_SETTINGS, "asic"),
-    "openroad_blocks": Request(
-        "openroad", (*OPENROAD_SETTINGS, "flows.yosys.black_box=mul8"), "asic"
-    ),
-    "openroad_dont_use_cells": Request(
-        "openroad", (*OPENROAD_SETTINGS, "dont_use_cells=AND2_X2"), "asic"
-    ),
-    "openroad_asap7_ss": Request(
-        "openroad",
-        ("platform=" + PLATFORM_PLACEHOLDER, "clock.period=2.0", "corner=SS"),
-        "asic",
-        asap7=True,
-    ),
-    # the control `openroad_asap7_ss` is compared with: the same platform, its default corner
-    "openroad_asap7_tt": Request(
-        "openroad", ("platform=" + PLATFORM_PLACEHOLDER, "clock.period=2.0"), "asic", asap7=True
-    ),
+    "vivado_power": Request("vivado_power", VIVADO_SETTINGS),
 }
 
 
@@ -410,49 +274,6 @@ def write_vivado_design(root: Path) -> None:
         "  top: tb\n"
         "  uut: dut\n"
     )
-
-
-def write_asic_design(root: Path) -> None:
-    (root / "mac.v").write_text(
-        "module mul8(input [7:0] a, b, output [15:0] p);\n"
-        "  assign p = a * b;\n"
-        "endmodule\n"
-        "module mac(input clk, input rst, input [7:0] a, b, output reg [19:0] q);\n"
-        "  wire [15:0] p;\n"
-        "  mul8 m(.a(a), .b(b), .p(p));\n"
-        "  always @(posedge clk) if (rst) q <= 0; else q <= q + p;\n"
-        "endmodule\n"
-    )
-    (root / "design.yaml").write_text(
-        "name: mac\nrtl:\n" '  sources: ["mac.v"]\n' "  top: mac\n" "  clock:\n" "    port: clk\n"
-    )
-
-
-def stage_asap7(root: Path) -> Path:
-    """A copy of the shipped `asap7` description under `root`, with the liberty files it names for
-    each corner, which the package does not ship. Each holds one cell named after its file, so the
-    libraries differ by corner and by file; the compressed ones carry no time stamp, so the same
-    request in another directory gives the same bytes. The copy's `config.toml`."""
-    staged = root / "asap7"
-    shutil.copytree(PLATFORMS / "asap7", staged)
-    config = tomllib.loads((staged / "config.toml").read_text())
-    for corner in config["corner"].values():
-        for lib in [*corner["lib_files"], corner["dff_lib_file"]]:
-            path = staged / lib
-            path.parent.mkdir(exist_ok=True)
-            name = path.name.split(".")[0]
-            text = f'library (x) {{\n  time_unit : "1ps";\n  cell (CELL_{name}) {{\n    area : 1;\n  }}\n}}\n'
-            if lib.endswith(".gz"):
-                with (
-                    open(path, "wb") as raw,
-                    gzip.GzipFile(
-                        filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=9
-                    ) as zipped,
-                ):
-                    zipped.write(text.encode())
-            else:
-                path.write_text(text)
-    return staged / "config.toml"
 
 
 # ------------------------------------------------------------------------------ the capture
@@ -582,14 +403,9 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     design = work / "design"
     design.mkdir(parents=True)
     run_root = work / "xeda_run"
-    (write_vivado_design if request.design == "vivado" else write_asic_design)(design)
+    write_vivado_design(design)
     items = list(request.settings)
-    if request.asap7:
-        config = stage_asap7(design)
-        items = [item.replace(PLATFORM_PLACEHOLDER, str(config)) for item in items]
     use_fake_tools(monkeypatch)
-    if request.design == "asic":
-        use_fake_asic_tools(monkeypatch, work / "bin")
     monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
     command = [
         sys.executable,
@@ -611,17 +427,6 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
     marks = Placeholders(work)
     run_dirs = sorted(path.parent for path in run_root.rglob("settings.json"))
-    if request.design == "asic":
-        from .tool_utils import run_outputs_state
-
-        before = run_outputs_state(*run_dirs)
-        again = subprocess.run(
-            command, cwd=design, env=dict(os.environ), capture_output=True, text=True, timeout=600
-        )
-        fresh = json.loads(again.stdout)
-        assert again.returncode == 0 and fresh["success"], again.stderr[-3000:] or fresh
-        assert {node["state"] for node in fresh["nodes"]} == {"fresh"}
-        assert run_outputs_state(*run_dirs) == before
     record = {
         "request": {"flow": request.flow, "settings": marks.value(items)},
         "run_directories": [str(path.relative_to(run_root)) for path in run_dirs],
@@ -677,8 +482,7 @@ def captured(tmp_path_factory) -> Callable[[str], dict[str, Any]]:
 
     def get(name: str) -> dict[str, Any]:
         if name not in records:
-            if REQUESTS[name].design == "vivado":
-                require_tclsh()
+            require_tclsh()
             # a context of its own: the environment the launch needs ends with it
             with pytest.MonkeyPatch.context() as monkeypatch:
                 records[name] = launch(REQUESTS[name], tmp_path_factory.mktemp(name), monkeypatch)
@@ -766,7 +570,7 @@ def test_the_activity_file_follows_what_was_simulated(captured, tmp_path, monkey
     require_tclsh()
     timing = captured("vivado_power")
     functional = launch(
-        Request("vivado_postsynth_sim", (*VIVADO_SETTINGS, "saif=activity.saif"), "vivado"),
+        Request("vivado_postsynth_sim", (*VIVADO_SETTINGS, "saif=activity.saif")),
         tmp_path,
         monkeypatch,
     )
@@ -786,58 +590,3 @@ def test_the_timing_and_functional_simulations_are_handed_different_netlists(cap
     assert digests(timing, run, "timesim.max.sdf") and not digests(
         functional, run, "timesim.max.sdf"
     )
-
-
-def merged_library(record: dict[str, Any]) -> str:
-    """The merged liberty library `yosys` reads: one content, wherever the flows keep it (it
-    read `merged.lib` in `openroad`'s run directory, and now merges its own,
-    `merged_lib.lib`, from the same platform)."""
-    found = {
-        digest
-        for node in record["nodes"].values()
-        for name, digest in node["files"].items()
-        if name.endswith(("/merged.lib", "/merged_lib.lib"))
-    }
-    assert len(found) == 1, found
-    return next(iter(found))
-
-
-def yosys_script(record: dict[str, Any]) -> str:
-    run = next(run for run in record["nodes"] if run.endswith("/yosys"))
-    return only(digests(record, run, "yosys_synth.ys"))
-
-
-def yosys_netlist(record: dict[str, Any]) -> str:
-    run = next(run for run in record["nodes"] if run.endswith("/yosys"))
-    return only(digests(record, run, "/netlist.v"))
-
-
-def test_each_openroad_variant_hands_yosys_what_the_default_does_not(captured) -> None:
-    """Each nondefault configuration differs from the one it is compared with in what the
-    golden records, or it would pass vacuously. `black_box` differs in the script, not the library
-    (the module docstring says why); `corner` is compared with the same platform's default."""
-    default = captured("openroad")
-    dont_use = captured("openroad_dont_use_cells")
-    blocks = captured("openroad_blocks")
-    ss, tt = captured("openroad_asap7_ss"), captured("openroad_asap7_tt")
-
-    assert merged_library(dont_use) != merged_library(default)
-    assert merged_library(ss) != merged_library(tt)
-
-    # `black_box` changes no library, and changes the script (and so the netlist) yosys is handed
-    assert merged_library(blocks) == merged_library(default)
-    assert yosys_script(blocks) != yosys_script(default)
-    assert yosys_netlist(blocks) != yosys_netlist(default)
-    run = next(run for run in blocks["nodes"] if run.endswith("/yosys"))
-    assert (
-        "blackbox mul8"
-        in blocks["nodes"][run]["scripts"][
-            next(
-                name for name in blocks["nodes"][run]["scripts"] if name.endswith("yosys_synth.ys")
-            )
-        ]
-    )
-    # none of the others holds the module as a black box
-    for other in (default, dont_use, ss, tt):
-        run = next(run for run in other["nodes"] if run.endswith("/yosys"))
-        assert "blackbox" not in "".join(other["nodes"][run]["scripts"].values())

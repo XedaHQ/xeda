@@ -56,9 +56,8 @@ Discovering flows and their settings
     so.
 
 ``asic_synthesis``
-    Builds a design for a standard-cell process (``dc`` and ``openroad``). ``openroad`` selects
-    the process with the ``platform`` setting, which names a PDK. ``dc`` takes the libraries of
-    the process in ``target_libraries``.
+    Builds a design for a standard-cell process (``dc``). ``dc`` takes the libraries of the
+    process in ``target_libraries``.
 
 ``synthesis``
     Synthesis that the base class does not tie to an FPGA or an ASIC (``yosys`` and
@@ -118,10 +117,7 @@ the same rule:
   on the ``timing_sim`` setting of that flow. ``vivado_power`` itself has no ``timing_sim`` setting
   (see :ref:`the functional alternative <power-activity>`).
 
-``openroad`` takes its netlist from ``yosys`` in the same way. Its synthesis is therefore
-configured in ``flows.yosys`` (``optimize``, ``abc_driver_cell`` and others, for example
-``-s flows.yosys.optimize=speed`` with ``xeda run openroad``), and ``yosys`` derives everything
-else from the ``platform`` that the two flows share.
+The ``openroad`` flow was removed. New OpenROAD flows replace it in a later release.
 
 ``-s flows.<flow>.<key>=<value>`` sets a setting of any flow in the run: the requested flow, or one
 of its producers. When ``nextpnr`` is the requested flow, ``-s flows.nextpnr.seed=2`` and
@@ -231,7 +227,6 @@ name the stages yourself, see :ref:`flow-chains`.
     yosys_fpga  ->  nextpnr  ->  fpga_pack  ->  openfpgaloader
     yosys_fpga  ->  vivado_impl
     vivado_synth  ->  vivado_postsynth_sim  ->  vivado_power
-    yosys  ->  openroad
 
 A producer runs in its own run directory, a sibling of the run directory of its consumer. Its
 settings are those of its own section (``flows.yosys_fpga``), and you set them on the command line
@@ -370,7 +365,7 @@ Rules for chains
 * A flow that programs a device (``openfpgaloader``) can only end a chain.
 * Only flows that declare their file inputs and outputs can be chained: those with a nonempty
   ``inputs`` or ``outputs`` in ``xeda list-flows --json``. Today these are ``yosys_fpga``,
-  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``openroad``, ``vivado_synth``,
+  ``nextpnr``, ``fpga_pack``, ``openfpgaloader``, ``yosys``, ``vivado_synth``,
   ``vivado_alt_synth``, ``vivado_impl``, ``vivado_postsynth_sim`` and ``vivado_power``. A flow
   without declarations (``bsc``, ``bsc_sim``, ``vivado_project``, ``vivado_sim`` and others) runs
   alone. A chain through it is refused: no output fits an input, or the flow after it takes no

@@ -980,8 +980,8 @@ def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
 
 def _asic_taker():
     """A declared consumer of `yosys`'s netlist that shares its ASIC configuration -- `platform`,
-    `corner` and `dont_use_cells` with yosys's own types -- as `openroad` will once it declares
-    its input. Today it is the only declared edge on which the three can agree."""
+    `corner` and `dont_use_cells` with yosys's own types. No flow in the package takes such a
+    netlist, so the test declares one."""
     from typing import List, Optional, Union
 
     from xeda.dataclass import Field, field_validator

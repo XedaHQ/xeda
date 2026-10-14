@@ -26,8 +26,6 @@ ROLES = {
     ("Flow.Settings", "reports_dir"): W,
     ("Flow.Settings", "outputs_dir"): W,
     ("Flow.Settings", "checkpoints_dir"): W,
-    ("Openroad.Settings", "results_dir"): W,
-    ("Openroad.Settings", "write_metrics"): D,
     ("BscFlow.Settings", "bobj_dir"): W,
     ("BscFlow.Settings", "info_dir"): W,
     ("Bsc.Settings", "verilog_out_dir"): W,

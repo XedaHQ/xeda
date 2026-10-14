@@ -18,7 +18,6 @@ from xeda.flow.flow import registered_flows
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import (
     Nvc,
-    Openroad,
     VivadoAltSynth,
     VivadoProject,
     VivadoSynth,
@@ -28,8 +27,7 @@ from xeda.flows import (
 
 from .settings_samples import flow_classes, minimal_settings
 from .test_vivado_step_tables import PART, _design, _run, _script
-from .test_openroad import _mac_design
-from .tool_utils import fake_calls, require_nvc_evidence, use_fake_asic_tools
+from .tool_utils import fake_calls, require_nvc_evidence
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"
@@ -249,35 +247,6 @@ def test_nvc_treats_an_analysis_warning_as_an_error_when_asked(tmp_path) -> None
     assert "Werror" in str(refused.results.get("error", {}).get("message", ""))
 
 
-# ------------------------------------------------------------------------------------ openroad
-
-
-def test_openroad_sources_the_floorplan_script_and_hands_the_macro_placer_its_config(
-    tmp_path, monkeypatch
-) -> None:
-    use_fake_asic_tools(monkeypatch, tmp_path / "bin")
-    floorplan, config = tmp_path / "floorplan.tcl", tmp_path / "rtlmp config.cfg"
-    floorplan.write_text("puts hello\n")
-    config.write_text("x\n")
-    runner = DefaultRunner(tmp_path / "xeda_run", display_results=False)
-    flow = runner.launch_flow(
-        Openroad,
-        _mac_design(tmp_path),
-        {
-            "platform": "nangate45",
-            "clock": {"period": 2.0},
-            "floorplan_tcl": str(floorplan),
-            "rtlmp_flow": True,
-            "rtlmp_config_file": str(config),
-        },
-    )
-    assert flow.succeeded
-    script = (flow.run_path / "orflow_0_11.tcl").read_text()
-    assert f'source "{floorplan}"' in script
-    assert f'-config_file [list "{config}"]' in script
-    assert script.count("-config_file") == 1, "the setting replaces the environment variable's"
-
-
 # ----------------------------------------------------------------------- the removal sweeps
 
 
@@ -332,7 +301,6 @@ EARLIER_REMOVALS = {
     "nextpnr": {"clock_period", "lpf_cfg", "pcf_cfg", "pdc_cfg", "yosys"},
     "nvc": {"exit_severity", "wave", "wave_format"},
     "openfpgaloader": {"bitstream_file", "clock_period", "nextpnr", "packer_args"},
-    "openroad": {"abc_driver_cell", "abc_load_in_ff", "blocks", "clock_period", "optimize"},
     "quartus": {"clock_period"},
     "verilator": {"clean_before_run"},
     "vivado_alt_synth": {"clock_period"},

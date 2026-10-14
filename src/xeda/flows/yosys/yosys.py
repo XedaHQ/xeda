@@ -374,7 +374,7 @@ class Yosys(YosysSynthesisBase, SynthFlow):
             SourceType.VerilogNetlist,
             enabled_by="netlist_verilog",
             description="The synthesized gate-level Verilog netlist, written at "
-            "`netlist_verilog`, for a place and route such as openroad.",
+            "`netlist_verilog`, for a place and route tool.",
         )
 
     @classmethod

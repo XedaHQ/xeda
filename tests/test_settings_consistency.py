@@ -396,9 +396,8 @@ def _product_flows():
 def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
     """`resolver.SHARED_SETTINGS` agree along declared edges and are propagated as given, so a
     value one flow accepts the other must accept too: the same annotation wherever one is
-    declared. (`openroad`'s `platform` was a required `AsicsPlatform` where `yosys`'s and `dc`'s
-    is optional: a setting a flow cannot run without is its `required_settings`, never required
-    on the model.)"""
+    declared. A setting a flow cannot run without is its `required_settings`, never required on
+    the model."""
     from xeda.flow_runner.resolver import SHARED_SETTINGS
 
     assert {"platform", "corner", "dont_use_cells"} <= set(SHARED_SETTINGS)
@@ -415,10 +414,10 @@ def test_every_shared_setting_has_one_type_in_every_flow_that_declares_it():
     assert not retyped
 
 
-def test_corner_and_dont_use_cells_are_yosys_s_and_openroad_s_alone():
-    """Containment: `yosys -> openroad` is the only edge on which `corner` or
-    `dont_use_cells` can agree, because no other product flow declares either."""
+def test_corner_and_dont_use_cells_are_yosys_s_alone():
+    """Containment: `yosys` is the only flow that declares `corner` or `dont_use_cells`, so no
+    edge of the product flows can carry them to another flow."""
     flows = _product_flows()
     for name in ("corner", "dont_use_cells"):
         holders = {flow for flow, cls in flows.items() if name in cls.Settings.model_fields}
-        assert holders == {"yosys", "openroad"}, name
+        assert holders == {"yosys"}, name

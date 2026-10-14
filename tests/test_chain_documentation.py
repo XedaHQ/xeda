@@ -736,8 +736,8 @@ def test_flows_without_declared_io_run_alone_and_nothing_binds_a_design_input(tm
     """The boundary the guide states: `bsc` and `vivado_project` are not chainable, and an
     `inputs.design` binding is refused (no flow declares one), in the file, on the command line,
     and saying why. `vivado_synth` declares its outputs, so it precedes the loader and
-    `vivado_power` (by its routed checkpoint), but not `openroad`: its netlists are FPGA
-    netlists, and `openroad` takes a standard-cell one."""
+    `vivado_power` (by its routed checkpoint), but not `nextpnr`: its netlists are FPGA
+    netlists, and `nextpnr` takes a JSON netlist."""
     listed = {
         f["name"]: f for f in json.loads(CliRunner().invoke(cli, ["list-flows", "--json"]).stdout)
     }

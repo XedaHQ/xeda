@@ -19,7 +19,7 @@ Xeda keeps four concerns separate.
 
 ``Flow``: how to build
     A named sequence of steps that one or more tools perform: ``vivado_synth``, ``ghdl_sim``,
-    ``openroad`` and so on. A flow declares its settings. It can take the outputs of other flows,
+    ``yosys`` and so on. A flow declares its settings. It can take the outputs of other flows,
     its producers, and it parses the reports of the tools into results. See :doc:`flows`.
 
 ``Tool``: the executable
@@ -35,7 +35,7 @@ Why the parts are separate
 ==========================
 
 Design and flow are separate, so the same design file can be simulated with GHDL during
-development, synthesized with Vivado for an FPGA, and taken through OpenROAD for an ASIC. Only the
+development, synthesized with Vivado for an FPGA, and synthesized with yosys for an ASIC. Only the
 flow name and a few flow settings change.
 
 Flow and tool are separate, so the same flow can run with a locally installed tool, in a Docker

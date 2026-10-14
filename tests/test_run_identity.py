@@ -681,7 +681,7 @@ def _platform_settings(tmp_path: Path, platform: str, flow_name="yosys"):
     )
 
 
-@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+@pytest.mark.parametrize("flow_name", ["yosys"])
 def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
     tmp_path, monkeypatch, flow_name
 ):
@@ -697,7 +697,7 @@ def test_a_bundled_platform_hashes_the_same_wherever_xeda_is_installed(
     assert flowrun_hash(flow_name, there, "d") == expected
 
 
-@pytest.mark.parametrize("flow_name", ["yosys", "openroad"])
+@pytest.mark.parametrize("flow_name", ["yosys"])
 def test_the_hashed_settings_name_no_path_under_the_installation(tmp_path, flow_name):
     from xeda.flow.flow import identity_values
 
@@ -730,7 +730,7 @@ def test_a_user_s_platform_counts_by_its_own_place(tmp_path, where):
 
 @pytest.mark.parametrize(
     "linked,flow_name",
-    [("installation", "yosys"), ("installation", "openroad"), ("design root", None)],
+    [("installation", "yosys"), ("design root", None)],
 )
 def test_a_root_counts_however_its_path_is_spelled(tmp_path, monkeypatch, linked, flow_name):
     """A root reached through a symbolic link is one root: a path under it counts relative to it

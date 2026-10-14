@@ -147,7 +147,6 @@ UNPLANNABLE = {
 }
 #: The flows the sweep does not bring to their `run()`, and why nothing is lost.
 UNREACHED = {
-    "openroad": "the asap7 platform's liberty files are not shipped",
     **{name: f"its plan is refused ({reason})" for name, reason in UNPLANNABLE.items()},
 }
 
@@ -1242,9 +1241,9 @@ def test_the_oracle_sees_what_deletes(tmp_path):
     )
 
 
-#: In a tool script (every file of xeda's that is not Python: templates, the OpenROAD scripts,
-#: the platforms' scripts): a deletion (`file delete`, `file rename`, `rm`), or a tool command
-#: told to replace or overwrite what is there (`-force`, `-overwrite`).
+#: In a tool script (every file of xeda's that is not Python: templates, the platforms' scripts):
+#: a deletion (`file delete`, `file rename`, `rm`), or a tool command told to replace or overwrite
+#: what is there (`-force`, `-overwrite`).
 SCRIPT_DELETION = re.compile(r"\brm\b|\bfile\s+(delete|rename)\b|(?<![\w-])-(force|overwrite)\b")
 #: a tool command a flow runs that deletes where it runs (`ghdl remove`)
 TOOL_DELETION = re.compile(r"\.run\(\s*[\"'](--)?(remove|clean)[\"']")
@@ -1433,7 +1432,7 @@ SCRIPT_REPLACEMENT = re.compile(
 
 def test_every_tool_command_that_deletes_or_replaces_is_reviewed_and_guarded():
     """A mechanical oracle over every file of xeda's that is not Python -- tool scripts, the
-    OpenROAD and platform scripts -- and every tool command in a flow's code: each line that
+    platform scripts -- and every tool command in a flow's code: each line that
     deletes (`file delete`, `file rename`, `rm`), tells a tool to replace or overwrite
     (`-force`, `-overwrite`), replaces by name (`create_project`, `project_new`, ...) or runs a
     deleting tool command (`ghdl remove`) is reviewed in `REVIEWED_SCRIPT_DELETIONS`, as often as

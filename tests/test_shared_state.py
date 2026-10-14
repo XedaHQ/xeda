@@ -83,7 +83,7 @@ HAND_VARIANTS: Dict[str, List[Dict[str, Any]]] = {
 }
 #: The flows whose launch does not reach their `run()` in the sweep's world, and why nothing is
 #: lost. Any other that does not is a failure of the sweep: it would see nothing of it.
-NEVER_RUN = {"openroad": "the asap7 platform's liberty files are not shipped"}
+NEVER_RUN: dict[str, str] = {}
 #: Settings that start a container or reach a machine: never flipped.
 NOT_FLIPPED = ("docker", "remote", "ssh", "junest", "image")
 
