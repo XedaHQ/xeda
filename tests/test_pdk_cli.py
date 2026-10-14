@@ -666,7 +666,12 @@ def quiet_git(monkeypatch):
 
 def git(directory: Path, *arguments: str) -> str:
     done = subprocess.run(
-        ["git", "-c", "user.name=test", "-c", "user.email=test@example.com", *arguments],
+        [
+            *["git", "-c", "user.name=test", "-c", "user.email=test@example.com"],
+            # No background maintenance: it would touch a fixture while a test compares it.
+            *["-c", "maintenance.auto=false", "-c", "gc.auto=0"],
+            *arguments,
+        ],
         cwd=directory,
         capture_output=True,
         text=True,
@@ -1354,7 +1359,15 @@ def test_git_gets_a_controlled_environment(tmp_path, monkeypatch):
     assert "GITHUB_TOKEN" not in env and "GIT_ASKPASS" not in env
     allowed = {"PATH", "HOME", "LANG", "https_proxy", "NO_PROXY", "__CF_USER_TEXT_ENCODING"}
     assert set(env) - allowed <= {"GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"}
-    assert seen["argv"][:2] == ["-c", f"core.hooksPath={os.devnull}"]
+    settings = [
+        f"core.hooksPath={os.devnull}",
+        "maintenance.auto=false",
+        "gc.auto=0",
+        "fetch.writeCommitGraph=false",
+    ]
+    assert seen["argv"][: 2 * len(settings)] == [
+        word for setting in settings for word in ("-c", setting)
+    ]
 
 
 @pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="needs a permission check")

@@ -499,6 +499,8 @@ def install_plan(
 #: The variables of the environment that `ciel` gets. Others, such as `PDK_ROOT` and
 #: `GITHUB_TOKEN`, change where it installs or how it reaches the network.
 CIEL_ENVIRONMENT = ("PATH", "HOME", "LANG")
+#: The settings of every `git` command of the install that stop its background work.
+GIT_QUIET_SETTINGS = ("maintenance.auto=false", "gc.auto=0", "fetch.writeCommitGraph=false")
 #: The variables of the environment that `git` gets besides its own settings: the proxies.
 GIT_PASSED_ENVIRONMENT = (
     *CIEL_ENVIRONMENT,
@@ -625,8 +627,11 @@ def _git_environment() -> dict[str, str]:
 
 def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -> None:
     if command[0] == "git":
-        # No hook of any configuration runs, whatever `git` reads.
-        command = [command[0], "-c", f"core.hooksPath={os.devnull}", *command[1:]]
+        # No hook runs, whatever `git` reads, and no maintenance process starts in the
+        # background: it could outlive the install and write into a directory that the install
+        # moves or removes.
+        settings = [f"core.hooksPath={os.devnull}", *GIT_QUIET_SETTINGS]
+        command = [command[0], *(w for s in settings for w in ("-c", s)), *command[1:]]
         env = _git_environment()
     try:
         run_process(command[0], command[1:], env=env)
