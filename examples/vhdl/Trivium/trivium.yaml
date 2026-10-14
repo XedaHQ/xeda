@@ -16,7 +16,7 @@ tb:
 flows:
   vivado_synth:
     fpga.part: xc7a12tcsg325-3
-    clock.freq: 200MHz
+    clock.freq: 200 MHz
   yosys_fpga:
     fpga.part: xc7a12tcsg325-3
-    clock.freq: 200MHz
+    clock.freq: 200 MHz

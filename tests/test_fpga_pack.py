@@ -492,7 +492,7 @@ def test_fpga_pack_ice40_end_to_end(tmp_path, monkeypatch):
         name="blink",
         design_root=tmp_path,
         rtl={"sources": ["blink.v"], "top": "blink", "clock": {"port": "clk"}},
-        flow={"nextpnr": {"pcf_allow_unconstrained": True, "clock": {"period": 20.0}}},
+        flow={"nextpnr": {"pcf_allow_unconstrained": True, "clock": {"period": "20 ns"}}},
     )
     flow = DefaultRunner(tmp_path / "run", display_results=False).run(
         FpgaPack, design, flow_settings={"fpga": "iCE40HX1K-TQ144"}

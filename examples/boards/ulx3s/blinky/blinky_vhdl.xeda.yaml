@@ -9,9 +9,9 @@ rtl:
   clock.port: clk_25mhz
 flows:
   openfpgaloader:
-    clock.freq: 25MHz
+    clock.freq: 25 MHz
   nextpnr:
     board: ulx3s_85f
   yosys_fpga:
     fpga.family: ecp5
-    clock.freq: 25MHz
+    clock.freq: 25 MHz

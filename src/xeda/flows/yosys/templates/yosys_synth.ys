@@ -40,7 +40,7 @@ opt -purge
 {%- if not settings.noabc %}
 log -stdout Running ABC
 abc {{settings.abc_flags|join(" ")}}
-{%- if settings.main_clock and settings.main_clock.period_ps %} -D {{"%.3f"|format(settings.main_clock.period_ps)}} {% endif %}
+{%- if settings.main_clock %} -D {{"%.3f"|format(settings.main_clock.period | to("ps"))}} {% endif %}
 {%- if settings.abc_script %} -script {{settings.abc_script|path}} {%- endif %}
 {%- if settings.liberty %} -liberty {{settings.liberty[0]|path}} {%- endif %}
 {%- if abc_constr_file %} -constr {{abc_constr_file|path}} {%- endif %}

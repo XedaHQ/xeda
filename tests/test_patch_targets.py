@@ -715,7 +715,7 @@ def test_patching_the_failed_run_artifact_drop_intercepts_an_ordinary_failed_exe
     flow = runner.launch_flow(
         "vivado_alt_synth",
         Design.from_file(SQRT_EXAMPLE),
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "write_netlist": True},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}, "write_netlist": True},
     )
     assert not flow.succeeded, "the fake tool was meant to fail"
     assert flow.results["error"]["type"] != "ReportedFailure", "the tool was meant to exit nonzero"

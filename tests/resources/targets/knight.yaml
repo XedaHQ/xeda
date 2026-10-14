@@ -10,7 +10,7 @@ tb:
   sources: [knight_tb.v]
 flows:
   nextpnr: {seed: 3}
-  vivado_synth: {clock: {period: 10.0}}
+  vivado_synth: {clock: {period: 10 ns}}
 targets:
   arty:
     sources: [arty.xdc]

@@ -128,7 +128,7 @@ def test_mappings_merge_key_by_key_at_every_depth():
     assert design.rtl.parameters == {"WIDTH": 4}
     assert design.rtl.defines == {"CLK_HZ": 25000000}
     assert design.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
-    assert design.flow["vivado_synth"] == {"clock": {"period": 10.0}}
+    assert design.flow["vivado_synth"] == {"clock": {"period": "10 ns"}}
     assert design.rtl.clock is not None and design.rtl.clock.port == "CLK"
 
 
@@ -713,7 +713,7 @@ def test_a_target_constrains_a_flow_s_clock_through_its_flow_section(tmp_path):
         settings = VivadoSynth.Settings(**design.flow["vivado_synth"])
         flow = VivadoSynth(settings, design, tmp_path / target)
         clock = flow.settings.clocks["main_clock"]
-        periods[target] = clock.period
+        periods[target] = clock.period.to("ns")
         assert clock.port == "CLK"
         assert launcher.plan("vivado_synth", design=path, target=target).context.target == target
     assert periods == {"fast": 5.0, "slow": 40.0}

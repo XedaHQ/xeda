@@ -104,7 +104,10 @@ def test_file_clock_and_setting_duplicate_names_both_origins(tmp_path, monkeypat
         tmp_path,
         monkeypatch,
         sources=[source.name],
-        settings={"fpga": "LFE5U-25F-6BG381C", "clocks": {"main": {"port": "clk", "period": 10}}},
+        settings={
+            "fpga": "LFE5U-25F-6BG381C",
+            "clocks": {"main": {"port": "clk", "period": "10 ns"}},
+        },
     )
     flow.prepare_inputs()
     with pytest.raises(FlowFatalError) as exc:
@@ -177,8 +180,8 @@ def test_xilinx_clocks_are_literal_and_merged_line_errors_keep_origins(tmp_path,
         settings={
             "fpga": "xc7a35tcsg324-1",
             "clocks": {
-                "main": {"port": "clk[0]", "period": 10},
-                "aux": {"port": "clk with space[1]", "period": 20},
+                "main": {"port": "clk[0]", "period": "10 ns"},
+                "aux": {"port": "clk with space[1]", "period": "20 ns"},
             },
         },
     )
@@ -223,7 +226,10 @@ def test_unresolved_or_ambiguous_clock_selectors_are_honest(tmp_path, monkeypatc
         tmp_path,
         monkeypatch,
         sources=["timing.sdc"],
-        settings={"fpga": "LFE5U-25F-6BG381C", "clocks": {"main": {"port": "clk", "period": 40}}},
+        settings={
+            "fpga": "LFE5U-25F-6BG381C",
+            "clocks": {"main": {"port": "clk", "period": "40 ns"}},
+        },
     )
     flow.prepare_inputs()
     with pytest.raises(FlowFatalError) as exc:
@@ -251,7 +257,10 @@ def test_settings_clock_ignores_comment_clocks_and_port_only_design_warns(
         tmp_path,
         monkeypatch,
         sources=["pins.lpf"],
-        settings={"fpga": "LFE5U-25F-6BG381C", "clocks": {"main": {"port": "clk", "period": 40}}},
+        settings={
+            "fpga": "LFE5U-25F-6BG381C",
+            "clocks": {"main": {"port": "clk", "period": "40 ns"}},
+        },
     )
     flow.prepare_inputs()
     flow.run()

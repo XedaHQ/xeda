@@ -238,7 +238,7 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
         design_root=design_root,
         rtl={"sources": ["top.v"], "top": "top", "clock": {"port": "clk"}},
     )
-    settings = {"platform": name, "pdk_root": str(store), "clock": {"period": 10.0}}
+    settings = {"platform": name, "pdk_root": str(store), "clock": {"period": "10 ns"}}
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
         Yosys, design, settings
     )

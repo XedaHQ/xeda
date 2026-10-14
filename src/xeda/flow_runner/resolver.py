@@ -540,7 +540,7 @@ def _normalized_leaves(
                     value = PhysicalClock.model_validate({"freq": value}).period
                     target = (*path[:-1], "period")
                 else:
-                    clock = PhysicalClock.model_validate({"period": 1, path[-1]: value})
+                    clock = PhysicalClock.model_validate({"period": "1 ns", path[-1]: value})
                     value = getattr(clock, path[-1])
             elif shared == "board":
                 # The board and database may come from different nodes. Lookup is valid

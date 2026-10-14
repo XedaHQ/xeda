@@ -264,7 +264,7 @@ CASES: dict[str, Case] = {
     "synth-clock-without-port": Case(
         VivadoSynth,
         "no corresponding clock port",
-        {"clocks": {"fast": {"period": 5}, "slow": {"period": 9}}},
+        {"clocks": {"fast": {"period": "5 ns"}, "slow": {"period": "9 ns"}}},
         _verilog(
             rtl={"sources": ["top.v"], "top": "top", "clocks": [{"port": "clk"}, {"port": "rst"}]}
         ),

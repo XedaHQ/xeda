@@ -308,6 +308,10 @@ FPGA_PART = {"part": "xc7a12tcpg238-1"}
         {"period": "5_ns"},
         {"period": "("},
         {"period": "5/0 ns"},
+        {"period": "5.5"},
+        {"period": 5},
+        {"freq": "100"},
+        {"freq": 100},
         {"period": True},
         {"freq": True},
         {"period": "nan ns"},
@@ -331,8 +335,6 @@ def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
         ({"freq": "0.2GHz"}, 5.0),
         ({"freq": "1e2 MHz"}, 10.0),
         ({"period": "5.5ns"}, 5.5),
-        ({"period": "5.5"}, 5.5),
-        ({"period": 5}, 5.0),
         ({"period": "0.0055us"}, 5.5),
         ({"period": "5500ps"}, 5.5),
     ],
@@ -341,4 +343,4 @@ def test_a_bad_clock_setting_is_a_flow_settings_error(clock):
 def test_every_documented_clock_spelling_still_works(clock, period):
     """Every documented clock spelling still works."""
     settings = VivadoSynth.Settings.from_input({"fpga": FPGA_PART, "clock": clock})
-    assert settings.clocks["main_clock"].period == pytest.approx(period)
+    assert settings.clocks["main_clock"].period.to("ns") == pytest.approx(period)

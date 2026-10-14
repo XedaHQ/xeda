@@ -81,11 +81,13 @@ def _render(
 
 
 def _fpga_settings(**kw: Any) -> dict[str, Any]:
-    return dict(fpga=FPGA(part="xc7a12tcsg325-1"), clock={"period": 5.0}, set_attribute=ATTRS, **kw)
+    return dict(
+        fpga=FPGA(part="xc7a12tcsg325-1"), clock={"period": "5 ns"}, set_attribute=ATTRS, **kw
+    )
 
 
 def _asic_settings(**kw: Any) -> dict[str, Any]:
-    return dict(clock={"period": 5.0}, set_attribute=ATTRS, **kw)
+    return dict(clock={"period": "5 ns"}, set_attribute=ATTRS, **kw)
 
 
 @pytest.mark.parametrize(

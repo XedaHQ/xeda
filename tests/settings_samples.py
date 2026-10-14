@@ -18,7 +18,7 @@ assert __builtin_flows__, "importing `xeda.flows` is what populates `registered_
 #: sweeps until its minimal valid value is added here, never silently reduce their coverage.
 MINIMAL_SETTINGS: Dict[str, Any] = {
     "fpga": {"part": "xc7a100tcsg324-1"},
-    "clock": {"period": 5.0},
+    "clock": {"period": "5 ns"},
     "platform": "nangate45",
     "target_libraries": ["nangate45.lib"],
 }

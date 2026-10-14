@@ -67,7 +67,7 @@ endmodule
 #: `flatten` so the pass gets `-flatten`, as openXC7's own Makefile passes it
 SETTINGS: dict[str, Any] = {
     "fpga": PART,
-    "clock": {"period": 5.0},
+    "clock": {"period": "5 ns"},
     "flatten": True,
     # Plain `yosys file.v` uses its Verilog reader without xeda's default `-sv`, and its own
     # front end rather than xeda's default slang plugin.
@@ -283,7 +283,7 @@ def _keyword_launch(tmp_path: Path, name: str, **settings: Any) -> Any:
     return runner.run(
         YosysFpga,
         _design(tmp_path, "kw.v", KEYWORD_SOURCE),
-        flow_settings={"fpga": PART, "clock": {"period": 5.0}, **settings},
+        flow_settings={"fpga": PART, "clock": {"period": "5 ns"}, **settings},
     )
 
 
@@ -338,7 +338,7 @@ def test_the_mode_reads_a_systemverilog_source_as_yosys_does(tmp_path):
         return DefaultRunner(tmp_path / name, display_results=False).run(
             YosysFpga,
             design,
-            flow_settings={"fpga": PART, "clock": {"period": 5.0}, **settings},
+            flow_settings={"fpga": PART, "clock": {"period": "5 ns"}, **settings},
         )
 
     with pytest.raises(FlowSettingsError, match=r"systemverilog: default"):

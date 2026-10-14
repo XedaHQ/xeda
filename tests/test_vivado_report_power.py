@@ -21,7 +21,7 @@ from xeda.flows import VivadoAltSynth, VivadoSynth
 from .tool_utils import fake_calls, use_fake_tools
 
 SQRT = Path(__file__).parent.parent / "examples" / "vhdl" / "sqrt" / "sqrt.yaml"
-SETTINGS = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}, "report_power": True}
+SETTINGS = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}, "report_power": True}
 
 needs_tclsh = pytest.mark.skipif(
     not shutil.which("tclsh"), reason="the fake Vivado runs the TCL it is handed under tclsh"

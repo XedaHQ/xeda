@@ -797,7 +797,7 @@ def _print_plan(plan: Plan, freshness: Mapping[str, Any] | None = None) -> None:
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clock.period=2.345 impl.strategy=Debug
+    Example: --settings clock.period=2.345ns impl.strategy=Debug
     flows.<flow>.KEY=VALUE sets a setting of another flow of the run, e.g. -s flows.yosys_fpga.flatten=true.
     """,
 )
@@ -1271,7 +1271,7 @@ def _dse_best_document(best: Any) -> Optional[Dict[str, Any]]:
     cls=OptionEatAll,
     default=tuple(),
     help="""Override setting values for the executed flow. Separate multiple KEY=VALUE items with spaces; the list ends at the next option or the first token that is not KEY=VALUE (use -- before a design path that looks like one). KEY can be a hierarchical name using dot notation.
-    Example: --settings clock.period=2.345 impl.strategy=Debug
+    Example: --settings clock.period=2.345ns impl.strategy=Debug
     """,
 )
 @_run_root_options

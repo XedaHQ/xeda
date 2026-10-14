@@ -17,6 +17,7 @@ from xeda.dataclass import ValidationError
 from xeda.design import Design, RtlSettings
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
+from xeda.units import Frequency, Time
 
 pytestmark = pytest.mark.python_compat
 
@@ -29,27 +30,27 @@ pytestmark = pytest.mark.python_compat
 def test_canonical_clock_is_stored_once():
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clock={"name": "main_clock", "period": 10.0},
+        clock={"name": "main_clock", "period": "10 ns"},
     )
     assert settings.main_clock is not None
     assert settings.clock is settings.main_clock
-    assert settings.clock.period == 10.0
+    assert settings.clock.period == Time("10 ns")
     assert "clock" not in settings.model_dump()
     assert "clock_period" not in settings.model_dump()
 
-    settings.clock.period = 4.0
-    assert settings.main_clock.period == 4.0
+    settings.clock.period = "4 ns"
+    assert settings.main_clock.period == Time("4 ns")
 
-    clocks = {"main_clock": {"period": 8.0}}
+    clocks = {"main_clock": {"period": "8 ns"}}
     before = copy.deepcopy(clocks)
     settings.clocks = clocks
     assert clocks == before
     assert settings.main_clock is not None
-    assert settings.main_clock.period == 8.0
+    assert settings.main_clock.period == Time("8 ns")
 
 
 def test_clock_period_was_removed_whatever_it_is_combined_with():
-    for extra in ({}, {"clock": {"name": "main_clock", "freq": 100.0}}):
+    for extra in ({}, {"clock": {"name": "main_clock", "freq": "100 MHz"}}):
         with pytest.raises(ValidationError, match="`clock_period` was removed: use `clock.period`"):
             YosysFpga.Settings(fpga={"part": "LFE5U-25F-6BG381C"}, clock_period=5.0, **extra)
 
@@ -57,41 +58,41 @@ def test_clock_period_was_removed_whatever_it_is_combined_with():
 def test_main_clock_falls_back_deterministically():
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clocks={"clk_a": {"freq": 100.0}, "clk_b": {"freq": 50.0}},
+        clocks={"clk_a": {"freq": "100 MHz"}, "clk_b": {"freq": "50 MHz"}},
     )
 
     assert settings.main_clock is settings.clocks["clk_a"]
     assert settings.clock is settings.clocks["clk_a"]
-    assert settings.clock.period == pytest.approx(10.0)
-    settings.clock.period = 5.0
-    assert settings.clocks["clk_a"].period == pytest.approx(5.0)
-    assert settings.clocks["clk_b"].period == pytest.approx(20.0)
+    assert settings.clock.period == Time("10 ns")
+    settings.clock.period = "5 ns"
+    assert settings.clocks["clk_a"].period == Time("5 ns")
+    assert settings.clocks["clk_b"].period == Time("20 ns")
     assert set(settings.clocks) == {"clk_a", "clk_b"}
 
 
 def test_physical_clock_assignment_keeps_frequency_and_period_consistent():
-    clock = PhysicalClock(period=10.0)
+    clock = PhysicalClock(period="10 ns")
 
-    clock.freq = 200.0
-    assert (clock.freq, clock.period) == (200.0, 5.0)
+    clock.freq = "200 MHz"
+    assert (clock.freq, clock.period) == (Frequency("200 MHz"), Time("5 ns"))
 
-    clock.period = 4.0
-    assert (clock.freq, clock.period) == (250.0, 4.0)
+    clock.period = "4 ns"
+    assert (clock.freq, clock.period) == (Frequency("250 MHz"), Time("4 ns"))
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
         ("name", "clk"),
-        ("rise", 0.5),
+        ("rise", "0.5 ns"),
         ("duty_cycle", 0.4),
-        ("uncertainty", 0.1),
-        ("skew", 0.2),
+        ("uncertainty", "0.1 ns"),
+        ("skew", "0.2 ns"),
         ("port", "clk_i"),
     ],
 )
 def test_unrelated_clock_assignment_does_not_reconcile_rounded_frequency(field, value):
-    clock = PhysicalClock(freq=300.0)
+    clock = PhysicalClock(freq="300 MHz")
     pair = (clock.freq, clock.period)
 
     setattr(clock, field, value)
@@ -107,14 +108,14 @@ def test_a_directly_edited_clock_is_not_reverted_by_an_unrelated_assignment():
     """
     settings = YosysFpga.Settings(
         fpga={"part": "LFE5U-25F-6BG381C"},
-        clocks={"main_clock": {"period": 10.0}},
+        clocks={"main_clock": {"period": "10 ns"}},
     )
     assert settings.main_clock is not None
-    settings.main_clock.period = 7.0
+    settings.main_clock.period = "7 ns"
 
     settings.verbose = 1
 
-    assert settings.main_clock.period == 7.0
+    assert settings.main_clock.period == Time("7 ns")
 
 
 def test_rtl_clock_list_is_not_replaced_by_an_unrelated_assignment():

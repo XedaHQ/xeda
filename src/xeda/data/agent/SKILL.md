@@ -36,7 +36,7 @@ width, so parse JSON.
 and `skipped` paths.
 
 ```bash
-xeda run vivado_synth sqrt.yaml -s clock.period=5.0 --json | jq '.results.Fmax'
+xeda run vivado_synth sqrt.yaml -s clock.period=5ns --json | jq '.results.Fmax'
 ```
 
 The exit status is 0 on success, 1 on a failed run and 2 on a usage error. The `run` document has:
@@ -90,7 +90,7 @@ tb:
 flows:
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns
 ```
 
 - Relative paths resolve against the design file's directory.
@@ -99,8 +99,9 @@ flows:
   `{file: "top.json", type: JsonNetlist}`. A source a generator writes is `{path: "gen/top.v"}`.
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
-- Give the clock port in `rtl.clock.port` and the period in the flow: `clock.period` (ns) or
-  `clock.freq` (`200MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
+- Give the clock port in `rtl.clock.port` and the period in the flow: `clock.period` (`5 ns`) or
+  `clock.freq` (`200 MHz`). A bare number is refused. For several clocks, use `rtl.clocks` and
+  the flow's `clocks.<name>`.
 - Write a table of at most two settings as dotted keys, a file section (`rtl`, `tb`, `flows`,
   `flows.<flow>`, `targets`) as a block. Keep `inputs` and tool-named keys nested.
 - YAML is 1.2 core: `yes`, `on` are text; a boolean is `true` or `false` and nothing else
@@ -115,7 +116,7 @@ target's `flows.<flow>`, `-s`, API. They merge key by key, so `-s clock.freq=100
 nested section. Write a flow's settings under its own `flows.<flow>` only.
 
 ```bash
-xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 xeda run nextpnr blinky.yaml -s flows.yosys_fpga.flatten=true
 ```
 
@@ -373,7 +374,7 @@ from xeda import Design, DefaultRunner
 from xeda.introspect import flows_info, settings_info, results_info, design_schema
 
 design = Design.from_file("sqrt.yaml")
-flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5.0"])
+flow = DefaultRunner("xeda_run").run("vivado_synth", design, flow_settings=["clock.period=5ns"])
 if flow and flow.results.success:
     print(flow.results.Fmax)
 ```

@@ -73,7 +73,7 @@ def test_vivado_synth_reads_every_file_by_its_own_name(work_dir) -> None:
         },
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoSynth, design, {"fpga": PART, "clock": {"period": 10.0}, "xdc_files": [xdc]}
+        VivadoSynth, design, {"fpga": PART, "clock": {"period": "10 ns"}, "xdc_files": [xdc]}
     )
     assert flow is not None and flow.succeeded
     assert flow.results["lut"] >= 1 and flow.results["ff"] >= 1
@@ -97,7 +97,7 @@ def test_vivado_synth_fails_when_write_bitstream_does(work_dir, capfd, waive_drc
         design_root=root,
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
     )
-    settings = {"fpga": PART, "clock": {"period": 10.0}, "bitstream": "outputs/top.bit"}
+    settings = {"fpga": PART, "clock": {"period": "10 ns"}, "bitstream": "outputs/top.bit"}
     if waive_drc:
         settings["impl"] = {"steps": {"WRITE_BITSTREAM": {"TCL": {"PRE": waiver}}}}
     flow = DefaultRunner(work_dir / "run").run_flow(VivadoSynth, design, settings)
@@ -129,7 +129,7 @@ def test_vivado_alt_synth_reads_the_xdc_files_it_is_given(work_dir) -> None:
         rtl={"sources": ["inv.v", "top.vhd"], "top": "top", "clock": "clk"},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoAltSynth, design, {"fpga": PART, "clock": {"period": 10.0}, "xdc_files": [xdc]}
+        VivadoAltSynth, design, {"fpga": PART, "clock": {"period": "10 ns"}, "xdc_files": [xdc]}
     )
     assert flow is not None and flow.succeeded
     assert _logged(flow.run_path, f"Parsing XDC File [{xdc}]")
@@ -148,7 +148,7 @@ def test_vivado_project_creates_the_project_without_a_display(work_dir) -> None:
         rtl={"sources": ["inv.v", "top.vhd", "io.xdc"], "top": "top", "clock": "clk"},
     )
     flow = DefaultRunner(work_dir / "run").run_flow(
-        VivadoProject, design, {"fpga": PART, "clock": {"period": 10.0}}
+        VivadoProject, design, {"fpga": PART, "clock": {"period": "10 ns"}}
     )
     assert flow is not None and flow.succeeded
     project = flow.run_path / flow.artifacts["project"]
@@ -312,7 +312,7 @@ def test_xsim_native_power_uses_successful_declared_activity(work_dir):
         tb={"sources": ["tb.sv"], "top": "tb", "uut": "dut"},
     )
     design.flow = {
-        "vivado_synth": {"fpga": PART, "clock": {"period": 10.0}, "ncpus": 2},
+        "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}, "ncpus": 2},
         "vivado_postsynth_sim": {"timeout": 240.0, "prerun_time": "10ns", "stop_time": "20ns"},
     }
     runner = DefaultRunner(work_dir / "run")
@@ -384,7 +384,7 @@ def test_xsim_native_partial_line_finish_during_prerun(work_dir):
 
 IMPL_RESOURCES = Path(__file__).parent / "resources" / "vivado_impl"
 BASYS3 = "xc7a35tcpg236-1"
-IMPL_SETTINGS = {"fpga": BASYS3, "clock": {"period": 10.0}}
+IMPL_SETTINGS = {"fpga": BASYS3, "clock": {"period": "10 ns"}}
 
 
 def _impl_design(root: Path, name: str, netlist: str | None = None) -> Design:
@@ -592,7 +592,7 @@ def test_vivado_synth_sets_a_run_property_given_with_dots(work_dir) -> None:
         design,
         {
             "fpga": PART,
-            "clock": {"period": 10.0},
+            "clock": {"period": "10 ns"},
             "set_synth_properties": {"STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM": 0},
         },
     )

@@ -584,8 +584,8 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             if script is not None:
                 commands.append(f"scratchpad -copy abc9.script.{script} abc9.script")
             clock = self.main_clock
-            if not self.synth_pass_only and clock and clock.period_ps:
-                commands.append(f"scratchpad -set abc9.D {clock.period_ps / 1.5}")
+            if not self.synth_pass_only and clock:
+                commands.append(f"scratchpad -set abc9.D {clock.period.to('ps') / 1.5}")
             return commands
 
         def synth_pass_only_conflicts(self) -> List[Tuple[str, str]]:

@@ -85,7 +85,7 @@ def _launch(tmp_path: Path, part: "str | dict[str, str]", **settings) -> Path:
     flow = runner.run(
         YosysFpga,
         _design(tmp_path),
-        flow_settings={"fpga": part, "clock": {"period": 5.0}, **settings},
+        flow_settings={"fpga": part, "clock": {"period": "5 ns"}, **settings},
     )
     assert flow is not None and flow.succeeded, "the fakes must complete, or nothing is rendered"
     return Path(flow.run_path)
@@ -345,7 +345,7 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
             _design(tmp_path),
             flow_settings={
                 "fpga": PARTS["xilinx"],
-                "clock": {"period": 5.0},
+                "clock": {"period": "5 ns"},
                 "synth_pass_only": True,
                 **PASS_ONLY_READER,
                 "verilog_lib": [str(library)],
@@ -354,7 +354,7 @@ def test_an_unknown_data_directory_is_an_error_naming_the_entry_not_a_guess(
 
 
 def _libraries(part: "str | dict[str, str]") -> list:
-    settings = YosysFpga.Settings(fpga=part, clock={"period": 5.0})  # type: ignore[arg-type]
+    settings = YosysFpga.Settings(fpga=part, clock={"period": "5 ns"})  # type: ignore[arg-type]
     return settings.primitive_libraries()
 
 
@@ -368,7 +368,7 @@ def test_synth_pass_only_reads_no_primitive_library_but_still_says_which_the_pas
     `begin`, so the mode must not weaken it to an empty list; only the script omits the read.
     """
     part = PARTS[target]
-    settings = YosysFpga.Settings(fpga=part, clock={"period": 5.0}, synth_pass_only=True)  # type: ignore[arg-type]
+    settings = YosysFpga.Settings(fpga=part, clock={"period": "5 ns"}, synth_pass_only=True)  # type: ignore[arg-type]
     assert settings.primitive_libraries() == _libraries(part)
     script = (_launch(tmp_path, part, synth_pass_only=True) / "yosys_fpga_synth.ys").read_text()
     reads = [line for line in script.splitlines() if line.startswith("read_verilog")]
@@ -399,10 +399,10 @@ def test_abc9_scratchpad_is_the_one_place_the_tweaks_are_decided():
     """A pure method, like `synth_command`, so the two script formats cannot disagree."""
 
     def settings(**kw):
-        return YosysFpga.Settings(fpga=PARTS["xilinx"], clock={"period": 5.0}, **kw)  # type: ignore[arg-type]
+        return YosysFpga.Settings(fpga=PARTS["xilinx"], clock={"period": "5 ns"}, **kw)  # type: ignore[arg-type]
 
     flow3 = "scratchpad -copy abc9.script.flow3 abc9.script"
-    delay = "scratchpad -set abc9.D 3333.333333333334"
+    delay = "scratchpad -set abc9.D 3333.3333333333335"
     assert settings().abc9_scratchpad() == [flow3, delay]
     assert settings(flow3=True).abc9_scratchpad() == [flow3, delay]
     assert settings(flow3=False).abc9_scratchpad() == [delay]
@@ -448,7 +448,7 @@ CONFLICTS = {
 def test_a_setting_synth_pass_only_cannot_honor_is_refused_naming_both(setting):
     settings = YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         synth_pass_only=True,
         **{**PASS_ONLY_READER, setting: CONFLICTS[setting]},
     )
@@ -465,7 +465,7 @@ def test_every_conflict_is_reported_at_once_and_none_without_the_mode():
     asked = {name: value for name, value in CONFLICTS.items() if name != "stop_after"}
     settings = YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         synth_pass_only=True,
         **asked,
     )
@@ -487,7 +487,7 @@ def test_the_default_reader_flag_is_refused_and_the_message_says_what_to_write()
     """
     settings = YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         synth_pass_only=True,
     )
     assert settings.read_verilog_flags == ["-sv"]
@@ -501,7 +501,7 @@ def test_the_default_reader_flag_is_refused_and_the_message_says_what_to_write()
     assert written.synth_pass_only_conflicts() == settings.synth_pass_only_conflicts() != []
     explicit = YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         synth_pass_only=True,
         read_verilog_flags=["-sv"],
     )
@@ -513,7 +513,7 @@ def test_any_reader_flag_is_refused_under_the_mode_and_none_is_accepted(flags):
     def conflicts(**settings):
         return YosysFpga.Settings(
             fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-            clock={"period": 5.0},
+            clock={"period": "5 ns"},
             **{**PASS_ONLY_READER, "read_verilog_flags": flags},
             **settings,
         ).synth_pass_only_conflicts()
@@ -522,7 +522,7 @@ def test_any_reader_flag_is_refused_under_the_mode_and_none_is_accepted(flags):
     assert conflicts(synth_pass_only=False) == []  # the full recipe keeps its reader flags
     plain = YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         synth_pass_only=True,
         **PASS_ONLY_READER,
     )
@@ -536,7 +536,7 @@ def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path,
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = [
         f"fpga.part={PARTS['xilinx']}",
-        "clock.period=5.0",
+        "clock.period=5ns",
         "synth_pass_only=true",
         "systemverilog=default",
     ]
@@ -548,7 +548,7 @@ def test_the_command_line_spelling_the_message_gives_is_the_empty_list(tmp_path,
 def _settings(**settings: Any) -> "YosysFpga.Settings":
     return YosysFpga.Settings(
         fpga=PARTS["xilinx"],  # type: ignore[arg-type]
-        clock={"period": 5.0},
+        clock={"period": "5 ns"},
         **settings,
     )
 
@@ -609,7 +609,7 @@ def test_the_mode_with_the_native_reader_written_out_is_accepted(tmp_path, toolc
     """`systemverilog=default` and `read_verilog_flags=` are all the mode asks, on the command
     line as in a design file; `slang` or a flag spelled `[]` is not."""
     runner = DefaultRunner(tmp_path / "run", display_results=False)
-    base = [f"fpga.part={PARTS['xilinx']}", "clock.period=5.0", "synth_pass_only=true"]
+    base = [f"fpga.part={PARTS['xilinx']}", "clock.period=5ns", "synth_pass_only=true"]
     runner.plan(
         YosysFpga,
         _design(tmp_path),
@@ -665,7 +665,7 @@ def test_a_systemverilog_source_still_reads_as_read_verilog_sv_under_the_mode(
         design,
         flow_settings={
             "fpga": PARTS["xilinx"],
-            "clock": {"period": 5.0},
+            "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             "systemverilog": "default",
             "script_format": script_format,
@@ -712,7 +712,7 @@ def test_the_reader_follows_the_sources_type_not_its_suffix(
         design,
         flow_settings={
             "fpga": PARTS["xilinx"],
-            "clock": {"period": 5.0},
+            "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             "systemverilog": "default",
             "script_format": script_format,
@@ -789,7 +789,7 @@ def test_the_refusal_arrives_at_planning_before_any_tool_runs(tmp_path, toolchai
             _design(tmp_path),
             flow_settings={
                 "fpga": PARTS["xilinx"],
-                "clock": {"period": 5.0},
+                "clock": {"period": "5 ns"},
                 "synth_pass_only": True,
                 **PASS_ONLY_READER,
                 "pre_synth_opt": True,
@@ -809,7 +809,7 @@ def test_a_design_whose_own_attributes_reach_setattr_is_refused_too(tmp_path, to
     design.rtl.attributes = {"keep": {"top": "true"}}
     settings = {
         "fpga": PARTS["xilinx"],
-        "clock": {"period": 5.0},
+        "clock": {"period": "5 ns"},
         "synth_pass_only": True,
         **PASS_ONLY_READER,
     }
@@ -835,7 +835,7 @@ def test_a_nested_producer_section_reaches_the_mode_and_its_refusals(tmp_path, t
             _design(tmp_path),
             flow_settings=[
                 f"fpga.part={PARTS['ecp5']}",
-                "clock.period=5.0",
+                "clock.period=5ns",
                 "flows.yosys_fpga.synth_pass_only=true",
                 "flows.yosys_fpga.read_verilog_flags=",
                 "flows.yosys_fpga.prep=-flatten",
@@ -927,7 +927,7 @@ def test_a_designs_parameters_still_reach_yosys_under_the_mode(tmp_path, toolcha
         design,
         flow_settings={
             "fpga": PARTS["xilinx"],
-            "clock": {"period": 5.0},
+            "clock": {"period": "5 ns"},
             "synth_pass_only": True,
             **PASS_ONLY_READER,
             "script_format": script_format,
@@ -955,7 +955,7 @@ def test_a_systemverilog_design_under_the_mode_is_refused_before_any_tool_runs(t
     runner = DefaultRunner(tmp_path / "run", display_results=False)
     base = {
         "fpga": PARTS["xilinx"],
-        "clock": {"period": 5.0},
+        "clock": {"period": "5 ns"},
         "synth_pass_only": True,
         "read_verilog_flags": [],
     }

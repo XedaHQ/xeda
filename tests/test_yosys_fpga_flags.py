@@ -623,7 +623,7 @@ def test_the_rtl_outputs_hold_only_the_designs_modules(target, flatten, script_f
     )
     settings: Dict[str, Any] = {
         "fpga": TARGETS[target],
-        "clock": {"period": 5.0},
+        "clock": {"period": "5 ns"},
         "rtl_json": "rtl.json",
         "rtl_verilog": "rtl.v",
         "rtl_graph": "rtl.dot",

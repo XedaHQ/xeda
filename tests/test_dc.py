@@ -34,7 +34,7 @@ def test_dc_records_the_outputs_its_script_writes(sdf_version, tmp_path, monkeyp
     lib.parent.mkdir()
     lib.write_text("")
     settings = Dc.Settings.from_input(
-        {"target_libraries": [str(lib)], "clock": {"period": 5.0}, "sdf_version": sdf_version}
+        {"target_libraries": [str(lib)], "clock": {"period": "5 ns"}, "sdf_version": sdf_version}
     )
     run_path = tmp_path / "run"
     run_path.mkdir()

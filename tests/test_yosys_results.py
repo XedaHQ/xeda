@@ -33,7 +33,7 @@ def parsed_flow(tmp_path: Path) -> Yosys:
     shutil.copy(STAT_REPORT, report)
     design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
     settings = Yosys.Settings.from_input(
-        tiny_settings(tiny_store(tmp_path, "pdks"), clock={"period": 10.0})
+        tiny_settings(tiny_store(tmp_path, "pdks"), clock={"period": "10 ns"})
     )
     flow = Yosys(settings, design, tmp_path)
     flow.init()

@@ -13,6 +13,7 @@ from xeda.design import Design, DesignValidationError
 from xeda.flow import FlowSettingsError
 from xeda.flow.synth import PhysicalClock
 from xeda.flows.yosys.yosys_fpga import YosysFpga
+from xeda.units import Frequency, Time
 
 BAD_VALUES = [123, 4.5, True, object()]
 
@@ -60,8 +61,8 @@ def test_unparseable_unit_is_a_validation_error(bad):
 
 def test_valid_units_still_convert():
     clock = PhysicalClock(freq="200 MHz")
-    assert (clock.freq, clock.period) == (200.0, 5.0)
-    assert PhysicalClock(period="5.5ns").period == 5.5
+    assert (clock.freq, clock.period) == (Frequency("200 MHz"), Time("5 ns"))
+    assert PhysicalClock(period="5.5ns").period.to("ns") == 5.5
 
 
 @pytest.mark.parametrize("bad", BAD_VALUES, ids=lambda v: type(v).__name__)

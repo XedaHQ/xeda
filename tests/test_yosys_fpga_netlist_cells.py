@@ -478,7 +478,7 @@ DESIGNS = {"counter": _counter, "ulx3s-blinky": _ulx3s_blinky}
 def test_the_netlist_holds_only_cells_nextpnr_can_place(fpga, design, tmp_path):
     require_yosys()
     flow = DefaultRunner(tmp_path / "run", display_results=False).run_flow(
-        YosysFpga, DESIGNS[design](tmp_path), {"fpga": fpga, "clock": {"period": 10.0}}
+        YosysFpga, DESIGNS[design](tmp_path), {"fpga": fpga, "clock": {"period": "10 ns"}}
     )
     assert flow is not None and flow.succeeded, "yosys_fpga did not synthesize the design"
     netlist = json.loads((Path(flow.run_path) / "netlist.json").read_text())

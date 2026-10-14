@@ -32,7 +32,7 @@ COUNTER = (
     "  always @(posedge clk) if (rst) q <= 0; else q <= q + a;\n"
     "endmodule\n"
 )
-CLOCK = {"clock": {"period": 2.0}}
+CLOCK = {"clock": {"period": "2 ns"}}
 
 
 def _design(root: Path) -> Design:

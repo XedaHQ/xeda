@@ -942,7 +942,9 @@ def test_the_ulx3s_example_projects_plan_the_whole_graph_from_their_sections(pro
     assert placed.timing_allow_fail is True and placed.detailed_timing_report is False
     for node in plan.nodes:
         assert node.settings.fpga.part == "LFE5U-85F-6BG381C", node.name
-        assert [clock.period for clock in node.settings.clocks.values()] == [40.0], node.name
+        assert [clock.period.to("ns") for clock in node.settings.clocks.values()] == [
+            40.0
+        ], node.name
 
 
 def test_the_ulx3s_blinky_example_builds_and_programs_under_the_fakes(tmp_path, fake_loader):

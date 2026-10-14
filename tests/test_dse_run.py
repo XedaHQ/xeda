@@ -26,6 +26,7 @@ from xeda.flow_runner.dse.dse_runner import Dse, Optimizer, _variation_delta
 from xeda.flow_runner.dse.fmax import FmaxOptimizer
 from xeda.flow_runner.settings_layers import merge_layers
 from xeda.dataclass import Field
+from xeda.units import Time
 from xeda.utils import replacing_file
 from xeda.flow import FpgaSynthFlow
 from .io_flows import _Place
@@ -44,10 +45,10 @@ class _DsePlace(_Place):
         producer_dir = self.inputs.netlist.parent
         recorded = json.loads((producer_dir / "settings.json").read_text())
         self.results["producer"] = str(producer_dir)
-        self.results["producer_period"] = recorded["effective_flow_settings"]["clocks"][
-            "main_clock"
-        ]["period"]
-        self.results["period"] = self.settings.main_clock.period
+        self.results["producer_period"] = Time(
+            recorded["effective_flow_settings"]["clocks"]["main_clock"]["period"]
+        ).to("ns")
+        self.results["period"] = self.settings.main_clock.period.to("ns")
         self.results["pid"] = os.getpid()
 
 
@@ -69,7 +70,7 @@ class _DeclaredOptimizer(Optimizer):
             for delta in (
                 {"tag": "one"},
                 {"tag": "two"},
-                {"tag": "clock", "clock": {"period": 12.0}},
+                {"tag": "clock", "clock": {"period": "12 ns"}},
             )
         ]
 
@@ -93,7 +94,7 @@ def test_declared_dse_variants_resolve_their_graph_in_worker_processes(tmp_path,
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -118,7 +119,7 @@ class _DseLeaf(FpgaSynthFlow):
         tag: str = Field("base", description="The search variant.")
 
     def run(self):
-        self.results["period"] = self.settings.main_clock.period
+        self.results["period"] = self.settings.main_clock.period.to("ns")
         self.results["pid"] = os.getpid()
 
 
@@ -127,7 +128,7 @@ def test_dse_variants_of_a_flow_that_declares_no_io_run_as_one_node_plans(tmp_pa
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_DeclaredOptimizer, run_root=tmp_path / "run", variations={}, max_workers=3)
     best = runner.run(
-        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
     )
     assert best is not None
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
@@ -151,7 +152,7 @@ def test_a_dse_with_purge_deletes_the_runs_that_did_not_improve_and_keeps_the_be
         post_cleanup_purge=True,
     )
     runner.run(
-        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+        _DseLeaf, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
     )
     outcomes = {o.settings.tag: o for o in runner.optimizer.outcomes}
     best = outcomes["one"].run_path
@@ -268,7 +269,8 @@ def test_an_exploration_records_one_rerunnable_best_run(tmp_path):
     again = VivadoSynth.Settings.from_input(best["settings"], design_root=tmp_path)
     assert (
         again.main_clock
-        and again.main_clock.period == best["settings"]["clocks"]["main_clock"]["period"]
+        and again.main_clock.period.as_json_value()
+        == best["settings"]["clocks"]["main_clock"]["period"]
     )
     explored = Design.from_file(tmp_path / "sqrt.yaml")
     assert Design(**recorded["design"]).rtl_hash == explored.rtl_hash
@@ -404,7 +406,7 @@ class _PromotingOptimizer(_DeclaredOptimizer):
         self.round += 1
         if self.round > 2:
             return None
-        delta = {"clocks": {"main_clock": {"period": 10.0 + 2.0 * self.round}}}
+        delta = {"clocks": {"main_clock": {"period": f"{10 + 2 * self.round} ns"}}}
         if self.round == 1:
             delta["tag"] = "promoted"
         return [
@@ -427,7 +429,7 @@ def test_dse_two_rounds_after_promoting_agreed_candidate(tmp_path, monkeypatch):
     design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "t", "clock": "clk"})
     runner = Dse(_PromotingOptimizer, run_root=tmp_path / "run", variations={}, max_workers=1)
     assert runner.run(
-        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+        _DsePlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}}
     )
     assert len(runner.optimizer.outcomes) == 2
     assert [o.results["producer_period"] for o in runner.optimizer.outcomes] == [12.0, 14.0]
@@ -470,7 +472,9 @@ def test_real_fmax_optimizer_reaches_second_declared_batch(tmp_path, monkeypatch
         max_failed_iters_with_best=1,
     )
     assert runner.run(
-        _FmaxPlace, design, flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}}
+        _FmaxPlace,
+        design,
+        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
     )
     assert len(runner.optimizer.outcomes) >= 2
 
@@ -500,7 +504,7 @@ def _idle_search(tmp_path, monkeypatch, **dse_settings) -> Dse:
     runner.run(
         "vivado_alt_synth",
         design,
-        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.0}},
+        flow_settings={"fpga": "xc7a12tcsg325-1", "clock": {"period": "5 ns"}},
     )
     return runner
 
@@ -630,13 +634,13 @@ class _TimingJudged(FpgaSynthFlow):
         previous = counter.read_text() if counter.exists() else ""
         with replacing_file(self.run_directory.writable(counter)) as f:
             f.write(previous + "run\n")
-        period = self.settings.main_clock.period
+        period = self.settings.main_clock.period.to("ns")
         self.results["period"] = period
         self.results["Fmax"] = round(1000.0 / period, 4)
         self.results["started_at"] = time.time_ns()
 
     def check_results(self):
-        period = self.settings.main_clock.period
+        period = self.settings.main_clock.period.to("ns")
         if period < self.MIN_PERIOD:
             self.reject(f"a period of {period} ns does not meet timing")
             return False
@@ -661,7 +665,7 @@ class _OneBatchFmax(FmaxOptimizer):
         return [
             merge_layers(
                 base,
-                {"clocks": {"main_clock": {"period": period}}},
+                {"clocks": {"main_clock": {"period": Time.of(period, "ns")}}},
                 settings_cls=self.flow_class.Settings,
             )
             for period in self.PERIODS
@@ -690,7 +694,7 @@ def _search_timing_judged(tmp_path) -> Dse:
     assert runner.run(
         _TimingJudged,
         design,
-        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": 10.0}},
+        flow_settings={"fpga": "LFE5U-25F-6BG256C", "clock": {"period": "10 ns"}},
     )
     return runner
 

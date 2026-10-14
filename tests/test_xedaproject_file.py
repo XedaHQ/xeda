@@ -213,9 +213,9 @@ def test_the_accepted_keys_of_a_project_are_its_designs_and_its_flows(tmp_path):
 
 
 def test_a_dotted_key_at_the_root_of_a_project_reaches_its_flows(tmp_path):
-    path = _write(tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clock.period: 5\n")
+    path = _write(tmp_path, PROJECT_FILE, DESIGN + "flows.vivado_synth.clock.period: 5 ns\n")
 
-    assert XedaProject.from_file(path).flows == {"vivado_synth": {"clock": {"period": 5}}}
+    assert XedaProject.from_file(path).flows == {"vivado_synth": {"clock": {"period": "5 ns"}}}
 
 
 CONFLICT = {"name": "d", "rtl": {"sources": ["top.vhd"], "top": "top"}, "tb": 3, "tb.top": "x"}

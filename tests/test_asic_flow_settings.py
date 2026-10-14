@@ -38,7 +38,7 @@ def _run_dc(tmp_path: Path, monkeypatch, **settings):
     lib = tmp_path / "pdk" / "cells.db"
     lib.parent.mkdir()
     lib.write_text("")
-    given = {"target_libraries": [str(lib)], "clock": {"period": 5.0}, **settings}
+    given = {"target_libraries": [str(lib)], "clock": {"period": "5 ns"}, **settings}
     run_path = tmp_path / "run"
     run_path.mkdir()
     flow = Dc(Dc.Settings.from_input(given), _dc_design(tmp_path / "design"), run_path)

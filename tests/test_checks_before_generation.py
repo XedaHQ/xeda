@@ -84,7 +84,7 @@ for name in sys.argv[2:]:
     path.write_text(CONTENTS[path.suffix])
 """
 
-XILINX = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}}
+XILINX = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}}
 
 
 class Generated:

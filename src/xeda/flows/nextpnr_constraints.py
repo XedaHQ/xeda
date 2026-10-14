@@ -191,9 +191,9 @@ def reconcile_clocks(
 
     Return the pin constraints, the frequency hint, and whether any physical timing constraint
     exists. For Xilinx, the pin constraints get a `create_clock` line for each clock of the
-    settings. For ECP5, iCE40 and Nexus, the hint is the frequency of the main clock. A clock
-    setting that has a port but no period adds no timing. Each clock found, in the settings or
-    in a file, is appended to `uses` when the caller gives that list.
+    settings. For ECP5, iCE40 and Nexus, the hint is the frequency of the main clock, in MHz. A
+    clock setting without a port is refused. Each clock found, in the settings or in a file, is
+    appended to `uses` when the caller gives that list.
     """
     nets = _net_bits(netlist, top)
     seen: dict[int | str, str] = {}
@@ -210,9 +210,7 @@ def reconcile_clocks(
         bits = nets.get(target)
         if kind == "net" and bits is None:
             setting_clocks = ", ".join(
-                f"{name} ({clock.port}, {clock.period} ns)"
-                for name, clock in clocks.items()
-                if clock.period
+                f"{name} ({clock.port}, {clock.period})" for name, clock in clocks.items()
             )
             raise FlowFatalError(
                 f"Unresolved NET clock {target!r} at {origin}. It may overlap the clocks {setting_clocks or 'in other files'}. Use a literal unambiguous PORT constraint."
@@ -229,16 +227,13 @@ def reconcile_clocks(
             uses.append(ClockUse(target, kind, origin))
 
     for name, clock in clocks.items():
-        if clock.period is not None:
-            if not clock.port:
-                raise FlowFatalError(
-                    f"Clock setting clocks.{name} ({clock.period} ns) needs a port."
-                )
-            register(
-                clock.port,
-                "port",
-                f"clock setting clocks.{name} (port {clock.port!r}, period {clock.period} ns)",
-            )
+        if not clock.port:
+            raise FlowFatalError(f"Clock setting clocks.{name} ({clock.period}) needs a port.")
+        register(
+            clock.port,
+            "port",
+            f"clock setting clocks.{name} (port {clock.port!r}, period {clock.period})",
+        )
 
     for merged in (pins, sdc):
         for line, command in _commands(merged.text):
@@ -276,18 +271,17 @@ def reconcile_clocks(
 
     if family == "xilinx":
         for name, clock in clocks.items():
-            if clock.period is not None:
-                assert clock.port is not None
-                port = clock.port
-                # The braces around the port name keep bus brackets out of Tcl substitution.
-                # When the name has a space, an inner pair of braces keeps it one list element.
-                if any(c.isspace() for c in port):
-                    port = "{" + port + "}"
-                pins = pins.append(
-                    # no `-name`: the backend ignores it, with a warning
-                    f"create_clock -period {clock.period} [get_ports {{{port}}}]\n",
-                    f"clock setting clocks.{name} (period {clock.period} ns)",
-                )
+            assert clock.port is not None
+            port = clock.port
+            # The braces around the port name keep bus brackets out of Tcl substitution.
+            # When the name has a space, an inner pair of braces keeps it one list element.
+            if any(c.isspace() for c in port):
+                port = "{" + port + "}"
+            pins = pins.append(
+                # no `-name`: the backend ignores it, with a warning
+                f"create_clock -period {clock.period.to('ns')} [get_ports {{{port}}}]\n",
+                f"clock setting clocks.{name} (period {clock.period})",
+            )
         return pins, None, has_timing
-    frequency = main_clock.freq_mhz if main_clock is not None and main_clock.period else None
+    frequency = main_clock.freq.to("MHz") if main_clock is not None else None
     return pins, frequency, has_timing

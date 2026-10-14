@@ -137,7 +137,7 @@ options.
 
 The command line takes dotted keys for nested values, and you can give several at once::
 
-    xeda run vivado_synth sqrt.yaml -s clock.period=4.5 synth.strategy=Flow_PerfOptimized_high
+    xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns synth.strategy=Flow_PerfOptimized_high
 
 A key is a value or a table, never both. ``-s timing=true timing.x=1`` is an error that names
 ``timing`` and ``timing.x``, and so is the same pair in the other order. The same holds in a
@@ -622,7 +622,7 @@ synthesis, bind the inputs of both flows to it:
     flows:
       vivado_alt_synth:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 5.0
+        clock.period: 5 ns
       vivado_postsynth_sim:
         inputs:
           netlist: vivado_alt_synth.netlist
@@ -661,7 +661,7 @@ binding is the only switch:
     flows:
       vivado_synth:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 5.0
+        clock.period: 5 ns
       vivado_power:
         inputs:
           activity: vivado_postsynth_sim.saif
@@ -799,7 +799,7 @@ opt-in. A faster or smaller Yosys netlist alone does not show an improvement in 
 For example, list ``{file: "pins.pcf", type: Pcf}`` in ``rtl.sources``, then run::
 
     xeda run nextpnr blinky.yaml -s fpga.part=iCE40HX1K-TQ144 \
-      -s clock.period=20 -s seed=2
+      -s clock.period=20ns -s seed=2
     xeda run openfpgaloader blinky.yaml -s write_flash=true -s verify=true
 
 Use ``xeda list-settings <flow> --json`` with ``yosys_fpga``, ``nextpnr``, ``fpga_pack`` or
@@ -907,7 +907,7 @@ reads no environment variable of the ``CHIPDB_DIR`` kind. This is a design for t
       yosys_fpga:
         fpga.part: xc7a100tcsg324-1
       nextpnr:
-        clock.freq: 100MHz
+        clock.freq: 100 MHz
 
 ``xeda run fpga_pack blinky.yaml`` synthesizes, places and routes the design, and packs
 ``outputs/blinky.bit`` in the run directory of ``fpga_pack``. Nothing is programmed. ``xeda run
@@ -1176,7 +1176,7 @@ compare it with ``vivado_synth`` and ``vivado_alt_synth`` on one design. The des
     flows:
       vivado_impl:
         fpga.part: xc7a35tcpg236-1
-        clock.period: 10.0
+        clock.period: 10 ns
 
 .. code-block:: bash
 
@@ -1509,7 +1509,7 @@ nested tables and dotted keys.
         - top.v
     flows:
       yosys:
-        clock.period: 2.0
+        clock.period: 2 ns
         liberty:
           - cells.lib
         abc:

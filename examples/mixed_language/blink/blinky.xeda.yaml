@@ -13,7 +13,7 @@ flows:
   yosys_fpga:
     fpga.vendor: xilinx
     fpga.family: xc7
-    clock.period: 5.0
+    clock.period: 5 ns
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns

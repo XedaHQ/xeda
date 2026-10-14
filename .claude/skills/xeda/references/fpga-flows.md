@@ -31,7 +31,7 @@ flows:
     fpga.part: xc7a100tcsg324-1
   nextpnr:
     clock.port: clk
-    clock.freq: 100MHz
+    clock.freq: 100 MHz
 ```
 
 ```bash
@@ -112,7 +112,7 @@ flows:
   yosys_fpga:
     fpga.part: xc7a100tcsg324-1
   vivado_impl:
-    clock.period: 10.0
+    clock.period: 10 ns
 ```
 
 ```bash

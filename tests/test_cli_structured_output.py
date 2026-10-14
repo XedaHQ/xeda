@@ -199,7 +199,7 @@ def test_run_json_stdout_carries_only_the_json_document(tmp_path):
         "vivado_synth",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5",
+        "clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -223,7 +223,7 @@ def test_run_design_file_option_selects_the_design(tmp_path):
         "--design-file",
         str(SQRT_DESIGN),
         "-s",
-        "clock.period=5.5",
+        "clock.period=5.5ns",
         "--json",
         cwd=tmp_path,
         fake_tools=True,
@@ -277,7 +277,7 @@ def test_help_does_not_require_a_terminal():
 def test_clean_empties_the_run_directory_before_running(tmp_path):
     """`--clean` empties the run directory before running: the CLI never asks the launcher for
     backups -- the previous run's own files are simply gone."""
-    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5", "--json")
+    args = ("run", "vivado_synth", str(SQRT_DESIGN), "-s", "clock.period=5.5ns", "--json")
     first = json.loads(run_xeda(*args, cwd=tmp_path, fake_tools=True).stdout)
     run_path = Path(first["run_path"])
     (run_path / "MARKER").write_text("from the previous run\n")

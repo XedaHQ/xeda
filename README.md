@@ -62,19 +62,19 @@ tb:
 flows:
   yosys_fpga:
     fpga.part: xc7a100tftg256-2L
-    clock.freq: 100MHz
+    clock.freq: 100 MHz
   vivado_synth:
     fpga.part: xc7a100tftg256-2L
-    clock.period: 5.0
+    clock.period: 5 ns
   vivado_alt_synth:
     fpga.part: xc7a100tftg256-2L
     synth.strategy: ExtraTiming
     impl.strategy: ExtraTimingCongestion
-    clock.period: 5.0
+    clock.period: 5 ns
 ```
 
-A dotted key stands for a nested table: `clock.period: 5.0` is a `clock` table with the key
-`period`. The command line uses the same keys, for example `-s clock.period=4.5`.
+A dotted key stands for a nested table: `clock.period: 5 ns` is a `clock` table with the key
+`period`. The command line uses the same keys, for example `-s clock.period=4.5ns`.
 
 A `.py` testbench source makes the testbench a cocotb one. The clock period is a setting of each
 flow, because it constrains one build.
@@ -93,7 +93,7 @@ cd examples/vhdl/sqrt
 xeda run ghdl_sim sqrt.yaml                      # simulate with GHDL and run the cocotb tests
 xeda run nvc sqrt.yaml                           # the same design and testbench with NVC
 xeda run vivado_synth sqrt.yaml                  # synthesize and implement with Vivado
-xeda run vivado_synth sqrt.yaml -s clock.period=4.5   # change a setting for one run
+xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns   # change a setting for one run
 xeda dse vivado_synth --design sqrt.yaml         # search for the highest clock frequency
 ```
 

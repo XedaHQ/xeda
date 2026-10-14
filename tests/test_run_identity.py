@@ -76,8 +76,8 @@ def test_an_identical_copy_of_the_design_elsewhere_hashes_the_same(tmp_path, xdc
 
 def test_a_different_setting_is_a_different_run(tmp_path):
     design = _design_copy(tmp_path / "d")
-    assert _hash(design, tmp_path, clock={"period": 5.0}) != _hash(
-        design, tmp_path, clock={"period": 4.0}
+    assert _hash(design, tmp_path, clock={"period": "5 ns"}) != _hash(
+        design, tmp_path, clock={"period": "4 ns"}
     )
     assert _hash(design, tmp_path, xdc_files=["c.xdc"]) != _hash(design, tmp_path)
 
@@ -270,7 +270,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     """A run whose inputs did not change is reused, not repeated -- also when xeda is started
     from another directory, which used to change the settings' hash."""
     design = Design.from_file(SQRT / "sqrt.yaml")
-    settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
+    settings = {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}}
     runner = DefaultRunner(tmp_path / "xeda_run")
 
     def run_id(flow) -> str:
@@ -289,7 +289,7 @@ def test_an_unchanged_rerun_reuses_the_previous_run_from_any_directory(
     second = runner.run_flow(VivadoSynth, design, dict(settings))
 
     assert run_id(second) == first_run, "the second run was repeated"
-    changed = runner.run_flow(VivadoSynth, design, {**settings, "clock": {"period": 4.5}})
+    changed = runner.run_flow(VivadoSynth, design, {**settings, "clock": {"period": "4.5 ns"}})
     assert run_id(changed) != first_run, "the changed run was reused"
 
 
@@ -298,7 +298,7 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
     and records the run -- is never modified, whatever the flow does to its copy."""
     design = Design.from_file(SQRT / "sqrt.yaml")
     given = VivadoSynth.Settings.from_input(
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}, "bitstream": "sqrt.bit"},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}, "bitstream": "sqrt.bit"},
         design_root=design.root_path,
     )
     before = given.model_dump()
@@ -316,7 +316,7 @@ def test_a_run_never_modifies_its_input_settings(tmp_path, fake_tools):
 def test_a_recorded_settings_json_is_a_rerunnable_input(tmp_path, fake_tools):
     design = Design.from_file(SQRT / "sqrt.yaml")
     flow = DefaultRunner(tmp_path / "xeda_run").run_flow(
-        VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock": {"period": 5.5}}
+        VivadoSynth, design, {"fpga": "xc7a12tcsg325-1", "clock": {"period": "5.5 ns"}}
     )
     assert flow is not None
     recorded = json.loads((flow.run_path / "settings.json").read_text())
@@ -662,7 +662,7 @@ def _platform_settings(tmp_path: Path, flow_name="yosys", **given):
     root.mkdir(exist_ok=True)
     start.mkdir(exist_ok=True)
     return get_flow_class(flow_name).Settings.from_input(
-        {"clock": {"period": 2.0}, **given}, design_root=root, runner_cwd=start
+        {"clock": {"period": "2 ns"}, **given}, design_root=root, runner_cwd=start
     )
 
 

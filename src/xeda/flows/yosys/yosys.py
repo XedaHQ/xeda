@@ -553,7 +553,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 )
             )
         clock = settings.main_clock
-        if settings.abc.delay_target == "auto" and not (clock and clock.period_ps):
+        if settings.abc.delay_target == "auto" and clock is None:
             problems.append(
                 (
                     "abc.delay_target",
@@ -768,8 +768,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         delay_target_ps = None
         if target == "auto":
             clock = ss.main_clock
-            if clock and clock.period_ps:
-                delay_target_ps = clock.period_ps * (1 - ss.abc.clock_derating)
+            if clock is not None:
+                delay_target_ps = clock.period.to("ps") * (1 - ss.abc.clock_derating)
         elif target is not None:
             delay_target_ps = float(target)
         constraints = []

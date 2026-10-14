@@ -11,4 +11,4 @@ tb:
   sources: [knight_tb.v]
 flows:
   nextpnr: {seed: 3, board: ulx3s_85f}
-  vivado_synth: {clock: {period: 10.0}}
+  vivado_synth: {clock: {period: 10 ns}}

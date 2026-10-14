@@ -69,7 +69,7 @@ def test_vivado_synth_runs_in_its_default_image(work_dir) -> None:
     flow = DefaultRunner(work_dir / "run").run_flow(
         VivadoSynth,
         design,
-        {"fpga": "xc7a12tcsg325-1", "clock": {"period": 10.0}, "dockerized": True},
+        {"fpga": "xc7a12tcsg325-1", "clock": {"period": "10 ns"}, "dockerized": True},
     )
     assert flow is not None and flow.succeeded
     assert flow.results["ff"] >= 1

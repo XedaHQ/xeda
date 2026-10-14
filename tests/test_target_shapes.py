@@ -178,11 +178,11 @@ FLOW_SHAPES = [
     ("threads: ncpus then nthreads", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
     ("threads: nthreads then ncpus", VivadoSynth, {"fpga": PART, "nthreads": 2}, {"ncpus": 4}, {"fpga": PART, "nthreads": 4}),
     ("warnings: warn_error then werror", GhdlSim, {"warn_error": True}, {"werror": False}, {"werror": False}),
-    ("clock: period then freq", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
-    ("clock: freq then period", VivadoSynth, {"fpga": PART, "clock": {"freq": "200MHz"}}, {"clock": {"period": 5}}, {"fpga": PART, "clock": {"period": 5}}),
-    ("clock: clock then clocks", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clocks": {"main_clock": {"uncertainty": "100ps"}}}, {"fpga": PART, "clock": {"period": 10, "uncertainty": "100ps"}}),
-    ("clock: clocks then clock", VivadoSynth, {"fpga": PART, "clocks": {"sys": {"port": "clk", "period": 10}}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clocks": {"sys": {"port": "clk", "freq": "200MHz"}}}),
-    ("clock: period then period", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"period": 5}}, {"fpga": PART, "clock": {"period": 5}}),
+    ("clock: period then freq", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
+    ("clock: freq then period", VivadoSynth, {"fpga": PART, "clock": {"freq": "200MHz"}}, {"clock": {"period": "5 ns"}}, {"fpga": PART, "clock": {"period": "5 ns"}}),
+    ("clock: clock then clocks", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clocks": {"main_clock": {"uncertainty": "100ps"}}}, {"fpga": PART, "clock": {"period": "10 ns", "uncertainty": "100ps"}}),
+    ("clock: clocks then clock", VivadoSynth, {"fpga": PART, "clocks": {"sys": {"port": "clk", "period": "10 ns"}}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clocks": {"sys": {"port": "clk", "freq": "200MHz"}}}),
+    ("clock: period then period", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"period": "5 ns"}}, {"fpga": PART, "clock": {"period": "5 ns"}}),
 ]
 # fmt: on
 
@@ -248,7 +248,7 @@ def test_a_null_clocks_below_is_reported_whatever_the_layer_above_writes(tmp_pat
     section = {"fpga": PART, "clocks": None}
     design = Design.from_file(write_design(tmp_path, {**BASE, "flows": {"vivado_synth": section}}))
     with pytest.raises(FlowSettingsError, match="clocks"):
-        composed(VivadoSynth, design, {"clocks": {"main": {"period": 10}}})
+        composed(VivadoSynth, design, {"clocks": {"main": {"period": "10 ns"}}})
 
 
 @pytest.mark.parametrize("clock", [0, False, [], 3, ["x"], True])
@@ -545,7 +545,7 @@ def test_a_malformed_flow_setting_is_reported_whether_or_not_the_target_writes_a
 
 #: (the flow, a section it can be built from, the dictionary-typed key, an entry, a table for it).
 FLOW_ENTRY_KEYS = [
-    (VivadoSynth, {"fpga": PART}, "clocks", "sys", {"period": 5.0}),
+    (VivadoSynth, {"fpga": PART}, "clocks", "sys", {"period": "5 ns"}),
     (Yosys, {}, "set_mod_attribute", "top", {"keep": True}),
 ]
 
@@ -652,7 +652,7 @@ FLOW_OVERRIDES = [
     ("fpga: speed over a part", VivadoSynth, {"fpga": PART}, {"fpga": {"speed": -2}}, {"fpga": {"part": PART, "speed": -2}}),
     ("fpga: part over a table", VivadoSynth, {"fpga": {"part": PART, "speed": -2}}, {"fpga": "xc7a100tcsg324-1"}, {"fpga": {"part": "xc7a100tcsg324-1", "speed": -2}}),
     ("threads: nthreads over ncpus", VivadoSynth, {"fpga": PART, "ncpus": 2}, {"nthreads": 4}, {"fpga": PART, "nthreads": 4}),
-    ("clock: freq over a period", VivadoSynth, {"fpga": PART, "clock": {"period": 10}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
+    ("clock: freq over a period", VivadoSynth, {"fpga": PART, "clock": {"period": "10 ns"}}, {"clock": {"freq": "200MHz"}}, {"fpga": PART, "clock": {"freq": "200MHz"}}),
 ]
 # fmt: on
 
@@ -737,7 +737,7 @@ def test_a_null_or_empty_flows_table_or_section_leaves_the_design_s_section(
     design = {
         **BASE,
         "flows": {
-            "vivado_synth": {"fpga": PART, "clock": {"period": 10.0}},
+            "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}},
             "nextpnr": {"seed": 3},
         },
     }
@@ -756,7 +756,7 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
     design = {
         **BASE,
         "flows": {
-            "vivado_synth": {"fpga": PART, "clock": {"period": 10.0}},
+            "vivado_synth": {"fpga": PART, "clock": {"period": "10 ns"}},
             "nextpnr": {"seed": 3},
         },
     }
@@ -766,7 +766,7 @@ def test_a_null_section_beside_a_written_one_changes_only_the_written_one(tmp_pa
         selected = Design.from_file(write_design(tmp_path, data))
     else:
         selected = Design.from_file(write_design(tmp_path, design), overrides=fragment)
-    assert selected.flow["vivado_synth"] == {"fpga": PART, "clock": {"period": 10.0}}
+    assert selected.flow["vivado_synth"] == {"fpga": PART, "clock": {"period": "10 ns"}}
     assert selected.flow["nextpnr"] == {"seed": 3, "board": "ulx3s_85f"}
 
 

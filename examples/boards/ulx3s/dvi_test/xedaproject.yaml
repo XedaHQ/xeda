@@ -15,10 +15,10 @@ designs:
 flows:
   nextpnr:
     board: ulx3s_85f
-    clock.freq: 25MHz
+    clock.freq: 25 MHz
     # Without this setting, nextpnr crashes.
     detailed_timing_report: false
     timing_allow_fail: true
   openfpgaloader:
     board: ulx3s_85f
-    clock.freq: 25MHz
+    clock.freq: 25 MHz
