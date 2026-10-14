@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
 """Find newer versions of the tools that CI pins, and write them into the workflow files.
 
-CI pins three tools. A pin is one line of a workflow file (two lines for bsc):
+CI pins four tools. A pin is one line of a workflow file (two lines for bsc and for the image):
 
 * the OSS CAD Suite, by the date of its build: the `version` of the
   `YosysHQ/setup-oss-cad-suite` step in `.github/workflows/ci.yml`;
 * the Bluespec Compiler (bsc), by its release and the SHA-256 of its Ubuntu 24.04 tarball:
   `BSC_VERSION` and `BSC_SHA256` in `.github/workflows/ci.yml`;
 * the openXC7 toolchain installer, by a commit: `INSTALLER_REV` in
-  `.github/workflows/openxc7.yml`.
+  `.github/workflows/openxc7.yml`;
+* the OpenROAD-flow-scripts (ORFS) Docker image that runs the OpenROAD tests, by its tag
+  (`<yy>Q<q>-<n>-g<commit>`, as a comment) and the digest of that tag: the `image` of the
+  container in `.github/workflows/openroad.yml`.
 
-For each pin, the script asks GitHub for the newest upstream and replaces the pin when upstream is
-newer. It never moves a pin back. A workflow file that does not exist has no pin to update, and
-the script skips it. A file that exists without its pin, or with the pin in another format, is an
-error: the script must change together with the format. Every value that comes from GitHub is
-checked against a strict pattern before it reaches a file. The SHA-256 of the bsc tarball comes
-from a download that must be whole: it has the size and the digest that GitHub publishes for the
-file. A release with no published digest is not pinned: the script says so, and a person pins it
-by hand.
+For each pin, the script asks GitHub (Docker Hub for the image) for the newest upstream and
+replaces the pin when upstream is newer. It never moves a pin back. A workflow file that does not
+exist has no pin to update, and the script skips it. A file that exists without its pin, or with
+the pin in another format, is an error: the script must change together with the format. Every
+value that comes from GitHub or Docker Hub is checked against a strict pattern before it reaches a
+file. The SHA-256 of the bsc tarball comes from a download that must be whole: it has the size and
+the digest that GitHub publishes for the file. A release with no published digest is not pinned:
+the script says so, and a person pins it by hand.
+
+The tags of the image are ordered by the numbers in them, not as text. A tag with no amd64 Linux
+image is not pinned. The pin is the digest of the tag, which is what `docker pull` records. The
+PDK files that the same job installs have no pin here: `providers.orfs.version` in the platform
+file sets their version, and only a change of that file moves it.
 
 The script uses the standard library only. With `--dry-run` it prints the changes and writes
 nothing.
@@ -38,6 +46,7 @@ from typing import Any, Callable, Sequence
 
 CI = Path(".github/workflows/ci.yml")
 OPENXC7 = Path(".github/workflows/openxc7.yml")
+ORFS = Path(".github/workflows/openroad.yml")
 WORKFLOW = "bump-ci-pins.yml"
 TITLE = "Update the pinned CI tools"
 
@@ -48,14 +57,25 @@ OSS_CAD_TAG = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 BSC_TAG = re.compile(r"[0-9]{4}\.[0-9]{2}(?:\.[0-9]+)?")
 SHA256 = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
+# A tag of the ORFS image: the year, the quarter, the number of commits since the start of the
+# quarter and the abbreviated commit of OpenROAD-flow-scripts, as `git describe` writes them.
+ORFS_TAG = re.compile(r"[0-9]{2}Q[1-4]-[0-9]+-g[0-9a-f]{7,40}")
 LISTED_DIGEST = re.compile(rf"sha256:(?P<hex>{SHA256.pattern})")  # how GitHub writes a digest
 
 GITHUB = "https://github.com"
 OSS_CAD_REPOSITORY = "YosysHQ/oss-cad-suite-build"
 BSC_REPOSITORY = "B-Lang-org/bsc"
 INSTALLER_REPOSITORY = "openXC7/toolchain-installer"
+ORFS_REPOSITORY = "The-OpenROAD-Project/OpenROAD-flow-scripts"
+ORFS_IMAGE = "openroad/orfs"
+DOCKER_HUB = "https://hub.docker.com"
+# The newest tags first. One page of 100 holds every tag of the last weeks.
+ORFS_TAGS_URL = (
+    f"{DOCKER_HUB}/v2/repositories/{ORFS_IMAGE}/tags?page_size=100&ordering=last_updated"
+)
 
-#: Asks GitHub's REST API for a path and returns the parsed JSON.
+#: Asks GitHub's REST API for a path (`/repos/...`), or Docker Hub for an address
+#: (`https://hub.docker.com/...`), and returns the parsed JSON.
 Fetch = Callable[[str], Any]
 #: Downloads a URL, checks the content against the size and the SHA-256 that GitHub publishes for
 #: the file, and returns the SHA-256 of the content, in hexadecimal.
@@ -80,6 +100,7 @@ PINS = (
     Pin("oss_cad", "OSS CAD Suite", CI, "`version` of the setup-oss-cad-suite step"),
     Pin("bsc", "Bluespec Compiler (bsc)", CI, "`BSC_VERSION` and `BSC_SHA256`"),
     Pin("installer", "openXC7 toolchain installer", OPENXC7, "`INSTALLER_REV`"),
+    Pin("orfs", "ORFS image for the OpenROAD tests", ORFS, "`image` of the container"),
 )
 
 
@@ -91,7 +112,7 @@ class Update:
     old: str
     new: str
     links: tuple[tuple[str, str], ...]
-    sha256: str = ""  # of the bsc tarball
+    sha256: str = ""  # of the bsc tarball, or of the ORFS image (the digest of its tag)
 
 
 @dataclass(frozen=True)
@@ -195,8 +216,34 @@ def write_installer(text: str, commit: str) -> str:
     return _replace(text, match, commit)
 
 
+# The image is the `image` of the container of the job. A workflow cannot take it from `env` there,
+# so the line holds the digest itself, and the comment above it holds the tag.
+_ORFS_IMAGE = re.compile(
+    rf"^[ \t]*# {re.escape(ORFS_IMAGE)}:(?P<tag>{ORFS_TAG.pattern})[ \t\r]*\n"
+    rf"[ \t]*image:[ \t]*{re.escape(ORFS_IMAGE)}@sha256:(?P<value>{SHA256.pattern})[ \t\r]*$",
+    re.MULTILINE,
+)
+_ORFS_IMAGE_EXAMPLE = (
+    f"# {ORFS_IMAGE}:26Q4-132-g6b305a712, and under it "
+    f"image: {ORFS_IMAGE}@sha256:<64 hexadecimal digits, lower case>"
+)
+
+
+def read_orfs_image(text: str) -> tuple[str, str]:
+    """The tag and the digest of the image. The tag is in the comment above the image line."""
+    match = _single(text, _ORFS_IMAGE, "the ORFS image", _ORFS_IMAGE_EXAMPLE)
+    return match.group("tag"), match.group("value")
+
+
+def write_orfs_image(text: str, tag: str, digest: str) -> str:
+    match = _single(text, _ORFS_IMAGE, "the ORFS image", _ORFS_IMAGE_EXAMPLE)
+    # the later group first, so that the offsets of the earlier one stay valid
+    text = _replace(text, match, digest)
+    return text[: match.start("tag")] + tag + text[match.end("tag") :]
+
+
 # ---------------------------------------------------------------------------------------------
-# The newest upstream. GitHub's answers are checked before they are used.
+# The newest upstream. The answers of GitHub and Docker Hub are checked before they are used.
 # ---------------------------------------------------------------------------------------------
 
 
@@ -289,11 +336,70 @@ def installer_state(answer: Any) -> str:
     return status
 
 
+@dataclass(frozen=True)
+class OrfsImage:
+    """A tag of the ORFS image, and the digest that `image@sha256:` takes for it."""
+
+    tag: str
+    digest: str
+
+
+def _orfs_number(tag: str) -> tuple[int, int, int]:
+    """The year, the quarter and the count of a tag, as numbers: `26Q4-9` is older than
+    `26Q4-100`."""
+    year_quarter, count, _ = tag.split("-", 2)
+    year, quarter = year_quarter.split("Q")
+    return int(year), int(quarter), int(count)
+
+
+def _has_amd64_image(tag: dict[str, Any]) -> bool:
+    images = tag.get("images")
+    return isinstance(images, list) and any(
+        isinstance(image, dict)
+        and image.get("architecture") == "amd64"
+        and image.get("os") == "linux"
+        and image.get("status") == "active"
+        for image in images
+    )
+
+
+def newest_orfs(answer: Any) -> OrfsImage:
+    """The newest tag of the form `<yy>Q<q>-<n>-g<commit>` that has an amd64 Linux image, with the
+    digest that Docker Hub lists for the tag. That is the digest `docker pull` records, and it
+    stands for the image of every platform of the tag. Other tags (`latest`, a name that is not
+    a release) are ignored."""
+    results = answer.get("results") if isinstance(answer, dict) else None
+    if not isinstance(results, list) or not all(isinstance(item, dict) for item in results):
+        raise PinError("ORFS image: Docker Hub did not answer with a list of tags")
+    candidates = {
+        name: tag
+        for tag in results
+        if isinstance(name := tag.get("name"), str)
+        and ORFS_TAG.fullmatch(name)
+        and _has_amd64_image(tag)
+    }
+    if not candidates:
+        raise PinError("ORFS image: no tag of the form <yy>Q<q>-<n>-g<commit> has an amd64 image")
+    name = max(candidates, key=_orfs_number)
+    listed = candidates[name].get("digest")
+    match = LISTED_DIGEST.fullmatch(listed) if isinstance(listed, str) else None
+    if match is None:
+        raise PinError(
+            f"ORFS image: Docker Hub lists a digest for {name} that is not `sha256:` and 64 "
+            f"hexadecimal digits: {listed!r}"
+        )
+    return OrfsImage(name, match.group("hex"))
+
+
 _NOT_AHEAD = {
     "behind": "main ({new}) is behind the pinned commit ({old})",
     "diverged": "main ({new}) and the pinned commit ({old}) have diverged",
     "identical": "main ({new}) and the pinned commit ({old}) are identical",
 }
+
+
+def _orfs_commit(tag: str) -> str:
+    return tag.rsplit("-g", 1)[1]
 
 
 def _compare(repository: str, old: str, new: str) -> str:
@@ -353,6 +459,16 @@ def find_update(
             warn(f"{reason}, so the pin stays. If upstream rewrote main, move the pin by hand.")
             return None
         return Update(pin, old, new, (("compare", _compare(INSTALLER_REPOSITORY, old, new)),))
+    if pin.kind == "orfs":
+        old, _ = read_orfs_image(text)
+        image = newest_orfs(fetch(ORFS_TAGS_URL))
+        if _orfs_number(image.tag) <= _orfs_number(old):
+            return None  # the same tag, or an older one: the pin never moves back
+        links = (
+            ("image", f"{DOCKER_HUB}/r/{ORFS_IMAGE}/tags?name={image.tag}"),
+            ("compare", _compare(ORFS_REPOSITORY, _orfs_commit(old), _orfs_commit(image.tag))),
+        )
+        return Update(pin, old, image.tag, links, image.digest)
     raise PinError(f"unknown kind of pin: {pin.kind}")
 
 
@@ -364,6 +480,8 @@ def apply_update(text: str, update: Update) -> str:
         return write_bsc(text, update.new, update.sha256)
     if kind == "installer":
         return write_installer(text, update.new)
+    if kind == "orfs":
+        return write_orfs_image(text, update.new, update.sha256)
     raise PinError(f"unknown kind of pin: {kind}")
 
 
@@ -398,6 +516,14 @@ def pull_request_text(updates: Sequence[Update], notes: Sequence[str] = ()) -> t
                 "The workflow computed it by downloading the file. "
                 "GitHub lists the same digest for the file."
             )
+        if u.pin.kind == "orfs":
+            explanations.append(
+                f"The image `{ORFS_IMAGE}:{u.new}` is pinned by its digest `sha256:{u.sha256}`, "
+                "the digest that Docker Hub lists for the tag. Docker Hub lists an amd64 image "
+                "for it. The OpenROAD tests run in this image against the PDK files that the "
+                "platform file pins (`providers.orfs.version`). This pull request does not "
+                "change that pin. Read the changes of OpenROAD-flow-scripts first."
+            )
         if u.pin.kind == "installer":
             explanations.append(
                 "A new installer commit can build another yosys, nextpnr or Project X-Ray "
@@ -427,7 +553,9 @@ def pull_request_text(updates: Sequence[Update], notes: Sequence[str] = ()) -> t
 # ---------------------------------------------------------------------------------------------
 
 
-def github_fetcher(token: str | None) -> Fetch:
+def upstream_fetcher(token: str | None) -> Fetch:
+    """The lookups of GitHub (a path, with the token) and of Docker Hub (an address on
+    `hub.docker.com`, without it: the token is for GitHub only)."""
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -437,7 +565,14 @@ def github_fetcher(token: str | None) -> Fetch:
         headers["Authorization"] = f"Bearer {token}"
 
     def fetch(path: str) -> Any:
-        request = urllib.request.Request(f"https://api.github.com{path}", headers=headers)
+        if path.startswith("/"):
+            request = urllib.request.Request(f"https://api.github.com{path}", headers=headers)
+        elif path.startswith(f"{DOCKER_HUB}/"):
+            request = urllib.request.Request(
+                path, headers={k: v for k, v in headers.items() if k != "Authorization"}
+            )
+        else:
+            raise ValueError(f"not an address of GitHub or Docker Hub: {path!r}")
         with urllib.request.urlopen(request, timeout=60) as response:
             return json.load(response)
 
@@ -514,7 +649,8 @@ def run(
         for name, url in update.links:
             log(f"    {name}: {url}")
         if update.sha256:
-            log(f"    SHA-256 of the tarball: {update.sha256}")
+            what = "digest of the image" if update.pin.kind == "orfs" else "SHA-256 of the tarball"
+            log(f"    {what}: {update.sha256}")
         updates.append(update)
     for update in updates:
         texts[update.pin.path] = apply_update(texts[update.pin.path], update)
@@ -550,7 +686,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     try:
         updates = run(
-            args.root, github_fetcher(token), download_digest, args.dry_run, print, warn_and_note
+            args.root, upstream_fetcher(token), download_digest, args.dry_run, print, warn_and_note
         )
     except (PinError, OSError, ValueError) as error:  # OSError includes URLError
         print(f"error: {error}", file=sys.stderr)

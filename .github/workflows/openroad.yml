@@ -1,0 +1,140 @@
+name: OpenROAD
+
+# The real OpenROAD runs the placement, clock tree, global routing and final flows
+# (tests/test_openroad_real.py), and the nangate45 platform files are read from the real PDK
+# files (tests/test_platform_conformance.py, tests/test_yosys_asic.py). The job runs in the
+# OpenROAD-flow-scripts Docker image, which holds OpenROAD, yosys and KLayout built together. No
+# package has them, and a build takes hours. This is a separate workflow, so it runs beside the
+# tox legs in ci.yml and delays none of them.
+#
+# The image is the one pin of this job. The comment above it holds its tag, and the line holds
+# the digest of that tag, which is what `docker pull` records. A Docker Hub tag can move, a
+# digest cannot. The workflow bump-ci-pins.yml moves the pin to the newest tag, in a pull request
+# that runs this job. A container cannot take its image from `env`, so the digest is written in
+# the line itself.
+#
+# The PDK files are not pinned here. The job installs them with `xeda pdk install nangate45`, at
+# the version that the platform file of the checkout pins (`providers.orfs.version`). So the
+# installer is tested too, and the job cannot disagree with the platform file.
+on:
+  push:
+    branches: ["main", "release/*"]
+  pull_request:
+    branches: ["main", "release/*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # Pinned, not ubuntu-latest, like the other jobs.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    container:
+      # openroad/orfs:26Q4-132-g6b305a712
+      image: openroad/orfs@sha256:63981d1ac8990a9bee8bf874c95ee2c1ee3fe7b99f57d459282ab8c31a8ed663
+    env:
+      # Where the image installs its tools.
+      ORFS_INSTALL: /OpenROAD-flow-scripts/tools/install
+      XEDA_TESTS_OPENROAD: "1"
+      XEDA_TESTS_PLATFORMS: nangate45
+      # A missing tool fails a test, and does not skip it.
+      XEDA_TESTS_REQUIRE_TOOLS: "1"
+    steps:
+      # Full history: xeda's version is derived from the git tags.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The checkout belongs to another user than the one of the container.
+      - name: Let git use the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.12.23"
+          enable-cache: false
+
+      # The venv goes at the end of PATH in the steps below, not at the start: the tools of the
+      # image run `python3` themselves, and they need the Python of the image.
+      - name: Install Python 3.15 and xeda
+        run: |
+          set -euo pipefail
+          uv python install 3.15
+          uv venv --python 3.15 "$RUNNER_TEMP/venv"
+          uv pip install --python "$RUNNER_TEMP/venv/bin/python" --editable . \
+            "pytest>=9.1.1" pytest-xdist jsonschema
+
+      # The tools that OpenROAD-flow-scripts builds, and not the older yosys in /usr/local/bin:
+      # the flows of the image use these.
+      - name: Put the tools of the image on PATH
+        run: |
+          set -euo pipefail
+          echo "$ORFS_INSTALL/OpenROAD/bin" >> "$GITHUB_PATH"
+          echo "$ORFS_INSTALL/yosys/bin" >> "$GITHUB_PATH"
+          export PATH="$ORFS_INSTALL/OpenROAD/bin:$ORFS_INSTALL/yosys/bin:$PATH"
+          for tool in openroad yosys klayout; do
+            command -v "$tool"
+          done
+          openroad -version
+          yosys -V
+          klayout -v
+
+      - name: Install the nangate45 PDK files
+        # The version is the one that the platform file pins: no --version here.
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:$RUNNER_TEMP/venv/bin"
+          xeda pdk install nangate45 --root "$RUNNER_TEMP/pdk" --yes
+          xeda pdk list --root "$RUNNER_TEMP/pdk"
+
+      - name: Check whether yosys runs a Tcl script
+        # tests/test_yosys_asic_tcl.py needs it. A yosys without it makes the job skip that file
+        # and the Tcl cases of tests/test_yosys_asic.py, and says so.
+        run: |
+          set -euo pipefail
+          printf 'puts xeda_probe\n' > "$RUNNER_TEMP/probe.tcl"
+          if yosys -q -c "$RUNNER_TEMP/probe.tcl"; then
+            echo "XEDA_TESTS_YOSYS_TCL=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::The yosys of the image runs no Tcl script: the tests that need one are left out."
+            echo "ALLOWED_SKIPS=this yosys has no TCL support" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run the OpenROAD tests
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          export PATH="$PATH:$RUNNER_TEMP/venv/bin"
+          export XEDA_TESTS_PDK_ROOT="$RUNNER_TEMP/pdk"
+          python="$RUNNER_TEMP/venv/bin/python"
+          files=(tests/test_openroad_real.py tests/test_platform_conformance.py tests/test_yosys_asic.py)
+          if [ "${XEDA_TESTS_YOSYS_TCL:-}" = 1 ]; then
+            files+=(tests/test_yosys_asic_tcl.py)
+          fi
+          "$python" -m pytest -n auto -v -rs --durations=10 --junitxml="$RUNNER_TEMP/openroad-tests.xml" \
+            "${files[@]}"
+          # A skipped test checks nothing. Without this check, a renamed opt-in variable or a
+          # changed probe in tests/tool_utils.py would leave the job green with no real run. The
+          # only skips allowed are the ones named in ALLOWED_SKIPS (separated by |).
+          "$python" - "$RUNNER_TEMP/openroad-tests.xml" <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          allowed = [text for text in os.environ.get("ALLOWED_SKIPS", "").split("|") if text]
+          cases = list(ET.parse(sys.argv[1]).getroot().iter("testcase"))
+          skipped = []
+          for case in cases:
+              skip = case.find("skipped")
+              if skip is not None:
+                  reason = skip.get("message", "")
+                  if not any(text in reason for text in allowed):
+                      skipped.append(f"{case.get('classname')}::{case.get('name')}: {reason}")
+          print(f"{len(cases)} tests, {len(skipped)} skipped that no one allowed")
+          if not cases:
+              sys.exit("No test ran.")
+          if skipped:
+              sys.exit("No OpenROAD test may be skipped:\n" + "\n".join(skipped))
+          PY
