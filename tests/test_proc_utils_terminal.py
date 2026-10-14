@@ -286,6 +286,26 @@ def test_the_last_output_of_a_child_that_ended_is_not_lost(tmp_path):
     assert shown.read_text(encoding="utf-8") == "first\ufffd"
 
 
+def test_a_tool_that_ends_before_its_output_is_read_keeps_it(terminal, tmp_path, monkeypatch):
+    """The same through `run_process`: the copy starts only after the tool has ended, so the
+    output is still there only if Xeda still holds its slave end."""
+    copy = proc_utils._copy_from_terminal
+
+    def copy_after_the_end(master, log_file, stream, child_ended, release):
+        deadline = time.monotonic() + 30
+        while not child_ended():
+            assert time.monotonic() < deadline, "the tool did not end"
+            time.sleep(0.01)
+        copy(master, log_file, stream, child_ended, release)
+
+    monkeypatch.setattr(proc_utils, "_copy_from_terminal", copy_after_the_end)
+    code = "import sys; sys.stdout.buffer.write(b'first\\xc3')"
+    log = tmp_path / "tool.log"
+    run_process(sys.executable, child(code), tee=log, terminal=True)
+    assert log_lines(log) == ["first\ufffd"]
+    assert terminal.shown() == "first\ufffd"
+
+
 def test_what_a_tool_writes_in_pieces_arrives_whole(terminal, tmp_path):
     """A character of more than a byte, cut in two by the tool's own writes, and a line that
     ends only after a pause: the log has them whole."""
