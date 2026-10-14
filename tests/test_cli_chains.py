@@ -192,7 +192,7 @@ def test_a_failed_run_reports_the_nodes_that_did_not_run(tmp_path, monkeypatch):
     assert states == {
         "__fork": "ran",  # another demand on its optional outputs: other settings
         "__left": "failed",
-        "__join": "failed",
+        "__join": "blocked",
         "__right": "not run",
     }
     not_run = next(n for n in document["nodes"] if n["node"] == "__right")

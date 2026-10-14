@@ -1,13 +1,17 @@
 """`--dry-run` says what a launch would do: each planned node is `fresh`, `stale` with the reason
-the launch would give, or `unknown` with why nothing can be said without running something.
+the launch would give, `unknown` with why nothing can be said without running something,
+`rejected again` (the launch reports the rejection of the last run again) or `blocked` (a producer
+of the node was rejected, so the launch stops there).
 
 The oracle is the launch itself. For a matrix of changes, on a graph of two toy flows and on the
 graph `yosys_fpga` -> `nextpnr`, the dry run is made and then the same request is run: every node
 the plan calls `fresh` is reused by the run, and every node it calls `stale` runs for exactly the
 reason it gave. A node it calls `unknown` is not compared, but each case has a node that is
-claimed, and the matrix holds all three states. The dry run is read-only: the tree, the run root
-included, is as it was, the audit hook sees no write, and no process starts (the teeth: each of
-the three mistakes that would break that is found).
+claimed, and the matrix holds all three states. A second matrix, on the toy flows with a producer
+that rejects its results, covers the other two: the launch replays a `rejected again` node, and a
+`blocked` node stops the launch. The dry run is read-only: the tree, the run root included, is as
+it was, the audit hook sees no write, and no process starts (the teeth: each of the three
+mistakes that would break that is found).
 """
 
 from __future__ import annotations
@@ -23,7 +27,7 @@ from pydantic import Field
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsError, In, Out
+from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, In, Out
 from xeda.flow_runner import DefaultRunner, plan_freshness
 from xeda.flow_runner.run_lock import run_dir_lock
 from xeda.flow_runner.trace import locate_program
@@ -37,6 +41,7 @@ from .write_audit import writes_seen
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX run-directory locks")
 
 FRESH, STALE, UNKNOWN = "fresh", "stale", "unknown"
+REJECTED_AGAIN, BLOCKED = "rejected again", "blocked"
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +62,7 @@ def toys():
 
         class Settings(Flow.Settings):
             suffix: str = Field("", description="Appended to the copied text.")
+            reject: bool = Field(False, description="Reject the results in the checks.")
 
         class Outputs(Flow.Outputs):
             produced: Path = Out(SourceType.Data, description="The copied text.")
@@ -68,6 +74,11 @@ def toys():
             self.artifacts.produced = out
             self.outputs.produced = out
 
+        def check_results(self) -> bool:
+            if self.settings.reject:
+                self.reject("the text is rejected")
+            return super().check_results()
+
     class ToyConsumer(Flow):
         """Copies its producer's output to outputs/consumed.txt."""
 
@@ -77,6 +88,7 @@ def toys():
         class Settings(Flow.Settings):
             shout: bool = Field(False, description="Upper-case the text.")
             always: bool = Field(False, description="Run every time, as a fresh seed does.")
+            reject: bool = Field(False, description="Reject the results in the checks.")
 
         class Inputs(Flow.Inputs):
             produced: Path = In(
@@ -96,6 +108,11 @@ def toys():
             text = self.inputs.produced.read_text()
             out.write_text(text.upper() if self.settings.shout else text)
             self.artifacts.consumed = out
+
+        def check_results(self) -> bool:
+            if self.settings.reject:
+                self.reject("the text is rejected")
+            return super().check_results()
 
     return ToyProducer, ToyConsumer
 
@@ -124,9 +141,13 @@ class Graph:
         runner = self.launcher(**options)
         return runner.plan_with_freshness(self.flow, self.design(), flow_settings=self.settings)
 
-    def run(self, **options) -> dict[str, Flow]:
+    def run(self, *, tolerate: tuple[type[Exception], ...] = (), **options) -> dict[str, Flow]:
+        """Run the request. A failure of a type in `tolerate` ends the launch without an error."""
         runner = self.launcher(**options)
-        runner.run(self.flow, self.design(), flow_settings=self.settings)
+        try:
+            runner.run(self.flow, self.design(), flow_settings=self.settings)
+        except tolerate:
+            pass
         return {f.name: f for f in runner.launched}
 
     def run_dir(self, node: str) -> Path:
@@ -255,10 +276,12 @@ EXPECTED = {
 }
 
 
-def compare(graph: Graph, options: Options) -> dict[str, Any]:
+def compare(
+    graph: Graph, options: Options, tolerate: tuple[type[Exception], ...] = ()
+) -> dict[str, Any]:
     """Dry-run, then run: the states of the plan, after checking the run bears them out."""
     plan, states = graph.dry(**options)
-    ran = graph.run(**options)
+    ran = graph.run(tolerate=tolerate, **options)
     claimed = 0
     for node in plan.nodes:
         said = states[node.name]
@@ -266,10 +289,23 @@ def compare(graph: Graph, options: Options) -> dict[str, Any]:
         if said.state == FRESH:
             claimed += 1
             assert flow.reused, f"{node.name}: said fresh, but it ran: {flow.stale_reason}"
+            assert flow.succeeded and not flow.rejected_again, node.name
         elif said.state == STALE:
             claimed += 1
             assert not flow.reused, f"{node.name}: said stale ({said.reason}), but it was reused"
-            assert flow.stale_reason == said.reason, node.name
+            if not flow.blocked_by:
+                # A producer that runs again and is rejected stops the launch before the node
+                # is judged: the plan cannot know the result of that run.
+                assert flow.stale_reason == said.reason, node.name
+        elif said.state == REJECTED_AGAIN:
+            claimed += 1
+            assert flow.reused and flow.rejected_again, f"{node.name}: said {said}, but it ran"
+            assert flow.rejection == said.reason, node.name
+        elif said.state == BLOCKED:
+            claimed += 1
+            assert flow.blocked_by, f"{node.name}: said {said}, but nothing blocked it"
+            assert not flow.reused and not flow.succeeded, node.name
+            assert said.reason.startswith(f"{flow.blocked_by} "), (said, flow.blocked_by)
         else:
             assert said.state == UNKNOWN and said.reason, node.name
     assert claimed, "a case that claims nothing shows nothing"
@@ -287,6 +323,202 @@ def test_the_dry_run_and_the_run_agree_on_every_node_it_claims(
     CHANGES[change](graph, options)
     states = compare(graph, options)
     assert (states[graph.producer].state, states[graph.consumer].state) == EXPECTED[change]
+
+
+# -------------------------------------------------------------------------- a rejected node
+
+
+class RejectedProducerGraph(ToyGraph):
+    """The producer rejects its results. The consumer is the requested flow."""
+
+    def __init__(self, root: Path, monkeypatch) -> None:
+        super().__init__(root, monkeypatch)
+        self.settings = ["flows.toy_producer.reject=true"]
+
+    def run(self, **options) -> dict[str, Flow]:
+        options.setdefault("tolerate", (FlowDependencyFailure,))
+        return super().run(**options)
+
+    def settle(self) -> None:
+        """Launch twice: the run that is rejected, then the report of the rejection."""
+        self.run()
+        assert self.run()["toy_producer"].rejected_again
+
+    def message(self) -> str:
+        document = json.loads((self.run_dir("toy_producer") / "results.json").read_text())
+        return document["error"]["message"]
+
+
+def test_a_rejected_node_is_rejected_again_and_its_consumer_blocked(
+    tmp_path, monkeypatch, toys, capsys
+):
+    graph = RejectedProducerGraph(tmp_path, monkeypatch)
+    graph.run()
+    plan, states = graph.dry()
+    message = graph.message()
+    assert message == "`toy_producer` reported failure: the text is rejected"
+    assert (states["toy_producer"].state, states["toy_producer"].reason) == (
+        REJECTED_AGAIN,
+        message,
+    )
+    assert (states["toy_consumer"].state, states["toy_consumer"].reason) == (
+        BLOCKED,
+        "toy_producer was rejected in its last run",
+    )
+    from xeda.cli import _print_plan
+    from xeda.introspect import plan_info
+
+    _print_plan(plan, states)
+    text = capsys.readouterr().out
+    assert f"      rejected again: {message}\n" in text
+    assert "      blocked: toy_producer was rejected in its last run\n" in text
+    nodes = {n["name"]: n for n in plan_info(plan, states)["nodes"]}
+    assert (nodes["toy_producer"]["state"], nodes["toy_producer"]["reason"]) == (
+        REJECTED_AGAIN,
+        message,
+    )
+    assert nodes["toy_consumer"]["state"] == BLOCKED
+
+
+def _trace_error_message_edited(graph: Graph, options: Options) -> None:
+    path = graph.run_dir("toy_producer") / "trace.json"
+    trace = json.loads(path.read_text())
+    trace["error"]["message"] += " (edited)"
+    path.write_text(json.dumps(trace))
+
+
+def _document_error_removed(graph: Graph, options: Options) -> None:
+    _forge_document(graph, "toy_producer", lambda document: document.pop("error"))
+
+
+def _trace_verdict_edited(graph: Graph, options: Options) -> None:
+    path = graph.run_dir("toy_producer") / "trace.json"
+    trace = json.loads(path.read_text())
+    trace["verdict"] = "passed"
+    path.write_text(json.dumps(trace))
+
+
+def _producer_trace_missing(graph: Graph, options: Options) -> None:
+    (graph.run_dir("toy_producer") / "trace.json").unlink()
+
+
+#: the states of (producer, consumer) for each change, when the producer was rejected
+REJECTED_CASES: dict[str, tuple[Callable[[Graph, Options], None], tuple[str, str], str | None]] = {
+    "nothing": (nothing, (REJECTED_AGAIN, BLOCKED), None),
+    "consumer setting": (consumer_setting, (REJECTED_AGAIN, BLOCKED), None),
+    "file added": (file_added, (REJECTED_AGAIN, BLOCKED), None),
+    "source edit": (source_edit, (STALE, STALE), "input changed: "),
+    "producer setting": (producer_setting, (STALE, STALE), "settings changed: "),
+    "trace removed": (_producer_trace_missing, (STALE, STALE), "no completed previous run"),
+    "trace error message edited": (
+        _trace_error_message_edited,
+        (STALE, STALE),
+        "no completed results in ",
+    ),
+    "document error removed": (
+        _document_error_removed,
+        (STALE, STALE),
+        "no completed results in ",
+    ),
+    "trace verdict edited": (_trace_verdict_edited, (STALE, STALE), "no completed results in "),
+}
+
+
+@pytest.mark.parametrize("change", sorted(REJECTED_CASES))
+def test_the_dry_run_and_the_run_agree_on_a_rejected_node_and_its_consumer(
+    change, tmp_path, monkeypatch, toys
+):
+    """`rejected again` is replayed by the launch, `blocked` stops it at the producer, and a trace
+    and a document that disagree make the node stale, for the words the launch logs."""
+    graph = RejectedProducerGraph(tmp_path, monkeypatch)
+    graph.settle()
+    apply, expected, reason = REJECTED_CASES[change]
+    options: Options = {}
+    apply(graph, options)
+    states = compare(graph, options, tolerate=(FlowDependencyFailure,))
+    assert (states["toy_producer"].state, states["toy_consumer"].state) == expected
+    if reason is not None:
+        assert states["toy_producer"].reason.startswith(reason), states["toy_producer"]
+        if reason == "no completed results in ":
+            assert states["toy_producer"].reason == (
+                f"no completed results in {graph.run_dir('toy_producer') / 'results.json'}"
+            )
+
+
+def test_a_rejected_consumer_whose_producer_is_stale_depends_on_the_producer(
+    tmp_path, monkeypatch, toys
+):
+    """The trace of the consumer still matches without the new outputs of the producer, but the
+    launch runs the producer first: the answer is `unknown`, never `rejected again`."""
+    graph = ToyGraph(tmp_path, monkeypatch)
+    graph.settings.append("flows.toy_consumer.reject=true")
+    graph.run()
+    states = compare(graph, {})
+    assert (states["toy_producer"].state, states["toy_consumer"].state) == (FRESH, REJECTED_AGAIN)
+    graph.edit_source()
+    states = compare(graph, {})
+    assert (states["toy_producer"].state, states["toy_consumer"].state) == (STALE, UNKNOWN)
+    assert states["toy_consumer"].reason == "depends on toy_producer"
+
+
+def test_a_consumer_of_a_blocked_node_is_blocked(tmp_path, monkeypatch, toys):
+    """Three nodes: the middle one is blocked by the rejected producer, so the last one is
+    blocked by the middle one."""
+
+    class ToyMiddle(Flow):
+        """Passes the text of its producer on."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            produced: Path = In(
+                SourceType.Data,
+                producer="toy_producer",
+                output="produced",
+                description="The producer's text.",
+            )
+
+        class Outputs(Flow.Outputs):
+            passed_on: Path = Out(SourceType.Data, description="The same text.")
+
+        def run(self) -> None:
+            out = self.run_path / "passed.txt"
+            out.write_text(self.inputs.produced.read_text())
+            self.outputs.passed_on = out
+
+    class ToyEnd(Flow):
+        """Reads the text of the middle node."""
+
+        results_description: ClassVar[dict[str, str]] = {}
+        design_source_types = frozenset()
+
+        class Inputs(Flow.Inputs):
+            passed_on: Path = In(
+                SourceType.Data,
+                producer="toy_middle",
+                output="passed_on",
+                description="The middle node's text.",
+            )
+
+        def run(self) -> None:
+            pass
+
+    class EndGraph(RejectedProducerGraph):
+        flow, consumer = "toy_end", "toy_end"
+
+    graph = EndGraph(tmp_path, monkeypatch)
+    graph.settle()
+    states = compare(graph, {}, tolerate=(FlowDependencyFailure,))
+    assert states["toy_producer"].state == REJECTED_AGAIN
+    assert (states["toy_middle"].state, states["toy_middle"].reason) == (
+        BLOCKED,
+        "toy_producer was rejected in its last run",
+    )
+    assert (states["toy_end"].state, states["toy_end"].reason) == (
+        BLOCKED,
+        "toy_middle is blocked",
+    )
 
 
 def test_a_prepared_input_a_flow_registers_is_judged_as_the_launch_judges_it(
@@ -582,20 +814,26 @@ def test_a_cocotb_simulation_is_planned_without_starting_a_process(tmp_path, mon
     assert states["ghdl_sim"].reason == "no completed previous run"
 
 
-def _forge_record(graph: Graph, node: str, edit: Callable[[dict], None]) -> None:
-    """Rewrite one output record of `node`'s `results.json`, and the trace's record of that
-    file to match, so that the node is still fresh: the record alone is what is wrong."""
+def _forge_document(graph: Graph, node: str, edit: Callable[[dict], Any]) -> None:
+    """Rewrite the `results.json` of `node`, and the trace's record of that file to match, so
+    that the node is still fresh: the document alone is what is wrong."""
     from xeda.digest import record_file
 
     run_dir = graph.run_dir(node)
     results = run_dir / "results.json"
     document = json.loads(results.read_text())
-    edit(document["outputs"])
+    edit(document)
     results.write_text(json.dumps(document))
     trace_file = run_dir / "trace.json"
     trace = json.loads(trace_file.read_text())
     trace["outputs"][str(results.resolve())] = json.loads(record_file(results).model_dump_json())
     trace_file.write_text(json.dumps(trace))
+
+
+def _forge_record(graph: Graph, node: str, edit: Callable[[dict], None]) -> None:
+    """Rewrite one output record of `node`'s `results.json`, and the trace's record of that
+    file to match, so that the node is still fresh: the record alone is what is wrong."""
+    _forge_document(graph, node, lambda document: edit(document["outputs"]))
 
 
 def _as_a_list(outputs: dict) -> None:
@@ -733,3 +971,64 @@ def test_an_invalid_record_of_a_fresh_producer_is_judged_whatever_another_produc
     assert said.state == UNKNOWN and "has an invalid record" in said.reason, said
     with pytest.raises(Exception, match="has an invalid record"):
         graph.run()
+
+
+@pytest.mark.parametrize("rejected_first", [True, False], ids=["rejected first", "record first"])
+def test_the_earlier_of_a_rejected_producer_and_an_invalid_record_stops_the_launch(
+    rejected_first, tmp_path, monkeypatch, toys
+):
+    """Two producers: one was rejected, the other is fresh and holds a record that the hand-over
+    refuses. The launch takes the producers in the order of the inputs and stops at the first
+    problem, so the plan names that one."""
+
+    class ToyOther(toys[0]):
+        """Writes its text to outputs/other.txt, as its output `other`."""
+
+        class Outputs(Flow.Outputs):
+            other: Path = Out(SourceType.Data, description="The text.")
+
+        def run(self) -> None:
+            out = self.run_path / "outputs" / "other.txt"
+            out.parent.mkdir(exist_ok=True)
+            out.write_text("other" + self.settings.suffix)
+            self.artifacts.other = out
+            self.outputs.other = out
+
+    first = ("toy_other", "other") if rejected_first else ("toy_producer", "produced")
+    second = ("toy_producer", "produced") if rejected_first else ("toy_other", "other")
+
+    class ToyBoth(toys[1]):
+        """Takes the texts of two producers."""
+
+        class Inputs(Flow.Inputs):
+            one: Path = In(
+                SourceType.Data, producer=first[0], output=first[1], description="The first text."
+            )
+            two: Path = In(
+                SourceType.Data, producer=second[0], output=second[1], description="The second."
+            )
+
+        def run(self) -> None:
+            pass
+
+    class BothGraph(ToyGraph):
+        flow, producer, consumer = "toy_both", "toy_producer", "toy_both"
+
+    graph = BothGraph(tmp_path, monkeypatch)
+    graph.settings.append("flows.toy_both.always=true")
+    rejected, recorded = "toy_other", "toy_producer"
+    graph.run()  # both producers pass
+    graph.settings.append(f"flows.{rejected}.reject=true")
+    graph.run(tolerate=(FlowDependencyFailure,))
+    graph.run(tolerate=(FlowDependencyFailure,))
+    _forge_record(graph, recorded, _as_a_list)
+    _, states = graph.dry()
+    assert states[rejected].state == REJECTED_AGAIN and states[recorded].state == FRESH
+    said = states["toy_both"]
+    if rejected_first:
+        assert (said.state, said.reason) == (BLOCKED, "toy_other was rejected in its last run")
+    else:
+        assert said.state == UNKNOWN and "has an invalid record" in said.reason, said
+    with pytest.raises(FlowDependencyFailure) as error:
+        graph.run()
+    assert (error.value.producer == rejected) is rejected_first
