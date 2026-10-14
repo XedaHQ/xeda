@@ -753,6 +753,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_opt_config",
     "set_global_sizing_config",
     "repair_tie_fanout",
+    "insert_tiecells",
     "replace_arith_modules",
     "remove_buffers",
     # tap cells and power grid

@@ -315,7 +315,10 @@ class RoutingGroup(SettingsGroup):
 class TieGroup(SettingsGroup):
     """The tie cells that drive the constant nets."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("separation", "-separation", "value"),)
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("separation", "-separation", "value"),
+        Flag("max_fanout", "-max_fanout", "value"),
+    )
 
     repair_fanout: bool = Field(
         True,
@@ -331,18 +334,36 @@ class TieGroup(SettingsGroup):
         "OpenROAD-flow-scripts. Needs `repair_fanout`.",
         json_schema_extra=tier("advanced"),
     )
+    max_fanout: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most loads for one copy of a tie cell (`repair_tie_fanout "
+        "-max_fanout`). Unset: the flag is not passed. OpenROAD v2.0-26132 reads the value and "
+        "does not pass it to the repair, so it has no effect there. No upstream issue exists "
+        "yet. Needs `repair_fanout`.",
+        json_schema_extra=tier("expert"),
+    )
+    insert_cells: bool = Field(
+        False,
+        description="Insert a tie cell for each net that the netlist ties to a constant "
+        "(`insert_tiecells`), before the repair of the fanout. The synthesis of xeda puts the "
+        "tie cells in the netlist, so OpenROAD-flow-scripts does not run this.",
+        json_schema_extra=tier("advanced"),
+    )
 
     def problems(self, key: str) -> list[tuple[str, str]]:
-        """Refuse a separation when no tie fanout is repaired."""
-        if not self.repair_fanout and self.separation != 0:
-            return [
-                (
-                    f"{key}.separation",
-                    f"`{key}.separation` has no effect with `{key}.repair_fanout: false`: set "
-                    f"`{key}.repair_fanout: true` or delete `{key}.separation`",
-                )
-            ]
-        return []
+        """Refuse an option of the repair when no tie fanout is repaired."""
+        if self.repair_fanout:
+            return []
+        return [
+            (
+                f"{key}.{leaf}",
+                f"`{key}.{leaf}` has no effect with `{key}.repair_fanout: false`: set "
+                f"`{key}.repair_fanout: true` or delete `{key}.{leaf}`",
+            )
+            for leaf in ("separation", "max_fanout")
+            if getattr(self, leaf) != getattr(type(self)(), leaf)
+        ]
 
 
 class TapcellGroup(SettingsGroup):

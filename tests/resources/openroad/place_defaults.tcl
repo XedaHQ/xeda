@@ -97,9 +97,9 @@ proc xeda_floorplan {} {
     set_global_routing_layer_adjustment "m4" 0.25
     set_routing_layers -clock "m3-m4"
     set_routing_layers -signal "m2-m4"
-    # The tie cells come from the synthesis: the flow never inserts them. Each load gets its own
-    # copy of the tie cell. The repair comes before any removal of buffers, since one tie cell
-    # can drive buffers that drive many loads.
+    # The synthesis puts the tie cells in the netlist. Each load gets its own copy of the tie
+    # cell. The repair comes before any removal of buffers, since one tie cell can drive buffers
+    # that drive many loads.
     repair_tie_fanout -separation "0.0" [xeda_tie_pin "TIELO_X1" "Z"]
     repair_tie_fanout -separation "0.0" [xeda_tie_pin "TIEHI_SMALL" "Z"]
     # The repair runs before the placement, with no parasitics: the wires cost nothing. Do not add

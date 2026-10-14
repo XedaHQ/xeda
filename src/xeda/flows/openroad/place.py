@@ -231,14 +231,16 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
             f"`floorplan.sizing: {sizing}` needs to make the rows",
             "add it, or take the floorplan from a DEF file with `floorplan.sizing: def`",
         )
-    if settings.tie.repair_fanout:
+    for leaf in ("repair_fanout", "insert_cells"):
+        if not getattr(settings.tie, leaf):
+            continue
         for name in ("tie_low", "tie_high"):
             if getattr(model, name) is None:
                 raise _platform_gap(
                     model,
                     f"`{name}` cell",
-                    "`tie.repair_fanout` needs",
-                    "add it, or set `tie.repair_fanout: false`",
+                    f"`tie.{leaf}` needs",
+                    f"add it, or set `tie.{leaf}: false`",
                 )
     signal = settings.routing.signal_layers or _layer_range(routing.min_layer, routing.max_layer)
     clock = settings.routing.clock_layers or _layer_range(

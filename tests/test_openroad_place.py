@@ -448,9 +448,54 @@ def test_no_tie_fanout_is_repaired_when_it_is_switched_off(tmp_path):
     assert not names(run_script(flow), "repair_tie_fanout")
 
 
-def test_the_netlist_has_no_tie_cells_inserted_by_openroad(tmp_path):
-    """The synthesis puts the tie cells in the netlist. The flow never runs `insert_tiecells`."""
+def test_the_netlist_has_no_tie_cells_inserted_by_openroad_unless_asked(tmp_path):
+    """The synthesis puts the tie cells in the netlist, so the flow runs no `insert_tiecells`
+    unless `tie.insert_cells` asks for it."""
     assert "insert_tiecells" not in render(place_flow(tmp_path))
+
+
+def test_inserted_tie_cells_use_the_master_and_the_port_of_the_platform(tmp_path):
+    """`insert_tiecells` takes `<master>/<port>`, not the `<library>/<master>/<port>` of
+    `repair_tie_fanout`. Both come before the repair, which splits the new cells."""
+    flow = place_flow(tmp_path, {"tie": {"insert_cells": True}})
+    body = stage(render(flow), "xeda_floorplan")
+    assert [line for line in body if line.startswith("insert_tiecells")] == [
+        'insert_tiecells "TIELO_X1/Z" -prefix TIE_ZERO_',
+        'insert_tiecells "TIEHI_SMALL/Z" -prefix TIE_ONE_',
+    ]
+    found = names(floorplan_calls(run_script(flow)), "insert_tiecells", "repair_tie_fanout")
+    assert found == ["insert_tiecells"] * 2 + ["repair_tie_fanout"] * 2
+
+
+def test_tie_cells_can_be_inserted_without_repairing_their_fanout(tmp_path):
+    flow = place_flow(tmp_path, {"tie": {"insert_cells": True, "repair_fanout": False}})
+    assert (
+        names(run_script(flow), "insert_tiecells", "repair_tie_fanout") == ["insert_tiecells"] * 2
+    )
+
+
+def test_inserted_tie_cells_need_the_tie_cells_of_the_platform(tmp_path):
+    flow = place_flow(tmp_path, {"tie": {"insert_cells": True, "repair_fanout": False}})
+    with pytest.raises(FlowSettingsException, match=r"tie_low.*tie\.insert_cells"):
+        effective(flow.settings, flow.platform_model.model_copy(update={"tie_low": None}))
+
+
+def test_the_fanout_limit_of_a_tie_cell_is_passed(tmp_path):
+    body = stage(render(place_flow(tmp_path, {"tie": {"max_fanout": 8}})), "xeda_floorplan")
+    ties = [line for line in body if line.startswith("repair_tie_fanout")]
+    assert len(ties) == 2 and all('-separation "0.0" -max_fanout "8"' in line for line in ties)
+
+
+@pytest.mark.parametrize("leaf, value", [("separation", 1.0), ("max_fanout", 4)])
+def test_a_tie_option_has_no_effect_without_the_repair_of_the_fanout(tmp_path, leaf, value):
+    message = refusal(tmp_path, f"tie.{leaf}={value}", "tie.repair_fanout=false")
+    assert f"tie.{leaf}" in message and "no effect" in message
+
+
+def test_the_tie_options_keep_their_ranges(tmp_path):
+    for text in ("tie.max_fanout=0", "tie.separation=-1"):
+        with pytest.raises(FlowSettingsException):
+            plan(tmp_path / text, text)
 
 
 def test_the_netlist_cleanup_repairs_setup_without_parasitics(tmp_path):
