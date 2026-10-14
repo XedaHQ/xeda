@@ -27,9 +27,9 @@ from xeda.flows import Yosys
 from xeda.flows.yosys.yosys import ABC_NEW_SCRIPT, ABC_SPEED_GIA_ONLY
 
 from .tiny_platform import TINY
-from .test_yosys_asic import TINY_DONT_USE, _design, _scripted_launch, _tiny, _words
+from .test_yosys_asic import TINY_DONT_USE, _commands, _design, _scripted_launch, _tiny, _words
 from .test_yosys_templates import TCL_HARNESS
-from .tool_utils import require_tclsh, require_yosys_tcl
+from .tool_utils import require_tclsh, require_yosys, require_yosys_tcl
 
 DATA = resources.files("xeda.flows.yosys").joinpath("data", "asic")
 #: The files of the package that wrapping reads. The run directory holds a copy of each, and the
@@ -526,20 +526,66 @@ def _refused(**given: Any) -> dict[str, str]:
     return {key: " | ".join(messages) for key, messages in problems.items()}
 
 
-@pytest.mark.parametrize(
-    "key,given",
-    [
-        ("hierarchy.keep_min_cost", HIERARCHICAL),
-        ("arithmetic.wrap_operators", {"arithmetic": {"wrap_operators": True}}),
-        ("abc.mapper", ABC_NEW),
-    ],
-)
+TCL_ONLY = [
+    ("hierarchy.keep_min_cost", HIERARCHICAL),
+    ("arithmetic.wrap_operators", {"arithmetic": {"wrap_operators": True}}),
+    ("memory.max_bits", {"memory": {"max_bits": 64}}),
+    ("memory.mock_large", {"memory": {"max_bits": 64, "mock_large": True}}),
+]
+
+
+@pytest.mark.parametrize("key,given", TCL_ONLY)
 def test_the_tcl_only_values_are_refused_with_the_ys_script_and_accepted_with_tcl(key, given):
+    """These values need the Tcl procedures that only the Tcl script runs."""
     problems = _refused(platform="nangate45", script_format="ys", **given)
-    assert problems[key].startswith(f"`{key}` ") and "needs `script_format: tcl`" in problems[key]
+    assert problems[key] == f"`{key}` needs `script_format: tcl`: the script runs Tcl procedures"
     Yosys.check_settings_supported(
         Yosys.Settings(platform="nangate45", script_format="tcl", **given)
     )
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_abc_new_is_accepted_and_renders_in_both_script_formats(
+    tmp_path, monkeypatch, script_format
+):
+    """`abc_new` needs no Tcl: both scripts read the Liberty files as whiteboxes, run `abc_new`
+    with the script file, and delete the timing specifications that it leaves."""
+    Yosys.check_settings_supported(
+        Yosys.Settings(platform="nangate45", script_format=script_format, **ABC_NEW)
+    )
+    settings = _tiny(tmp_path, script_format=script_format, **ABC_NEW)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    commands = _commands(run_dir, script_format, tmp_path)
+    lib = _liberty(settings)
+    unusable = [word for cell in TINY_DONT_USE for word in ("-dont_use", cell)]
+    abc_new = [
+        "abc_new",
+        "-script",
+        ABC_NEW_SCRIPT,
+        "-liberty",
+        lib,
+        *unusable,
+        "-constr",
+        "abc.constr",
+    ]
+    assert _segment(commands, abc_new, 2) == [abc_new, ["delete", "t:$specify*"]]
+    assert _words(commands, "read_liberty") == [
+        [*LIB_READ, "-lib", lib],
+        [*LIB_READ, *WHITEBOX_FLAGS, lib],
+    ]
+    assert not _words(commands, "abc") and not _words(commands, "scratchpad")
+    assert (run_dir / ABC_NEW_SCRIPT).read_text() == ABC_SPEED_GIA_ONLY
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_without_abc_new_the_script_reads_no_whitebox_and_runs_abc(
+    tmp_path, monkeypatch, script_format
+):
+    settings = _tiny(tmp_path, script_format=script_format)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    commands = _commands(run_dir, script_format, tmp_path)
+    assert _words(commands, "read_liberty") == [[*LIB_READ, "-lib", _liberty(settings)]]
+    assert _words(commands, "abc") and not _words(commands, "abc_new")
 
 
 def test_the_hierarchical_mode_flattens_all_the_other_modules_and_refuses_flatten_false():
@@ -714,7 +760,7 @@ HIERARCHY_DESIGN = (
 )
 
 
-def _launch(tmp_path: Path, source: str, top: str, **given: Any):
+def _launch(tmp_path: Path, source: str, top: str, script_format: str = "tcl", **given: Any):
     root = tmp_path / "design"
     root.mkdir()
     (root / "top.v").write_text(source)
@@ -722,7 +768,7 @@ def _launch(tmp_path: Path, source: str, top: str, **given: Any):
         name=top, design_root=root, rtl={"sources": ["top.v"], "top": top, "clock": {"port": "clk"}}
     )
     flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
-        Yosys, design, _tiny(tmp_path, script_format="tcl", **given)
+        Yosys, design, _tiny(tmp_path, script_format=script_format, **given)
     )
     assert flow.succeeded
     return flow, (flow.run_path / "netlist.v").read_text()
@@ -780,6 +826,16 @@ def test_real_yosys_maps_each_wrapped_operator_with_the_script_it_carries(tmp_pa
     )
     log = (flow.run_path / "yosys.log").read_text()
     assert "ABC: + &nf -R 5" in log
+
+
+def test_real_yosys_maps_with_abc_new_in_a_ys_script(tmp_path):
+    """`abc_new` needs no Tcl: a yosys without Tcl maps with it from a `.ys` script."""
+    require_yosys()
+    flow, netlist = _launch(tmp_path, ADDER, "adder", script_format="ys", abc={"mapper": "abc_new"})
+    log = (flow.run_path / "yosys.log").read_text()
+    assert re.search(r"ABC: \+ source \S*abc_speed_gia_only\.script", log)
+    assert re.search(r"^\s*(INV|NAND2|NOR2|BUF)_X\d\b", netlist, re.M)
+    assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
 
 
 def test_real_yosys_maps_with_abc_new_alone_by_the_script_file(tmp_path):

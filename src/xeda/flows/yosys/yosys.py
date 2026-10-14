@@ -521,13 +521,14 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         tcl_only = (
             ("hierarchy.keep_min_cost", settings.hierarchy.keep_min_cost is not None),
             ("arithmetic.wrap_operators", settings.arithmetic.wrap_operators),
-            ("abc.mapper", settings.abc.mapper != "abc"),
             ("memory.max_bits", settings.memory.max_bits is not None),
             ("memory.mock_large", settings.memory.mock_large),
         )
         for key, asked in tcl_only:
             if asked and settings.script_format == "ys":
-                problems.append((key, f"`{key}` needs `script_format: tcl`"))
+                problems.append(
+                    (key, f"`{key}` needs `script_format: tcl`: the script runs Tcl procedures")
+                )
         problems += cls._tcl_mode_problems(settings)
         problems += cls._hierarchy_problems(settings)
         problems += flag_problems(settings, LIBERTY_HATCHES)

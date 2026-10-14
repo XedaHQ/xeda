@@ -1289,8 +1289,8 @@ Xeda writes the mapping as a Yosys script (``script_format: ys``) or as a Tcl sc
 (``script_format: tcl``). The list below is the default mapping, in the order of
 OpenROAD-flow-scripts, and both formats hold these commands. The options that need Tcl add or
 replace commands: operator wrapping replaces the fine part of ``synth`` with ``wrap_operators``,
-hierarchical synthesis adds ``keep_hierarchy -min_cost``, and ``abc.mapper: abc_new`` replaces
-``abc``. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``, has every
+and hierarchical synthesis adds ``keep_hierarchy -min_cost``. In both formats,
+``abc.mapper: abc_new`` replaces ``abc``. The script in the run directory, ``yosys_synth.ys`` or ``yosys_synth.tcl``, has every
 command. The main steps are these:
 
 .. code-block:: text
@@ -1368,6 +1368,10 @@ settings of one stage, and its common settings are these:
     It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
     instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
     (berkeley-abc/abc#445).
+    ``abc.mapper: abc_new`` maps with the ``abc_new`` command of yosys instead, in a ``ys`` or a
+    ``tcl`` script. The command is experimental in yosys. It maps with a script of its own, so
+    Xeda refuses ``abc.strategy`` other than ``area``, ``abc_script``, ``abc_dff: true``,
+    ``abc.liberty_args`` and ``abc.dress: true``.
 
 ``finish``
     The commands after the mapping: the undefined values, the tie and buffer cells, the formal
@@ -1402,11 +1406,6 @@ with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl
     ``abc.strategy``.
     Xeda refuses ``netlist_attrs: false``, a ``netlist_unset_attributes`` entry that names one of
     these attributes, and ``finish.allow_tristate``.
-
-``abc.mapper: abc_new``
-    Maps with the ``abc_new`` command of yosys and its own script. It refuses ``abc.strategy``
-    other than ``area``, ``abc_script``, ``abc_dff: true``, ``abc.liberty_args`` and
-    ``abc.dress: true``.
 
 ``memory.max_bits``
     Stops the run when a memory is larger than this many bits. The error suggests raising

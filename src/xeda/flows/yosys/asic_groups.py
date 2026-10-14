@@ -625,9 +625,8 @@ class AbcGroup(SettingsGroup):
     )
     mapper: Literal["abc", "abc_new"] = Field(
         "abc",
-        description="The yosys command that runs ABC. `abc_new` needs a yosys with Tcl and "
-        "`script_format: tcl`. It maps with its own script, so it refuses `abc.strategy` other "
-        "than `area` and `abc_script`.",
+        description="The yosys command that runs ABC. `abc_new` is experimental in yosys. It maps "
+        "with its own script, so it refuses `abc.strategy` other than `area` and `abc_script`.",
         json_schema_extra=tier("advanced"),
     )
     driver_cell: Optional[str] = Field(

@@ -12,9 +12,12 @@
     the flip-flop mapping, and after it. The finishing options of the group `finish` switch the
     removal of formal cells, the renaming, the single-bit vectors, the extra checks, and the tie
     and buffer cells.
+    `abc.mapper: abc_new` maps with `abc_new`, which gets its script file by `-script`. It and
+    the Liberty files that it reads again as whiteboxes (for their functions) need no Tcl.
     The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
 {%- set liberty_read = true -%}
 {%- set clockgate_map = asic.clockgate_map -%}
+{%- set abc_new = settings.abc.mapper == "abc_new" -%}
 {%- set extra_map -%}
 {%- set architecture = {"kogge_stone": "kogge-stone", "han_carlson": "han-carlson", "sklansky": "sklansky"}.get(settings.arithmetic.adder_architecture) -%}
 {%- if architecture %} -extra-map +/choices/{{architecture}}.v{% endif -%}
@@ -52,6 +55,14 @@ read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
 {% endfor -%}
 {% if asic.dff_liberty and asic.dff_liberty not in settings.liberty -%}
 read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}
+{% endif -%}
+{% if abc_new -%}
+{% for lib in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func -ignore_buses {{lib|read_path}}
+{% endfor -%}
+{% if asic.dff_liberty and asic.dff_liberty not in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func -ignore_buses {{asic.dff_liberty|read_path}}
+{% endif -%}
 {% endif -%}
 {% include 'read_files.ys' %}
 proc{% if settings.coarse.latches %} -latches {{settings.coarse.latches}}{% endif %}
@@ -152,11 +163,18 @@ setundef -zero
 {%- elif settings.finish.tie_undefined == "one" %}
 setundef -one
 {%- endif %}
-abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- if abc_new %}
+abc_new{% if asic.abc_new_script %} -script {{asic.abc_new_script|path}}{% endif %}
+{%- else %}
+abc{% if asic.abc_script %} -script {{asic.abc_script|path}}{% endif %}
+{%- endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
 {%- if abc_constr_file %} -constr {{abc_constr_file|path}}{% endif %}
 {%- if asic.delay_target_ps is not none %} -D {{"%.3f"|format(asic.delay_target_ps)}}{% endif %}
 {%- if abc_options %} {{abc_options}}{% endif %}
 {%- for flag in settings.abc_flags %} {{flag}}{% endfor %}
+{%- if abc_new %}
+delete t:$specify*
+{%- endif %}
 {%- if settings.splitnets %}
 splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
 {%- endif %}

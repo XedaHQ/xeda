@@ -431,7 +431,7 @@ def test_keep_mocked_false_needs_mocking():
 )
 def test_the_memory_size_checks_need_the_tcl_script(key, given):
     problems = _keys(script_format="ys", **given)
-    assert "needs `script_format: tcl`" in problems[key]
+    assert problems[key].endswith("needs `script_format: tcl`: the script runs Tcl procedures")
     Yosys.check_settings_supported(
         Yosys.Settings(platform="nangate45", script_format="tcl", **given)
     )
