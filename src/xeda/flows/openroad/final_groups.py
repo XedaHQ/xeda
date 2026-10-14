@@ -174,9 +174,10 @@ class IrDropGroup(SettingsGroup):
 
     enabled: bool = Field(
         True,
-        description="Analyze the IR drop of each supply net that the platform gives a voltage. "
-        "The analysis only reports, and it never fails the run. A platform without the "
-        "voltages of its nets gets no analysis.",
+        description="Analyze the IR drop of the power grid, for each supply net that the "
+        "platform gives a voltage. The analysis only reports, and it never fails the run. On a "
+        "platform that gives no voltage for any supply net, the flow skips the analysis, and the "
+        "log says so.",
         json_schema_extra=tier("advanced"),
     )
 

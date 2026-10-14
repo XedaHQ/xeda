@@ -76,9 +76,7 @@ def test_enabled_stays_the_first_field_of_the_groups_with_a_call_site_default():
 
 
 def test_repair_timing_with_its_defaults_prints_the_defaults_of_the_tool():
-    assert render(groups.RepairTiming()) == (
-        '-setup_margin "0.0" -hold_margin "0.0" -repair_tns "100.0"'
-    )
+    assert render(groups.RepairTiming()) == '-repair_tns "100.0"'
     assert render(groups.RepairTiming().moves) == ""
 
 
@@ -133,8 +131,45 @@ def test_the_values_of_repair_timing_print_with_their_flags():
         setup_margin=0.25, hold_margin=0.5, tns_end_percent=40, max_buffer_percent=30
     )
     words = render(timing)
-    assert '-setup_margin "0.25"' in words and '-hold_margin "0.5"' in words
     assert '-repair_tns "40.0"' in words and '-max_buffer_percent "30.0"' in words
+
+
+def test_the_margins_are_in_nanoseconds_and_the_template_renders_them():
+    """A margin is in nanoseconds on every platform, so a design file means the same on a ps
+    platform and a ns platform. `render_flags` prints values as given, so the margins have no
+    flag: the template converts them to the time unit of the Liberty files."""
+    printed = {flag.field for flag in groups.RepairTiming.FLAGS}
+    assert not printed & {"setup_margin", "hold_margin"}
+    timing = groups.RepairTiming(setup_margin=0.25, hold_margin=0.5)
+    assert "_margin" not in render(timing)
+    for name in ("setup_margin", "hold_margin"):
+        description = groups.RepairTiming.model_fields[name].description
+        assert ", in nanoseconds." in description or " in nanoseconds." in description
+
+
+def test_no_time_value_of_a_group_is_printed_by_render_flags():
+    """A time leaf is in nanoseconds. Only the template can convert it, so no group prints one."""
+    from xeda.flow.settings_group import SettingsGroup
+
+    seen = set()
+
+    def walk(group_class):
+        if group_class in seen:
+            return
+        seen.add(group_class)
+        printed = {flag.field for flag in group_class.FLAGS}
+        for name, info in group_class.model_fields.items():
+            text = (info.description or "").lower()
+            if "nanosecond" in text:
+                assert name not in printed, f"{group_class.__qualname__}.{name}"
+            inner = info.annotation
+            if isinstance(inner, type) and issubclass(inner, SettingsGroup):
+                walk(inner)
+
+    for flow in OPENROAD_FLOWS:
+        for info in flow.Settings.model_fields.values():
+            if isinstance(info.annotation, type) and issubclass(info.annotation, SettingsGroup):
+                walk(info.annotation)
 
 
 def test_a_move_or_phase_that_the_tool_does_not_know_is_refused_before_any_process():
@@ -319,8 +354,7 @@ def test_the_call_sites_of_repair_timing_have_their_own_defaults():
     assert cleanup.repair.sequence == ["unbuffer", "sizeup", "swap", "vt_swap"]
     assert cleanup.repair.last_gasp is False
     assert render(cleanup.repair) == (
-        '-setup_margin "0.0" -hold_margin "0.0" -sequence "unbuffer,sizeup,swap,vt_swap" '
-        '-repair_tns "100.0" -skip_last_gasp'
+        '-sequence "unbuffer,sizeup,swap,vt_swap" -repair_tns "100.0" -skip_last_gasp'
     )
     assert place.resize.repair_timing.enabled is False
     assert place.resize.repair_design.enabled is True
@@ -664,6 +698,8 @@ def test_the_defaults_of_the_last_flow_are_the_stage_defaults():
     assert (route.reroute_seed, route.reroute_swap_factor, route.via_in_pin) == (None, None, None)
     assert (last.antenna.repair, last.antenna.reroute_iterations) == (True, 5)
     assert (last.fill.cells, last.extraction.method, last.ir_drop.enabled) == (None, "auto", True)
+    text = " ".join(type(last.ir_drop).model_fields["enabled"].description.split())
+    assert "voltage" in text and "skips the analysis" in text and "log says so" in text
     assert last.gds.seal_ring is None
 
 
@@ -792,7 +828,8 @@ def test_the_global_route_groups_render_their_flags():
     assert render(grt.congestion) == '-congestion_iterations "50" -allow_congestion'
     assert render(OpenroadGrt.Settings().congestion) == '-congestion_iterations "30"'
     assert render(grt.antenna) == '-iterations "3"'
-    assert render(grt.repair.timing).startswith('-setup_margin "0.1"')
+    assert render(grt.repair.timing) == '-repair_tns "100.0"'
+    assert grt.repair.timing.setup_margin == 0.1
     assert problems(OpenroadGrt, "repair.wns_polish=false", "repair.recover_power_percent=10") == []
 
 

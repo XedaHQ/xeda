@@ -157,8 +157,11 @@ class RepairMoves(SettingsGroup):
 class RepairTiming(SettingsGroup):
     """One call of `repair_timing`. Each flow that calls it holds its own instance.
 
-    The margins are in the time unit of the Liberty files of the platform, as the tool reads
-    them. A leaf that the group prints is in `FLAGS`. The flow prints `fix` and
+    The margins are in nanoseconds, on every platform, so that a design file means the same on a
+    platform whose Liberty files use picoseconds and on one that uses nanoseconds. A time value
+    has no entry in `FLAGS`, since `render_flags` prints a value as given. The template prints
+    `-setup_margin` and `-hold_margin` and converts the margins to the time unit of the Liberty
+    files. A leaf that the group prints is in `FLAGS`. The flow prints `fix` and
     `match_cell_footprint` itself: `fix` stands for `-setup` or `-hold` (`FIX_FLAGS`), and the
     platform decides `match_cell_footprint` when it is unset.
 
@@ -167,8 +170,6 @@ class RepairTiming(SettingsGroup):
     it."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (
-        Flag("setup_margin", "-setup_margin", "value"),
-        Flag("hold_margin", "-hold_margin", "value"),
         Flag("sequence", "-sequence", "list"),
         Flag("phases", "-phases", "list"),
         Flag("tns_end_percent", "-repair_tns", "value"),
@@ -192,16 +193,17 @@ class RepairTiming(SettingsGroup):
         0.0,
         ge=0,
         description="Repair until the setup slack is at least this margin (`-setup_margin`), in "
-        "the time unit of the Liberty files. The hold repair keeps this margin of setup slack "
-        "too. The default is the one of the tool and of OpenROAD-flow-scripts.",
+        "nanoseconds. The flow converts it to the time unit of the Liberty files. The hold "
+        "repair keeps this margin of setup slack too. The default is the one of the tool and of "
+        "OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
     )
     hold_margin: float = Field(
         0.0,
         ge=0,
         description="Repair until the hold slack is at least this margin (`-hold_margin`), in "
-        "the time unit of the Liberty files. The default is the one of the tool and of "
-        "OpenROAD-flow-scripts. Not with `fix: setup`.",
+        "nanoseconds. The flow converts it to the time unit of the Liberty files. The default is "
+        "the one of the tool and of OpenROAD-flow-scripts. Not with `fix: setup`.",
         json_schema_extra=tier("common"),
     )
     tns_end_percent: float = Field(
