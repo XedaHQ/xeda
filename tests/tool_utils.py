@@ -794,6 +794,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "detailed_placement",
     "improve_placement",
     "optimize_mirroring",
+    "balance_row_usage",
     "check_placement",
     # clock tree synthesis
     "repair_clock_inverters",

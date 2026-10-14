@@ -164,7 +164,7 @@ proc xeda_detail_place {} {
     xeda_stage detailedplace
     set_placement_padding -global -left 0 -right 0
     detailed_placement
-    improve_placement -max_displacement "5 1"
+    improve_placement -max_displacement "5 1" -enable_extra_dpl 0
     optimize_mirroring
     check_placement -verbose
     estimate_parasitics -placement

@@ -2552,7 +2552,7 @@ def test_the_detailed_placement_follows_its_settings(tmp_path):
         "xeda_stage detailedplace",
         "set_placement_padding -global -left 0 -right 0",
         "detailed_placement",
-        'improve_placement -max_displacement "5 1"',
+        'improve_placement -max_displacement "5 1" -enable_extra_dpl 0',
         "optimize_mirroring",
         "check_placement -verbose",
         "estimate_parasitics -placement",
@@ -2563,10 +2563,10 @@ def test_the_detailed_placement_follows_its_settings(tmp_path):
 def test_the_displacement_of_the_optimization_is_one_list_argument(tmp_path):
     settings = {"detailed_placement": {"improve": {"max_displacement": [3, 2]}}}
     body = stage(render(place_flow(tmp_path, settings)), "xeda_detail_place")
-    assert 'improve_placement -max_displacement "3 2"' in body
+    assert 'improve_placement -max_displacement "3 2" -enable_extra_dpl 0' in body
     calls = run_script(place_flow(tmp_path / "run", settings))
     (improve,) = [call for call in calls if call[0] == "improve_placement"]
-    assert improve == ["improve_placement", "-max_displacement", "3 2"]
+    assert improve == ["improve_placement", "-max_displacement", "3 2", "-enable_extra_dpl", "0"]
 
 
 def test_the_optimizations_of_the_detailed_placement_can_be_switched_off(tmp_path):
@@ -2575,15 +2575,134 @@ def test_the_optimizations_of_the_detailed_placement_can_be_switched_off(tmp_pat
             "cell_padding": 1,
             "improve": {"enabled": False},
             "mirroring": False,
-            "extra_args": ["-disable_window_extension"],
+            "negotiation": {"window_extension": False},
         }
     }
     body = stage(render(place_flow(tmp_path, settings)), "xeda_detail_place")
     assert "set_placement_padding -global -left 1 -right 1" in body
-    assert 'detailed_placement "-disable_window_extension"' in body
+    assert "detailed_placement -disable_window_extension" in body
     assert not [
         line for line in body if line.startswith(("improve_placement", "optimize_mirroring"))
     ]
+
+
+def test_the_legalization_follows_its_options(tmp_path):
+    settings = {
+        "detailed_placement": {
+            "max_displacement": [300, 40],
+            "legalizer": "negotiation",
+            "negotiation": {
+                "site_search_window": 30,
+                "row_search_window": 0,
+                "drc_penalty": 2.5,
+                "window_extension": False,
+            },
+        }
+    }
+    flow = place_flow(tmp_path, settings)
+    body = stage(render(flow), "xeda_detail_place")
+    assert (
+        'detailed_placement -max_displacement "300 40" -site_search_window "30" '
+        '-row_search_window "0" -disable_window_extension -drc_penalty "2.5"'
+    ) in body
+    (call,) = [call for call in run_script(flow) if call[0] == "detailed_placement"]
+    assert call[:3] == ["detailed_placement", "-max_displacement", "300 40"]
+
+
+def test_the_diamond_legalizer_is_a_flag_of_its_own(tmp_path):
+    flow = place_flow(tmp_path, {"detailed_placement": {"legalizer": "diamond"}})
+    body = stage(render(flow), "xeda_detail_place")
+    assert "detailed_placement -use_diamond_legalizer" in body
+    run_script(flow)
+
+
+def test_the_padding_of_masters_and_instances_follows_the_global_padding(tmp_path):
+    overrides = [
+        {"masters": ["INV_*", "BUF_X1"], "left": 1, "right": 2},
+        {"instances": ["u1", "core/u*"], "right": 3},
+    ]
+    settings = {"detailed_placement": {"cell_padding": 1, "cell_padding_overrides": overrides}}
+    flow = place_flow(tmp_path, settings)
+    body = stage(render(flow), "xeda_detail_place")
+    padding = [line for line in body if line.startswith("set_placement_padding")]
+    assert padding == [
+        "set_placement_padding -global -left 1 -right 1",
+        'set_placement_padding -masters [list "INV_*" "BUF_X1"] -left 1 -right 2',
+        'set_placement_padding -instances [list "u1" "core/u*"] -left 0 -right 3',
+    ]
+    assert body.index(padding[2]) < body.index("detailed_placement")
+    run_script(flow)
+
+
+def test_the_rows_are_balanced_before_the_padding(tmp_path):
+    flow = place_flow(tmp_path, {"detailed_placement": {"balance_rows": True}})
+    body = stage(render(flow), "xeda_detail_place")
+    assert body.index("balance_row_usage") < body.index(
+        "set_placement_padding -global -left 0 -right 0"
+    )
+    assert names(run_script(flow), "balance_row_usage") == ["balance_row_usage"]
+    assert "balance_row_usage" not in stage(
+        render(place_flow(tmp_path / "off")), "xeda_detail_place"
+    )
+
+
+def test_the_optimization_always_says_whether_it_legalizes_again(tmp_path, monkeypatch):
+    """`improve_placement` reads the environment variable `ENABLE_EXTRA_DPL` when it gets no flag,
+    so the flow gives the flag in every case, and the environment cannot change the result."""
+    for value, text in ((False, "0"), (True, "1")):
+        settings = {"detailed_placement": {"improve": {"extra_legalization": value}}}
+        body = stage(render(place_flow(tmp_path / text, settings)), "xeda_detail_place")
+        assert f'improve_placement -max_displacement "5 1" -enable_extra_dpl {text}' in body
+
+
+def test_the_optimization_gets_its_seed_and_the_options_of_the_global_swap(tmp_path):
+    swap = {
+        "passes": 3,
+        "tolerance": 0.02,
+        "tradeoff": 0.5,
+        "area_weight": 0.3,
+        "pin_weight": 0.7,
+        "congestion_weight": 20,
+        "sampling_moves": 100,
+        "normalization_interval": 500,
+        "profiling_excess": 1.2,
+        "budget_multipliers": [1.5, 1.2],
+    }
+    settings = {"detailed_placement": {"improve": {"random_seed": 7, "global_swap": swap}}}
+    flow = place_flow(tmp_path, settings)
+    body = stage(render(flow), "xeda_detail_place")
+    words = (
+        "-passes 3 -tolerance 0.02 -tradeoff 0.5 -area_weight 0.3 -pin_weight 0.7 "
+        "-congestion_user_weight 20.0 -sampling_moves 100 -normalization_interval 500 "
+        "-profiling_excess 1.2 -budget_multipliers \\{1.5 1.2\\}"
+    )
+    assert (
+        'improve_placement -max_displacement "5 1" -random_seed "7" '
+        f'-global_swap_args "{words}" -enable_extra_dpl 0'
+    ) in body
+    (call,) = [call for call in run_script(flow) if call[0] == "improve_placement"]
+    pairs = call[call.index("-global_swap_args") + 1]
+    assert pairs.startswith("-passes 3 ") and pairs.endswith("-budget_multipliers {1.5 1.2}")
+
+
+def test_only_the_given_options_of_the_global_swap_are_passed(tmp_path):
+    settings = {"detailed_placement": {"improve": {"global_swap": {"tradeoff": 0.5}}}}
+    body = stage(render(place_flow(tmp_path, settings)), "xeda_detail_place")
+    assert (
+        'improve_placement -max_displacement "5 1" -global_swap_args "-tradeoff 0.5"'
+        in " ".join(body).replace("  ", " ")
+    )
+    plain = " ".join(stage(render(place_flow(tmp_path / "plain")), "xeda_detail_place"))
+    assert "-global_swap_args" not in plain
+
+
+def test_the_legalization_has_no_free_text_flags(tmp_path):
+    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+
+    assert "extra_args" not in DetailedPlacementGroup.model_fields
+    assert not DetailedPlacementGroup.EXTRA_FLAGS
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, "detailed_placement.extra_args=-use_diamond_legalizer")
 
 
 def test_an_illegal_placement_stops_the_flow_unless_the_settings_say_to_report_it(

@@ -694,6 +694,35 @@ PLACE_REFUSALS = [
         "`resize.remove_buffers_instances` has no effect with `resize.remove_buffers: false`",
     ),
     (
+        "detailed_placement.legalizer=diamond",
+        "detailed_placement.negotiation.site_search_window=10",
+        "`detailed_placement.negotiation.site_search_window` has no effect with "
+        "`detailed_placement.legalizer: diamond`",
+    ),
+    (
+        "detailed_placement.legalizer=diamond",
+        "detailed_placement.negotiation.window_extension=false",
+        "`detailed_placement.negotiation.window_extension` has no effect with "
+        "`detailed_placement.legalizer: diamond`",
+    ),
+    (
+        "detailed_placement.improve.enabled=false",
+        "detailed_placement.improve.random_seed=3",
+        "`detailed_placement.improve.random_seed` has no effect while "
+        "`detailed_placement.improve.enabled` is false",
+    ),
+    (
+        "detailed_placement.improve.enabled=false",
+        "detailed_placement.improve.global_swap.passes=3",
+        "`detailed_placement.improve.global_swap.passes` has no effect while "
+        "`detailed_placement.improve.enabled` is false",
+    ),
+    (
+        "detailed_placement.improve.enabled=false",
+        "detailed_placement.improve.extra_legalization=true",
+        "`detailed_placement.improve.extra_legalization` has no effect while",
+    ),
+    (
         "arith_swap.path_count=100",
         "arith_swap.target=setup",
         "`arith_swap.path_count` has no effect while `arith_swap.enabled` is false",
@@ -763,6 +792,24 @@ def test_the_groups_of_the_placement_accept_their_combinations():
         "resize.global_sizing.budget_safety_factor=1.5",
         "resize.global_sizing.budget_safety_factor=0",
         "arith_swap.path_count=0",
+        {"detailed_placement.max_displacement": [5]},
+        {"detailed_placement.max_displacement": [5, 1.5]},
+        {"detailed_placement.max_displacement": [-1, 1]},
+        "detailed_placement.negotiation.site_search_window=-1",
+        "detailed_placement.negotiation.row_search_window=-1",
+        "detailed_placement.negotiation.drc_penalty=-0.5",
+        "detailed_placement.legalizer=Diamond",
+        "detailed_placement.improve.random_seed=-1",
+        "detailed_placement.improve.global_swap.passes=0",
+        "detailed_placement.improve.global_swap.tradeoff=1.5",
+        "detailed_placement.improve.global_swap.area_weight=-1",
+        "detailed_placement.improve.global_swap.sampling_moves=0",
+        "detailed_placement.improve.global_swap.normalization_interval=0",
+        "detailed_placement.improve.global_swap.profiling_excess=0",
+        {"detailed_placement.improve.global_swap.budget_multipliers": []},
+        {"detailed_placement.improve.global_swap.budget_multipliers": [1.2, 0]},
+        {"detailed_placement.cell_padding_overrides": [{"masters": ["A"], "left": -1}]},
+        {"detailed_placement.cell_padding_overrides": [{"masters": ["A"], "top": 1}]},
         "arith_swap.target=Setup",
         "arith_swap.target=speed",
         {"arith_swap.slack_threshold": float("nan")},
@@ -889,6 +936,42 @@ def test_the_flags_of_the_swap_of_arithmetic_modules():
     assert "slack_threshold" not in {flag.field for flag in type(settings).FLAGS}
 
 
+def test_the_flags_of_the_detailed_placement_groups():
+    dp = OpenroadPlace.Settings().detailed_placement
+    assert (render(dp), render(dp.negotiation)) == ("", "")
+    assert render(dp.improve) == '-max_displacement "5,1"'
+    settings = settings_of(
+        OpenroadPlace,
+        {"detailed_placement.max_displacement": [300, 40]},
+        "detailed_placement.negotiation.site_search_window=30",
+        "detailed_placement.negotiation.row_search_window=0",
+        "detailed_placement.negotiation.drc_penalty=2.5",
+        "detailed_placement.negotiation.window_extension=false",
+        "detailed_placement.improve.random_seed=7",
+    ).detailed_placement
+    assert render(settings) == '-max_displacement "300,40"'
+    assert render(settings.negotiation) == (
+        '-site_search_window "30" -row_search_window "0" -disable_window_extension '
+        '-drc_penalty "2.5"'
+    )
+    assert render(settings.improve) == '-max_displacement "5,1" -random_seed "7"'
+
+
+def test_a_padding_override_names_masters_or_instances_and_not_both():
+    for item in (
+        {"left": 1},
+        {"masters": ["A"], "instances": ["u1"], "left": 1},
+        {"masters": [], "instances": [], "left": 1},
+    ):
+        message = refused(OpenroadPlace, {"detailed_placement.cell_padding_overrides": [item]})
+        assert (
+            "`detailed_placement.cell_padding_overrides[0]` must name `masters` or `instances`"
+            in message
+        )
+    ok = {"detailed_placement.cell_padding_overrides": [{"masters": ["A"], "left": 1}]}
+    assert problems(OpenroadPlace, ok) == []
+
+
 def test_the_flags_of_the_pin_placement_and_the_tie_cells():
     io = settings_of(OpenroadPlace, "io.min_distance=4", "io.corner_avoidance=2.5").io
     assert render(io) == '-corner_avoidance "2.5"'  # the flow prints `min_distance` itself
@@ -931,6 +1014,13 @@ def test_the_defaults_of_the_placement_are_the_stage_defaults():
     detail = place.detailed_placement
     assert (detail.cell_padding, detail.mirroring, detail.check) == (0, True, "fail")
     assert (detail.improve.enabled, detail.improve.max_displacement) == (True, [5, 1])
+    assert (detail.max_displacement, detail.legalizer, detail.balance_rows) == (
+        None,
+        "negotiation",
+        False,
+    )
+    assert detail.cell_padding_overrides == [] and detail.improve.extra_legalization is False
+    assert detail.negotiation.window_extension is True
     assert place.tapcell.mode is None and place.routing.signal_layers is None
 
 
@@ -1168,17 +1258,6 @@ def test_the_last_flow_prints_the_flags_of_the_detailed_route():
 
 #: The hatch of each command: the flow, the key of the group, and the flags that it accepts.
 HATCHES = {
-    "detailed_placement": (
-        OpenroadPlace,
-        "detailed_placement",
-        {
-            "-use_diamond_legalizer",
-            "-site_search_window",
-            "-row_search_window",
-            "-drc_penalty",
-            "-disable_window_extension",
-        },
-    ),
     "global_route": (
         OpenroadGrt,
         "router",
@@ -1513,13 +1592,22 @@ def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting():
 
 
 def test_the_flag_of_a_leaf_in_a_sub_group_is_refused_as_not_allowed():
-    message = refused(OpenroadPlace, "detailed_placement.extra_args=-max_displacement,3")
-    assert "`-max_displacement` in `detailed_placement.extra_args` is not allowed" in message
+    message = refused(OpenroadGrt, "router.extra_args=-allow_congestion,3")
+    assert "`-allow_congestion` in `router.extra_args` is not allowed" in message
 
 
 def test_a_hatch_must_start_with_a_flag():
-    message = refused(OpenroadPlace, "detailed_placement.extra_args=5,-use_diamond_legalizer")
-    assert "`detailed_placement.extra_args` must start with a flag, not `5`" in message
+    message = refused(OpenroadGrt, "router.extra_args=5,-use_cugr")
+    assert "`router.extra_args` must start with a flag, not `5`" in message
+
+
+def test_every_flag_of_the_legalization_and_the_placement_commands_has_a_setting():
+    """No flag of the global placement or of the pin placement is left for a hatch, and neither
+    is one of the legalization: the others are internal, deprecated or write a file."""
+    from xeda.flows.openroad.place_groups import DetailedPlacementGroup
+
+    assert "extra_args" not in DetailedPlacementGroup.model_fields
+    assert not DetailedPlacementGroup.EXTRA_FLAGS
 
 
 def test_the_clock_tree_has_no_hatch():
@@ -1615,6 +1703,12 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
     assert {f.flag for f in swap.FLAGS} | {"-slack_threshold"} == INSTALLED_HELP[
         "replace_arith_modules"
     ]
+    dp = place["detailed_placement"].annotation
+    # the flow prints the legalizer and the window extension itself
+    detailed = {f.flag for f in dp.FLAGS} | {
+        f.flag for f in dp.model_fields["negotiation"].annotation.FLAGS
+    }
+    assert detailed | {"-use_diamond_legalizer"} <= INSTALLED_HELP["detailed_placement"]
     sizing = resize.model_fields["opt_config"].annotation
     # the flow prints the three booleans itself
     by_hand = {"-keep_sizing_site", "-keep_sizing_vt", "-disable_buffer_pruning"}

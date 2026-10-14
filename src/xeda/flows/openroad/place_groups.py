@@ -2142,10 +2142,92 @@ class ArithSwapGroup(SettingsGroup):
     )
 
 
-class ImproveGroup(SettingsGroup):
-    """The optimization of the detailed placement (`improve_placement`)."""
+class GlobalSwapGroup(SettingsGroup):
+    """The options of the global swaps of the optimization (`improve_placement -global_swap_args`).
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("max_displacement", "-max_displacement", "list"),)
+    The command takes them as one list of pairs, which the template builds. Each one passes only
+    when you set it. The documentation of OpenROAD does not describe them. The
+    defaults are those in the source of the tool."""
+
+    passes: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The passes of the global swaps (`-passes`). Unset: the default of the "
+        "tool, 2.",
+        json_schema_extra=tier("expert"),
+    )
+    tolerance: Optional[NonNegative] = Field(
+        None,
+        description="The improvement of the wirelength below which a pass ends (`-tolerance`). "
+        "Unset: the default of the tool, 0.01.",
+        json_schema_extra=tier("expert"),
+    )
+    tradeoff: Optional[float] = Field(
+        None,
+        ge=0,
+        le=1,
+        allow_inf_nan=False,
+        description="The share of the random moves among the moves of a pass, from 0 to 1 "
+        "(`-tradeoff`). Unset: the default of the tool, 0.4.",
+        json_schema_extra=tier("expert"),
+    )
+    area_weight: Optional[NonNegative] = Field(
+        None,
+        description="The weight of the cell area in the map of the utilization that steers the "
+        "swaps (`-area_weight`). Unset: the default of the tool, 0.4.",
+        json_schema_extra=tier("expert"),
+    )
+    pin_weight: Optional[NonNegative] = Field(
+        None,
+        description="The weight of the pin count in that map (`-pin_weight`). Unset: the "
+        "default of the tool, 0.6.",
+        json_schema_extra=tier("expert"),
+    )
+    congestion_weight: Optional[NonNegative] = Field(
+        None,
+        description="The weight of the congestion that you give (`-congestion_user_weight`). "
+        "Unset: the default of the tool, 35.0.",
+        json_schema_extra=tier("expert"),
+    )
+    sampling_moves: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The number of moves that the swaps sample (`-sampling_moves`). Unset: the "
+        "default of the tool, 150.",
+        json_schema_extra=tier("expert"),
+    )
+    normalization_interval: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The number of moves between two normalizations of the costs "
+        "(`-normalization_interval`). Unset: the default of the tool, 1000.",
+        json_schema_extra=tier("expert"),
+    )
+    profiling_excess: Optional[Positive] = Field(
+        None,
+        description="The factor on the best wirelength of the profiling pass that sets the "
+        "budget of the swaps (`-profiling_excess`). Unset: the default of the tool, 1.1.",
+        json_schema_extra=tier("expert"),
+    )
+    budget_multipliers: Optional[list[Positive]] = Field(
+        None,
+        min_length=1,
+        description="The factors on the budget of the wirelength, one for each stage of the "
+        "swaps (`-budget_multipliers`). Unset: the default of the tool, 1.5, 1.25, 1.1 and "
+        "1.04.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class ImproveGroup(SettingsGroup):
+    """The optimization of the detailed placement (`improve_placement`). The flow prints
+    `extra_legalization` itself: the command reads the environment when it gets no value, so the
+    flow always gives one."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("max_displacement", "-max_displacement", "list"),
+        Flag("random_seed", "-random_seed", "value"),
+    )
 
     enabled: bool = Field(
         True,
@@ -2157,26 +2239,102 @@ class ImproveGroup(SettingsGroup):
         list[Annotated[int, Field(ge=0)]], Field(min_length=2, max_length=2)
     ] = Field(
         [5, 1],
-        description="The farthest that a cell moves in x and in y, as two integers "
-        "(`-max_displacement`). The default is the one of OpenROAD-flow-scripts.",
+        description="The farthest that a cell moves in x and in y, as two integers in multiples "
+        "of the row height (`-max_displacement`). 0 keeps the limit of the tool for that "
+        "direction. The default is the one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("advanced"),
     )
+    random_seed: Optional[int] = Field(
+        None,
+        ge=0,
+        le=2**31 - 1,
+        description="The seed of the optimization (`-random_seed`). Unset: the default of the "
+        "tool, 1.",
+        json_schema_extra=tier("advanced"),
+    )
+    extra_legalization: bool = Field(
+        False,
+        description="Legalize once more inside the optimization (`-enable_extra_dpl`). The flow "
+        "always gives the value, because the tool reads the environment variable "
+        "`ENABLE_EXTRA_DPL` when it gets none.",
+        json_schema_extra=tier("expert"),
+    )
+    global_swap: GlobalSwapGroup = Field(
+        default_factory=GlobalSwapGroup,
+        description="The options of the global swaps.",
+    )
+
+
+class NegotiationGroup(SettingsGroup):
+    """The options of the negotiation legalizer, which `detailed_placement` uses unless
+    `legalizer` is `diamond`."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("site_search_window", "-site_search_window", "value"),
+        Flag("row_search_window", "-row_search_window", "value"),
+        Flag("window_extension", "-disable_window_extension", "skip"),
+        Flag("drc_penalty", "-drc_penalty", "value"),
+    )
+
+    site_search_window: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The base number of sites that a cell may move to the left or to the right "
+        "(`-site_search_window`), capped by `max_displacement`. 0 allows no horizontal move. "
+        "Unset: the default of the tool, 20.",
+        json_schema_extra=tier("expert"),
+    )
+    row_search_window: Optional[int] = Field(
+        None,
+        ge=0,
+        description="The base number of rows that a cell may move up or down "
+        "(`-row_search_window`), capped by `max_displacement`. 0 allows no change of row. "
+        "Unset: the default of the tool, 5.",
+        json_schema_extra=tier("expert"),
+    )
+    window_extension: bool = Field(
+        True,
+        description="Let the search window grow past its base size, to the size of the cell and "
+        "when a macro or the boundary of the core cuts it short. False fixes the window "
+        "(`-disable_window_extension`).",
+        json_schema_extra=tier("expert"),
+    )
+    drc_penalty: Optional[NonNegative] = Field(
+        None,
+        description="The priority of the cleanup of DRC violations, which grows with each "
+        "iteration (`-drc_penalty`). A low value tolerates violations early, while overlaps go. "
+        "0 switches off the growing penalty. Unset: the default of the tool, 5.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class PaddingOverride(XedaBaseModel):
+    """Padding for some masters or some instances (`set_placement_padding -masters`,
+    `-instances`). It wins over the global padding, and the padding of an instance wins over that
+    of its master."""
+
+    masters: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The masters, each a name or a glob pattern (`-masters`). Give this or "
+        "`instances`.",
+    )
+    instances: list[Annotated[str, Field(min_length=1)]] = Field(
+        [],
+        description="The instances, each a name or a glob pattern (`-instances`). Give this or "
+        "`masters`.",
+    )
+    left: int = Field(0, ge=0, description="The empty sites on the left of each cell (`-left`).")
+    right: int = Field(0, ge=0, description="The empty sites on the right of each cell (`-right`).")
 
 
 class DetailedPlacementGroup(SettingsGroup):
-    """The legalization and the optimization of the placement."""
+    """The legalization and the optimization of the placement.
 
-    #: The flags of `detailed_placement` that no setting covers: the options of the legalizer,
-    #: which the tool changes often.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "-use_diamond_legalizer",
-            "-site_search_window",
-            "-row_search_window",
-            "-drc_penalty",
-            "-disable_window_extension",
-        }
-    )
+    Every flag of `detailed_placement` that the flow can use has a setting. The others are
+    internal (`-incremental`, `-quiet`), deprecated (`-disallow_one_site_gaps`) or write a file
+    (`-report_file_name`). The flow prints `legalizer` itself, as a flag that takes no value."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("max_displacement", "-max_displacement", "list"),)
 
     cell_padding: int = Field(
         0,
@@ -2185,6 +2343,33 @@ class DetailedPlacementGroup(SettingsGroup):
         "the legalization (`set_placement_padding -global -left N -right N`), in sites. The "
         "default is the one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("advanced"),
+    )
+    cell_padding_overrides: list[PaddingOverride] = Field(
+        [],
+        description="Other padding for some masters or some instances. A master wins over the "
+        "global padding, and an instance wins over its master. Each item names `masters` or "
+        "`instances`, with `left` and `right`.",
+        json_schema_extra=tier("expert"),
+    )
+    max_displacement: Optional[list[Annotated[int, Field(ge=0)]]] = Field(
+        None,
+        min_length=2,
+        max_length=2,
+        description="The farthest that a cell moves to find a legal site, as two integers in "
+        "micrometers, for x and y (`-max_displacement`). The tool takes whole micrometers. "
+        "Unset: the default of the tool, which sets no limit of its own.",
+        json_schema_extra=tier("advanced"),
+    )
+    legalizer: Literal["negotiation", "diamond"] = Field(
+        "negotiation",
+        description="The engine that legalizes the placement. `negotiation` is the default of "
+        "the tool and handles dense designs. `diamond` is the earlier search "
+        "(`-use_diamond_legalizer`). It is faster, and it cannot handle dense designs.",
+        json_schema_extra=tier("advanced"),
+    )
+    negotiation: NegotiationGroup = Field(
+        default_factory=NegotiationGroup,
+        description="The options of the negotiation legalizer. The diamond legalizer has none.",
     )
     improve: ImproveGroup = Field(
         default_factory=ImproveGroup,
@@ -2204,11 +2389,34 @@ class DetailedPlacementGroup(SettingsGroup):
         "placement. `report` prints the violations and goes on.",
         json_schema_extra=tier("common"),
     )
-    extra_args: list[str] = Field(
-        [],
-        description="More flags for `detailed_placement`. Each flag must be one of "
-        "`-use_diamond_legalizer`, `-site_search_window`, `-row_search_window`, "
-        "`-drc_penalty` and `-disable_window_extension`, each followed by its value where it "
-        "takes one.",
+    balance_rows: bool = Field(
+        False,
+        description="Balance the use of the rows of different types before the legalization "
+        "(`balance_row_usage`). It is for designs with rows of different heights. "
+        "OpenROAD-flow-scripts runs it only when `BALANCE_ROWS` says so.",
         json_schema_extra=tier("expert"),
     )
+
+    def problems(self, key: str) -> list[tuple[str, str]]:
+        """Refuse the options of the negotiation legalizer with the diamond legalizer, and a
+        padding that names both or neither of masters and instances."""
+        found: list[tuple[str, str]] = []
+        if self.legalizer == "diamond":
+            for leaf in differing_leaves(self.negotiation, f"{key}.negotiation"):
+                found.append(
+                    (
+                        leaf,
+                        f"`{leaf}` has no effect with `{key}.legalizer: diamond`: set "
+                        f"`{key}.legalizer: negotiation` or delete `{leaf}`",
+                    )
+                )
+        for number, override in enumerate(self.cell_padding_overrides):
+            if bool(override.masters) == bool(override.instances):
+                found.append(
+                    (
+                        f"{key}.cell_padding_overrides",
+                        f"`{key}.cell_padding_overrides[{number}]` must name `masters` or "
+                        "`instances`, and not both: the command takes one of them in a call",
+                    )
+                )
+        return found

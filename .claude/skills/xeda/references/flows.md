@@ -271,7 +271,7 @@ Group `resize`: `resize.buffer_ports.enabled`, `resize.buffer_ports.inputs`, `re
 
 Group `arith_swap`: no common settings; 4 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 4 more: `xeda list-settings openroad_place --tier expert --json`
+Group `detailed_placement`: `detailed_placement.improve.enabled`, `detailed_placement.check`; 23 more: `xeda list-settings openroad_place --tier expert --json`
 
 Reports: `wns`, `tns`, `whs`, `worst_slack`, `Fmax`, `utilization`, `power`, `area`, `hold_tns`, `platform`
 
