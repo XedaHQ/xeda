@@ -1,8 +1,8 @@
 """The operator-wrapping script of OpenROAD-flow-scripts ships with its license.
 
-The Tcl script only defines procedures when it is sourced. Its check is line based: every
-non-blank line that is not a comment and starts in column 0 must start with `proc ` or be the
-closing `}` of a procedure.
+The Tcl script only defines procedures when it is sourced. Its check tracks the brace depth: every
+non-blank, non-comment line that starts at depth 0 must start with `proc `, and a closing `}`
+must be the only text of the line that closes a procedure.
 """
 
 import re
@@ -70,11 +70,48 @@ def test_the_notice_names_both_files_and_holds_the_license() -> None:
     assert "OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE." in notice
 
 
+def tcl_top_level_problems(text: str) -> list[str]:
+    """The lines of a Tcl text that run outside a procedure, as `line number: text` strings.
+
+    The depth is the count of unescaped `{` minus `}` before a line. A character after a
+    backslash is skipped, so `\\{` and `\\$` do not count. A comment line at depth 0 is skipped.
+    A line that starts at depth 0 is a problem unless it starts with `proc ` (any column), and a
+    `}` that closes depth 1 to 0 is the only text of its line.
+    """
+    depth = 0
+    problems = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or (depth == 0 and stripped.startswith("#")):
+            continue
+        start = depth
+        index = 0
+        while index < len(line):
+            character = line[index]
+            if character == "\\":
+                index += 2
+                continue
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+            index += 1
+        if start == 0 and not stripped.startswith("proc "):
+            problems.append(f"{number}: {line}")
+        elif start == 1 and depth == 0 and stripped != "}":
+            problems.append(f"{number}: {line}")
+    return problems
+
+
 def test_the_tcl_script_only_defines_procedures_at_top_level() -> None:
+    """The Tcl script only defines procedures: see `tcl_top_level_problems` for the rule."""
     text = (ASSETS / TCL).read_text()
     procs = {match.group(1) for match in re.finditer(r"^proc (\S+) \{", text, re.MULTILINE)}
     assert {"wrap_operators", "design_has_extracted_operators"} <= procs
-    for number, line in enumerate(text.splitlines(), start=1):
-        if not line.strip() or line.lstrip().startswith("#") or line[0] in " \t":
-            continue
-        assert line.startswith("proc ") or line == "}", f"{TCL}:{number}: {line!r}"
+    assert tcl_top_level_problems(text) == []
+
+
+def test_the_top_level_check_reports_an_indented_command_after_a_procedure() -> None:
+    text = "proc p { a } {\n  set y [list {a} \\{]\n}\n  set x 1\n"
+    assert tcl_top_level_problems(text) == ["4:   set x 1"]
+    assert tcl_top_level_problems("proc p {} {\n  set y 2\n}\n") == []
