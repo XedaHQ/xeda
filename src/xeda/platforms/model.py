@@ -23,6 +23,7 @@ This module starts no process and reads no file.
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+from types import UnionType
 from typing import (
     Any,
     ClassVar,
@@ -31,11 +32,12 @@ from typing import (
     Optional,
     Self,
     TypeGuard,
+    Union,
     get_args,
     get_origin,
 )
 
-from pydantic import StrictFloat, StrictInt, TypeAdapter, ValidationError
+from pydantic import StrictBool, StrictFloat, StrictInt, TypeAdapter, ValidationError
 
 from xeda.dataclass import Field, XedaBaseModel, model_validator
 
@@ -428,9 +430,24 @@ def leaf_annotation(key: str) -> Any:
             return annotation
 
 
+def _strict_booleans(annotation: Any) -> Any:
+    """Return the annotation with each `bool` strict, so that only `true` and `false` are
+    booleans. The model refuses `1` and text for a boolean, and a leaf does the same."""
+    if annotation is bool:
+        return StrictBool
+    arguments = get_args(annotation)
+    origin = get_origin(annotation)
+    if not arguments or origin is None:
+        return annotation
+    strict = tuple(_strict_booleans(argument) for argument in arguments)
+    if origin is Union or origin is UnionType:
+        return Union[strict]  # type: ignore[valid-type]
+    return origin[strict]
+
+
 @cache
 def _adapter(annotation: Any) -> TypeAdapter[Any]:
-    return TypeAdapter(annotation)
+    return TypeAdapter(_strict_booleans(annotation))
 
 
 def normalize_leaf(key: str, value: Any) -> Any:

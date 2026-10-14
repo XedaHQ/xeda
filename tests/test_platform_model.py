@@ -26,7 +26,7 @@ from xeda.platforms import (
     load_residue,
 )
 from xeda.platforms.build import residue_problems
-from xeda.platforms.model import Number, Track, leaf_annotation, nest_leaves
+from xeda.platforms.model import Number, Track, leaf_annotation, nest_leaves, normalize_leaf
 from xeda.platforms.residue import ResidueError, effective_residue
 from xeda.yaml_loader import load_yaml
 
@@ -256,6 +256,44 @@ def test_an_override_value_of_the_wrong_type_is_refused_naming_the_leaf() -> Non
         Residue.model_validate(residue_dict(overrides=overrides))
     overrides = {"tracks.metal1": {"value": {"x": [1.0]}, "reason": "r"}}
     with pytest.raises(ValueError, match=r"tracks\.metal1"):
+        Residue.model_validate(residue_dict(overrides=overrides))
+
+
+@pytest.mark.parametrize("key", ["match_cell_footprint", "diode_usable"])
+@pytest.mark.parametrize("value", [1, 0, "true", "1", "yes", 1.0, [True]])
+def test_a_boolean_override_takes_true_and_false_only(key: str, value: Any) -> None:
+    """The model refuses `1` for a boolean in `values`; an override must refuse it too."""
+    overrides = {key: {"value": value, "reason": "r"}}
+    with pytest.raises(ValueError, match=key):
+        Residue.model_validate(residue_dict(overrides=overrides))
+    with pytest.raises(ValueError, match=key):
+        normalize_leaf(key, value)
+
+
+@pytest.mark.parametrize("key", ["match_cell_footprint", "diode_usable"])
+@pytest.mark.parametrize("value", [True, False])
+def test_a_boolean_override_takes_a_boolean(key: str, value: bool) -> None:
+    residue = Residue.model_validate(residue_dict(overrides={key: {"value": value, "reason": "r"}}))
+    assert residue.override_leaves() == {key: value}
+    assert normalize_leaf(key, value) is value
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("place_density", "0.3"),
+        ("abc_load_in_ff", "5"),
+        ("synth_minimum_keep_size", "10"),
+        ("synth_minimum_keep_size", 10.0),
+        ("synth_minimum_keep_size", True),
+        ("place_density", True),
+        ("supply.power_nets.VDD", "1.1"),
+        ("wire_rc.layers.metal1", ["0.1", 0.2]),
+    ],
+)
+def test_a_number_override_is_a_number_and_not_text(key: str, value: Any) -> None:
+    overrides = {key: {"value": value, "reason": "r"}}
+    with pytest.raises(ValueError, match=key.replace(".", r"\.")):
         Residue.model_validate(residue_dict(overrides=overrides))
 
 
