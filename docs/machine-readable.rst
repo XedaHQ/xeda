@@ -306,8 +306,10 @@ rejected, ``error.type`` is ``FlowFailed``, on the launch that ran it and when X
 rejection again. If a producer stopped the requested flow, the requested flow is ``"blocked"`` and
 ``error.type`` is ``FlowDependencyFailure``.
 
-For a flow that ran, ``reason`` says why. It is empty for a node that is ``"fresh"``, and otherwise
-it is the text that the log shows as ``Running <flow>: <reason>``. Runs are make-like by default
+For a node that is ``"ran"`` or ``"failed"``, ``reason`` says why the flow ran: it is the text that
+the log shows as ``Running <flow>: <reason>``. It is empty for a node that is ``"fresh"``. For a
+node that is ``"rejected again"`` or ``"blocked"``, the flow did not run, and ``reason`` is the
+text described above. Runs are make-like by default
 (without ``--rebuild-all``), so a launch where everything is up to date has ``"success": true`` and
 every node ``"fresh"``. See :doc:`run-directories` for what makes a node stale. A flow that always
 runs is never ``"fresh"``. Its ``reason`` says why. ``openfpgaloader``, which programs a device, is
