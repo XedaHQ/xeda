@@ -6,7 +6,7 @@ from copy import deepcopy
 from datetime import datetime
 from inspect import isclass
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple, Type, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, Type, Union
 
 import psutil
 from attrs import define
@@ -52,14 +52,17 @@ OPENROAD_DSE_REFUSAL = (
 )
 
 
-def _refuse_openroad(flow: Union[str, Type[Flow], FlowRequest]) -> None:
-    """Refuse a request whose requested flow is one of the OpenROAD flows.
+def _refuse_openroad(optimizer: "Optimizer", flow: Union[str, Type[Flow], FlowRequest]) -> None:
+    """Refuse an optimizer that writes clocks, for a request of one of the OpenROAD flows.
 
-    The optimizer puts its candidate periods into the `clocks` of the requested flow. The clock
-    of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do not reach it.
-    The test is by class: every flow built on `OpenroadStage` is refused, whatever its name."""
+    Such an optimizer puts its candidate periods into the `clocks` of the requested flow. The
+    clock of an OpenROAD flow chain is a setting of `openroad_place`, so the periods do not reach
+    it. An optimizer that varies other settings is not refused. The test is by class: every flow
+    built on `OpenroadStage` counts, whatever its name."""
     from ...flows.openroad import OpenroadStage
 
+    if not optimizer.writes_clocks:
+        return
     if isinstance(flow, str):
         flow = parse_request(flow)
     requested = flow.requested if isinstance(flow, FlowRequest) else flow
@@ -112,6 +115,9 @@ class FlowOutcome:
 
 class Optimizer:
     default_variations: Dict[str, Dict[str, List[Any]]] = {}
+    #: True for an optimizer that puts candidate clock periods into the `clocks` of the requested
+    #: flow, as the Fmax search does.
+    writes_clocks: ClassVar[bool] = False
 
     class Settings(XedaBaseModel):
         pass
@@ -314,9 +320,9 @@ class Dse(FlowLauncher):
         )
 
     def _refuse_unaccepted_request(self, flow, flow_settings, flow_overrides, xedaproject) -> None:
-        """Refuse an OpenROAD flow or a chain that ends in one, then what a chain or a binding
-        brings, before anything is loaded."""
-        _refuse_openroad(flow)
+        """Refuse a clock-writing optimizer on an OpenROAD flow or a chain that ends in one, then
+        what a chain or a binding brings, before anything is loaded."""
+        _refuse_openroad(self.optimizer, flow)
         super()._refuse_unaccepted_request(flow, flow_settings, flow_overrides, xedaproject)
 
     @with_debug_logging
@@ -332,7 +338,7 @@ class Dse(FlowLauncher):
     ):
         """Explore variations of the flow settings and return the best run."""
         assert isinstance(self.settings, self.Settings)
-        _refuse_openroad(flow_class)
+        _refuse_openroad(self.optimizer, flow_class)
         timer = Timer()
 
         optimizer = self.optimizer
