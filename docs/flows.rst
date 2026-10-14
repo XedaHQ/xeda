@@ -305,9 +305,8 @@ result), ``stale: <reason>`` (the flow runs, for the reason that the log would g
 launch reports that rejection and does not run the flow) or ``blocked: <reason>`` (a producer was
 rejected or is blocked, so the flow does not run). For example, the state is
 ``unknown: depends on yosys_fpga`` when a producer would run first, because the answer then depends
-on what that run hands over. The dry run reads the
-run directories and writes nothing, so after an edit it shows what will run and why. See
-:doc:`run-directories`.
+on what that run hands over. The dry run reads the run directories and writes nothing, so after an
+edit it shows what will run and why. See :doc:`run-directories`.
 
 Runs are make-like by default. Xeda skips a producer whose trace still matches what it would
 consume now and reuses its recorded results. ``--rebuild-all`` runs every flow. See
