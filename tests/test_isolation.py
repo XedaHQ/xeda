@@ -1337,6 +1337,16 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "yosys read_liberty -overwrite -setattr liberty_cell -lib {{asic.dff_liberty|read_path}}",
     ): (1, IN_MEMORY, None),
     (
+        "flows/yosys/templates/yosys_liberty_synth.tcl",
+        "yosys read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func "
+        "-ignore_buses {{lib|read_path}}",
+    ): (1, IN_MEMORY, None),
+    (
+        "flows/yosys/templates/yosys_liberty_synth.tcl",
+        "yosys read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss_func "
+        "-ignore_buses {{asic.dff_liberty|read_path}}",
+    ): (1, IN_MEMORY, None),
+    (
         "flows/vivado/templates/vivado_alt_synth.tcl",
         "write_checkpoint -force ${checkpoints_dir}/post_synth",
     ): (1, _REPORT, None),

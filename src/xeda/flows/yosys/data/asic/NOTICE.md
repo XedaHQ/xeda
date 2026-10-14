@@ -13,6 +13,14 @@ Xeda changed only the Tcl script. It takes the Booth map path, the adder order a
 order as arguments, not from environment variables. Sourcing the script defines procedures only.
 The Verilog file is unchanged except for its first line, which names the source.
 
+Two more parts of OpenROAD-flow-scripts at the same commit are not files in this directory:
+
+- The Tcl template `yosys_liberty_synth.tcl` carries the procedure `convert_liberty_areas` of
+  `flow/scripts/synth_preamble.tcl`. Xeda left out the last part of the procedure, which sets the
+  cost of the macros that the memory generator of that flow makes.
+- The module `yosys.py` carries the text of `flow/scripts/abc_speed_gia_only.script`. The flow
+  writes it to the run directory as the script of `abc_new`.
+
 OpenROAD-flow-scripts publishes its build and run scripts under the BSD 3-Clause License. The
 license text follows.
 

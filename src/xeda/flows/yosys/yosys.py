@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from importlib import resources
 from pathlib import Path
 from typing import Callable, ClassVar, Dict, List, Literal, Optional, Tuple
 
@@ -62,6 +63,16 @@ def abc_strategy_script(strategy: str) -> Optional[str]:
     return "+" + ";".join(commands).replace(" ", ",")
 
 
+#: The name, in the run directory, of the script that `abc_new` maps with. `abc_new` takes the
+#: script from the scratchpad variable `abc9.script`, and it drops its default script when the
+#: path in `-script` holds the text `-script`. So the flow writes the file under a relative name.
+ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
+
+#: The text of `ABC_NEW_SCRIPT`: `abc_speed_gia_only.script` of OpenROAD-flow-scripts
+#: (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`). It only builds and maps the
+#: network. `abc_new` maps each wrapped operator with the script that the operator carries.
+ABC_SPEED_GIA_ONLY = "&st\n&dch -r\n&nf\n" + "&st\n&syn2\n&if -g -K 6\n&synch2 -r\n&nf\n" * 5
+
 #: The roles of the platform files that `yosys` opens: the Liberty files, and the mapping files.
 #: The derivation of the platform model adds the LEF files.
 PLATFORM_ROLES = ("liberty", "latch_map", "clkgate_map", "adder_map")
@@ -120,6 +131,10 @@ class AsicValues:
     * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints.
     * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
     * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
+    * `abc_new_script`: the name of the script file that `abc_new` maps with, when
+      `abc.mapper` is `abc_new`.
+    * `wrap_script`, `booth_map`: the files of the package that wrap the operators, when
+      `arithmetic.wrap_operators` is on.
     * `delay_target_ps`: the `-D` of abc, in picoseconds.
     * `constraints`: the lines of the abc constraints from the driver cell and the load.
     """
@@ -134,8 +149,16 @@ class AsicValues:
     tie_cells: Optional[HiLoMap] = None
     buffer_cell: Optional[Tuple[str, str, str]] = None
     abc_script: Optional[str] = None
+    abc_new_script: Optional[str] = None
+    wrap_script: Optional[Path] = None
+    booth_map: Optional[Path] = None
     delay_target_ps: Optional[float] = None
     constraints: Tuple[str, ...] = ()
+
+
+def _asic_data(name: str) -> Path:
+    """Return the path of the file `name` in the `data/asic` directory of the package."""
+    return Path(str(resources.files("xeda.flows.yosys").joinpath("data", "asic", name)))
 
 
 def _changed_group_leaves(settings: "Yosys.Settings") -> List[str]:
@@ -212,7 +235,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             None,
             description="Include cell and wire attributes in the written Verilog netlist. Unset: "
             "included, except when mapping to a liberty library (that netlist is written for "
-            "place and route).",
+            "place and route). A netlist with wrapped operators (`arithmetic.wrap_operators`) "
+            "keeps its attributes, and `false` is refused.",
         )
         post_synth_opt: Optional[bool] = Field(
             None,
@@ -369,12 +393,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             ("abc.mapper", settings.abc.mapper != "abc"),
         )
         for key, asked in tcl_only:
-            if not asked:
-                continue
-            if settings.script_format == "ys":
+            if asked and settings.script_format == "ys":
                 problems.append((key, f"`{key}` needs `script_format: tcl`"))
-            else:
-                problems.append((key, f"`{key}` is not yet supported"))
+        problems += cls._tcl_mode_problems(settings)
         if settings.abc_script is not None and settings.abc.strategy != "area":
             problems.append(
                 (
@@ -391,6 +412,60 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                     "`abc.delay_target: auto` takes the period of the main clock: give `clock`",
                 )
             )
+        return problems
+
+    @classmethod
+    def _tcl_mode_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
+        """Return what is wrong with hierarchical synthesis, operator wrapping and `abc_new`
+        together with the other settings."""
+        problems: List[Tuple[str, str]] = []
+        abc_new = settings.abc.mapper == "abc_new"
+        if settings.hierarchy.keep_min_cost is not None and settings.flatten is False:
+            problems.append(
+                (
+                    "hierarchy.keep_min_cost",
+                    "`hierarchy.keep_min_cost` flattens every module that costs less, so it "
+                    "cannot run with `flatten: false`: delete one of them",
+                )
+            )
+        if settings.arithmetic.wrap_operators:
+            if not abc_new:
+                problems.append(
+                    (
+                        "arithmetic.wrap_operators",
+                        "`arithmetic.wrap_operators` is on, and operator wrapping maps with "
+                        "`abc_new`: set `abc.mapper: abc_new`",
+                    )
+                )
+            if settings.netlist_attrs is False:
+                problems.append(
+                    (
+                        "netlist_attrs",
+                        "`netlist_attrs: false` removes the attributes `arithmetic_operator`, "
+                        "`implements_operator`, `architecture` and `source_cell`, which the "
+                        "place and route tool needs to swap the wrapped operators "
+                        "(`arithmetic.wrap_operators`): delete `netlist_attrs` or set it to "
+                        "true",
+                    )
+                )
+        if abc_new:
+            if settings.abc.strategy != "area":
+                problems.append(
+                    (
+                        "abc.strategy",
+                        f"`abc.strategy` (`{settings.abc.strategy}`) has no effect with "
+                        "`abc.mapper: abc_new`, which maps with its own script: delete "
+                        "`abc.strategy`",
+                    )
+                )
+            if settings.abc_script is not None:
+                problems.append(
+                    (
+                        "abc_script",
+                        "`abc_script` has no effect with `abc.mapper: abc_new`, which maps with "
+                        "its own script: delete `abc_script`",
+                    )
+                )
         return problems
 
     def init(self):
@@ -424,7 +499,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Complete the netlist settings that the user left unset.
 
         For a liberty mapping: flattening, splitting the nets, and a gate-level netlist (without
-        attributes and hexadecimal constants). Without a liberty mapping, the netlist keeps
+        attributes and hexadecimal constants; wrapped operators keep their attributes). Without a liberty mapping, the netlist keeps
         attributes and hexadecimal constants. Post-synthesis optimization is off unless the user
         turns it on for another mapping. A setting that the user gave is never replaced. Only an
         unset (`None`) setting is derived. The settings of the groups are never derived: see
@@ -434,7 +509,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         assert isinstance(ss, self.Settings)
         mapping = ss.maps_to_liberty()
         if ss.netlist_attrs is None:
-            ss.netlist_attrs = not mapping
+            # the place and route tool reads the attributes of the wrapped operators
+            ss.netlist_attrs = not mapping or ss.arithmetic.wrap_operators
         if ss.netlist_hex is None:
             ss.netlist_hex = not mapping
         if ss.post_synth_opt is None:
@@ -514,6 +590,13 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             abc_script=(
                 ss.abc_script if ss.abc_script is not None else abc_strategy_script(ss.abc.strategy)
             ),
+            abc_new_script=ABC_NEW_SCRIPT if ss.abc.mapper == "abc_new" else None,
+            wrap_script=(
+                _asic_data("synth_wrap_operators.tcl") if ss.arithmetic.wrap_operators else None
+            ),
+            booth_map=(
+                _asic_data("synth_wrap_operators-booth.v") if ss.arithmetic.wrap_operators else None
+            ),
             delay_target_ps=delay_target_ps,
             constraints=tuple(constraints),
         )
@@ -563,6 +646,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             abc_constr_file = "abc.constr"
             with replacing_file(self.run_directory.writable(abc_constr_file)) as f:
                 f.write("\n".join(constraints) + "\n")
+
+        if asic.abc_new_script:
+            with replacing_file(self.run_directory.writable(asic.abc_new_script)) as f:
+                f.write(ABC_SPEED_GIA_ONLY)
 
         script_path = self.copy_from_template(
             f"yosys_synth{self.script_ext}",

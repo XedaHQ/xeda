@@ -76,7 +76,7 @@ class ArithmeticGroup(SettingsGroup):
         False,
         description="Wrap wide operators in modules with alternative architectures, for the "
         "place and route tool to choose from. Needs a yosys with Tcl, `script_format: tcl` and "
-        "`abc.mapper: abc_new`.",
+        "`abc.mapper: abc_new`. The netlist keeps its attributes.",
         json_schema_extra=tier("advanced"),
     )
 
@@ -134,7 +134,8 @@ class AbcGroup(SettingsGroup):
     mapper: Literal["abc", "abc_new"] = Field(
         "abc",
         description="The yosys command that runs ABC. `abc_new` needs a yosys with Tcl and "
-        "`script_format: tcl`.",
+        "`script_format: tcl`. It maps with its own script, so it refuses `abc.strategy` other "
+        "than `area` and `abc_script`.",
         json_schema_extra=tier("advanced"),
     )
     driver_cell: Optional[str] = Field(

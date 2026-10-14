@@ -623,23 +623,19 @@ def test_a_default_leaf_is_not_refused_when_no_liberty_mapping_runs():
 
 
 @pytest.mark.parametrize(
-    "script_format,message",
-    [
-        ("ys", "needs `script_format: tcl`"),
-        ("tcl", "is not yet supported"),
-    ],
-)
-@pytest.mark.parametrize(
     "key,given",
     [
         ("hierarchy.keep_min_cost", {"hierarchy": {"keep_min_cost": 5}}),
-        ("arithmetic.wrap_operators", {"arithmetic": {"wrap_operators": True}}),
+        (
+            "arithmetic.wrap_operators",
+            {"arithmetic": {"wrap_operators": True}, "abc": {"mapper": "abc_new"}},
+        ),
         ("abc.mapper", {"abc": {"mapper": "abc_new"}}),
     ],
 )
-def test_a_value_that_only_the_tcl_script_renders_is_refused(key, given, script_format, message):
-    problems = dict(_refused(platform="nangate45", script_format=script_format, **given))
-    assert problems[key].startswith(f"`{key}` ") and message in problems[key]
+def test_a_value_that_only_the_tcl_script_renders_is_refused_with_the_ys_script(key, given):
+    problems = dict(_refused(platform="nangate45", script_format="ys", **given))
+    assert problems[key].startswith(f"`{key}` ") and "needs `script_format: tcl`" in problems[key]
 
 
 def test_wrap_operators_false_and_the_default_mapper_are_not_refused():
