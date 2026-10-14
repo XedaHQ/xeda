@@ -117,8 +117,8 @@ class GrtRepairGroup(SettingsGroup):
     wns_polish: Optional[bool] = Field(
         None,
         description='After the repair, run one more `repair_timing -setup -sequence "vt_swap '
-        'reroute"` on the worst paths. Unset: the value of the platform (`opt_post_grt_wns`), and '
-        "no polish where the platform gives none.",
+        'reroute"` on the worst paths. Unset: the value of the platform (`opt_post_grt_wns`, a '
+        "switch), and on where the platform gives none, as in OpenROAD-flow-scripts.",
         json_schema_extra=tier("advanced"),
     )
     recover_power_percent: Optional[float] = Field(

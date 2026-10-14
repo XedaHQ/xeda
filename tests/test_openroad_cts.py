@@ -428,9 +428,17 @@ def test_the_repair_follows_its_settings(tmp_path):
     }
     line = command(body(tmp_path / "setup", {"repair": setup}), "repair_timing")
     assert line == (
-        'repair_timing -setup -setup_margin 0.0 -hold_margin 0.0 -sequence "sizeup,swap" '
+        'repair_timing -setup -setup_margin 0.0 -hold_margin 0.0 -sequence "sizeup swap" '
         '-repair_tns "40.0" -skip_last_gasp -skip_pin_swap -verbose'
     )
+
+
+def test_the_phases_of_the_repair_are_words_with_spaces_between_them(tmp_path):
+    """The installed OpenROAD splits `-phases` at white space only: `"WNS,TNS"` stops it with
+    `Unknown phase name 'WNS,TNS'`."""
+    repair = {"sequence": ["sizeup", "swap"], "phases": ["WNS", "TNS"]}
+    line = command(body(tmp_path, {"repair": repair}), "repair_timing")
+    assert '-sequence "sizeup swap"' in line and '-phases "WNS TNS"' in line
 
 
 @pytest.mark.parametrize("unit, setup, hold", [("1ns", "0.05", "0.02"), ("1ps", "50.0", "20.0")])

@@ -86,8 +86,9 @@ _MOVE_SWITCHES = {
 def comma_word(items: Sequence[Any]) -> str:
     """Return the items as one Tcl word with commas between them: `"unbuffer,sizeup"`.
 
-    `repair_timing` reads `-sequence` and `-phases` in this form. Pass it as the `list_word` of
-    `render_flags`."""
+    `repair_timing` reads `-sequence` in this form, and in the form of `space_word` too. It reads
+    `-phases` only in the form of `space_word`: the installed OpenROAD rejects `"WNS,TNS"`. Pass
+    it as the `list_word` of `render_flags`."""
     return tcl_word(",".join(str(item) for item in items))
 
 

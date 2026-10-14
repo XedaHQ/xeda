@@ -39,14 +39,18 @@ TEMPLATES = Path(base.__file__).parent / "templates"
 # ------------------------------------------------------------------------------ helpers
 
 
-def residue_with(tmp_path: Path, **values: Any) -> Path:
+def residue_with(tmp_path: Path, *, upstream: bool = False, **values: Any) -> Path:
     """Return a copy of the residue file of the `tiny` platform with `values` added under
-    `values`, for a test of a planning rule that reads the platform."""
+    `values`, for a test of a planning rule that reads the platform. With `upstream`, the platform
+    reads the configuration file of its PDK too, whose values only a run can see."""
     text = TINY_OPENROAD_RESIDUE.read_text()
     extra = "".join(f"  {key}: {json.dumps(value)}\n" for key, value in values.items())
+    text = text.replace("values:\n", "values:\n" + extra, 1)
+    if upstream:
+        text = "upstream: {adapter: orfs_config_mk, files: [config.mk]}\n" + text
     path = tmp_path / "residue" / "tiny_openroad.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text.replace("values:\n", "values:\n" + extra, 1))
+    path.write_text(text)
     return path
 
 
@@ -55,14 +59,20 @@ def grt_flow(
     settings: dict[str, Any] | None = None,
     *,
     model: dict[str, Any] | None = None,
-    residue: Path = TINY_OPENROAD_RESIDUE,
+    residue: Path | None = None,
+    unset_polish: bool = False,
 ) -> OpenroadGrt:
     """Return the flow on the `tiny` platform, ready to render: its run directory is
     `tmp_path/work`, its database and SDC file are in `tmp_path/inputs`, its outputs are set and
     `prepare_inputs()` has run.
 
     `settings` are nested settings (a group is a dictionary). `model` replaces fields of the
-    platform model after `prepare_inputs()`."""
+    platform model after `prepare_inputs()`. The platform asks for no polish of the worst slack,
+    unless `unset_polish` leaves its value unset or `residue` names another residue file."""
+    if residue is None:
+        residue = (
+            TINY_OPENROAD_RESIDUE if unset_polish else residue_with(tmp_path, opt_post_grt_wns=0)
+        )
     store = tiny_store(tmp_path, "store")
     design = Design.from_file(openroad_design(tmp_path / "design"))
     given = {**tiny_settings(store, residue=residue), **(settings or {})}
@@ -165,14 +175,15 @@ def tokens(tmp_path: Path, text: str) -> str:
 
 
 def test_the_defaults_render_the_golden_script(tmp_path):
-    script = tokens(tmp_path, render(grt_flow(tmp_path)))
+    script = tokens(tmp_path, render(grt_flow(tmp_path, unset_polish=True)))
     assert script == GOLDEN.read_text()
 
 
 def test_the_defaults_route_and_repair_as_openroad_flow_scripts_does(tmp_path):
-    """The commands and the flags of the default stage, line by line. The platform does not ask
-    for the polish of the worst slack, and it has a usable diode."""
-    assert body(tmp_path) == [
+    """The commands and the flags of the default stage, line by line. The platform gives no value
+    for the polish of the worst slack, so the default of OpenROAD-flow-scripts applies: it
+    polishes. The platform has a usable diode."""
+    assert body(tmp_path, unset_polish=True) == [
         "xeda_stage globalroute",
         "pin_access",
         'global_route -congestion_report_file "reports/congestion.rpt" '
@@ -193,6 +204,7 @@ def test_the_defaults_route_and_repair_as_openroad_flow_scripts_does(tmp_path):
         "global_route -end_incremental "
         '-congestion_report_file "reports/congestion_post_repair_timing.rpt"',
         "estimate_parasitics -global_routing",
+        'repair_timing -setup -sequence "vt_swap reroute" -skip_last_gasp -repair_tns 0 -verbose',
         'repair_antennas "ANTENNA_X1" -iterations "5"',
         "check_placement -verbose",
         'check_antennas -report_file "reports/antennas.rpt"',
@@ -203,7 +215,7 @@ def test_the_defaults_route_and_repair_as_openroad_flow_scripts_does(tmp_path):
 
 
 def test_the_defaults_run_the_commands_of_the_flow_in_order(tmp_path):
-    calls = run_script(grt_flow(tmp_path))
+    calls = run_script(grt_flow(tmp_path, unset_polish=True))
     commands = [
         call[0]
         for call in calls
@@ -244,6 +256,7 @@ def test_the_defaults_run_the_commands_of_the_flow_in_order(tmp_path):
         "check_placement",
         "global_route",
         "estimate_parasitics",
+        "repair_timing",
         "repair_antennas",
         "check_placement",
         "check_antennas",
@@ -508,13 +521,16 @@ def test_the_footprint_of_the_platform_applies_unless_the_settings_say_otherwise
     assert "-match_cell_footprint" not in words(body(tmp_path / "plain"), "repair_timing")[0]
 
 
-def test_the_polish_of_the_worst_slack_follows_the_platform_unless_the_settings_say_otherwise(
+def test_the_polish_of_the_worst_slack_follows_the_setting_then_the_platform_then_the_default(
     tmp_path,
 ):
     polish = (
         'repair_timing -setup -sequence "vt_swap reroute" -skip_last_gasp -repair_tns 0 -verbose'
     )
     assert polish not in body(tmp_path)
+    assert polish in body(tmp_path / "unset", unset_polish=True)
+    off = {"wns_polish": False}
+    assert polish not in body(tmp_path / "unset-off", {"repair": off}, unset_polish=True)
     found = body(tmp_path / "platform", model={"opt_post_grt_wns": 1.0})
     assert polish in found
     # the polish comes after the repair of the timing and its increment, and before the antennas
@@ -667,17 +683,32 @@ def test_the_effective_values_are_a_pure_function_of_the_settings_and_the_model(
     assert (settings.model_dump_json(), model.model_dump_json()) == before
 
 
-def test_the_polish_comes_from_the_setting_and_else_from_the_platform(tmp_path):
+def test_the_polish_comes_from_the_setting_then_the_platform_then_the_default(tmp_path):
     flow = grt_flow(tmp_path)
     assert effective(flow.settings, flow.platform_model).wns_polish is False
+    unset = flow.platform_model.model_copy(update={"opt_post_grt_wns": None})
+    assert effective(flow.settings, unset).wns_polish is True
+    flow.settings.repair.wns_polish = False
+    assert effective(flow.settings, unset).wns_polish is False
+    flow.settings.repair.wns_polish = None
     model = flow.platform_model.model_copy(update={"opt_post_grt_wns": 1.0})
     assert effective(flow.settings, model).wns_polish is True
     zero = flow.platform_model.model_copy(update={"opt_post_grt_wns": 0.0})
     assert effective(flow.settings, zero).wns_polish is False
+    for value in (2, 0.5):  # the platform value is a switch, and any value but 0 is on
+        switch = flow.platform_model.model_copy(update={"opt_post_grt_wns": value})
+        assert effective(flow.settings, switch).wns_polish is True
     flow.settings.repair.wns_polish = False
     assert effective(flow.settings, model).wns_polish is False
     flow.settings.repair.wns_polish = True
     assert effective(flow.settings, zero).wns_polish is True
+
+
+def test_the_platform_value_of_the_polish_is_described_as_a_switch():
+    from xeda.platforms.model import PlatformModel
+
+    description = PlatformModel.model_fields["opt_post_grt_wns"].description
+    assert description and "Switch" in description and "any value but 0" in description
 
 
 def test_the_diode_comes_from_the_setting_and_else_from_the_platform(tmp_path):
@@ -707,12 +738,15 @@ def test_a_power_recovery_that_the_platform_polish_replaces_is_refused_before_op
 ):
     """The platform may come from the configuration of its PDK, which planning does not read."""
     flow = grt_flow(tmp_path, {"repair": {"recover_power_percent": 10}})
-    model = flow.platform_model.model_copy(update={"opt_post_grt_wns": 1.0})
-    with pytest.raises(FlowSettingsException) as error:
-        effective(flow.settings, model)
-    message = " ".join(str(error.value).split())
-    assert "`repair.recover_power_percent` has no effect" in message
-    assert "`repair.wns_polish: false`" in message
+    for value, said in ((1.0, "sets `opt_post_grt_wns`"), (None, "gives no `opt_post_grt_wns`")):
+        model = flow.platform_model.model_copy(update={"opt_post_grt_wns": value})
+        with pytest.raises(FlowSettingsException) as error:
+            effective(flow.settings, model)
+        message = " ".join(str(error.value).split())
+        assert "`repair.recover_power_percent` has no effect" in message and said in message
+        assert "`repair.wns_polish: false`" in message
+    flow.settings.repair.wns_polish = False
+    assert effective(flow.settings, model).wns_polish is False
 
 
 # ------------------------------------------------------------------------------ planning
@@ -824,9 +858,19 @@ def test_a_power_recovery_is_no_contradiction_where_the_platform_asks_for_no_pol
     assert planned.nodes[-1].name == "openroad_grt"
 
 
+def test_a_platform_that_gives_no_value_polishes_as_openroad_flow_scripts_does(tmp_path):
+    """Without a value in the platform and without the configuration of the PDK to give one, the
+    default of OpenROAD-flow-scripts applies: the flow polishes, so a power recovery has no
+    effect."""
+    message = refusal(tmp_path, "repair.recover_power_percent=10")
+    assert "`repair.recover_power_percent` has no effect" in message
+    assert "gives no `opt_post_grt_wns`" in message and "`repair.wns_polish: false`" in message
+
+
 def test_a_platform_value_that_is_unknown_at_planning_refuses_nothing(tmp_path):
-    """The default platform has no value of its own, so planning cannot tell and does not refuse."""
-    planned = plan(tmp_path, "repair.recover_power_percent=10")
+    """The configuration of the PDK may give the value, and only a run reads it."""
+    residue = residue_with(tmp_path, upstream=True)
+    planned = plan(tmp_path, "repair.recover_power_percent=10", residue=residue)
     assert planned.nodes[-1].name == "openroad_grt"
 
 

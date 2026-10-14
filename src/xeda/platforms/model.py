@@ -320,7 +320,10 @@ class PlatformValues(_Model):
         None, description="Whether resizing keeps the footprint of a cell."
     )
     opt_post_grt_wns: Optional[Number] = Field(
-        None, description="Worst negative slack that optimization after global routing accepts."
+        None,
+        description="Switch for the optimization after global routing (`OPT_POST_GRT_WNS` of "
+        "OpenROAD-flow-scripts): any value but 0 runs the polish of the worst slack after global "
+        "routing, and 0 skips it, which leaves room for the power recovery.",
     )
     synth_minimum_keep_size: Optional[Count] = Field(
         None, description="Size in cells below which synthesis flattens a module."

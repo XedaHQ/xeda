@@ -25,7 +25,7 @@ proc xeda_cts {} {
     detailed_placement
     estimate_parasitics -placement
 {% if crt.enabled %}
-    repair_timing {{ [fix_flags[crt.fix], "-setup_margin " ~ (crt.setup_margin|lib_time), "-hold_margin " ~ (crt.hold_margin|lib_time), render_flags(crt, comma_word), render_flags(crt.moves), "-match_cell_footprint" if crt_footprint else "", "-verbose"]|select|join(" ") }}
+    repair_timing {{ [fix_flags[crt.fix], "-setup_margin " ~ (crt.setup_margin|lib_time), "-hold_margin " ~ (crt.hold_margin|lib_time), render_flags(crt, space_word), render_flags(crt.moves), "-match_cell_footprint" if crt_footprint else "", "-verbose"]|select|join(" ") }}
     detailed_placement
 {% endif %}
     check_placement -verbose

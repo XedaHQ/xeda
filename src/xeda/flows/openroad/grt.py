@@ -56,7 +56,9 @@ class EffectiveGrt(EffectiveBase):
     #: `match_cell_footprint` of the repair is unset. The platform decides.
     match_cell_footprint: bool
     #: Whether one more setup repair follows the repairs, with the swap of threshold voltage and
-    #: the reroute only. The setting `repair.wns_polish` decides, else the platform.
+    #: the reroute only. The setting `repair.wns_polish` decides, else the platform
+    #: (`opt_post_grt_wns`, a switch: any value but 0 is on), else the default of
+    #: OpenROAD-flow-scripts, which is on.
     wns_polish: bool
     #: The diode cell that `repair_antennas` inserts, or `None`: the tool finds one.
     diode_cell: Optional[str]
@@ -65,12 +67,19 @@ class EffectiveGrt(EffectiveBase):
     diode_usable: bool
 
 
-def _polish_replaces_the_power_recovery(platform: str) -> str:
+def _polish_replaces_the_power_recovery(platform: str, given: bool) -> str:
+    """Return the refusal of a power recovery that the polish of the platform replaces. `given`
+    says whether the platform sets `opt_post_grt_wns`, or the default of OpenROAD-flow-scripts
+    (the polish is on) applies."""
+    why = (
+        "sets `opt_post_grt_wns` and so runs"
+        if given
+        else "gives no `opt_post_grt_wns`, so the flow runs, as OpenROAD-flow-scripts does,"
+    )
     return (
-        "`repair.recover_power_percent` has no effect, because the platform "
-        f"{platform!r} sets `opt_post_grt_wns` and so runs the polish of the worst slack, and "
-        "the flow recovers power only without the polish: set `repair.wns_polish: false` or "
-        "delete `repair.recover_power_percent`"
+        f"`repair.recover_power_percent` has no effect, because the platform {platform!r} {why} "
+        "the polish of the worst slack, and the flow recovers power only without the polish: set "
+        "`repair.wns_polish: false` or delete `repair.recover_power_percent`"
     )
 
 
@@ -78,13 +87,16 @@ def effective(settings: "OpenroadGrt.Settings", model: PlatformModel) -> Effecti
     """Return the values of the templates of `openroad_grt` for `settings` and the platform
     `model`. The function reads only its arguments and changes neither.
 
-    Raise `FlowSettingsException` for a power recovery that the polish of the platform replaces:
-    planning cannot see a value that the platform takes from the configuration of its PDK."""
+    Raise `FlowSettingsException` for a power recovery that the polish replaces: planning cannot
+    see a value that the platform takes from the configuration of its PDK."""
     polish = settings.repair.wns_polish
     if polish is None:
-        polish = bool(model.opt_post_grt_wns)
+        switch = model.opt_post_grt_wns
+        polish = True if switch is None else bool(switch)
         if polish and settings.repair.recover_power_percent is not None:
-            raise FlowSettingsException(_polish_replaces_the_power_recovery(model.name))
+            raise FlowSettingsException(
+                _polish_replaces_the_power_recovery(model.name, switch is not None)
+            )
     given = settings.antenna.diode_cell
     platform_cell = model.antenna_cell.cell if model.antenna_cell is not None else None
     return EffectiveGrt(
@@ -209,10 +221,11 @@ class OpenroadGrt(OpenroadStage):
 
     @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
-        """Refuse what the groups cannot judge alone: a power recovery that the polish of the
-        platform replaces. A platform that reads the configuration of its PDK gives its value
-        only when the flow runs, so `prepare_inputs()` judges that case. This reads the settings
-        and the residue files only."""
+        """Refuse what the groups cannot judge alone: a power recovery that the polish replaces.
+        The polish is on where the platform asks for it or gives no value. A platform that reads
+        the configuration of its PDK gives its value only when the flow runs, so
+        `prepare_inputs()` judges that case. This reads the settings and the residue files
+        only."""
         super().check_settings_supported(settings)
         if not isinstance(settings, cls.Settings):
             return
@@ -222,11 +235,14 @@ class OpenroadGrt(OpenroadStage):
         if repair.recover_power_percent is None or repair.wns_polish is not None:
             return
         residue = settings.residue()
-        if residue.values.opt_post_grt_wns:
+        switch = residue.values.opt_post_grt_wns
+        if switch is None and residue.upstream is not None:
+            return  # the configuration of the PDK may give the value, and only a run reads it
+        if switch is None or switch:
             problems: List[tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = [
                 (
                     "repair.recover_power_percent",
-                    _polish_replaces_the_power_recovery(residue.name),
+                    _polish_replaces_the_power_recovery(residue.name, switch is not None),
                     None,
                     "value_error",
                 )

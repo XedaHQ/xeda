@@ -94,6 +94,7 @@ proc xeda_global_route {} {
     check_placement -verbose
     global_route -end_incremental -congestion_report_file "reports/congestion_post_repair_timing.rpt"
     estimate_parasitics -global_routing
+    repair_timing -setup -sequence "vt_swap reroute" -skip_last_gasp -repair_tns 0 -verbose
     repair_antennas "ANTENNA_X1" -iterations "5"
     check_placement -verbose
     check_antennas -report_file "reports/antennas.rpt"
