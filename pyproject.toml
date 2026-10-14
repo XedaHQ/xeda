@@ -91,9 +91,6 @@ include = ["xeda*"]
 exclude = [
     "tests/**",
     "*/tests/**",
-    "platforms",
-    "*/platforms",
-    "**/platforms/**",
 ]
 namespaces = false
 
@@ -118,8 +115,9 @@ namespaces = false
     "*.xcf",
     "*.xdc",
     "*.ys",
-    # "*/platforms/**",
 ]
+# The residue file of each platform, its Yosys techmaps and the attribution of the values in them.
+"xeda.platforms" = ["*/platform.yaml", "*/*.v", "NOTICE.md"]
 "xeda.flow" = ["templates/*.h"]
 "xeda.flows.modelsim" = ["templates/*.tcl"]
 "xeda.flows.vivado" = ["templates/*.tcl"]
@@ -141,8 +139,6 @@ namespaces = false
 [tool.setuptools.exclude-package-data]
 "xeda" = [
     "tests/*",
-    # moving the platforms to the xeda_platforms* packages
-    "**/platforms/",
 ]
 
 [tool.setuptools_scm]

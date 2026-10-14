@@ -1,0 +1,40 @@
+# platform.yaml (nangate45): values from OpenROAD-flow-scripts, see ../NOTICE.md
+name: nangate45
+providers:
+  default: orfs
+  orfs: {version: 6b305a712966be72d8908695c04398acdbe273ca, directory: flow/platforms/nangate45, download_mib: 1.7}
+  directory: {layout: orfs}
+upstream: {adapter: orfs_config_mk, files: [config.mk]}
+corners: {default: typical, aliases: {tt: typical}}
+files:
+  liberty: {typical: [lib/NangateOpenCellLibrary_typical.lib]}
+  tech_lef: lef/NangateOpenCellLibrary.tech.lef
+  cell_lef: [lef/NangateOpenCellLibrary.macro.mod.lef]
+  gds: [gds/NangateOpenCellLibrary.gds]
+  rcx_rules: rcx_patterns.rules
+  klayout_tech: FreePDK45.lyt
+  klayout_layer_props: FreePDK45.lyp
+  latch_map: cells_latch.v
+  clkgate_map: cells_clkgate.v
+  adder_map: cells_adders.v
+values:
+  endcap_cell: TAPCELL_X1
+  tapcell: {distance: 120}
+  routing: {layer_adjustments: {metal2-metal3: 0.5, metal4-metal10: 0.25}}
+  wire_rc: {signal_layer: metal3, clock_layer: metal5, layers: {
+    metal1: [5.4286e-03, 7.41819E-02], metal2: [3.57167E-03, 8.33611E-02],
+    metal3: [3.57147E-03, 1.03981E-01], metal4: [1.50001E-03, 1.19150E-01],
+    metal5: [1.50000E-03, 1.09256E-01], metal6: [1.50000E-03, 1.14168E-01],
+    metal7: [1.87501E-04, 1.17491E-01], metal8: [1.87501E-04, 9.45346E-02],
+    metal9: [3.74996E-05, 1.06091E-01], metal10: [3.75000E-05, 7.37095E-01]}}
+  pdn: {power_net: VDD, ground_net: VSS, global_connects: [
+    {net: VDD, pin_pattern: ^VDD$, kind: power}, {net: VDD, pin_pattern: ^VDDPE$},
+    {net: VDD, pin_pattern: ^VDDCE$}, {net: VSS, pin_pattern: ^VSS$, kind: ground},
+    {net: VSS, pin_pattern: ^VSSE$}], rails: [{layer: metal1, width: 0.17}], straps: [
+    {layer: metal4, width: 0.48, pitch: 56, offset: 2},
+    {layer: metal7, width: 1.4, pitch: 30, offset: 2}],
+    connects: [[metal1, metal4], [metal4, metal7]], pin_layers: [metal7]}
+overrides:
+  tracks.metal1: &t {value: {x: [0.095, 0.19], y: [0.07, 0.14]}, reason: the LEF gives one pitch per layer; ORFS sets x and y}
+  tracks.metal2: *t
+  tracks.metal3: *t
