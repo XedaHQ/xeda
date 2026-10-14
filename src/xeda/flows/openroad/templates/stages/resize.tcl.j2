@@ -21,7 +21,7 @@ proc xeda_resize {} {
 {% endif %}
 {% if rt.enabled %}
     estimate_parasitics -placement
-    repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, comma_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
+    repair_timing {{ [fix_flags[rt.fix], "-setup_margin " ~ (rt.setup_margin|lib_time), "-hold_margin " ~ (rt.hold_margin|lib_time), render_flags(rt, space_word), render_flags(rt.moves), "-match_cell_footprint" if rt_footprint else "", "-verbose"]|select|join(" ") }}
 {% endif %}
     report_floating_nets
     xeda_metrics 1 0

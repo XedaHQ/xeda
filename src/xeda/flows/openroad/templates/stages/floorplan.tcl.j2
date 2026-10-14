@@ -83,7 +83,7 @@ proc xeda_floorplan {} {
 {% if fp.netlist_cleanup.mode == "repair_timing" and repair.enabled %}
     # The repair runs before the placement, with no parasitics: the wires cost nothing. Do not add
     # `estimate_parasitics` here, since that changes what the repair decides.
-    repair_timing {{ [fix_flags[repair.fix], "-setup_margin " ~ (repair.setup_margin|lib_time), "-hold_margin " ~ (repair.hold_margin|lib_time), render_flags(repair, comma_word), render_flags(repair.moves), "-match_cell_footprint" if footprint else "", "-verbose"]|select|join(" ") }}
+    repair_timing {{ [fix_flags[repair.fix], "-setup_margin " ~ (repair.setup_margin|lib_time), "-hold_margin " ~ (repair.hold_margin|lib_time), render_flags(repair, space_word), render_flags(repair.moves), "-match_cell_footprint" if footprint else "", "-verbose"]|select|join(" ") }}
 {% elif fp.netlist_cleanup.mode == "remove_buffers" %}
     remove_buffers
 {% endif %}

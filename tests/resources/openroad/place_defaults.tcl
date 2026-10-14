@@ -104,7 +104,7 @@ proc xeda_floorplan {} {
     repair_tie_fanout -separation "0.0" [xeda_tie_pin "TIEHI_SMALL" "Z"]
     # The repair runs before the placement, with no parasitics: the wires cost nothing. Do not add
     # `estimate_parasitics` here, since that changes what the repair decides.
-    repair_timing -setup -setup_margin 0.0 -hold_margin 0.0 -sequence "unbuffer,sizeup,swap,vt_swap" -repair_tns "100.0" -skip_last_gasp -verbose
+    repair_timing -setup -setup_margin 0.0 -hold_margin 0.0 -sequence "unbuffer sizeup swap vt_swap" -repair_tns "100.0" -skip_last_gasp -verbose
     report_units_metric
     xeda_metrics 0 0
 }

@@ -780,7 +780,7 @@ def test_the_netlist_cleanup_repairs_setup_without_parasitics(tmp_path):
     (repair,) = [line for line in body if line.startswith("repair_timing")]
     assert repair == (
         "repair_timing -setup -setup_margin 0.0 -hold_margin 0.0 "
-        '-sequence "unbuffer,sizeup,swap,vt_swap" -repair_tns "100.0" -skip_last_gasp -verbose'
+        '-sequence "unbuffer sizeup swap vt_swap" -repair_tns "100.0" -skip_last_gasp -verbose'
     )
     assert "estimate_parasitics" not in " ".join(body)
     calls = floorplan_calls(run_script(flow, script))
@@ -811,9 +811,28 @@ def test_the_repair_follows_its_settings(tmp_path):
     body = stage(render(flow), "xeda_floorplan")
     (line,) = [line for line in body if line.startswith("repair_timing")]
     assert line == (
-        'repair_timing -setup_margin 0.0 -hold_margin 0.0 -sequence "sizeup,swap" '
+        'repair_timing -setup_margin 0.0 -hold_margin 0.0 -sequence "sizeup swap" '
         '-repair_tns "40.0" -skip_pin_swap -match_cell_footprint -verbose'
     )
+
+
+def test_the_phases_of_a_repair_are_words_with_spaces_between_them(tmp_path):
+    """`repair_timing -phases` does not split at a comma: `WNS,TNS` is one unknown phase name
+    (RSZ-0217). The moves of `-sequence` are written the same way."""
+    repair = {"sequence": ["sizeup", "swap"], "phases": ["WNS", "LAST_GASP", "TNS"]}
+    flow = place_flow(
+        tmp_path,
+        {
+            "floorplan": {"netlist_cleanup": {"repair": repair}},
+            "resize": {"repair_timing": {"enabled": True, **repair}},
+        },
+    )
+    script = render(flow)
+    for name in ("xeda_floorplan", "xeda_resize"):
+        (line,) = [line for line in stage(script, name) if line.startswith("repair_timing")]
+        assert '-sequence "sizeup swap" -phases "WNS LAST_GASP TNS"' in line, name
+        assert "," not in line, name
+    run_script(flow, script)
 
 
 def test_the_footprint_of_the_platform_applies_unless_the_settings_say_otherwise(tmp_path):
@@ -1615,7 +1634,10 @@ def test_an_automatic_density_above_one_stops_the_script(tmp_path, monkeypatch):
     flow.copy_from_template("clocks.sdc", trim_blocks=True, lstrip_blocks=True)
     done = run_fake_openroad(flow.run_path, render(flow), driver="openroad_place")
     assert done.returncode != 0
-    assert "above 1.0" in done.stderr + done.stdout
+    output = done.stderr + done.stdout
+    assert "above 1.0" in output
+    assert "global_placement.density.headroom" in output
+    assert "floorplan.core_utilization_percent" in output
 
 
 def test_the_cells_are_placed_without_the_pins_first(tmp_path):

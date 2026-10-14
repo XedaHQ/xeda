@@ -9,7 +9,7 @@ proc xeda_density {} {
     set lower_bound [gpl::get_global_placement_uniform_density -pad_left {{ gp.cell_padding|tcl_number }} -pad_right {{ gp.cell_padding|tcl_number }}]
     set density [expr {$lower_bound + ((1.0 - $lower_bound) * {{ gp.density.headroom|tcl_number }}) + 0.01}]
     if {$density > 1.0} {
-        error "xeda: the placement density $density is above 1.0: lower global_placement.density.headroom or floorplan.core_utilization"
+        error "xeda: the placement density $density is above 1.0: lower global_placement.density.headroom or floorplan.core_utilization_percent"
     }
     puts "xeda: placement density $density, from the lower bound $lower_bound"
     return $density
