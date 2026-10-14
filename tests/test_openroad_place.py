@@ -712,6 +712,98 @@ def test_a_tap_distance_has_no_effect_when_the_platform_cuts_the_rows(tmp_path):
         effective(flow.settings, model)
 
 
+def test_the_rows_of_the_tap_cells_keep_a_minimum_width_and_height(tmp_path):
+    flow = place_flow(tmp_path, {"tapcell": {"row_min_width": 3, "row_min_height": 2.5}})
+    assert stage(render(flow), "xeda_tapcell")[1:] == [
+        'tapcell -distance 12.0 -tapcell_master "TAP_X1" -endcap_master "ENDCAP_X1" '
+        '-row_min_width "3.0" -row_min_height "2.5"'
+    ]
+    run_script(flow)
+
+
+def test_the_rows_that_are_cut_keep_a_minimum_width_and_height(tmp_path):
+    flow = place_flow(
+        tmp_path, {"tapcell": {"mode": "cut_rows", "row_min_width": 3, "row_min_height": 2.5}}
+    )
+    assert stage(render(flow), "xeda_tapcell")[1:] == [
+        'cut_rows -endcap_master "ENDCAP_X1" -row_min_width "3.0" -row_min_height "2.5"'
+    ]
+    run_script(flow)
+
+
+NWELL_FLAGS = {
+    "nwin2": "-tap_nwin2_master",
+    "nwin3": "-tap_nwin3_master",
+    "nwintie": "-tap_nwintie_master",
+    "nwout2": "-tap_nwout2_master",
+    "nwout3": "-tap_nwout3_master",
+    "nwouttie": "-tap_nwouttie_master",
+}
+CORNER_FLAGS = {
+    "nwin": "-cnrcap_nwin_master",
+    "nwout": "-cnrcap_nwout_master",
+    "inner_nwin": "-incnrcap_nwin_master",
+    "inner_nwout": "-incnrcap_nwout_master",
+}
+
+
+@pytest.mark.parametrize(
+    "group, leaf, flag",
+    [("nwell_masters", leaf, flag) for leaf, flag in NWELL_FLAGS.items()]
+    + [("corner_masters", leaf, flag) for leaf, flag in CORNER_FLAGS.items()],
+)
+def test_the_masters_by_well_and_corner_are_passed_to_the_tap_cell_command(
+    tmp_path, group, leaf, flag
+):
+    flow = place_flow(tmp_path, {"tapcell": {group: {leaf: "M_X1"}}})
+    line = stage(render(flow), "xeda_tapcell")[1]
+    assert line.endswith(f'{flag} "M_X1"') and line.startswith("tapcell -distance 12.0")
+    run_script(flow)
+
+
+def test_the_masters_by_well_come_before_the_masters_of_the_corners(tmp_path):
+    flow = place_flow(
+        tmp_path,
+        {"tapcell": {"corner_masters": {"nwin": "C1"}, "nwell_masters": {"nwin2": "W1"}}},
+    )
+    line = stage(render(flow), "xeda_tapcell")[1]
+    assert line.index("-tap_nwin2_master") < line.index("-cnrcap_nwin_master")
+
+
+@pytest.mark.parametrize(
+    "mode, leaf",
+    [
+        ("none", "row_min_width"),
+        ("none", "row_min_height"),
+        ("none", "nwell_masters.nwin2"),
+        ("none", "corner_masters.nwin"),
+        ("cut_rows", "nwell_masters.nwin2"),
+        ("cut_rows", "corner_masters.nwout"),
+    ],
+)
+def test_a_tap_cell_option_that_the_mode_does_not_use_is_refused(tmp_path, mode, leaf):
+    value = "2" if leaf.startswith("row_") else "M_X1"
+    message = refusal(tmp_path, f"tapcell.mode={mode}", f"tapcell.{leaf}={value}")
+    assert f"tapcell.{leaf}" in message and "no effect" in message
+
+
+def test_a_master_by_well_has_no_effect_when_the_platform_cuts_the_rows(tmp_path):
+    flow = place_flow(tmp_path, {"tapcell": {"nwell_masters": {"nwin2": "W1"}}})
+    model = flow.platform_model.model_copy(update={"tap_cell": None})
+    with pytest.raises(FlowSettingsException, match=r"tapcell\.nwell_masters\.nwin2.*cut_rows"):
+        effective(flow.settings, model)
+
+
+def test_the_tap_cell_options_keep_their_ranges(tmp_path):
+    for text in (
+        "tapcell.row_min_width=-1",
+        "tapcell.row_min_height=-1",
+        "tapcell.nwell_masters.nwin2=",
+    ):
+        with pytest.raises(FlowSettingsException):
+            plan(tmp_path / text, text)
+
+
 # ------------------------------------------------------------------------------ power grid
 
 

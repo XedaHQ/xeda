@@ -10,7 +10,7 @@ choose between flags or that need the platform.
 """
 
 from pathlib import Path
-from typing import Annotated, ClassVar, Literal, Optional, Tuple
+from typing import Annotated, Any, ClassVar, Literal, Optional, Tuple
 
 from ...dataclass import Field, tier
 from ...flow.settings_group import Flag, SettingsGroup
@@ -366,8 +366,69 @@ class TieGroup(SettingsGroup):
         ]
 
 
+def _master(flag: str, what: str) -> Any:
+    """A tap cell master that a platform may name: `None` leaves the flag out."""
+    return Field(
+        None,
+        min_length=1,
+        description=f"The cell for {what} (`tapcell {flag}`). Needs `tapcell.mode: tap_endcap`. "
+        "Unset: the flag is not passed.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class NwellMastersGroup(SettingsGroup):
+    """The tap cells at the top and the bottom of the core and of the macros, by the kind of
+    n-well. Platforms with tap cells in several widths use them (asap7, ihp-sg13g2)."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("nwin2", "-tap_nwin2_master", "value"),
+        Flag("nwin3", "-tap_nwin3_master", "value"),
+        Flag("nwintie", "-tap_nwintie_master", "value"),
+        Flag("nwout2", "-tap_nwout2_master", "value"),
+        Flag("nwout3", "-tap_nwout3_master", "value"),
+        Flag("nwouttie", "-tap_nwouttie_master", "value"),
+    )
+
+    nwin2: Optional[str] = _master("-tap_nwin2_master", "a two-site tap with the n-well inside")
+    nwin3: Optional[str] = _master("-tap_nwin3_master", "a three-site tap with the n-well inside")
+    nwintie: Optional[str] = _master("-tap_nwintie_master", "a tie tap with the n-well inside")
+    nwout2: Optional[str] = _master("-tap_nwout2_master", "a two-site tap with the n-well outside")
+    nwout3: Optional[str] = _master(
+        "-tap_nwout3_master", "a three-site tap with the n-well outside"
+    )
+    nwouttie: Optional[str] = _master("-tap_nwouttie_master", "a tie tap with the n-well outside")
+
+
+class CornerMastersGroup(SettingsGroup):
+    """The cells at the corners of the core and of the macros, by the kind of n-well."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("nwin", "-cnrcap_nwin_master", "value"),
+        Flag("nwout", "-cnrcap_nwout_master", "value"),
+        Flag("inner_nwin", "-incnrcap_nwin_master", "value"),
+        Flag("inner_nwout", "-incnrcap_nwout_master", "value"),
+    )
+
+    nwin: Optional[str] = _master("-cnrcap_nwin_master", "an outer corner with the n-well inside")
+    nwout: Optional[str] = _master(
+        "-cnrcap_nwout_master", "an outer corner with the n-well outside"
+    )
+    inner_nwin: Optional[str] = _master(
+        "-incnrcap_nwin_master", "an inner corner with the n-well inside"
+    )
+    inner_nwout: Optional[str] = _master(
+        "-incnrcap_nwout_master", "an inner corner with the n-well outside"
+    )
+
+
 class TapcellGroup(SettingsGroup):
     """The well tap cells and the end cap cells."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("row_min_width", "-row_min_width", "value"),
+        Flag("row_min_height", "-row_min_height", "value"),
+    )
 
     mode: Optional[Literal["tap_endcap", "cut_rows", "none"]] = Field(
         None,
@@ -397,23 +458,62 @@ class TapcellGroup(SettingsGroup):
         "`mode: tap_endcap` or `mode: cut_rows`. Unset: the value of the platform.",
         json_schema_extra=tier("advanced"),
     )
+    row_min_width: Optional[float] = Field(
+        None,
+        ge=0,
+        description="Remove the pieces of a row that are narrower than this, in micrometers "
+        "(`-row_min_width` of `tapcell` and of `cut_rows`). They would be islands that the "
+        "router cannot reach. Needs `mode: tap_endcap` or `mode: cut_rows`. Unset: the tool "
+        "uses twice the width of the end cap, or 0 without an end cap.",
+        json_schema_extra=tier("advanced"),
+    )
+    row_min_height: Optional[float] = Field(
+        None,
+        ge=0,
+        description="The least height of a stack of rows, in micrometers (`-row_min_height` of "
+        "`tapcell` and of `cut_rows`). Needs `mode: tap_endcap` or `mode: cut_rows`. Unset: the "
+        "tool uses twice the height of the end cap plus the height of the tallest cell.",
+        json_schema_extra=tier("expert"),
+    )
+    nwell_masters: NwellMastersGroup = Field(
+        default_factory=NwellMastersGroup,
+        description="The tap cells by the kind of n-well. The platform gives none of them.",
+    )
+    corner_masters: CornerMastersGroup = Field(
+        default_factory=CornerMastersGroup,
+        description="The corner cells by the kind of n-well. The platform gives none of them.",
+    )
+
+    #: The leaves that only `mode: tap_endcap` uses, and the leaves that `mode: cut_rows` uses
+    #: too. `mode: none` uses none of them.
+    TAP_ONLY: ClassVar[Tuple[str, ...]] = ("distance", "master")
+    ROWS: ClassVar[Tuple[str, ...]] = ("endcap_master", "row_min_width", "row_min_height")
 
     def problems(self, key: str) -> list[tuple[str, str]]:
         """Refuse a leaf that the mode does not use."""
         found: list[tuple[str, str]] = []
+        masters = [
+            *differing_leaves(self.nwell_masters, f"{key}.nwell_masters"),
+            *differing_leaves(self.corner_masters, f"{key}.corner_masters"),
+        ]
+        default = type(self)()
         unused = {
-            "none": ("distance", "master", "endcap_master"),
-            "cut_rows": ("distance", "master"),
-        }.get(self.mode or "", ())
-        for leaf in unused:
-            if getattr(self, leaf) is not None:
-                found.append(
-                    (
-                        f"{key}.{leaf}",
-                        f"`{key}.{leaf}` has no effect with `{key}.mode: {self.mode}`: set "
-                        f"`{key}.mode: tap_endcap` or delete `{key}.{leaf}`",
-                    )
+            "none": [*self.TAP_ONLY, *self.ROWS],
+            "cut_rows": list(self.TAP_ONLY),
+        }.get(self.mode or "", [])
+        leaves = [
+            f"{key}.{leaf}" for leaf in unused if getattr(self, leaf) != getattr(default, leaf)
+        ]
+        if self.mode in ("none", "cut_rows"):
+            leaves += masters
+        for leaf in leaves:
+            found.append(
+                (
+                    leaf,
+                    f"`{leaf}` has no effect with `{key}.mode: {self.mode}`: set "
+                    f"`{key}.mode: tap_endcap` or delete `{leaf}`",
                 )
+            )
         return found
 
 

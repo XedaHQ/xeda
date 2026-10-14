@@ -250,12 +250,17 @@ def effective(settings: "OpenroadPlace.Settings", model: PlatformModel) -> Effec
     mode = settings.tapcell.mode or ("tap_endcap" if master is not None else "cut_rows")
     given_distance = settings.tapcell.distance
     distance = given_distance if given_distance is not None else model.tapcell.distance
-    if mode == "cut_rows" and settings.tapcell.mode is None and given_distance is not None:
-        raise FlowSettingsException(
-            f"`tapcell.distance` has no effect: the platform {model.name!r} has no tap cell, so "
-            "`tapcell.mode` is `cut_rows`, which places no tap cells. Set `tapcell.mode: "
-            "tap_endcap` and `tapcell.master`, or delete `tapcell.distance`"
-        )
+    if mode == "cut_rows" and settings.tapcell.mode is None:
+        for leaf in (
+            *(["tapcell.distance"] if given_distance is not None else []),
+            *differing_leaves(settings.tapcell.nwell_masters, "tapcell.nwell_masters"),
+            *differing_leaves(settings.tapcell.corner_masters, "tapcell.corner_masters"),
+        ):
+            raise FlowSettingsException(
+                f"`{leaf}` has no effect: the platform {model.name!r} has no tap cell, so "
+                "`tapcell.mode` is `cut_rows`, which places no tap cells. Set `tapcell.mode: "
+                f"tap_endcap` and `tapcell.master`, or delete `{leaf}`"
+            )
     if mode == "tap_endcap":
         if master is None:
             raise _platform_gap(
