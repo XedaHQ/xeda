@@ -13,6 +13,7 @@ from .common import (
     YosysSynthesisBase,
     append_flag,
     process_parameters,
+    refuse_output_after_rtl,
     stop_after_conflicts,
 )
 
@@ -247,6 +248,12 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         )
 
     @classmethod
+    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
+        """Switch on the output that a consumer asks for, unless `stop_after` stops the flow."""
+        refuse_output_after_rtl(cls, settings, name)
+        super().enable_output(settings, name, design_name=design_name)
+
+    @classmethod
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse settings the run cannot honor, before anything runs.
 
@@ -290,7 +297,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             )
 
     def init(self):
-        """Resolve the Liberty files that the user gave against the design root.
+        """Resolve the files that the user gave against the design root.
+
+        These are the Liberty files and the mapping files (`adder_map`, `clockgate_map` and
+        `other_maps`).
 
         `abc_dff` is resolved first, since the shared `init()` adds `-dff` to the flags of `abc`
         when it is on."""
@@ -302,6 +312,12 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
         if ss.dff_liberty:
             ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
+        if ss.adder_map:
+            ss.adder_map = self.normalize_path_to_design_root(ss.adder_map)
+        if ss.clockgate_map:
+            ss.clockgate_map = self.normalize_path_to_design_root(ss.clockgate_map)
+        if ss.other_maps is not None:
+            ss.other_maps = [self.normalize_path_to_design_root(path) for path in ss.other_maps]
 
     def prepare_inputs(self) -> None:
         """Build the platform model, when abc maps to the liberty library of a platform."""

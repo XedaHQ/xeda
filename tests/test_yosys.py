@@ -1,3 +1,5 @@
+import ast
+import inspect
 import json
 import re
 import shutil
@@ -13,6 +15,7 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
+from xeda.flows.yosys.common import YosysBase, YosysSynthesisBase
 
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_store
 from .tool_utils import (
@@ -776,3 +779,81 @@ def test_a_design_of_the_types_the_flow_reads_is_planned_whatever_else_it_lists(
     design = Design(name="d", design_root=tmp_path, rtl={"sources": names, "top": "a"})
     planned = DefaultRunner(tmp_path / "xeda_run", display_results=False).plan(flow, design)
     assert [node.name for node in planned.nodes] == [flow]
+
+
+# ---------------------------------------------------------- what the shared bases may read
+
+
+def _names_used_by(cls: type) -> dict[str, set[str]]:
+    """Return each name that the code of `cls` (and of the classes nested in it) uses.
+
+    A name is an attribute (`settings.name`) or a string literal that equals it, which covers
+    `getattr(settings, "name")`, `setattr(...)` and a tuple of names that a loop reads by name.
+    The value is the set of functions that use the name.
+    """
+    used: dict[str, set[str]] = {}
+
+    def visit(node: ast.AST, function: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                visit(child, f"{function}.{child.name}" if function else child.name)
+                continue
+            if isinstance(child, ast.Attribute):
+                used.setdefault(child.attr, set()).add(function)
+            elif isinstance(child, ast.Constant) and isinstance(child.value, str):
+                used.setdefault(child.value, set()).add(function)
+            visit(child, function)
+
+    visit(ast.parse(inspect.getsource(cls)), "")
+    return used
+
+
+def test_the_shared_bases_read_no_setting_that_only_yosys_declares():
+    """`YosysBase` and `YosysSynthesisBase` serve `yosys_fpga` and `yosys_sim` too. A method of
+    theirs that reads a field of `Yosys.Settings` breaks the flows without it, and breaks when
+    `Yosys` moves or removes that field. Each flow reads and prepares the settings it declares.
+    """
+    shared = set(YosysSynthesisBase.Settings.model_fields)
+    assert shared >= set(YosysBase.Settings.model_fields)
+    yosys_only = set(Yosys.Settings.model_fields) - shared
+    assert {"adder_map", "clockgate_map", "other_maps", "liberty", "gates"} <= yosys_only
+    for base in (YosysBase, YosysSynthesisBase):
+        reads = {
+            name: sorted(functions)
+            for name, functions in _names_used_by(base).items()
+            if name in yosys_only
+        }
+        assert not reads, f"{base.__name__} uses a field that only Yosys.Settings declares: {reads}"
+
+
+def test_the_map_files_resolve_against_the_design_root(tmp_path):
+    """A relative `adder_map`, `clockgate_map` or `other_maps` of `yosys` names a file in the
+    design root, and so does the `clockgate_map` of `yosys_fpga`."""
+    design = Design.from_file(TESTS_DIR / "resources" / "design0" / "design0.toml")
+    root = design.design_root
+    flow = Yosys(
+        Yosys.Settings(
+            gates=["AND"],
+            clock={"period": 5.0},
+            adder_map="maps/add.v",
+            clockgate_map="maps/cg.v",
+            other_maps=["maps/a.v", "maps/b.v"],
+        ),
+        design,
+        tmp_path / "yosys",
+    )
+    flow.init()
+    assert isinstance(flow.settings, Yosys.Settings)
+    assert flow.settings.adder_map == root / "maps/add.v"
+    assert flow.settings.clockgate_map == root / "maps/cg.v"
+    assert flow.settings.other_maps == [root / "maps/a.v", root / "maps/b.v"]
+    fpga = YosysFpga(
+        YosysFpga.Settings(
+            fpga={"part": "xc7a12tcsg325-1"}, clock={"period": 5.0}, clockgate_map="maps/cg.v"
+        ),
+        design,
+        tmp_path / "yosys_fpga",
+    )
+    fpga.init()
+    assert isinstance(fpga.settings, YosysFpga.Settings)
+    assert fpga.settings.clockgate_map == root / "maps/cg.v"

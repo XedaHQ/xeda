@@ -94,6 +94,23 @@ def stop_after_conflicts(settings: Any) -> List[Tuple[str, str]]:
     return problems
 
 
+def refuse_output_after_rtl(flow: type[Flow], settings: Flow.Settings, name: str) -> None:
+    """Refuse the request of a consumer for an output of a flow that `stop_after` stops.
+
+    A flow stopped after the RTL (`stop_after: rtl`) writes no netlist, so the request has no
+    answer. The advice of `stop_after_conflicts`, to turn the netlist settings off, would be
+    circular here: this request turns them on. So the message says that no consumer can follow
+    the stopped flow. `flow` is the class that gets the request: `yosys` and `yosys_fpga` call
+    this function from their `enable_output`, since each declares `stop_after`.
+    """
+    if getattr(settings, "stop_after", None) == "rtl":
+        raise ValueError(
+            f"a flow that takes the {name} cannot follow a stopped {flow.name}: "
+            f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
+            "out the flow that takes it"
+        )
+
+
 def yosys_release(yosys: Tool) -> YosysRelease:
     """Return the release of `yosys`, for example (0, 69) for "Yosys 0.69+152 (git sha1 ...)"."""
     parts = [re.match(r"\d+", part) for part in yosys.version[:2]]
@@ -771,22 +788,6 @@ class YosysSynthesisBase(YosysBase):
                 return value
             return value
 
-    @classmethod
-    def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
-        """Switch on the output that a consumer asks for.
-
-        A flow stopped after the RTL (`stop_after`) writes no netlist, so the request is refused
-        with the message that no consumer can follow it. The advice of `stop_after_conflicts`, to
-        turn the netlist settings off, would be circular here: this request turns them on.
-        """
-        if getattr(settings, "stop_after", None) == "rtl":
-            raise ValueError(
-                f"a flow that takes the {name} cannot follow a stopped {cls.name}: "
-                f"`stop_after: rtl` ends it before it writes one. Remove `stop_after`, or leave "
-                "out the flow that takes it"
-            )
-        super().enable_output(settings, name, design_name=design_name)
-
     def _abc_script_file(self) -> Optional[Path]:
         """Return the ABC script file that `abc_script` names, or None.
 
@@ -832,13 +833,6 @@ class YosysSynthesisBase(YosysBase):
         if abc_script:
             ss.abc_script = str(abc_script)
             self.implicit_inputs.append(abc_script)
-        for name in ("adder_map", "clockgate_map"):
-            value = getattr(ss, name, None)
-            if value:
-                setattr(ss, name, self.normalize_path_to_design_root(value))
-        other_maps = getattr(ss, "other_maps", None)
-        if other_maps is not None:
-            setattr(ss, "other_maps", [self.normalize_path_to_design_root(p) for p in other_maps])
         if ss.sta or ss.ltp:
             ss.flatten = True
         if ss.abc_dff:

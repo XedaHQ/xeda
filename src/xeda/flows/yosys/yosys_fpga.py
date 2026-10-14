@@ -24,6 +24,7 @@ from .common import (
     YosysRelease,
     YosysSynthesisBase,
     process_parameters,
+    refuse_output_after_rtl,
     same_file,
     stop_after_conflicts,
     yosys_data_dir,
@@ -870,6 +871,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
     @classmethod
     def enable_output(cls, settings: Flow.Settings, name: str, *, design_name: str) -> None:
         if name != "netlist_edif":
+            refuse_output_after_rtl(cls, settings, name)
             return super().enable_output(settings, name, design_name=design_name)
         assert isinstance(settings, cls.Settings)
         if settings.fpga is None:
@@ -955,6 +957,10 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
         # of the design into `set_attribute`, and the run writes what the plan declared.
         problem = self.settings.edif_problem()
         super().init()
+        if self.settings.clockgate_map:
+            self.settings.clockgate_map = self.normalize_path_to_design_root(
+                self.settings.clockgate_map
+            )
         if problem is None:
             self.artifacts.netlist_edif = self.settings.netlist_edif
 
