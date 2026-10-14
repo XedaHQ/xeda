@@ -459,7 +459,7 @@ def test_a_synth_flag_that_a_setting_owns_is_refused_naming_the_setting(flag, ke
 
 def test_other_synth_flags_are_accepted():
     Yosys.check_settings_supported(
-        Yosys.Settings(platform="nangate45", synth_flags=["-extra-map", "x.v", "-nowidelut"])
+        Yosys.Settings(platform="nangate45", synth_flags=["-relativeshare", "-nowidelut"])
     )
 
 

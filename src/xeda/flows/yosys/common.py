@@ -10,10 +10,11 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from ...dataclass import WORKING, Field, deliverable, field_validator
 from ...design import LANGUAGE_TYPES, SourceType
-from ...flow import Flow, FlowException, FlowSettingsException
+from ...flow import Flow, FlowException, FlowSettingsError, FlowSettingsException
 from ...flows.ghdl import GhdlSynth
 from ...tool import Docker, Tool
 from ...utils import ToolException, hierarchical_merge, tcl_word, unique
+from .flag_hatches import SLANG_HATCHES, WRITE_VERILOG_SWITCHES, flag_problems
 
 log = logging.getLogger(__name__)
 YOSYS_DOCKER_IMAGE = "hdlc/impl"
@@ -260,11 +261,16 @@ class YosysBase(Flow):
         )
         read_verilog_flags: List[str] = Field(
             ["-noautowire", "-sv"],
-            description="Flags passed to yosys' `read_verilog` for each Verilog source.",
+            description="Flags passed to yosys' `read_verilog` for each Verilog source. When "
+            "`yosys` maps to a liberty library, it refuses a flag that the script or a setting "
+            "gives (`-defer`, `-D`, `-I`).",
         )
         read_systemverilog_flags: List[str] = Field(
             [],
-            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`.",
+            description="Flags passed to the SystemVerilog front-end selected by `systemverilog`. "
+            "With `slang`, a flag that the script gives to `read_slang` itself (`--top`, `-D`, "
+            "`-I`, `-G`, `--blackboxed-module`, `--extern-modules`, "
+            "`--best-effort-hierarchy`) is refused.",
         )
         check_assert: bool = Field(
             True,
@@ -465,6 +471,21 @@ class YosysBase(Flow):
         )
         self.jinja_env.globals["top_is_vhdl"] = self.top_is_vhdl
 
+    @classmethod
+    def check_settings_supported(cls, settings: Flow.Settings) -> None:
+        """Refuse what no yosys flow can honor, before anything runs.
+
+        With the slang front end, `read_systemverilog_flags` must not repeat a flag that the
+        script gives to `read_slang` itself. Every flow that reads SystemVerilog does it with the
+        same command, so the rule is the same for all of them.
+        """
+        super().check_settings_supported(settings)
+        problems = flag_problems(settings, SLANG_HATCHES)
+        if problems:
+            raise FlowSettingsError(
+                [(key, message, None, "value_error") for key, message in problems], cls.Settings
+            )
+
     def init(self):
         """Prepare the template helpers and the settings that every yosys flow shares."""
         assert isinstance(self.settings, self.Settings)
@@ -646,7 +667,10 @@ class YosysSynthesisBase(YosysBase):
         rmports: bool = Field(False, description="Remove unused or undriven ports.")
 
         synth_flags: List[str] = Field(
-            [], description="Extra flags passed to yosys' `synth` command."
+            [],
+            description="Extra flags passed to yosys' `synth` command. When `yosys` maps to a "
+            "liberty library, it refuses a flag that a setting or the script gives, and the "
+            "error names the setting.",
         )
 
         noabc: bool = Field(
@@ -655,7 +679,12 @@ class YosysSynthesisBase(YosysBase):
 
         abc_dff: bool = Field(True, description="Run abc and abc9 with `-dff`.")
 
-        abc_flags: List[str] = Field([], description="Extra flags passed to yosys' `abc`/`abc9`.")
+        abc_flags: List[str] = Field(
+            [],
+            description="Extra flags passed to yosys' `abc`/`abc9`. When `yosys` maps to a "
+            "liberty library, it refuses a flag that a setting gives, and the error names the "
+            "setting.",
+        )
 
         abc_constr: List[str] = Field(
             [],
@@ -713,7 +742,8 @@ class YosysSynthesisBase(YosysBase):
         netlist_verilog_flags: List[str] = Field(
             [],
             description="Extra flags for `write_verilog`, in addition to those the `netlist_*` "
-            "switches above imply.",
+            "switches above imply. When `yosys` maps to a liberty library, it refuses a flag "
+            "that a `netlist_*` switch gives.",
         )
 
         netlist_src_attrs: bool = Field(
@@ -771,14 +801,16 @@ class YosysSynthesisBase(YosysBase):
             switch set after construction takes effect (`Yosys.run` sets `netlist_expr` so).
             """
             flags = list(self.netlist_verilog_flags)
-            for switch, flag, flag_when in (
-                (self.netlist_dec, "-nodec", False),
-                (self.netlist_hex, "-nohex", False),
-                (self.netlist_expr, "-noexpr", False),
-                (self.netlist_attrs, "-noattr", False),
-                (self.netlist_blackboxes, "-blackboxes", True),
-                (self.netlist_simple_lhs, "-simple-lhs", True),
-            ):
+            switches = {
+                "netlist_dec": self.netlist_dec,
+                "netlist_hex": self.netlist_hex,
+                "netlist_expr": self.netlist_expr,
+                "netlist_attrs": self.netlist_attrs,
+                "netlist_blackboxes": self.netlist_blackboxes,
+                "netlist_simple_lhs": self.netlist_simple_lhs,
+            }
+            for field, flag, flag_when in WRITE_VERILOG_SWITCHES:
+                switch = switches[field]
                 if switch is flag_when:
                     flags.append(flag)
                 elif switch is (not flag_when) and flag in flags:

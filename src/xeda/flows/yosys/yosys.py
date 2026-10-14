@@ -34,6 +34,7 @@ from .asic_groups import (
     SequentialGroup,
     TechmapFile,
 )
+from .flag_hatches import LIBERTY_HATCHES, flag_problems
 from .common import (
     STOP_AFTER_DESCRIPTION,
     YosysSynthesisBase,
@@ -191,38 +192,6 @@ LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
         "setting or set it to false",
     ),
 )
-
-
-#: The options of `synth` that a setting of the liberty mapping owns, each with that setting. The
-#: setting renders the option, so `synth_flags` does not repeat it.
-SYNTH_OPTIONS_OF_SETTINGS: Dict[str, str] = {
-    "-nofsm": "coarse.fsm",
-    "-noshare": "coarse.share",
-    "-noalumacc": "arithmetic.alumacc",
-    "-booth": "arithmetic.multiplier",
-    "-arith_tree": "arithmetic.arith_tree",
-    "-nordff": "memory.merge_ff",
-    "-no-rw-check": "memory.rw_check",
-    "-hieropt": "hierarchy.cross_boundary_opt",
-    "-latches": "coarse.latches",
-}
-
-
-#: The options of `abc` that a setting owns, each with that setting. The setting renders the
-#: option, so `abc_flags` does not repeat it.
-ABC_OPTIONS_OF_SETTINGS: Dict[str, str] = {
-    "-keepff": "abc.keep_ff",
-    "-liberty_args": "abc.liberty_args",
-    "-D": "abc.delay_target",
-    "-script": "abc_script",
-    "-constr": "abc_constr",
-    "-liberty": "liberty",
-    "-dont_use": "dont_use_cells",
-    "-dff": "abc_dff",
-    "-g": "gates",
-    "-lut": "lut",
-    "-luts": "lut",
-}
 
 
 @dataclass(frozen=True)
@@ -578,8 +547,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 problems.append((key, f"`{key}` needs `script_format: tcl`"))
         problems += cls._tcl_mode_problems(settings)
         problems += cls._hierarchy_problems(settings)
-        problems += cls._synth_flag_problems(settings)
-        problems += cls._abc_flag_problems(settings)
+        problems += flag_problems(settings, LIBERTY_HATCHES)
         if settings.abc.keep_ff and not settings.sequential.retime_modules:
             problems.append(
                 (
@@ -626,39 +594,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             for key, given in asked
             if given
         ]
-
-    @classmethod
-    def _synth_flag_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
-        """Return the `synth_flags` that repeat an option which a setting owns."""
-        problems: List[Tuple[str, str]] = []
-        for item in settings.synth_flags:
-            words = item.split()
-            owner = SYNTH_OPTIONS_OF_SETTINGS.get(words[0]) if words else None
-            if owner is not None:
-                problems.append(
-                    (
-                        "synth_flags",
-                        f"`{words[0]}` in `synth_flags` is the setting `{owner}`: set that "
-                        "instead",
-                    )
-                )
-        return problems
-
-    @classmethod
-    def _abc_flag_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:
-        """Return the `abc_flags` that repeat an option which a setting owns."""
-        problems: List[Tuple[str, str]] = []
-        for item in settings.abc_flags:
-            words = item.split()
-            owner = ABC_OPTIONS_OF_SETTINGS.get(words[0]) if words else None
-            if owner is not None:
-                problems.append(
-                    (
-                        "abc_flags",
-                        f"`{words[0]}` in `abc_flags` is the setting `{owner}`: set that instead",
-                    )
-                )
-        return problems
 
     @classmethod
     def _tcl_mode_problems(cls, settings: "Yosys.Settings") -> List[Tuple[str, str]]:

@@ -39,7 +39,7 @@ yosys read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|jo
     {% elif src.type.name == "SystemVerilog" %}
 yosys log -stdout "** Reading {{src|tcl_quote}} **"
         {%- if slang_plugin %}
-yosys read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
+yosys read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
 yosys read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}

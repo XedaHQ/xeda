@@ -39,7 +39,7 @@ read_verilog -defer {{settings.read_verilog_flags|join(" ")}} {{defines|join(" "
 log -stdout ** Reading {{src}} **
         {#- the slang and uhdm plugin front ends do not strip quotes, so use `verbatim_path` #}
         {%- if slang_plugin %}
-read_slang --extern-modules --best-effort-hierarchy {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
+read_slang --extern-modules --best-effort-hierarchy{% if settings.read_systemverilog_flags %} {{settings.read_systemverilog_flags|join(" ")}}{% endif %} {{defines|join(" ")}} {{include_dirs.i|join(" ")}} {{src|verbatim_path}}
         {%- elif uhdm_plugin %}
 read_systemverilog -defer {{settings.read_systemverilog_flags|join(" ")}} {{src|verbatim_path}}
         {%- else %}
