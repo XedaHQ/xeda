@@ -347,6 +347,51 @@ def test_a_malformed_relation_is_refused_when_the_flow_is_defined(inputs, messag
         )
 
 
+def _flow_with(inputs, annotations):
+    model = type("Inputs", (Flow.Inputs,), {**inputs, "__annotations__": annotations})
+    return type(
+        "_Paired", (Flow,), {"__doc__": "Pairs.", "run": lambda self: None, "Inputs": model}
+    )
+
+
+@pytest.mark.parametrize(
+    ("inputs", "annotations", "absent"),
+    [
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+            {"a": Path | None, "b": Path},
+            "a",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+            {"a": Path, "b": Path | None},
+            "b",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True, optional=True), "b": declare()},
+            {"a": list[Path], "b": Path},
+            "a",
+        ),
+        (
+            {"a": declare(same_producer_as="b", paired=True), "b": declare(optional=True)},
+            {"a": Path, "b": list[Path]},
+            "b",
+        ),
+    ],
+)
+def test_a_pair_cannot_have_an_input_that_can_be_absent(inputs, annotations, absent):
+    with pytest.raises(TypeError, match=rf"`{absent}` .*can be absent") as error:
+        _flow_with(inputs, annotations)
+    assert "`paired`" in str(error.value)
+
+
+def test_a_pair_of_required_inputs_is_accepted():
+    _flow_with(
+        {"a": declare(same_producer_as="b", paired=True), "b": declare()},
+        {"a": Path, "b": Path},
+    )
+
+
 def test_the_documented_alternative_synthesis_power_report_plans(tmp_path):
     from .test_chain_documentation import _stage
 

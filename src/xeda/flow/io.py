@@ -263,9 +263,11 @@ def check_io_declarations(flow_cls: Any) -> None:
 
     Each field must be made with `In` or `Out`, have a description and be annotated `Path`,
     `Path | None` or `list[Path]`. An input's `same_producer_as` must name another input that
-    declares none itself, and `paired` needs a `same_producer_as`. `optional` is for lists only, `output` needs a `producer`, and
-    `equivalence` needs a normalizer for every type of the input. An output's `enabled_by` must
-    name a setting of the flow, and the output must be able to be absent."""
+    declares none itself. `paired` needs a `same_producer_as`, and both inputs of a pair must be
+    able to be present only: neither is `Path | None` or an optional list. `optional` is for lists
+    only, `output` needs a `producer`, and `equivalence` needs a normalizer for every type of the
+    input. An output's `enabled_by` must name a setting of the flow, and the output must be able
+    to be absent."""
     inputs = declared_inputs(flow_cls)
     for input_declaration in inputs.values():
         _check_relation(flow_cls, input_declaration, inputs)
@@ -326,6 +328,13 @@ def _check_relation(
         )
     if declaration.paired and declaration.via is not None:
         raise TypeError(f"{where} is `paired` and names `via`: a pair has no step between")
+    if declaration.paired:
+        for member in (declaration, inputs[anchor]):
+            if not member.required:
+                raise TypeError(
+                    f"{where} is `paired`, and `{member.name}` can be absent: a pair is two "
+                    "files that one producer wrote together, so neither may be optional"
+                )
     if declaration.via is not None and inputs[anchor].producer is None:
         raise TypeError(
             f"{where} names `via`, which looks `{declaration.via}` up in the flow that makes "
