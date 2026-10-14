@@ -99,6 +99,7 @@ LEAF_TIERS = {
     "abc.legacy_rewrite": "expert",
     "abc.keep_ff": "expert",
     "abc.liberty_args": "expert",
+    "abc.dress": "expert",
     "finish.tie_undefined": "common",
     "finish.tie_cells": "common",
     "finish.buffer_cell": "common",

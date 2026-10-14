@@ -1361,7 +1361,10 @@ settings of one stage, and its common settings are these:
     delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
     mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
     OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
-    clock; ``abc.delay_target: auto`` does that again.
+    clock; ``abc.delay_target: auto`` does that again. ``abc.dress`` passes ``-dress`` to ``abc``.
+    It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
+    instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
+    (berkeley-abc/abc#445).
 
 ``finish``
     The commands after the mapping: the undefined values, the tie and buffer cells, the formal
@@ -1396,7 +1399,8 @@ with ``script_format: ys``. A yosys build without Tcl support cannot run a ``tcl
 
 ``abc.mapper: abc_new``
     Maps with the ``abc_new`` command of yosys and its own script. It refuses ``abc.strategy``
-    other than ``area``, and ``abc_script``.
+    other than ``area``, ``abc_script``, ``abc_dff: true``, ``abc.liberty_args`` and
+    ``abc.dress: true``.
 
 ``memory.max_bits``
     Stops the run when a memory is larger than this many bits. The error suggests raising

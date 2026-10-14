@@ -259,6 +259,7 @@
      "buffering": false,
      "clock_derating": 0.0,
      "delay_target": null,
+     "dress": false,
      "driver_cell": null,
      "keep_ff": false,
      "legacy_refactor": false,

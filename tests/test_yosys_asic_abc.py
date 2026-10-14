@@ -292,7 +292,7 @@ def test_the_strategies_are_the_documented_values():
         ({"strategy": "delay_4"}, "strategy"),
         ({"strategy": "AREA 0"}, "strategy"),
         ({"sizing_options": {}}, "sizing_options"),
-        ({"dress": True}, "dress"),
+        ({"dress": 1.5}, "dress"),
         ({"exe": "yosys-abc"}, "exe"),
         ({"script": "x.abc"}, "script"),
     ],
@@ -432,8 +432,58 @@ def test_liberty_args_is_a_flag_of_the_abc_command_before_the_extra_flags(
 def test_the_default_abc_command_has_none_of_the_new_flags(tmp_path, monkeypatch, script_format):
     commands = _run(tmp_path, monkeypatch, script_format)
     (abc,) = _words(commands, "abc")
-    for flag in ("-liberty_args", "-keepff", "-dff"):
+    for flag in ("-liberty_args", "-keepff", "-dff", "-dress"):
         assert flag not in abc
+
+
+@SCRIPT_FORMATS
+def test_dress_is_a_flag_of_the_abc_command_before_the_extra_flags(
+    tmp_path, monkeypatch, script_format
+):
+    commands = _run(
+        tmp_path, monkeypatch, script_format, abc_flags=["-nocleanup"], abc={"dress": True}
+    )
+    (abc,) = _words(commands, "abc")
+    assert abc.count("-dress") == 1
+    assert abc.index("-dress") < abc.index("-nocleanup")
+
+
+def test_dress_is_off_by_default_and_an_expert_leaf_that_names_the_open_issues():
+    assert asic_groups.AbcGroup().dress is False
+    assert tier_of(asic_groups.AbcGroup, "dress") == "expert"
+    description = asic_groups.AbcGroup.model_fields["dress"].description
+    assert description.startswith("Warning:")
+    for issue in ("YosysHQ/yosys#3644", "berkeley-abc/abc#445"):
+        assert issue in description
+
+
+@SCRIPT_FORMATS
+def test_dress_goes_to_the_main_abc_command_and_not_to_the_retiming_run(
+    tmp_path, monkeypatch, script_format
+):
+    commands = _run(
+        tmp_path,
+        monkeypatch,
+        script_format,
+        abc={"dress": True},
+        sequential={"retime_modules": ["mac"]},
+    )
+    retime, main = _words(commands, "abc")
+    assert "-dress" not in retime and "-dress" in main
+
+
+def test_abc_new_takes_no_dress():
+    """`abc_new` has no `-dress` option, so `abc.dress: true` cannot go with it."""
+    problems = _keys(script_format="tcl", abc={"mapper": "abc_new", "dress": True})
+    message = problems["abc.dress"]
+    assert "`abc.dress`" in message and "`abc.mapper: abc_new`" in message
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45",
+            script_format="tcl",
+            abc={"mapper": "abc_new", "dress": False},
+        )
+    )
 
 
 @SCRIPT_FORMATS
@@ -562,6 +612,7 @@ def test_keep_ff_acts_on_the_retiming_run_only():
     "flag,key",
     [
         ("-keepff", "abc.keep_ff"),
+        ("-dress", "abc.dress"),
         ("-liberty_args", "abc.liberty_args"),
         ("-D", "abc.delay_target"),
         ("-script", "abc_script"),
@@ -582,7 +633,7 @@ def test_an_abc_flag_that_a_setting_owns_is_refused_naming_the_setting(flag, key
 def test_other_abc_flags_are_accepted():
     Yosys.check_settings_supported(
         Yosys.Settings(
-            platform="nangate45", abc_flags=["-nocleanup", "-showtmp", "-markgroups", "-dress"]
+            platform="nangate45", abc_flags=["-nocleanup", "-showtmp", "-markgroups", "-fast"]
         )
     )
 
@@ -676,6 +727,26 @@ def test_real_yosys_takes_the_mfs3_step_on_a_design_that_it_does_not_stop_on(
     _real(script_format)
     run = _run_real(tmp_path, script_format, enables=True, abc={"strategy": "area_0", "mfs3": True})
     assert "ABC: + mfs3 -aemvz -I 4 -O 2" in (run / "yosys.log").read_text()
+
+
+@FORMATS_REAL
+def test_real_yosys_runs_the_dress_command_of_abc_and_the_mapped_check_judges_the_netlist(
+    tmp_path, script_format
+):
+    """With a Liberty library, `-dress` can map to LUTs (YosysHQ/yosys#3644). The run then stops
+    in `check -assert -mapped`, which finds cells that are not library cells. A yosys that does
+    not have this bug finishes the run."""
+    _real(script_format)
+    design = _design(tmp_path)
+    settings = _tiny(tmp_path, script_format=script_format, abc={"dress": True})
+    with contextlib.suppress(FlowException):
+        DefaultRunner(tmp_path / "xeda_run").run_flow(Yosys, design, settings)
+    (results,) = tmp_path.glob("xeda_run/*/yosys/results.json")
+    log = (results.parent / "yosys.log").read_text()
+    assert "ABC: + dress " in log
+    if not json.loads(results.read_text())["success"]:
+        assert "unmapped internal cell of type $lut" in log
+        assert "problems in 'check -assert'" in log
 
 
 @FORMATS_REAL

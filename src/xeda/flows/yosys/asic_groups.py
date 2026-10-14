@@ -594,7 +594,10 @@ COMPOSED_STRATEGIES = ("area_0", "area_1", "area_2", "delay_0", "delay_1", "dela
 class AbcGroup(SettingsGroup):
     """The mapping of the logic with ABC."""
 
-    FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("liberty_args", "-liberty_args", "value"),)
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("liberty_args", "-liberty_args", "value"),
+        Flag("dress", "-dress", "switch"),
+    )
 
     strategy: Literal[
         "area",
@@ -725,6 +728,18 @@ class AbcGroup(SettingsGroup):
         json_schema_extra=tier("expert"),
     )
 
+    dress: bool = Field(
+        False,
+        description="Warning: this option is experimental in ABC, and it has two known failures. "
+        "With a Liberty library, `-dress` maps to LUTs instead of library cells "
+        "(YosysHQ/yosys#3644, open since 2023). It fails when `abc` retimes "
+        '(berkeley-abc/abc#445). Upstream ABC has a recent commit, "Skip incompatible name '
+        'recovery after retiming (Issue #445)", so a newer ABC may fix the second failure. The '
+        "option runs the `dress` command of ABC after the mapping, to keep the names of the "
+        "original design (`abc -dress`). Not with `mapper: abc_new`, which has no such option.",
+        json_schema_extra=tier("expert"),
+    )
+
     def problems(self, key: str) -> List[Tuple[str, str]]:
         """Refuse the options of the composed strategies where no composed strategy reads them,
         and the other settings of the group that cannot work together."""
@@ -799,6 +814,15 @@ class AbcGroup(SettingsGroup):
                     f"`{key}.liberty_args` is an option of `abc`, and `{key}.mapper: abc_new` "
                     "runs `abc_new`, which has no such option: delete "
                     f"`{key}.liberty_args`",
+                )
+            )
+        if self.mapper == "abc_new" and self.dress:
+            found.append(
+                (
+                    f"{key}.dress",
+                    f"`{key}.dress` is an option of `abc`, and `{key}.mapper: abc_new` runs "
+                    f"`abc_new`, which has no such option: delete `{key}.dress` or set it to "
+                    "false",
                 )
             )
         return found

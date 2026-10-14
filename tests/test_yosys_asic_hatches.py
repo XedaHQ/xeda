@@ -57,6 +57,7 @@ SETTING_OWNED = [
     ("synth_flags", "-flatten", "flatten"),
     ("synth_flags", "-extra-map +/choices/sklansky.v", "arithmetic.adder_architecture"),
     ("abc_flags", "-keepff", "abc.keep_ff"),
+    ("abc_flags", "-dress", "abc.dress"),
     ("abc_flags", "-liberty_args x", "abc.liberty_args"),
     ("abc_flags", "-D 100", "abc.delay_target"),
     ("abc_flags", "-script x", "abc_script"),
@@ -124,7 +125,7 @@ def test_an_item_with_two_owned_flags_gets_one_message_for_each():
     "hatch,items",
     [
         ("synth_flags", ["-relativeshare", "-nowidelut", "-encfile x", "-auto-top"]),
-        ("abc_flags", ["-nocleanup", "-showtmp", "-markgroups", "-dress", "-exe x", "-fast"]),
+        ("abc_flags", ["-nocleanup", "-showtmp", "-markgroups", "-exe x", "-fast"]),
         ("read_verilog_flags", ["-noautowire", "-sv", "-nolatches", "-formal"]),
         ("netlist_verilog_flags", ["-defparam", "-extmem", "-norename", "-sv", "-selected"]),
     ],
