@@ -23,7 +23,7 @@ import shlex
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
 
 from xeda.flow import FlowFatalError
 from xeda.platforms.model import Located
@@ -187,13 +187,19 @@ def _first_line(residue: Residue, target: _Target) -> str:
     return f"platform '{residue.name}' needs the PDK files of {what} ({source})."
 
 
-def _install_line(residue: Residue, target: _Target) -> str:
+def _install_line(residue: Residue, target: _Target, platform_file: Optional[Path]) -> str:
     if target.provider == "directory":
         return (
             "none; the directory must hold the files of the platform in the "
             f"{target.entry.layout} layout"
         )
-    command = ["xeda", "pdk", "install", residue.name]
+    command = ["xeda", "pdk", "install"]
+    if platform_file is None:
+        command.append(residue.name)
+    else:
+        command += ["--platform-file", str(platform_file.resolve())]
+    if target.provider != residue.providers.default:
+        command += ["--provider", target.provider]
     if target.root != default_root():
         command += ["--root", str(target.root)]
     if target.version != target.pin:
@@ -201,14 +207,16 @@ def _install_line(residue: Residue, target: _Target) -> str:
     return shlex.join(command)
 
 
-def _not_installed(residue: Residue, target: _Target, missing: list[str]) -> PdkNotInstalled:
+def _not_installed(
+    residue: Residue, target: _Target, missing: list[str], platform_file: Optional[Path]
+) -> PdkNotInstalled:
     more = f", and {len(missing) - 1} more" if len(missing) > 1 else ""
     return PdkNotInstalled(
         "\n".join(
             [
                 _first_line(residue, target),
                 f"  looked in: {target.directory} (missing: {missing[0]}{more})",
-                f"  install:   {_install_line(residue, target)}",
+                f"  install:   {_install_line(residue, target, platform_file)}",
                 f"  {CHOOSE_ANOTHER}",
             ]
         )
@@ -221,12 +229,16 @@ def locate(
     version: Optional[str],
     root: Path,
     corner: Optional[str],
+    *,
+    platform_file: Optional[Path] = None,
 ) -> Located:
     """Find the files of the platform in the store at `root`.
 
     `provider` `None` is the default provider of the residue. `version` `None` is the pin of
     the residue (`orfs`, `ciel`) or `unpinned` (`directory`). `corner` goes through the corner
     resolution of the residue, and `Located.files["liberty"]` holds the files of that corner.
+    `platform_file` is the user file that the residue came from, if it came from one. It only
+    changes the install command in the refusal, which then names the file and not the platform.
 
     The function checks with `stat` that every file exists and raises `PdkNotInstalled` if one is
     missing. It does not read the version marker of a `directory` (see `verify_pin`). It starts
@@ -241,7 +253,7 @@ def locate(
         path for path in _relative_files(residue, token) if not (target.directory / path).is_file()
     ]
     if missing:
-        raise _not_installed(residue, target, missing)
+        raise _not_installed(residue, target, missing, platform_file)
     files = {
         role: [target.directory / path for path in paths]
         for role, paths in residue.files.role_paths(token).items()
@@ -270,35 +282,33 @@ def _read(path: Path) -> Optional[str]:
         return None
 
 
+#: The source that names the version of a PDK build: its `SOURCES` line and its `nodeinfo.json`
+#: key. The other sources of a build (`magic`, ...) are other programs, with other versions.
+PDK_SOURCE = "open_pdks"
+
+
 def _sources(path: Path) -> list[str]:
-    """The hashes of a `SOURCES` file: its lines are `<name> <hash>`."""
+    """The hash of the `open_pdks` line of a `SOURCES` file, whose lines are `<name> <hash>`.
+    The list is empty if the file has no such line."""
     text = _read(path)
     if text is None:
         return []
-    return [parts[1] for parts in (line.split() for line in text.splitlines()) if len(parts) == 2]
-
-
-def _commits(value: Any) -> Iterator[str]:
-    """Every text under the key `commit` in a parsed JSON document."""
-    if isinstance(value, dict):
-        for key, item in value.items():
-            if key == "commit" and isinstance(item, str):
-                yield item
-            else:
-                yield from _commits(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _commits(item)
+    lines = (line.split() for line in text.splitlines())
+    return [parts[1] for parts in lines if len(parts) == 2 and parts[0] == PDK_SOURCE]
 
 
 def _nodeinfo(path: Path) -> list[str]:
+    """The commit of `open_pdks` in a `nodeinfo.json` file: the key `commit.open_pdks`. The list
+    is empty if the file has no such text."""
     text = _read(path)
     if text is None:
         return []
     try:
-        return list(_commits(json.loads(text)))
-    except ValueError:
+        commits = json.loads(text).get("commit")
+        commit = commits.get(PDK_SOURCE)
+    except (ValueError, AttributeError):
         return []
+    return [commit] if isinstance(commit, str) else []
 
 
 def _commit_of_head(git_dir: Path) -> tuple[Path, list[str]]:
@@ -348,14 +358,15 @@ def verify_pin(located: Located, residue: Residue) -> None:
 
     * `directory`, layout `orfs`: the `.git/HEAD` of the checkout above the root, and the
       reference file that it names (or `packed-refs`);
-    * `directory`, layout `open_pdks`: `<variant>/SOURCES` (lines `<name> <hash>`), or else the
-      `commit` values of `<variant>/.config/nodeinfo.json`;
-    * `ciel`: `<variant>/SOURCES` when it exists;
+    * `directory`, layout `open_pdks`: the `open_pdks` line of `<variant>/SOURCES` (lines
+      `<name> <hash>`), or else `commit.open_pdks` of `<variant>/.config/nodeinfo.json`;
+    * `ciel`: the `open_pdks` line of `<variant>/SOURCES` when it exists;
     * `orfs`: the pin is the name of the directory, so there is nothing to read.
 
-    The pin matches if any version that the marker names is equal to it, as exact text. The pin
-    `unpinned` checks nothing. A marker that is missing, or that names no version, is no error:
-    the content digests of the files, which the trace records, still catch a change."""
+    The pin must equal the version that the marker names, as exact text. A hash of another
+    source in the marker (`magic`, ...) does not count. The pin `unpinned` checks nothing. A
+    marker that is missing, or that has no entry for the PDK, is no error: the content digests
+    of the files, which the trace records, still catch a change."""
     if located.version == UNPINNED:
         return
     marker, found = _marker(located, residue)

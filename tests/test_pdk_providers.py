@@ -327,6 +327,46 @@ def test_platform_directory_for_each_layout(tmp_path):
 
 
 # ---------------------------------------------------------------------------------------------
+# Names that become store paths
+# ---------------------------------------------------------------------------------------------
+
+BAD_COMPONENTS = ["", ".", "..", "../../x", "/abs", "a/b", "a\\b", "x/", "./x"]
+
+
+def source_table(**changes: str) -> dict[str, Any]:
+    ciel = {"family": "sky130", "variant": "sky130A", "library": "lib_hd", "version": CIEL_HASH}
+    return {"default": "ciel", "ciel": {**ciel, **changes}}
+
+
+@pytest.mark.parametrize("name", BAD_COMPONENTS)
+@pytest.mark.parametrize("field", ["family", "variant", "library"])
+def test_a_ciel_name_that_is_no_single_path_component_is_refused(field, name):
+    with pytest.raises(ValueError, match=rf"(?s)ciel\.{field}.*single path component"):
+        Residue.model_validate({"name": "t", "providers": source_table(**{field: name})})
+
+
+@pytest.mark.parametrize("name", BAD_COMPONENTS)
+@pytest.mark.parametrize("field", ["variant", "library"])
+def test_a_directory_name_that_is_no_single_path_component_is_refused(field, name):
+    directory = {"layout": "open_pdks", "variant": "v", "library": "l", field: name}
+    with pytest.raises(ValueError, match=rf"(?s)directory\.{field}.*single path component"):
+        Residue.model_validate({"name": "t", "providers": {"directory": directory}})
+
+
+@pytest.mark.parametrize("name", ["sky130A", "sg13g2_stdcell", "ihp-sg13g2", "gf180mcuD", "a.b"])
+def test_an_ordinary_pdk_name_is_a_path_component(name):
+    providers = source_table(family=name, variant=name)
+    Residue.model_validate({"name": "t", "extends": "tiny", "providers": providers})
+
+
+@pytest.mark.parametrize("directory", ["../x", "a/../b", "/abs", ""])
+def test_an_orfs_directory_cannot_leave_the_checkout(directory):
+    orfs = {"version": COMMIT, "directory": directory}
+    with pytest.raises(ValueError, match=r"(?s)orfs\.directory"):
+        Residue.model_validate({"name": "t", "providers": {"orfs": orfs}})
+
+
+# ---------------------------------------------------------------------------------------------
 # The refusal
 # ---------------------------------------------------------------------------------------------
 
@@ -440,6 +480,68 @@ def test_the_install_line_quotes_a_root_with_a_space(tmp_path):
     assert f"--root '{tmp_path / 'my pdks'}'\n" in str(raised.value)
 
 
+def both_providers(store: Store) -> Residue:
+    """The residue of the `orfs` store, which a `ciel` build serves too, with `orfs` the default."""
+    ciel = tiny_residue("ciel")[0].providers.ciel
+    providers = store.residue.providers.model_copy(update={"ciel": ciel})
+    return store.residue.model_copy(update={"providers": providers})
+
+
+def install_line(raised: pytest.ExceptionInfo) -> str:
+    return str(raised.value).splitlines()[2]
+
+
+def test_the_install_line_names_a_provider_that_is_not_the_default(tmp_path):
+    store = make_store(tmp_path, "orfs", populated=False)
+    residue = both_providers(store)
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(residue, "ciel", None, store.root, None)
+    assert install_line(raised) == (
+        f"  install:   xeda pdk install tiny --provider ciel --root {store.root}"
+    )
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(residue, "orfs", None, store.root, None)
+    assert "--provider" not in install_line(raised)
+    # A residue without a default names the provider whichever it is.
+    providers = residue.providers.model_copy(update={"default": None})
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(residue.model_copy(update={"providers": providers}), "orfs", None, store.root, None)
+    assert "--provider orfs" in install_line(raised)
+
+
+def test_the_install_line_of_a_platform_file_names_the_file_not_the_platform(tmp_path):
+    store = make_store(tmp_path, "orfs", populated=False)
+    real = tmp_path / "real" / "mine.yaml"
+    write(real, "name: tiny\n")
+    link = tmp_path / "mine.yaml"
+    link.symlink_to(real)
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(store.residue, "orfs", None, store.root, None, platform_file=link)
+    assert install_line(raised) == (
+        f"  install:   xeda pdk install --platform-file {real.resolve()} --root {store.root}"
+    )
+
+
+def test_the_install_line_names_every_option_in_a_fixed_order(tmp_path):
+    store = make_store(tmp_path, "orfs", populated=False)
+    residue = both_providers(store)
+    file = write(tmp_path / "my dir" / "mine.yaml", "name: tiny\n")
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(residue, "ciel", OTHER_HASH, store.root, None, platform_file=file)
+    assert install_line(raised) == (
+        f"  install:   xeda pdk install --platform-file '{file.resolve()}' --provider ciel"
+        f" --root {store.root} --version {OTHER_HASH}"
+    )
+
+
+def test_a_directory_has_no_install_command_even_for_a_platform_file(tmp_path):
+    store = make_store(tmp_path, "directory-orfs", populated=False)
+    file = write(tmp_path / "mine.yaml", "name: tiny\n")
+    with pytest.raises(PdkNotInstalled) as raised:
+        locate(store.residue, "directory", None, store.root, None, platform_file=file)
+    assert install_line(raised).startswith("  install:   none; the directory must hold")
+
+
 # ---------------------------------------------------------------------------------------------
 # The version marker
 # ---------------------------------------------------------------------------------------------
@@ -516,43 +618,74 @@ def test_unpinned_checks_nothing_and_a_missing_marker_passes(tmp_path):
     checked(store, "unpinned")
 
 
-def test_an_open_pdks_directory_checks_sources(tmp_path):
+def test_an_open_pdks_directory_checks_the_open_pdks_line_of_sources(tmp_path):
     store = make_store(tmp_path, "directory-open_pdks")
-    write(store.directory / "SOURCES", f"open_pdks {CIEL_HASH}\nmagic {OTHER_HASH}\n")
+    write(store.directory / "SOURCES", f"magic {OTHER_HASH}\nopen_pdks {CIEL_HASH}\n")
     checked(store, CIEL_HASH)
-    checked(store, OTHER_HASH)
     with pytest.raises(PdkVersionMismatch) as raised:
         checked(store, OTHER_COMMIT)
     message = str(raised.value)
     assert OTHER_COMMIT in message and CIEL_HASH in message and "SOURCES" in message
 
 
-def test_an_open_pdks_directory_checks_nodeinfo_when_it_has_no_sources(tmp_path):
+def test_an_unrelated_line_of_sources_does_not_satisfy_the_pin(tmp_path):
     store = make_store(tmp_path, "directory-open_pdks")
-    nodeinfo = {
-        "node": "tinyA",
-        "libraries": {
-            "tinylib": {"commit": CIEL_HASH},
-            "other": {"name": "x", "commit": OTHER_HASH},
-        },
-    }
-    write(store.directory / ".config" / "nodeinfo.json", json.dumps(nodeinfo))
+    write(store.directory / "SOURCES", f"open_pdks {CIEL_HASH}\nmagic {OTHER_HASH}\n")
+    with pytest.raises(PdkVersionMismatch, match=f"{OTHER_HASH}.*{CIEL_HASH}"):
+        checked(store, OTHER_HASH)
+
+
+def test_a_sources_file_without_an_open_pdks_line_names_no_version(tmp_path):
+    store = make_store(tmp_path, "directory-open_pdks")
+    write(store.directory / "SOURCES", f"magic {OTHER_HASH}\nskywater_pdk {OTHER_COMMIT}\n")
     checked(store, CIEL_HASH)
     checked(store, OTHER_HASH)
-    with pytest.raises(PdkVersionMismatch, match=f"{OTHER_COMMIT}.*nodeinfo"):
-        checked(store, OTHER_COMMIT)
+
+
+def nodeinfo_text(**commits: str) -> str:
+    return json.dumps({"node": "tinyA", "commit": commits, "libraries": {"x": {"commit": "y"}}})
+
+
+def test_an_open_pdks_directory_checks_nodeinfo_when_sources_names_no_version(tmp_path):
+    store = make_store(tmp_path, "directory-open_pdks")
+    write(
+        store.directory / ".config" / "nodeinfo.json",
+        nodeinfo_text(open_pdks=CIEL_HASH, magic=OTHER_HASH),
+    )
+    checked(store, CIEL_HASH)
+    with pytest.raises(PdkVersionMismatch, match=f"{OTHER_HASH}.*nodeinfo"):
+        checked(store, OTHER_HASH)
+    write(store.directory / "SOURCES", f"magic {OTHER_HASH}\n")
+    with pytest.raises(PdkVersionMismatch, match="nodeinfo"):
+        checked(store, OTHER_HASH)
+
+
+def test_a_nodeinfo_without_an_open_pdks_commit_names_no_version(tmp_path):
+    store = make_store(tmp_path, "directory-open_pdks")
+    write(store.directory / ".config" / "nodeinfo.json", nodeinfo_text(magic=OTHER_HASH))
+    checked(store, CIEL_HASH)
+    checked(store, OTHER_HASH)
 
 
 def test_sources_wins_over_nodeinfo(tmp_path):
     store = make_store(tmp_path, "directory-open_pdks")
     write(store.directory / "SOURCES", f"open_pdks {CIEL_HASH}\n")
-    write(store.directory / ".config" / "nodeinfo.json", json.dumps({"commit": OTHER_HASH}))
+    write(store.directory / ".config" / "nodeinfo.json", nodeinfo_text(open_pdks=OTHER_HASH))
     checked(store, CIEL_HASH)
     with pytest.raises(PdkVersionMismatch):
         checked(store, OTHER_HASH)
 
 
-@pytest.mark.parametrize("text", ["", "not json", "[1, 2]", '{"commit": 5}'])
+def test_a_ciel_store_compares_the_open_pdks_line_only(tmp_path):
+    store = make_store(tmp_path, "ciel")
+    write(store.directory / "SOURCES", f"open_pdks {OTHER_HASH}\nmagic {CIEL_HASH}\n")
+    with pytest.raises(PdkVersionMismatch, match=f"{CIEL_HASH}.*{OTHER_HASH}"):
+        checked(store, None)
+
+
+@pytest.mark.parametrize(
+    "text", ["", "not json", "[1, 2]", '{"commit": 5}', '{"commit": {"open_pdks": 5}}']
+)
 def test_a_nodeinfo_without_commits_is_no_error(tmp_path, text):
     store = make_store(tmp_path, "directory-open_pdks")
     write(store.directory / ".config" / "nodeinfo.json", text)

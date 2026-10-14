@@ -65,6 +65,17 @@ def relative_posix_path(text: str) -> str:
     return text
 
 
+def plain_component(text: str) -> str:
+    """Return `text` if it is one plain component of a path: a name that cannot leave the
+    directory it is joined to."""
+    if not text or text in (".", "..") or "/" in text or "\\" in text or "\0" in text:
+        raise ValueError(
+            f"`{text}` is not a single path component: write one name without `/`, "
+            "and not `.` or `..`"
+        )
+    return text
+
+
 def _pin(value: str) -> str:
     if not COMMIT.fullmatch(value):
         raise ValueError(f"`{value}` is not a full commit hash (40 lowercase hexadecimal digits)")
@@ -107,6 +118,11 @@ class CielSource(XedaBaseModel):
     def _version_is_a_commit(cls, value: str) -> str:
         return _pin(value)
 
+    @field_validator("family", "variant", "library", mode="after")
+    @classmethod
+    def _names_are_path_components(cls, value: str) -> str:
+        return plain_component(value)
+
 
 class DirectorySource(XedaBaseModel):
     """A directory of the user that holds the PDK files in a known layout."""
@@ -121,6 +137,11 @@ class DirectorySource(XedaBaseModel):
     library: Optional[str] = Field(
         None, description="For the `open_pdks` layout: the standard cell library."
     )
+
+    @field_validator("variant", "library", mode="after")
+    @classmethod
+    def _names_are_path_components(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else plain_component(value)
 
     @model_validator(mode="after")
     def _open_pdks_names_its_variant_and_library(self) -> "DirectorySource":
