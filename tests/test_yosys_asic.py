@@ -603,3 +603,31 @@ def test_init_and_prepare_inputs_write_nothing(tmp_path):
         flow.init()
         flow.prepare_inputs()
     assert list(run.iterdir()) == []
+
+
+# ------------------------------------------------------------------------ the ABC script file
+
+
+def _flow_with_script_file(tmp_path: Path, cls=Yosys):
+    script = tmp_path / "map.abc"
+    script.write_text("strash; map\n")
+    run = tmp_path / "run"
+    run.mkdir()
+    design = Design(name="d", design_root=tmp_path, rtl={"sources": [], "top": "d"})
+    return cls({"abc_script": str(script), "gates": ["AND"]}, design, run), script
+
+
+def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path):
+    """`init()` takes the ABC script from the script setting alone. A flow whose prepared inputs
+    include other files (the files of a platform) must not hand one of them to `init()` as the
+    ABC script."""
+
+    class WithOtherInputs(Yosys):
+        def locate_prepared_inputs(self):
+            return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
+
+    flow, script = _flow_with_script_file(tmp_path, WithOtherInputs)
+    with WorkingDirectory(tmp_path / "run"):
+        flow.init()
+    assert flow.settings.abc_script == str(script)
+    assert flow.implicit_inputs == [script]
