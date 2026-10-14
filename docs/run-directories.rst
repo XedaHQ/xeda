@@ -257,8 +257,10 @@ A flow is stale, and runs again, in any of these cases:
 
 ``xeda run --dry-run`` applies these rules and runs nothing. It reports each planned flow as
 ``fresh`` (the launch reuses it), ``stale: <reason>`` (the launch runs it, for the reason that the
-log gives) or ``unknown: <reason>``. A flow is unknown when the answer needs something that only a
-launch makes:
+log gives), ``unknown: <reason>``, ``rejected again: <message>`` (the launch reports the recorded
+rejection again and does not run the flow, see `A run that its checks rejected`_) or
+``blocked: <reason>`` (a producer is rejected again or blocked, so the flow does not run). A flow
+is unknown when the answer needs something that only a launch makes:
 
 - The flow needs the output of a producer that would run first. The launch judges the flow by the
   outputs that the run hands over, and the reason is ``depends on <producer>``.
@@ -820,7 +822,9 @@ A yes holds for the file you were asked about. If that file changes before the l
 flow that delivers it, Xeda asks again. If it changes while Xeda waits for your answer, Xeda does
 not replace it. Xeda checks once more right before the copy, in case something changed in between.
 It never replaces a destination that changed since its last check, whether you confirmed it or not.
-A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too.
+A run that is up to date (the trace found it current, so no tool ran) delivers its outputs too,
+if it passed. A run that its checks rejected delivers nothing, on the first launch or when it
+is reported again.
 
 With ``--post-cleanup-purge``, Xeda deletes the run directory right after the delivery. Xeda then
 moves a delivered file out of the run directory and does not copy it, so a large output does not
