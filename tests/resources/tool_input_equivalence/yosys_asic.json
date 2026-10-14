@@ -1,0 +1,566 @@
+{
+ "nodes": {
+  "counter/yosys": {
+   "calls": [
+    [
+     "yosys",
+     "-T",
+     "-Q",
+     "-s",
+     "yosys_synth.ys",
+     "-L",
+     "yosys.log",
+     "-E",
+     "<RUN>/counter/yosys/yosys.d"
+    ],
+    [
+     "logger",
+     "-notime"
+    ],
+    [
+     "log",
+     "-stdout",
+     "**",
+     "Reading",
+     "<DESIGN>/top.v",
+     "**"
+    ],
+    [
+     "read_verilog",
+     "-defer",
+     "-noautowire",
+     "-sv",
+     "<DESIGN>/top.v"
+    ],
+    [
+     "read_liberty",
+     "-lib",
+     "merged_lib.lib"
+    ],
+    [
+     "read_verilog",
+     "-defer",
+     "<WORK>/pdks/tiny/cells_clkgate.v"
+    ],
+    [
+     "hierarchy",
+     "-check",
+     "-top",
+     "top"
+    ],
+    [
+     "check",
+     "-initdrv"
+    ],
+    [
+     "proc"
+    ],
+    [
+     "flatten"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Running",
+     "synthesis"
+    ],
+    [
+     "synth",
+     "-flatten",
+     "-top",
+     "top"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Post-synth",
+     "optimization"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge",
+     "-sat"
+    ],
+    [
+     "extract_fa"
+    ],
+    [
+     "techmap",
+     "-map",
+     "<WORK>/pdks/tiny/cells_adders.v"
+    ],
+    [
+     "techmap"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "techmap",
+     "-map",
+     "<WORK>/pdks/tiny/cells_latch.v"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Prepare",
+     "mapping",
+     "FFs",
+     "to",
+     "technology"
+    ],
+    [
+     "dfflibmap",
+     "-prepare",
+     "-liberty",
+     "merged_lib.lib"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Running",
+     "ABC"
+    ],
+    [
+     "abc",
+     "-dff",
+     "-D",
+     "2000.000",
+     "-script",
+     "+&get,-n;&st;&dch;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;buffer,-c;topo;stime,-c;upsize,-c;dnsize,-c",
+     "-liberty",
+     "merged_lib.lib",
+     "-constr",
+     "abc.constr"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Mapping",
+     "FFs",
+     "to",
+     "technology"
+    ],
+    [
+     "dfflibmap",
+     "-liberty",
+     "merged_lib.lib"
+    ],
+    [
+     "opt",
+     "-purge"
+    ],
+    [
+     "setundef",
+     "-zero"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge"
+    ],
+    [
+     "opt_clean",
+     "-purge"
+    ],
+    [
+     "hilomap",
+     "-singleton",
+     "-hicell",
+     "TIEHI_SMALL",
+     "Z",
+     "-locell",
+     "TIELO_X1",
+     "Z"
+    ],
+    [
+     "insbuf",
+     "-buf",
+     "BUF_X1",
+     "A",
+     "Z"
+    ],
+    [
+     "opt",
+     "-full",
+     "-purge"
+    ],
+    [
+     "clean",
+     "-purge"
+    ],
+    [
+     "check",
+     "-assert",
+     "-mapped"
+    ],
+    [
+     "tee",
+     "-o",
+     "final_check.log",
+     "check",
+     "-assert"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "stat",
+     "to",
+     "reports/utilization.json"
+    ],
+    [
+     "tee",
+     "-q",
+     "-o",
+     "reports/utilization.json",
+     "stat",
+     "-json",
+     "-liberty",
+     "merged_lib.lib"
+    ],
+    [
+     "setattr",
+     "-unset",
+     "src",
+     "=*"
+    ],
+    [
+     "setattr",
+     "-mod",
+     "-unset",
+     "src",
+     "=*"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "netlist",
+     "netlist.json"
+    ],
+    [
+     "write_json",
+     "netlist.json"
+    ],
+    [
+     "log",
+     "-stdout",
+     "Writing",
+     "netlist",
+     "netlist.v"
+    ],
+    [
+     "write_verilog",
+     "-nodec",
+     "-nohex",
+     "-noexpr",
+     "-noattr",
+     "netlist.v"
+    ],
+    [
+     "log",
+     "-stdout",
+     "*****",
+     "Synthesis",
+     "Completed",
+     "*****"
+    ]
+   ],
+   "effective_flow_settings": {
+    "abc_constr": [
+     "set_driving_cell BUF_X1",
+     "set_load 3.5"
+    ],
+    "abc_dff": true,
+    "abc_driver_cell": "BUF_X1",
+    "abc_flags": [
+     "-dff"
+    ],
+    "abc_load_in_ff": 3.5,
+    "abc_script": "+&get,-n;&st;&dch;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;buffer,-c;topo;stime,-c;upsize,-c;dnsize,-c",
+    "adder_map": "<WORK>/pdks/tiny/cells_adders.v",
+    "black_box": [],
+    "check_assert": true,
+    "checkpoints_dir": "checkpoints",
+    "clockgate_map": "<WORK>/pdks/tiny/cells_clkgate.v",
+    "clocks": {
+     "main_clock": {
+      "duty_cycle": 0.5,
+      "name": "main_clock",
+      "period": 2.0,
+      "port": "clk",
+      "rise": 0.0,
+      "skew": null,
+      "uncertainty": null
+     }
+    },
+    "console_colors": true,
+    "corner": null,
+    "debug": false,
+    "defines": {},
+    "dff_liberty": null,
+    "docker": null,
+    "dockerized": false,
+    "dont_use_cells": [],
+    "flatten": true,
+    "gates": null,
+    "ghdl": {
+     "additional_warn_flags": [],
+     "analysis_flags": [],
+     "assert_assumes": false,
+     "assume_asserts": false,
+     "checkpoints_dir": "checkpoints",
+     "clean_before_analyze": true,
+     "clocks": {},
+     "console_colors": true,
+     "debug": false,
+     "diagnostics": true,
+     "docker": null,
+     "dockerized": false,
+     "elab_flags": [],
+     "elab_werror": false,
+     "expect_failure": false,
+     "lib_paths": [],
+     "no_assert_cover": false,
+     "no_formal": true,
+     "nthreads": null,
+     "outputs_dir": "outputs",
+     "print_commands": true,
+     "psl_in_comments": false,
+     "quiet": false,
+     "redirect_stdout": false,
+     "relaxed": true,
+     "reports_dir": "reports",
+     "syn_bindings": true,
+     "synopsys": false,
+     "vendor_library": null,
+     "verbose": 0,
+     "verilog_output": null,
+     "warn_flags": [
+      "--warn-binding",
+      "--warn-default-binding",
+      "--warn-reserved",
+      "--warn-library",
+      "--warn-vital-generic",
+      "--warn-shared",
+      "--warn-runtime-error",
+      "--warn-body",
+      "--warn-specs",
+      "--warn-no-hide",
+      "--warn-parenthesis",
+      "--warn-port",
+      "--warn-static",
+      "--warn-port-bounds",
+      "--warn-universal"
+     ],
+     "werror": false,
+     "work": null
+    },
+    "hilomap": {
+     "hi": [
+      "TIEHI_SMALL",
+      "Z"
+     ],
+     "lo": [
+      "TIELO_X1",
+      "Z"
+     ],
+     "singleton": true
+    },
+    "insbuf": [
+     "BUF_X1",
+     "A",
+     "Z"
+    ],
+    "keep_hierarchy": [],
+    "lib_paths": [],
+    "liberty": [
+     "merged_lib.lib"
+    ],
+    "log_file": "yosys.log",
+    "ltp": false,
+    "lut": null,
+    "merge_libs_to": "merged_lib",
+    "netlist_attrs": false,
+    "netlist_blackboxes": false,
+    "netlist_dec": false,
+    "netlist_expr": false,
+    "netlist_graph": null,
+    "netlist_graph_flags": [
+     "-stretch",
+     "-enum",
+     "-width",
+     "-href",
+     "-color maroon3 t:*dff"
+    ],
+    "netlist_hex": false,
+    "netlist_json": "netlist.json",
+    "netlist_simple_lhs": false,
+    "netlist_src_attrs": false,
+    "netlist_unset_attributes": [],
+    "netlist_verilog": "netlist.v",
+    "netlist_verilog_flags": [],
+    "noabc": false,
+    "nosynth": false,
+    "nthreads": null,
+    "optimize": "speed",
+    "other_maps": [
+     "<WORK>/pdks/tiny/cells_latch.v"
+    ],
+    "outputs_dir": "outputs",
+    "pdk_provider": "directory",
+    "pdk_root": "<WORK>/pdks",
+    "pdk_version": "unpinned",
+    "platform": null,
+    "platform_file": "<DESIGN>/tiny.yaml",
+    "plugins": [],
+    "post_synth_opt": true,
+    "post_synth_rename": [],
+    "prep": null,
+    "print_commands": true,
+    "quiet": false,
+    "read_systemverilog_flags": [],
+    "read_verilog_flags": [
+     "-noautowire",
+     "-sv"
+    ],
+    "redirect_stdout": false,
+    "reports_dir": "reports",
+    "rmports": false,
+    "rtl_graph": null,
+    "rtl_graph_flags": [
+     "-notitle",
+     "-stretch",
+     "-width",
+     "-enum",
+     "-href",
+     "-color maroon3 t:*dff"
+    ],
+    "rtl_json": null,
+    "rtl_verilog": null,
+    "script_format": "ys",
+    "set_attribute": {},
+    "set_mod_attribute": {},
+    "splitnets": false,
+    "splitnets_driver": false,
+    "splitnets_ports": false,
+    "sta": false,
+    "stop_after": null,
+    "synth_flags": [
+     "-flatten"
+    ],
+    "systemverilog": "slang",
+    "top_is_vhdl": null,
+    "use_slang_plugin": true,
+    "verbose": 0,
+    "verilog_lib": [],
+    "write_blif": null
+   },
+   "files": {
+    "<DESIGN>/top.v": "d64b330e17cde192a151e55636f360c3cec04e812f06a67e6818002f0ccfc96f",
+    "<RUN>/counter/yosys/abc.constr": "06d3e4969122608b65c3e876a5c829f54ae31fa58fa9a0138e6cba768542a18b",
+    "<RUN>/counter/yosys/final_check.log": "97737857e8750e1c62fbff4ac0dc514b7d5125a0bba4f81d3b277a27e9d9fb5a",
+    "<RUN>/counter/yosys/merged_lib.lib": "ae3c88cb2443d76abc54e2866f9dc36b1888ae4ecaf1c247033b28a551303134",
+    "<RUN>/counter/yosys/netlist.json": "0be139bc32c567308456402710e77774c994a2e037f26577f956f4969f3b29c5",
+    "<RUN>/counter/yosys/netlist.v": "094d1fde7ac97ae5a4bc62773d7cfc7f7bad9a3fee1ffbb7c57480cc47abc08c",
+    "<RUN>/counter/yosys/reports/utilization.json": "b4137af4490d0a65ddc1c7f7dcf094f5c1b1ff604f2fd0582f6689ab2ecbf36b",
+    "<RUN>/counter/yosys/yosys.d": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "<RUN>/counter/yosys/yosys.log": "5c2075e088c6a87efaa1fc674c29969f4dfcdc51b59eb0e16c9a7a5924f5ff8c",
+    "<RUN>/counter/yosys/yosys_synth.ys": "f32eb6d367206205baf389f42cdd5e73eaa2c8fe19dcbd6281f1181caef23e1e",
+    "<WORK>/pdks/tiny/cells_adders.v": "9bd8525068c06cc091e86eadfc1c4073fad92a6a84de44fe4d70de4df678c4c5",
+    "<WORK>/pdks/tiny/cells_clkgate.v": "de90492686e57128d05b5cb785c45ad8afd1c1dc9de62ce4ee0cd79dbbae7702",
+    "<WORK>/pdks/tiny/cells_latch.v": "50f8713d2c82c91ec718c61805f69c64f84ecfb5b3e66d20c624fdd5701c4e3f"
+   },
+   "results": {
+    "_utilization": {
+     "area": 523.5,
+     "num_cells": 349,
+     "num_cells_by_type": {
+      "fake_cell": 349
+     }
+    },
+    "area": 523.5,
+    "artifacts": {
+     "netlist_json": "netlist.json",
+     "netlist_verilog": "netlist.v",
+     "timing_report": null,
+     "utilization_report": "reports/utilization.json"
+    },
+    "cells": 349,
+    "design": "counter",
+    "fake_cell": 349,
+    "flow": "yosys",
+    "outputs": {
+     "netlist": {
+      "path": "<RUN>/counter/yosys/netlist.v",
+      "sha": "3130ee2b5dee012b2ab6a52cb56af6ab"
+     }
+    },
+    "platform": {
+     "corner": "typical",
+     "name": "tiny",
+     "provider": "directory",
+     "sources": {
+      "abc_driver_cell": "user",
+      "abc_load_in_ff": "user",
+      "antenna_cell": "derived",
+      "capacitance_unit": "derived",
+      "corner": "user",
+      "diode_usable": "derived",
+      "dont_use_cells": "derived",
+      "files.adder_map": "user",
+      "files.cell_lef": "user",
+      "files.clkgate_map": "user",
+      "files.latch_map": "user",
+      "files.liberty": "user",
+      "files.tech_lef": "user",
+      "min_buffer": "user",
+      "name": "user",
+      "site": "derived",
+      "supply.ground_pin": "derived",
+      "supply.power_pin": "derived",
+      "supply.voltage": "derived",
+      "tie_high": "derived",
+      "tie_low": "derived",
+      "time_unit": "derived",
+      "tracks.m1": "derived",
+      "tracks.m2": "derived",
+      "tracks.m3": "derived"
+     },
+     "version": "unpinned"
+    },
+    "run_path": "<RUN>/counter/yosys",
+    "success": true,
+    "tools": [
+     "yosys"
+    ]
+   },
+   "scripts": {
+    "<RUN>/counter/yosys/yosys_synth.ys": "logger -notime\n\nlog -stdout ** Reading <DESIGN>/top.v **\nread_verilog -defer -noautowire -sv   <DESIGN>/top.v\n\nread_liberty -lib merged_lib.lib\n\nread_verilog -defer <WORK>/pdks/tiny/cells_clkgate.v\nhierarchy -check -top top \ncheck -initdrv\n\n\nproc\nflatten\n\n\nlog -stdout Running synthesis\nsynth -flatten  -top top\nlog -stdout Post-synth optimization\nopt -full -purge -sat\nextract_fa\ntechmap -map <WORK>/pdks/tiny/cells_adders.v\ntechmap\nopt -purge\ntechmap -map <WORK>/pdks/tiny/cells_latch.v\nlog -stdout Prepare mapping FFs to technology\ndfflibmap -prepare -liberty merged_lib.lib\nopt -purge\nlog -stdout Running ABC\nabc -dff -D 2000.000  -script +&get,-n;&st;&dch;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;&get,-n;&st;&syn2;&if,-g,-K,6;&synch2;&nf;&put;buffer,-c;topo;stime,-c;upsize,-c;dnsize,-c -liberty merged_lib.lib -constr abc.constr\nopt -purge\nlog -stdout Mapping FFs to technology\ndfflibmap -liberty merged_lib.lib\nopt -purge\n\n# replace undefined values with 0\nsetundef -zero\nopt -full -purge\n\nopt_clean -purge\nhilomap  -singleton  -hicell TIEHI_SMALL Z -locell TIELO_X1 Z\n\ninsbuf -buf BUF_X1 A Z\n\nopt -full -purge\nclean -purge\ncheck -assert -mapped\ntee -o final_check.log check  -assert \n\nlog -stdout Writing stat to reports/utilization.json\ntee -q -o reports/utilization.json stat  -json    -liberty merged_lib.lib  \nsetattr -unset src =*\nsetattr -mod -unset src =*\nlog -stdout Writing netlist netlist.json\nwrite_json netlist.json\nlog -stdout Writing netlist netlist.v\nwrite_verilog -nodec -nohex -noexpr -noattr netlist.v\n\n\nlog -stdout ***** Synthesis Completed *****"
+   }
+  }
+ },
+ "request": {
+  "flow": "yosys",
+  "settings": [
+   "platform_file=tiny.yaml",
+   "clock.period=2.0",
+   "optimize=speed",
+   "pdk_root=<WORK>/pdks"
+  ]
+ },
+ "run_directories": [
+  "counter/yosys"
+ ]
+}

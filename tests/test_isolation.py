@@ -38,6 +38,7 @@ from xeda.flow_runner import DefaultRunner
 from xeda.run_root import ensure_run_root
 
 from .settings_samples import flow_classes, minimal_settings
+from .tiny_platform import tiny_settings, tiny_store
 from .tool_utils import (
     FAKE_TOOLS_DIR,
     require_bluesim,
@@ -202,6 +203,7 @@ class World:
     outside: Path  # what a link in `work` points to
     root: Path  # the run root, `work/xeda_run`
     delivered: Path  # where a launch that names outputs delivers them
+    pdk_store: Path  # the store of the `tiny` platform, for a flow that maps to one
 
 
 def _world(parent: Path) -> World:
@@ -219,7 +221,9 @@ def _world(parent: Path) -> World:
         (work / name).write_text(f"the user's {name}\n")
     (outside / "target.txt").write_text("outside\n")
     (work / "link_to_outside").symlink_to(outside / "target.txt")
-    return World(parent, work, outside, work / "xeda_run", work / "delivered")
+    return World(
+        parent, work, outside, work / "xeda_run", work / "delivered", tiny_store(parent, "pdks")
+    )
 
 
 def _state(root: Path, exclude: Sequence[Path]) -> dict:
@@ -429,6 +433,8 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         language={"vhdl": {"standard": "2008"}},
     )
     settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    if "platform" in settings:  # the platform whose files the world holds
+        settings.update(tiny_settings(world.pdk_store), platform="tiny")
     launcher: dict = {"display_results": False}
     if scenario == "clean":
         launcher["clean"] = True

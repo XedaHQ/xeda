@@ -40,6 +40,7 @@ from xeda.run_root import RunRootError, ensure_run_root, is_run_root
 from xeda.xedaproject import PROJECT_FILE_NAMES
 
 from .project_files import PROJECT_FILE, TOML_PROJECT_FILE
+from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import require_ghdl, require_yosys
 
 pytestmark = pytest.mark.python_compat
@@ -2057,57 +2058,24 @@ def test_remote_vivado_composite_resolves_the_same_declared_graph(
         assert not any(key.startswith("sim.") for key in results)
 
 
-# ------------------------------------------- a bundled platform on another install
+# ------------------------------------------- a platform file on a remote
 
 
-def _remote_runner_installed_elsewhere(channel, **kwargs):
-    """The worker of a remote whose xeda is installed at another prefix: its bundled platforms,
-    and its own package directory, are a copy under the remote's run directory. execnet ships
-    this function's source alone, so it imports what it uses."""
-    import shutil
-    from pathlib import Path
-
-    import xeda
-    import xeda.platforms.platform
-    import xeda.utils
-    from xeda.flow_runner.remote import remote_runner
-
-    import gzip
-
-    package = Path(kwargs["remote_path"]).parent / "elsewhere" / "site-packages" / "xeda"
-    if not package.exists():
-        shutil.copytree(
-            Path(xeda.__file__).parent / "platforms" / "nangate45",
-            package / "platforms" / "nangate45",
-        )
-        # this installation's own library is no liberty at all: a run that read it, rather
-        # than the copy it is sent, fails
-        for lib in (package / "platforms" / "nangate45" / "lib").glob("*.lib.gz"):
-            with gzip.open(lib, "wt") as f:
-                f.write("not a liberty library\n")
-    xeda.utils.XEDA_PACKAGE_ROOT = package
-    xeda.platforms.platform.files = {"xeda.platforms": package / "platforms"}.get
-    remote_runner(channel, **kwargs)
-
-
-@pytest.mark.parametrize("remote", ["same install", "another install", "symlinked remote home"])
-@pytest.mark.parametrize("flow_name", ["yosys"])
+@pytest.mark.parametrize("remote", ["same install", "symlinked remote home"])
 @pytest.mark.real_tool
-def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
-    tmp_path, remote_host, monkeypatch, remote, flow_name
+def test_a_platform_file_s_remote_run_has_this_side_s_identity(
+    tmp_path, remote_host, monkeypatch, remote
 ):
-    """`yosys` with a bundled platform is accepted by a remote whose
-    xeda is installed under another prefix, as every remote on another machine is: the remote's
-    `flow_hash` equals this side's, and the run maps to Nangate45 cells. (It used to be refused
-    even from the same installation: the platform's per-corner liberty files reached the remote
-    as unexpanded `$DESIGN_ROOT/...` text, which named no shipped file.) The other installation's
-    own library is unusable, so the run passes only on the copy it is sent. A remote whose run
-    directory is reached through a symbolic link (a linked HOME; macOS's `/tmp`) resolves its
-    design root to the physical path, which the identities of the shipped files must still
-    find."""
+    """`yosys` with a `platform_file` and no `platform` is accepted by a remote: the residue file
+    is shipped as a path setting, `pdk_root` is not (the remote uses its own store), and the
+    remote's `flow_hash` equals this side's. The run maps to the cells of the library in the
+    store of the remote. A remote whose run directory is reached through a symbolic link (a
+    linked HOME; macOS's `/tmp`) resolves its design root to the physical path, which the
+    identities of the shipped files must still find."""
     require_yosys()
-    if remote == "another install":
-        monkeypatch.setattr(remote_module, "remote_runner", _remote_runner_installed_elsewhere)
+    store_home = tmp_path / "store_home"
+    tiny_store(store_home, ".ciel")
+    monkeypatch.setenv("HOME", str(store_home))  # the remote finds its PDK store here
     if remote == "symlinked remote home":
         link = tmp_path / "linked_home"
         link.symlink_to(remote_host, target_is_directory=True)
@@ -2127,24 +2095,21 @@ def test_a_bundled_platform_s_remote_run_has_this_side_s_identity(
         rtl={"sources": ["mac.v"], "top": "mac", "clock": {"port": "clk"}},
     )
     runner = RemoteRunner(tmp_path / "mirror", display_results=False)
-    settings = ["platform=nangate45", "clock.period=2.0"]
-    plan = runner.plan(flow_name, design, flow_settings=settings)
-    expected = plan.node(flow_name).flowrun_hash
-    results = runner.run_remote(design, flow_name, "fake", flow_settings=settings)
+    settings = [f"platform_file={TINY_RESIDUE}", "clock.period=2.0", "pdk_root=elsewhere"]
+    plan = runner.plan("yosys", design, flow_settings=settings)
+    expected = plan.node("yosys").flowrun_hash
+    results = runner.run_remote(design, "yosys", "fake", flow_settings=settings)
     assert results and results["success"], results
     assert results["flow_hash"] == expected
-    # the remote reads the platform it is sent (relocated under its run directory), whatever
-    # its own installation holds; its identity names neither place
     remote_settings = json.loads(
-        (_remote_run_dir(remote_host, flow_name) / "settings.json").read_text()
+        (_remote_run_dir(remote_host, "yosys") / "settings.json").read_text()
     )
-    assert (
-        Path(remote_settings["flow_settings"]["platform"]["root_dir"])
-        .resolve()
-        .is_relative_to(remote_host.resolve())
-    )
+    shipped = remote_settings["flow_settings"]
+    assert shipped["pdk_root"] is None, "the place of the store on this side is not shipped"
+    assert Path(shipped["platform_file"]).resolve().is_relative_to(remote_host.resolve())
     netlist = Path(results["outputs"]["netlist"]["path"]).read_text()
-    assert "_X1 " in netlist or "_X2 " in netlist
+    assert "_X1 " in netlist
+    assert results["platform"]["name"] == "tiny"
 
 
 def test_a_remote_run_of_a_flow_that_declares_no_io_resolves_the_identity_it_was_sent(

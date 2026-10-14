@@ -255,9 +255,9 @@ Reports no results beyond the keys every flow reports.
 
 Synthesize a design with Yosys to a standard-cell, gate or LUT netlist.
 
-70 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
+74 flow-specific settings (plus the common ones): `xeda list-settings yosys --json`
 
-Reports: `area`, `cells`
+Reports: `area`, `cells`, `platform`
 
 ## Other
 

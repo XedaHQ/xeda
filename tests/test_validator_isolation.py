@@ -297,29 +297,3 @@ def test_netlist_flags_are_derived_when_used_not_stored():
     settings.netlist_src_attrs = True
     assert settings.write_verilog_flags() == ["custom", "-nodec", "-noexpr"]
     assert settings.attributes_to_unset() == ["keep"]
-
-
-def test_corner_selection_uses_an_isolated_platform_copy():
-    from xeda.platforms.asics import AsicsPlatform
-
-    platform = AsicsPlatform.from_resource("asap7")
-    original_corner = platform.default_corner
-    original_vdd = platform.pwr_nets_voltages["VDD"]
-    settings = Yosys.Settings(platform=platform, corner="FF")
-
-    assert settings.platform is not platform
-    assert platform.default_corner == original_corner
-    assert platform.pwr_nets_voltages["VDD"] == original_vdd
-    assert settings.platform.default_corner == "FF"
-    assert settings.platform.pwr_nets_voltages["VDD"] == 0.77
-
-    selected_platform = settings.platform
-    selected_voltages = settings.platform.pwr_nets_voltages
-    settings.post_synth_opt = False
-    assert settings.platform is selected_platform
-    assert settings.platform.pwr_nets_voltages is selected_voltages
-
-    settings.corner = ["SS"]
-    assert settings.platform is selected_platform
-    assert settings.platform.default_corner == "SS"
-    assert settings.platform.pwr_nets_voltages["VDD"] == 0.63

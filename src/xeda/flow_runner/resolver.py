@@ -579,26 +579,31 @@ def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
     provider (`unpinned` for a directory, which pins nothing). The pin then belongs to the
     settings, so it is part of the identity of every node. The residue is the bundled one, or
     the user file of `platform_file`, which planning reads like a design file. A group without a
-    platform gets nothing, and neither does a node that does not declare the pin."""
+    platform gets nothing.
+
+    The settings of a flow that declares `platform` must inherit `AsicPlatformSettings`, so that
+    every node of a group declares the pin. A node that cannot hold the pin would leave it out of
+    its identity. Such a flow is a programming error."""
     from ..flow.asic import platform_residues
     from ..platforms.providers import PROVIDERS, UNPINNED
     from ..platforms.residue import effective_residue
 
     for group in _components(requests, "platform"):
-        pinned = [
-            request
-            for request in group
-            if all(name in request.cls.Settings.model_fields for name in PIN_SETTINGS)
-        ]
-        provider = _group_value(pinned, "pdk_provider")
-        version = _group_value(pinned, "pdk_version")
+        for request in group:
+            if not all(name in request.cls.Settings.model_fields for name in PIN_SETTINGS):
+                raise TypeError(
+                    f"{request.cls.name} declares `platform` but not {' and '.join(PIN_SETTINGS)}: "
+                    "its settings must inherit AsicPlatformSettings"
+                )
+        provider = _group_value(group, "pdk_provider")
+        version = _group_value(group, "pdk_version")
         platform = _group_value(group, "platform")
         platform_file = _group_value(group, "platform_file")
-        if not pinned or (provider is not None and version is not None):
+        if provider is not None and version is not None:
             continue
         if platform is None and platform_file is None:
             continue
-        first = pinned[0]
+        first = group[0]
         if platform is not None:
             # The name is checked as the field checks it, before it is looked for.
             settings_in_context(first.cls, {"platform": platform}, **context)
@@ -619,7 +624,7 @@ def _pin_pdks(requests: list[_Request], context: dict[str, Any]) -> None:
             entry = residue.providers.entry(provider)
             if entry is not None:
                 version = UNPINNED if provider == "directory" else entry.version
-        for request in pinned:
+        for request in group:
             for name, value in (("pdk_provider", provider), ("pdk_version", version)):
                 if value is not None and request.raw.values.get(name) is None:
                     request.raw.values[name] = value

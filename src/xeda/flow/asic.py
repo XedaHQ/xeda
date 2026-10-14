@@ -16,10 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, List, Literal, Mapping, Optional
 
 from ..dataclass import LOCATOR, Field, field_validator
-from .flow import Flow, FlowSettingsException
+from ..utils import unique
+from .flow import Flow, FlowFatalError, FlowSettingsException
 
 if TYPE_CHECKING:
-    from ..platforms import Located, Residue
+    from ..platforms import Located, PlatformModel, Residue
 
     _FlowBase = Flow
 else:
@@ -97,8 +98,13 @@ def check_platform_settings(settings: "AsicPlatformSettings") -> None:
 
     That is a platform that is unknown or unreadable, a `platform` that disagrees with the file,
     an unknown corner, a provider that does not serve the platform, and a version that is no
-    pin of that provider. Raise `FlowSettingsException`. Settings without a platform pass."""
+    pin of that provider. Raise `FlowSettingsException`. Settings without a platform pass, unless
+    they give a corner: a corner needs a platform."""
     if settings.platform is None and settings.platform_file is None:
+        if settings.corner is not None:
+            raise FlowSettingsException(
+                "`corner` selects a corner of a platform: give `platform` or `platform_file` too"
+            )
         return
     from ..platforms.providers import platform_directory
 
@@ -228,15 +234,19 @@ class AsicPlatformSettings(Flow.Settings):
         except ValueError as error:
             raise FlowSettingsException(str(error)) from None
 
-    def platform_files(self, roles: Iterable[str]) -> List[Path]:
+    def platform_files(
+        self, roles: Iterable[str], located: "Optional[Located]" = None
+    ) -> List[Path]:
         """Return every file that a flow may open for the platform, once, in a fixed order.
 
         First the files of `roles` (the role names of the residue, such as `liberty`, `gds`), in
         the order given. Then the files that the derivation of the platform model reads
         (`DERIVATION_ROLES`) and that are not listed. Then the files of the upstream
         configuration, and last the residue file of the user. A role that the platform has no
-        files for adds none: the flow that needs it refuses when it prepares its inputs."""
-        located = self.locate_platform()
+        files for adds none: the flow that needs it refuses when it prepares its inputs.
+        `located` is the result of `locate_platform()` when the caller has it."""
+        if located is None:
+            located = self.locate_platform()
         listed: dict[Path, None] = {}
         for role in (*roles, *DERIVATION_ROLES):
             listed.update(dict.fromkeys(located.files.get(role, [])))
@@ -253,7 +263,17 @@ class AsicPlatformFlow(_FlowBase):
 
     A flow that requires `platform` (`Flow.required_settings`) also runs when only
     `platform_file` is given, since the residue file names its platform. The flow refuses the
-    platform that its settings cannot select when it is planned (`check_platform_settings`)."""
+    platform that its settings cannot select when it is planned (`check_platform_settings`).
+
+    The flow finds the PDK files and builds the platform model in `prepare_inputs()`
+    (`prepare_platform`), never in `init()`. `locate_prepared_inputs()` returns the same files
+    without building anything (`locate_platform_inputs`). The model is `platform_model`, and
+    `platform_located` tells where its files are."""
+
+    #: The platform model that `prepare_platform` built. It is `None` before.
+    platform_model: "Optional[PlatformModel]" = None
+    #: Where `prepare_platform` found the PDK files. It is `None` before.
+    platform_located: "Optional[Located]" = None
 
     @classmethod
     def required_settings_for(cls, settings: Flow.Settings) -> Mapping[str, str]:
@@ -267,3 +287,65 @@ class AsicPlatformFlow(_FlowBase):
         super().check_settings_supported(settings)
         if isinstance(settings, AsicPlatformSettings):
             check_platform_settings(settings)
+
+    def _platform_settings(self) -> AsicPlatformSettings:
+        settings = self.settings
+        assert isinstance(settings, AsicPlatformSettings)
+        return settings
+
+    def _verified_location(self) -> "Located":
+        """Find the PDK files, and check the version marker of the store against the pin."""
+        from ..platforms.providers import verify_pin
+
+        settings = self._platform_settings()
+        located = settings.locate_platform()
+        verify_pin(located, settings.residue())
+        return located
+
+    def locate_platform_inputs(self, roles: Iterable[str]) -> List[Path]:
+        """Return the files that `prepare_platform(roles)` registers as inputs, in its order.
+
+        This looks at the file system with `stat` and reads the residue files and the version
+        marker of the store. It builds nothing and writes nothing. Raise `PdkNotInstalled` if
+        a file is missing."""
+        return self._platform_settings().platform_files(roles, self._verified_location())
+
+    def prepare_platform(self, roles: Iterable[str]) -> "PlatformModel":
+        """Find the PDK files, build the platform model, and register the files as inputs.
+
+        The layers of the model come from the files themselves (derivation), the upstream
+        configuration of the platform, the residue of the platform and the residue of the user.
+        The flow reads `roles` and the files that the derivation reads, and
+        `locate_platform_inputs(roles)` returns the same list. Raise `PdkNotInstalled` if a file
+        is missing, `PdkVersionMismatch` if the store holds another version than the pin, and
+        `FlowFatalError` for a file that cannot be read."""
+        from ..platforms import build_platform
+        from ..platforms.derive import derive
+        from ..platforms.residue import effective_residue
+        from ..platforms.upstream import read_upstream
+
+        settings = self._platform_settings()
+        located = self._verified_location()
+        bundled, user = settings.residue_layers()
+        upstream = effective_residue(bundled, user).upstream
+        try:
+            derived = derive(located.files, located.corner)
+            read = (
+                {}
+                if upstream is None
+                else read_upstream(upstream.adapter, located.upstream_files, located.directory)
+            )
+            model = build_platform(located, bundled, user, derived, read)
+        except ValueError as error:
+            raise FlowFatalError(str(error)) from None
+        self.platform_located, self.platform_model = located, model
+        self.implicit_inputs.extend(settings.platform_files(roles, located))
+        return model
+
+    def dont_use_cells(self) -> List[str]:
+        """Return the cells the flow must not use: those of the platform model, then those of
+        `dont_use_cells`, without repeats. Before `prepare_platform`, only the latter."""
+        model = self.platform_model
+        return unique(
+            [*(model.dont_use_cells if model else []), *self._platform_settings().dont_use_cells]
+        )

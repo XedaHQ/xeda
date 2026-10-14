@@ -55,11 +55,6 @@ VALUES = [*PROBE_VALUES, *NAMED]
 _ROOT = Path(__file__).parent
 
 
-#: Settings that hold a model read whole from a file, which the walk does not enter. The
-#: `platform` of `yosys` is one until that flow takes the platform name.
-WHOLE_MODEL_SETTINGS = ("platform",)
-
-
 def table_fields(root: type) -> list[tuple[type, str]]:
     """Every field that takes a table, with the model that holds it, through the nested models
     reachable from `root`."""
@@ -74,8 +69,7 @@ def table_fields(root: type) -> list[tuple[type, str]]:
             kind, child, _ = annotation_kind(info.annotation)
             if kind in ("model", "dict"):
                 found.append((model, name))
-            # a platform is a whole model read from a file, never merged key by key
-            if child is not None and name not in WHOLE_MODEL_SETTINGS:
+            if child is not None:
                 walk(child)
 
     walk(root)
@@ -312,7 +306,6 @@ def test_the_sweep_walks_the_dictionaries_of_tables():
         ("RtlSettings", "attributes"),
         ("Settings", "clocks"),
         ("Settings", "set_mod_attribute"),
-        ("AsicsPlatform", "corner"),
     ]:
         assert any(
             qualname.endswith(expected[0]) and name == expected[1] for qualname, name in visited
@@ -342,7 +335,7 @@ def test_the_forms_that_stand_for_a_table():
 def test_a_model_already_built_is_a_whole_value():
     assert mapping_form(VivadoSynth.Settings, "fpga", FPGA(part="xc7a35tcpg236-1")) is WHOLE
     assert nested_model(VivadoSynth.Settings.model_fields["fpga"].annotation) is FPGA
-    assert mapping_form(Yosys.Settings, "platform", "asap7") is WHOLE
+    assert mapping_form(Yosys.Settings, "platform", "nangate45") is None, "a name is no table"
 
 
 def test_no_module_converts_a_part_number_or_a_port_by_itself():

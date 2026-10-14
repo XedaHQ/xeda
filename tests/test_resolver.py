@@ -979,37 +979,20 @@ def test_api_can_clear_a_nullable_clock_leaf_across_the_edge(tmp_path):
 
 
 def _asic_taker():
-    """A declared consumer of `yosys`'s netlist that shares its ASIC configuration -- `platform`,
-    `corner` and `dont_use_cells` with yosys's own types. No flow in the package takes such a
-    netlist, so the test declares one."""
-    from typing import List, Optional, Union
-
-    from xeda.dataclass import Field, field_validator
+    """A declared consumer of `yosys`'s netlist that shares its ASIC configuration (`platform`,
+    `corner`, `dont_use_cells` and the PDK pin, through `AsicPlatformSettings`). No flow in the
+    package takes such a netlist, so the test declares one."""
     from xeda.design import SourceType
     from xeda.flow import In
-    from xeda.flows import Yosys
-    from xeda.platforms import AsicsPlatform
+    from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
 
-    fields = Yosys.Settings.model_fields
-
-    class _AsicTaker(Flow):
+    class _AsicTaker(AsicPlatformFlow, Flow):
         """Reads yosys's gate-level netlist for one platform, as a place and route would."""
 
         results_description: ClassVar[dict[str, str]] = {}
 
-        class Settings(Flow.Settings):
-            platform: Optional[AsicsPlatform] = Field(
-                None, description=fields["platform"].description
-            )
-            corner: Optional[Union[str, List]] = Field(
-                None, description=fields["corner"].description
-            )
-            dont_use_cells: List[str] = Field([], description="Cells not to use.")
-
-            @field_validator("platform", mode="before")
-            @classmethod
-            def _platform(cls, value):
-                return AsicsPlatform.from_setting(value)
+        class Settings(AsicPlatformSettings):
+            pass
 
         class Inputs(Flow.Inputs):
             netlist: Path = In(
@@ -1063,23 +1046,36 @@ def test_every_bundled_platform_is_named_as_its_directory():
         assert AsicsPlatform.from_setting(str(config)).name == name
 
 
+#: A platform file with two corners, for the tests that give a corner.
+TWO_CORNERS = """\
+name: two
+providers:
+  default: directory
+  directory: {layout: orfs}
+corners: {default: typical}
+files:
+  liberty: {typical: [tiny.lib], SS: [tiny.lib]}
+  tech_lef: tiny.tlef
+  cell_lef: [tiny.lef]
+"""
+
+
 @pytest.mark.parametrize("leaf, value", [("corner", "SS"), ("dont_use_cells", "AND2_X2")])
 def test_a_corner_or_dont_use_list_given_once_reaches_both(tmp_path, leaf, value):
     """`-s corner=SS` and `-s dont_use_cells=X`, given once, reach both flows."""
     taker = _asic_taker()
-    platform = "asap7" if leaf == "corner" else "nangate45"
+    (tmp_path / "d").mkdir()
+    (tmp_path / "d" / "two.yaml").write_text(TWO_CORNERS)
     plan = _asic_plan(
         tmp_path,
         taker,
-        origins=[("project.yaml", {taker.name: {"platform": platform}})],
+        origins=[("project.yaml", {taker.name: {"platform_file": "two.yaml"}})],
         command_line={taker.name: {leaf: value}},
     )
     for node in plan.nodes:
         given = getattr(node.settings, leaf)
         assert given == (value if leaf == "corner" else [value]), node.name
-    assert plan.node("yosys").settings.platform.default_corner == (
-        "SS" if leaf == "corner" else "tt"
-    )
+        assert node.settings.platform_file == tmp_path / "d" / "two.yaml", node.name
 
 
 def test_a_dont_use_list_as_text_agrees_with_the_same_list(tmp_path):

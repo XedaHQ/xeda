@@ -699,10 +699,6 @@ ORDINARY_DICTIONARIES = {
     "xeda.flows.dc.Dc.Settings.compile": "suffixes of DC `compile_*` variables, which have no dots",
     "xeda.flows.dc.Dc.Settings.hdlin": "suffixes of DC `hdlin_*` variables, which have no dots",
     "xeda.flows.dc.Dc.Settings.hooks": "stage names, a fixed set without dots",
-    "xeda.platforms.asics.AsicsPlatform.corner": "corner names, with tables as values",
-    "xeda.platforms.asics.AsicsPlatform.gnd_nets_voltages": "net names of a platform file",
-    "xeda.platforms.asics.AsicsPlatform.pwr_nets_voltages": "net names of a platform file",
-    "xeda.platforms.asics.AsicsPlatform.voltage_expressions_": "internal (hidden) field",
     "xeda.flows.yosys.common.YosysBase.Settings.defines": "Verilog macro names, which have no dots",
     "xeda.flows.yosys.common.YosysBase.Settings.set_attribute": "attribute name, then an object "
     "path of yosys's selection syntax (separated by `/`): nested by design",

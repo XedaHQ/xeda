@@ -15,19 +15,22 @@ import re
 import shutil
 import textwrap
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 import pytest
 
 from xeda import Design
 from xeda.design import SourceType
-from xeda.flow import FlowDependencyFailure, FlowSettingsError, FlowSettingsException, In
+from xeda.dataclass import Field
+from xeda.flow import Flow, FlowDependencyFailure, FlowSettingsError, FlowSettingsException, In
 from xeda.flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from xeda.flow_runner import DefaultRunner
 from xeda.flow_runner.trace_inputs import registered_input_files
 from xeda.platforms import PdkNotInstalled
 
+from .flow_registry import preserved_flow_registry
 from .io_flows import _Maker, _Taker
+from .settings_samples import flow_classes
 
 TINY = Path(__file__).parent / "resources" / "platforms" / "tiny"
 COMMIT = "6b305a712966be72d8908695c04398acdbe273ca"
@@ -232,6 +235,40 @@ def test_the_install_command_of_a_user_file_names_the_file(tmp_path):
     assert len(install) == 1
     assert f"--platform-file {user.resolve()}" in install[0]
     assert "xeda pdk install tiny" not in install[0]
+
+
+def test_a_flow_that_declares_a_platform_declares_the_pin_of_its_pdk():
+    """The pin is part of the identity of every node of a group. A node whose settings declare
+    `platform` and not the pin would leave it out, so each such flow inherits
+    `AsicPlatformSettings`."""
+    declaring = [name for cls, name in flow_classes() if "platform" in cls.Settings.model_fields]
+    assert "yosys" in declaring
+    for cls, name in flow_classes():
+        if "platform" in cls.Settings.model_fields:
+            assert issubclass(cls.Settings, AsicPlatformSettings), name
+            assert issubclass(cls, AsicPlatformFlow), name
+
+
+def test_a_flow_that_declares_a_platform_without_the_pin_is_refused_when_planned(tmp_path):
+    with preserved_flow_registry():
+
+        class _PlatformWithoutPin(Flow):
+            """Declares `platform` and no pin."""
+
+            results_description: ClassVar[dict[str, str]] = {}
+
+            class Settings(Flow.Settings):
+                platform: Optional[str] = Field(None, description="A platform.")
+
+            def run(self) -> None:
+                pass
+
+        with pytest.raises(TypeError, match="_platform_without_pin.*AsicPlatformSettings"):
+            _runner(tmp_path).plan(
+                _PlatformWithoutPin,
+                _design(tmp_path / "d"),
+                flow_settings=["platform=nangate45"],
+            )
 
 
 def test_a_variable_in_the_location_is_expanded(tmp_path, monkeypatch):

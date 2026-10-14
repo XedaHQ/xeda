@@ -515,8 +515,7 @@ def _expand_path_values(value: Any, annotation: Any, overrides: Dict[str, Any]) 
     expanded = map_path_leaves(value, annotation, expand)
     model = _plain_model(annotation)
     if model is None or expanded is None:
-        # A mapping or a list of plain models (the `corner` of an `AsicsPlatform`): each model
-        # expands its own paths.
+        # A mapping or a list of plain models: each model expands its own paths.
         origin, args = get_origin(annotation), get_args(annotation)
         if origin is dict and len(args) == 2 and _plain_model(args[1]) is not None:
             if isinstance(expanded, Mapping):

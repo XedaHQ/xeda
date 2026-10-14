@@ -104,7 +104,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
-__all__ = ["PlatformConfigError", "read_open_pdks_config", "read_orfs_config_mk"]
+__all__ = ["PlatformConfigError", "read_open_pdks_config", "read_orfs_config_mk", "read_upstream"]
 
 
 class PlatformConfigError(ValueError):
@@ -751,3 +751,21 @@ def read_orfs_config_mk(path: Path, platform_dir: Path) -> dict[str, Any]:
         except _Invalid as error:
             raise PlatformConfigError(path, number, f"`{key}` {error}") from None
     return leaves
+
+
+def read_upstream(adapter: str, paths: Sequence[Path], platform_dir: Path) -> dict[str, Any]:
+    """Read the upstream configuration files of a platform with the adapter that the residue names.
+
+    `paths` are the files in reading order, and `platform_dir` is the directory of the platform.
+    The adapter `open_pdks_config` reads all files as one configuration. The adapter
+    `orfs_config_mk` reads each file on its own, and a later file wins at a leaf. Raise
+    `ValueError` for an adapter that does not exist, and `PlatformConfigError` for a line that an
+    adapter cannot read."""
+    if adapter == "open_pdks_config":
+        return read_open_pdks_config(paths)
+    if adapter == "orfs_config_mk":
+        leaves: dict[str, Any] = {}
+        for path in paths:
+            leaves.update(read_orfs_config_mk(path, platform_dir))
+        return leaves
+    raise ValueError(f"unknown upstream adapter '{adapter}'")

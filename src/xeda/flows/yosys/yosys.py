@@ -7,10 +7,10 @@ import tempfile
 from pathlib import Path
 from typing import ClassVar, Dict, List, Literal, Optional, Tuple, Union
 
-from ...dataclass import WORKING, Field, XedaBaseModel, field_validator, model_validator
+from ...dataclass import WORKING, Field, XedaBaseModel
 from ...design import SourceType
 from ...flow import Flow, FlowSettingsError, Out, SynthFlow, describe_results
-from ...platforms import AsicsPlatform
+from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...run_dir import RunDirectory
 from ...utils import replacing_file, unique
 from ..ghdl import GhdlSynth
@@ -201,17 +201,25 @@ class HiLoMap(XedaBaseModel):
     singleton: bool = True
 
 
-class Yosys(YosysSynthesisBase, SynthFlow):
+#: The roles of the platform files that `yosys` opens: the Liberty files, and the mapping files.
+#: The derivation of the platform model adds the LEF files.
+PLATFORM_ROLES = ("liberty", "latch_map", "clkgate_map", "adder_map")
+
+
+class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
     """Synthesize a design with Yosys to a standard-cell, gate or LUT netlist."""
 
     results_description = describe_results(
         "area",
         **{
             "cells": "Total number of cells in the synthesized netlist.",
+            "platform": "The platform that the netlist is mapped to, when the run maps to one: "
+            "`name`, the PDK `provider` and `version`, the `corner`, and `sources`, the layer "
+            "(derived, upstream, residue or user) that gave each value of the platform model.",
         },
     )
 
-    class Settings(YosysSynthesisBase.Settings, SynthFlow.Settings):
+    class Settings(AsicPlatformSettings, YosysSynthesisBase.Settings, SynthFlow.Settings):
         removed_settings: ClassVar[Dict[str, str]] = {
             **YosysSynthesisBase.Settings.removed_settings,
             "retime": "`abc_dff` (on by default), which passes `-dff` to `abc`, and `abc_flags` "
@@ -219,29 +227,14 @@ class Yosys(YosysSynthesisBase, SynthFlow):
             "netlist_verilog_extmem": "`netlist_verilog_flags: [-extmem]`, which `write_verilog` gets",
         }
         nosynth: bool = Field(False, description="Do not run `synth`.")
-        platform: Optional[AsicsPlatform] = Field(
-            None,
-            description="ASIC platform (PDK) to map to: a bundled platform name (see "
-            "`xeda list-platforms`) or the path of a `config.toml`. It supplies every mapping "
-            "input that no setting gives: the liberty files of its corner (merged into one "
-            "library, with its dont-use cells marked), its flip-flop library, mapping files, tie "
-            "and buffer cells, and the abc driver cell and load.",
-        )
-        corner: Optional[Union[str, List]] = Field(
-            None,
-            description='Corner of the platform whose liberty set is mapped to, e.g. "tt". '
-            "Defaults to the platform's own default corner. Needs `platform`.",
-        )
         liberty: List[Path] = Field(
-            [], alias="library", description="Standard cell (liberty) libraries to map to."
+            [],
+            alias="library",
+            description="Standard cell (liberty) libraries to map to. Without them, the Liberty "
+            "files of the platform are merged into one library and used.",
         )
         dff_liberty: Optional[Path] = Field(
             None, alias="dff_library", description="Additional liberty file for mapping flip-flops."
-        )
-        dont_use_cells: List[str] = Field(
-            [],
-            description="Standard cells abc must not use, in addition to the platform's own "
-            "dont-use list.",
         )
         optimize: Optional[Literal["speed", "area"]] = Field(
             "area",
@@ -254,12 +247,12 @@ class Yosys(YosysSynthesisBase, SynthFlow):
         abc_driver_cell: Optional[str] = Field(
             None,
             description="Cell abc assumes drives the primary inputs when mapping to a liberty "
-            "library. Defaults to the platform's.",
+            "library. Defaults to the cell of the platform model.",
         )
         abc_load_in_ff: Optional[float] = Field(
             None,
             description="Wire load abc assumes when mapping to a liberty library, in units of "
-            "flip-flop input capacitance. Defaults to the platform's.",
+            "flip-flop input capacitance. Defaults to the load of the platform model.",
         )
         netlist_attrs: Optional[bool] = Field(
             None,
@@ -297,8 +290,8 @@ class Yosys(YosysSynthesisBase, SynthFlow):
         other_maps: Optional[List[Path]] = Field(
             None,
             description="Additional Verilog files with technology-specific cell mappings. Unset: "
-            "the platform's latch mapping when mapping to a liberty library, none otherwise; an "
-            "empty list means none.",
+            "the latch mapping of the platform when mapping to a liberty library, none otherwise; "
+            "an empty list means none.",
         )
         hilomap: Optional[HiLoMap] = Field(
             None,
@@ -317,56 +310,37 @@ class Yosys(YosysSynthesisBase, SynthFlow):
             json_schema_extra=WORKING,
         )
 
-        @field_validator("platform", mode="before")
-        @classmethod
-        def _validate_platform(cls, value):
-            value = AsicsPlatform.from_setting(value)
-            if isinstance(value, AsicsPlatform):
-                # the corner is selected on this copy, never on the caller's platform
-                value = value.model_copy(deep=True)
-            return value
+        def uses_platform(self) -> bool:
+            """Return whether abc maps to the liberty library of a platform.
 
-        @model_validator(mode="after")
-        def _select_platform_corner(self):
-            if self.corner:
-                if self.platform is None:
-                    raise ValueError(
-                        "`corner` selects one of a platform's corners: give `platform` too"
-                    )
-                corner = self.corner[0] if isinstance(self.corner, list) else self.corner
-                self.platform.select_corner(corner)
-            return self
+            That is the case with `platform` or `platform_file`, unless `gates` or `lut` is set.
+            The platform then supplies the mapping inputs that no setting gives."""
+            return (
+                not self.gates
+                and not self.lut
+                and (self.platform is not None or self.platform_file is not None)
+            )
 
         def maps_to_liberty(self) -> bool:
-            """Return whether abc maps to a liberty library, from `liberty` or the `platform`.
+            """Return whether abc maps to a liberty library, from `liberty` or the platform.
 
             It does not when `gates` or `lut` is set. The platform-derived settings act only
             when it does.
             """
-            return not self.gates and not self.lut and (bool(self.liberty) or bool(self.platform))
-
-        def dont_use(self) -> List[str]:
-            """Return the cells marked `dont_use`: the platform's own, then `dont_use_cells`."""
-            platform_s = self.platform.dont_use_cells if self.platform else []
-            return unique([*platform_s, *self.dont_use_cells])
+            return not self.gates and not self.lut and (bool(self.liberty) or self.uses_platform())
 
         def abc_constraints(self) -> List[str]:
             """Return the abc constraint lines.
 
             With a liberty library, the first lines are the driver cell and the load
-            (`abc_driver_cell` and `abc_load_in_ff`, else the platform's). `abc_constr` follows.
+            (`abc_driver_cell` and `abc_load_in_ff`). `abc_constr` follows.
             """
             lines = []
             if self.maps_to_liberty():
-                platform = self.platform
-                driver = self.abc_driver_cell or (platform.abc_driver_cell if platform else None)
-                load = self.abc_load_in_ff
-                if load is None and platform:
-                    load = platform.abc_load_in_ff
-                if driver:
-                    lines.append(f"set_driving_cell {driver}")
-                if load is not None:
-                    lines.append(f"set_load {load}")
+                if self.abc_driver_cell:
+                    lines.append(f"set_driving_cell {self.abc_driver_cell}")
+                if self.abc_load_in_ff is not None:
+                    lines.append(f"set_load {self.abc_load_in_ff}")
             return [*lines, *self.abc_constr]
 
     class Outputs(SynthFlow.Outputs):
@@ -393,8 +367,8 @@ class Yosys(YosysSynthesisBase, SynthFlow):
                     problems.append(
                         (
                             name,
-                            f"`{name}` acts on mapping to a liberty library: give `platform` or "
-                            "`liberty` too",
+                            f"`{name}` acts on mapping to a liberty library: give `platform`, "
+                            "`platform_file` or `liberty` too",
                         )
                     )
         if problems:
@@ -402,15 +376,30 @@ class Yosys(YosysSynthesisBase, SynthFlow):
                 [(key, message, None, "value_error") for key, message in problems], cls.Settings
             )
 
+    def prepare_inputs(self) -> None:
+        """Build the platform model, when abc maps to the liberty library of a platform."""
+        super().prepare_inputs()
+        assert isinstance(self.settings, self.Settings)
+        if self.settings.uses_platform():
+            self.prepare_platform(PLATFORM_ROLES)
+
+    def locate_prepared_inputs(self) -> Optional[List[Path]]:
+        """Return the ABC script file, then the files of the platform that `prepare_inputs` reads."""
+        assert isinstance(self.settings, self.Settings)
+        located = super().locate_prepared_inputs()
+        if located is not None and self.settings.uses_platform():
+            located = [*located, *self.locate_platform_inputs(PLATFORM_ROLES)]
+        return located
+
     def _derive_from_platform(self) -> None:
         """Complete the settings that mapping to a liberty library needs and the user left unset.
 
-        From the `platform`: its maps and cells. For a liberty mapping: flattening, the abc
-        script that `optimize` selects, post-synthesis optimization, and a gate-level netlist
-        (without attributes and hexadecimal constants). Without a liberty mapping, the netlist
-        keeps attributes and hexadecimal constants. A setting that the user gave is never
-        replaced. Only an unset (`None`) setting is derived, so `post_synth_opt: false` stays
-        beside the default `optimize: area`.
+        From the platform model: its maps and cells, and the driver cell and the load of abc. For
+        a liberty mapping: flattening, the abc script that `optimize` selects, post-synthesis
+        optimization, and a gate-level netlist (without attributes and hexadecimal constants).
+        Without a liberty mapping, the netlist keeps attributes and hexadecimal constants. A
+        setting that the user gave is never replaced. Only an unset (`None`) setting is derived,
+        so `post_synth_opt: false` stays beside the default `optimize: area`.
         """
         ss = self.settings
         assert isinstance(ss, self.Settings)
@@ -421,34 +410,31 @@ class Yosys(YosysSynthesisBase, SynthFlow):
             ss.netlist_hex = not mapping
         if ss.post_synth_opt is None:
             ss.post_synth_opt = mapping and ss.optimize is not None
-        platform = ss.platform
+        model = self.platform_model
         if ss.other_maps is None:
-            latch_map = platform.latch_map_file if mapping and platform else None
-            ss.other_maps = [latch_map] if latch_map else []
+            latch_map = model.files.get("latch_map") if mapping and model else None
+            ss.other_maps = latch_map[:1] if latch_map else []
         if not mapping:
             return
-        if platform:
-            if ss.adder_map is None:
-                ss.adder_map = platform.adder_map_file
-            if ss.clockgate_map is None:
-                ss.clockgate_map = platform.clkgate_map_file
-            if (
-                ss.hilomap is None
-                and platform.tiehi_cell
-                and platform.tiehi_port
-                and platform.tielo_cell
-                and platform.tielo_port
+        if model:
+            for name, role in (
+                ("adder_map", "adder_map"),
+                ("clockgate_map", "clkgate_map"),
             ):
+                if getattr(ss, name) is None and model.files.get(role):
+                    setattr(ss, name, model.files[role][0])
+            if ss.hilomap is None and model.tie_high and model.tie_low:
                 ss.hilomap = HiLoMap(
-                    hi=(platform.tiehi_cell, platform.tiehi_port),
-                    lo=(platform.tielo_cell, platform.tielo_port),
+                    hi=(model.tie_high.cell, model.tie_high.port),
+                    lo=(model.tie_low.cell, model.tie_low.port),
                 )
-            if ss.insbuf is None and platform.min_buf_cell:
-                ss.insbuf = (
-                    platform.min_buf_cell,
-                    platform.min_buf_ports[0],
-                    platform.min_buf_ports[1],
-                )
+            if ss.insbuf is None and model.min_buffer:
+                buffer = model.min_buffer
+                ss.insbuf = (buffer.cell, buffer.input, buffer.output)
+            if ss.abc_driver_cell is None:
+                ss.abc_driver_cell = model.abc_driver_cell
+            if ss.abc_load_in_ff is None:
+                ss.abc_load_in_ff = model.abc_load_in_ff
         if ss.flatten is None:
             ss.flatten = True
         if ss.optimize is not None and ss.abc_script is None:
@@ -467,13 +453,21 @@ class Yosys(YosysSynthesisBase, SynthFlow):
 
         # Merge the platform's liberty set into one library, as the place and route that reads
         # the netlist does. Then abc and `dfflibmap` get one file.
-        liberty_from_platform = bool(ss.platform) and not ss.liberty
-        if ss.platform:
-            if not ss.liberty:
-                ss.liberty = ss.platform.default_corner_settings.lib_files
-            if not ss.dff_liberty:
-                ss.dff_liberty = ss.platform.default_corner_settings.dff_lib_file
+        model = self.platform_model
+        assert model is not None or not ss.uses_platform(), "prepare_inputs() builds the model"
+        liberty_from_platform = model is not None and not ss.liberty
+        if model is not None and liberty_from_platform:
+            ss.liberty = list(model.files.get("liberty", []))
         self._derive_from_platform()
+        located = self.platform_located
+        if model is not None and located is not None:
+            self.results["platform"] = {
+                "name": model.name,
+                "provider": located.provider,
+                "version": located.version,
+                "corner": model.corner,
+                "sources": dict(model.sources),
+            }
 
         ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
         if ss.dff_liberty:
@@ -501,7 +495,7 @@ class Yosys(YosysSynthesisBase, SynthFlow):
             if not lib.exists():
                 raise FileNotFoundError(f"Liberty file {lib} does not exist.")
 
-        dont_use = ss.dont_use()
+        dont_use = self.dont_use_cells()
         if ss.liberty and (liberty_from_platform or dont_use or ss.merge_libs_to):
             merge_libs_to = ss.merge_libs_to or Path("merged_lib")
             merged_lib_file = Path(f"{merge_libs_to}.lib")
@@ -510,8 +504,8 @@ class Yosys(YosysSynthesisBase, SynthFlow):
                 merged_lib_file,
                 dont_use,
                 (
-                    f"{ss.platform.name}_merged"
-                    if liberty_from_platform and ss.platform
+                    f"{model.name}_merged"
+                    if liberty_from_platform and model is not None
                     else ss.merge_libs_to
                 ),
                 run_directory=self.run_directory,

@@ -380,6 +380,14 @@ REVIEWED_RUN_TIME_REFUSALS: dict[str, tuple[int | None, str]] = {
         "judges the keys of the board entry that `board_data()` reads from the database on disk; "
         "the settings validation judges the same entry first",
     ),
+    "xeda.flow.asic:AsicPlatformFlow.prepare_platform": (
+        1,
+        "reads the PDK store and the platform files on disk, and refuses a file it cannot read",
+    ),
+    "xeda.flow.asic:AsicPlatformSettings.locate_platform": (
+        1,
+        "looks for the PDK files in the store on disk",
+    ),
     "xeda.flows.nextpnr:Nextpnr._xilinx_layout_and_selection": (
         1,
         "needs `nextpnr-himbaechel` on PATH",

@@ -37,6 +37,10 @@ What the fakes carry (checked here, `test_the_fake_vivado_writes_the_seven_outpu
   follows what was simulated (the sources analyzed, the SDF files annotated), and the power
   estimate's XML follows the checkpoint opened and the activity read, so what a flow gives its
   producer's files to shows in its own results. Nothing here falls back to the call record alone.
+`yosys_asic` is different: no earlier code recorded it. It records what `yosys` is handed under an
+ASIC configuration, on the fake `yosys` and the `tiny` test platform (a platform file and a PDK
+store in the launch directory), so that a later change to what the flow hands its tool shows.
+
 The goldens are `tests/resources/tool_input_equivalence/*.json`. Setting `XEDA_TESTS_CAPTURE_GOLDENS=1`
 writes a golden that does not exist yet and never replaces one: a golden is not regenerated, a
 difference is a bug or a reviewed delta.
@@ -58,9 +62,11 @@ import pytest
 
 import xeda
 
+from .tiny_platform import TINY_RESIDUE, tiny_store
 from .tool_utils import (
     REQUIRE_TOOLS,
     fake_calls,
+    use_fake_asic_tools,
     use_fake_tools,
 )
 
@@ -245,6 +251,8 @@ VIVADO_SETTINGS = (
 class Request:
     flow: str
     settings: tuple[str, ...]
+    #: the fake tools and the design the request runs on: "vivado", or "yosys" for `yosys_asic`
+    kind: str = "vivado"
 
 
 REQUESTS: dict[str, Request] = {
@@ -253,6 +261,9 @@ REQUESTS: dict[str, Request] = {
         "vivado_postsynth_sim", (*VIVADO_SETTINGS, "timing_sim=true")
     ),
     "vivado_power": Request("vivado_power", VIVADO_SETTINGS),
+    "yosys_asic": Request(
+        "yosys", ("platform_file=tiny.yaml", "clock.period=2.0", "optimize=speed"), kind="yosys"
+    ),
 }
 
 
@@ -274,6 +285,21 @@ def write_vivado_design(root: Path) -> None:
         "  top: tb\n"
         "  uut: dut\n"
     )
+
+
+def write_yosys_asic_design(root: Path, work: Path) -> list[str]:
+    """Write a design, the platform file and the PDK store of the `tiny` platform; return the
+    settings that locate the store."""
+    (root / "top.v").write_text(
+        "module top(input clk, input rst, input [3:0] a, output reg [3:0] q);\n"
+        "  always @(posedge clk) if (rst) q <= 0; else q <= q + a;\n"
+        "endmodule\n"
+    )
+    (root / "design.yaml").write_text(
+        'name: counter\nrtl:\n  sources: ["top.v"]\n  top: top\n  clock:\n    port: clk\n'
+    )
+    shutil.copy(TINY_RESIDUE, root / "tiny.yaml")
+    return [f"pdk_root={tiny_store(work, 'pdks')}"]
 
 
 # ------------------------------------------------------------------------------ the capture
@@ -403,10 +429,14 @@ def launch(request: Request, work: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     design = work / "design"
     design.mkdir(parents=True)
     run_root = work / "xeda_run"
-    write_vivado_design(design)
     items = list(request.settings)
-    use_fake_tools(monkeypatch)
-    monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
+    if request.kind == "yosys":
+        items += write_yosys_asic_design(design, work)
+        use_fake_asic_tools(monkeypatch, work / "bin")
+    else:
+        write_vivado_design(design)
+        use_fake_tools(monkeypatch)
+        monkeypatch.setenv("XEDA_FAKE_XSIM_STATE", "finish5")
     command = [
         sys.executable,
         "-m",
@@ -482,7 +512,8 @@ def captured(tmp_path_factory) -> Callable[[str], dict[str, Any]]:
 
     def get(name: str) -> dict[str, Any]:
         if name not in records:
-            require_tclsh()
+            if REQUESTS[name].kind == "vivado":
+                require_tclsh()
             # a context of its own: the environment the launch needs ends with it
             with pytest.MonkeyPatch.context() as monkeypatch:
                 records[name] = launch(REQUESTS[name], tmp_path_factory.mktemp(name), monkeypatch)

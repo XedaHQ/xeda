@@ -1,0 +1,18 @@
+# tiny.yaml: the platform of the test library, found in a directory that holds a copy of tiny/
+name: tiny
+description: A small library for tests, written for xeda
+providers:
+  default: directory
+  directory: {layout: orfs}
+corners: {default: typical, aliases: {tt: typical}}
+files:
+  liberty: {typical: [tiny.lib]}
+  tech_lef: tiny.tlef
+  cell_lef: [tiny.lef]
+  latch_map: cells_latch.v
+  clkgate_map: cells_clkgate.v
+  adder_map: cells_adders.v
+values:
+  min_buffer: {cell: BUF_X1, input: A, output: Z}
+  abc_driver_cell: BUF_X1
+  abc_load_in_ff: 3.5
