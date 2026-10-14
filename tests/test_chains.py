@@ -9,8 +9,10 @@ from xeda.design import SourceType
 from xeda.flow import Flow, FlowSettingsException, In, Out
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import FlowNotFoundError
+from xeda.flow_runner.bindings import NodeKey, ProducerRef, chain_bindings
 from xeda.flow_runner.chains import (
     ChainElement,
+    ChainLink,
     FlowRequest,
     binding_points,
     default_graph,
@@ -170,25 +172,27 @@ def _suggestions(text: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "request_text, suggested",
+    "request_text, passes",
     [
-        ("nextpnr+openfpgaloader", "nextpnr+fpga_pack+openfpgaloader"),
-        ("yosys_fpga+fpga_pack", "yosys_fpga+nextpnr+fpga_pack"),
-        # the prefix and the suffix of the request are kept around the inserted stage
-        ("yosys_fpga+nextpnr+openfpgaloader", "yosys_fpga+nextpnr+fpga_pack+openfpgaloader"),
-        ("yosys_fpga+fpga_pack+openfpgaloader", "yosys_fpga+nextpnr+fpga_pack+openfpgaloader"),
-        # so is the producer's output qualifier
-        ("nextpnr.config+openfpgaloader", "nextpnr.config+fpga_pack+openfpgaloader"),
-        ("yosys_fpga+openfpgaloader", "yosys_fpga+nextpnr+fpga_pack+openfpgaloader"),
+        ("nextpnr+openfpgaloader", [["fpga_pack"]]),
+        ("yosys_fpga+fpga_pack", [["nextpnr"]]),
+        # a link that passes through sits beside a direct one, before or after it
+        ("yosys_fpga+nextpnr+openfpgaloader", [[], ["fpga_pack"]]),
+        ("yosys_fpga+fpga_pack+openfpgaloader", [["nextpnr"], []]),
+        # so does the producer's output qualifier
+        ("nextpnr.config+openfpgaloader", [["fpga_pack"]]),
+        ("yosys_fpga+openfpgaloader", [["nextpnr", "fpga_pack"]]),
     ],
 )
-def test_a_missing_stage_suggests_the_full_corrected_request(request_text, suggested):
-    assert _suggestions(request_text) == [suggested]
-    assert parse_request(suggested).requested.name == suggested.split("+")[-1]
+def test_a_link_across_a_missing_stage_is_valid_and_passes_through_it(request_text, passes):
+    request = parse_request(request_text)
+    assert [[flow.name for flow in link.through] for link in request.links] == passes
+    assert request.requested.name == request_text.split("+")[-1]
 
 
-def test_a_missing_stage_is_found_in_the_middle_of_a_longer_request():
-    assert _suggestions("__route_a+__route_c") == ["__route_a+__route_b+__route_c"]
+def test_a_link_across_a_stage_in_the_middle_of_a_longer_request_passes_through_it():
+    request = parse_request("__route_a+__route_c")
+    assert [flow.name for flow in request.through(0)] == ["__route_b"]
     assert _suggestions("__chain_simple_producer+__route_a+__route_c") == []
 
 
@@ -218,8 +222,8 @@ def test_a_qualifier_that_does_not_fit_suggests_the_one_that_does():
         "__chain_action+__chain_simple_consumer",  # an action ends a chain
         "__chain_undeclared+__chain_action",  # an undeclared flow runs alone
         "__chain_simple_producer+__chain_ambiguous_default+__chain_simple_consumer",
-        "__route_a+__loop_a",  # no default route reaches the target
-        "__route_a+__route_c+__route_b",  # the only route would repeat a flow of the request
+        "__route_a+__loop_a",  # the default producers of the target do not reach the producer
+        "__route_a+__route_c+__route_b",  # the link would pass through a flow of the request
     ],
 )
 def test_no_compatible_declared_path_means_no_fabricated_suggestion(request_text):
@@ -233,18 +237,20 @@ def test_an_action_before_the_end_is_refused_with_its_reason_and_no_suggestion()
     assert "Did you mean" not in str(raised.value)
 
 
-def test_default_route_search_terminates_on_a_cycle_of_default_producers():
-    # _LoopA and _LoopB are each other's default producer: the search visits each once
+def test_validation_terminates_on_a_cycle_of_default_producers():
+    # _LoopA and _LoopB are each other's default producer: the walk visits each once
     assert _suggestions("__route_a+__loop_a") == []
+    # a cycle gives direct links in both directions, and passes through nothing
+    assert parse_request("__loop_b+__loop_a").through(0) == ()
+    assert parse_request("__loop_a+__loop_b").through(0) == ()
 
 
 def test_every_suggestion_is_itself_a_valid_request_with_its_qualifiers():
     for text in (
-        "nextpnr+openfpgaloader",
-        "nextpnr.config+openfpgaloader",
+        "yosys_fpga.netlist_edif+fpga_pack",
         "__chain_producer+__chain_ambiguous_consumer",
         "__chain_producer.data+__chain_ambiguous_consumer",
-        "__route_a+__route_c",
+        "__diamond_head.o2+__diamond_tail",
     ):
         for suggestion in _suggestions(text):
             request = parse_request(suggestion)  # the same validator, and it accepts
@@ -258,7 +264,10 @@ def test_suggestions_construct_no_flow_and_touch_no_run_root(monkeypatch, tmp_pa
         raise AssertionError("suggestions are static")
 
     monkeypatch.setattr(Flow, "__init__", forbidden_init)
-    assert _suggestions("nextpnr+openfpgaloader") == ["nextpnr+fpga_pack+openfpgaloader"]
+    assert _suggestions("yosys_fpga.netlist_edif+fpga_pack") == [
+        "yosys_fpga+fpga_pack",
+        "yosys_fpga.netlist+fpga_pack",
+    ]
     assert not list(tmp_path.iterdir())
 
 
@@ -270,17 +279,118 @@ def test_a_suggestion_resolves_with_a_valid_design(tmp_path):
     root.mkdir()
     (root / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
     design = Design(name="top", design_root=root, rtl={"sources": ["top.v"], "top": "top"})
-    (suggestion,) = _suggestions("nextpnr+openfpgaloader")
+    suggestion, _qualified = _suggestions("yosys_fpga.netlist_edif+fpga_pack")
     plan = DefaultRunner(tmp_path / "run", display_results=False).plan(
         parse_request(suggestion), design, flow_settings={"fpga": "LFE5U-25F-6BG381C"}
     )
-    assert [node.name for node in plan.nodes] == [
-        "yosys_fpga",
-        "nextpnr",
-        "fpga_pack",
-        "openfpgaloader",
+    assert [node.name for node in plan.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    assert plan.requested == "fpga_pack"
+
+
+# ------------------------------------------------------------ links that pass through flows
+
+
+def test_a_link_passes_through_the_default_producers_between_its_flows():
+    from xeda.flows import Nextpnr
+
+    request = parse_request("yosys_fpga+fpga_pack")
+    validate_chain(request.elements)
+    assert [cls.name for cls in request.through(0)] == ["nextpnr"]
+    assert request.links[0].binds == ((Nextpnr, "netlist", "netlist"),)
+
+
+def test_a_direct_link_passes_through_nothing_and_binds_the_inputs_of_its_consumer():
+    from xeda.flows import FpgaPack
+
+    request = parse_request("nextpnr+fpga_pack")
+    assert request.links == (ChainLink((), ((FpgaPack, "config", "config"),)),)
+    assert request.through(0) == ()
+    assert parse_request("fpga_pack").links == ()
+
+
+def test_a_direct_edge_still_wins_over_a_route():
+    from .io_flows import _RouteBoth
+
+    request = parse_request("__route_a+__route_both")
+    assert request.through(0) == ()
+    # `y` comes from `__route_b` by default, and `__route_a` is not its producer
+    assert request.links[0].binds == ((_RouteBoth, "x", "x"),)
+    assert [cls.name for cls in default_graph(_RouteBoth).between(io_flows._RouteA)] == [
+        "__route_b"
     ]
-    assert plan.requested == "openfpgaloader"
+
+
+def test_a_qualified_pass_through_link_binds_every_binding_point():
+    from .io_flows import _DiamondHead, _DiamondLeft, _DiamondRight
+
+    for text in ("__diamond_head+__diamond_tail", "__diamond_head.o1+__diamond_tail"):
+        request = parse_request(text)
+        assert request.through(0) == (_DiamondLeft, _DiamondRight)
+        assert request.links[0].binds == (
+            (_DiamondLeft, "i", "o1"),
+            (_DiamondRight, "i", "o1"),
+        )
+        bound = chain_bindings(request)
+        location = (
+            "the chain position 1 (__diamond_head) -> 2 (__diamond_tail), "
+            "through __diamond_left, __diamond_right"
+        )
+        for side in ("left", "right"):
+            binding = bound[NodeKey(f"__diamond_{side}"), "i"]
+            assert binding.references == (ProducerRef(NodeKey(_DiamondHead.name), "o1"),)
+            assert (binding.location, binding.origin) == (location, "chain")
+        assert len(bound) == 2
+
+    with pytest.raises(FlowSettingsException) as raised:
+        parse_request("__diamond_head.o2+__diamond_tail")
+    message = str(raised.value)
+    assert "__diamond_left.i" in message
+    assert _suggestions("__diamond_head.o2+__diamond_tail") == [
+        "__diamond_head+__diamond_tail",
+        "__diamond_head.o1+__diamond_tail",
+    ]
+
+
+def test_a_link_cannot_pass_through_a_flow_the_request_names():
+    with pytest.raises(FlowSettingsException) as raised:
+        parse_request("__route_a+__route_c+__route_b")
+    message = str(raised.value)
+    assert message == (
+        "Flow `__route_b` appears more than once; a chain is a path and each flow may appear "
+        "only once. The link `__route_a+__route_c` passes through `__route_b`."
+    )
+    assert _suggestions("__route_a.x+__route_c+__route_b") == []
+    with pytest.raises(FlowSettingsException, match="The link `__route_a.x\\+__route_c` passes"):
+        parse_request("__route_a.x+__route_c+__route_b")
+
+
+def test_a_link_that_feeds_only_its_consumer_is_a_failed_edge_not_a_pass_through():
+    class _PassMismatch(Flow):
+        """Names `__route_a` as the producer of a file it makes no output of."""
+
+        results_description = {}
+
+        class Inputs(Flow.Inputs):
+            i: Path = In(SourceType.Sdc, producer="__route_a", description="Not made.")
+
+        def run(self) -> None:
+            pass
+
+    assert default_graph(_PassMismatch).between(io_flows._RouteA) == ()
+    with pytest.raises(FlowSettingsException, match="no compatible output") as raised:
+        parse_request("__route_a+__pass_mismatch")
+    assert "passes through" not in str(raised.value)
+    with pytest.raises(FlowSettingsException, match="no compatible output"):
+        parse_request("__route_c+__route_b")
+
+
+def test_a_request_has_one_link_for_each_pair_of_elements():
+    elements = (ChainElement(_ChainSimpleProducer), ChainElement(_ChainSimpleConsumer))
+    with pytest.raises(ValueError, match="links"):
+        FlowRequest(elements)
+    with pytest.raises(ValueError, match="links"):
+        FlowRequest(elements[:1], (ChainLink((), ()),))
+    assert FlowRequest(elements[:1]).links == ()
 
 
 # ------------------------------------------------------- follow relations (shared with listing)
@@ -359,14 +469,15 @@ def test_follow_relations_come_from_declarations_not_from_a_name_table():
 
 
 def _accepts(producer, output, consumer):
+    """Whether `producer.output+consumer` is a direct link: follow relations list only those."""
     try:
-        validate_chain((ChainElement(producer, output), ChainElement(consumer)))
+        (link,) = validate_chain((ChainElement(producer, output), ChainElement(consumer)))
     except FlowSettingsException:
         return False
-    return True
+    return not link.through
 
 
-def test_a_follow_relation_is_exactly_what_the_chain_validator_accepts():
+def test_a_follow_relation_is_exactly_the_direct_links_the_chain_validator_accepts():
     from xeda.flow_runner.chains import followers
 
     classes = _classes()
@@ -387,7 +498,10 @@ def test_a_follow_relation_is_exactly_what_the_chain_validator_accepts():
     "incomplete, expected",
     [
         ("yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
-        ("yosys_fpga+nextpnr+", ["yosys_fpga+nextpnr+fpga_pack"]),
+        (
+            "yosys_fpga+nextpnr+",
+            ["yosys_fpga+nextpnr+fpga_pack", "yosys_fpga+nextpnr+openfpgaloader"],
+        ),
         (
             "yosys_fpga+nextpnr+fpga_pack+open",
             ["yosys_fpga+nextpnr+fpga_pack+openfpgaloader"],

@@ -39,7 +39,7 @@ from .bindings import (
     node_bindings,
     node_identity,
 )
-from .chains import FlowRequest, fitting_outputs
+from .chains import FlowRequest, default_graph, fitting_outputs, request_text
 from .related_inputs import Node, check_related_inputs
 from .settings_layers import (
     API_ORIGIN,
@@ -408,6 +408,50 @@ class _Request:
     @property
     def label(self) -> str:
         return self.key.label if self.key else self.cls.name
+
+
+def _check_links_pass_through(
+    flow_request: FlowRequest | None, requests: Sequence[_Request]
+) -> None:
+    """Refuse a chain link whose flows between are not in the plan.
+
+    A link that passes through other flows binds an input of each flow that its first element
+    feeds. A source or a binding of another input can take such a flow out of the plan. The
+    link then binds nothing, so the request would not mean what it says."""
+    if flow_request is None:
+        return
+    retained = {request.cls: request for request in requests}
+    for index, link in enumerate(flow_request.links):
+        if not link.through:
+            continue
+        for missing, _input, _output in link.binds:
+            if missing in retained:
+                continue
+            elements = flow_request.elements[index : index + 2]
+            graph = default_graph(elements[1].flow_class)
+            cause = ""
+            for edge in graph.edges:
+                if (
+                    edge.consumer in retained
+                    and edge.producer not in retained
+                    and (
+                        edge.producer is missing or missing in default_graph(edge.producer).flows()
+                    )
+                ):
+                    resolved = next(
+                        item for item in retained[edge.consumer].inputs if item.name == edge.input
+                    )
+                    where = f"`{edge.consumer.name}.{edge.input}`"
+                    cause = (
+                        f"the source of {where} takes"
+                        if resolved.origin == "source"
+                        else f"the binding of {where} at {resolved.binding_location} takes"
+                    )
+                    break
+            raise FlowSettingsException(
+                f"The chain link `{request_text(elements)}` passes through `{missing.name}`, "
+                + (f"which {cause} out of the plan." if cause else "which the plan does not keep.")
+            )
 
 
 def _error(cls: type[Flow], leaf: str, message: str) -> FlowSettingsError:
@@ -1099,6 +1143,7 @@ def resolve(
         # A displaced producer leaves the graph, with its settings and shared leaves.
         demands()
 
+    _check_links_pass_through(flow_request, requests)
     check_related_inputs(
         Node(request.label, request.cls, {item.name: item for item in request.inputs})
         for request in requests

@@ -432,3 +432,82 @@ class _ChainAliased(Flow):
 
     def run(self) -> None:
         pass
+
+
+class _RouteBoth(Flow):
+    """Takes `_RouteA` directly and `_RouteB`, which itself reads `_RouteA`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        x: Path = In(
+            SourceType.JsonNetlist, producer="__route_a", output="x", description="Stage A."
+        )
+        y: Path = In(SourceType.Data, producer="__route_b", output="y", description="Stage B.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondHead(Flow):
+    """The head of a diamond: makes a netlist `o1` and a constraints file `o2`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        o1: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+        o2: Path = Out(SourceType.Sdc, description="The constraints file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondLeft(Flow):
+    """One side of the diamond: reads the netlist of the head."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(
+            SourceType.JsonNetlist, producer="__diamond_head", output="o1", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The left file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondRight(Flow):
+    """The other side of the diamond: reads the netlist of the head."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        i: Path = In(
+            SourceType.JsonNetlist, producer="__diamond_head", output="o1", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The right file.")
+
+    def run(self) -> None:
+        pass
+
+
+class _DiamondTail(Flow):
+    """The end of the diamond: reads both sides."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(
+            SourceType.Data, producer="__diamond_left", output="out", description="Left."
+        )
+        right: Path = In(
+            SourceType.Data, producer="__diamond_right", output="out", description="Right."
+        )
+
+    def run(self) -> None:
+        pass

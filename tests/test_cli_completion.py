@@ -143,7 +143,10 @@ def _complete(shell, words):
     ("words", "expected"),
     [
         ("xeda run yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
-        ("xeda run yosys_fpga+nextpnr+", ["yosys_fpga+nextpnr+fpga_pack"]),
+        (
+            "xeda run yosys_fpga+nextpnr+",
+            ["yosys_fpga+nextpnr+fpga_pack", "yosys_fpga+nextpnr+openfpgaloader"],
+        ),
         ("xeda run --json yosys_fpga+nextpnr+fpga_pack+open", None),
         ("xeda run nextpnr.", ["nextpnr.config"]),
         ("xeda run openfpgaloader+", []),
@@ -220,7 +223,10 @@ def test_completion_of_chains_of_declared_test_flows(shell, words, expected):
 CHAIN_CASES = [
     ("xeda r", "run"),
     ("xeda run yosys_fpga+ne", ["yosys_fpga+nextpnr"]),
-    ("xeda run yosys_fpga+nextpnr+", ["yosys_fpga+nextpnr+fpga_pack"]),
+    (
+        "xeda run yosys_fpga+nextpnr+",
+        ["yosys_fpga+nextpnr+fpga_pack", "yosys_fpga+nextpnr+openfpgaloader"],
+    ),
     ("xeda run yosys_fpga+nextpnr+fpga_pack+", ["yosys_fpga+nextpnr+fpga_pack+openfpgaloader"]),
     ("xeda run nextpnr.", ["nextpnr.config"]),
     ("xeda run openfpgaloader+", []),

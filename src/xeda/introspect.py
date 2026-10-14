@@ -112,10 +112,18 @@ def design_info(requested: Any, loaded: str | None = None) -> dict[str, Any]:
 def request_info(request: Any) -> list[dict[str, Any]]:
     """Return the elements of a request with canonical names: one for a single flow, several for
     a chain. `output` is the output that a chain element selects for its edge to the next
-    element, else None."""
+    element, else None. `through` lists the names of the flows between the element and the next
+    one, in chain order. It is empty for a direct link and for the last element."""
     return [
-        {"node": element.node, "flow": element.flow_class.name, "output": element.output}
-        for element in request.elements
+        {
+            "node": element.node,
+            "flow": element.flow_class.name,
+            "output": element.output,
+            "through": (
+                [flow.name for flow in request.through(index)] if index < len(request.links) else []
+            ),
+        }
+        for index, element in enumerate(request.elements)
     ]
 
 

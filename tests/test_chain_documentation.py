@@ -586,11 +586,22 @@ def test_a_flow_that_fails_without_a_tool_error_says_reported_failure(
 def test_a_chain_that_does_not_fit_suggests_the_valid_one_and_a_programmer_ends_a_chain(tmp_path):
     root = _stage(tmp_path, "routed_demo.yaml")
     design = root / "routed_demo.yaml"
-    result, document = _xeda("run", "nextpnr+openfpgaloader", design, "--dry-run")
+    result, document = _xeda("run", "yosys_fpga.netlist_edif+fpga_pack", design, "--dry-run")
     assert result.exit_code == 2 and "request" not in document
-    assert "Did you mean `nextpnr+fpga_pack+openfpgaloader`?" in document["error"]["message"]
-    # and the suggestion is itself a chain that plans
-    planned = _planned("nextpnr+fpga_pack+openfpgaloader", design)
+    assert (
+        "Did you mean `yosys_fpga+fpga_pack` or `yosys_fpga.netlist+fpga_pack`?"
+        in document["error"]["message"]
+    )
+    # and each suggestion is itself a chain that plans
+    for suggestion in ("yosys_fpga+fpga_pack", "yosys_fpga.netlist+fpga_pack"):
+        planned = _planned(suggestion, design)
+        assert [n["name"] for n in planned["plan"]["nodes"]] == [
+            "yosys_fpga",
+            "nextpnr",
+            "fpga_pack",
+        ]
+    # a programmer ends a chain, and the packer between `nextpnr` and it is planned as usual
+    planned = _planned("nextpnr+openfpgaloader", design)
     assert [n["name"] for n in planned["plan"]["nodes"]] == [
         "yosys_fpga",
         "nextpnr",
@@ -603,6 +614,82 @@ def test_a_chain_that_does_not_fit_suggests_the_valid_one_and_a_programmer_ends_
     assert "programs a device and can only end a chain" in document["error"]["message"]
     result, document = _xeda("run", "nextpnr+nextpnr", design, "--dry-run")
     assert result.exit_code == 2 and "appears more than once" in document["error"]["message"]
+
+
+# ------------------------------------------------ links that pass through default producers
+
+
+def test_a_pass_through_chain_plans_what_the_plain_request_plans(tmp_path):
+    design = _stage(tmp_path, "routed_demo.yaml") / "routed_demo.yaml"
+    runner = DefaultRunner(tmp_path / "run", display_results=False)
+    chained = runner.plan("yosys_fpga+fpga_pack", design)
+    plain = runner.plan("fpga_pack", design)
+    assert [n.name for n in chained.nodes] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    assert [n.name for n in chained.nodes] == [n.name for n in plain.nodes]
+    assert [n.flowrun_hash for n in chained.nodes] == [n.flowrun_hash for n in plain.nodes]
+    (netlist,) = [i for i in chained.node("nextpnr").inputs if i.name == "netlist"]
+    assert netlist.binding_origin == "chain"
+    assert netlist.binding_location == (
+        "the chain position 1 (yosys_fpga) -> 2 (fpga_pack), through nextpnr"
+    )
+    (config,) = [i for i in chained.node("fpga_pack").inputs if i.name == "config"]
+    assert config.binding_origin == plain.node("fpga_pack").inputs[0].binding_origin == "file"
+
+
+def test_the_dry_run_of_a_pass_through_chain_lists_the_flows_between(tmp_path):
+    design = _stage(tmp_path, "routed_demo.yaml") / "routed_demo.yaml"
+    document = _planned("yosys_fpga+fpga_pack", design)
+    assert [(e["node"], e["through"]) for e in document["request"]] == [
+        ("yosys_fpga", ["nextpnr"]),
+        ("fpga_pack", []),
+    ]
+    assert [n["name"] for n in document["plan"]["nodes"]] == ["yosys_fpga", "nextpnr", "fpga_pack"]
+    assert _input(document, "nextpnr", "netlist")["binding_origin"] == "chain"
+
+
+def test_a_pass_through_link_collides_with_a_cli_binding_of_its_input(tmp_path):
+    design = _stage(tmp_path, "routed_demo.yaml") / "routed_demo.yaml"
+    result, document = _xeda(
+        "run",
+        "yosys_fpga+fpga_pack",
+        design,
+        "-s",
+        "flows.nextpnr.inputs.netlist=yosys_fpga.netlist",
+        "--dry-run",
+    )
+    assert result.exit_code != 0 and document["success"] is False
+    message = document["error"]["message"]
+    assert (
+        "The chain position 1 (yosys_fpga) -> 2 (fpga_pack), through nextpnr, binds input "
+        "'netlist' of nextpnr;"
+    ) in message
+    assert "flows.nextpnr.inputs.netlist also binds that input" in message
+
+
+def test_a_source_that_cuts_the_graph_is_refused(tmp_path):
+    part = {"fpga": {"part": "LFE5U-85F-6BG381C"}}
+    design = tmp_path / "cut_demo.yaml"
+    design.write_text(
+        yaml.safe_dump(
+            {
+                "name": "cut_demo",
+                "rtl": {
+                    "sources": ["top.v", {"file": "top.config", "type": "EcpConfig"}],
+                    "top": "top",
+                },
+                "flows": {"yosys_fpga": part, "nextpnr": part, "fpga_pack": part},
+            }
+        )
+    )
+    (tmp_path / "top.v").write_text("module top(input clk, output q); assign q = clk; endmodule\n")
+    (tmp_path / "top.config").write_text("")
+    result, document = _xeda("run", "yosys_fpga+fpga_pack", design, "--dry-run")
+    assert result.exit_code != 0 and document["success"] is False
+    message = document["error"]["message"]
+    assert "passes through `nextpnr`" in message and "the source of `fpga_pack.config`" in message
+    # the request for the flow alone plans without `nextpnr`: its config comes from the source
+    document = _planned("fpga_pack", design)
+    assert [n["name"] for n in document["plan"]["nodes"]] == ["fpga_pack"]
 
 
 # ------------------------------------------------ local only, and the undeclared flows boundary

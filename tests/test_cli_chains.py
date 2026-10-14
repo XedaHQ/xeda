@@ -46,8 +46,8 @@ def _json(*args):
 
 
 REQUEST = [
-    {"node": "__input_maker", "flow": "__input_maker", "output": None},
-    {"node": "__taker", "flow": "__taker", "output": None},
+    {"node": "__input_maker", "flow": "__input_maker", "output": None, "through": []},
+    {"node": "__taker", "flow": "__taker", "output": None, "through": []},
 ]
 
 
@@ -81,7 +81,9 @@ def test_a_single_flow_keeps_its_document_and_gains_the_request(tmp_path):
     result, document = _json("run", "__taker", _design(tmp_path))
     assert result.exit_code == 0, result.output
     assert document["flow"] == "__taker" and document["results"]["read"] == "made\n"
-    assert document["request"] == [{"node": "__taker", "flow": "__taker", "output": None}]
+    assert document["request"] == [
+        {"node": "__taker", "flow": "__taker", "output": None, "through": []}
+    ]
     assert [n["flow"] for n in document["nodes"]] == ["__maker", "__taker"]
     assert document["nodes"][1]["inputs"][0]["binding_origin"] is None
 
@@ -651,14 +653,85 @@ def test_action_reason_is_class_metadata_the_dry_run_shows_apart_from_what_a_run
 
 
 def test_a_refused_chain_advertises_only_validated_requests(tmp_path):
-    result = _xeda("run", "nextpnr+openfpgaloader", _design(tmp_path))
+    result = _xeda("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
     assert result.exit_code == 2
-    assert "Did you mean `nextpnr+fpga_pack+openfpgaloader`?" in result.stderr
-    result, document = _json("run", "nextpnr+openfpgaloader", _design(tmp_path))
+    assert "Did you mean `yosys_fpga+fpga_pack` or `yosys_fpga.netlist+fpga_pack`?" in (
+        result.stderr
+    )
+    result, document = _json("run", "yosys_fpga.netlist_edif+fpga_pack", _design(tmp_path))
     assert result.exit_code == 2 and document["success"] is False
-    assert "nextpnr+fpga_pack+openfpgaloader" in document["error"]["message"]
+    assert "yosys_fpga.netlist+fpga_pack" in document["error"]["message"]
     nothing = _xeda("run", "__chain_simple_consumer+__chain_producer", _design(tmp_path))
     assert nothing.exit_code == 2 and "Did you mean" not in nothing.stderr
+
+
+def test_the_request_lists_the_flows_a_link_passes_through(tmp_path):
+    result, document = _json("run", "__route_a+__route_c", _design(tmp_path), "--dry-run")
+    assert result.exit_code == 0, result.output
+    assert document["request"] == [
+        {"node": "__route_a", "flow": "__route_a", "output": None, "through": ["__route_b"]},
+        {"node": "__route_c", "flow": "__route_c", "output": None, "through": []},
+    ]
+    assert [node["name"] for node in document["plan"]["nodes"]] == [
+        "__route_a",
+        "__route_b",
+        "__route_c",
+    ]
+    (bound,) = document["plan"]["nodes"][1]["inputs"]
+    assert (bound["producer"], bound["output"], bound["binding_origin"]) == (
+        "__route_a",
+        "x",
+        "chain",
+    )
+    (taken,) = document["plan"]["nodes"][2]["inputs"]
+    assert taken["binding_origin"] is None, "the other edges of the graph stay default edges"
+
+
+def test_a_pass_through_link_collides_with_a_binding_of_its_input_on_the_command_line(tmp_path):
+    result, document = _json(
+        "run",
+        "__route_a+__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_b.inputs.x=__route_a.x",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain position 1 (__route_a) -> 2 (__route_c), through __route_b, binds input 'x' "
+        "of __route_b; "
+    ) in message
+    assert "flows.__route_b.inputs.x also binds that input." in message
+
+
+def test_a_binding_that_cuts_the_graph_is_refused(tmp_path):
+    result, document = _json(
+        "run",
+        "__route_a+__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_c.inputs.y=__maker.made",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain link `__route_a+__route_c` passes through `__route_b`, which the binding of "
+        "`__route_c.y` at "
+    ) in message
+    assert "flows.__route_c.inputs.y takes" in message and message.endswith("out of the plan.")
+    # the same binding without the chain plans, and leaves `__route_b` out
+    plain, planned = _json(
+        "run",
+        "__route_c",
+        _design(tmp_path),
+        "-s",
+        "flows.__route_c.inputs.y=__maker.made",
+        "--dry-run",
+    )
+    assert plain.exit_code == 0, plain.output
+    assert [node["name"] for node in planned["plan"]["nodes"]] == ["__maker", "__route_c"]
 
 
 def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_path):

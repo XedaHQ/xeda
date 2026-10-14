@@ -119,12 +119,16 @@ def test_the_programmer_is_an_action_that_can_only_end_a_chain():
         assert "`openfpgaloader` programs a device and can only end a chain" in str(raised.value)
 
 
-def test_a_chain_that_skips_the_packer_says_what_each_side_takes_and_makes():
+def test_a_chain_that_does_not_fit_says_what_each_side_takes_and_makes():
     with pytest.raises(FlowSettingsException) as raised:
-        parse_request("nextpnr+openfpgaloader")
+        parse_request("nextpnr+vivado_impl")
     message = str(raised.value)
-    assert "`openfpgaloader` takes bitstream (Bitstream)" in message
+    assert "`vivado_impl` takes netlist (Edif)" in message
     assert "`nextpnr` makes config (EcpConfig/IceAsc/Fasm)" in message
+    # the packer in between is no obstacle: the default producers of the loader reach `nextpnr`
+    assert [flow.name for flow in parse_request("nextpnr+openfpgaloader").through(0)] == [
+        "fpga_pack"
+    ]
 
 
 # ------------------------------------------------------------- family selection along an edge

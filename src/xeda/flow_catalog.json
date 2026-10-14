@@ -74,10 +74,12 @@
     "class_name": "Nextpnr",
     "followers": {
       "": [
-        "fpga_pack"
+        "fpga_pack",
+        "openfpgaloader"
       ],
       "config": [
-        "fpga_pack"
+        "fpga_pack",
+        "openfpgaloader"
       ]
     }
   },
@@ -236,11 +238,15 @@
     "class_name": "YosysFpga",
     "followers": {
       "": [
+        "fpga_pack",
         "nextpnr",
+        "openfpgaloader",
         "vivado_impl"
       ],
       "netlist": [
-        "nextpnr"
+        "fpga_pack",
+        "nextpnr",
+        "openfpgaloader"
       ],
       "netlist_edif": [
         "vivado_impl"

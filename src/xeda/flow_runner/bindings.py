@@ -16,7 +16,7 @@ from typing import Any
 from ..flow import Flow, FlowSettingsException
 from ..flow.io import declared_inputs, declared_outputs
 from ..utils import semantic_hash
-from .chains import FlowRequest, close_names, match_required_inputs
+from .chains import ChainLink, FlowRequest, close_names
 from .settings_layers import merge_flow_sections, registered_flow
 
 
@@ -64,7 +64,7 @@ class BindingLayer:
     """One origin's reserved keys and explicitly supplied ordinary settings.
 
     `kind` is the rank of the origin: a `"file"` (design or project), the command line
-    (`"cli"`) or the API (`"api"`). A chain adjacency is command-line data: it overrides the
+    (`"cli"`) or the API (`"api"`). A chain link is command-line data: it overrides the
     binding of the same input in a file and collides with one on the command line or in the API.
     """
 
@@ -80,7 +80,7 @@ class InputBinding:
     """The winning ordered references for one input, with a location that explains them.
 
     `origin` is `"chain"` or the kind of the winning layer. `overridden` lists the locations
-    of file bindings that a chain adjacency replaced. Neither is part of the identity of a run.
+    of file bindings that a chain link replaced. Neither is part of the identity of a run.
     """
 
     references: tuple[ProducerRef, ...]
@@ -191,42 +191,51 @@ def _reference(value: Any, location: str) -> ProducerRef:
     return ProducerRef(NodeKey(producer.name), output)
 
 
-def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], InputBinding]:
-    """Return the input that each chain adjacency binds.
-
-    The key is `(consumer, input)` and the value is the one reference."""
-    bound: dict[tuple[NodeKey, str], InputBinding] = {}
+def _link_bindings(
+    request: FlowRequest | None,
+) -> Iterator[tuple[tuple[NodeKey, str], InputBinding, ChainLink]]:
+    """Yield each input that a link of the request binds, with its binding and the link."""
     if request is None:
-        return bound
-    for position, (producer, consumer) in enumerate(zip(request.elements, request.elements[1:]), 1):
+        return
+    pairs = zip(request.elements, request.elements[1:], request.links)
+    for position, (producer, consumer, link) in enumerate(pairs, 1):
         location = (
             f"the chain position {position} ({producer.node}) -> {position + 1} ({consumer.node})"
         )
-        for name, output in match_required_inputs(
-            producer.flow_class, consumer.flow_class, output=producer.output
-        ):
-            bound[NodeKey(consumer.node), name] = InputBinding(
-                (ProducerRef(NodeKey(producer.node), output),), location, "chain"
-            )
-    return bound
+        if link.through:
+            location += ", through " + ", ".join(flow.name for flow in link.through)
+        for flow, name, output in link.binds:
+            reference = ProducerRef(NodeKey(producer.node), output)
+            yield (NodeKey(flow.name), name), InputBinding((reference,), location, "chain"), link
+
+
+def chain_bindings(request: FlowRequest | None) -> dict[tuple[NodeKey, str], InputBinding]:
+    """Return the input that each link of a chain binds.
+
+    The key is `(consumer, input)` and the value is the one reference. A link that passes
+    through other flows binds the inputs of those flows that its first element feeds."""
+    return {key: binding for key, binding, _link in _link_bindings(request)}
 
 
 def check_chain_collisions(layers: Sequence[BindingLayer], request: FlowRequest | None) -> None:
-    """Refuse a chain adjacency and a command-line or API binding of the same input.
+    """Refuse a chain link and a command-line or API binding of the same input.
 
     This is an error even when the two are equal, and the check comes before precedence and
     value validation. A binding in a design or project file is no collision: the chain, which
     is command-line data, overrides it."""
-    chain = chain_bindings(request)
+    chain = {key: (binding, link) for key, binding, link in _link_bindings(request)}
     for layer in layers:
         if layer.kind == "file":
             continue
         for entry in layer.entries:
-            adjacency = chain.get((entry.node, entry.name))
-            if adjacency is not None:
+            found = chain.get((entry.node, entry.name))
+            if found is not None:
+                binding, link = found
+                # The location of a link that passes through ends in the flows between.
+                comma, where = (",", f" of {entry.node.flow}") if link.through else ("", "")
                 raise FlowSettingsException(
-                    f"{adjacency.location[0].upper()}{adjacency.location[1:]} binds input "
-                    f"{entry.name!r}; {entry.location} also binds that input. Give the "
+                    f"{binding.location[0].upper()}{binding.location[1:]}{comma} binds input "
+                    f"{entry.name!r}{where}; {entry.location} also binds that input. Give the "
                     "binding in one place, even when equal."
                 )
 
@@ -242,7 +251,7 @@ def node_bindings(
 
     Origins must be supplied in increasing precedence (project, design, CLI, API). The input
     names of every layer are checked, but only a winning value is validated as a reference. A
-    chain adjacency replaces a file binding of its input and notes the location of that binding.
+    chain link replaces a file binding of its input and notes the location of that binding.
     """
     declarations = declared_inputs(cls)
     winners: dict[str, tuple[BindingEntry, str]] = {}
