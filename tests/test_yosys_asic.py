@@ -854,18 +854,17 @@ LIBERTY_ONLY = {"liberty": ["cells.lib"]}
 @pytest.mark.parametrize(
     "given, mentions",
     [
-        ({"abc_dff": True}, ["abc_dff", "buffer -c", "crash"]),
         ({"post_synth_opt": True}, ["post_synth_opt", "x", "constants"]),
         ({"prep": ["-nordff"]}, ["prep"]),
         ({"nosynth": True}, ["nosynth"]),
         ({"noabc": True}, ["noabc"]),
     ],
-    ids=["abc_dff", "post_synth_opt", "prep", "nosynth", "noabc"],
+    ids=["post_synth_opt", "prep", "nosynth", "noabc"],
 )
 def test_a_setting_the_liberty_mapping_cannot_honor_is_refused_when_planned(given, mentions):
-    """The liberty mapping runs its own elaboration, synthesis and mapping with `abc`, ends with
-    the tail of OpenROAD-flow-scripts, and never passes `-dff` to `abc`. A setting that asks for
-    something else is refused with its cause, and only with a liberty mapping."""
+    """The liberty mapping runs its own elaboration, synthesis and mapping with `abc`, and ends
+    with the tail of OpenROAD-flow-scripts. A setting that asks for something else is refused with
+    its cause, and only with a liberty mapping."""
     with pytest.raises(FlowSettingsError) as refused:
         Yosys.check_settings_supported(Yosys.Settings(**LIBERTY_ONLY, **given))
     message = str(refused.value)
@@ -876,7 +875,9 @@ def test_a_setting_the_liberty_mapping_cannot_honor_is_refused_when_planned(give
         Yosys.check_settings_supported(Yosys.Settings(**mapping, **given))
 
 
-@pytest.mark.parametrize("given", [{"abc_dff": False}, {"post_synth_opt": False}, {}])
+@pytest.mark.parametrize(
+    "given", [{"abc_dff": False}, {"abc_dff": True}, {"post_synth_opt": False}, {}]
+)
 def test_the_settings_that_agree_with_the_liberty_mapping_are_accepted(given):
     Yosys.check_settings_supported(Yosys.Settings(**LIBERTY_ONLY, **given))
 
@@ -917,6 +918,46 @@ def test_abc_dff_and_splitnets_follow_the_mapping_unless_set(
         other.mkdir()
         run_dir = _scripted_launch(other, monkeypatch, Yosys, different)
         assert ("splitnets" in _script(run_dir).split()) is given
+
+
+@SCRIPT_FORMATS
+def test_abc_dff_true_puts_dff_on_the_abc_command_of_a_liberty_mapping(
+    tmp_path, monkeypatch, script_format
+):
+    """`abc_dff: true` is accepted with a liberty mapping, and both script formats pass `-dff` to
+    the mapping `abc` command, once. The retiming run, if any, is a separate command."""
+    given = _tiny(tmp_path, abc_dff=True, script_format=script_format)
+    Yosys.check_settings_supported(Yosys.Settings(**given))
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    (abc,) = _words(_commands(run_dir, script_format, tmp_path), "abc")
+    assert abc.count("-dff") == 1
+    assert "-liberty" in abc
+
+
+def test_abc_dff_false_keeps_dff_off_the_abc_command_of_a_liberty_mapping(tmp_path, monkeypatch):
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, abc_dff=False))
+    (abc,) = [line for line in _script(run_dir).splitlines() if line.startswith("abc ")]
+    assert "-dff" not in abc.split()
+
+
+def test_the_description_of_abc_dff_names_the_failures_and_the_fixes_of_abc():
+    """`-dff` with a liberty mapping can stop ABC. The description says where, and names the pull
+    requests of berkeley-abc/abc that fix it."""
+    description = Yosys.Settings.model_fields["abc_dff"].description
+    assert description is not None
+    for words in ("buffer -c", "-constr", "Abc_NtkRedirectCiCo", "abcNames.c"):
+        assert words in description
+    for link in yosys_flows.yosys.ABC_DFF_FIX_LINKS:
+        assert link in description
+
+
+def test_the_links_of_the_abc_dff_fixes_are_filled_in():
+    """Every entry of `ABC_DFF_FIX_LINKS` is the URL of a pull request on GitHub, not a
+    placeholder."""
+    links = yosys_flows.yosys.ABC_DFF_FIX_LINKS
+    assert links
+    for link in links:
+        assert re.fullmatch(r"https://github\.com/\S+", link), f"not filled in: {link}"
 
 
 def test_the_fpga_flows_see_plain_booleans_for_abc_dff_and_splitnets():
@@ -1016,7 +1057,7 @@ def test_real_yosys_maps_a_counter_with_an_adder_and_constant_outputs(
 ):
     """The order of the liberty mapping on the `tiny` platform, run for real: the counter maps,
     the netlist holds cells of the library only, no undefined constant is left in it, and the
-    script never passes `-dff` to `abc`, which crashes ABC's `buffer -c`."""
+    script passes `-dff` to `abc` only when `abc_dff` is true."""
     require_yosys()
     if script_format == "tcl" and not _yosys_has_tcl():
         pytest.skip("this yosys has no TCL support")  # oss-cad-suite has none

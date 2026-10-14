@@ -533,6 +533,18 @@ def test_abc_new_takes_no_liberty_args():
     assert "`abc.liberty_args`" in message and "`abc.mapper: abc_new`" in message
 
 
+def test_abc_new_takes_no_dff():
+    """`abc_new` has no `-dff` option, so `abc_dff: true` cannot go with it."""
+    problems = _keys(script_format="tcl", abc_dff=True, abc={"mapper": "abc_new"})
+    message = problems["abc_dff"]
+    assert "`abc_dff`" in message and "`abc.mapper: abc_new`" in message
+    Yosys.check_settings_supported(
+        Yosys.Settings(
+            platform="nangate45", script_format="tcl", abc_dff=False, abc={"mapper": "abc_new"}
+        )
+    )
+
+
 def test_keep_ff_acts_on_the_retiming_run_only():
     problems = _keys(abc={"keep_ff": True})
     message = problems["abc.keep_ff"]

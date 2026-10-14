@@ -1413,13 +1413,19 @@ A liberty mapping runs its own elaboration and mapping, and it ends with the tai
 OpenROAD-flow-scripts. Xeda refuses these settings with such a mapping, and each message names the
 setting:
 
-* ``abc_dff: true``. The ``-dff`` option crashes the ``buffer -c`` command of ABC. Use
-  ``sequential.retime_modules`` to retime. Set it to false or delete it.
 * ``post_synth_opt: true``. An ``opt`` after the tail of OpenROAD-flow-scripts leaves ``x``
   constants in the netlist. Set it to false or delete it.
 * ``prep``. The mapping runs its own ``proc``, ``flatten`` and ``synth``. Delete the setting.
 * ``nosynth: true``. The mapping always runs ``synth``. Set it to false or delete it.
 * ``noabc: true``. The mapping always maps with ``abc``. Set it to false or delete it.
+
+``abc_dff: true`` is not refused with a liberty mapping, and it is off by default there. Use
+``sequential.retime_modules`` to retime. With a liberty library, ``-dff`` can stop ABC in two
+ways. With a driving cell (``-constr``), ``buffer -c`` can stop with "A CI/CO pair share the name
+... but do not link directly". With some scripts, including the speed script of
+OpenROAD-flow-scripts, ``&put`` stops on an assertion in ``Abc_NtkRedirectCiCo``
+(``abcNames.c``). The description of ``abc_dff`` names the pull requests of berkeley-abc/abc that
+fix them. ``abc.mapper: abc_new`` has no ``-dff`` option, so ``abc_dff: true`` is refused there.
 
 A group setting that acts on a liberty mapping, such as ``abc.load``, is refused without a
 ``platform``, ``platform_file`` or ``liberty``.
@@ -1468,7 +1474,7 @@ These settings were removed from ``yosys``. Each one fails and names its replace
      - None. Xeda no longer merges Liberty files. Delete the setting, since ``dont_use_cells``
        reaches ``dfflibmap`` and ``abc`` as ``-dont_use``.
    * - ``retime``
-     - ``abc_dff``, which passes ``-dff`` to ``abc`` (not with a liberty mapping), and
+     - ``abc_dff``, which passes ``-dff`` to ``abc``, and
        ``abc_flags`` for more options of ``abc``. To retime the modules of a liberty mapping, use
        ``sequential.retime_modules``.
    * - ``netlist_verilog_extmem``
