@@ -32,8 +32,10 @@ from .test_yosys_templates import TCL_HARNESS
 from .tool_utils import require_tclsh, require_yosys_tcl
 
 DATA = resources.files("xeda.flows.yosys").joinpath("data", "asic")
-WRAP_SCRIPT = str(DATA.joinpath("synth_wrap_operators.tcl"))
-BOOTH_MAP = str(DATA.joinpath("synth_wrap_operators-booth.v"))
+#: The files of the package that wrapping reads. The run directory holds a copy of each, and the
+#: script names the copy by its name in the run directory, since a container mounts only that.
+WRAP_SCRIPT = "synth_wrap_operators.tcl"
+BOOTH_MAP = "synth_wrap_operators-booth.v"
 
 #: The harness of the other Tcl tests, with the commands that the script defines or sources
 #: replaced by stubs: `source` records itself and defines nothing, `convert_liberty_areas` and
@@ -861,4 +863,38 @@ def test_real_yosys_takes_the_wrapped_multipliers_of_the_settings(tmp_path, mult
 
 
 def test_the_bundled_assets_are_where_the_script_sources_them():
-    assert Path(WRAP_SCRIPT).is_file() and Path(BOOTH_MAP).is_file()
+    assert DATA.joinpath(WRAP_SCRIPT).is_file() and DATA.joinpath(BOOTH_MAP).is_file()
+
+
+def test_the_script_names_the_wrapping_files_relative_to_the_run_directory(tmp_path, monkeypatch):
+    run_dir, calls = _render(tmp_path, monkeypatch, **WRAPPED)
+    assert _words(calls, "source") == [["source", WRAP_SCRIPT]]
+    assert str(tmp_path) not in " ".join(_words(calls, "wrap_operators")[0])
+    assert str(DATA) not in (run_dir / "yosys_synth.tcl").read_text()
+
+
+def test_the_wrapping_files_are_copied_into_the_run_directory_only_when_wrapping(
+    tmp_path, monkeypatch
+):
+    run_dir, _ = _render(tmp_path, monkeypatch, **WRAPPED)
+    for name in (WRAP_SCRIPT, BOOTH_MAP):
+        assert (run_dir / name).read_bytes() == DATA.joinpath(name).read_bytes()
+    other, _ = _render(tmp_path / "plain", monkeypatch)
+    assert not (other / WRAP_SCRIPT).exists() and not (other / BOOTH_MAP).exists()
+
+
+def test_a_link_at_the_name_of_a_wrapping_file_is_replaced_and_its_target_is_not_written(
+    tmp_path, monkeypatch
+):
+    settings = _tiny(tmp_path, script_format="tcl", **WRAPPED)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("the file of the user\n")
+    for name in (WRAP_SCRIPT, BOOTH_MAP):
+        (run_dir / name).unlink()
+        (run_dir / name).symlink_to(outside)
+    assert _scripted_launch(tmp_path, monkeypatch, Yosys, settings) == run_dir
+    for name in (WRAP_SCRIPT, BOOTH_MAP):
+        assert not (run_dir / name).is_symlink()
+        assert (run_dir / name).read_bytes() == DATA.joinpath(name).read_bytes()
+    assert outside.read_text() == "the file of the user\n"

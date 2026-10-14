@@ -19,7 +19,7 @@ from ...flow import (
 )
 from ...flow.asic import AsicPlatformFlow, AsicPlatformSettings
 from ...flow.settings_group import SettingsGroup, render_flags
-from ...utils import replacing_file, tcl_word
+from ...utils import replacing_copy, replacing_file, tcl_word
 from ..ghdl import GhdlSynth
 from .abc_strategies import Composition, composed_abc_script
 from .asic_groups import (
@@ -86,6 +86,11 @@ def abc_strategy_script(strategy: str, options: Optional[Composition] = None) ->
 #: script from the scratchpad variable `abc9.script`, and it drops its default script when the
 #: path in `-script` holds the text `-script`. So the flow writes the file under a relative name.
 ABC_NEW_SCRIPT = "abc_speed_gia_only.script"
+
+#: The files of the package (`data/asic`) that operator wrapping reads, by their names in the
+#: package and in the run directory.
+WRAP_SCRIPT = "synth_wrap_operators.tcl"
+BOOTH_MAP = "synth_wrap_operators-booth.v"
 
 #: The text of `ABC_NEW_SCRIPT`: `abc_speed_gia_only.script` of OpenROAD-flow-scripts
 #: (`flow/scripts`, BSD-3-Clause, see `data/asic/NOTICE.md`). It only builds and maps the
@@ -215,8 +220,9 @@ class AsicValues:
     * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
     * `abc_new_script`: the name of the script file that `abc_new` maps with, when
       `abc.mapper` is `abc_new`.
-    * `wrap_script`, `booth_map`: the files of the package that wrap the operators, when
-      `arithmetic.wrap_operators` is on.
+    * `wrap_script`, `booth_map`: the names of the files of the package that wrap the operators,
+      when `arithmetic.wrap_operators` is on. `run` copies each into the run directory, and the
+      script names the copy, since a container does not mount the package.
     * `wrapped_adders`, `wrapped_multipliers`: the architectures to wrap, in the order and the
       spelling that the wrapping script takes (`KOGGE_STONE`, `BOOTH`).
     * `memory_libmap`, `memory_techmap`: the memory library files and the map of their cells.
@@ -239,8 +245,8 @@ class AsicValues:
     buffer_cell: Optional[Tuple[str, str, str]] = None
     abc_script: Optional[str] = None
     abc_new_script: Optional[str] = None
-    wrap_script: Optional[Path] = None
-    booth_map: Optional[Path] = None
+    wrap_script: Optional[str] = None
+    booth_map: Optional[str] = None
     wrapped_adders: Tuple[str, ...] = ()
     wrapped_multipliers: Tuple[str, ...] = ()
     memory_libmap: Tuple[Path, ...] = ()
@@ -860,12 +866,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                 )
             ),
             abc_new_script=ABC_NEW_SCRIPT if ss.abc.mapper == "abc_new" else None,
-            wrap_script=(
-                _asic_data("synth_wrap_operators.tcl") if ss.arithmetic.wrap_operators else None
-            ),
-            booth_map=(
-                _asic_data("synth_wrap_operators-booth.v") if ss.arithmetic.wrap_operators else None
-            ),
+            wrap_script=WRAP_SCRIPT if ss.arithmetic.wrap_operators else None,
+            booth_map=BOOTH_MAP if ss.arithmetic.wrap_operators else None,
             wrapped_adders=tuple(name.upper() for name in ss.arithmetic.wrapped_adders),
             wrapped_multipliers=tuple(name.upper() for name in ss.arithmetic.wrapped_multipliers),
             memory_libmap=tuple(self.normalize_path_to_design_root(f) for f in ss.memory.libmap),
@@ -919,6 +921,10 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             abc_constr_file = "abc.constr"
             with replacing_file(self.run_directory.writable(abc_constr_file)) as f:
                 f.write("\n".join(constraints) + "\n")
+
+        for name in (asic.wrap_script, asic.booth_map):
+            if name:
+                replacing_copy(_asic_data(name), self.run_directory.writable(name))
 
         if asic.abc_new_script:
             with replacing_file(self.run_directory.writable(asic.abc_new_script)) as f:
