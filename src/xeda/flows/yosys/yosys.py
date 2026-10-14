@@ -42,12 +42,21 @@ def clean_ascii(s: str) -> str:
     return s.encode("ascii", "ignore").decode("ascii")
 
 
+def dont_use_pattern(name: str) -> str:
+    """Return the regular expression that matches the cells `name` names. A `*` stands for any
+    characters of a cell name, a `?` for one, and every other character for itself."""
+    wildcards = {"*": r"[^\s\"()]*", "?": r"[^\s\"()]"}
+    return "".join(wildcards.get(char) or re.escape(char) for char in name)
+
+
 def preproc_lib_content(content: str, dont_use_cells: List[str]) -> str:
     # mark the cells that abc must not use
-    pattern1 = r"(^\s*cell\s*\(\s*([\"]*" + '["]*|["]*'.join(dont_use_cells) + r"[\"]*)\)\s*\{)"
-    content, count = re.subn(pattern1, r"\1\n    dont_use : true;", content, flags=re.MULTILINE)
-    if count:
-        log.info("Marked %d cells as dont_use", count)
+    if dont_use_cells:
+        names = "|".join(dont_use_pattern(name) for name in dont_use_cells)
+        pattern1 = r"(^\s*cell\s*\(\s*[\"]*(?:" + names + r")[\"]*\s*\)\s*\{)"
+        content, count = re.subn(pattern1, r"\1\n    dont_use : true;", content, flags=re.MULTILINE)
+        if count:
+            log.info("Marked %d cells as dont_use", count)
 
     # Yosys-abc fails on `original_pin` in a liberty file. The substitution below is very slow,
     # so it is disabled. Its regex may be wrong.

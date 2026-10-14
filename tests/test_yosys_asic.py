@@ -32,6 +32,7 @@ from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows import yosys as yosys_flows
+from xeda.flows.yosys.yosys import preproc_lib_content
 from xeda.utils import WorkingDirectory
 from xeda.tool import ExecutableNotFound
 
@@ -654,3 +655,57 @@ def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch
     assert effective["dff_liberty"] == str(tmp_path / "design" / "lib" / "dff.lib")
     assert effective["liberty"] == [str(tmp_path / "design" / "lib" / "x.lib")]
     assert f"-liberty {tmp_path / 'design' / 'lib' / 'x.lib'}" in script
+
+
+# ------------------------------------------------------------------------ dont-use patterns
+
+LIBRARY = """\
+library (l) {
+  cell (lpflow_a) {
+    area : 1;
+  }
+  cell ("lpflow_b") {
+    area : 1;
+  }
+  cell (xlpflow_a) {
+    area : 1;
+  }
+  cell (lpflow) {
+    area : 1;
+  }
+  cell (plain_x1) {
+    area : 1;
+  }
+  cell (plain_x10) {
+    area : 1;
+  }
+  /* lpflow_c is in a comment, not a cell */
+  attribute : "cell (lpflow_d) {" ;
+}
+"""
+
+
+def _marked(patterns: list[str]) -> set[str]:
+    text = preproc_lib_content(LIBRARY, patterns)
+    return set(re.findall(r"cell \(\"?(\w+)\"?\) \{\n    dont_use : true;", text))
+
+
+def test_a_dont_use_name_marks_exactly_that_cell():
+    assert _marked(["plain_x1"]) == {"plain_x1"}
+
+
+def test_a_star_matches_within_a_cell_name_only():
+    assert _marked(["lpflow_*"]) == {"lpflow_a", "lpflow_b"}
+
+
+def test_a_question_mark_matches_one_character():
+    assert _marked(["plain_x?"]) == {"plain_x1"}
+    assert _marked(["plain_x??"]) == {"plain_x10"}
+
+
+def test_a_dont_use_name_is_text_and_not_a_regular_expression():
+    assert _marked(["lpflow.a", "plain_x1|plain_x10"]) == set()
+
+
+def test_no_dont_use_name_marks_nothing():
+    assert _marked([]) == set()
