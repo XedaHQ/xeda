@@ -232,10 +232,10 @@ and not ``string``. The JSON output shows it too (see :ref:`machine-readable-set
 Writing a quantity
 ~~~~~~~~~~~~~~~~~~
 
-A quantity is one number, an optional space and one unit. The number has an optional sign, digits,
-an optional decimal point and an optional exponent. ``10``, ``-2.5``, ``.5`` and ``1e3`` are
-numbers. Nothing else is a quantity. An expression such as ``5 ns * 2`` is an error, and so is a
-digit separator, as in ``1_000 ns``.
+A quantity is one number, optional spaces and one unit. Spaces around the whole value do not
+matter. The number has an optional sign, digits, an optional decimal point and an optional
+exponent. ``10``, ``-2.5``, ``.5`` and ``1e3`` are numbers. Nothing else is a quantity. An
+expression such as ``5 ns * 2`` is an error, and so is a digit separator, as in ``1_000 ns``.
 
 In a design file, a quantity is plain text:
 
@@ -262,7 +262,8 @@ In a design file, a quantity is plain text:
 In a TOML or a JSON file, write a quantity as a string: ``period = "2.5 ns"``. On the command line,
 write the number and the unit without a space. The shell then passes one word, and the item needs
 no quotes: ``-s clock.period=2.5ns``. With a space, quote the whole item:
-``-s "clock.period=2.5 ns"``.
+``-s "clock.period=2.5 ns"``. Without the quotes, the list of ``-s`` items ends at the unit, and
+Xeda reports the unit as an unexpected extra argument, with a hint.
 
 Kinds and units
 ~~~~~~~~~~~~~~~
@@ -328,6 +329,12 @@ A unit in the wrong case, as in ``abc.load: 3.9 ff``:
 .. code-block:: text
 
     unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`?
+
+Text that is no quantity at all, as in ``clock.period: 5 ns * 2`` or ``clock.period: fast``:
+
+.. code-block:: text
+
+    cannot read `5 ns * 2` as a time: write one number and one unit, such as `10 ns`
 
 A unit that is not in the table, as in ``clock.period: 10 nanoseconds``:
 
@@ -1557,8 +1564,9 @@ settings of one stage, and its common settings are these:
     OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
     clock; ``abc.delay_target: auto`` does that again. ``abc.delay_target`` and ``abc.max_slew``
     are times and ``abc.load`` is a capacitance. Each needs a unit, such as ``500 ps`` or
-    ``3.9 fF`` (see :ref:`quantities`). ABC reads picoseconds and femtofarads, and Xeda converts. ``abc.max_slew`` is at
-    least 1 ps and a whole number of picoseconds. ``abc.dress`` passes ``-dress`` to ``abc``.
+    ``3.9 fF`` (see :ref:`quantities`). ABC reads picoseconds and femtofarads, and Xeda converts.
+    ``abc.max_slew`` is at least 1 ps and a whole number of picoseconds. ``abc.dress`` passes
+    ``-dress`` to ``abc``.
     It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
     instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
     (berkeley-abc/abc#445).

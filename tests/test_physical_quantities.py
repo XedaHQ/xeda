@@ -89,7 +89,7 @@ NOT_MIGRATED_YET: dict[FieldKey, str] = {
     ("VivadoSim.Settings", "prerun_time"): "a time, as text with a unit",
     ("Vcs.Settings", "time_unit"): "a time, as text such as 1ns",
     ("Vcs.Settings", "time_resolution"): "a time, as text such as 1ps",
-    ("Vcs.Settings", "lic_wait"): "a time in seconds",
+    ("Vcs.Settings", "lic_wait"): "a waiting time, in the unit of the tool",
     # Vivado and nextpnr timing
     ("VivadoImplementation.Settings", "default_max_input_delay"): "a time in nanoseconds",
     ("VivadoImplementation.Settings", "default_max_output_delay"): "a time in nanoseconds",
