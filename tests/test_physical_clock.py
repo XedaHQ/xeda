@@ -8,6 +8,7 @@ command line's `-s clock.period=5.5` path, which hands the model raw text.
 import json
 import subprocess
 import sys
+from decimal import Decimal
 
 import pytest
 
@@ -89,6 +90,14 @@ def test_the_fall_time_is_a_time_and_stays_inside_the_period():
     assert PhysicalClock(period="10 ns", duty_cycle=0.25).fall == Time("2.5 ns")  # type: ignore[call-arg]
     with pytest.raises(ValueError, match="Fall time is beyond the period"):
         PhysicalClock(period="10 ns", rise="9 ns").fall  # type: ignore[call-arg]
+
+
+@pytest.mark.parametrize("value", [0.5, "0.5", " 0.5 ", Decimal("0.5")])
+def test_duty_cycle_accepts_unitless_numeric_values(value):
+    """The command line form `-s clock.duty_cycle=0.5` arrives as the text `"0.5"`."""
+    clock = PhysicalClock(period="5 ns", duty_cycle=value)  # type: ignore[call-arg]
+    assert clock.duty_cycle == 0.5
+    assert clock.fall == Time("2.5 ns")
 
 
 def test_the_duty_cycle_is_a_marked_fraction():

@@ -1,8 +1,9 @@
 """Physical quantities in settings: clock periods, frequencies, delays.
 
-A quantity is a number, optionally followed by one unit: `5.5`, `"5.5ns"`, `"200 MHz"`,
-`"1e3 kHz"`. That is the whole grammar. Text never reaches the expression evaluator of pint. The
-evaluator would accept anything it can compute as a clock (`"5 ns * 2"`, `"5..5ns"`,
+This paragraph describes the older helpers (`convert_unit` and the others) that the settings not
+converted yet use. They read a number, optionally followed by one unit: `5.5`, `"5.5ns"`,
+`"200 MHz"`, `"1e3 kHz"`. That is the whole grammar. Text never reaches the expression evaluator
+of pint. The evaluator would accept anything it can compute as a clock (`"5 ns * 2"`, `"5..5ns"`,
 `"(100)mHz"`), and malformed text would escape as a traceback instead of a field error. Xeda
 asks pint only to convert a number from one known unit to another.
 
@@ -342,6 +343,13 @@ class Quantity:
         if factor is not None:
             return factor
         right = cls._by_folded_case.get(unit.casefold())
+        if right is not None and "\u03bc" in unit:
+            # The Greek letter mu looks like the micro sign, so the message names both codes.
+            plain = right.replace("\u00b5", "u")
+            raise QuantityError(
+                f"unit `{unit}` in `{text}` has the Greek letter mu (U+03BC): did you mean "
+                f"`{right}` (the micro sign, U+00B5) or `{plain}`?"
+            )
         if right is not None:
             raise QuantityError(
                 f"unit `{unit}` in `{text}`: units are case-sensitive, did you mean `{right}`?"
@@ -755,7 +763,8 @@ def library_units() -> dict[str, Any]:
 
 
 def data_size() -> dict[str, Any]:
-    """Return the marker of a setting that is a size of data (megabytes)."""
+    """Return the marker of a setting that is a size of data, in the unit that the description of
+    the setting names (bytes, megabytes)."""
     return {MEASURE_KEY: "data_size"}
 
 

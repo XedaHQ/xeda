@@ -331,6 +331,18 @@ def test_a_unit_in_another_case_is_refused_with_the_right_spelling(cls, spelling
         cls(f"2 {spelling}")
 
 
+def test_the_greek_mu_is_refused_and_the_message_names_the_character_to_use() -> None:
+    """U+03BC and U+00B5 look the same, so "did you mean `µm`?" alone would send the user in a
+    circle."""
+    for text in ("5 \u03bcm", "5\u03bcm"):
+        with pytest.raises(QuantityError) as raised:
+            Length(text)
+        message = str(raised.value)
+        assert "did you mean `\u00b5m` (the micro sign, U+00B5) or `um`?" in message
+        assert "U+03BC" in message
+    assert Length("5 \u00b5m") == Length("5 um")
+
+
 def test_the_miscased_spellings_include_the_micro_sign_variants() -> None:
     spellings = {s for cls, s, _ in MISCASED if cls is Length}
     assert {"nM", "UM", "Μm", "ΜM"} <= spellings
