@@ -97,8 +97,8 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
 - A node's identity is its settings hash plus its ordered input origins
   (`bindings.node_identity`). A producer's settings never depend on which consumer asked.
 - **Shared leaves agree along declared edges.** `fpga`, `board`, `custom_boards_file`, `clocks`,
-  `prjxray_db`, `platform`, `corner` and `dont_use_cells` (`SHARED_SETTINGS`) must agree where
-  both endpoints declare them. Keep these names first, in order (`tests/test_documentation.py`).
+  `prjxray_db`, `platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`,
+  `pdk_version`, `pdk_root` (`SHARED_SETTINGS`), first and in order (`tests/test_documentation.py`).
 - YAML snippets in `docs/` and the skill run as tests (`tests/test_chain_documentation.py`); a
   new snippet is YAML that starts with `# <name>.yaml`.
 

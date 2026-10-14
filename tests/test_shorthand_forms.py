@@ -42,7 +42,6 @@ from xeda.flow import FlowSettingsError
 from xeda.flow.fpga import FPGA
 from xeda.flow.synth import SynthFlow
 from xeda.flow_runner.settings_layers import merge_layers
-from xeda.flow_runner.resolver import INDIVISIBLE_SETTINGS
 from xeda.flows import VivadoSynth, Yosys
 
 from .settings_samples import flow_classes, minimal_settings
@@ -54,6 +53,11 @@ VALUES = [*PROBE_VALUES, *NAMED]
 
 #: Where the designs and settings of the sweep are rooted. Nothing is written there.
 _ROOT = Path(__file__).parent
+
+
+#: Settings that hold a model read whole from a file, which the walk does not enter. The
+#: `platform` of `yosys` is one until that flow takes the platform name.
+WHOLE_MODEL_SETTINGS = ("platform",)
 
 
 def table_fields(root: type) -> list[tuple[type, str]]:
@@ -71,7 +75,7 @@ def table_fields(root: type) -> list[tuple[type, str]]:
             if kind in ("model", "dict"):
                 found.append((model, name))
             # a platform is a whole model read from a file, never merged key by key
-            if child is not None and name not in INDIVISIBLE_SETTINGS:
+            if child is not None and name not in WHOLE_MODEL_SETTINGS:
                 walk(child)
 
     walk(root)

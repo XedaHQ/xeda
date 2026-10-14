@@ -229,8 +229,11 @@ with the synthesis behind its `activity`. A binding that splits them is refused;
 the `-s flows.<node>.inputs.<input>=<producer>.<output>` bindings that fix it.
 
 Shared settings on declared edges (`fpga`, `board`, `custom_boards_file`, `clocks`, `prjxray_db`,
-`platform`, `corner`, `dont_use_cells`, where both nodes declare them) must agree. Disjoint leaves
-combine; two values for one leaf fail and name both origins. A command-line leaf
+`platform`, `corner`, `dont_use_cells`, `platform_file`, `pdk_provider`, `pdk_version`,
+`pdk_root`, where both nodes declare them) must agree. `platform` is a bundled name;
+`platform_file` and `pdk_root` compare by resolved path; an unset `pdk_provider` or `pdk_version`
+is filled in from the platform before hashing. Disjoint leaves combine; two values for one leaf
+fail and name both origins. A command-line leaf
 (`-s fpga.part=...` or `-s flows.yosys_fpga.fpga.part=...`) wins for the connected group. A shared
 setting written under a flow that is not in the run reaches no node.
 
