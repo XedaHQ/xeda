@@ -2,16 +2,58 @@
    the flag `-random` is obsolete, and the command skips the placement when it gets it.
    The pass without pins places the pins before the main placement. The concurrent placement
    places them together with the cells and then needs `place_pins` once more, because it does not
-   put the pins on the routing tracks. #}
+   put the pins on the routing tracks. The pin placer reads its constraints and the shape of the
+   pins from commands that run before it, so the stage sets them whichever flow places the pins.
+   The pins by hand come first, in a procedure of their own: the pass without pins and the
+   main placement both must see them as placed. #}
 {% set io = settings.io %}
 {% set before_placement = io.flow == "skip_io_pass" and settings.floorplan.sizing != "def" %}
-{% if before_placement or io.flow == "concurrent" %}
+{% set places = before_placement or io.flow == "concurrent" %}
+{% if io.fixed_pins %}
+proc xeda_fixed_pins {} {
+{% for pin in io.fixed_pins %}
+    {{ ["place_pin -pin_name " ~ (pin.pin|tcl_word), "-layer " ~ (pin.layer|tcl_word), "-location " ~ ([pin.x, pin.y]|tcl_numbers), ("-pin_size " ~ ([pin.width, pin.height]|tcl_numbers)) if pin.width is not none else "", "-force_to_die_boundary" if pin.snap_to_boundary else "", "-placed_status" if pin.status == "placed" else ""]|select|join(" ") }}
+{% endfor %}
+}
+{% endif %}
+{% if places %}
+{% set excluded = [] %}
+{% for interval in io.exclude %}
+{% set _ = excluded.append("-exclude " ~ (interval.as_region()|tcl_word)) %}
+{% endfor %}
 proc xeda_place_pins {} {
-    {{ ["place_pins", "-hor_layers " ~ (P.io_horizontal|tcl_list), "-ver_layers " ~ (P.io_vertical|tcl_list), "-min_distance_in_tracks" if io.min_distance_unit == "tracks" else "", "-min_distance " ~ ((io.min_distance|int if io.min_distance_unit == "tracks" else io.min_distance)|tcl_number) if io.min_distance is not none else "", render_flags(io)]|select|join(" ") }}
+    {{ ["place_pins", "-hor_layers " ~ (P.io_horizontal|tcl_list), "-ver_layers " ~ (P.io_vertical|tcl_list), "-min_distance_in_tracks" if io.min_distance_unit == "tracks" else "", "-min_distance " ~ ((io.min_distance|int if io.min_distance_unit == "tracks" else io.min_distance)|tcl_number) if io.min_distance is not none else "", render_flags(io), excluded|join(" "), "-annealing" if io.algorithm == "annealing" else ""]|select|join(" ") }}
 }
 {% endif %}
 proc xeda_io_placement {} {
     xeda_stage io_placement
+{% if places %}
+{% for group in io.groups %}
+    {{ ["set_io_pin_constraint -pin_names " ~ (group.pins|tcl_list), "-group", "-order" if group.order else "", ("-region " ~ (group.region.as_region()|tcl_word)) if group.region is not none else ""]|select|join(" ") }}
+{% endfor %}
+{% for constraint in io.constraints %}
+    {{ ["set_io_pin_constraint", ("-direction " ~ (constraint.direction|tcl_word)) if constraint.direction is not none else "", ("-pin_names " ~ (constraint.pins|tcl_list)) if constraint.pins is not none else "", "-region " ~ (constraint.region.as_region()|tcl_word)]|select|join(" ") }}
+{% endfor %}
+{% if io.mirrored_pins %}
+{% set mirrored = [] %}
+{% for pair in io.mirrored_pins %}
+{% set _ = mirrored.extend(pair) %}
+{% endfor %}
+    set_io_pin_constraint -mirrored_pins {{ mirrored|tcl_list }}
+{% endif %}
+{% if render_flags(io.pin_length) %}
+    set_pin_length {{ render_flags(io.pin_length) }}
+{% endif %}
+{% if render_flags(io.pin_extension) %}
+    set_pin_length_extension {{ render_flags(io.pin_extension) }}
+{% endif %}
+{% if render_flags(io.pin_thickness) %}
+    set_pin_thick_multiplier {{ render_flags(io.pin_thickness) }}
+{% endif %}
+{% if io.algorithm == "annealing" and render_flags(io.annealing) %}
+    set_simulated_annealing {{ render_flags(io.annealing) }}
+{% endif %}
+{% endif %}
 {% if before_placement %}
     xeda_place_pins
 {% endif %}

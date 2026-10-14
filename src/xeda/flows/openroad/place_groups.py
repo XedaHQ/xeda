@@ -18,11 +18,14 @@ from .groups import RepairDesign, RepairTiming, SetupMove, differing_leaves
 from .place_pdn import PdnConnect, PdnGrid
 
 __all__ = [
+    "AnnealingGroup",
     "ArithSwapGroup",
     "BufferPortsGroup",
     "DensityGroup",
     "DesignGroup",
     "DetailedPlacementGroup",
+    "EdgeInterval",
+    "FixedPin",
     "FloorplanGroup",
     "FloorplanRepairTiming",
     "GlobalPlacementGroup",
@@ -33,6 +36,11 @@ __all__ = [
     "PdnCheckGroup",
     "NetlistCleanupGroup",
     "PdnGroup",
+    "PinConstraint",
+    "PinExtensionGroup",
+    "PinGroup",
+    "PinLengthGroup",
+    "PinThicknessGroup",
     "PlaceRepairTiming",
     "ResizeGroup",
     "RoutabilityDrivenGroup",
@@ -797,14 +805,235 @@ class PdnGroup(SettingsGroup):
         return found
 
 
+#: A finite number, positive or not.
+Finite = Annotated[float, Field(allow_inf_nan=False)]
+#: A finite number that is not negative.
+NonNegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+#: A finite number above zero.
+Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
+#: A pin name or a pattern of pin names, as `get_ports` takes it.
+PinName = Annotated[str, Field(min_length=1)]
+
+
+class EdgeInterval(XedaBaseModel):
+    """A part of one edge of the die, in micrometers along the edge. The interval of the pin
+    placer is `edge:begin-end`, and `*` stands for the start or for the end of the edge."""
+
+    edge: Literal["top", "bottom", "left", "right"] = Field(
+        description="The edge of the die. Along `top` and `bottom` the position is x, along "
+        "`left` and `right` it is y."
+    )
+    begin: Optional[NonNegative] = Field(
+        None,
+        description="Where the interval starts, in micrometers. Unset: at the start of the edge.",
+    )
+    end: Optional[NonNegative] = Field(
+        None, description="Where the interval ends, in micrometers. Unset: at the end of the edge."
+    )
+
+    def as_region(self) -> str:
+        """Return the interval as the pin placer reads it: `top:*`, `left:*-2`, `right:15-60.5`.
+        The pin placer reads digits only, so a number has no exponent."""
+
+        def position(value: Optional[float]) -> str:
+            return "*" if value is None else f"{value:.6f}".rstrip("0").rstrip(".")
+
+        if self.begin is None and self.end is None:
+            return f"{self.edge}:*"
+        return f"{self.edge}:{position(self.begin)}-{position(self.end)}"
+
+
+class PinGroup(XedaBaseModel):
+    """Pins that the pin placer puts next to each other (`set_io_pin_constraint -group`)."""
+
+    pins: list[PinName] = Field(
+        min_length=1,
+        description="The pins of the group, by name or by pattern (`-pin_names`). A pin belongs "
+        "to one group.",
+    )
+    order: bool = Field(
+        False,
+        description="Place the pins in the order of the list, in ascending x or y (`-order`).",
+    )
+    region: Optional[EdgeInterval] = Field(
+        None,
+        description="Keep the group inside this part of an edge (`-region`). Unset: anywhere. "
+        "With `algorithm: annealing`, OpenROAD v2.0-26132 stops with PPL-0107 for a group inside "
+        "part of an edge, and it works with a whole edge (no `begin` and no `end`). The error "
+        "was seen with a group of two pins in a die of 40 by 40 micrometers. No upstream issue "
+        "exists.",
+    )
+
+
+class PinConstraint(XedaBaseModel):
+    """A restriction of some pins to a part of an edge (`set_io_pin_constraint -region`)."""
+
+    region: EdgeInterval = Field(description="The part of the edge that the pins keep to.")
+    pins: Optional[list[PinName]] = Field(
+        None,
+        min_length=1,
+        description="The pins to restrict, by name or by pattern (`-pin_names`). Give this or "
+        "`direction`.",
+    )
+    direction: Optional[Literal["input", "output", "inout", "feedthru"]] = Field(
+        None,
+        description="Restrict every pin of this direction (`-direction`). The documentation of "
+        "OpenROAD spells the last value `feedthrough`, and the tool accepts only `feedthru`. "
+        "Give this or `pins`.",
+    )
+
+
+class FixedPin(XedaBaseModel):
+    """A pin that the flow places by hand (`place_pin`), before the pin placer runs."""
+
+    pin: PinName = Field(description="The name of the pin.")
+    layer: str = Field(min_length=1, description="The routing layer of the pin (`-layer`).")
+    x: Finite = Field(description="The x of the center of the pin, in micrometers (`-location`).")
+    y: Finite = Field(description="The y of the center of the pin, in micrometers (`-location`).")
+    width: Optional[Positive] = Field(
+        None,
+        description="The width of the pin shape, in micrometers (`-pin_size`). Give it with "
+        "`height`. Unset: the tool makes the smallest shape that the layer allows.",
+    )
+    height: Optional[Positive] = Field(
+        None,
+        description="The height of the pin shape, in micrometers (`-pin_size`). Give it with "
+        "`width`.",
+    )
+    snap_to_boundary: bool = Field(
+        False,
+        description="Move the pin to the nearest routing track next to the die boundary "
+        "(`-force_to_die_boundary`).",
+    )
+    status: Literal["fixed", "placed"] = Field(
+        "fixed",
+        description="The placement status of the pin. `fixed` keeps the pin where it is. `placed` "
+        "lets a later step move it (`-placed_status`).",
+    )
+
+
+class AnnealingGroup(SettingsGroup):
+    """The schedule of the simulated annealing of the pin placer (`set_simulated_annealing`).
+    The pin placer uses it with `io.algorithm: annealing`."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("temperature", "-temperature", "value"),
+        Flag("max_iterations", "-max_iterations", "value"),
+        Flag("perturb_per_iter", "-perturb_per_iter", "value"),
+        Flag("alpha", "-alpha", "value"),
+    )
+
+    temperature: Optional[Positive] = Field(
+        None,
+        description="The start temperature (`-temperature`). Unset: the default of the tool, 1.0.",
+        json_schema_extra=tier("expert"),
+    )
+    max_iterations: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The most iterations (`-max_iterations`). Unset: the default of the tool, "
+        "2000.",
+        json_schema_extra=tier("expert"),
+    )
+    perturb_per_iter: Optional[int] = Field(
+        None,
+        ge=1,
+        description="The moves that each iteration tries (`-perturb_per_iter`). Unset: the "
+        "tool derives the number from the number of pins.",
+        json_schema_extra=tier("expert"),
+    )
+    alpha: Optional[float] = Field(
+        None,
+        gt=0,
+        le=1,
+        description="The factor that lowers the temperature after each iteration, above 0 and "
+        "up to 1 (`-alpha`). Unset: the default of the tool, 0.985.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class PinLengthGroup(SettingsGroup):
+    """The length of the pin shapes (`set_pin_length`)."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("horizontal", "-hor_length", "value"),
+        Flag("vertical", "-ver_length", "value"),
+    )
+
+    horizontal: Optional[Positive] = Field(
+        None,
+        description="The length of the pins on the horizontal edges, in micrometers "
+        "(`-hor_length`). Unset: the shortest length that meets the minimum area of the layer.",
+        json_schema_extra=tier("advanced"),
+    )
+    vertical: Optional[Positive] = Field(
+        None,
+        description="The length of the pins on the vertical edges, in micrometers "
+        "(`-ver_length`). Unset: the shortest length that meets the minimum area of the layer.",
+        json_schema_extra=tier("advanced"),
+    )
+
+
+class PinExtensionGroup(SettingsGroup):
+    """How far the pin shapes stick out of the die (`set_pin_length_extension`). A pin may lie
+    partly outside the die."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("horizontal", "-hor_extension", "value"),
+        Flag("vertical", "-ver_extension", "value"),
+    )
+
+    horizontal: Optional[NonNegative] = Field(
+        None,
+        description="The extension of the pins on the horizontal edges, in micrometers "
+        "(`-hor_extension`). Unset: the default of the tool, 0.",
+        json_schema_extra=tier("expert"),
+    )
+    vertical: Optional[NonNegative] = Field(
+        None,
+        description="The extension of the pins on the vertical edges, in micrometers "
+        "(`-ver_extension`). Unset: the default of the tool, 0.",
+        json_schema_extra=tier("expert"),
+    )
+
+
+class PinThicknessGroup(SettingsGroup):
+    """The width of the pin shapes, as a multiple of the minimum width of the layer
+    (`set_pin_thick_multiplier`)."""
+
+    FLAGS: ClassVar[Tuple[Flag, ...]] = (
+        Flag("horizontal", "-hor_multiplier", "value"),
+        Flag("vertical", "-ver_multiplier", "value"),
+    )
+
+    horizontal: Optional[float] = Field(
+        None,
+        ge=1,
+        allow_inf_nan=False,
+        description="The multiplier for the pins on the horizontal edges (`-hor_multiplier`). "
+        "Unset: the default of the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+    vertical: Optional[float] = Field(
+        None,
+        ge=1,
+        allow_inf_nan=False,
+        description="The multiplier for the pins on the vertical edges (`-ver_multiplier`). "
+        "Unset: the default of the tool, 1.",
+        json_schema_extra=tier("expert"),
+    )
+
+
 class IoGroup(SettingsGroup):
-    """The placement of the pins of the design (`place_pins`)."""
+    """The placement of the pins of the design (`place_pins`).
+
+    The flow does not write the placement of the pins to a file (`-write_pin_placement`).
+    `-random` and `-random_seed` of `place_pins` are obsolete in OpenROAD: the command warns
+    (PPL-0113) and places nothing, so no setting prints them. A layer that is not a routing layer
+    of the right direction, or has no tracks, is an error of the tool (PPL-0021, PPL-0023,
+    PPL-0045 and PPL-0046), and the tool names the layer."""
 
     FLAGS: ClassVar[Tuple[Flag, ...]] = (Flag("corner_avoidance", "-corner_avoidance", "value"),)
-    #: The flags of `place_pins` that no setting covers. The layers, the distance and the corner
-    #: avoidance have settings, and the flow decides the others. The flow prints `min_distance`
-    #: itself: it is a whole number in tracks.
-    EXTRA_FLAGS: ClassVar[frozenset[str]] = frozenset({"-annealing", "-exclude", "-group_pins"})
 
     flow: Literal["skip_io_pass", "concurrent", "fixed"] = Field(
         "skip_io_pass",
@@ -815,9 +1044,9 @@ class IoGroup(SettingsGroup):
         "timing-driven and the routability-driven placement (GPL-0179 and GPL-0181), so set both "
         "modes off for it. "
         "`fixed` keeps the pins that the floorplan already placed: it needs a DEF file with placed "
-        "pins (`floorplan.sizing: def`), else the global placement stops with GPL-0326 on the "
-        "unplaced pins. With `floorplan.sizing: def` the pins of the DEF file stay, except "
-        "with `concurrent`. The default is the one of OpenROAD-flow-scripts.",
+        "pins (`floorplan.sizing: def`) or `fixed_pins`, else the global placement stops with "
+        "GPL-0326 on the unplaced pins. With `floorplan.sizing: def` the pins of the DEF file "
+        "stay, except with `concurrent`. The default is the one of OpenROAD-flow-scripts.",
         json_schema_extra=tier("common"),
     )
     horizontal_layers: Optional[list[Annotated[str, Field(min_length=1)]]] = Field(
@@ -853,20 +1082,77 @@ class IoGroup(SettingsGroup):
         "micrometers (`-corner_avoidance`). Unset: the default of the tool, 0.",
         json_schema_extra=tier("advanced"),
     )
-    extra_args: list[str] = Field(
+    algorithm: Literal["matching", "annealing"] = Field(
+        "matching",
+        description="How the pins get their slots. `matching` assigns them with the Hungarian "
+        "method, which is the default of the tool. `annealing` uses simulated annealing "
+        "(`-annealing`), set by `annealing`.",
+        json_schema_extra=tier("advanced"),
+    )
+    annealing: AnnealingGroup = Field(
+        default_factory=AnnealingGroup,
+        description="The schedule of the simulated annealing. Needs `algorithm: annealing`.",
+    )
+    exclude: list[EdgeInterval] = Field(
         [],
-        description="More flags for `place_pins`. Each flag must be one of `-annealing`, "
-        "`-exclude` and `-group_pins`, each followed by its value where it takes one.",
-        json_schema_extra=tier("expert"),
+        description="The parts of the edges where no pin may sit (`-exclude`, one flag for each "
+        "item).",
+        json_schema_extra=tier("advanced"),
+    )
+    groups: list[PinGroup] = Field(
+        [],
+        description="Pins that the pin placer puts next to each other. A group may be ordered "
+        "and may keep to a part of an edge. A pin belongs to one group, else the tool stops "
+        "(PPL-0104).",
+        json_schema_extra=tier("advanced"),
+    )
+    constraints: list[PinConstraint] = Field(
+        [],
+        description="Pins, named or chosen by their direction, that the pin placer keeps to a "
+        "part of an edge (`set_io_pin_constraint -region`).",
+        json_schema_extra=tier("advanced"),
+    )
+    mirrored_pins: list[tuple[PinName, PinName]] = Field(
+        [],
+        description="Pairs of pins that the pin placer puts at mirrored places of opposite edges "
+        "(`set_io_pin_constraint -mirrored_pins`). With `algorithm: matching`, OpenROAD "
+        "v2.0-26132 can put another pin on the place that a mirrored pin takes, and the "
+        "placement stops with PPL-0107 (seen on 3 of 4 trials on a netlist of 5 cells and 8 "
+        "pins). `annealing` placed the pins in all of them. No upstream issue exists.",
+        json_schema_extra=tier("advanced"),
+    )
+    fixed_pins: list[FixedPin] = Field(
+        [],
+        description="Pins that the flow places by hand (`place_pin`) before any placement. They "
+        "stay where they are. This works with every `flow` and with a floorplan from a DEF file.",
+        json_schema_extra=tier("advanced"),
+    )
+    pin_length: PinLengthGroup = Field(
+        default_factory=PinLengthGroup,
+        description="The length of the pin shapes.",
+    )
+    pin_extension: PinExtensionGroup = Field(
+        default_factory=PinExtensionGroup,
+        description="How far the pin shapes stick out of the die.",
+    )
+    pin_thickness: PinThicknessGroup = Field(
+        default_factory=PinThicknessGroup,
+        description="The width of the pin shapes.",
     )
 
+    #: The leaves that act with `flow: fixed`, where no pin placer runs: the flow itself and the
+    #: pins that the flow places by hand.
+    WITH_FIXED_FLOW: ClassVar[frozenset[str]] = frozenset({"flow", "fixed_pins"})
+
     def problems(self, key: str) -> list[tuple[str, str]]:
-        """Refuse a unit without a distance, a fraction of a track, an empty list of layers, and a
-        setting for the placement of the pins when the pins stay where the floorplan put them."""
+        """Refuse a setting for the placement of the pins when the pins stay where the floorplan
+        put them, a unit without a distance, a fraction of a track, an empty list of layers, a
+        schedule of annealing without annealing, and an interval, a constraint or a pin that
+        makes no sense."""
         found: list[tuple[str, str]] = []
         if self.flow == "fixed":
             for leaf in differing_leaves(self, key):
-                if leaf != f"{key}.flow":
+                if leaf[len(key) + 1 :].split(".")[0] not in self.WITH_FIXED_FLOW:
                     found.append(
                         (
                             leaf,
@@ -875,6 +1161,15 @@ class IoGroup(SettingsGroup):
                             f"delete `{leaf}`",
                         )
                     )
+        elif self.algorithm != "annealing":
+            for leaf in differing_leaves(self.annealing, f"{key}.annealing"):
+                found.append(
+                    (
+                        leaf,
+                        f"`{leaf}` has no effect with `{key}.algorithm: {self.algorithm}`: set "
+                        f"`{key}.algorithm: annealing` or delete `{leaf}`",
+                    )
+                )
         for leaf in ("horizontal_layers", "vertical_layers"):
             if getattr(self, leaf) == []:
                 found.append(
@@ -906,6 +1201,50 @@ class IoGroup(SettingsGroup):
                     f"`{key}.min_distance_unit`",
                 )
             )
+        intervals = [
+            (f"{key}.exclude[{number}]", f"{key}.exclude", item)
+            for number, item in enumerate(self.exclude)
+        ]
+        intervals += [
+            (f"{key}.groups[{number}].region", f"{key}.groups", item.region)
+            for number, item in enumerate(self.groups)
+            if item.region is not None
+        ]
+        intervals += [
+            (f"{key}.constraints[{number}].region", f"{key}.constraints", item.region)
+            for number, item in enumerate(self.constraints)
+        ]
+        for where, leaf, interval in intervals:
+            if (
+                interval.begin is not None
+                and interval.end is not None
+                and not interval.begin < interval.end
+            ):
+                found.append(
+                    (
+                        leaf,
+                        f"`{where}` begins at {interval.begin} and ends at {interval.end}: "
+                        "the interval must begin before it ends",
+                    )
+                )
+        for number, constraint in enumerate(self.constraints):
+            if (constraint.pins is None) == (constraint.direction is None):
+                found.append(
+                    (
+                        f"{key}.constraints",
+                        f"`{key}.constraints[{number}]` must give `pins` or `direction`, and "
+                        "not both: OpenROAD takes one of them in a call",
+                    )
+                )
+        for number, pin in enumerate(self.fixed_pins):
+            if (pin.width is None) != (pin.height is None):
+                found.append(
+                    (
+                        f"{key}.fixed_pins",
+                        f"`{key}.fixed_pins[{number}]` gives only one of `width` and `height`: "
+                        "give both, or neither to take the shape of the tool",
+                    )
+                )
         return found
 
 

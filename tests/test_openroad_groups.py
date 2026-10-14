@@ -907,7 +907,6 @@ def test_the_last_flow_prints_the_flags_of_the_detailed_route():
 
 #: The hatch of each command: the flow, the key of the group, and the flags that it accepts.
 HATCHES = {
-    "place_pins": (OpenroadPlace, "io", {"-annealing", "-exclude", "-group_pins"}),
     "global_placement": (
         OpenroadPlace,
         "global_placement",
@@ -963,6 +962,10 @@ INSTALLED_HELP = {
         "-annealing",
         "-write_pin_placement",
     },
+    "set_simulated_annealing": {"-temperature", "-max_iterations", "-perturb_per_iter", "-alpha"},
+    "set_pin_length": {"-hor_length", "-ver_length"},
+    "set_pin_length_extension": {"-hor_extension", "-ver_extension"},
+    "set_pin_thick_multiplier": {"-hor_multiplier", "-ver_multiplier"},
     "global_placement": {
         "-skip_initial_place",
         "-force_center_initial_place",
@@ -1171,6 +1174,15 @@ INSTALLED_HELP = {
 }
 
 
+#: The command of each group inside `io`, which has the flags of its own command.
+HELP_OF_IO_GROUP = {
+    "annealing": "set_simulated_annealing",
+    "pin_length": "set_pin_length",
+    "pin_extension": "set_pin_length_extension",
+    "pin_thickness": "set_pin_thick_multiplier",
+}
+
+
 def hatch_group(name: str):
     from xeda.flows.openroad import Openroad
 
@@ -1210,10 +1222,7 @@ def test_an_unknown_flag_in_a_hatch_is_refused_with_the_allowed_flags(command):
 
 @pytest.mark.parametrize(
     "key, flag, field",
-    [
-        ("io", "-corner_avoidance", "io.corner_avoidance"),
-        ("global_placement", "-random_seed", "global_placement.random_seed"),
-    ],
+    [("global_placement", "-random_seed", "global_placement.random_seed")],
 )
 def test_a_flag_that_a_typed_leaf_prints_is_refused_naming_the_setting(key, flag, field):
     message = refused(OpenroadPlace, f"{key}.extra_args={flag},3")
@@ -1226,8 +1235,8 @@ def test_the_flag_of_a_leaf_in_a_sub_group_is_refused_as_not_allowed():
 
 
 def test_a_hatch_must_start_with_a_flag():
-    message = refused(OpenroadPlace, "io.extra_args=5,-annealing")
-    assert "`io.extra_args` must start with a flag, not `5`" in message
+    message = refused(OpenroadPlace, "global_placement.extra_args=5,-skip_initial_place")
+    assert "`global_placement.extra_args` must start with a flag, not `5`" in message
 
 
 def test_the_clock_tree_has_no_hatch():
@@ -1252,7 +1261,10 @@ def test_a_hatch_of_a_disabled_group_is_refused():
             + [flag.flag for flag in groups.RepairMoves.FLAGS],
         ),
         ("repair_design", [flag.flag for flag in groups.RepairDesign.FLAGS]),
-        ("place_pins", [flag.flag for flag in HATCHES and hatch_group("place_pins").FLAGS]),
+        (
+            "place_pins",
+            [flag.flag for flag in OpenroadPlace.Settings.model_fields["io"].annotation.FLAGS],
+        ),
         ("global_placement", [flag.flag for flag in hatch_group("global_placement").FLAGS]),
         (
             "clock_tree_synthesis",
@@ -1295,6 +1307,9 @@ def test_every_other_flag_that_a_group_prints_is_in_the_help_of_the_installed_to
         f.flag
         for f in place["global_placement"].annotation.model_fields["timing_driven"].annotation.FLAGS
     } <= INSTALLED_HELP["global_placement"]
+    for name in ("annealing", "pin_length", "pin_extension", "pin_thickness"):
+        group = place["io"].annotation.model_fields[name].annotation
+        assert {f.flag for f in group.FLAGS} <= INSTALLED_HELP[HELP_OF_IO_GROUP[name]], name
     assert {
         f.flag
         for f in place["detailed_placement"].annotation.model_fields["improve"].annotation.FLAGS

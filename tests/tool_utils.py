@@ -774,7 +774,13 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "gpl::get_global_placement_uniform_density",
     "global_placement",
     "all_pins_placed",
+    "place_pin",
     "place_pins",
+    "set_io_pin_constraint",
+    "set_pin_length",
+    "set_pin_length_extension",
+    "set_pin_thick_multiplier",
+    "set_simulated_annealing",
     "buffer_ports",
     "estimate_parasitics",
     # resizing and detailed placement

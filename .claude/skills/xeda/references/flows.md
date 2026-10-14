@@ -263,7 +263,7 @@ Group `tapcell`: `tapcell.mode`; 15 more: `xeda list-settings openroad_place --t
 
 Group `pdn`: `pdn.mode`, `pdn.grid`; 5 more: `xeda list-settings openroad_place --tier expert --json`
 
-Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 4 more: `xeda list-settings openroad_place --tier expert --json`
+Group `io`: `io.flow`, `io.horizontal_layers`, `io.vertical_layers`; 19 more: `xeda list-settings openroad_place --tier expert --json`
 
 Group `global_placement`: `global_placement.density.mode`, `global_placement.density.value`, `global_placement.density.headroom`, `global_placement.timing_driven.enabled`, `global_placement.routability_driven.enabled`; 6 more: `xeda list-settings openroad_place --tier expert --json`
 

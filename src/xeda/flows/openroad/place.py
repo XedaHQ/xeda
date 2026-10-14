@@ -467,7 +467,8 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
     def check_settings_supported(cls, settings: Flow.Settings) -> None:
         """Refuse what the groups cannot judge alone. The swap of arithmetic modules needs the
         hierarchy of the design. A floorplan from a DEF file keeps the pins of the file, so a
-        setting for the placement of the pins has no effect. A platform that gives no density or
+        setting for the placement of the pins has no effect. Pins that stay need a DEF file or
+        pins placed by hand. A platform that gives no density or
         no pin layer, and cannot get one, needs the setting. This reads the settings and the
         residue files only."""
         super().check_settings_supported(settings)
@@ -487,12 +488,27 @@ class OpenroadPlace(OpenroadStage, AsicSynthFlow):
             )
         if settings.floorplan.sizing == "def" and settings.io.flow == "skip_io_pass":
             for leaf in differing_leaves(settings.io, "io"):
+                if leaf == "io.fixed_pins":
+                    continue  # the pins by hand replace pins of the file
                 refuse(
                     leaf,
                     f"`{leaf}` has no effect with `floorplan.sizing: def`, which keeps the pins "
                     f"of the DEF file: set `io.flow: concurrent` to place the pins again, or "
                     f"delete `{leaf}`",
                 )
+        if (
+            settings.io.flow == "fixed"
+            and settings.floorplan.sizing != "def"
+            and not settings.io.fixed_pins
+        ):
+            refuse(
+                "io.flow",
+                "`io.flow: fixed` keeps the pins that the floorplan placed, and "
+                f"`floorplan.sizing: {settings.floorplan.sizing}` places none: nothing places "
+                "the pins of a netlist without a DEF floorplan, and the global placement stops "
+                "on the unplaced pins (GPL-0326). Set `floorplan.sizing: def` with a DEF file "
+                "that places the pins, give `io.fixed_pins`, or set `io.flow: skip_io_pass`",
+            )
         if settings.platform is not None or settings.platform_file is not None:
             density = settings.global_placement.density
             if (

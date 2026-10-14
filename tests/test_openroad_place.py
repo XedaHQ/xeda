@@ -1680,13 +1680,12 @@ def test_the_settings_replace_the_layers_of_the_pins_and_add_the_distances(tmp_p
         "min_distance": 4,
         "min_distance_unit": "tracks",
         "corner_avoidance": 1.5,
-        "extra_args": ["-group_pins", "q0"],
     }
     flow = place_flow(tmp_path, {"io": io})
     (line,) = stage(render(flow), "xeda_place_pins")
     assert line == (
         'place_pins -hor_layers [list "m2" "m4"] -ver_layers [list "m3"] '
-        '-min_distance_in_tracks -min_distance 4 -corner_avoidance "1.5" "-group_pins" "q0"'
+        '-min_distance_in_tracks -min_distance 4 -corner_avoidance "1.5"'
     )
     run_script(flow)
 
@@ -2032,6 +2031,390 @@ def test_every_choice_of_the_placement_groups_renders_and_runs(tmp_path, setting
     run_script(place_flow(tmp_path, settings))
 
 
+# ------------------------------------------------------------------------------ the pins: options
+
+
+def io_placement(
+    tmp_path: Path, io: dict[str, Any], **more: Any
+) -> tuple[OpenroadPlace, list[str]]:
+    """Return the flow with the `io` settings and the lines of its stage for the pins."""
+    flow = place_flow(tmp_path, {"io": io, **more})
+    return flow, stage(render(flow), "xeda_io_placement")
+
+
+@pytest.mark.parametrize("algorithm, flag", [("matching", ""), ("annealing", " -annealing")])
+def test_the_algorithm_of_the_pins_chooses_the_flag(tmp_path, algorithm, flag):
+    flow = place_flow(tmp_path, {"io": {"algorithm": algorithm}})
+    (line,) = stage(render(flow), "xeda_place_pins")
+    assert line == f'place_pins -hor_layers [list "m3"] -ver_layers [list "m4"]{flag}'
+    run_script(flow)
+
+
+def test_the_schedule_of_the_annealing_is_set_before_the_pins_are_placed(tmp_path):
+    schedule = {"temperature": 2.0, "max_iterations": 300, "perturb_per_iter": 50, "alpha": 0.9}
+    flow, body = io_placement(tmp_path, {"algorithm": "annealing", "annealing": schedule})
+    assert body == [
+        "xeda_stage io_placement",
+        'set_simulated_annealing -temperature "2.0" -max_iterations "300" '
+        '-perturb_per_iter "50" -alpha "0.9"',
+        "xeda_place_pins",
+    ]
+    assert names(run_script(flow), "set_simulated_annealing", "place_pins") == [
+        "set_simulated_annealing",
+        "place_pins",
+    ]
+
+
+def test_only_the_given_leaves_of_the_annealing_schedule_are_passed(tmp_path):
+    _, body = io_placement(tmp_path, {"algorithm": "annealing", "annealing": {"alpha": 0.5}})
+    assert 'set_simulated_annealing -alpha "0.5"' in body
+    _, body = io_placement(tmp_path / "none", {"algorithm": "annealing"})
+    assert not [line for line in body if "annealing" in line]
+
+
+def test_a_schedule_of_the_annealing_has_no_effect_with_the_matching_algorithm(tmp_path):
+    message = refusal(tmp_path, "io.annealing.alpha=0.9")
+    assert "io.annealing.alpha" in message and "io.algorithm: annealing" in message
+    plan(tmp_path / "ok", "io.annealing.alpha=0.9", "io.algorithm=annealing")
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [
+        ("temperature", 0),
+        ("temperature", -1),
+        ("max_iterations", 0),
+        ("perturb_per_iter", 0),
+        ("alpha", 0),
+        ("alpha", 1.5),
+        ("alpha", -0.1),
+    ],
+)
+def test_the_schedule_of_the_annealing_keeps_its_ranges(tmp_path, leaf, value):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, "io.algorithm=annealing", typed={f"io.annealing.{leaf}": value})
+
+
+def test_an_algorithm_in_capitals_is_refused(tmp_path):
+    assert "annealing" in refusal(tmp_path, "io.algorithm=Annealing")
+
+
+def test_the_excluded_parts_of_the_edges_are_passed_one_flag_each(tmp_path):
+    exclude = [
+        {"edge": "top"},
+        {"edge": "right", "begin": 15, "end": 60.5},
+        {"edge": "left", "end": 2},
+        {"edge": "bottom", "begin": 3},
+    ]
+    flow = place_flow(tmp_path, {"io": {"exclude": exclude}})
+    (line,) = stage(render(flow), "xeda_place_pins")
+    assert line.endswith(
+        '-exclude "top:*" -exclude "right:15-60.5" -exclude "left:*-2" -exclude "bottom:3-*"'
+    )
+    run_script(flow)
+
+
+@pytest.mark.parametrize(
+    "begin, end, text", [(0, 5, "0-5"), (0.5, 1e-05 * 3e5, "0.5-3"), (1.25, 100, "1.25-100")]
+)
+def test_an_interval_is_written_in_digits_only(begin, end, text):
+    from xeda.flows.openroad.place_groups import EdgeInterval
+
+    assert EdgeInterval(edge="top", begin=begin, end=end).as_region() == f"top:{text}"
+
+
+@pytest.mark.parametrize(
+    "where, item",
+    [
+        ("exclude", {"edge": "top", "begin": 5, "end": 5}),
+        ("exclude", {"edge": "top", "begin": 6, "end": 5}),
+    ],
+)
+def test_an_interval_begins_before_it_ends(tmp_path, where, item):
+    message = refusal(tmp_path, typed={f"io.{where}": [item]})
+    assert f"io.{where}[0]" in message and "begin before it ends" in message
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"edge": "up"},
+        {"edge": "Top"},
+        {"edge": "top", "begin": -1},
+        {"edge": "top", "end": float("inf")},
+        {"begin": 1},
+        {"edge": "top", "side": "x"},
+    ],
+)
+def test_a_malformed_excluded_interval_is_refused(tmp_path, item):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"io.exclude": [item]})
+
+
+def test_groups_of_pins_are_constraints_of_the_pin_placer_that_come_before_it(tmp_path):
+    groups = [
+        {"pins": ["q[0]", "q[1]"]},
+        {"pins": ["d*"], "order": True, "region": {"edge": "right", "begin": 1, "end": 4}},
+    ]
+    flow, body = io_placement(tmp_path, {"groups": groups})
+    assert body == [
+        "xeda_stage io_placement",
+        'set_io_pin_constraint -pin_names [list "q\\[0\\]" "q\\[1\\]"] -group',
+        'set_io_pin_constraint -pin_names [list "d*"] -group -order -region "right:1-4"',
+        "xeda_place_pins",
+    ]
+    calls = run_script(flow)
+    assert names(calls, "set_io_pin_constraint", "place_pins") == [
+        "set_io_pin_constraint",
+        "set_io_pin_constraint",
+        "place_pins",
+    ]
+
+
+def test_pins_chosen_by_name_or_by_direction_are_kept_to_a_part_of_an_edge(tmp_path):
+    constraints = [
+        {"direction": "input", "region": {"edge": "left"}},
+        {"pins": ["q*"], "region": {"edge": "right", "begin": 0, "end": 5}},
+    ]
+    flow, body = io_placement(tmp_path, {"constraints": constraints})
+    assert body[1:3] == [
+        'set_io_pin_constraint -direction "input" -region "left:*"',
+        'set_io_pin_constraint -pin_names [list "q*"] -region "right:0-5"',
+    ]
+    run_script(flow)
+
+
+@pytest.mark.parametrize("direction", ["input", "output", "inout", "feedthru"])
+def test_every_direction_of_a_constraint_renders_and_runs(tmp_path, direction):
+    constraints = [{"direction": direction, "region": {"edge": "top"}}]
+    flow, body = io_placement(tmp_path, {"constraints": constraints})
+    assert f'set_io_pin_constraint -direction "{direction}" -region "top:*"' in body
+    run_script(flow)
+
+
+def test_the_spelling_of_the_documentation_for_a_direction_is_refused_naming_the_right_one(
+    tmp_path,
+):
+    """The README of the pin placer says `feedthrough`; the tool takes `feedthru` and raises
+    "Unknown io type" on the other."""
+    constraints = [{"direction": "feedthrough", "region": {"edge": "top"}}]
+    message = refusal(tmp_path, typed={"io.constraints": constraints})
+    assert "feedthru" in message
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        {"region": {"edge": "top"}},
+        {"region": {"edge": "top"}, "pins": ["a"], "direction": "input"},
+        {"region": {"edge": "top"}, "pins": []},
+        {"pins": ["a"]},
+        {"direction": "input"},
+    ],
+)
+def test_a_constraint_has_a_region_and_pins_or_a_direction(tmp_path, item):
+    with pytest.raises(FlowSettingsException) as error:
+        plan(tmp_path, typed={"io.constraints": [item]})
+    assert "constraints" in str(error.value)
+
+
+@pytest.mark.parametrize("item", [{"pins": []}, {}, {"pins": ["a"], "order": "yes"}])
+def test_a_malformed_group_is_refused(tmp_path, item):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"io.groups": [item]})
+
+
+def test_pins_are_mirrored_in_pairs(tmp_path):
+    flow, body = io_placement(tmp_path, {"mirrored_pins": [["d[0]", "q[0]"], ["d[1]", "q[1]"]]})
+    assert (
+        'set_io_pin_constraint -mirrored_pins [list "d\\[0\\]" "q\\[0\\]" ' '"d\\[1\\]" "q\\[1\\]"]'
+    ) in body
+    run_script(flow)
+
+
+@pytest.mark.parametrize("pairs", [[["a"]], [["a", "b", "c"]], [["a", ""]]])
+def test_a_mirrored_pin_comes_with_exactly_one_partner(tmp_path, pairs):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"io.mirrored_pins": pairs})
+
+
+def test_the_shape_of_the_pins_is_set_before_the_pins_are_placed(tmp_path):
+    io = {
+        "pin_length": {"horizontal": 0.5, "vertical": 0.6},
+        "pin_extension": {"vertical": 0.1},
+        "pin_thickness": {"horizontal": 2, "vertical": 1.5},
+    }
+    flow, body = io_placement(tmp_path, io)
+    assert body == [
+        "xeda_stage io_placement",
+        'set_pin_length -hor_length "0.5" -ver_length "0.6"',
+        'set_pin_length_extension -ver_extension "0.1"',
+        'set_pin_thick_multiplier -hor_multiplier "2.0" -ver_multiplier "1.5"',
+        "xeda_place_pins",
+    ]
+    run_script(flow)
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("io.pin_length.horizontal", 0),
+        ("io.pin_length.vertical", -1),
+        ("io.pin_extension.horizontal", -0.1),
+        ("io.pin_thickness.horizontal", 0.5),
+        ("io.pin_thickness.vertical", 0),
+    ],
+)
+def test_the_shape_of_the_pins_keeps_its_ranges(tmp_path, key, value):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={key: value})
+
+
+def test_no_pin_command_is_written_when_no_setting_asks_for_it(tmp_path):
+    script = render(place_flow(tmp_path))
+    for command in ("set_io_pin_constraint", "set_pin_", "set_simulated_annealing", "place_pin "):
+        assert command not in script
+
+
+FIXED_PINS = [
+    {"pin": "clk", "layer": "m3", "x": 0, "y": 3.5},
+    {
+        "pin": "d[0]",
+        "layer": "m4",
+        "x": 1,
+        "y": 0,
+        "width": 0.2,
+        "height": 0.4,
+        "snap_to_boundary": True,
+        "status": "placed",
+    },
+]
+
+
+def test_the_pins_by_hand_are_placed_before_any_placement(tmp_path):
+    flow = place_flow(tmp_path, {"io": {"fixed_pins": FIXED_PINS}})
+    script = render(flow)
+    assert stage(script, "xeda_fixed_pins") == [
+        'place_pin -pin_name "clk" -layer "m3" -location [list 0.0 3.5]',
+        'place_pin -pin_name "d\\[0\\]" -layer "m4" -location [list 1.0 0.0] '
+        "-pin_size [list 0.2 0.4] -force_to_die_boundary -placed_status",
+    ]
+    assert names(run_script(flow, script), "place_pin", "global_placement", "place_pins") == [
+        "place_pin",
+        "place_pin",
+        "global_placement",
+        "place_pins",
+        "global_placement",
+    ]
+
+
+@pytest.mark.parametrize("status", ["fixed", "placed"])
+def test_every_status_of_a_pin_by_hand_renders_and_runs(tmp_path, status):
+    pins = [{"pin": "clk", "layer": "m3", "x": 0, "y": 3, "status": status}]
+    flow = place_flow(tmp_path, {"io": {"fixed_pins": pins}})
+    (line,) = stage(render(flow), "xeda_fixed_pins")
+    assert line.endswith("-placed_status") == (status == "placed")
+    run_script(flow)
+
+
+@pytest.mark.parametrize(
+    "io_flow, sizing", [("fixed", "area"), ("concurrent", "utilization"), ("skip_io_pass", "def")]
+)
+def test_the_pins_by_hand_work_with_every_flow_and_with_a_floorplan_from_a_def_file(
+    tmp_path, io_flow, sizing
+):
+    (tmp_path / "design").mkdir()
+    (tmp_path / "design" / "plan.def").write_text("VERSION 5.8 ;\n")
+    modes = {"enabled": False} if io_flow == "concurrent" else {}
+    floorplan = {"sizing": "def", "def_file": "plan.def"} if sizing == "def" else {}
+    flow = place_flow(
+        tmp_path,
+        {
+            "io": {"flow": io_flow, "fixed_pins": FIXED_PINS},
+            "floorplan": floorplan,
+            "global_placement": {"timing_driven": modes, "routability_driven": modes},
+        },
+        model={"site": None} if floorplan else None,
+    )
+    assert "xeda_fixed_pins" in render(flow)
+    assert names(run_script(flow), "place_pin") == ["place_pin", "place_pin"]
+
+
+def test_the_pins_by_hand_plan_with_the_pins_that_stay(tmp_path):
+    plan(
+        tmp_path / "def",
+        "floorplan.sizing=def",
+        "floorplan.def_file=plan.def",
+        typed={"io.fixed_pins": FIXED_PINS},
+    )
+    plan(tmp_path / "fixed", "io.flow=fixed", typed={"io.fixed_pins": FIXED_PINS})
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "width": 0.2},
+        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "height": 0.2},
+    ],
+)
+def test_a_pin_by_hand_gives_both_sides_of_its_shape_or_none(tmp_path, pin):
+    message = refusal(tmp_path, typed={"io.fixed_pins": [pin]})
+    assert "width" in message and "height" in message
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        {"pin": "a", "layer": "m3", "x": 0},
+        {"pin": "", "layer": "m3", "x": 0, "y": 0},
+        {"pin": "a", "layer": "", "x": 0, "y": 0},
+        {"pin": "a", "layer": "m3", "x": float("nan"), "y": 0},
+        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "width": 0, "height": 1},
+        {"pin": "a", "layer": "m3", "x": 0, "y": 0, "status": "Fixed"},
+    ],
+)
+def test_a_malformed_pin_by_hand_is_refused(tmp_path, pin):
+    with pytest.raises(FlowSettingsException):
+        plan(tmp_path, typed={"io.fixed_pins": [pin]})
+
+
+def test_the_pins_that_stay_need_a_def_floorplan_or_pins_by_hand(tmp_path):
+    message = refusal(tmp_path, "io.flow=fixed")
+    assert "io.flow: fixed" in message and "GPL-0326" in message
+    assert "floorplan.sizing: def" in message and "io.fixed_pins" in message
+    area = {"floorplan.die_area": [0, 0, 10, 10], "floorplan.core_area": [1, 1, 9, 9]}
+    assert "floorplan.sizing: area" in refusal(
+        tmp_path / "area", "io.flow=fixed", "floorplan.sizing=area", typed=area
+    )
+    plan(tmp_path / "def", "io.flow=fixed", "floorplan.sizing=def", "floorplan.def_file=a.def")
+    plan(tmp_path / "hand", "io.flow=fixed", typed={"io.fixed_pins": FIXED_PINS})
+
+
+@pytest.mark.parametrize(
+    "leaf, value",
+    [
+        ("exclude", [{"edge": "top"}]),
+        ("groups", [{"pins": ["a"]}]),
+        ("constraints", [{"direction": "input", "region": {"edge": "top"}}]),
+        ("mirrored_pins", [["a", "b"]]),
+        ("pin_length.horizontal", 0.5),
+        ("pin_extension.vertical", 0.1),
+        ("pin_thickness.vertical", 2),
+        ("algorithm", "annealing"),
+    ],
+)
+def test_a_setting_of_the_pin_placer_has_no_effect_when_the_pins_stay(tmp_path, leaf, value):
+    message = refusal(
+        tmp_path, "io.flow=fixed", typed={f"io.{leaf}": value, "io.fixed_pins": FIXED_PINS}
+    )
+    assert f"io.{leaf}" in message and "no effect" in message and "io.flow: fixed" in message
+
+
+# Left to the tool: a layer for the pins that is no routing layer of the right direction
+# (PPL-0021, PPL-0023, PPL-0045, PPL-0046) and a pin in two groups (PPL-0104). The messages of the
+# tool name the layer or the pins.
+
+
 # ------------------------------------------------------------------------------ the constraints
 
 
@@ -2301,7 +2684,7 @@ def test_a_launch_removes_the_failed_database_of_an_earlier_run(tmp_path, monkey
         "io.vertical_layers=m3",
         "io.min_distance=3",
         "io.corner_avoidance=1",
-        "io.extra_args=-annealing",
+        "io.algorithm=annealing",
     ],
 )
 def test_a_setting_for_the_placement_of_the_pins_has_no_effect_when_the_pins_stay(tmp_path, leaf):
@@ -2345,7 +2728,7 @@ def test_the_pins_need_the_layers_of_the_platform_unless_they_stay(tmp_path):
     message = refusal(tmp_path, no_io)
     assert "io_layers.horizontal" in message and "io.flow: fixed" in message
     plan(tmp_path / "given", no_io, "io.horizontal_layers=m3", "io.vertical_layers=m4")
-    plan(tmp_path / "fixed", no_io, "io.flow=fixed")
+    plan(tmp_path / "fixed", no_io, "io.flow=fixed", typed={"io.fixed_pins": FIXED_PINS})
 
 
 def test_a_fixed_density_needs_a_density_in_the_residue_files_or_the_settings(tmp_path):
