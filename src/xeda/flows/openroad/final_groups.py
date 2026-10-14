@@ -87,8 +87,8 @@ class DetailedRouteGroup(SettingsGroup):
     via_in_pin: Optional[ViaInPin] = Field(
         None,
         description="The range of layers where a via may sit inside a pin "
-        "(`-via_in_pin_bottom_layer`, `-via_in_pin_top_layer`). Unset: the value of the "
-        "platform.",
+        "(`-via_in_pin_bottom_layer`, `-via_in_pin_top_layer`). Unset: the flow gives the "
+        "router no range. No platform gives one.",
         json_schema_extra=tier("advanced"),
     )
     extra_args: list[str] = Field(

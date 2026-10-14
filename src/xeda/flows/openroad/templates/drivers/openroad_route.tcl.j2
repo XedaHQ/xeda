@@ -1,0 +1,20 @@
+{# The driver of the first process of openroad: it reads the database of the global route and its
+   SDC file, routes the design in detail, repairs the antenna violations and places the filler
+   cells. The database and the SDC file of the result are working files of the flow: the process
+   after this one reads them. A stage that fails leaves the database of that moment in the failed
+   database, and the error ends the process. #}
+{% set restart = "database" %}
+{% set sdc_files = [inputs.sdc] %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+{% include "stages/detail_route.tcl.j2" %}
+{% include "stages/fillcell.tcl.j2" %}
+if {[catch {
+    xeda_detail_route
+    xeda_fillcell
+} message options]} {
+    catch { write_db {{ failed_odb|tcl_word }} }
+    return -options $options $message
+}
+write_db {{ working_files.odb|tcl_word }}
+write_sdc -no_timestamp {{ working_files.sdc|tcl_word }}
