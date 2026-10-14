@@ -6,6 +6,7 @@ OpenROAD command list does not know fails the test. Planning refusals run throug
 """
 
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -860,6 +861,35 @@ def test_an_absolute_delay_wins_over_the_fraction_of_the_clock(tmp_path):
     found = sdc_lines(flow)
     assert 'set_input_delay 0.1 -clock "clk" $non_clock_inputs' in found
     assert 'set_output_delay 0.5 -clock "clk" $all_output_ports' in found
+
+
+def test_no_input_delay_goes_to_the_port_of_any_clock(tmp_path):
+    """With two clocks, the data inputs are the inputs without the ports of every clock. The test
+    runs the constraints under `tclsh` with stubs for the commands of the constraints."""
+    require_tclsh()
+    flow = place_flow(
+        tmp_path,
+        {
+            "clocks": {
+                "clk_a": {"period": 5.0, "port": "clk_a"},
+                "clk_b": {"period": 8.0, "port": "clk_b"},
+            }
+        },
+    )
+    stubs = (
+        "set ::log {}\n"
+        "proc all_inputs {} { return {clk_a clk_b d0 d1} }\n"
+        "proc all_outputs {} { return {q0} }\n"
+        "proc get_ports {names} { return $names }\n"
+        "proc create_clock {args} {}\n"
+        "proc set_output_delay {args} {}\n"
+        "proc set_input_delay {delay flag clock ports} { lappend ::log [list $clock $ports] }\n"
+    )
+    script = tmp_path / "check.tcl"
+    script.write_text(stubs + sdc_text(flow) + "\nforeach entry $::log { puts $entry }\n")
+    done = subprocess.run(["tclsh", str(script)], capture_output=True, text=True, check=False)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == ["clk_a {d0 d1}", "clk_b {d0 d1}"]
 
 
 def test_the_clock_file_runs_after_the_sdc_of_the_design_and_before_the_sdc_files(tmp_path):
