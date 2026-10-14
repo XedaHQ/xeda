@@ -148,7 +148,8 @@ freshness (`trace.check_trace`; a match reuses the results) -> `run()`, `parse_r
   number-like text (`tests/test_settings_input.py`, `tests/test_malformed_input.py`).
 - A physical measurement is a quantity type from `xeda.units` with a unit, never a bare number;
   every other numeric setting carries one marker (`count`, `ratio`, `percent`, `library_units`,
-  `data_size`) (`tests/test_physical_quantities.py`).
+  `data_size`); the test's `NOT_MIGRATED_YET` table, which only shrinks, lists what is left
+  (`tests/test_physical_quantities.py`).
 - Validators are idempotent (assignment and `settings.json` reload re-run them), log nothing
   above DEBUG, and never read another field (`info.data`) (`tests/test_model_invariants.py`).
   Format for a tool in the template, not in a validator.
