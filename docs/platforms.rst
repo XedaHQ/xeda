@@ -235,8 +235,15 @@ An ``orfs`` install fetches into a partial directory in the store, checks every 
 receipt and then moves the directory of the platform to its place in one step. If anything fails,
 the store is as it was. The command refuses to install over a platform directory that is there
 but incomplete, and tells you to move it away. A ``ciel`` install runs ``ciel``, which writes into
-the store itself, so a failed install may leave files of ``ciel`` behind. See :doc:`machine-readable` for their
-JSON output.
+the store itself, so a failed install may leave files of ``ciel`` behind. See
+:doc:`machine-readable` for their JSON output.
+
+The install refuses a symbolic link inside the store: in ``<root>/xeda`` and below it, anywhere
+on the way to a file or directory that it writes, moves or removes. The message names the link and
+where it points. The install writes only real directories inside the store, so that it never
+writes or deletes outside it. The root itself (``--root`` or ``~/.ciel``) may be a link. The
+install resolves it first. A link under ``<root>/ciel`` is not a concern of the install: ``ciel``
+writes that directory.
 
 ``xeda list-platforms`` looks in the default store. Use ``xeda pdk list --root <directory>`` for
 another store.

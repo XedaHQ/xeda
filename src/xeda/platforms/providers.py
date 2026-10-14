@@ -26,6 +26,7 @@ import re
 import secrets
 import shlex
 import shutil
+import stat
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -647,9 +648,54 @@ def _run(command: list[str], env: Optional[dict[str, str]], plan: InstallPlan) -
         ) from None
 
 
-def _remove_tree(path: Path) -> None:
-    """Remove a directory that an install made. A failure is only logged: it must not hide the
-    error that made the install remove it."""
+def _link_on_the_way(root: Path, path: Path) -> Optional[Path]:
+    """Return the first symbolic link on the way from `root` down to `path`, or `None`. `root`
+    itself is not looked at: the install resolves it first. The walk uses `lstat`, so it never
+    follows a link, and it ends at the first name that does not exist."""
+    current = root
+    for part in path.relative_to(root).parts:
+        current = current / part
+        try:
+            mode = os.lstat(current).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            return None
+        if stat.S_ISLNK(mode):
+            return current
+    return None
+
+
+def _refuse_links(plan: "InstallPlan", *paths: Path) -> None:
+    """Raise `PdkInstallFailed` if a symbolic link is on the way from the root of the store down
+    to one of `paths`. The install writes only real directories inside the store, so that it
+    never writes or deletes outside it."""
+    for path in paths:
+        link = _link_on_the_way(plan.root, path)
+        if link is not None:
+            raise PdkInstallFailed(
+                f"cannot install platform '{plan.platform}': {link} is a symbolic link "
+                f"(to {os.readlink(link)}). The install writes only real directories inside the "
+                "store, so that it never writes or deletes outside it. Replace the link with a "
+                "real directory, and run the command again."
+            )
+
+
+def _written_paths(plan: "InstallPlan") -> list[Path]:
+    """The paths below the root of the store that the install writes, publishes or locks. A
+    path stands for each directory above it too. The platform directory of provider `ciel` is
+    not one: `ciel` writes it."""
+    paths = [plan.root / "xeda" / ".lock", _receipt_path(plan.root, plan.platform, plan.version)]
+    if plan.provider == "orfs":
+        paths += [plan.directory, Path(plan.commands[0][-1])]
+    return paths
+
+
+def _remove_tree(root: Path, path: Path) -> None:
+    """Remove a directory that an install made, unless a link is on the way to it. A failure is
+    only logged: it must not hide the error that made the install remove it."""
+    link = _link_on_the_way(root, path)
+    if link is not None:
+        log.warning("not removing %s: %s is a symbolic link; check it", path, link)
+        return
     try:
         shutil.rmtree(path)
     except FileNotFoundError:
@@ -668,9 +714,12 @@ def _make_parents(directory: Path, made: list[Path]) -> None:
             made.append(path)
 
 
-def _remove_empty(directories: list[Path]) -> None:
-    """Remove directories that an install made and that are still empty, the deepest first."""
+def _remove_empty(root: Path, directories: list[Path]) -> None:
+    """Remove directories that an install made and that are still empty, the deepest first.
+    Stop at a link on the way to one."""
     for directory in reversed(directories):
+        if _link_on_the_way(root, directory) is not None:
+            break
         try:
             directory.rmdir()
         except OSError:
@@ -685,9 +734,13 @@ def _read_receipt(path: Path) -> Optional[bytes]:
         return None
 
 
-def _restore_receipt(path: Path, earlier: Optional[bytes]) -> None:
+def _restore_receipt(root: Path, path: Path, earlier: Optional[bytes]) -> None:
     """Put the receipt back as it was before this attempt: the bytes of the earlier receipt, or
-    no file if there was none."""
+    no file if there was none. Do nothing if a link is on the way to it."""
+    link = _link_on_the_way(root, path)
+    if link is not None:
+        log.warning("not restoring %s: %s is a symbolic link; check it", path, link)
+        return
     try:
         if earlier is None:
             path.unlink(missing_ok=True)
@@ -716,6 +769,7 @@ def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
             "files of the platform. Move or delete it, and run the command again."
         )
     work = Path(plan.commands[0][-1])
+    source = work / entry.directory
     try:
         for command in plan.commands:
             _run(command, None, plan)
@@ -732,16 +786,20 @@ def _install_orfs(residue: Residue, plan: InstallPlan) -> Path:
         earlier = _read_receipt(receipt)
         made: list[Path] = []
         try:
+            # The store can change while `git` runs: look again before each step.
+            _refuse_links(plan, receipt, plan.directory, source)
             _write_receipt(plan, plan.directory)
+            _refuse_links(plan, plan.directory, source)
             _make_parents(plan.directory.parent, made)
-            (work / entry.directory).rename(plan.directory)
+            _refuse_links(plan, plan.directory, source)
+            source.rename(plan.directory)
         except BaseException:
-            _restore_receipt(receipt, earlier)
-            _remove_empty(made)
+            _restore_receipt(plan.root, receipt, earlier)
+            _remove_empty(plan.root, made)
             raise
         return receipt
     finally:
-        _remove_tree(work)
+        _remove_tree(plan.root, work)
 
 
 def _check_ciel(plan: InstallPlan, env: dict[str, str]) -> None:
@@ -791,6 +849,7 @@ def _write_receipt(plan: InstallPlan, directory: Path) -> Path:
 def _install_locked(
     residue: Residue, plan: InstallPlan, provider: Optional[str], version: Optional[str]
 ) -> InstallResult:
+    _refuse_links(plan, *_written_paths(plan))
     found = _already_installed(residue, plan, provider, version)
     if found is not None:
         return found
@@ -808,6 +867,7 @@ def _install_locked(
             f"what the platform needs.\n{error}"
         ) from None
     if receipt is None:
+        _refuse_links(plan, _receipt_path(plan.root, plan.platform, plan.version))
         receipt = _write_receipt(plan, located.directory)
     return InstallResult(located, False, receipt, plan.commands)
 
@@ -823,7 +883,11 @@ def install(
     """Install the files of the platform into the store at `root`, and write a receipt.
 
     Arguments are as for `locate`. `url` is the repository that provider `orfs` fetches from,
-    and the default is `ORFS_URL`. If the store holds every file already, nothing runs and
+    and the default is `ORFS_URL`. The root may be a symbolic link: the install resolves it
+    first. Below it, the install refuses a symbolic link on the way to anything that it writes,
+    publishes, removes or locks (everything under `<root>/xeda`, but not `<root>/ciel`), before
+    it writes, and again before each step that publishes or rolls back. So it writes and deletes
+    only inside the store. If the store holds every file already, nothing runs and
     nothing is written. Otherwise the install takes the lock `<root>/xeda/.lock`, runs the
     plan, checks every file of every corner with `locate`, checks the pin with `verify_pin` and
     writes `<root>/xeda/receipts/<platform>-<pin>.json`.
@@ -843,13 +907,18 @@ def install(
     that `ciel` filled but nobody checked is fetched again.
 
     Raise `PdkInstallBusy` if another install holds the lock, `PdkInstallFailed` if the install
-    does not finish (a file system error too, naming the path), and what `install_plan` raises for a plan that cannot be made.
+    does not finish (a link in the store or a file system error too, naming the path), and what
+    `install_plan` raises for a plan that cannot be made.
     """
+    # The root may be a link, or below one. Resolve it, so that no link is left on the way from
+    # it to what the install writes, and a link found there is one inside the store.
+    root = root.resolve()
     plan = plan_install(residue, provider, version, root, partial=secrets.token_hex(6), url=url)
-    found = _already_installed(residue, plan, provider, version)
-    if found is not None:
-        return found
     try:
+        _refuse_links(plan, *_written_paths(plan))
+        found = _already_installed(residue, plan, provider, version)
+        if found is not None:
+            return found
         return _install_under_lock(residue, plan, provider, version)
     except OSError as error:
         # A root that cannot be written, a full disk: the message names the path.
@@ -861,7 +930,10 @@ def _install_under_lock(
 ) -> InstallResult:
     lock_path = plan.root / "xeda" / ".lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(lock_path, "a") as lock:
+    _refuse_links(plan, lock_path)
+    # `O_NOFOLLOW` (not on Windows) makes the open fail on a link that appeared since the check.
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:
         if sys.platform != "win32":
             try:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

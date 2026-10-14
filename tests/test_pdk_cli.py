@@ -1564,3 +1564,251 @@ def test_a_failed_directory_creation_removes_the_parents_it_made(tmp_path, upstr
         install_orfs(root, upstream)
     assert "No space left" in str(raised.value)
     assert tree(root) == ["xeda", "xeda/.lock", "xeda/receipts"]
+
+
+# ---------------------------------------------------------------------------------------------
+# A symbolic link inside the store: refused before the install writes
+# ---------------------------------------------------------------------------------------------
+
+
+def snapshot(*roots: Path) -> dict[str, Any]:
+    """Every entry under each root, without following a link: a directory, the bytes of a file
+    or the text of a link."""
+    found: dict[str, Any] = {}
+    for root in roots:
+        for top, directories, files in os.walk(root):
+            for name in (*directories, *files):
+                path = Path(top) / name
+                if path.is_symlink():
+                    found[str(path)] = ("link", os.readlink(path))
+                elif path.is_dir():
+                    found[str(path)] = "directory"
+                else:
+                    found[str(path)] = path.read_bytes()
+    return found
+
+
+def put_link(link: Path, target: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    link.symlink_to(target, target_is_directory=target.is_dir())
+
+
+def seed_elsewhere(directory: Path, name: str) -> Path:
+    """A directory outside the store with a file that no install may change."""
+    directory.mkdir()
+    (directory / name).write_text("not the store's\n")
+    return directory
+
+
+#: The place of the link, relative to the root of the store, for a commit `{commit}`.
+LINK_PLACES = [
+    "xeda",
+    "xeda/orfs",
+    "xeda/orfs/{commit}",
+    "xeda/orfs/{commit}/flow",
+    "xeda/orfs/{commit}/flow/platforms",
+    "xeda/orfs/{commit}/flow/platforms/nangate45",
+    "xeda/receipts",
+]
+
+
+@pytest.mark.parametrize("place", LINK_PLACES)
+@pytest.mark.parametrize("fmt", [["--json"], []])
+def test_an_orfs_install_refuses_a_link_in_the_store_and_writes_nothing(
+    monkeypatch, home, tmp_path, upstream, place, fmt
+):
+    local_orfs(monkeypatch, upstream)
+    root = tmp_path / "store"
+    elsewhere = seed_elsewhere(tmp_path / "elsewhere", "canary.txt")
+    link = root / place.format(commit=upstream.commit)
+    # The directories above the link are real: a link above one is another place.
+    link.parent.mkdir(parents=True)
+    link.symlink_to(elsewhere, target_is_directory=True)
+    before = snapshot(root, elsewhere)
+    result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+                    "--yes", *fmt, home=home)  # fmt: skip
+    assert result.exit_code == 1, result.output
+    if fmt:
+        answer = json.loads(result.stdout)
+        assert answer["success"] is False
+        assert answer["error"]["type"] == "PdkInstallFailed"
+        message = answer["error"]["message"]
+    else:
+        message = result.output
+    flat = " ".join(message.split())
+    assert f"{link} is a symbolic link" in flat
+    assert str(elsewhere) in flat
+    assert "never writes or deletes outside it" in flat
+    assert snapshot(root, elsewhere) == before
+
+
+def test_an_orfs_install_refuses_a_link_at_the_lock_file(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    target = elsewhere / "target.lock"
+    target.write_text("not the store's\n")
+    put_link(root / "xeda" / ".lock", target)
+    before = snapshot(root, elsewhere)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert f"{root / 'xeda' / '.lock'} is a symbolic link" in str(raised.value)
+    assert snapshot(root, elsewhere) == before
+
+
+def test_an_orfs_install_refuses_a_link_at_the_receipt(tmp_path, upstream):
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    target = elsewhere / "receipt.json"
+    target.write_text("not the store's\n")
+    receipt = root / "xeda" / "receipts" / f"{NANGATE}-{upstream.commit}.json"
+    put_link(receipt, target)
+    before = snapshot(root, elsewhere)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert f"{receipt} is a symbolic link" in str(raised.value)
+    assert snapshot(root, elsewhere) == before
+
+
+def test_a_link_to_a_complete_platform_is_refused_too(tmp_path, upstream):
+    """The install refuses a link whether or not it leads to the files that the platform needs."""
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    complete = tmp_path / "complete"
+    touch_all(complete, nangate())
+    put_link(nangate_directory(root, upstream.commit), complete)
+    before = snapshot(root, complete)
+    with pytest.raises(PdkInstallFailed, match="is a symbolic link"):
+        install_orfs(root, upstream)
+    assert snapshot(root, complete) == before
+
+
+@pytest.mark.parametrize("place", ["xeda", "xeda/receipts", "xeda/.lock"])
+def test_a_ciel_install_refuses_a_link_in_the_store_and_writes_nothing(
+    tmp_path, monkeypatch, place
+):
+    from xeda.platforms.providers import PdkInstallFailed, install
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    root = tmp_path / "store"
+    elsewhere = seed_elsewhere(tmp_path / "elsewhere", "canary.txt")
+    link = root / place
+    link.parent.mkdir(parents=True)
+    if place.endswith(".lock"):
+        put_link(link, elsewhere / "canary.txt")
+    else:
+        put_link(link, elsewhere)
+    before = snapshot(root, elsewhere)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install(fake.residue, "ciel", None, root)
+    assert f"{link} is a symbolic link" in str(raised.value)
+    assert fake.calls() == []
+    assert snapshot(root, elsewhere) == before
+
+
+def test_a_store_root_that_is_a_link_still_installs(monkeypatch, home, tmp_path, upstream):
+    local_orfs(monkeypatch, upstream)
+    real = tmp_path / "real"
+    real.mkdir()
+    root = tmp_path / "alias"
+    root.symlink_to(real, target_is_directory=True)
+    result = invoke(monkeypatch, NANGATE, "--root", str(root), "--version", upstream.commit,
+                    "--json", home=home)  # fmt: skip
+    assert result.exit_code == 0, result.output
+    answer = json.loads(result.stdout)
+    # The answer names the resolved store, so that every path in it is real.
+    assert answer["root"] == str(real)
+    assert Path(answer["directory"]) == nangate_directory(real, upstream.commit)
+    assert nangate_directory(real, upstream.commit).is_dir()
+    assert root.is_symlink()
+
+
+def test_a_store_below_a_linked_directory_still_installs(monkeypatch, home, tmp_path, upstream):
+    local_orfs(monkeypatch, upstream)
+    real = tmp_path / "real"
+    (real / "store").mkdir(parents=True)
+    (tmp_path / "alias").symlink_to(real, target_is_directory=True)
+    result = invoke(monkeypatch, NANGATE, "--root", str(tmp_path / "alias" / "store"),
+                    "--version", upstream.commit, "--json", home=home)  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert nangate_directory(real / "store", upstream.commit).is_dir()
+
+
+def test_a_default_store_reached_through_a_link_still_installs(
+    monkeypatch, home, tmp_path, upstream
+):
+    local_orfs(monkeypatch, upstream)
+    real = tmp_path / "real-ciel"
+    real.mkdir()
+    (home / ".ciel").symlink_to(real, target_is_directory=True)
+    result = invoke(monkeypatch, NANGATE, "--version", upstream.commit, "--json", home=home)
+    assert result.exit_code == 0, result.output
+    assert nangate_directory(real, upstream.commit).is_dir()
+
+
+def test_a_ciel_install_is_not_affected_by_a_link_under_the_ciel_directory(tmp_path, monkeypatch):
+    """ciel writes `<root>/ciel`, not Xeda, so a link there is ciel's business."""
+    from xeda.platforms.providers import install
+
+    fake = fake_ciel(monkeypatch, tmp_path)
+    root = tmp_path / "store"
+    put_link(root / "ciel", seed_elsewhere(tmp_path / "ciel-store", "kept.txt"))
+    result = install(fake.residue, "ciel", None, root)
+    assert result.already_installed is False
+    assert len(fake.calls()) == 1
+
+
+def test_a_link_that_appears_after_the_checks_stops_the_publication(
+    tmp_path, upstream, monkeypatch
+):
+    """The store can change while `git` runs. The publication checks again, and a link that
+    appeared leaves the store and the place that it leads to as they were, with the partial
+    directory removed."""
+    from xeda.platforms import providers
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    elsewhere = seed_elsewhere(tmp_path / "elsewhere", "canary.txt")
+    run = providers._run
+
+    def run_then_link(command, env, plan):
+        run(command, env, plan)
+        if "checkout" in command:
+            (root / "xeda" / "orfs").symlink_to(elsewhere, target_is_directory=True)
+
+    monkeypatch.setattr(providers, "_run", run_then_link)
+    with pytest.raises(PdkInstallFailed) as raised:
+        install_orfs(root, upstream)
+    assert f"{root / 'xeda' / 'orfs'} is a symbolic link" in str(raised.value)
+    assert tree(elsewhere) == ["canary.txt"]
+    assert (elsewhere / "canary.txt").read_text() == "not the store's\n"
+    assert sorted(path.name for path in (root / "xeda").iterdir()) == [".lock", "orfs"]
+
+
+def test_a_rollback_never_writes_or_deletes_through_a_link(tmp_path, upstream, monkeypatch):
+    """The move fails, and the directory of the receipts has become a link by then. The rollback
+    leaves what the link leads to as it was."""
+    from xeda.platforms.providers import PdkInstallFailed
+
+    root = tmp_path / "store"
+    elsewhere = seed_elsewhere(tmp_path / "elsewhere", f"{NANGATE}-{upstream.commit}.json")
+    receipts = root / "xeda" / "receipts"
+
+    def swap_and_refuse(self, target):
+        import shutil
+
+        shutil.rmtree(receipts)
+        receipts.symlink_to(elsewhere, target_is_directory=True)
+        raise OSError(28, "No space left on device", str(target))
+
+    monkeypatch.setattr(Path, "rename", swap_and_refuse)
+    with pytest.raises(PdkInstallFailed):
+        install_orfs(root, upstream)
+    assert tree(elsewhere) == [f"{NANGATE}-{upstream.commit}.json"]
+    assert (elsewhere / f"{NANGATE}-{upstream.commit}.json").read_text() == "not the store's\n"

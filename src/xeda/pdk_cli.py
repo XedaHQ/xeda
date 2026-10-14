@@ -355,7 +355,8 @@ def pdk_install(
     `--format jsonl` and `--format yaml` install without a question, because a program cannot
     answer. If the store holds the files already, the command says so and runs nothing. A failed
     `orfs` install leaves the store as it was. A failed `ciel` install may leave files of `ciel`
-    in the store. Only one install at a time can use a store."""
+    in the store. Only one install at a time can use a store. The install refuses a symbolic link
+    inside the store; the root itself may be one."""
     from .cli_utils import emit_structured, machine_readable_mode, resolve_format
     from .platforms.providers import (
         PdkInstallBusy,
@@ -370,7 +371,8 @@ def pdk_install(
     if fmt != "table":
         machine_readable_mode()  # stdout belongs to the document; tool output goes to stderr
     residue = resolve_platform(platform, platform_file)
-    store = _store_root(root).absolute()
+    # The install resolves the root, so the plan shows the paths that the install writes.
+    store = _store_root(root).resolve()
     try:
         plan = plan_install(residue, provider, version, store)
         present = installed(residue, provider, version, store) is not None

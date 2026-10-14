@@ -39,9 +39,11 @@ as ``--yes`` does, because a program cannot answer a question. Tool output goes 
 stdout carries one document: ``{"success": true, "directory": ..., "receipt": ...,
 "already_installed": ...}``, or ``{"success": false, "error": ...}`` if the install fails. A failed
 ``orfs`` install leaves the store as it was, and an ``orfs`` install keeps no ``.git`` in it:
-several platforms can share the directory of one commit. A failed ``ciel`` install may leave files of ``ciel``
-in the store, so a ``ciel`` store counts as installed for this command only when its receipt
-exists.
+several platforms can share the directory of one commit. A failed ``ciel`` install may leave files
+of ``ciel`` in the store, so a ``ciel`` store counts as installed for this command only when its
+receipt exists. The install refuses a symbolic link inside the store, in ``<root>/xeda``, and fails
+with ``"success": false`` before it writes. The root itself may be a link. The install writes only
+real directories inside the store, so that it never writes or deletes outside it.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON

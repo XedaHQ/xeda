@@ -1210,7 +1210,7 @@ REVIEWED_PY_DELETIONS = {
         1,
         "the delivery record's temporary file, beside the run directory",
     ),
-    ("platforms/providers.py", "(work / entry.directory).rename(plan.directory)"): (
+    ("platforms/providers.py", "source.rename(plan.directory)"): (
         1,
         "the install command writes the PDK store, outside a run: the platform directory of its "
         "own partial checkout, complete and checked, moved to its name in the store under the "
@@ -1677,16 +1677,24 @@ REVIEWED_WRITES = [
     ),
     (
         "platforms/providers.py",
-        "(work / entry.directory).rename(plan.directory)",
+        "source.rename(plan.directory)",
         "the install command writes the PDK store, outside a run: a rename of the platform "
         "directory of its own complete partial checkout to a name that the install checked to be "
         "free",
     ),
     (
         "platforms/providers.py",
-        'with open(lock_path, "a") as lock:',
+        'with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:',
         "the install command writes the PDK store, outside a run: the lock file of the store, "
-        "opened to be locked, not written",
+        "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
+        "install checked the way to the file for links just before",
+    ),
+    (
+        "platforms/providers.py",
+        'with os.fdopen(os.open(lock_path, flags, 0o666), "a") as lock:',
+        "the install command writes the PDK store, outside a run: the lock file of the store, "
+        "opened to be locked, not written; `O_NOFOLLOW` makes the open fail on a link, and the "
+        "install checked the way to the file for links just before",
     ),
 ]
 
