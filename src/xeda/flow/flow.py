@@ -1522,7 +1522,9 @@ class Flow(metaclass=ABCMeta):
         self.reports_read: List[Path] = []
         #: Set by the launcher: the previous run was still up to date and its results are reused.
         self.reused: bool = False
-        #: Set by `reject()`: why the checks of this run rejected its results.
+        #: Set by `reject()`: why the checks of this run rejected its results. A rejection that
+        #: the launcher reports again holds the message of the recorded error. On a first run it
+        #: is the text given to `reject()`.
         self.rejection: Optional[str] = None
         #: Set by the launcher after the run: "passed", "rejected" (the tool steps completed, the
         #: reports were read, the declared outputs are valid and `reject()` was called) or

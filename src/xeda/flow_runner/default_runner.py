@@ -1288,12 +1288,11 @@ class FlowLauncher:
                         flow.run_id = freshness.run_id
                         if flow.rejected_again:
                             log.warning(
-                                "%s: its last run with these inputs and settings was rejected: "
-                                "%s. Xeda reports that again without running it. To run it "
-                                "again, use --rebuild-all. A file that the run reads and that "
-                                "no setting or source declares is no input: declare it as a "
+                                "%s. Its last run with these inputs and settings was rejected: "
+                                "Xeda reports that again and does not run it. To run it again, "
+                                "use --rebuild-all. A file that the run reads and that no "
+                                "setting or source declares is no input: declare it as a "
                                 "source of the design.",
-                                flow.name,
                                 flow.rejection,
                             )
                         else:
