@@ -32,7 +32,13 @@
 | `` `-s flows.<name>.*` names no flow of this run (<flow>) `` | Name a flow of the run (the requested flow or a producer). The error suggests the right one. |
 | `` `<name>` was removed: use ... `` | Any removed flow, setting, option or key fails this way. Do what the message says; when nothing replaces the setting, it says so (`` `no_console` was removed: no flow read it; delete it ``). Settings nothing used were removed, for example `timeout_seconds` (now `timeout`, on the simulators). For `open_xc7`, use `fpga_pack` to build and `openfpgaloader` to program: move its placement settings to `flows.nextpnr`, its synthesis settings to `flows.yosys_fpga` and its pin files to `rtl.sources`. |
 | `` `yes` is text, not a boolean: write `true` `` | A boolean takes `true` or `false` only. |
-| `cannot interpret 'fast' as a quantity: expected a number, optionally followed by a unit` | Write `5.5`, `5.5ns` or `200MHz`. Units are case-sensitive. |
+| `` `10` needs a unit, such as `10 ns`: a bare number does not mean anything `` | A setting of a kind (`time`, `frequency`, `capacitance`, ...) needs a unit: `clock.period: 10 ns`, `-s clock.period=10ns`. `list-settings` shows the kind as the `type`. See "Units" in `design-file.md`. |
+| `` `5 MHz` is a frequency, not a time `` | The unit is of another kind. Use a unit of the kind that the message names. |
+| `` unit `ff` in `3.9 ff`: units are case-sensitive, did you mean `fF`? `` | Write the unit as the message says (`MHz`, not `mhz`). |
+| `` unknown unit `nanoseconds` in `10 nanoseconds`: a time takes one of fs, ps, ns, us, ms, s, min, h `` | Use one of the units listed. A spelled-out name is refused. |
+| `` cannot read `fast` as a time: write one number and one unit, such as `10 ns` `` | The text is not one number and one unit (a word, `5 ns * 2`, `1_000 ns`). |
+| `must be greater than 0 ns, got -1 ns` | The value is outside the limit of the setting. |
+| `Input should be a valid number, unable to parse string as a number` | The setting still takes a plain number (`timeout` in s, `hold_detour_max` in ns; `freq` of `openfpgaloader` is an integer in Hz). Remove the unit. |
 | a type error on a list or text setting | A setting takes its declared type only. `list-settings` shows `type` and `enum`. A list given as text is comma-separated (`-s xdc_files=a.xdc,b.xdc`); `[a, b]` is refused. |
 | `` `true` is a switch, and `bitstream` names a file `` | Give a name or location, or leave it unset. |
 

@@ -81,7 +81,8 @@ any of them on the command line with ``-s``/``--settings``. Nested settings use 
 
     xeda run vivado_synth sqrt.yaml -s clock.period=4.5ns impl.strategy=Performance_ExplorePostRoutePhysOpt
 
-Xeda rejects an unknown setting, so a typo is an error.
+Xeda rejects an unknown setting, so a typo is an error. A clock setting needs a unit: ``4.5ns`` is
+a time, and ``4.5`` is an error (see :ref:`quantities`).
 
 A flow that declares its file inputs and outputs can follow another flow. Join the flows with
 ``+`` to make a chain. You ask for the last flow, and each flow before it feeds the next one.

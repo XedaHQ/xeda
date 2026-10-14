@@ -155,9 +155,10 @@ design. A design with one clock usually needs only this:
 
 In each flow, set ``clock.period`` or ``clock.freq`` with a unit: ``clock.period: 5.5 ns`` or
 ``clock.freq: 200 MHz``. A number without a unit is an error. Units are case-sensitive, as in SI:
-``200 mhz`` is an error that names ``MHz``. The design key ``clock_port`` and the flow setting ``clock_period`` were removed.
-Xeda refuses both and names the replacement: write ``clock: <port>`` in the design and
-``clock.period`` in a flow.
+``200 mhz`` is an error that names ``MHz``. See :ref:`quantities` for the kinds and the units.
+
+The design key ``clock_port`` and the flow setting ``clock_period`` were removed. Xeda refuses both
+and names the replacement: write ``clock: <port>`` in the design and ``clock.period`` in a flow.
 
 .. _tb:
 

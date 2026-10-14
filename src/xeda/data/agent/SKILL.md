@@ -100,8 +100,12 @@ flows:
 - A non-cocotb HDL testbench needs `tb.top`; simulation flows refuse the design without it
   (`ghdl_sim` finds a VHDL testbench's top itself).
 - Give the clock port in `rtl.clock.port` and the period in the flow: `clock.period` (`5 ns`) or
-  `clock.freq` (`200 MHz`). A bare number is refused. For several clocks, use `rtl.clocks` and
-  the flow's `clocks.<name>`.
+  `clock.freq` (`200 MHz`). For several clocks, use `rtl.clocks` and the flow's `clocks.<name>`.
+- A physical setting needs a unit: `clock.period: 5 ns`, `-s clock.period=5ns` (no space, so no
+  quotes), `abc.load: 3.9 fF`. A bare number fails with `` `5` needs a unit, such as `10 ns` ``.
+  `list-settings` shows the kind (`time`, `frequency`, `capacitance`, ...) as the `type` of a
+  setting that takes a unit. Units are case-sensitive (`MHz`, `fF`). See "Units" in
+  `references/design-file.md`.
 - Write a table of at most two settings as dotted keys, a file section (`rtl`, `tb`, `flows`,
   `flows.<flow>`, `targets`) as a block. Keep `inputs` and tool-named keys nested.
 - YAML is 1.2 core: `yes`, `on` are text; a boolean is `true` or `false` and nothing else

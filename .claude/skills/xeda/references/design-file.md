@@ -118,6 +118,37 @@ accepted, a contradictory pair is an error. Every time and frequency needs a uni
 that names `MHz`. A clock also takes `rise`, `uncertainty` and `skew` (times), `duty_cycle` (a
 fraction) and `port`.
 
+## Units
+
+A setting whose `type` in `xeda list-settings <flow> --json` is a kind (`time`, `frequency`,
+`capacitance`, `length`, `voltage`, `resistance`) holds a quantity: one number, an optional space
+and one unit, and nothing else (`5 ns * 2` is an error). A bare number is an error. Units are
+case-sensitive, and a spelled-out name (`nanoseconds`) is refused.
+
+| Kind | Units | `settings.json` writes |
+| --- | --- | --- |
+| time | `fs`, `ps`, `ns`, `us`, `ms`, `s`, `min`, `h` | `ns` |
+| frequency | `Hz`, `kHz`, `MHz`, `GHz` | `MHz` |
+| capacitance | `fF`, `pF`, `nF` | `fF` |
+| length | `nm`, `um`, `mm`, `µm` (micro sign, U+00B5) | `um` |
+| voltage | `mV`, `V` | `V` |
+| resistance | `ohm`, `kohm`, `Mohm` | `ohm` |
+
+- Write `clock.period: 2.5 ns` in YAML, `"2.5 ns"` as a string in TOML and JSON, and
+  `-s clock.period=2.5ns` on the command line (no space, so no quotes; with a space, quote the
+  item).
+- `10 ns`, `10000 ps` and `0.01 us` are one value and one run identity. `settings.json` writes
+  `10 ns` for all three.
+- Other numbers stay plain: counts, ratios and fractions, percentages (the name ends in
+  `_percent`), sizes of data (the description names the unit) and values "in the units of the
+  library" (passed to the tool unconverted).
+- These keep their current form and are not quantities: `stop_time` (ns, or text such as `100us`),
+  `timeout` (s), `prerun_time` (text such as `10ns`), `time_unit`, `time_resolution` and
+  `lic_wait` of `vcs`, the Vivado `default_{max,min}_{input,output}_delay` (ns), `hold_detour_max`
+  of `nextpnr` (ns), `freq` of `openfpgaloader` (Hz), and the numbers of `dc` and `xeda dse`. A
+  unit on one that takes a plain number fails with a type error ("unable to parse string as a
+  number" or "... as an integer").
+
 ## Source files
 
 A suffix gives the type when it is in this table:

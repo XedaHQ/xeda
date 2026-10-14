@@ -19,7 +19,8 @@ the flows at the end:
 Notes on the file:
 
 * ``clock.port`` names the clock port of the design. The period of the clock is a setting of each
-  flow, because it constrains one build.
+  flow, because it constrains one build. A period has a unit, such as ``5 ns``. A number without a
+  unit is an error (see :ref:`quantities`).
 * ``sources`` is in compilation order. Paths are relative to the directory of the design file.
 * A dotted key such as ``clock.port`` stands for a nested table: ``clock`` with the key ``port``.
   The command line uses the same keys.
