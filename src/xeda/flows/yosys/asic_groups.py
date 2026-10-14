@@ -200,9 +200,9 @@ class ArithmeticGroup(SettingsGroup):
     )
     alumacc: bool = Field(
         True,
-        description="Merge the arithmetic cells into `$alu` and `$macc` cells (`alumacc`). "
-        "False adds `-noalumacc` to `synth`. Warning: without these cells, the adder "
-        "architecture has nothing to map.",
+        description="Warning: without the `$alu` and `$macc` cells, the adder architecture has "
+        "nothing to map. True merges the arithmetic cells into them (`alumacc`). False adds "
+        "`-noalumacc` to `synth`.",
         json_schema_extra=tier("expert"),
     )
     multiplier: Literal["default", "booth"] = Field(
@@ -331,9 +331,9 @@ class MemoryGroup(SettingsGroup):
     )
     rw_check: bool = Field(
         True,
-        description="Check that a read port and a write port that meet on one address get a "
-        "defined value. False marks every read port as returning any value then "
-        "(`synth -no-rw-check`). Warning: the netlist can differ from the simulation.",
+        description="Warning: with false, the netlist can differ from the simulation when a read "
+        "and a write meet on one address. True keeps the value that the design defines. False "
+        "marks every read port as returning any value then (`synth -no-rw-check`).",
         json_schema_extra=tier("expert"),
     )
 

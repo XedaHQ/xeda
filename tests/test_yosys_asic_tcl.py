@@ -358,22 +358,32 @@ def test_both_modes_together(tmp_path, monkeypatch):
     assert len(_words(calls, "read_liberty")) == 2
 
 
+@pytest.mark.parametrize(
+    "adders,multipliers,words",
+    [
+        (
+            ["sklansky", "brent_kung", "han_carlson", "kogge_stone"],
+            ["base", "booth"],
+            ("SKLANSKY BRENT_KUNG HAN_CARLSON KOGGE_STONE", "BASE BOOTH"),
+        ),
+        (["kogge_stone"], ["booth"], ("KOGGE_STONE", "BOOTH")),
+        ([], [], ("", "")),
+    ],
+)
 def test_wrapping_hands_the_architectures_to_the_wrapping_script_in_its_spelling(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, adders, multipliers, words
 ):
     _, calls = _render(
         tmp_path,
         monkeypatch,
         arithmetic={
             "wrap_operators": True,
-            "wrapped_adders": ["sklansky", "brent_kung", "han_carlson"],
-            "wrapped_multipliers": ["base"],
+            "wrapped_adders": adders,
+            "wrapped_multipliers": multipliers,
         },
         abc={"mapper": "abc_new"},
     )
-    assert _words(calls, "wrap_operators") == [
-        ["wrap_operators", BOOTH_MAP, "SKLANSKY BRENT_KUNG HAN_CARLSON", "BASE"]
-    ]
+    assert _words(calls, "wrap_operators") == [["wrap_operators", BOOTH_MAP, *words]]
 
 
 def test_wrapping_with_the_options_of_extract_fa_keeps_them_for_the_adder_map(
@@ -781,6 +791,29 @@ def test_real_yosys_wraps_with_the_architectures_of_the_settings(tmp_path):
     )
     assert re.search(r'architecture = "SKLANSKY"|architecture = "sklansky"', netlist, re.I)
     assert not re.search(r'architecture = "BRENT_KUNG"', netlist, re.I), netlist
+
+
+MULTIPLIER = (
+    "module mult(input clk, input [11:0] a, b, output reg [23:0] q);\n"
+    "  always @(posedge clk) q <= a * b;\n"
+    "endmodule\n"
+)
+
+
+@pytest.mark.parametrize("multipliers", [["base"], ["booth", "base"]])
+def test_real_yosys_takes_the_wrapped_multipliers_of_the_settings(tmp_path, multipliers):
+    """The wrapping script of OpenROAD-flow-scripts selects `$macc` cells by `A_WIDTH`, which a
+    `$macc` does not have. So only the adders of the multiplier show as wrapped. The run must
+    take the order and finish."""
+    require_yosys_tcl()
+    _, netlist = _launch(
+        tmp_path,
+        MULTIPLIER,
+        "mult",
+        arithmetic={"wrap_operators": True, "wrapped_multipliers": multipliers},
+        abc={"mapper": "abc_new"},
+    )
+    assert "ALU_" in netlist
 
 
 def test_the_bundled_assets_are_where_the_script_sources_them():
