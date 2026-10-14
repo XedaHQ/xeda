@@ -544,6 +544,9 @@ def test_the_machine_readable_docs_name_the_chain_keys_list_flows_publishes():
         assert f"``{key}``" in docs, key
 
 
+EDGE_KEYS = ["flow", "output", "through", "binds", "target_dependent"]
+
+
 @pytest.mark.parametrize("flow_class", FLOW_CLASSES, ids=FLOW_IDS)
 def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class):
     """`can_precede`/`can_follow` come from the validator `xeda run` applies, so the listing
@@ -553,17 +556,11 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
     def published(edge, request):
         """The link of the request, which must be what the entry publishes."""
         link = parse_request(request).links[0]
-        assert [flow.name for flow in link.through] == edge.get("through", []), request
-        assert ("through" in edge) == bool(link.through), request
-        assert [(bound["input"], bound["output"]) for bound in edge["binds"]] == [
-            (name, made) for _flow, name, made in link.binds
+        assert [flow.name for flow in link.through] == edge["through"], request
+        # every binding names the flow whose input it binds: the consumer of a direct link
+        assert [(bound["flow"], bound["input"], bound["output"]) for bound in edge["binds"]] == [
+            (flow.name, name, made) for flow, name, made in link.binds
         ], request
-        # a binding names its flow exactly when the link passes through other flows
-        assert [bound.get("flow") for bound in edge["binds"]] == (
-            [flow.name for flow, _name, _made in link.binds]
-            if link.through
-            else [None] * len(edge["binds"])
-        ), request
 
     info = flow_info(flow_class)
     for edge in info["can_precede"]:
@@ -574,7 +571,8 @@ def test_every_published_follow_relation_is_a_chain_xeda_run_accepts(flow_class)
         published(edge, f"{edge['flow']}{qualifier}+{info['name']}")
     # the direct relations come first
     for key in ("can_precede", "can_follow"):
-        passes = ["through" in edge for edge in info[key]]
+        assert all(list(edge) == EDGE_KEYS for edge in info[key]), key
+        passes = [bool(edge["through"]) for edge in info[key]]
         assert passes == sorted(passes), key
     if info["action_reason"]:
         assert info["can_precede"] == []

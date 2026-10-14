@@ -10,7 +10,7 @@ import logging
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional
+from typing import Dict, Iterator, List, Optional, cast
 
 from importlib_resources import as_file, files
 
@@ -65,8 +65,8 @@ def _edge_text(edge: dict[str, object], name: str, key: str) -> str:
             if key == "can_precede"
             else f"`{other}.{edge['output']}`"
         )
-    through = edge.get("through")
-    if isinstance(through, list) and through:
+    through = cast(List[str], edge["through"])
+    if through:
         text += f" (through {', '.join(f'`{flow}`' for flow in through)})"
     return text + (" (depends on the target)" if edge.get("target_dependent") else "")
 

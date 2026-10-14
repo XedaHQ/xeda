@@ -92,11 +92,11 @@ default producer.
 
 ``can_precede`` lists the flows that can come after this flow in a chain (``xeda run this+other``),
 and ``can_follow`` lists the flows that this flow can come after. The direct relations come first.
-An entry with ``through`` is a link that passes through the flows between the two, which Xeda plans
-as it does for the second flow alone. The validator that ``xeda run`` applies judges both, on
-declarations alone, so a pair that the validator refuses is never listed. Planning checks one more
-thing that declarations cannot show: related inputs of a flow must come from one producer. A listed
-pair can therefore still be refused there, with the bindings to add. For example,
+An entry whose ``through`` is not empty is a link that passes through the flows between the two,
+which Xeda plans as it does for the second flow alone. The validator that ``xeda run`` applies
+judges both, on declarations alone, so a pair that the validator refuses is never listed. Planning
+checks one more thing that declarations cannot show: related inputs of a flow must come from one
+producer. A listed pair can therefore still be refused there, with the bindings to add. For example,
 ``vivado_alt_synth`` is listed before ``vivado_power``, but the ``activity`` input of
 ``vivado_power`` still comes from ``vivado_synth`` unless you bind the simulation too.
 
@@ -105,11 +105,12 @@ Each entry of these two lists has these keys:
 - ``flow`` is the other flow.
 - ``output`` is the producer output that the request must name. It is ``null`` when the unqualified
   request is valid.
-- ``through`` lists the flows that the link passes through, in chain order. The key is only in an
-  entry whose link passes through flows, so a direct relation has no ``through``.
-- ``binds`` lists the ``input`` and ``output`` pairs that the link binds. For a link that passes
-  through flows, each item also has ``flow``: the flow whose input it binds, such as ``nextpnr`` for
-  ``netlist`` in ``yosys_fpga+fpga_pack``.
+- ``through`` lists the flows that the link passes through, in chain order. It is ``[]`` for a
+  direct link. Every entry has this key, as every element of ``request`` does.
+- ``binds`` lists the ``flow``, ``input`` and ``output`` of each binding that the link makes. The
+  ``flow`` is the flow whose input the link binds. It is the second flow for a direct link. For a
+  link that passes through flows, it can be one of those flows, such as ``nextpnr`` for ``netlist``
+  in ``yosys_fpga+fpga_pack``.
 - ``target_dependent`` is true when a produced or accepted kind is a union that the target selects
   from, so the resolved plan is authoritative. For example, ``nextpnr`` makes the configuration of
   the family of the target.

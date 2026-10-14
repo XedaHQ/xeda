@@ -236,20 +236,13 @@ def _category(cls: Type[Flow]) -> str:
 def _edge_info(edge: ChainEdge, other: type[Flow]) -> dict[str, Any]:
     """Return one follow relation as plain data, seen from the other end. `other` is the flow
     that the relation names. `output` is the producer output that a request must name, and None
-    when the unqualified request is valid. `binds` lists the input and output pairs that the
-    link binds. `target_dependent` tells whether a type that the relation makes or takes is
-    a union that the target settings narrow.
+    when the unqualified request is valid. `through` lists the flows that the link passes
+    through, in chain order, and is empty for a direct link. `binds` lists the input and output
+    pairs that the link binds, and each item names the flow whose input it binds (`flow`): the
+    consumer of a direct link. `target_dependent` tells whether a type that the relation makes
+    or takes is a union that the target settings narrow.
 
-    A relation whose link passes through other flows has the key `through`, which lists them in
-    chain order, and each item of its `binds` also names the flow whose input it binds (`flow`).
-    A direct relation has neither."""
-    if not edge.through:
-        return {
-            "flow": other.name,
-            "output": edge.output,
-            "binds": [{"input": taken, "output": made} for taken, made in edge.binds],
-            "target_dependent": edge.target_dependent,
-        }
+    Every relation has these keys, in this order."""
     return {
         "flow": other.name,
         "output": edge.output,
@@ -268,10 +261,11 @@ def flow_info(flow: Union[str, Type[Flow]]) -> Dict[str, Any]:
     `dependencies` lists the default producers of the declared inputs. `can_precede` lists the
     flows that can follow this flow in a chain (`this+other`), and `can_follow` lists the flows
     that this flow can follow (`other+this`). The direct relations come first. A relation whose
-    link passes through the flows between the two has them in `through`. The chain validator judges both
-    on declarations alone (`chains.followers` and `chains.predecessors`), so a hint and a refusal
-    cannot disagree. A relation is `target_dependent` when a union of types decides it and the
-    target settings narrow that union. The resolved plan is authoritative.
+    link passes through the flows between the two lists them in `through`, which is empty for a
+    direct relation. The chain validator judges both on declarations alone (`chains.followers`
+    and `chains.predecessors`), so a hint and a refusal cannot disagree. A relation is
+    `target_dependent` when a union of types decides it and the target settings narrow that
+    union. The resolved plan is authoritative.
     """
     cls = _resolve(flow)
     candidates = all_flow_classes()
@@ -350,7 +344,7 @@ def flow_chain_cells(info: dict[str, Any]) -> tuple[str, str, str]:
             if edge["output"] is None
             else f"{info['name']}.{edge['output']}+{edge['flow']}"
         )
-        if edge.get("through"):
+        if edge["through"]:
             text += f" (through {', '.join(edge['through'])})"
         if edge["target_dependent"]:
             text += " (depends on the target)"

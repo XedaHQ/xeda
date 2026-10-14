@@ -541,23 +541,15 @@ def _real(edges):
     return [edge for edge in edges if not edge["flow"].startswith("__")]
 
 
-def _edge(flow, output=None, binds=(), target_dependent=False, through=None):
-    """A direct relation has no `through` key, and its `binds` items name no flow. A relation that
-    passes through other flows lists them, and its `binds` items are `(flow, input, output)`."""
-    if through is None:
-        items = [{"input": i, "output": o} for i, o in binds]
-        return {
-            "flow": flow,
-            "output": output,
-            "binds": items,
-            "target_dependent": target_dependent,
-        }
-    items = [{"flow": f, "input": i, "output": o} for f, i, o in binds]
+def _edge(flow, binds=(), target_dependent=False, through=(), output=None):
+    """One relation of `can_precede` or `can_follow`. Every relation has the same keys: `through`
+    lists the flows that the link passes through (none for a direct link), and each item of
+    `binds` is `(flow, input, output)`, with the flow whose input it binds."""
     return {
         "flow": flow,
         "output": output,
         "through": list(through),
-        "binds": items,
+        "binds": [{"flow": f, "input": i, "output": o} for f, i, o in binds],
         "target_dependent": target_dependent,
     }
 
@@ -575,37 +567,32 @@ def test_list_flows_json_adds_requiredness_and_follow_relations():
         inputs["netlist"]
     )
     # the family-union configuration is a target-dependent hint
-    assert _real(nextpnr["can_follow"]) == [_edge("yosys_fpga", None, [("netlist", "netlist")])]
+    assert _real(nextpnr["can_follow"]) == [
+        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")])
+    ]
     assert _real(nextpnr["can_precede"]) == [
-        _edge("fpga_pack", None, [("config", "config")], True),
+        _edge("fpga_pack", [("fpga_pack", "config", "config")], True),
         # the loader reads the packed bitstream: the link passes through the packer
-        _edge(
-            "openfpgaloader",
-            None,
-            [("fpga_pack", "config", "config")],
-            True,
-            through=["fpga_pack"],
-        ),
+        _edge("openfpgaloader", [("fpga_pack", "config", "config")], True, through=["fpga_pack"]),
     ]
     assert flows["yosys_fpga"]["can_follow"] == []
     assert _real(flows["fpga_pack"]["can_precede"]) == [
-        _edge("openfpgaloader", None, [("bitstream", "bitstream")])
+        _edge("openfpgaloader", [("openfpgaloader", "bitstream", "bitstream")])
     ]
     # a link that skips a flow is listed after the direct ones, with the flows it passes through
     assert _real(flows["yosys_fpga"]["can_precede"]) == [
-        _edge("nextpnr", None, [("netlist", "netlist")]),
-        _edge("vivado_impl", None, [("netlist", "netlist_edif")]),
-        _edge("fpga_pack", None, [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
+        _edge("nextpnr", [("nextpnr", "netlist", "netlist")]),
+        _edge("vivado_impl", [("vivado_impl", "netlist", "netlist_edif")]),
+        _edge("fpga_pack", [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
         _edge(
             "openfpgaloader",
-            None,
             [("nextpnr", "netlist", "netlist")],
             through=["nextpnr", "fpga_pack"],
         ),
     ]
     assert _real(flows["fpga_pack"]["can_follow"]) == [
-        _edge("nextpnr", None, [("config", "config")], True),
-        _edge("yosys_fpga", None, [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
+        _edge("nextpnr", [("fpga_pack", "config", "config")], True),
+        _edge("yosys_fpga", [("nextpnr", "netlist", "netlist")], through=["nextpnr"]),
     ]
 
 
@@ -637,7 +624,12 @@ def test_list_flows_json_qualifies_an_ambiguous_follower():
     producer = _listed()["__chain_producer"]
     ambiguous = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_consumer"]
     assert [e["output"] for e in ambiguous] == ["json_a", "json_b"]
-    assert all(e["binds"] == [{"input": "netlist", "output": e["output"]}] for e in ambiguous)
+    assert all(
+        e["binds"]
+        == [{"flow": "__chain_ambiguous_consumer", "input": "netlist", "output": e["output"]}]
+        for e in ambiguous
+    )
+    assert all(e["through"] == [] for e in ambiguous)
     plain = [e for e in producer["can_precede"] if e["flow"] == "__chain_ambiguous_default"]
     assert [e["output"] for e in plain] == [None]
 
