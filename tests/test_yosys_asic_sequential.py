@@ -538,8 +538,12 @@ def test_a_retimed_module_that_flattening_dissolves_is_refused_at_planning(tmp_p
         },
         {"sequential": {"retime_modules": ["mul8"]}, "flatten": False},
         {"sequential": {"retime_modules": ["mul8"]}, "hierarchy": {"keep_min_cost": 5}},
+        {
+            "sequential": {"retime_modules": ["mul8"]},
+            "hierarchy": {"keep_instances": ["mac/m"]},
+        },
     ],
-    ids=["top", "kept", "kept-pattern", "kept-attribute", "no-flatten", "cost"],
+    ids=["top", "kept", "kept-pattern", "kept-attribute", "no-flatten", "cost", "kept-instance"],
 )
 def test_a_retimed_module_that_stays_a_module_is_accepted(tmp_path, given):
     design = _retime_design(tmp_path)

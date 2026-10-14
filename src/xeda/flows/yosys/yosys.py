@@ -528,10 +528,16 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         """Return the retimed modules that flattening dissolves before the retiming runs.
 
         The check needs the top module. A cost limit (`hierarchy.keep_min_cost`) keeps modules by
-        their size, which only the synthesis knows, so it judges no module.
+        their size, and a kept instance (`hierarchy.keep_instances`) keeps the module of a cell,
+        which only the synthesis knows. So with either, the check judges no module.
         """
         top = design.rtl.top
-        if top is None or settings.flatten is False or settings.hierarchy.keep_min_cost is not None:
+        if (
+            top is None
+            or settings.flatten is False
+            or settings.hierarchy.keep_min_cost is not None
+            or settings.hierarchy.keep_instances
+        ):
             return []
         kept = [*settings.keep_hierarchy, *settings.set_mod_attribute.get("keep_hierarchy", {})]
         return [
