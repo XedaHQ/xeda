@@ -77,14 +77,18 @@ yosys read_liberty -overwrite -setattr liberty_cell -unit_delay -wb -ignore_miss
 {% endif -%}
 {% endif -%}
 {% include 'read_files.tcl' %}
+{%- if settings.prep is none %}
 yosys proc{% if settings.coarse.latches %} -latches {{settings.coarse.latches}}{% endif %}
+{%- endif %}
 {%- for instance in settings.hierarchy.keep_instances %}
 setattr -set keep_hierarchy 1 {{instance|path}}
 {%- endfor %}
 {%- if settings.hierarchy.separator %}
 scratchpad -set flatten.separator {{settings.hierarchy.separator|path}}
 {%- endif %}
-{%- if settings.flatten and keep_min_cost is none %}
+{%- if settings.prep is not none %}
+prep{% if settings.flatten and keep_min_cost is none %} -flatten{% endif %}{% if design.rtl.top %} -top {{design.rtl.top}}{% else %} -auto-top{% endif %}{% for flag in settings.prep %} {{flag}}{% endfor %}
+{%- elif settings.flatten and keep_min_cost is none %}
 flatten
 {%- endif %}
 

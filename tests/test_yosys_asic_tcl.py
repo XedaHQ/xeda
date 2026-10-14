@@ -560,6 +560,57 @@ def test_the_tcl_only_values_are_refused_with_the_ys_script_and_accepted_with_tc
 
 
 @pytest.mark.parametrize("script_format", ["ys", "tcl"])
+@pytest.mark.parametrize("flatten", [True, False])
+def test_prep_replaces_the_elaboration_of_the_script_in_both_script_formats(
+    tmp_path, monkeypatch, script_format, flatten
+):
+    """`prep` runs `hierarchy`, `proc` and, with `-flatten`, `flatten`, so the script runs none of
+    them itself. The design is flattened by `prep`, and the rest of the mapping follows."""
+    settings = _tiny(tmp_path, script_format=script_format, prep=["-nomem"], flatten=flatten)
+    Yosys.check_settings_supported(Yosys.Settings.from_input(settings))
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    commands = _commands(run_dir, script_format, tmp_path)
+    names = [command[0] for command in commands]
+    expected = ["prep", *(["-flatten"] if flatten else []), "-top", "mac", "-nomem"]
+    assert expected in commands
+    assert "proc" not in names and "flatten" not in names
+    assert names.index("prep") < names.index("synth") < names.index("dfflibmap")
+    assert names.index("read_verilog") < names.index("prep")
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
+def test_without_prep_the_script_runs_proc_and_flatten_itself(tmp_path, monkeypatch, script_format):
+    settings = _tiny(tmp_path, script_format=script_format)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    names = [command[0] for command in _commands(run_dir, script_format, tmp_path)]
+    assert "prep" not in names and "proc" in names and "flatten" in names
+
+
+def test_prep_keeps_the_instances_and_the_separator_that_the_flattening_reads(
+    tmp_path, monkeypatch
+):
+    run_dir, calls = _render(
+        tmp_path,
+        monkeypatch,
+        prep=[],
+        hierarchy={"keep_instances": ["mac/m"], "separator": "/"},
+    )
+    names = [call[0] for call in calls]
+    assert names.index("setattr") < names.index("scratchpad") < names.index("prep")
+
+
+def test_prep_with_the_hierarchical_mode_does_not_flatten_everything(tmp_path, monkeypatch):
+    _, calls = _render(tmp_path, monkeypatch, prep=[], **HIERARCHICAL)
+    (prep,) = _words(calls, "prep")
+    assert "-flatten" not in prep
+
+
+def test_prep_refuses_the_latches_option_of_proc():
+    problems = _refused(platform="nangate45", prep=[], coarse={"latches": "warn"})
+    assert "coarse.latches" in problems and "prep" in problems["coarse.latches"]
+
+
+@pytest.mark.parametrize("script_format", ["ys", "tcl"])
 def test_abc_new_is_accepted_and_renders_in_both_script_formats(
     tmp_path, monkeypatch, script_format
 ):
@@ -899,6 +950,15 @@ def test_real_yosys_maps_each_wrapped_operator_with_the_script_it_carries(tmp_pa
     )
     log = (flow.run_path / "yosys.log").read_text()
     assert "ABC: + &nf -R 5" in log
+
+
+def test_real_yosys_maps_a_design_elaborated_by_prep(tmp_path):
+    require_yosys()
+    flow, netlist = _launch(tmp_path, HIERARCHY_DESIGN, "top", script_format="ys", prep=["-nomem"])
+    log = (flow.run_path / "yosys.log").read_text()
+    assert "Executing PREP pass" in log
+    assert not re.search(r"^\s*(big|small)\s", netlist, re.M), "prep -flatten flattens the design"
+    assert re.search(r"^\s*(INV|NAND2|NOR2|BUF)_X\d\b", netlist, re.M)
 
 
 def test_real_yosys_maps_with_abc_new_in_a_ys_script(tmp_path):

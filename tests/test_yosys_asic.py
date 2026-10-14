@@ -856,11 +856,10 @@ LIBERTY_ONLY = {"liberty": ["cells.lib"]}
     [
         ({"abc_dff": True}, ["abc_dff", "no effect", "dfflibmap"]),
         ({"post_synth_opt": True}, ["post_synth_opt", "no effect", "coarse.opt_dff_sat"]),
-        ({"prep": ["-nordff"]}, ["prep"]),
         ({"nosynth": True}, ["nosynth"]),
         ({"noabc": True}, ["noabc"]),
     ],
-    ids=["abc_dff", "post_synth_opt", "prep", "nosynth", "noabc"],
+    ids=["abc_dff", "post_synth_opt", "nosynth", "noabc"],
 )
 def test_a_setting_the_liberty_mapping_cannot_honor_is_refused_when_planned(given, mentions):
     """The liberty mapping runs its own elaboration, synthesis and mapping with `abc`, ends with
@@ -876,7 +875,9 @@ def test_a_setting_the_liberty_mapping_cannot_honor_is_refused_when_planned(give
         Yosys.check_settings_supported(Yosys.Settings(**mapping, **given))
 
 
-@pytest.mark.parametrize("given", [{"abc_dff": False}, {"post_synth_opt": False}, {}])
+@pytest.mark.parametrize(
+    "given", [{"abc_dff": False}, {"post_synth_opt": False}, {"prep": ["-nomem"]}, {}]
+)
 def test_the_settings_that_agree_with_the_liberty_mapping_are_accepted(given):
     Yosys.check_settings_supported(Yosys.Settings(**LIBERTY_ONLY, **given))
 

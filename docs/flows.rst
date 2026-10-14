@@ -1319,6 +1319,10 @@ command. The main steps are these:
 
 Some steps run only when a setting asks for them. The comments name those settings.
 
+With ``prep``, the script runs ``prep`` with its flags in place of ``proc`` and ``flatten``. Xeda
+adds ``-flatten`` unless ``flatten`` is false, and ``-top`` with the top module. ``coarse.latches``
+is an option of the ``proc`` that ``prep`` replaces, so Xeda refuses it with ``prep``.
+
 Xeda reads each Liberty file as it is. It does not patch, merge or write a Liberty file. Each file
 goes to ``dfflibmap`` and to ``abc``. ``sequential.dff_liberty`` names a flip-flop file that
 replaces the Liberty files on ``dfflibmap``. ``abc`` still reads all of them.
@@ -1432,7 +1436,6 @@ setting:
 * ``post_synth_opt: true``. The mapping runs no extra ``opt`` after ``synth``, so the setting has
   no effect. Use ``coarse.opt_dff_sat`` to add ``-sat`` to the ``opt`` that follows ``synth``. Set
   it to false or delete it.
-* ``prep``. The mapping runs its own ``proc``, ``flatten`` and ``synth``. Delete the setting.
 * ``nosynth: true``. The mapping always runs ``synth``. Set it to false or delete it.
 * ``noabc: true``. The mapping always maps with ``abc``. Set it to false or delete it.
 

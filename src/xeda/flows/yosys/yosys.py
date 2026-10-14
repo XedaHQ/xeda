@@ -180,12 +180,6 @@ LIBERTY_REFUSALS: Tuple[Tuple[str, Callable[[object], bool], str], ...] = (
         "`-sat` to the `opt` that follows `synth`",
     ),
     (
-        "prep",
-        lambda value: value is not None,
-        "`prep` cannot map to a liberty library: the mapping runs its own elaboration (`proc`, "
-        "`flatten` and `synth`). Delete the setting",
-    ),
-    (
         "nosynth",
         lambda value: value is True,
         "`nosynth` cannot map to a liberty library: the mapping always runs `synth`. Delete the "
@@ -533,6 +527,14 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         problems += cls._tcl_mode_problems(settings)
         problems += cls._hierarchy_problems(settings)
         problems += flag_problems(settings, LIBERTY_HATCHES)
+        if settings.prep is not None and settings.coarse.latches is not None:
+            problems.append(
+                (
+                    "coarse.latches",
+                    "`coarse.latches` is an option of the `proc` that the script runs, and `prep` "
+                    "runs its own `proc` without it: delete one of them",
+                )
+            )
         if settings.abc.keep_ff and not settings.sequential.retime_modules:
             problems.append(
                 (
