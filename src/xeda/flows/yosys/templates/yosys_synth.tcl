@@ -1,4 +1,7 @@
 yosys logger -notime
+{% if settings.maps_to_liberty() -%}
+{% include 'yosys_liberty_synth.tcl' %}
+{%- else -%}
 {% include 'read_files.tcl' %}
 
 {% if settings.prep is not none %}
@@ -98,4 +101,5 @@ blackbox =A:whitebox
 {% include "write_netlist.tcl" %}
 
 log -stdout "***** Synthesis Completed *****"
+{%- endif %}
 {%- endif %}

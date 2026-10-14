@@ -1288,6 +1288,7 @@ _REPORT += "reports/outputs/checkpoints directory"
 _BITSTREAM = "the bitstream named by the flow's `bitstream` setting"
 #: a command that replaces by name, or deletes where it runs: only ever in the flow's run directory
 IN_THE_RUN_DIRECTORY = "inside the flow's run directory, which is xeda's"
+IN_MEMORY = "replaces a module of the design in memory with a cell of a Liberty file: no file"
 
 #: Every such line, reviewed, with how many times it occurs: (file, line) -> (count, why it
 #: removes or replaces only xeda's own, and -- for a command that replaces by name or deletes
@@ -1319,6 +1320,22 @@ REVIEWED_SCRIPT_DELETIONS: dict = {
         "uniquifies the design in memory: no file",
         None,
     ),
+    (
+        "flows/yosys/templates/yosys_liberty_synth.ys",
+        "read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}",
+    ): (1, IN_MEMORY, None),
+    (
+        "flows/yosys/templates/yosys_liberty_synth.ys",
+        "read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}",
+    ): (1, IN_MEMORY, None),
+    (
+        "flows/yosys/templates/yosys_liberty_synth.tcl",
+        "yosys read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}",
+    ): (1, IN_MEMORY, None),
+    (
+        "flows/yosys/templates/yosys_liberty_synth.tcl",
+        "yosys read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}",
+    ): (1, IN_MEMORY, None),
     (
         "flows/vivado/templates/vivado_alt_synth.tcl",
         "write_checkpoint -force ${checkpoints_dir}/post_synth",

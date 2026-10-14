@@ -13,7 +13,6 @@ from xeda.flow import FlowSettingsException
 from xeda.flow_runner import DefaultRunner
 from xeda.edif import modules_used_as_library_cells
 from xeda.flows import Yosys, YosysFpga
-from xeda.flows.yosys.yosys import preproc_libs
 
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_store
 from .tool_utils import (
@@ -79,15 +78,14 @@ SPACED_INPUTS = (
     "pdk_root",
 )
 # Path settings the sweep does not set: the reports and the flow's other working locations
-# (its log, the merged liberty) are names in the run directory, whose path has a space; yosys
-# reads no `lib_paths` of its own -- the ghdl plugin's are `ghdl.lib_paths`, which
+# (its log) are names in the run directory, whose path has a space; yosys reads no `lib_paths` of
+# its own -- the ghdl plugin's are `ghdl.lib_paths`, which
 # `test_yosys_reads_vhdl_from_a_path_with_spaces` sets.
 NOT_SWEPT = {
     "reports_dir",
     "outputs_dir",
     "checkpoints_dir",
     "log_file",
-    "merge_libs_to",
     "lib_paths",
 }
 
@@ -695,35 +693,6 @@ def test_yosys_elaborates_a_vhdl_top_with_a_constraint_file_listed_after_it(tmp_
     assert "-gW=5" in script and "chparam" not in script
     netlist = json.loads((flow.run_path / "netlist.json").read_text())
     assert len(netlist["modules"]["inv"]["ports"]["y"]["bits"]) == 5
-
-
-def _liberty(cell: str) -> str:
-    """Return Liberty source text for a cell used in Yosys tests."""
-    return (
-        "library (cells) {\n"
-        '  time_unit : "1ns" ;\n'
-        f"  cell ({cell}) {{\n"
-        "    area : 1 ;\n"
-        "  }\n"
-        "}\n"
-    )
-
-
-def test_preprocessed_libraries_sharing_a_stem_do_not_overwrite_each_other(tmp_path, monkeypatch):
-    """Each library is pre-processed into its own file named after its stem, so `a/cells.lib`
-    and `b/cells.lib` both became `cells-mod.lib`, the second replacing the first. Each file
-    also received every library processed before it, which is what hid that: the survivor
-    happened to hold both."""
-    libs = [_write(tmp_path / d / "cells.lib", _liberty(f"{d.upper()}_X1")) for d in ("a", "b")]
-    monkeypatch.chdir(tmp_path)
-    preproc_libs(libs, tmp_path / "merged.lib", ["B_X1"], use_temp_folder=False)
-    processed = sorted((tmp_path / "processed_libs").iterdir())
-    assert len(processed) == 2
-    cells = [set(re.findall(r"cell\s*\((\w+)\)", p.read_text())) for p in processed]
-    assert sorted(cells, key=sorted) == [{"A_X1"}, {"B_X1"}]
-    merged = (tmp_path / "merged.lib").read_text()
-    assert set(re.findall(r"cell\s*\((\w+)\)", merged)) == {"A_X1", "B_X1"}
-    assert re.search(r"cell \(B_X1\) \{\n\s*dont_use : true;", merged)
 
 
 if __name__ == "__main__":

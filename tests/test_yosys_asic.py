@@ -1,16 +1,16 @@
 """`yosys` owns its ASIC configuration.
 
-The whole configuration of a standard-cell synthesis -- the liberty set and its merge, the
-mapping cells, the abc script and constraints, the netlist format -- follows from a platform:
+The whole configuration of a standard-cell synthesis -- the liberty files, the mapping cells, the
+abc script and constraints, the netlist format -- follows from a platform:
 `xeda run yosys -s platform=<name>` alone maps to the cells of that platform and needs nothing
 else. `optimize`, `abc_driver_cell` and `abc_load_in_ff` are settings of `yosys`, which acts on
 them. These tests use the `tiny` platform (`tests/tiny_platform.py`): its files are in a store
 under the test directory, so no PDK needs to be installed. `tests/test_yosys_platform.py` has the
 tests of the platform model itself.
 
-Two liberty bugs are pinned here: a platform's liberty set is always merged into
-one library, named `<platform>_merged`, and the platform's own `dont_use_cells` are marked
-`dont_use` in it beside the setting's.
+The script maps in the order of OpenROAD-flow-scripts. It reads every Liberty file as it is and
+hands the cells that the flow must not use to `dfflibmap` and `abc` as `-dont_use` words. It
+writes no patched or merged Liberty file.
 """
 
 import contextlib
@@ -20,7 +20,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, get_args
+from typing import Any, Optional, get_args
 
 import pytest
 
@@ -32,13 +32,14 @@ from xeda.flow.io import declared_outputs
 from xeda.flow_runner import DefaultRunner
 from xeda.flows import Yosys, YosysFpga
 from xeda.flows import yosys as yosys_flows
-from xeda.flows.yosys.yosys import preproc_lib_content
 from xeda.utils import WorkingDirectory
 from xeda.tool import ExecutableNotFound
 
 from .flow_registry import preserved_flow_registry
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_settings, tiny_store
-from .tool_utils import require_yosys
+from .test_yosys import _yosys_has_tcl
+from .test_yosys_templates import TCL_HARNESS
+from .tool_utils import require_tclsh, require_yosys
 
 MAC = (
     "module mul8(input [7:0] a, b, output [15:0] p);\n"
@@ -80,8 +81,44 @@ def _scripted_launch(tmp_path: Path, monkeypatch, flow, settings, sections=None)
     return settings_json.parent
 
 
-def _script(run_dir: Path) -> str:
-    return (run_dir / "yosys_synth.ys").read_text()
+def _script(run_dir: Path, script_format: str = "ys") -> str:
+    return (run_dir / f"yosys_synth.{script_format}").read_text()
+
+
+def _commands(run_dir: Path, script_format: str, tmp_path: Path) -> list[list[str]]:
+    """The commands yosys is handed by the script, each as its list of words: `log` and `echo`
+    lines left out. A `.ys` script is split at whitespace, as yosys splits it. A `.tcl` script
+    runs under `tclsh` with every command recording itself, which gives the words after Tcl
+    has read them."""
+    text = _script(run_dir, script_format)
+    if script_format == "ys":
+        calls = [
+            line.split()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    else:
+        require_tclsh()
+        harness = tmp_path / "harness.tcl"
+        harness.write_text(TCL_HARNESS)
+        result = subprocess.run(
+            ["tclsh", str(harness), str(run_dir / "yosys_synth.tcl")],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        assert result.returncode == 0, f"{result.stderr}\n{text}"
+        calls = [
+            line.split("\x1f")[1:]
+            for line in result.stdout.splitlines()
+            if line.startswith("CALL\x1f")
+        ]
+    return [call for call in calls if call[0] not in ("log", "echo", "-import")]
+
+
+def _words(commands: list[list[str]], first: str) -> list[list[str]]:
+    """The commands that start with `first`."""
+    return [call for call in commands if call[0] == first]
 
 
 def _effective(run_dir: Path) -> dict:
@@ -172,45 +209,53 @@ def _stage_platform(root: Path, dont_use_cells: list[str]) -> dict[str, Any]:
     return {"platform_file": str(residue), "pdk_root": str(root / "store")}
 
 
+SCRIPT_FORMATS = pytest.mark.parametrize("script_format", ["ys", "tcl"])
+
+
+@SCRIPT_FORMATS
 @pytest.mark.parametrize("own", [[], ["CELL_B"]], ids=["platform-only", "both"])
 @pytest.mark.parametrize("platform_s", [[], ["CELL_A"]], ids=["none", "platform-s"])
-def test_a_platform_s_liberty_set_is_always_merged_with_both_dont_use_lists(
-    tmp_path, monkeypatch, own, platform_s
+def test_every_liberty_file_is_read_and_mapped_to_and_the_dont_use_cells_are_words(
+    tmp_path, monkeypatch, own, platform_s, script_format
 ):
-    """Two bugs: yosys merged a platform's liberty files only when `dont_use_cells` was
-    set, so a platform with an empty list (`sky130hs`) reached abc as several files, of which the
-    script hands abc the first; and it ignored the platform's own dont-use list, which its
-    description promised."""
+    """A platform with several Liberty files: the script reads each file as it is, and hands
+    each to `dfflibmap` and to `abc`. The cells that the flow must not use, the platform's first
+    and then the setting's, are one `-dont_use` word each on both commands. No library is
+    patched, merged or written."""
     settings = {
         **_stage_platform(tmp_path, platform_s),
         "clock": {"period": 2.0},
         "dont_use_cells": own,
+        "script_format": script_format,
     }
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
-    (liberty,) = _effective(run_dir)["liberty"]
-    merged = run_dir / liberty
-    assert merged.parent == run_dir, "merged in yosys's own run directory"
-    text = merged.read_text()
-    assert "library (tiny_merged)" in text
-    assert "CELL_A" in text and "CELL_B" in text
-    for cell in ("CELL_A", "CELL_B"):
-        marked = f"cell (CELL_{cell[-1]}) {{\n    dont_use : true;" in text
-        assert marked is (cell in platform_s + own), cell
-    script = _script(run_dir)
-    assert f"-liberty {merged}" in script or f"-liberty {merged.name}" in script
+    libs = sorted(str(p) for p in (tmp_path / "store" / "tiny").glob("*.lib"))
+    assert len(libs) == 2
+    liberty = [word for lib in libs for word in ("-liberty", lib)]
+    dont_use = [word for cell in platform_s + own for word in ("-dont_use", cell)]
+    commands = _commands(run_dir, script_format, tmp_path)
+    assert _words(commands, "read_liberty") == [
+        ["read_liberty", "-overwrite", "-setattr", "liberty_cell", "-lib", lib] for lib in libs
+    ]
+    assert _words(commands, "dfflibmap") == [["dfflibmap", *liberty, *dont_use]]
+    (abc,) = _words(commands, "abc")
+    assert "-D" not in abc
+    assert abc[-len(liberty + dont_use) - 2 :] == [*liberty, *dont_use, "-constr", "abc.constr"]
+    assert not list(run_dir.rglob("*.lib")) and not list(tmp_path.rglob("*merged*"))
 
 
 def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_path, monkeypatch):
     """Everything a standard-cell synthesis needs follows from the platform alone: the
-    merged library, the mapping files, tie and buffer cells, flattening, the abc script
-    `optimize` selects with post-synthesis optimization, the abc constraints from the driver cell
-    and the load of the platform, and a netlist without attributes."""
+    Liberty files, the mapping files, tie and buffer cells, flattening, the abc script `optimize`
+    selects, the abc constraints from the driver cell and the load of the platform, and a netlist
+    without attributes. Post-synthesis optimization stays off."""
     given = _tiny(tmp_path)
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
     pdk = Path(given["pdk_root"]) / "tiny"
     effective = _effective(run_dir)
     script = _script(run_dir)
     assert effective["flatten"] is True and "flatten" in script.split()
+    assert effective["liberty"] == [str(pdk / "tiny.lib")]
     assert effective["adder_map"] == str(pdk / "cells_adders.v")
     assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
     assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
@@ -218,17 +263,14 @@ def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_pa
     assert effective["hilomap"]["lo"] == ["TIELO_X1", "Z"]
     assert effective["insbuf"] == ["BUF_X1", "A", "Z"]
     assert effective["dff_liberty"] is None
-    assert "opt -full -purge -sat" in script
+    assert effective["post_synth_opt"] is False and "opt -full" not in script
     assert yosys_flows.abc_opt_script("area").replace(" ", ",") in script
     assert (run_dir / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
     (write,) = [line for line in script.splitlines() if line.startswith("write_verilog")]
     for flag in ("-noattr", "-nohex", "-nodec", "-noexpr"):
         assert flag in write.split(), flag
-    # the merged library is the one the platform's liberty files give: the same bytes
-    merged = run_dir / effective["liberty"][0]
-    reference = tmp_path / "reference.lib"
-    yosys_flows.preproc_libs([pdk / "tiny.lib"], reference, ["INV_X4", "NAND2_X4"], "tiny_merged")
-    assert merged.read_bytes() == reference.read_bytes()
+    # the Liberty files are read where they are: the run writes no library of its own
+    assert not list(run_dir.glob("*.lib"))
 
 
 def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypatch):
@@ -268,8 +310,8 @@ def test_without_a_liberty_library_nothing_is_derived(tmp_path, monkeypatch):
 
 
 def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
-    """`xeda run yosys -s platform_file=... pdk_root=...`, alone: the cells of the platform,
-    merged in its own run directory, one run directory, and the declared netlist recorded."""
+    """`xeda run yosys -s platform_file=... pdk_root=...`, alone: the cells of the platform, one
+    run directory, and the declared netlist recorded. The run writes no Liberty file."""
     require_yosys()
     design = tmp_path / "design"
     _design(design)
@@ -308,29 +350,28 @@ def test_yosys_with_a_platform_alone_maps_to_its_cells(tmp_path):
     assert netlist == run_dir / "netlist.v"
     text = netlist.read_text()
     assert "_X1 " in text, "no cells of the platform in the netlist"
-    assert "$_" not in text, "an unmapped generic cell is left in the netlist"
-    (merged,) = [p for p in run_dir.glob("*.lib")]
-    assert "library (tiny_merged)" in merged.read_text()
+    assert not re.search(r"^\s*\\\$_", text, re.M), "a generic cell is left in the netlist"
+    assert "1'bx" not in text, "an undefined constant is left in the netlist"
+    assert not list(run_dir.glob("*.lib"))
 
 
 # ------------------------------------------------------------------ post_synth_opt
 
 
-@pytest.mark.parametrize("given", [None, True, False])
+@pytest.mark.parametrize("given", [None, False])
 @pytest.mark.parametrize("optimize", ["area", None])
-def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
+def test_a_liberty_mapping_never_runs_the_post_synthesis_optimization(
     tmp_path, monkeypatch, given, optimize
 ):
-    """`optimize` turns post-synthesis optimization on only where `post_synth_opt` is left unset:
-    `post_synth_opt: false` with the default `optimize: area` keeps the abc script and drops the
-    extra optimization, and `true` adds it with `optimize: null`."""
+    """The liberty mapping ends with the tail of OpenROAD-flow-scripts, so `optimize` does not
+    turn post-synthesis optimization on: unset, `post_synth_opt` is false, and no `opt -full`
+    is in the script. `optimize: null` keeps the default mapping script of yosys."""
     settings = _tiny(tmp_path, optimize=optimize)
     if given is not None:
         settings["post_synth_opt"] = given
     run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
-    expected = (optimize is not None) if given is None else given
-    assert ("opt -full -purge -sat" in _script(run_dir)) is expected
-    assert _effective(run_dir)["post_synth_opt"] is expected
+    assert "opt -full" not in _script(run_dir)
+    assert _effective(run_dir)["post_synth_opt"] is False
     recorded = json.loads((run_dir / "settings.json").read_text())["flow_settings"]
     assert recorded["post_synth_opt"] is given
     # reloaded from `settings.json`, the settings are the same again, the unset value included
@@ -338,6 +379,19 @@ def test_an_explicit_post_synth_opt_wins_over_what_optimize_derives(
     again = Yosys.Settings.from_input(json.loads(json.dumps(reloaded.model_dump(mode="json"))))
     assert again.model_dump() == reloaded.model_dump()
     assert reloaded.post_synth_opt is given and again.post_synth_opt is given
+
+
+@pytest.mark.parametrize("given", [None, True, False])
+def test_the_gate_mapping_keeps_its_post_synthesis_optimization_setting(
+    tmp_path, monkeypatch, given
+):
+    """Mapping to gates is not the liberty mapping: it runs the optimization after synthesis
+    when `post_synth_opt` is true, and not otherwise."""
+    settings: dict[str, Any] = {"gates": ["AND", "OR", "NOT"], "clock": {"period": 2.0}}
+    if given is not None:
+        settings["post_synth_opt"] = given
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    assert ("opt -full -purge -sat" in _script(run_dir)) is bool(given)
 
 
 # ------------------------------------------------------------------ other_maps
@@ -389,11 +443,9 @@ def test_every_optimize_target_has_a_distinctive_abc_command():
 
 
 @pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
-def test_optimize_selects_a_script_and_post_synthesis_optimization_together(
-    optimize, tmp_path, monkeypatch
-):
-    """What yosys rendered into its script, given `optimize`: the abc script `optimize` selects --
-    told apart by a command only that target's script runs -- together with post-synthesis
+def test_optimize_selects_the_abc_script(optimize, tmp_path, monkeypatch):
+    """What yosys rendered into its script, given `optimize`: the abc script `optimize` selects,
+    told apart by a command only that target's script runs. It selects no post-synthesis
     optimization.
 
     No tool runs: this is about the settings and the script, so every command is recorded
@@ -415,8 +467,8 @@ def test_optimize_selects_a_script_and_post_synthesis_optimization_together(
     assert any(Path(cmd[0]).name == "yosys" for cmd in commands), "yosys was never launched"
 
     assert yosys_settings["optimize"] == optimize
-    assert yosys_settings["post_synth_opt"] is True
-    assert "opt -full -purge -sat" in script
+    assert yosys_settings["post_synth_opt"] is False
+    assert "opt -full" not in script
     (abc,) = [line for line in script.splitlines() if line.startswith("abc ")]
     for target, command in DISTINCTIVE_ABC_COMMAND.items():
         selected = target == optimize
@@ -657,55 +709,399 @@ def test_a_relative_liberty_is_relative_to_the_design_root(tmp_path, monkeypatch
     assert f"-liberty {tmp_path / 'design' / 'lib' / 'x.lib'}" in script
 
 
-# ------------------------------------------------------------------------ dont-use patterns
+# ------------------------------------------------------------- the order of the liberty mapping
 
-LIBRARY = """\
-library (l) {
-  cell (lpflow_a) {
-    area : 1;
-  }
-  cell ("lpflow_b") {
-    area : 1;
-  }
-  cell (xlpflow_a) {
-    area : 1;
-  }
-  cell (lpflow) {
-    area : 1;
-  }
-  cell (plain_x1) {
-    area : 1;
-  }
-  cell (plain_x10) {
-    area : 1;
-  }
-  /* lpflow_c is in a comment, not a cell */
-  attribute : "cell (lpflow_d) {" ;
-}
-"""
+#: The cells that the `tiny` platform lists as unusable: the library marks `INV_X4` and `NAND2_X4`.
+TINY_DONT_USE = ["INV_X4", "NAND2_X4"]
 
 
-def _marked(patterns: list[str]) -> set[str]:
-    text = preproc_lib_content(LIBRARY, patterns)
-    return set(re.findall(r"cell \(\"?(\w+)\"?\) \{\n    dont_use : true;", text))
+def _expected_order(
+    given: dict[str, Any], design: Path, optimize: str, dont_use: list[str]
+) -> list[list[str]]:
+    """The commands of the liberty mapping for the `tiny` platform and the `mac` design, from
+    `logger` to the check of the mapped design, as the words of each command."""
+    pdk = Path(given["pdk_root"]) / "tiny"
+    liberty = ["-liberty", str(pdk / "tiny.lib")]
+    unusable = [word for cell in dont_use for word in ("-dont_use", cell)]
+    script = Yosys.Settings(abc_script=yosys_flows.abc_opt_script(optimize)).abc_script
+    assert script is not None
+    return [
+        ["logger", "-notime"],
+        ["read_liberty", "-overwrite", "-setattr", "liberty_cell", "-lib", str(pdk / "tiny.lib")],
+        ["read_verilog", "-defer", "-noautowire", "-sv", str(design / "mac.v")],
+        ["read_verilog", "-defer", str(pdk / "cells_clkgate.v")],
+        ["hierarchy", "-check", "-top", "mac"],
+        ["check", "-initdrv"],
+        ["proc"],
+        ["flatten"],
+        ["synth", "-flatten", "-run", ":fine"],
+        ["synth", "-top", "mac", "-run", "fine:", "-noabc"],
+        ["chformal", "-remove"],
+        ["delete", "t:$print"],
+        ["rename", "-wire"],
+        ["opt", "-purge"],
+        ["extract_fa"],
+        ["techmap", "-map", str(pdk / "cells_adders.v")],
+        ["techmap"],
+        ["opt", "-fast", "-purge"],
+        ["dfflegalize", "-cell", "$_DLATCH_P_", "x", "-cell", "$_DLATCH_N_", "x", "t:$_DLATCH_*"],
+        ["techmap", "-map", str(pdk / "cells_latch.v")],
+        ["dfflibmap", *liberty, *unusable],
+        ["opt"],
+        ["setundef", "-zero"],
+        ["abc", "-script", script, *liberty, *unusable, "-constr", "abc.constr"],
+        ["splitnets"],
+        ["opt_clean", "-purge"],
+        ["hilomap", "-singleton", "-hicell", "TIEHI_SMALL", "Z", "-locell", "TIELO_X1", "Z"],
+        ["insbuf", "-buf", "BUF_X1", "A", "Z"],
+        ["check", "-assert", "-mapped"],
+    ]
 
 
-def test_a_dont_use_name_marks_exactly_that_cell():
-    assert _marked(["plain_x1"]) == {"plain_x1"}
+@SCRIPT_FORMATS
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_the_liberty_mapping_runs_the_commands_in_the_order_of_openroad_flow_scripts(
+    tmp_path, monkeypatch, optimize, script_format
+):
+    """Both script formats hand yosys the same commands in the same order: the read of the
+    Liberty files, the design, the coarse and the fine part of `synth` without `abc`, the
+    mapping of adders and latches, `dfflibmap`, `abc` with the script `optimize` selects, and the
+    check that every cell is mapped. Then the netlist is written."""
+    given = _tiny(tmp_path, optimize=optimize, script_format=script_format)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    commands = _commands(run_dir, script_format, tmp_path)
+    expected = _expected_order(given, tmp_path / "design", optimize, TINY_DONT_USE)
+    assert commands[: len(expected)] == expected
+    # then the netlist: its reports and its writers, with `check` and `stat` after the mapping
+    rest = commands[len(expected) :]
+    assert rest[0][:3] == ["tee", "-o", "final_check.log"]
+    assert rest[-1][0] == "write_verilog" and rest[-1][-1] == "netlist.v"
 
 
-def test_a_star_matches_within_a_cell_name_only():
-    assert _marked(["lpflow_*"]) == {"lpflow_a", "lpflow_b"}
+@SCRIPT_FORMATS
+def test_the_liberty_mapping_reads_the_liberty_files_once_and_before_the_design(
+    tmp_path, monkeypatch, script_format
+):
+    """The Liberty files are read as library cells before the sources, with the attribute that
+    marks them, and the generic read of the reader template is not repeated. `dff_liberty`, when
+    given, is read the same way."""
+    shutil.copy(TINY / "tiny.lib", tmp_path / "dff.lib")
+    given = _tiny(tmp_path, dff_liberty=str(tmp_path / "dff.lib"), script_format=script_format)
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    commands = _commands(run_dir, script_format, tmp_path)
+    names = [call[0] for call in commands]
+    reads = _words(commands, "read_liberty")
+    assert [call[-1] for call in reads] == [
+        str(Path(given["pdk_root"]) / "tiny" / "tiny.lib"),
+        str(tmp_path / "dff.lib"),
+    ]
+    assert all(
+        call[:5] == ["read_liberty", "-overwrite", "-setattr", "liberty_cell", "-lib"]
+        for call in reads
+    )
+    assert max(i for i, name in enumerate(names) if name == "read_liberty") < names.index(
+        "read_verilog"
+    )
+    # the flip-flops come from the file given for them, and the logic from the Liberty files
+    (dfflibmap,) = _words(commands, "dfflibmap")
+    assert dfflibmap[:3] == ["dfflibmap", "-liberty", str(tmp_path / "dff.lib")]
+    (abc,) = _words(commands, "abc")
+    assert str(tmp_path / "dff.lib") not in abc
 
 
-def test_a_question_mark_matches_one_character():
-    assert _marked(["plain_x?"]) == {"plain_x1"}
-    assert _marked(["plain_x??"]) == {"plain_x10"}
+# ----------------------------------------------------------------------------- the -dont_use words
+
+DONT_USE_NAMES = ["USER_X1", "LP_*", "CELL?_X4", "SEL[12]_X1"]
 
 
-def test_a_dont_use_name_is_text_and_not_a_regular_expression():
-    assert _marked(["lpflow.a", "plain_x1|plain_x10"]) == set()
+@SCRIPT_FORMATS
+def test_a_dont_use_name_reaches_both_commands_as_one_word_with_its_pattern_characters(
+    tmp_path, monkeypatch, script_format
+):
+    """The platform's cells come first and the cells of `dont_use_cells` follow, each once on
+    `dfflibmap` and on `abc`. Yosys reads `*`, `?` and `[...]` in a word as a pattern, so the
+    word keeps them as given. In a Tcl script they reach yosys as the same word."""
+    given = _tiny(tmp_path, dont_use_cells=[*DONT_USE_NAMES, TINY_DONT_USE[0]])
+    given["script_format"] = script_format
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    commands = _commands(run_dir, script_format, tmp_path)
+    for command in ("dfflibmap", "abc"):
+        (call,) = _words(commands, command)
+        used = [call[i + 1] for i, word in enumerate(call) if word == "-dont_use"]
+        assert used == [*TINY_DONT_USE, *DONT_USE_NAMES], command
+        assert call.count("-dont_use") == len(used)
 
 
-def test_no_dont_use_name_marks_nothing():
-    assert _marked([]) == set()
+@pytest.mark.parametrize(
+    "pattern, used, unused",
+    [
+        ("NAND2_X*", "NOR2_X1", "NAND2_X1"),
+        ("NOR2_X?", "NAND2_X1", "NOR2_X1"),
+        ("NAND2_X??", "NAND2_X1", "NOR2_X1"),
+    ],
+    ids=["star", "question-mark", "two-question-marks-match-no-cell"],
+)
+def test_a_pattern_in_a_dont_use_name_matches_the_cells_it_names_in_dfflibmap_and_abc(
+    tmp_path, pattern, used, unused
+):
+    """Real yosys: `-dont_use` takes the pattern that the flow hands it. `*` stands for any
+    characters and `?` for one, so `NAND2_X??` matches no cell of the library: `NAND2_X1` has one
+    character after the `X`. The library has two gates that map `~(a & b)`; with one of them
+    unusable, the other maps it."""
+    require_yosys()
+    lib = tmp_path / "tiny.lib"
+    shutil.copy(TINY / "tiny.lib", lib)
+    (tmp_path / "top.v").write_text(
+        "module top(input clk, input a, b, output reg q);\n"
+        "  always @(posedge clk) q <= ~(a & b);\n"
+        "endmodule\n"
+    )
+    words = f"-dont_use {pattern}"
+    commands = (
+        "read_verilog top.v; synth -top top -flatten; "
+        f"dfflibmap -liberty tiny.lib {words}; abc -liberty tiny.lib {words}; "
+        "opt_clean -purge; write_verilog -noattr netlist.v"
+    )
+    proc = subprocess.run(
+        ["yosys", "-q", "-p", commands], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    netlist = (tmp_path / "netlist.v").read_text()
+    assert "DFF_X1" in netlist
+    assert re.search(rf"^\s*{used}\b", netlist, re.M), netlist
+    assert not re.search(rf"^\s*{unused}\b", netlist, re.M), netlist
+
+
+# ------------------------------------------------------------------------------------- no merge
+
+
+def test_a_run_writes_no_patched_merged_or_processed_library(tmp_path, monkeypatch):
+    """The run reads the Liberty files where they are. It makes no merged library, and no
+    directory of processed libraries, in the run directory or anywhere under the test directory."""
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path))
+    assert not [p for p in tmp_path.rglob("*") if re.search(r"merged|processed", p.name)]
+    assert not list(run_dir.rglob("*.lib"))
+    assert "merged" not in _script(run_dir) and "processed" not in _script(run_dir)
+
+
+def test_merge_libs_to_was_removed_and_says_so():
+    with pytest.raises(FlowSettingsError, match="`merge_libs_to` was removed: .*; delete it"):
+        Yosys.Settings.from_input({"merge_libs_to": "merged"})
+
+
+# ------------------------------------------------------------------------------------ the refusals
+
+LIBERTY_ONLY = {"liberty": ["cells.lib"]}
+
+
+@pytest.mark.parametrize(
+    "given, mentions",
+    [
+        ({"abc_dff": True}, ["abc_dff", "buffer -c", "crash"]),
+        ({"post_synth_opt": True}, ["post_synth_opt", "x", "constants"]),
+        ({"prep": ["-nordff"]}, ["prep"]),
+        ({"nosynth": True}, ["nosynth"]),
+        ({"noabc": True}, ["noabc"]),
+    ],
+    ids=["abc_dff", "post_synth_opt", "prep", "nosynth", "noabc"],
+)
+def test_a_setting_the_liberty_mapping_cannot_honor_is_refused_when_planned(given, mentions):
+    """The liberty mapping runs its own elaboration, synthesis and mapping with `abc`, ends with
+    the tail of OpenROAD-flow-scripts, and never passes `-dff` to `abc`. A setting that asks for
+    something else is refused with its cause, and only with a liberty mapping."""
+    with pytest.raises(FlowSettingsError) as refused:
+        Yosys.check_settings_supported(Yosys.Settings(**LIBERTY_ONLY, **given))
+    message = str(refused.value)
+    for word in mentions:
+        assert word in message, message
+    # the same settings are fine when yosys maps to gates or to LUTs
+    for mapping in ({"gates": ["AND", "OR", "NOT"]}, {"lut": "4"}):
+        Yosys.check_settings_supported(Yosys.Settings(**mapping, **given))
+
+
+@pytest.mark.parametrize("given", [{"abc_dff": False}, {"post_synth_opt": False}, {}])
+def test_the_settings_that_agree_with_the_liberty_mapping_are_accepted(given):
+    Yosys.check_settings_supported(Yosys.Settings(**LIBERTY_ONLY, **given))
+
+
+# ----------------------------------------------------------- abc_dff and splitnets are derived
+
+
+@pytest.mark.parametrize(
+    "mapping, abc_dff, splitnets",
+    [
+        ({"liberty": ["cells.lib"]}, False, True),
+        ({"gates": ["AND"]}, True, False),
+        ({"lut": "4"}, True, False),
+    ],
+    ids=["liberty", "gates", "lut"],
+)
+def test_abc_dff_and_splitnets_follow_the_mapping_unless_set(
+    tmp_path, monkeypatch, mapping, abc_dff, splitnets
+):
+    """Unset, `abc_dff` is false and `splitnets` true for a liberty mapping, as OpenROAD-flow-
+    scripts runs it, and `abc_dff` true and `splitnets` false for gates and LUTs, as before. A
+    value that the user gives wins where the mapping allows it."""
+    cells = tmp_path / "design" / "cells.lib"
+    cells.parent.mkdir(parents=True)
+    shutil.copy(TINY / "tiny.lib", cells)
+    settings: dict[str, Any] = {
+        **{k: ([str(cells)] if k == "liberty" else v) for k, v in mapping.items()},
+        "clock": {"period": 2.0},
+    }
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, settings)
+    script = _script(run_dir)
+    (abc,) = [line for line in script.splitlines() if line.startswith("abc ")]
+    assert ("-dff" in abc.split()) is abc_dff
+    assert ("splitnets" in script.split()) is splitnets
+    for given in (False, True):
+        different = {**settings, "splitnets": given}
+        other = tmp_path / f"other-{given}"
+        other.mkdir()
+        run_dir = _scripted_launch(other, monkeypatch, Yosys, different)
+        assert ("splitnets" in _script(run_dir).split()) is given
+
+
+def test_the_fpga_flows_see_plain_booleans_for_abc_dff_and_splitnets():
+    for name in ("abc_dff", "splitnets"):
+        assert YosysFpga.Settings.model_fields[name].annotation is bool
+        assert Yosys.Settings.model_fields[name].annotation == Optional[bool]
+
+
+def test_no_synth_flag_is_added_twice(tmp_path, monkeypatch):
+    """The script gives the liberty mapping's `synth -flatten` itself: the setting `flatten` does
+    not also add `-flatten` to `synth_flags`, and a flag that the user gives goes on both lines."""
+    given = _tiny(tmp_path, synth_flags=["-noshare"])
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    synths = [line.split() for line in _script(run_dir).splitlines() if line.startswith("synth")]
+    assert synths == [
+        ["synth", "-flatten", "-run", ":fine", "-noshare"],
+        ["synth", "-top", "mac", "-run", "fine:", "-noabc", "-noshare"],
+    ]
+    assert _effective(run_dir)["synth_flags"] == ["-noshare"]
+
+
+# ----------------------------------------------------------------- the other settings keep a place
+
+
+def test_the_other_settings_of_the_liberty_mapping_keep_their_places(tmp_path, monkeypatch):
+    """`abc_flags` follow the constraints on `abc`, `rmports` follows `insbuf`, `check_assert:
+    false` weakens only the check of mapped cells, `splitnets_ports` and `splitnets_driver` add
+    their flags, and `black_box`, `post_synth_rename` and `stop_after` act where they did."""
+    given = _tiny(
+        tmp_path,
+        abc_flags=["-fast"],
+        rmports=True,
+        check_assert=False,
+        splitnets_ports=True,
+        splitnets_driver=True,
+        post_synth_rename=["-hide"],
+    )
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, given)
+    commands = _commands(run_dir, "ys", tmp_path)
+    (abc,) = _words(commands, "abc")
+    assert abc[-3:] == ["-constr", "abc.constr", "-fast"]
+    names = [call[0] for call in commands]
+    assert commands[names.index("splitnets")] == ["splitnets", "-driver", "-ports"]
+    after_insbuf = commands[names.index("insbuf") + 1 :]
+    assert after_insbuf[:2] == [["rmports"], ["check", "-mapped"]]
+    assert commands.index(["rename", "-hide"]) > commands.index(["check", "-mapped"])
+
+
+def test_an_explicit_false_splitnets_leaves_the_split_out(tmp_path, monkeypatch):
+    run_dir = _scripted_launch(tmp_path, monkeypatch, Yosys, _tiny(tmp_path, splitnets=False))
+    assert "splitnets" not in _script(run_dir).split()
+
+
+# ------------------------------------------------------------------ with the real yosys, on tiny
+
+COUNTER = (
+    "module counter(input clk, rst, input [7:0] step, input en, a, output reg [7:0] count,\n"
+    "               output one, zero, dc);\n"
+    "  always @(posedge clk) if (rst) count <= 0; else count <= count + step;\n"
+    "  assign one = 1'b1;\n"
+    "  assign zero = 1'b0;\n"
+    "  assign dc = en ? a : 1'bx;\n"
+    "endmodule\n"
+)
+
+
+def _counter_design(root: Path) -> Design:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "counter.v").write_text(COUNTER)
+    return Design(
+        name="counter",
+        design_root=root,
+        rtl={"sources": ["counter.v"], "top": "counter", "clock": {"port": "clk"}},
+    )
+
+
+def _split_liberty(source: Path, first: Path, second: Path, names: tuple[str, ...]) -> None:
+    """Write the cells of `source` named in `names` to `second` and the others to `first`, each
+    file with the header of the library."""
+    lines = source.read_text().splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if re.match(r"  cell \(", line)]
+    header, tail = lines[: starts[0]], lines[-1:]
+    cells = {
+        re.match(r"  cell \((\w+)\)", lines[a]).group(1): lines[a:b]  # type: ignore[union-attr]
+        for a, b in zip(starts, [*starts[1:], len(lines) - 1])
+    }
+    assert set(names) <= set(cells)
+    for path, wanted in ((first, False), (second, True)):
+        body = [line for name, cell in cells.items() if (name in names) is wanted for line in cell]
+        path.write_text("".join(header + body + tail))
+
+
+@SCRIPT_FORMATS
+@pytest.mark.parametrize("optimize", OPTIMIZE_CHOICES)
+def test_real_yosys_maps_a_counter_with_an_adder_and_constant_outputs(
+    tmp_path, optimize, script_format
+):
+    """The order of the liberty mapping on the `tiny` platform, run for real: the counter maps,
+    the netlist holds cells of the library only, no undefined constant is left in it, and the
+    script never passes `-dff` to `abc`, which crashes ABC's `buffer -c`."""
+    require_yosys()
+    if script_format == "tcl" and not _yosys_has_tcl():
+        pytest.skip("this yosys has no TCL support")  # oss-cad-suite has none
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+        Yosys,
+        _counter_design(tmp_path / "design"),
+        _tiny(tmp_path, optimize=optimize, script_format=script_format),
+    )
+    assert flow.succeeded
+    netlist = (flow.run_path / "netlist.v").read_text()
+    assert "_X1 " in netlist
+    assert "1'bx" not in netlist and "x'" not in netlist
+    assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
+    assert "TIEHI_SMALL" in netlist and "TIELO_X1" in netlist
+    script = _script(flow.run_path, script_format)
+    assert "abc -dff" not in script and "-dff" not in script.split()
+    assert "opt -full" not in script
+
+
+def test_real_yosys_uses_the_cells_of_every_liberty_file(tmp_path):
+    """Two Liberty files: the flip-flop is in one and the logic gates are in the other. The
+    mapped counter uses cells of both, so both files reach `dfflibmap`, `abc` and the check that
+    every cell is mapped."""
+    require_yosys()
+    flops, gates = tmp_path / "flops.lib", tmp_path / "gates.lib"
+    _split_liberty(
+        TINY / "tiny.lib",
+        gates,
+        flops,
+        names=("DFF_X1",),
+    )
+    assert "DFF_X1" not in gates.read_text() and "NAND2_X1" not in flops.read_text()
+    flow = DefaultRunner(tmp_path / "xeda_run", display_results=False).launch_flow(
+        Yosys,
+        _counter_design(tmp_path / "design"),
+        _tiny(tmp_path, liberty=[str(gates), str(flops)]),
+    )
+    assert flow.succeeded
+    netlist = (flow.run_path / "netlist.v").read_text()
+    assert re.search(r"^\s*DFF_X1\b", netlist, re.M), "no cell of the second file"
+    assert re.search(r"^\s*(INV|NAND2|NOR2|BUF)_X\d\b", netlist, re.M), "no cell of the first file"
+    script = _script(flow.run_path)
+    assert script.count("read_liberty") == 2
+    (dfflibmap,) = [line for line in script.splitlines() if line.startswith("dfflibmap ")]
+    assert dfflibmap.count("-liberty") == 2

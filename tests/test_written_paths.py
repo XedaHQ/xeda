@@ -46,7 +46,6 @@ ROLES = {
         ("YosysSynthesisBase.Settings", name): D
         for name in ("netlist_json", "netlist_verilog", "netlist_graph", "write_blif")
     },
-    ("Yosys.Settings", "merge_libs_to"): W,
     ("CxxRtl", "filename"): W,
     ("SimFlow.Settings", "vcd"): D,
     ("CocotbSettings", "results_xml"): D,

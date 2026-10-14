@@ -65,7 +65,7 @@ REFUSED = [
     ("yosys_sim", "nosynth", True, "delete it"),
     ("yosys_sim", "retime", True, "delete it"),
     ("yosys_sim", "netlist_verilog_extmem", [], "delete it"),
-    ("yosys", "retime", True, "`abc_dff` (on by default), which passes `-dff` to `abc`"),
+    ("yosys", "retime", True, "`abc_dff`, which passes `-dff` to `abc`"),
     ("yosys", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
     ("yosys_fpga", "nosynth", True, "`stop_after: rtl`, which stops after the RTL stage"),
     ("yosys_fpga", "netlist_verilog_extmem", [], "`netlist_verilog_flags: [-extmem]`"),
@@ -272,7 +272,7 @@ FORMER_FIELDS = {
     "vivado_postsynth_sim": {"initialize_zeros", "read_oneshot", "suppress_msgs"},
     "vivado_power": {"suppress_msgs"},
     "vivado_sim": {"initialize_zeros", "read_oneshot", "suppress_msgs"},
-    "yosys": {"netlist_verilog_extmem", "retime"},
+    "yosys": {"merge_libs_to", "netlist_verilog_extmem", "retime"},
     "yosys_fpga": {"netlist_verilog_extmem", "nosynth"},
     "yosys_sim": {
         *("abc_constr", "abc_dff", "abc_flags", "abc_script", "json_netlist", "ltp", "netlist"),

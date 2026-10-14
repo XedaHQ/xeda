@@ -250,7 +250,7 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(name, tmp_path):
     used = [cell for cell in used if cell != "module"]
     library = _liberty_cells(located.files["liberty"])
     assert used and set(used) <= set(library), sorted(set(used) - set(library))
-    assert "$_" not in netlist, "an unmapped generic cell is left in the netlist"
+    assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
     assert (
         sum(library[cell] for cell in used) == 4
     ), "one flip-flop cell for each bit of the counter"

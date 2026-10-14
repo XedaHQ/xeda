@@ -88,51 +88,40 @@ def test_the_script_maps_to_the_liberty_files_and_cells_of_the_platform(fake_yos
     flow, store = _launch(fake_yosys)
     assert flow.succeeded
     effective, script = _effective(flow), _script(flow)
-    (liberty,) = effective["liberty"]
-    assert (flow.run_path / liberty).parent == flow.run_path, "merged in the run directory"
-    assert "library (tiny_merged)" in (flow.run_path / liberty).read_text()
-    assert f"-liberty {flow.run_path / liberty}" in script or f"-liberty {liberty}" in script
+    pdk = store / "tiny"
+    assert effective["liberty"] == [str(pdk / "tiny.lib")], "the file of the platform, as it is"
+    assert not list(flow.run_path.glob("*.lib")), "the run writes no library"
+    assert f"-lib {pdk / 'tiny.lib'}\n" in script
+    assert f"dfflibmap -liberty {pdk / 'tiny.lib'}" in script
+    assert f"-liberty {pdk / 'tiny.lib'} -dont_use" in script
     assert "-hicell TIEHI_SMALL Z -locell TIELO_X1 Z" in script
     assert "insbuf -buf BUF_X1 A Z" in script
     assert (flow.run_path / "abc.constr").read_text() == "set_driving_cell BUF_X1\nset_load 3.5\n"
-    pdk = store / "tiny"
     assert effective["adder_map"] == str(pdk / "cells_adders.v")
     assert effective["clockgate_map"] == str(pdk / "cells_clkgate.v")
     assert effective["other_maps"] == [str(pdk / "cells_latch.v")]
     assert effective["dff_liberty"] is None, "the platform has no flip-flop library of its own"
 
 
-def _marks(library: Path) -> dict[str, int]:
-    """How many times each cell of a Liberty file carries `dont_use : true`."""
-    marks: dict[str, int] = {}
-    cell = None
-    for line in library.read_text().splitlines():
-        found = re.match(r"\s*cell\s*\(\s*(\w+)\s*\)", line)
-        if found:
-            cell = found.group(1)
-            marks[cell] = 0
-        elif cell and re.match(r"\s*dont_use\s*:\s*true", line):
-            marks[cell] += 1
-    return marks
+def _dont_use(flow) -> dict[str, list[str]]:
+    """The cells that `-dont_use` words name, on each command of the script that has them."""
+    words: dict[str, list[str]] = {}
+    for line in _script(flow).splitlines():
+        tokens = line.split()
+        if tokens and tokens[0] in ("dfflibmap", "abc"):
+            words[tokens[0]] = [tokens[i + 1] for i, t in enumerate(tokens) if t == "-dont_use"]
+    return words
 
 
-def test_the_dont_use_cells_of_the_model_and_of_the_user_are_marked(fake_yosys):
-    """The model lists the cells that the Liberty file marks itself (`INV_X4`, `NAND2_X4`); each
-    gets one more mark in the merged library, as does a cell of the `dont_use_cells` setting."""
+def test_the_dont_use_cells_of_the_model_and_of_the_user_are_words_of_dfflibmap_and_abc(
+    fake_yosys,
+):
+    """The model lists the cells that the Liberty file marks itself (`INV_X4`, `NAND2_X4`); they
+    come first, then a cell of the `dont_use_cells` setting. Each is one `-dont_use` word on
+    `dfflibmap` and on `abc`."""
     flow, _ = _launch(fake_yosys, dont_use_cells=["NOR2_X1"])
-    (liberty,) = _effective(flow)["liberty"]
-    assert _marks(flow.run_path / liberty) == {
-        "INV_X1": 0,
-        "INV_X4": 2,
-        "BUF_X1": 0,
-        "NAND2_X1": 0,
-        "NAND2_X4": 2,
-        "NOR2_X1": 1,
-        "DFF_X1": 0,
-        "TIEHI_BIG": 0,
-        "TIEHI_SMALL": 0,
-        "TIELO_X1": 0,
-    }
+    cells = ["INV_X4", "NAND2_X4", "NOR2_X1"]
+    assert _dont_use(flow) == {"dfflibmap": cells, "abc": cells}
 
 
 def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file(
@@ -145,9 +134,7 @@ def test_the_dont_use_cells_of_a_user_override_replace_those_of_the_liberty_file
         + "  dont_use_cells: {value: [BUF_X1], reason: the test chooses another cell}\n"
     )
     flow, _ = _launch(fake_yosys, platform_file=str(mine))
-    (liberty,) = _effective(flow)["liberty"]
-    marks = _marks(flow.run_path / liberty)
-    assert marks["BUF_X1"] == 1 and marks["INV_X4"] == 1 and marks["NAND2_X4"] == 1
+    assert _dont_use(flow) == {"dfflibmap": ["BUF_X1"], "abc": ["BUF_X1"]}
 
 
 def test_a_setting_the_user_gave_wins_over_the_model(fake_yosys):
@@ -169,10 +156,11 @@ def test_a_liberty_file_the_user_gave_replaces_the_one_of_the_platform(fake_yosy
     own = fake_yosys / "own.lib"
     own.write_text("library (own) {\n  cell (OWN_CELL) {\n    area : 1;\n  }\n}\n")
     flow, _ = _launch(fake_yosys, liberty=[str(own)])
-    (liberty,) = _effective(flow)["liberty"]
-    text = (flow.run_path / liberty).read_text()
-    assert "OWN_CELL" in text and "INV_X1" not in text
-    assert "-hicell TIEHI_SMALL Z" in _script(flow), "the cells still come from the platform"
+    assert _effective(flow)["liberty"] == [str(own)]
+    script = _script(flow)
+    assert f"-lib {own}\n" in script and "tiny.lib" not in script
+    assert f"dfflibmap -liberty {own}" in script and "abc -script" in script
+    assert "-hicell TIEHI_SMALL Z" in script, "the cells still come from the platform"
 
 
 @pytest.mark.parametrize("corner", [None, "typical", "tt", "fast", "ff"])
@@ -193,7 +181,8 @@ def test_the_corner_selects_the_liberty_files_of_that_corner(fake_yosys, corner)
     flow, _ = _launch(fake_yosys, store=store, platform_file=str(residue), **given)
     (liberty,) = _effective(flow)["liberty"]
     fast = corner in ("fast", "ff")
-    assert ("cell (FAST_X1)" in (flow.run_path / liberty).read_text()) is fast
+    assert Path(liberty).name == ("tiny_fast.lib" if fast else "tiny.lib")
+    assert ("cell (FAST_X1)" in Path(liberty).read_text()) is fast
     results = json.loads((flow.run_path / "results.json").read_text())
     assert results["platform"]["corner"] == ("fast" if fast else "typical")
     recorded = json.loads((flow.run_path / "trace.json").read_text())["inputs"]
@@ -498,6 +487,6 @@ def test_real_yosys_maps_a_counter_to_the_cells_of_the_platform(tmp_path):
     netlist = (flow.run_path / "netlist.v").read_text()
     cells = set(re.findall(r"^\s*(\w+)\s+\S+\s*\(", netlist, re.M)) - {"module"}
     assert cells and cells <= {"INV_X1", "NAND2_X1", "NOR2_X1", "DFF_X1", "BUF_X1"}, cells
-    assert "$_" not in netlist, "an unmapped generic cell is left in the netlist"
+    assert not re.search(r"^\s*\\\$_", netlist, re.M), "a generic cell is left in the netlist"
     assert not cells & {"INV_X4", "NAND2_X4"}, "a dont-use cell was used"
     assert results["platform"]["name"] == "tiny"

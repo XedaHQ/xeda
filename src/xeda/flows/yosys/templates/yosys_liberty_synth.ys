@@ -1,0 +1,72 @@
+{#- The mapping to a standard cell library, in the order of OpenROAD-flow-scripts: the Liberty
+    files are read first, as library cells that carry the `liberty_cell` attribute. `synth` runs
+    in two parts without `abc`, then the adders, the latches and the flip-flops are mapped, and
+    `abc` maps the logic. The cells that the flow must not use (`dont_use`) are `-dont_use` words
+    on `dfflibmap` and `abc`. `dfflibmap` and `abc` read their Liberty files themselves; the
+    expanding commands (`read_liberty`, `dfflibmap`) name them with `read_path`.
+    The `.tcl` template (`yosys_liberty_synth.tcl`) renders the same commands. -#}
+{%- set liberty_read = true -%}
+{%- set dont_use_words -%}
+{%- for cell in dont_use %} -dont_use {{cell|path}}{% endfor -%}
+{%- endset -%}
+{% for lib in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -lib {{lib|read_path}}
+{% endfor -%}
+{% if settings.dff_liberty and settings.dff_liberty not in settings.liberty -%}
+read_liberty -overwrite -setattr liberty_cell -lib {{settings.dff_liberty|read_path}}
+{% endif -%}
+{% include 'read_files.ys' %}
+proc
+{%- if settings.flatten %}
+flatten
+{%- endif %}
+
+{% include "post_rtl.ys" %}
+{#- yosys scripts have no `exit`, so `stop_after == "rtl"` omits the rest #}
+{%- if settings.stop_after != "rtl" %}
+synth{% if settings.flatten %} -flatten{% endif %} -run :fine{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+synth{% if design.rtl.top %} -top {{design.rtl.top}}{% endif %} -run fine: -noabc{% for flag in settings.synth_flags %} {{flag}}{% endfor %}
+chformal -remove
+delete t:$print
+rename -wire
+opt -purge
+{%- if settings.adder_map %}
+extract_fa
+techmap -map {{settings.adder_map|read_path}}
+{%- endif %}
+techmap
+opt -fast -purge
+{%- for map in settings.other_maps or [] %}
+dfflegalize -cell $_DLATCH_P_ x -cell $_DLATCH_N_ x t:$_DLATCH_*
+techmap -map {{map|read_path}}
+{%- endfor %}
+dfflibmap{% for lib in ([settings.dff_liberty] if settings.dff_liberty else settings.liberty) %} -liberty {{lib|read_path}}{% endfor %}{{dont_use_words}}
+opt
+setundef -zero
+abc{% if settings.abc_script %} -script {{settings.abc_script|path}}{% endif %}{% for lib in settings.liberty %} -liberty {{lib|path}}{% endfor %}{{dont_use_words}}
+{%- if abc_constr_file %} -constr {{abc_constr_file|path}}{% endif %}
+{%- for flag in settings.abc_flags %} {{flag}}{% endfor %}
+{%- if settings.splitnets %}
+splitnets {%- if settings.splitnets_driver %} -driver {%- endif %} {%- if settings.splitnets_ports %} -ports {%- endif %}
+{%- endif %}
+opt_clean -purge
+{%- if settings.hilomap %}
+hilomap{% if settings.hilomap.singleton %} -singleton{% endif %} -hicell {{settings.hilomap.hi|join(" ")}} -locell {{settings.hilomap.lo|join(" ")}}
+{%- endif %}
+{%- if settings.insbuf %}
+insbuf -buf {{settings.insbuf|join(" ")}}
+{%- endif %}
+{%- if settings.rmports %}
+rmports
+{%- endif %}
+check {% if settings.check_assert -%} -assert {% endif -%} -mapped
+
+{#- A Verilog library read with `-lib` keeps its `lib_whitebox` models with their `always` blocks,
+    which `write_json` refuses to write. A liberty library holds blackboxes only. #}
+{%- if settings.verilog_lib %}
+blackbox =A:whitebox
+{%- endif %}
+{% include "write_netlist.ys" %}
+
+log -stdout ***** Synthesis Completed *****
+{%- endif %}

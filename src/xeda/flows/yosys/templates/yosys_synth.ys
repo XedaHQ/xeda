@@ -1,4 +1,7 @@
 logger -notime
+{% if settings.maps_to_liberty() -%}
+{% include 'yosys_liberty_synth.ys' %}
+{%- else -%}
 {% include 'read_files.ys' %}
 
 {% if settings.prep is not none %}
@@ -98,4 +101,5 @@ blackbox =A:whitebox
 {% include "write_netlist.ys" %}
 
 log -stdout ***** Synthesis Completed *****
+{%- endif %}
 {%- endif %}
