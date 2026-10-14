@@ -22,7 +22,7 @@ from .openroad_utils import (
     openroad_settings,
     register_openroad_flows,
 )
-from .tiny_platform import tiny_store
+from .tiny_platform import TINY_RESIDUE, tiny_store
 
 CTS_PAIR = [("cts.odb", "OpenroadDbCts"), ("cts.sdc", "OpenroadSdcCts")]
 
@@ -33,18 +33,21 @@ def openroad_flows():
         yield
 
 
-def plan(tmp_path: Path, flow: str, *settings: str, **design):
+def plan(tmp_path: Path, flow: str, *settings: str, typed: dict | None = None, **design):
+    """Plan `flow`. `settings` are `KEY=VALUE` texts, as the command line gives them. A leaf that
+    is a number (`wire_rc`) cannot come as text, so `typed` gives such leaves by dotted key."""
     store = tiny_store(tmp_path)
+    texts = [*openroad_settings(store), *settings]
+    given = dict(text.split("=", 1) for text in texts) | (typed or {})
     return DefaultRunner(tmp_path / "run", display_results=False).plan(
-        flow,
-        openroad_design(tmp_path / "design", **design),
-        flow_settings=[*openroad_settings(store), *settings],
+        flow, openroad_design(tmp_path / "design", **design), flow_settings=given
     )
 
 
 def refusal(tmp_path: Path, flow: str, *settings: str, **design) -> str:
+    typed = design.pop("typed", None)
     with pytest.raises(FlowSettingsException) as error:
-        plan(tmp_path, flow, *settings, **design)
+        plan(tmp_path, flow, *settings, typed=typed, **design)
     return " ".join(str(error.value).split())
 
 
@@ -234,3 +237,113 @@ def test_a_binding_of_the_sdc_of_the_wrong_stage_is_refused(tmp_path):
         plan(tmp_path, "openroad_cts", "flows.openroad_cts.inputs.sdc=openroad_cts.sdc")
     message = str(error.value)
     assert "takes OpenroadSdcPlaced" in message and "makes OpenroadSdcCts" in message
+
+
+# ------------------------------------------------------------------------------ shared leaves
+
+
+def stage_nodes(planned):
+    """The OpenROAD nodes of a plan, by name."""
+    return {node.name: node for node in planned.nodes if node.name != "yosys"}
+
+
+def test_the_hierarchy_given_to_one_flow_reaches_the_others(tmp_path):
+    planned = plan(tmp_path, "openroad", "flows.openroad_cts.hierarchical=true", rtl=True)
+    nodes = stage_nodes(planned)
+    assert list(nodes) == ["openroad_place", "openroad_cts", "openroad_grt", "openroad"]
+    assert {name: node.settings.hierarchical for name, node in nodes.items()} == dict.fromkeys(
+        nodes, True
+    )
+
+
+def test_flows_that_disagree_on_the_hierarchy_are_refused_naming_both(tmp_path):
+    message = refusal(
+        tmp_path,
+        "openroad",
+        "flows.openroad_place.hierarchical=true",
+        "flows.openroad_cts.hierarchical=false",
+        rtl=True,
+    )
+    assert "hierarchical" in message
+    assert "openroad_place" in message and "openroad_cts" in message
+
+
+def test_leaves_of_the_wire_rc_given_to_different_flows_combine(tmp_path):
+    planned = plan(
+        tmp_path,
+        "openroad",
+        "flows.openroad_place.wire_rc.signal_layer=m3",
+        "flows.openroad_grt.wire_rc.clock_layer=m4",
+        typed={"flows.openroad.wire_rc.vias.v1": 0.5},
+        rtl=True,
+    )
+    for name, node in stage_nodes(planned).items():
+        rc = node.settings.wire_rc
+        assert (rc.signal_layer, rc.clock_layer, rc.vias) == ("m3", "m4", {"v1": 0.5}), name
+
+
+def test_flows_that_disagree_on_a_leaf_of_the_wire_rc_are_refused_naming_both(tmp_path):
+    message = refusal(
+        tmp_path,
+        "openroad",
+        typed={
+            "flows.openroad_place.wire_rc.vias.v1": 0.5,
+            "flows.openroad_grt.wire_rc.vias.v1": 0.6,
+        },
+        rtl=True,
+    )
+    assert "wire_rc.vias.v1" in message and "0.5" in message and "0.6" in message
+    assert "openroad_place" in message and "openroad_grt" in message
+
+
+def test_a_leaf_of_the_wire_rc_of_the_wrong_type_is_refused_naming_the_leaf(tmp_path):
+    message = refusal(
+        tmp_path,
+        "openroad",
+        "flows.openroad_place.wire_rc.vias.v1=abc",
+        "flows.openroad_cts.wire_rc.signal_layer=m2",
+        rtl=True,
+    )
+    assert "wire_rc -> vias -> v1" in message
+
+
+def test_a_hierarchy_that_is_no_boolean_is_refused(tmp_path):
+    message = refusal(
+        tmp_path,
+        "openroad_cts",
+        "flows.openroad_cts.hierarchical=maybe",
+    )
+    assert "hierarchical" in message
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [("hierarchical", True), ("wire_rc.signal_layer", "m3"), ("wire_rc.vias.v1", 0.5)],
+)
+def test_the_identity_of_every_node_changes_with_a_shared_leaf(tmp_path, name, value):
+    base = plan(tmp_path / "a", "openroad", rtl=True)
+    changed = plan(
+        tmp_path / "b", "openroad", typed={f"flows.openroad_place.{name}": value}, rtl=True
+    )
+    same = plan(tmp_path / "c", "openroad", rtl=True)
+    hashes = {node.name: node.flowrun_hash for node in base.nodes}
+    assert hashes == {node.name: node.flowrun_hash for node in same.nodes}
+    for node in changed.nodes:
+        if node.name == "yosys":
+            assert node.flowrun_hash == hashes["yosys"]
+        else:
+            assert node.flowrun_hash != hashes[node.name], node.name
+
+
+def test_a_platform_without_lef_files_is_refused_at_planning(tmp_path):
+    residue = tmp_path / "residue.yaml"
+    text = TINY_RESIDUE.read_text()
+    residue.write_text(
+        "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("tech_lef:", "cell_lef:"))
+        )
+    )
+    message = refusal(tmp_path, "openroad_cts", f"platform_file={residue}")
+    assert "no tech_lef and no cell_lef" in message and "openroad_cts" in message

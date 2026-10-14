@@ -71,6 +71,8 @@ SHARED_SETTINGS = (
     "pdk_provider",
     "pdk_version",
     "pdk_root",
+    "hierarchical",
+    "wire_rc",
 )
 #: Shared settings that name a file or a directory. They are compared by the resolved path, a
 #: relative one against the design root.
@@ -562,6 +564,21 @@ def _normalized_leaves(
             elif shared == "custom_boards_file":
                 board = WithFpgaBoardSettings.from_input({shared: value}, **context)
                 value = getattr(board, shared)
+            elif shared == "hierarchical":
+                value = getattr(
+                    settings_in_context(request.cls, {shared: value}, **context), shared
+                )
+            elif shared == "wire_rc":
+                if value is None:
+                    continue  # a `wire_rc` that is not given says nothing about any leaf
+                nested: dict[str, Any] = {}
+                _put(nested, path[1:], value)
+                model = settings_in_context(request.cls, {shared: nested}, **context)
+                rc = getattr(model, shared)
+                leaves: Any = rc.model_dump(mode="json") if rc else None
+                for part in path[1:]:
+                    leaves = leaves[part]
+                value = leaves
         except ValueError as error:
             raise _error(request.cls, ".".join(path), f"{error} at {loc.label}") from error
         result[target] = (value, value, loc)

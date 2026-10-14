@@ -555,13 +555,19 @@ those checked records, for producers that ran now and producers that Xeda reused
 
 Along a declared edge, shared settings (``fpga``, ``board``, ``custom_boards_file``, ``clocks``,
 ``prjxray_db``, ``platform``, ``corner``, ``dont_use_cells``, ``platform_file``, ``pdk_provider``,
-``pdk_version`` and ``pdk_root``) must agree where both endpoints declare them. A ``platform`` is
+``pdk_version``, ``pdk_root``, ``hierarchical`` and ``wire_rc``) must agree where both endpoints
+declare them. A ``platform`` is
 the name of a bundled platform. ``platform_file`` and ``pdk_root`` are paths: Xeda compares them by
 the resolved path, and a relative path is relative to the design root. Xeda compares a ``corner``
 by its name. When ``pdk_provider`` or ``pdk_version`` is unset, Xeda fills it in from the platform
 before it hashes any node, so the version of the PDK is part of the identity of every node in the
 group. ``pdk_root`` is not. It tells where the files are, and the same files in another place are
-the same run. A leaf given on one node applies to both, and disjoint leaves combine. Different
+the same run. ``hierarchical`` and ``wire_rc`` belong to the OpenROAD flows only: an OpenROAD
+database stores neither the way it was read nor the wire resistance and capacitance, so every flow
+of a chain must use the same values. Xeda compares ``wire_rc`` leaf by leaf (``wire_rc.signal_layer``,
+``wire_rc.layers.metal2``). Give its numbers in a design file or a project file. The command line
+gives text, and these leaves take numbers. A leaf given on one node applies to both, and disjoint
+leaves combine. Different
 values for the same leaf fail before anything runs, and the error names both files and sections.
 An example is ``flows.nextpnr.fpga.part`` in a project and ``flows.yosys_fpga.fpga.part`` in a
 design. A command-line leaf (``-s fpga.part=...`` or ``-s flows.yosys_fpga.fpga.part=...``) wins
