@@ -20,9 +20,13 @@ from ..flow.io import declared_inputs, declared_outputs
 __all__ = [
     "ChainEdge",
     "ChainElement",
+    "DefaultEdge",
+    "DefaultGraph",
     "FlowRequest",
+    "binding_points",
     "close_names",
     "complete_request",
+    "default_graph",
     "edges",
     "fitting_outputs",
     "followers",
@@ -203,9 +207,8 @@ def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[C
 
     There are two kinds of correction. One is another output of the producer (for an ambiguous
     or unfitting qualifier). The other inserts flows between the pair along required
-    default-producer edges only (`_default_routes`: a bounded walk back from the consumer
-    through the producers that its inputs name). There is no search over all flows, and
-    nothing is executed.
+    default-producer edges only (`_default_routes`: the flows between the pair in the default
+    graph of the consumer). There is no search over all flows, and nothing is executed.
     """
     producer, consumer = elements[index], elements[index + 1]
     head, tail = tuple(elements[:index]), tuple(elements[index + 2 :])
@@ -237,31 +240,164 @@ def suggest_chains(elements: Sequence[ChainElement], index: int) -> list[tuple[C
 
 
 def _default_routes(producer: type[Flow], consumer: type[Flow]) -> list[tuple[type[Flow], ...]]:
-    """Return the flows between `producer` and `consumer`, in chain order, for each route.
+    """Return the flows between `producer` and `consumer`, in chain order, as one route.
 
-    The walk goes back from `consumer` over the default producers that its required inputs
-    name. It is breadth-first with a visited set (so a cycle of defaults ends), shortest first.
-    The result is only a hint, since the whole candidate chain is validated afterwards."""
+    The route is `DefaultGraph.between` in the default graph of `consumer`. It is empty, and so
+    is the list, when `producer` is not in that graph or is next to `consumer`. The result is
+    only a hint, since the whole candidate chain is validated afterwards."""
+    between = default_graph(consumer).between(producer)
+    return [between] if between else []
+
+
+@dataclass(frozen=True)
+class DefaultEdge:
+    """One edge of a default graph: `consumer.input` takes `producer.output` by default."""
+
+    consumer: type[Flow]
+    input: str
+    producer: type[Flow]
+    #: The output that implicit planning takes: the one the input declares, else the only output
+    #: of the producer with a type the input accepts. None when it can choose no output.
+    output: str | None
+
+
+@dataclass(frozen=True)
+class DefaultGraph:
+    """The flows that implicit planning of `root` runs, and the edges between them.
+
+    The graph follows every input that names a default producer, required or not, over the
+    declarations alone. It has one node per flow and every edge met: edges that converge on a
+    flow, and two inputs of one flow that name the same producer, are all there."""
+
+    root: type[Flow]
+    #: Every edge, in breadth-first order of the consumers and in declaration order of the
+    #: inputs of one consumer.
+    edges: tuple[DefaultEdge, ...]
+
+    def flows(self) -> tuple[type[Flow], ...]:
+        """Return the root, then every other flow once, in the order the walk meets them."""
+        return tuple(dict.fromkeys((self.root, *(edge.producer for edge in self.edges))))
+
+    def between(self, producer: type[Flow]) -> tuple[type[Flow], ...]:
+        """Return the flows on any path from `producer` to the root, in chain order.
+
+        Neither `producer` nor the root is in the result. It is empty when `producer` is not in
+        the graph or is next to the root. A producer comes before its consumer: the order is the
+        depth-first post-order from the root over the edges, as the resolver lists plan nodes."""
+        feeds: dict[type[Flow], list[type[Flow]]] = {}
+        for edge in self.edges:
+            feeds.setdefault(edge.consumer, []).append(edge.producer)
+        # The flows that reach `producer`: the walk back over the edges, from `producer`.
+        reaching = {producer}
+        changed = True
+        while changed:
+            changed = False
+            for edge in self.edges:
+                if edge.producer in reaching and edge.consumer not in reaching:
+                    reaching.add(edge.consumer)
+                    changed = True
+        visited: set[type[Flow]] = set()
+        order: list[type[Flow]] = []
+
+        def visit(flow: type[Flow]) -> None:
+            visited.add(flow)
+            for upstream in feeds.get(flow, ()):
+                if upstream not in visited:
+                    visit(upstream)
+            order.append(flow)
+
+        visit(self.root)
+        # Every flow of the graph is reachable from the root, so reaching `producer` decides.
+        return tuple(
+            flow
+            for flow in order
+            if flow in reaching and flow is not producer and flow is not self.root
+        )
+
+
+def default_graph(consumer: type[Flow]) -> DefaultGraph:
+    """Return the default graph of `consumer`, from its declarations alone.
+
+    This mirrors the discovery of implicit planning: a breadth-first walk from `consumer` over
+    the inputs, in declaration order, that name a registered default producer. Each flow is
+    expanded once. An edge to a flow that is already expanded is kept, so a cycle of defaults
+    ends and hides no other path."""
     from .settings_layers import registered_flow
 
-    routes: list[tuple[type[Flow], ...]] = []
-    visited = {consumer}
-    queue: deque[tuple[type[Flow], tuple[type[Flow], ...]]] = deque([(consumer, ())])
+    found: list[DefaultEdge] = []
+    expanded = {consumer}
+    queue = deque([consumer])
     while queue:
-        current, between = queue.popleft()
+        current = queue.popleft()
         for declaration in declared_inputs(current).values():
-            if not declaration.required or declaration.producer is None:
+            if declaration.producer is None:
                 continue
             upstream = registered_flow(declaration.producer)
             if upstream is None:
                 continue
-            if upstream is producer:
-                if between and between not in routes:
-                    routes.append(between)
-            elif upstream not in visited:
-                visited.add(upstream)
-                queue.append((upstream, (upstream, *between)))
-    return routes
+            outputs = declared_outputs(upstream)
+            if declaration.output:
+                output: str | None = declaration.output
+            else:
+                matching = [
+                    made.name
+                    for made in outputs.values()
+                    if set(made.types) & set(declaration.types)
+                ]
+                output = matching[0] if len(matching) == 1 else None
+            found.append(DefaultEdge(current, declaration.name, upstream, output))
+            if upstream not in expanded:
+                expanded.add(upstream)
+                queue.append(upstream)
+    return DefaultGraph(consumer, tuple(found))
+
+
+def binding_points(
+    graph: DefaultGraph, producer: type[Flow], output: str | None = None
+) -> tuple[tuple[DefaultEdge, str], ...]:
+    """Return the required inputs of the graph that a flow `producer` can feed, with the output.
+
+    A binding point is an edge of the graph from `producer` to a required input: a chain never
+    binds an optional input. The output is the one `fitting_outputs` selects for the input, as
+    for the adjacent flows of a chain. `output` limits the choice to that output of `producer`.
+    The result is in graph order and is empty when no edge comes from `producer`. A binding
+    point that `producer` cannot feed is refused, with the point named as `consumer.input`."""
+    points = [
+        edge
+        for edge in graph.edges
+        if edge.producer is producer and declared_inputs(edge.consumer)[edge.input].required
+    ]
+    outputs = declared_outputs(producer)
+    if points and output is not None and output not in outputs:
+        raise FlowSettingsException(
+            f"Flow `{producer.name}` has no output `{output}`.{close_names(output, list(outputs))}"
+        )
+    chosen: list[tuple[DefaultEdge, str]] = []
+    for edge in points:
+        declaration = declared_inputs(edge.consumer)[edge.input]
+        where = f"{edge.consumer.name}.{edge.input}"
+        fitting, many = fitting_outputs(producer, declaration, output=output)
+        made = f"`{producer.name}.{output}`" if output else f"`{producer.name}`"
+        if len(fitting) > 1:
+            raise FlowSettingsException(
+                f"Input `{where}` has ambiguous outputs from `{producer.name}`: "
+                f"{', '.join(f'`{name}`' for name in fitting)}; qualify the producer output."
+            )
+        if not fitting:
+            if many:
+                raise FlowSettingsException(
+                    f"Flow `{producer.name}` output `{many[0]}` has incompatible cardinality "
+                    f"for input `{where}`, which takes one file."
+                )
+            made_types = {
+                t.name for name, o in outputs.items() if output in (None, name) for t in o.types
+            }
+            raise FlowSettingsException(
+                f"Input `{where}` takes {'/'.join(t.name for t in declaration.types)}, "
+                f"but {made} makes {'/'.join(sorted(made_types)) or 'nothing'}."
+            )
+        chosen.append((edge, fitting[0]))
+    return tuple(chosen)
 
 
 @dataclass(frozen=True)

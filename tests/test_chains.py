@@ -1,16 +1,19 @@
 """Canonical parsing and structural matching for flow-chain requests."""
 
 import re
+from pathlib import Path
 
 import pytest
 
 from xeda.design import SourceType
-from xeda.flow import Flow, FlowSettingsException
+from xeda.flow import Flow, FlowSettingsException, In, Out
 from xeda.flow.io import declared_outputs
 from xeda.flow_runner import FlowNotFoundError
 from xeda.flow_runner.chains import (
     ChainElement,
     FlowRequest,
+    binding_points,
+    default_graph,
     match_required_inputs,
     parse_request,
     validate_chain,
@@ -452,3 +455,215 @@ def test_completion_is_static(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     assert complete_request("yosys_fpga+ne", _classes()) == ["yosys_fpga+nextpnr"]
     assert not list(tmp_path.iterdir())
+
+
+# ------------------------------------------------------------------------- default graph
+
+
+def _toy(name: str, inputs=None, outputs=None) -> type[Flow]:
+    """Register a flow named `name` (a class name; the flow name is its snake case) with the
+    given inputs and outputs, each a mapping of a name to `(annotation, declaration)`."""
+    parts: dict = {
+        "__doc__": f"Toy flow {name}.",
+        "results_description": {},
+        "run": lambda self: None,
+    }
+    for kind, base, declared in (
+        ("Inputs", Flow.Inputs, inputs),
+        ("Outputs", Flow.Outputs, outputs),
+    ):
+        if declared:
+            parts[kind] = type(
+                kind,
+                (base,),
+                {
+                    "__annotations__": {
+                        key: annotation for key, (annotation, _) in declared.items()
+                    },
+                    **{key: declaration for key, (_, declaration) in declared.items()},
+                },
+            )
+    return type(name, (Flow,), parts)
+
+
+def _data_in(producer: str | None = None, output: str | None = None, **kwargs):
+    return (
+        Path,
+        In(SourceType.Data, producer=producer, output=output, description="In.", **kwargs),
+    )
+
+
+def _data_out():
+    return (Path, Out(SourceType.Data, description="Out."))
+
+
+def _pairs_of(edges) -> list[tuple[str, str, str]]:
+    return [(e.consumer.name, e.input, e.producer.name) for e in edges]
+
+
+def test_the_default_graph_keeps_the_edges_of_converging_paths():
+    a = _toy("_DgA", outputs={"made": _data_out()})
+    z = _toy("_DgZ", {"src": _data_in("__dg_a", "made")}, {"made": _data_out()})
+    x = _toy("_DgX", {"src": _data_in("__dg_z", "made")}, {"made": _data_out()})
+    y = _toy("_DgY", {"src": _data_in("__dg_z", "made")}, {"made": _data_out()})
+    b = _toy("_DgB", {"left": _data_in("__dg_x", "made"), "right": _data_in("__dg_y", "made")})
+
+    graph = default_graph(b)
+
+    assert graph.root is b
+    assert graph.flows() == (b, x, y, z, a)
+    assert _pairs_of(graph.edges) == [
+        ("__dg_b", "left", "__dg_x"),
+        ("__dg_b", "right", "__dg_y"),
+        ("__dg_x", "src", "__dg_z"),
+        ("__dg_y", "src", "__dg_z"),
+        ("__dg_z", "src", "__dg_a"),
+    ]
+    assert [(e.consumer, e.input, e.producer, e.output) for e in graph.edges][-1] == (
+        z,
+        "src",
+        a,
+        "made",
+    )
+    (point,) = binding_points(graph, a)
+    assert (point[0].consumer, point[0].input, point[1]) == (z, "src", "made")
+    assert graph.between(a) == (z, x, y)
+    assert graph.between(z) == (x, y)
+    assert graph.between(x) == ()  # adjacent to the root
+    assert graph.between(b) == ()
+    assert graph.between(_toy("_DgOther")) == ()  # not in the graph
+
+
+def test_a_flow_that_takes_two_inputs_from_one_producer_has_two_edges():
+    p = _toy("_DgP", outputs={"one": _data_out(), "two": _data_out()})
+    c = _toy(
+        "_DgC",
+        {"first": _data_in("__dg_p", "one"), "second": _data_in("__dg_p", "two")},
+    )
+
+    graph = default_graph(c)
+
+    assert graph.flows() == (c, p)
+    assert _pairs_of(graph.edges) == [("__dg_c", "first", "__dg_p"), ("__dg_c", "second", "__dg_p")]
+    points = binding_points(graph, p)
+    assert [(edge.input, chosen) for edge, chosen in points] == [
+        ("first", "one"),
+        ("second", "two"),
+    ]
+
+
+def test_an_output_qualifier_selects_the_binding_points_that_it_fits():
+    a = _toy(
+        "_DgA",
+        outputs={
+            "o1": (Path, Out(SourceType.Data, description="First.")),
+            "o2": (Path, Out(SourceType.JsonNetlist, description="Second.")),
+        },
+    )
+    z = _toy("_DgZ", {"src": _data_in("__dg_a")})
+    graph = default_graph(z)
+
+    assert [chosen for _, chosen in binding_points(graph, a)] == ["o1"]
+    assert [chosen for _, chosen in binding_points(graph, a, "o1")] == ["o1"]
+    with pytest.raises(FlowSettingsException, match=r"__dg_z\.src"):
+        binding_points(graph, a, "o2")
+    with pytest.raises(FlowSettingsException, match=r"has no output `o3`\. Did you mean .*`o1`"):
+        binding_points(graph, a, "o3")
+
+
+def test_binding_points_refuse_a_producer_with_no_fitting_or_with_several_outputs():
+    many = _toy("_DgMany", outputs={"files": (list[Path], Out(SourceType.Data, description="F."))})
+    both = _toy("_DgBoth", outputs={"m": _data_out(), "n": _data_out()})
+    none = _toy("_DgNone", outputs={"j": (Path, Out(SourceType.JsonNetlist, description="J."))})
+    one_file = _toy(
+        "_DgOneFile",
+        {"a": _data_in("__dg_many"), "b": _data_in("__dg_both"), "c": _data_in("__dg_none")},
+    )
+    graph = default_graph(one_file)
+
+    with pytest.raises(FlowSettingsException, match=r"cardinality.*__dg_one_file\.a"):
+        binding_points(graph, many)
+    with pytest.raises(FlowSettingsException, match=r"__dg_one_file\.b.*ambiguous.*qualify"):
+        binding_points(graph, both)
+    with pytest.raises(
+        FlowSettingsException, match=r"__dg_one_file\.c` takes Data.*makes JsonNetlist"
+    ):
+        binding_points(graph, none)
+
+
+def test_a_cycle_of_default_producers_ends_and_hides_no_other_path():
+    a = _toy("_DgA", outputs={"made": _data_out()})
+    m = _toy("_DgM", {"src": _data_in("__dg_a", "made")}, {"made": _data_out()})
+    l1 = _toy("_DgLone", {"src": _data_in("__dg_ltwo", "made")}, {"made": _data_out()})
+    l2 = _toy("_DgLtwo", {"src": _data_in("__dg_lone", "made")}, {"made": _data_out()})
+    b = _toy("_DgB", {"loop": _data_in("__dg_lone", "made"), "line": _data_in("__dg_m", "made")})
+
+    graph = default_graph(b)
+
+    assert graph.flows() == (b, l1, m, l2, a)
+    assert _pairs_of(graph.edges) == [
+        ("__dg_b", "loop", "__dg_lone"),
+        ("__dg_b", "line", "__dg_m"),
+        ("__dg_lone", "src", "__dg_ltwo"),
+        ("__dg_m", "src", "__dg_a"),
+        ("__dg_ltwo", "src", "__dg_lone"),
+    ]
+    assert _pairs_of(edge for edge, _ in binding_points(graph, a)) == [("__dg_m", "src", "__dg_a")]
+    assert graph.between(a) == (m,)
+    assert graph.between(l2) == (l1,)
+    # the flows of a cycle lie between each other and the root
+    assert graph.between(l1) == (l2,)
+
+
+def test_an_optional_input_is_followed_but_binds_nothing():
+    a = _toy("_DgA", outputs={"made": _data_out()})
+    c = _toy(
+        "_DgC",
+        {"extra": (Path | None, In(SourceType.Data, producer="__dg_a", description="Extra."))},
+    )
+
+    graph = default_graph(c)
+
+    assert graph.flows() == (c, a)
+    assert _pairs_of(graph.edges) == [("__dg_c", "extra", "__dg_a")]
+    assert binding_points(graph, a) == ()
+
+
+def test_a_producer_that_is_not_a_flow_is_skipped_and_a_flow_without_producers_is_alone():
+    c = _toy("_DgC", {"src": _data_in("__dg_missing")})
+
+    graph = default_graph(c)
+
+    assert graph.flows() == (c,)
+    assert graph.edges == ()
+    assert graph.between(c) == ()
+    assert binding_points(graph, c) == ()
+
+
+def test_the_default_graph_of_a_flow_reads_declarations_only(monkeypatch):
+    def forbidden_init(*args, **kwargs):
+        raise AssertionError("the graph is static")
+
+    monkeypatch.setattr(Flow, "__init__", forbidden_init)
+    from xeda.flow_runner import get_flow_class
+
+    assert default_graph(get_flow_class("fpga_pack")).flows()
+
+
+def test_the_graph_of_the_fpga_packer_passes_through_nextpnr():
+    from xeda.flow_runner import get_flow_class
+
+    fpga_pack, nextpnr, yosys_fpga = map(get_flow_class, ("fpga_pack", "nextpnr", "yosys_fpga"))
+
+    graph = default_graph(fpga_pack)
+
+    assert {nextpnr, yosys_fpga} <= set(graph.flows())
+    assert graph.flows()[0] is fpga_pack
+    assert graph.between(yosys_fpga) == (nextpnr,)
+    ((edge, chosen),) = binding_points(graph, yosys_fpga)
+    assert (edge.consumer, edge.input, edge.producer, chosen) == (
+        nextpnr,
+        "netlist",
+        yosys_fpga,
+        "netlist",
+    )
