@@ -24,7 +24,13 @@ shorthand for ``--format json``:
     xeda design-schema
     xeda list-boards --json
     xeda list-platforms --json
+    xeda pdk list --json
     xeda list-optimizers --json
+
+``xeda pdk path <platform>`` prints the directory of a platform in the PDK store. With ``--json``, it
+gives the files of each role too. If the PDK files are not installed, it fails and the error says
+how to install them. Both ``pdk`` commands only look at the files: they start no process and use no
+network.
 
 Executional commands do work and print the logs of the tools. They take a plain ``--json`` flag. It
 moves tool output, log messages and result tables to stderr, so that stdout carries only the JSON

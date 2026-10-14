@@ -21,16 +21,14 @@ from .cli_types import (
     output_format_option,
 )
 from .flow_catalog import flow_names
+from .pdk_cli import add_pdk_commands
 
 # Click resolves completion before invoking command callbacks. Share the declarations below,
 # but keep execution and help-rendering dependencies out of a completion process.
 if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
     import coloredlogs
     from click_extra import HelpKeywords
-    from rich import box
     from rich.markup import escape
-    from rich.style import Style
-    from rich.table import Table
 
     from .agent_skill import SKILL_NAME, default_skill_dir, generate_flows_reference, install_skill
     from .cli_utils import (
@@ -38,6 +36,7 @@ if TYPE_CHECKING or not os.environ.get("_XEDA_COMPLETE"):
         DeclaredEnvvarsCommand,
         XedaHelpGroup,
         emit_structured,
+        info_table,
         machine_readable_mode,
         print_flow_settings,
         resolve_format,
@@ -147,22 +146,6 @@ def cli(ctx: click.Context, **kwargs):
     ctx.obj = XedaOptions(**kwargs)
 
 
-def _info_table(title: str, columns: Iterable[Tuple[str, Dict[str, Any]]]) -> Table:
-    table = Table(
-        title=title,
-        show_header=True,
-        header_style="bold yellow",
-        title_style=Style(frame=True, bold=True),
-        box=box.HEAVY_HEAD,
-        show_lines=True,
-    )
-    for name, kwargs in columns:
-        # Fold long text instead of truncating it: a truncated name cannot be typed back into a
-        # command.
-        table.add_column(name, overflow="fold", **kwargs)
-    return table
-
-
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List available flows.")
 @output_format_option()
 def list_flows(output_format: str, json_flag: bool):
@@ -181,7 +164,7 @@ def list_flows(output_format: str, json_flag: bool):
     if fmt != "table":
         emit_structured(info, fmt)
         return
-    table = _info_table(
+    table = info_table(
         "Available flows",
         [
             # A name is never folded, so it can be typed back into a command.
@@ -253,7 +236,7 @@ def list_results(flow, output_format: str, json_flag: bool):
     if fmt != "table":
         emit_structured(info, fmt, records=[{"flow": info["flow"], **k} for k in info["keys"]])
         return
-    table = _info_table(
+    table = info_table(
         f"{info['flow']} results",
         [
             ("Key", {"header_style": "bold green", "style": "bold"}),
@@ -296,7 +279,7 @@ def list_boards(output_format: str, json_flag: bool):
     if fmt != "table":
         emit_structured(info, fmt)
         return
-    table = _info_table(
+    table = info_table(
         "Bundled FPGA boards",
         [
             ("Board", {"header_style": "bold green", "style": "bold"}),
@@ -318,31 +301,59 @@ def list_boards(output_format: str, json_flag: bool):
 @cli.command(context_settings=CONTEXT_SETTINGS, short_help="List bundled ASIC platforms (PDKs).")
 @output_format_option()
 def list_platforms(output_format: str, json_flag: bool):
-    """List the ASIC platforms that the `platform` setting of the yosys flow accepts."""
+    """List the ASIC platforms that Xeda ships. The ASIC flows (`yosys` today) take a platform
+    through the setting `platform`, or through `platform_file` for a platform file of your own.
+    Each platform shows whether its PDK files are installed in the default store (`~/.ciel`). The
+    command only looks at the files. `xeda pdk install` installs a platform."""
     fmt = resolve_format(output_format, json_flag)
     info = platforms_info()
     if fmt != "table":
         emit_structured(info, fmt)
         return
-    table = _info_table(
+    table = info_table(
         "Bundled ASIC platforms",
         [
             ("Platform", {"header_style": "bold green", "style": "bold"}),
-            ("Process", {}),
             ("Description", {}),
+            ("Provider", {}),
+            ("Version", {}),
+            ("Installed", {}),
+            ("Directory", {}),
         ],
     )
     for platform in info:
+        version = str(platform["version"])
         table.add_row(
             escape(platform["platform"]),
-            escape(str(platform.get("process", "-"))),
-            escape(str(platform.get("description") or platform.get("error") or "-")),
+            escape(str(platform.get("description") or "-")),
+            escape(platform["provider"]),
+            escape(version[:12] if len(version) == 40 else version),
+            "yes" if platform["installed"] else "no",
+            escape(str(platform.get("directory", "-"))),
         )
     console.print(table)
-    if not info:
+    missing = [p["platform"] for p in info if not p["installed"]]
+    if missing:
         console.print(
-            "[yellow]No platforms found.[/] Platform data is not shipped in the Xeda wheel."
+            f"Install a platform with [bold]xeda pdk install <platform>[/]: {escape(', '.join(missing))}."
         )
+
+
+@cli.group(
+    context_settings=CONTEXT_SETTINGS,
+    cls=XedaHelpGroup,
+    short_help="Find the PDK files of the ASIC platforms.",
+)
+def pdk():
+    """The PDK files of the ASIC platforms.
+
+    A platform needs the files of its PDK: Liberty, LEF and more. They live in a store, by
+    default `~/.ciel`. These commands show which platforms the store holds and where the files
+    are. They start no process, use no network and write nothing.
+    """
+
+
+add_pdk_commands(pdk, DeclaredEnvvarsCommand, CONTEXT_SETTINGS)
 
 
 @cli.command(
@@ -357,7 +368,7 @@ def list_optimizers(output_format: str, json_flag: bool):
         emit_structured(info, fmt)
         return
     for optimizer in info:
-        table = _info_table(
+        table = info_table(
             f"{optimizer['name']} settings",
             [
                 ("Setting", {"header_style": "bold green", "style": "bold"}),
