@@ -590,3 +590,85 @@ class _SkipSink(Flow):
 
     def run(self) -> None:
         pass
+
+
+class _FanHead(Flow):
+    """The head of a fan: makes the netlist that only `_FanBase` reads."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Outputs(Flow.Outputs):
+        net: Path = Out(SourceType.JsonNetlist, description="The netlist.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanBase(Flow):
+    """Reads the netlist of `_FanHead` and makes one file for each of `_FanLeft` and `_FanRight`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        net: Path = In(
+            SourceType.JsonNetlist, producer="__fan_head", output="net", description="Netlist."
+        )
+
+    class Outputs(Flow.Outputs):
+        left: Path = Out(SourceType.Sdc, description="The file for the left flow.")
+        right: Path = Out(SourceType.Lpf, description="The file for the right flow.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanLeft(Flow):
+    """Reads the left file of `_FanBase`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        side: Path = In(
+            SourceType.Sdc, producer="__fan_base", output="left", description="The left file."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Data, description="The left result.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanRight(Flow):
+    """Reads the right file of `_FanBase`."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        side: Path = In(
+            SourceType.Lpf, producer="__fan_base", output="right", description="The right file."
+        )
+
+    class Outputs(Flow.Outputs):
+        out: Path = Out(SourceType.Pcf, description="The right result.")
+
+    def run(self) -> None:
+        pass
+
+
+class _FanTail(Flow):
+    """Reads both results. The link from `_FanHead` binds an input of `_FanBase` only, and passes
+    through `_FanLeft` and `_FanRight` too."""
+
+    results_description: ClassVar[dict[str, str]] = {}
+
+    class Inputs(Flow.Inputs):
+        left: Path = In(
+            SourceType.Data, producer="__fan_left", output="out", description="The left result."
+        )
+        right: Path = In(
+            SourceType.Pcf, producer="__fan_right", output="out", description="The right result."
+        )
+
+    def run(self) -> None:
+        pass

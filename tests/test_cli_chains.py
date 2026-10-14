@@ -783,3 +783,61 @@ def test_an_unknown_input_or_output_name_in_a_binding_gets_close_matches(tmp_pat
     # nothing close: say what is declared instead
     assert "It declares: `made`." in message({"zzz": "__maker"})
     assert "It declares: `made`." in message({"made": "__maker.zzz"})
+
+
+def _fan_design(tmp_path, sources=(), flows=None):
+    """A design for the fan: `__fan_head` feeds `__fan_base`, which feeds `__fan_left` and
+    `__fan_right`, and both feed `__fan_tail`."""
+    path = tmp_path / "fan.yaml"
+    path.write_text(
+        yaml.safe_dump({"name": "fan", "rtl": {"sources": list(sources)}, "flows": flows or {}})
+    )
+    return path
+
+
+def test_a_link_that_binds_one_flow_lists_every_flow_it_passes_through(tmp_path):
+    result, document = _json("run", "__fan_head+__fan_tail", _fan_design(tmp_path), "--dry-run")
+    assert result.exit_code == 0, result.output
+    head, tail = document["request"]
+    assert head["through"] == ["__fan_base", "__fan_left", "__fan_right"]
+    assert tail["through"] == []
+    assert [node["name"] for node in document["plan"]["nodes"]] == [
+        "__fan_head",
+        "__fan_base",
+        "__fan_left",
+        "__fan_right",
+        "__fan_tail",
+    ]
+
+
+def test_a_source_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
+    (tmp_path / "left.txt").write_text("")
+    design = _fan_design(tmp_path, [{"file": "left.txt", "type": "Data"}])
+    result, document = _json("run", "__fan_head+__fan_tail", design, "--dry-run")
+    assert result.exit_code == 1, result.output
+    assert (
+        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the source "
+        "of `__fan_tail.left` takes out of the plan."
+    ) in document["error"]["message"]
+    # the request for the tail alone plans without `__fan_left`
+    plain, planned = _json("run", "__fan_tail", design, "--dry-run")
+    assert plain.exit_code == 0, plain.output
+    assert "__fan_left" not in [node["name"] for node in planned["plan"]["nodes"]]
+
+
+def test_a_binding_that_takes_an_unbound_flow_out_of_the_plan_is_refused(tmp_path):
+    result, document = _json(
+        "run",
+        "__fan_head+__fan_tail",
+        _fan_design(tmp_path, flows={"__maker": {}}),
+        "-s",
+        "flows.__fan_tail.inputs.left=__maker.made",
+        "--dry-run",
+    )
+    assert result.exit_code == 1, result.output
+    message = document["error"]["message"]
+    assert (
+        "The chain link `__fan_head+__fan_tail` passes through `__fan_left`, which the binding "
+        "of `__fan_tail.left` at "
+    ) in message
+    assert "flows.__fan_tail.inputs.left takes" in message and message.endswith("out of the plan.")

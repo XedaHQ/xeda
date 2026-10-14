@@ -413,18 +413,21 @@ class _Request:
 def _check_links_pass_through(
     flow_request: FlowRequest | None, requests: Sequence[_Request]
 ) -> None:
-    """Refuse a chain link whose flows between are not in the plan.
+    """Refuse a chain link when a flow that it passes through is not in the plan.
 
-    A link that passes through other flows binds an input of each flow that its first element
-    feeds. A source or a binding of another input can take such a flow out of the plan. The
-    link then binds nothing, so the request would not mean what it says."""
+    The check covers every flow of `link.through`, also a flow that the link does not bind. A
+    source or a binding of an input can take such a flow out of the plan. The request would then
+    list a flow that does not run, so it would not mean what it says."""
     if flow_request is None:
         return
     retained = {request.cls: request for request in requests}
     for index, link in enumerate(flow_request.links):
         if not link.through:
             continue
-        for missing, _input, _output in link.binds:
+        # The bound flows are in `through`, and the next element itself is always in the plan.
+        for missing in dict.fromkeys(
+            [*link.through, *(bound for bound, _input, _output in link.binds)]
+        ):
             if missing in retained:
                 continue
             elements = flow_request.elements[index : index + 2]
