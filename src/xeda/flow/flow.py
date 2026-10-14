@@ -20,6 +20,7 @@ from typing import (
     ClassVar,
     Dict,
     List,
+    Literal,
     Mapping,
     NamedTuple,
     Optional,
@@ -1521,6 +1522,17 @@ class Flow(metaclass=ABCMeta):
         self.reports_read: List[Path] = []
         #: Set by the launcher: the previous run was still up to date and its results are reused.
         self.reused: bool = False
+        #: Set by `reject()`: why the checks of this run rejected its results.
+        self.rejection: Optional[str] = None
+        #: Set by the launcher after the run: "passed", "rejected" (the tool steps completed, the
+        #: reports were read, the declared outputs are valid and `reject()` was called) or
+        #: "failed" (anything else). Only a "passed" or a "rejected" run keeps a trace. It is
+        #: None for a run that raised out of the launcher and for a flow that never started.
+        self.outcome: Optional[Literal["passed", "rejected", "failed"]] = None
+        #: Set by the launcher: the recorded rejection of the last run was reported again.
+        self.rejected_again: bool = False
+        #: Set by the launcher: the producer whose failure or rejection stopped this flow.
+        self.blocked_by: Optional[str] = None
         #: Set by the launcher when the flow ran although a previous run existed: why.
         self.stale_reason: Optional[str] = None
         #: Set by the launcher on every flow it completes: the run whose results the flow holds
@@ -1595,6 +1607,22 @@ class Flow(metaclass=ABCMeta):
     def check_results(self) -> bool:
         """Check results shared by a family of flows after tool-specific report parsing."""
         return True
+
+    def reject(self, message: str) -> None:
+        """Record that the checks of this run rejected its results, and why.
+
+        Call it from `check_results()` when the reports were read and the judgment is negative:
+        timing not met, a failed test, a forbidden resource. The run keeps its trace, and a
+        launch with the same inputs and settings reports the same rejection again without
+        running. A call to `reject()` makes the run rejected, whatever `check_results()`
+        returns. A report that is missing or unreadable is no rejection: `parse_reports()`
+        returns False for it, and the next launch runs again."""
+        self.rejection = message
+        if not self.results.get("error"):
+            self.results["error"] = {
+                "type": "ReportedFailure",
+                "message": f"`{self.name}` reported failure: {message}",
+            }
 
     def add_canonical_result_aliases(self) -> None:
         """Copy flow-specific result keys to their canonical names, additively.

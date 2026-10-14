@@ -110,6 +110,15 @@ def record_failure(flow: Any, message: str) -> None:
         }
 
 
+def record_rejection(flow: Any, message: str) -> None:
+    """Record that the checks of the run rejected its results, with `message` as the reason.
+
+    Use it for a judgment of results that were read, not for results that are missing. The
+    `error` in `results.json` is the same as `record_failure` gives it, and an error that the
+    run already has (a tool's exit status) stays."""
+    flow.reject(message)
+
+
 def problem(cause: str, fix: str) -> str:
     """Return a failure message of a simulation in its one form: the cause, then what to do."""
     return f"{cause.rstrip('.')}. To fix it, {fix}."
@@ -179,18 +188,22 @@ def judge_evidence(flow: Any, evidence: SimEvidence | None, fail_severity: str) 
     and no recorded event reached `fail_severity`. An end record that is missing, or that ends
     by a drained event queue, an error or a fatal error, fails. A failure is logged. Unless the
     run already has an error (a tool's exit status), it is also recorded as the `error` in
-    `results.json`, in the form of `problem`: the cause and what to do."""
+    `results.json`, in the form of `problem`: the cause and what to do.
 
-    def fail(message: str) -> bool:
+    A missing end record is a failure. A present record that shows a bad ending, or an event at
+    `fail_severity`, is a judgment of the results: the run is rejected (`Flow.reject`)."""
+
+    def fail(message: str, judged: bool = True) -> bool:
         log.error("%s", message[:1].upper() + message[1:])
-        record_failure(flow, message)
+        (record_rejection if judged else record_failure)(flow, message)
         return False
 
     if evidence is None:
         return fail(
             problem(
                 "the simulation left no end record, so Xeda cannot tell how it ended", LOG_ADVICE
-            )
+            ),
+            judged=False,
         )
     flow.results["sim.evidence"] = evidence.model_dump(mode="json")
     flow.results["sim.ended_by"] = evidence.ended_by
@@ -543,7 +556,12 @@ class SimFlow(Flow, metaclass=ABCMeta):
                 self.results, results_file=self.report_file(self.cocotb.results_xml)
             )
             if not passed:
-                record_failure(self, _cocotb_problem(self.results))
+                # Results that were read and did not pass are a judgment. A run that left no
+                # readable results has nothing to judge.
+                if self.results.get("cocotb.tests") is None:
+                    record_failure(self, _cocotb_problem(self.results))
+                else:
+                    record_rejection(self, _cocotb_problem(self.results))
             return passed
         assert isinstance(self.settings, self.Settings)
         passed = judge_evidence(self, self.simulation_evidence(), self.settings.fail_severity)
