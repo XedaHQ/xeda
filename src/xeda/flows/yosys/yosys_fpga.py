@@ -17,6 +17,7 @@ from ...flow import (
     describe_results,
 )
 from ...flows.ghdl import GhdlSynth
+from ...units import count
 from ...utils import ToolException, replacing_file
 from .common import (
     MINIMUM_YOSYS,
@@ -276,6 +277,7 @@ class YosysFpga(YosysSynthesisBase, FpgaSynthFlow):
             0,
             description="Infer hard multiplexer resources for muxes with at least this many "
             "inputs. 0 disables it. The minimum is 2, and 5 or more is recommended.",
+            json_schema_extra=count(),
         )
 
         @field_validator("widemux")

@@ -295,7 +295,10 @@ def test_the_delay_target_and_the_abc_flags_follow_the_constraints_on_abc_new(
     tmp_path, monkeypatch
 ):
     _, calls = _render(
-        tmp_path, monkeypatch, abc_flags=["-fast"], abc={"mapper": "abc_new", "delay_target": 1500}
+        tmp_path,
+        monkeypatch,
+        abc_flags=["-fast"],
+        abc={"mapper": "abc_new", "delay_target": "1500 ps"},
     )
     (abc_new,) = _words(calls, "abc_new")
     assert abc_new[abc_new.index("-constr") :] == [

@@ -1368,7 +1368,10 @@ settings of one stage, and its common settings are these:
     delay target. Common settings: ``abc.strategy``, ``abc.driver_cell`` and ``abc.load``. The
     mapping passes no ``-D`` option to ``abc`` unless ``abc.delay_target`` is set, as
     OpenROAD-flow-scripts does. Earlier releases passed the clock period whenever the flow had a
-    clock; ``abc.delay_target: auto`` does that again. ``abc.dress`` passes ``-dress`` to ``abc``.
+    clock; ``abc.delay_target: auto`` does that again. ``abc.delay_target`` and ``abc.max_slew``
+    are times and ``abc.load`` is a capacitance. Each needs a unit, such as ``500 ps`` or
+    ``3.9 fF``. ABC reads picoseconds and femtofarads, and Xeda converts. ``abc.max_slew`` is at
+    least 1 ps and a whole number of picoseconds. ``abc.dress`` passes ``-dress`` to ``abc``.
     It is off by default. It is experimental in ABC: with a Liberty library it maps to LUTs
     instead of library cells (YosysHQ/yosys#3644), and it fails when ``abc`` retimes
     (berkeley-abc/abc#445).
@@ -1514,7 +1517,7 @@ nested tables and dotted keys.
           - cells.lib
         abc:
           strategy: speed
-          load: 0.5
+          load: 0.5 fF
         arithmetic.adder_map: none
         finish.tie_undefined: none
         sequential:

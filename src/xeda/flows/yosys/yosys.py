@@ -210,7 +210,8 @@ class AsicValues:
     * `techmap_files`: the user's maps for `techmap -map`, each as `(position, path)`, in order.
       `techmaps(position)` gives the paths at one position.
     * `dff_liberty`: the Liberty file for `dfflibmap` instead of the Liberty files.
-    * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints.
+    * `driver_cell`, `load`: the `set_driving_cell` and `set_load` of the abc constraints. The
+      load is in femtofarads, the unit that ABC reads.
     * `tie_cells`, `buffer_cell`: the cells of `hilomap` and `insbuf`.
     * `abc_script`: the abc script, from `abc_script` or else from `abc.strategy`.
     * `abc_new_script`: the `-script` of `abc_new`, when `abc.mapper` is `abc_new`: `abc_script`,
@@ -761,7 +762,8 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         driver_cell = ss.abc.driver_cell
         if driver_cell is None and model:
             driver_cell = model.abc_driver_cell
-        load = ss.abc.load
+        # ABC reads every library in picoseconds and femtofarads, so `set_load` is in femtofarads.
+        load = None if ss.abc.load is None else ss.abc.load.to("fF")
         if load is None and model and model.abc_load_in_ff is not None:
             load = float(model.abc_load_in_ff)
         target = ss.abc.delay_target
@@ -771,7 +773,7 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
             if clock is not None:
                 delay_target_ps = clock.period.to("ps") * (1 - ss.abc.clock_derating)
         elif target is not None:
-            delay_target_ps = float(target)
+            delay_target_ps = target.to("ps")
         constraints = []
         if driver_cell:
             constraints.append(f"set_driving_cell {driver_cell}")
@@ -803,7 +805,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
                         buffering=ss.abc.buffering,
                         sizing=ss.abc.sizing,
                         max_fanout=ss.abc.max_fanout,
-                        max_slew=ss.abc.max_slew,
+                        max_slew=(
+                            None if ss.abc.max_slew is None else round(ss.abc.max_slew.to("ps"))
+                        ),
                         mfs3=ss.abc.mfs3,
                         area_mapper=ss.abc.area_mapper,
                         legacy_refactor=ss.abc.legacy_refactor,

@@ -279,7 +279,7 @@ def test_a_platform_alone_configures_everything_a_standard_cell_run_needs(tmp_pa
 def test_explicit_settings_win_over_what_the_platform_derives(tmp_path, monkeypatch):
     settings = _tiny(
         tmp_path,
-        abc={"strategy": "speed", "driver_cell": "INV_X1", "load": 2.5},
+        abc={"strategy": "speed", "driver_cell": "INV_X1", "load": "2.5 fF"},
         flatten=False,
         netlist_attrs=True,
     )
@@ -574,7 +574,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             f"pdk_root={tiny_store(tmp_path)}",
             "clock.period=2ns",
             "abc.driver_cell=INV_X1",
-            "abc.load=2.5",
+            "abc.load=2.5 fF",
             "black_box=mul8",
             "post_synth_opt=false",
         ],
@@ -587,7 +587,7 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     producer = root / "mac" / "yosys"
     settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
     assert settings["abc"]["driver_cell"] == "INV_X1"
-    assert settings["abc"]["load"] == 2.5
+    assert settings["abc"]["load"] == "2.5 fF"
     assert settings["black_box"] == ["mul8"]
     assert settings["post_synth_opt"] is False
     script = (producer / "yosys_synth.ys").read_text()
