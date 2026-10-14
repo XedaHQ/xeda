@@ -749,6 +749,7 @@ OPENROAD_COMMANDS: tuple[str, ...] = (
     "set_global_routing_layer_adjustment",
     "set_routing_layers",
     "set_dont_touch",
+    "unset_dont_touch",
     "set_opt_config",
     "set_global_sizing_config",
     "repair_tie_fanout",

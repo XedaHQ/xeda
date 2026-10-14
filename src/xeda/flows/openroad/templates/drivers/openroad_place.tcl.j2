@@ -1,0 +1,15 @@
+{# The driver of openroad_place: it reads the netlist and the constraints, then runs the stages.
+   Each stage is a procedure of its template. A stage that fails leaves the database of that
+   moment in the failed database, and the error ends the process. #}
+{% set restart = "netlist" %}
+{% include "restart.tcl.j2" %}
+{% include "procs.tcl.j2" %}
+{% include "stages/floorplan.tcl.j2" %}
+{% include "stages/tapcell.tcl.j2" %}
+{% include "stages/pdn.tcl.j2" %}
+if {[catch { xeda_floorplan; xeda_tapcell; xeda_pdn } message options]} {
+    catch { write_db {{ failed_odb|tcl_word }} }
+    return -options $options $message
+}
+write_db {{ outputs.odb|tcl_word }}
+write_sdc -no_timestamp {{ outputs.sdc|tcl_word }}

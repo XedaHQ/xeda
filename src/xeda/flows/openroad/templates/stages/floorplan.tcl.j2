@@ -1,0 +1,74 @@
+{# The floorplan: the size of the die, the tracks, the routing layers, the tie cells and the cleanup
+   of the netlist. The routing layers and the capacity of each layer stay in the database, so no
+   later flow sets them again. #}
+{% set dsn = settings.design %}
+{% set fp = settings.floorplan %}
+{% set repair = settings.floorplan.netlist_cleanup.repair %}
+{% set footprint = P.match_cell_footprint if repair.match_cell_footprint is none else repair.match_cell_footprint %}
+proc xeda_floorplan {} {
+    xeda_stage synth
+{% if dsn.eliminate_dead_logic %}
+    eliminate_dead_logic
+{% endif %}
+    report_design_area
+    report_design_area_metrics
+    xeda_stage floorplan
+    check_setup
+{% if fp.sizing == "utilization" %}
+    # The utilization is that of the netlist as it is now. The repairs below and the tap cells add
+    # area, so the utilization after the placement is higher than this value.
+    initialize_floorplan -utilization {{ fp.core_utilization|tcl_number }} -aspect_ratio {{ fp.aspect_ratio|tcl_number }} -core_space {{ fp.core_margin|tcl_number }} -site {{ P.site|tcl_word }}
+{% elif fp.sizing == "area" %}
+    initialize_floorplan -die_area {{ fp.die_area|tcl_numbers }} -core_area {{ fp.core_area|tcl_numbers }} -site {{ P.site|tcl_word }}
+{% else %}
+    read_def -floorplan_initialize {{ floorplan_def|tcl_word }}
+{% endif %}
+{% if P.tracks %}
+{# The tracks are platform data. A platform may give one grid to several layers, which a bare
+   `make_tracks` does not make. #}
+{% for layer, track in P.tracks.items() %}
+{% set words = ["make_tracks", layer|tcl_word] %}
+{% if track.x %}
+{% set _ = words.extend(["-x_offset", track.x[0]|tcl_number, "-x_pitch", track.x[1]|tcl_number]) %}
+{% endif %}
+{% if track.y %}
+{% set _ = words.extend(["-y_offset", track.y[0]|tcl_number, "-y_pitch", track.y[1]|tcl_number]) %}
+{% endif %}
+    {{ words|join(" ") }}
+{% endfor %}
+{% else %}
+    make_tracks
+{% endif %}
+{% for layers, adjustment in P.layer_adjustments.items() %}
+    set_global_routing_layer_adjustment {{ layers|tcl_word }} {{ adjustment|tcl_number }}
+{% endfor %}
+{% if P.clock_layers is not none %}
+    set_routing_layers -clock {{ P.clock_layers|tcl_word }}
+{% endif %}
+{% if P.signal_layers is not none %}
+    set_routing_layers -signal {{ P.signal_layers|tcl_word }}
+{% endif %}
+{% for name in dsn.dont_touch %}
+    set_dont_touch {{ name|tcl_word }}
+{% endfor %}
+{% if settings.tie.repair_fanout %}
+    # The tie cells come from the synthesis: the flow never inserts them. Each load gets its own
+    # copy of the tie cell. The repair comes before any removal of buffers, since one tie cell
+    # can drive buffers that drive many loads.
+    repair_tie_fanout {{ render_flags(settings.tie) }} [xeda_tie_pin {{ P.tie_low.cell|tcl_word }} {{ P.tie_low.port|tcl_word }}]
+    repair_tie_fanout {{ render_flags(settings.tie) }} [xeda_tie_pin {{ P.tie_high.cell|tcl_word }} {{ P.tie_high.port|tcl_word }}]
+{% endif %}
+{% if settings.arith_swap.enabled %}
+    replace_arith_modules
+{% endif %}
+{# The planning refuses `mode: repair_timing` with the repair switched off, so `enabled` is true here. #}
+{% if fp.netlist_cleanup.mode == "repair_timing" and repair.enabled %}
+    # The repair runs before the placement, with no parasitics: the wires cost nothing. Do not add
+    # `estimate_parasitics` here, since that changes what the repair decides.
+    repair_timing {{ [fix_flags[repair.fix], "-setup_margin " ~ (repair.setup_margin|lib_time), "-hold_margin " ~ (repair.hold_margin|lib_time), render_flags(repair, comma_word), render_flags(repair.moves), "-match_cell_footprint" if footprint else "", "-verbose"]|select|join(" ") }}
+{% elif fp.netlist_cleanup.mode == "remove_buffers" %}
+    remove_buffers
+{% endif %}
+    report_units_metric
+    xeda_metrics 0 0
+}

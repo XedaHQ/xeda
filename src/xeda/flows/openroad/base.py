@@ -27,7 +27,9 @@ from ...flow.flow import FlowSettingsException
 from ...flow.settings_group import render_flags
 from ...platforms.model import PlatformModel, WireRc
 from ...tool import Tool
+from ...units import convert_unit
 from ...utils import tcl_word, unique
+from .groups import FIX_FLAGS, comma_word
 from .metrics import MetricsError, load_metrics
 
 __all__ = [
@@ -36,7 +38,10 @@ __all__ = [
     "effective_base",
     "base_values",
     "merge_wire_rc",
+    "platform_time_unit",
     "tcl_number",
+    "tcl_numbers",
+    "to_lib_time",
 ]
 
 log = logging.getLogger(__name__)
@@ -52,6 +57,37 @@ def tcl_number(value: Any) -> str:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise TypeError(f"expected a finite number for a Tcl script, got {value!r}")
     return repr(value)
+
+
+def tcl_numbers(values: Any) -> str:
+    """Return the numbers `values` as one Tcl list word: `[list 0.0 1.5]`. Each item goes through
+    `tcl_number`, so text is never written as a number."""
+    return "[list " + " ".join(tcl_number(value) for value in values) + "]"
+
+
+def platform_time_unit(model: PlatformModel) -> str:
+    """Return the time unit of the Liberty files of the platform, written as `1ns`. A platform
+    that names none has the default of the format."""
+    return model.time_unit or "1ns"
+
+
+def to_lib_time(nanoseconds: Any, unit: str) -> str:
+    """Return a time given in nanoseconds as a Tcl number of the time `unit` of the Liberty files
+    (`1ns`, `1ps`, `10ps`). A setting for a time is in nanoseconds on every platform, and a command
+    of OpenROAD takes the unit of the Liberty files.
+
+    The result has nine decimals at most, so the noise of the conversion does not show: `0.25 ns`
+    is `250.0` in `1ps`."""
+    if (
+        isinstance(nanoseconds, bool)
+        or not isinstance(nanoseconds, (int, float))
+        or not math.isfinite(nanoseconds)
+    ):
+        raise TypeError(
+            f"expected a finite number of nanoseconds for a Tcl script, got {nanoseconds!r}"
+        )
+    converted = convert_unit(nanoseconds, to_unit=unit, from_unit="nanosecond")
+    return tcl_number(round(converted, 9))
 
 
 def merge_wire_rc(platform: WireRc, given: Optional[WireRc]) -> WireRc:
@@ -105,8 +141,7 @@ def base_values(settings: "OpenroadStage.Settings", model: PlatformModel) -> Dic
         cell_lefs=tuple(model.files.get("cell_lef", [])),
         wire_rc=merge_wire_rc(model.wire_rc, settings.wire_rc),
         dont_use=tuple(unique([*model.dont_use_cells, *settings.dont_use_cells])),
-        # a Liberty file that gives no unit has the default of the format
-        time_unit=model.time_unit or "1ns",
+        time_unit=platform_time_unit(model),
     )
 
 
@@ -221,19 +256,33 @@ class OpenroadStage(AsicPlatformFlow, Flow):
 
     def add_template_helpers(self) -> None:
         """Add the helpers that the templates of every OpenROAD flow use: `render_flags` (it
-        quotes for Tcl), `tcl_number`, `reports` and `failed_odb`. `init()` calls it. Code that
-        renders a template without `init()`, such as a test, can call it."""
+        quotes for Tcl, and its second argument is the `list_word` for a list flag, such as
+        `comma_word`), `comma_word`, `fix_flags`, the filters `tcl_number`, `tcl_numbers` and `lib_time`,
+        `reports` and `failed_odb`. `init()` calls it. Code that renders a template without
+        `init()`, such as a test, can call it."""
         self.add_template_filter("tcl_number", tcl_number, replace_existing=True)
+        self.add_template_filter("tcl_numbers", tcl_numbers, replace_existing=True)
+        self.add_template_filter("lib_time", self._lib_time, replace_existing=True)
         # one line for each command in a script, with no blank lines from the control statements
         self.jinja_env.trim_blocks = True
         self.jinja_env.lstrip_blocks = True
         # the last line of an included file ends, so the next command starts on its own line
         self.jinja_env.keep_trailing_newline = True
         self.jinja_env.globals.update(
-            render_flags=lambda group: render_flags(group, tcl_word),
+            render_flags=lambda group, list_word=None: render_flags(group, tcl_word, list_word),
+            comma_word=comma_word,
+            fix_flags=FIX_FLAGS,
             reports=dict(self.reports),
             failed_odb=self.failed_odb,
         )
+
+    def _lib_time(self, nanoseconds: Any) -> str:
+        """The template filter `lib_time`: a time in nanoseconds as a number of the time unit of
+        the Liberty files of the platform (`to_lib_time`). It reads the platform model, so a
+        template can use it after `prepare_inputs()`."""
+        model = self.platform_model
+        assert model is not None, "prepare_inputs() builds the platform model"
+        return to_lib_time(nanoseconds, platform_time_unit(model))
 
     def bind_template_values(self) -> None:
         """Add the values that exist only after `prepare_inputs()`: `P` (the values of the

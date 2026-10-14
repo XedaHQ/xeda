@@ -1,0 +1,36 @@
+{# The power grid. The pitch of the stripes must fit the die: a platform pitch for a large block
+   leaves a small block without power, so `pdn.grid` can replace it. The flow never calls
+   `check_power_grid`: it fails on a design without pads. #}
+{% set dsn = settings.design %}
+proc xeda_pdn {} {
+    xeda_stage pdn
+{% if settings.pdn.mode == "generated" %}
+{% if dsn.dont_touch %}
+    # A global connection skips an instance that is marked do not touch, and the instance would
+    # stay without power. The floorplan marked the instances, so unmark them here, connect, and
+    # mark them again.
+{% for name in dsn.dont_touch %}
+    unset_dont_touch {{ name|tcl_word }}
+{% endfor %}
+{% endif %}
+{% for connection in P.pdn.global_connects %}
+    add_global_connection -net {{ connection.net|tcl_word }}{{ " -inst_pattern " ~ (connection.inst_pattern|tcl_word) if connection.inst_pattern != ".*" else "" }} -pin_pattern {{ connection.pin_pattern|tcl_word }} {{ "-power" if connection.kind == "power" else "-ground" }}
+{% endfor %}
+    global_connect
+{% for name in dsn.dont_touch %}
+    set_dont_touch {{ name|tcl_word }}
+{% endfor %}
+    set_voltage_domain -name CORE -power {{ P.pdn.power_net|tcl_word }} -ground {{ P.pdn.ground_net|tcl_word }}
+    define_pdn_grid -name grid -voltage_domains CORE{{ " -pins " ~ (P.pdn.pin_layers|tcl_list) if P.pdn.pin_layers else "" }}
+{% for rail in P.pdn.rails %}
+    add_pdn_stripe -grid grid -layer {{ rail.layer|tcl_word }} -width {{ rail.width|tcl_number }}{{ " -pitch " ~ (rail.pitch|tcl_number) if rail.pitch is not none else "" }}{{ " -offset " ~ (rail.offset|tcl_number) if rail.offset is not none else "" }} -followpins
+{% endfor %}
+{% for strap in P.pdn.straps %}
+    add_pdn_stripe -grid grid -layer {{ strap.layer|tcl_word }} -width {{ strap.width|tcl_number }} -pitch {{ strap.pitch|tcl_number }} -offset {{ strap.offset|tcl_number }}
+{% endfor %}
+{% for pair in P.pdn.connects %}
+    add_pdn_connect -grid grid -layers {{ pair|tcl_list }}
+{% endfor %}
+    pdngen
+{% endif %}
+}
