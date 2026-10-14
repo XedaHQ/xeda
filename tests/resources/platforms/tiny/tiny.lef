@@ -1,0 +1,550 @@
+# written for xeda's tests
+VERSION 5.8 ;
+BUSBITCHARS "[]" ;
+DIVIDERCHAR "/" ;
+
+MACRO INV_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.6 BY 1.4 ;
+  SITE tinysite ;
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A
+  PIN ZN
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END ZN
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END INV_X1
+
+MACRO INV_X4
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 1.2 BY 1.4 ;
+  SITE tinysite ;
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A
+  PIN ZN
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END ZN
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END INV_X4
+
+MACRO BUF_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.8 BY 1.4 ;
+  SITE tinysite ;
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A
+  PIN Z
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Z
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END BUF_X1
+
+MACRO NAND2_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.8 BY 1.4 ;
+  SITE tinysite ;
+  PIN A1
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A1
+  PIN A2
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A2
+  PIN ZN
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END ZN
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END NAND2_X1
+
+MACRO NAND2_X4
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 1.6 BY 1.4 ;
+  SITE tinysite ;
+  PIN A1
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A1
+  PIN A2
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A2
+  PIN ZN
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END ZN
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END NAND2_X4
+
+MACRO NOR2_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.8 BY 1.4 ;
+  SITE tinysite ;
+  PIN A1
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A1
+  PIN A2
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A2
+  PIN ZN
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END ZN
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END NOR2_X1
+
+MACRO DFF_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 2.4 BY 1.4 ;
+  SITE tinysite ;
+  PIN D
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END D
+  PIN CK
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END CK
+  PIN Q
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Q
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END DFF_X1
+
+MACRO TIEHI_BIG
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 1.2 BY 1.4 ;
+  SITE tinysite ;
+  PIN Z
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Z
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END TIEHI_BIG
+
+MACRO TIEHI_SMALL
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.8 BY 1.4 ;
+  SITE tinysite ;
+  PIN Z
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Z
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END TIEHI_SMALL
+
+MACRO TIELO_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.8 BY 1.4 ;
+  SITE tinysite ;
+  PIN Z
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Z
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END TIELO_X1
+
+MACRO ANTENNA_X1
+  CLASS CORE ANTENNACELL ;
+  ORIGIN 0 0 ;
+  SIZE 0.4 BY 1.4 ;
+  SITE tinysite ;
+  PIN I
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    ANTENNADIFFAREA 0.25 ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END I
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END ANTENNA_X1
+
+MACRO FILL_X1
+  CLASS CORE SPACER ;
+  ORIGIN 0 0 ;
+  SIZE 0.2 BY 1.4 ;
+  SITE tinysite ;
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END FILL_X1
+
+MACRO TALL_X1
+  CLASS CORE ;
+  ORIGIN 0 0 ;
+  SIZE 0.4 BY 2.8 ;
+  SITE bigsite ;
+  PIN A
+    DIRECTION INPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END A
+  PIN Z
+    DIRECTION OUTPUT ;
+    USE SIGNAL ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END Z
+  PIN VDD
+    DIRECTION INOUT ;
+    USE POWER ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VDD
+  PIN VSS
+    DIRECTION INOUT ;
+    USE GROUND ;
+    PORT
+      LAYER m1 ;
+        RECT 0.02 0.02 0.08 0.08 ;
+    END
+  END VSS
+  OBS
+    LAYER m1 ;
+      RECT 0 0.5 0.1 0.6 ;
+  END
+END TALL_X1
+
+END LIBRARY
