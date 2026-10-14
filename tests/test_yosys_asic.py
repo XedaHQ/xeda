@@ -35,6 +35,7 @@ from xeda.flows import yosys as yosys_flows
 from xeda.utils import WorkingDirectory
 from xeda.tool import ExecutableNotFound
 
+from .flow_registry import preserved_flow_registry
 from .tiny_platform import TINY, TINY_RESIDUE, tiny_settings, tiny_store
 from .tool_utils import require_yosys
 
@@ -542,7 +543,10 @@ def test_a_second_launch_of_yosys_is_fresh(tmp_path):
 
 def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     """`xeda run yosys` with its settings on the command line: the script and the abc constraints
-    follow them, and the netlist is written where the flow says."""
+    follow them (each differs from what the platform gives), and the netlist is written where the
+    flow says. The `speed` target is not set here: on the `tiny` library its abc script fails
+    together with a black box or without post-synthesis optimization (an abc assertion),
+    though `test_the_yosys_flow_synthesizes_with_the_selected_script` runs it alone."""
     require_yosys()
     _design(tmp_path)
     (tmp_path / "design.yaml").write_text(
@@ -564,7 +568,6 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
             f"platform_file={TINY_RESIDUE}",
             f"pdk_root={tiny_store(tmp_path)}",
             "clock.period=2.0",
-            "optimize=area",
             "abc_driver_cell=INV_X1",
             "abc_load_in_ff=2.5",
             "black_box=mul8",
@@ -578,7 +581,6 @@ def test_the_cli_hands_the_synthesis_settings_to_real_yosys(tmp_path):
     assert proc.returncode == 0 and document["success"], proc.stderr[-3000:] or document
     producer = root / "mac" / "yosys"
     settings = json.loads((producer / "settings.json").read_text())["effective_flow_settings"]
-    assert settings["optimize"] == "area"
     assert settings["abc_driver_cell"] == "INV_X1"
     assert settings["abc_load_in_ff"] == 2.5
     assert settings["black_box"] == ["mul8"]
@@ -617,9 +619,11 @@ def test_init_registers_the_abc_script_file_and_no_other_prepared_input(tmp_path
     include other files (the files of a platform) must not hand one of them to `init()` as the
     ABC script."""
 
-    class _WithOtherInputs(Yosys):
-        def locate_prepared_inputs(self):
-            return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
+    with preserved_flow_registry():
+
+        class _WithOtherInputs(Yosys):
+            def locate_prepared_inputs(self):
+                return [*(super().locate_prepared_inputs() or []), tmp_path / "other.lib"]
 
     flow, script = _flow_with_script_file(tmp_path, _WithOtherInputs)
     with WorkingDirectory(tmp_path / "run"):

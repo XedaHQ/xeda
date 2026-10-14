@@ -796,7 +796,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
     from xeda.flow_runner.default_runner import DefaultRunner
     from xeda.flow_runner.trace import as_recorded
 
-    from .test_isolation import DESIGNS, EXTRA_SETTINGS, SQRT_DESIGN, UNPLANNABLE
+    from .test_isolation import DESIGNS, SQRT_DESIGN, UNPLANNABLE, sweep_settings
 
     world, outcomes = _leaf_flow_launch(flow_class, tmp_path, monkeypatch)
     asked = [(plan, error) for cls, plan, error in outcomes if cls is flow_class]
@@ -817,7 +817,7 @@ def test_every_flow_is_launched_as_a_plan_and_a_flow_without_inputs_is_one_node(
         tb=tb,
         language={"vhdl": {"standard": "2008"}},
     )
-    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    settings = sweep_settings(flow_class, world)
     again = DefaultRunner(world.root).plan(flow_class, design, flow_settings=settings)
     assert again.node(flow_class.name).flowrun_hash == node.flowrun_hash
     assert node.run_path == world.root / "sqrt" / flow_class.name

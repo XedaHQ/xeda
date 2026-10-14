@@ -53,6 +53,7 @@ from .test_isolation import (
     PLAIN_TB_DESIGN,
     SQRT_DESIGN,
     _world,
+    sweep_settings,
 )
 from .tool_utils import use_fake_fpga_tools, use_fake_tools
 
@@ -169,7 +170,7 @@ def _launch(flow_class, world, mp, settings: dict, launcher: dict):
 def check_flow(flow_class, tmp_path: Path, variants: Optional[list] = None) -> List[str]:
     """Launch `flow_class` as `variants` say, and say what it left behind in the process."""
     world = _world(tmp_path)
-    base = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    base = sweep_settings(flow_class, world)
     if variants is None:
         variants = [
             ("its own settings", base, {}),

@@ -459,20 +459,6 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
         if model is not None and liberty_from_platform:
             ss.liberty = list(model.files.get("liberty", []))
         self._derive_from_platform()
-        located = self.platform_located
-        if model is not None and located is not None:
-            self.results["platform"] = {
-                "name": model.name,
-                "provider": located.provider,
-                "version": located.version,
-                "corner": model.corner,
-                "sources": dict(model.sources),
-            }
-
-        ss.liberty = [self.normalize_path_to_design_root(lib) for lib in ss.liberty]
-        if ss.dff_liberty:
-            ss.dff_liberty = self.normalize_path_to_design_root(ss.dff_liberty)
-
         # List a timing report only when `sta` writes one, as `yosys_fpga` does. A remote run is
         # asked for every listed artifact and cannot send one that was never written.
         timing_report = ss.reports_dir / "timing.rpt"
@@ -540,6 +526,9 @@ class Yosys(AsicPlatformFlow, YosysSynthesisBase, SynthFlow):
 
     def parse_reports(self) -> bool:
         assert isinstance(self.settings, self.Settings)
+        platform = self.platform_result()
+        if platform is not None:
+            self.results["platform"] = platform
         if not self.artifacts.utilization_report:
             return True
         utilization = self.get_utilization()

@@ -226,6 +226,16 @@ def _world(parent: Path) -> World:
     )
 
 
+def sweep_settings(flow_class, world: World) -> dict:
+    """The settings the sweeps launch `flow_class` with in `world`: the least it needs, what makes
+    it reach what it writes, and for a flow that maps to a platform, the platform whose files the
+    world holds."""
+    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
+    if "platform" in settings:
+        settings.update(tiny_settings(world.pdk_store), platform="tiny")
+    return settings
+
+
 def _state(root: Path, exclude: Sequence[Path]) -> dict:
     """Every entry under `root`, as it is -- type, mode, content or link text, and a file's
     modification time (a tool that only touches a file changes it; a directory's changes with
@@ -432,9 +442,7 @@ def _launch(flow_class, world: World, monkeypatch, scenario: str, reached: list)
         tb=tb,
         language={"vhdl": {"standard": "2008"}},
     )
-    settings = {**minimal_settings(flow_class), **EXTRA_SETTINGS.get(flow_class.name, {})}
-    if "platform" in settings:  # the platform whose files the world holds
-        settings.update(tiny_settings(world.pdk_store), platform="tiny")
+    settings = sweep_settings(flow_class, world)
     launcher: dict = {"display_results": False}
     if scenario == "clean":
         launcher["clean"] = True

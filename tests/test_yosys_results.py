@@ -17,6 +17,8 @@ from xeda import Design
 from xeda.flows import Yosys
 from xeda.introspect import results_info
 
+from .tiny_platform import tiny_settings, tiny_store
+
 TESTS_DIR = Path(__file__).parent.absolute()
 RESOURCES_DIR = TESTS_DIR / "resources"
 
@@ -30,8 +32,12 @@ def parsed_flow(tmp_path: Path) -> Yosys:
     report.parent.mkdir(parents=True)
     shutil.copy(STAT_REPORT, report)
     design = Design.from_file(RESOURCES_DIR / "design0" / "design0.toml")
-    flow = Yosys(Yosys.Settings(clock={"period": 10.0}), design, tmp_path)
+    settings = Yosys.Settings.from_input(
+        tiny_settings(tiny_store(tmp_path, "pdks"), clock={"period": 10.0})
+    )
+    flow = Yosys(settings, design, tmp_path)
     flow.init()
+    flow.prepare_inputs()
     # `get_utilization` opens the artifact path as given, so make it absolute rather than
     # depending on the process working directory.
     flow.artifacts.utilization_report = str(report.resolve())

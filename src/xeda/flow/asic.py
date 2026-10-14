@@ -13,7 +13,7 @@ and write nothing, so planning and `--dry-run` can use them.
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, List, Literal, Mapping, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Literal, Mapping, Optional
 
 from ..dataclass import LOCATOR, Field, field_validator
 from ..utils import unique
@@ -341,6 +341,23 @@ class AsicPlatformFlow(_FlowBase):
         self.platform_located, self.platform_model = located, model
         self.implicit_inputs.extend(settings.platform_files(roles, located))
         return model
+
+    def platform_result(self) -> Optional[Dict[str, Any]]:
+        """Return the platform part of the results, or `None` before `prepare_platform` ran.
+
+        It names the platform, the provider and the version of its PDK files, and the corner.
+        `sources` says which layer of the model gave each value: `derived`, `upstream`,
+        `residue` or `user`."""
+        model, located = self.platform_model, self.platform_located
+        if model is None or located is None:
+            return None
+        return {
+            "name": model.name,
+            "provider": located.provider,
+            "version": located.version,
+            "corner": model.corner,
+            "sources": model.model_dump(include={"sources"})["sources"],
+        }
 
     def dont_use_cells(self) -> List[str]:
         """Return the cells the flow must not use: those of the platform model, then those of
